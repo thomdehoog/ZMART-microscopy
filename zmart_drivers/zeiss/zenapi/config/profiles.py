@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..utils import CALL_TIMEOUT, CONFIRM_POLL_S
+from .timing import CALL_TIMEOUT, CONFIRM_POLL_S
 
 # NOTE: the confirm_* functions are imported LOWER DOWN (just before the profile
 # instances), not here. Importing them triggers ``readers`` -> ``api_reader`` ->

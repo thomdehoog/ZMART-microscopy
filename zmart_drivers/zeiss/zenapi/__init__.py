@@ -64,14 +64,14 @@ from .config.profiles import (
 from .connection.client import ZenClient
 from .connection.session import close, connect
 
-# --- motion ---
-from .motion.limits import (
+# --- stage limits (the rulebook; enforced only in commands/) ---
+from .commands.routines import correct_backlash
+from .limits.checks import (
     apply_stage_limits_from_config,
     get_stage_limits,
     set_stage_limits,
 )
-from .motion.movement import correct_backlash, move_xy_with_backlash
-from .motion.stage_config import load as load_stage_config
+from .limits.stage_config import load as load_stage_config
 
 # --- state readers ---
 from .readers import (
@@ -105,11 +105,10 @@ __all__ = [
     "run_snap",
     "run_experiment",
     "Experiment",
-    # motion
+    # stage limits + backlash
     "set_stage_limits",
     "get_stage_limits",
     "apply_stage_limits_from_config",
-    "move_xy_with_backlash",
     "correct_backlash",
     "load_stage_config",
     # acquisition

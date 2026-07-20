@@ -1,7 +1,10 @@
-# Test/CI dependencies for the Navigator Expert driver offline suite.
+# CI install list for the Navigator Expert offline suite -- NOT an environment.
 #
-# One source of truth for what the suite needs, installed both by CI
-# (.github/workflows/navigator-expert.yml) and locally:
+# Humans build ONE environment: the repo-root conda env (environment.yml via
+# build_env.py), with the repo-root requirements*.txt as the documented pip
+# fallback. This file exists only so GitHub CI (.github/workflows/
+# navigator-expert.yml and target-acquisition.yml) can install the offline
+# suite's traced dependencies lean and headless:
 #     python -m pip install -r requirements-dev.txt
 #     python run_ci.py
 #
