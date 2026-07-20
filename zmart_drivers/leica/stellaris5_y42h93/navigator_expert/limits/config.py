@@ -177,6 +177,15 @@ def validate_payload(payload: Any, *, path: Path = Path("limits.json")) -> dict[
     return normalized
 
 
+def validate_limits(limits: Any) -> dict[str, Any]:
+    """Validate notebook limits and print only the four safety ranges."""
+    normalized = validate_payload(limits)
+    print("Limits are valid:")
+    for axis in ("x_um", "y_um", "z_galvo_um", "z_wide_um"):
+        print(f"  {axis}: {normalized[axis]['range']}")
+    return normalized
+
+
 def build_limits_payload(stage_um: dict[str, Any]) -> dict[str, Any]:
     """Build the exact flat document written by the limits notebook."""
     stage = _validate_limits(stage_um, path=Path("limits.json"))
@@ -280,14 +289,14 @@ def adopt_limits(
         with TemporaryDirectory(prefix="zmart_limits_data_") as temp_dir:
             data_dir = Path(temp_dir) / "data"
             for notebook in notebook_paths:
-                notebook_dir = data_dir / "notebook"
-                notebook_dir.mkdir(parents=True, exist_ok=True)
-                destination = notebook_dir / f"{notebook.stem}_{stamp}{notebook.suffix}"
-                if destination.exists():
-                    raise FileExistsError(
-                        f"duplicate timestamped notebook archive name: {destination.name}"
-                    )
-                shutil.copy2(notebook, destination)
+                from ..notebook_support import archive_notebook
+
+                destination = archive_notebook(
+                    notebook,
+                    temp_dir,
+                    filename=f"{notebook.stem}_{stamp}{notebook.suffix}",
+                    directory="notebook",
+                )
                 archived_notebook_relpaths.append(destination.relative_to(Path(temp_dir)))
             for template in template_paths:
                 template_dir = data_dir / "template"
@@ -295,11 +304,12 @@ def adopt_limits(
                 destination = template_dir / f"limits_{stamp}{template.suffix.lower()}"
                 shutil.copy2(template, destination)
                 archived_template_relpaths.append(destination.relative_to(Path(temp_dir)))
-            snapshot = machine.publish_snapshot(
-                moment,
-                limits=payload,
-                archive_paths=[data_dir],
-            )
+            archive_dirs = [
+                directory
+                for directory in (Path(temp_dir) / "data", Path(temp_dir) / "notebook")
+                if directory.is_dir()
+            ]
+            snapshot = machine.publish_snapshot(moment, limits=payload, archive_paths=archive_dirs)
     else:
         snapshot = machine.publish_snapshot(moment, limits=payload)
 

@@ -8,9 +8,9 @@ both axis signs, the quarter-turn, and whether the acquisition is mirrored.
 Under the hood this registers each pair of pictures to get the shift, builds a
 small 2x2 matrix from the two shifts, and matches it to the nearest lossless D4
 mapping (four quarter-turns, each mirrored or not). Each notebook run owns one
-``orientation/<datetime>/`` directory. A successful fit writes its final
-``orientation.json`` there directly; incomplete runs are retained as evidence
-but are ignored by the driver.
+``orientation/<datetime>/`` directory. Measurement and validation replace
+their own outputs when rerun. Only Save and Adopt writes ``orientation.json``;
+until then the visible session is retained as evidence but ignored by the driver.
 
 The three pictures are taken **without** applying any correction, so re-running the
 measurement always looks at the real microscope rather than an image that has
@@ -24,8 +24,8 @@ License: MIT
 
 from __future__ import annotations
 
-import json
 import math
+import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -46,13 +46,14 @@ from ..calibration.core.common import (
     move_xy_and_verify,
     now_iso,
     read_job_geometry,
+    read_selected_job_name,
     write_json_atomic,
 )
+from ..notebook_support import archive_notebook as archive_operator_notebook
 from . import (
     SCHEMA_VERSION,
     Orientation,
     orientation_config,
-    orientation_from_config,
     orientation_from_image_to_stage,
     reorient_array,
 )
@@ -70,9 +71,11 @@ class OrientationSession:
     paths: SessionPaths
     job_name: str
     client: Any
-    reference_objective: str
     stage_move_um: float
     settle_s: float = 1.0
+    machine: Any = None
+    target_dir: Path | None = None
+    adopted: bool = False
     image_size_px: tuple[int, int] | None = None
     pixel_size_um: float | None = None
     home_xy: tuple[float, float] | None = None
@@ -93,11 +96,13 @@ class OrientationSession:
     started_at_s: float | None = None
 
 
+_NOTEBOOK_SESSION: OrientationSession | None = None
+
+
 def start_session(
     *,
-    job_name: str,
-    reference_objective: str,
-    stage_move_um: float = 30.0,
+    job_name: str | None = None,
+    stage_move_um: float = 40.0,
     settle_s: float = 1.0,
     machine: Any = None,
     moment: datetime | None = None,
@@ -109,12 +114,12 @@ def start_session(
         from ..config.machine import MACHINE
 
         machine = MACHINE
-    if moment is None:
-        moment = datetime.now(timezone.utc)
+    moment = moment or datetime.now(timezone.utc)
+    target_dir = machine.new_snapshot_dir(moment, "orientation")
 
-    # The run directory is final from the moment the notebook starts. There
-    # is no temporary session and no later adoption step.
-    run_dir = machine.new_snapshot_dir(moment, "orientation")
+    # The timestamp directory is the session from the start. It becomes active
+    # only when Save and Adopt writes orientation.json into it.
+    run_dir = target_dir
     paths = SessionPaths(
         session_root=run_dir,
         session_dir=run_dir,
@@ -135,24 +140,40 @@ def start_session(
     hw = drv.get_hardware_info(client, mode="api")
     if hw is None:
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")
-
+    if job_name is None:
+        job_name = read_selected_job_name(client)
+        print(f"Using active Navigator Expert job: {job_name}")
     return OrientationSession(
-        session_id=run_dir.name,
+        session_id=target_dir.name,
         paths=paths,
         job_name=job_name,
         client=client,
-        reference_objective=reference_objective,
         stage_move_um=float(stage_move_um),
         settle_s=float(settle_s),
+        machine=machine,
+        target_dir=target_dir,
         started_at_s=time.time(),
     )
 
 
 def _invalidate_orientation_config(session: OrientationSession) -> None:
-    out = session.paths.session_dir / ORIENTATION_NAME
-    if out.exists():
-        out.unlink()
     session.config_written = False
+
+
+def _reset_measurement_outputs(session: OrientationSession) -> None:
+    """Clear only this session's owned outputs before a measurement rerun."""
+    session_dir = Path(session.paths.session_dir)
+    directories = (
+        Path(session.paths.data_dir),
+        Path(session.paths.reports_dir),
+        session_dir / "validation",
+    )
+    for directory in directories:
+        if directory.parent != session_dir:
+            raise RuntimeError(f"refusing to clear data outside orientation session: {directory}")
+        if directory.exists():
+            shutil.rmtree(directory)
+        directory.mkdir()
 
 
 def _acquire_raw_and_validate(
@@ -241,47 +262,8 @@ def _candidate_alignment_overlay(
     return reorient_array(overlay, orientation)
 
 
-def _mapping_label(orientation: Orientation) -> str:
-    mapping = orientation.axis_mapping
-    return f"{mapping['stage_x_from_image']} {mapping['stage_y_from_image']}"
-
-
-def _correction_label(orientation: Orientation) -> str:
-    steps = []
-    if orientation.mirrored:
-        steps.append("flip left-right")
-    if orientation.rotate_deg:
-        steps.append(f"rotate {orientation.rotate_deg} deg CW")
-    return ", then ".join(steps) if steps else "no correction"
-
-
-def _sign_label(value: int) -> str:
-    return "+" if value > 0 else "-"
-
-
 def _reflection_label(orientation: Orientation) -> str:
-    return {
-        None: "none",
-        "vertical": "vertical axis (left-right flip)",
-        "horizontal": "horizontal axis (top-bottom flip)",
-        "main_diagonal": "main diagonal (\\)",
-        "anti_diagonal": "anti-diagonal (/)",
-    }[orientation.reflection_axis]
-
-
-def _reflection_tag(orientation: Orientation) -> str:
-    """Short glance-label naming the net reflection axis (or a pure rotation).
-
-    Leads with the physical axis so the panel is not read as "left-right only":
-    a mirror is a handedness flip whose axis is one of four.
-    """
-    return {
-        None: "no flip",
-        "vertical": "left-right flip",
-        "horizontal": "top-bottom flip",
-        "main_diagonal": "diagonal flip (\\)",
-        "anti_diagonal": "diagonal flip (/)",
-    }[orientation.reflection_axis]
+    return "Reflection" if orientation.mirrored else "No reflection"
 
 
 def write_orientation_diagnostic(
@@ -299,115 +281,159 @@ def write_orientation_diagnostic(
     # (and the whole measurement) down with it.
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
-    from matplotlib.patches import Rectangle
+    from matplotlib.patches import FancyBboxPatch, Patch
 
     candidate = orientation_from_image_to_stage(canonical)
     accepted = session.orientation is not None
     selected_color = "#087F5B" if accepted else "#C56A00"
-    selected_word = "DETECTED" if accepted else "NEAREST CANDIDATE - REJECTED"
 
-    fig = Figure(figsize=(16, 12.25), facecolor="white")
+    fig = Figure(figsize=(14, 9.4), facecolor="#F4F6F7")
     FigureCanvasAgg(fig)
     grid = fig.add_gridspec(
         3,
         1,
-        height_ratios=(1.0, 0.10, 1.85),
-        left=0.045,
-        right=0.975,
-        bottom=0.055,
-        top=0.93,
-        hspace=0.18,
+        height_ratios=(0.58, 0.14, 2.0),
+        left=0.035,
+        right=0.985,
+        bottom=0.07,
+        top=0.97,
+        hspace=0.12,
     )
-    summary_grid = grid[0].subgridspec(1, 12, wspace=0.30)
-    gallery_grid = grid[2].subgridspec(2, 4, hspace=0.62, wspace=0.34)
+    gallery_grid = grid[2].subgridspec(
+        2,
+        5,
+        width_ratios=(0.18, 1, 1, 1, 1),
+        hspace=0.16,
+        wspace=0.10,
+    )
 
-    evidence_ax = fig.add_subplot(summary_grid[0, 4:12])
-    evidence_ax.set_axis_off()
-    evidence_ax.add_patch(
-        Rectangle(
+    summary_ax = fig.add_subplot(grid[0])
+    summary_ax.set_axis_off()
+    summary_ax.add_patch(
+        FancyBboxPatch(
             (0, 0),
             1,
             1,
-            transform=evidence_ax.transAxes,
-            facecolor="#F2F8F5" if accepted else "#FFF7E8",
-            edgecolor=selected_color,
-            linewidth=2,
+            boxstyle="round,pad=0.012,rounding_size=0.025",
+            transform=summary_ax.transAxes,
+            facecolor="white",
+            edgecolor="#DDE2E5",
+            linewidth=1.2,
             clip_on=False,
         )
     )
-    candidate_signs = candidate.axis_signs
-    evidence_ax.text(
-        0.045,
-        0.90,
-        f"CHOSEN ORIENTATION - {selected_word}",
-        transform=evidence_ax.transAxes,
+    candidate_mapping = candidate.axis_mapping
+    summary_ax.text(
+        0.025,
+        0.84,
+        "DETECTED IMAGE CORRECTION" if accepted else "ORIENTATION NOT ACCEPTED",
+        transform=summary_ax.transAxes,
         ha="left",
-        va="top",
-        fontsize=14,
+        va="center",
+        fontsize=11.5,
         fontweight="bold",
         color=selected_color,
     )
-    evidence_ax.plot(
-        [0.5, 0.5],
-        [0.10, 0.76],
-        transform=evidence_ax.transAxes,
-        color="#C8D8D1" if accepted else "#E1CDA6",
-        linewidth=1.2,
-    )
-    evidence_ax.text(
-        0.045,
-        0.73,
-        f"CORRECTION\n"
-        f"Rotation: {candidate.rotate_deg} deg clockwise\n"
-        f"Reflection: {_reflection_label(candidate)}\n"
-        f"Handedness flipped: {'Yes' if candidate.mirrored else 'No'}\n"
-        f"Apply: {_correction_label(candidate)}\n\n"
-        f"DERIVED MAPPING\n"
-        f"Image to stage: {_mapping_label(candidate)}\n"
-        f"Axis signs: X {_sign_label(candidate_signs['stage_x'])}, "
-        f"Y {_sign_label(candidate_signs['stage_y'])}",
-        transform=evidence_ax.transAxes,
+    summary_ax.text(
+        0.025,
+        0.57,
+        "ROTATION",
+        transform=summary_ax.transAxes,
         ha="left",
-        va="top",
-        fontsize=11.5,
-        linespacing=1.35,
-        color="#25302C",
-    )
-    evidence_ax.text(
-        0.545,
-        0.73,
-        f"MEASUREMENT EVIDENCE\n"
-        f"Stage +X: ({vote_x['dx_um']:+.2f}, {vote_x['dy_um']:+.2f}) um\n"
-        f"Stage +Y: ({vote_y['dx_um']:+.2f}, {vote_y['dy_um']:+.2f}) um\n"
-        f"D4 residual: {session.residual_from_d4:.4f}\n"
-        f"Acceptance limit: {D4_RESIDUAL_MAX}\n\n"
-        f"VISUAL CHECK\n"
-        f"White shows magenta/green alignment.\n"
-        f"The chosen option should have the\n"
-        f"strongest overlap.",
-        transform=evidence_ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize=11.5,
-        linespacing=1.35,
-        color="#25302C",
-    )
-
-    gallery_heading = fig.add_subplot(grid[1])
-    gallery_heading.set_axis_off()
-    gallery_heading.text(
-        0.5,
-        0.5,
-        "All eight candidates | magenta = home | green = aligned +X/+Y frames | "
-        "white = overlap | chosen option highlighted",
-        ha="center",
         va="center",
-        fontsize=10.5,
+        fontsize=9.5,
         fontweight="bold",
-        color="#30363D",
+        color="#7A858C",
+    )
+    summary_ax.text(
+        0.025,
+        0.28,
+        f"{candidate.rotate_deg}° clockwise",
+        transform=summary_ax.transAxes,
+        ha="left",
+        va="center",
+        fontsize=20,
+        fontweight="bold",
+        color="#172126",
+    )
+    summary_ax.text(
+        0.30,
+        0.57,
+        "REFLECTION",
+        transform=summary_ax.transAxes,
+        ha="left",
+        va="center",
+        fontsize=9.5,
+        fontweight="bold",
+        color="#7A858C",
+    )
+    summary_ax.text(
+        0.30,
+        0.28,
+        "Yes" if candidate.mirrored else "No",
+        transform=summary_ax.transAxes,
+        ha="left",
+        va="center",
+        fontsize=20,
+        fontweight="bold",
+        color="#172126",
+    )
+    summary_ax.text(
+        0.52,
+        0.57,
+        "SIGN CONVENTION",
+        transform=summary_ax.transAxes,
+        ha="left",
+        va="center",
+        fontsize=9.5,
+        fontweight="bold",
+        color="#7A858C",
+    )
+    summary_ax.text(
+        0.52,
+        0.28,
+        f"Stage X  ←  image {candidate_mapping['stage_x_from_image']}     "
+        f"Stage Y  ←  image {candidate_mapping['stage_y_from_image']}",
+        transform=summary_ax.transAxes,
+        ha="left",
+        va="center",
+        fontsize=16,
+        fontweight="bold",
+        color="#172126",
     )
 
-    gallery_stride = max(1, int(np.ceil(max(session.images["home"].shape) / 384)))
+    legend_ax = fig.add_subplot(grid[1])
+    legend_ax.set_axis_off()
+    legend_ax.legend(
+        handles=(
+            Patch(facecolor="#FF00FF", edgecolor="none", label="Home image"),
+            Patch(
+                facecolor="#00C853",
+                edgecolor="none",
+                label="Moved images corrected by each candidate",
+            ),
+            Patch(facecolor="white", edgecolor="#9AA3A8", label="Agreement / overlap"),
+        ),
+        loc="center left",
+        bbox_to_anchor=(0.005, 0.5),
+        ncol=3,
+        frameon=False,
+        fontsize=10,
+        handlelength=1.2,
+        columnspacing=1.8,
+    )
+    legend_ax.text(
+        0.995,
+        0.5,
+        "The selected candidate has the strongest white overlap.",
+        transform=legend_ax.transAxes,
+        ha="right",
+        va="center",
+        fontsize=9.5,
+        color="#667179",
+    )
+
+    gallery_stride = max(1, int(np.ceil(max(session.images["home"].shape) / 256)))
     gallery_home = session.images["home"][::gallery_stride, ::gallery_stride]
     gallery_plus_x = session.images["plus_x"][::gallery_stride, ::gallery_stride]
     gallery_plus_y = session.images["plus_y"][::gallery_stride, ::gallery_stride]
@@ -418,10 +444,9 @@ def write_orientation_diagnostic(
         orientation: Orientation,
         *,
         selected: bool,
-        show_details: bool = True,
     ) -> None:
         border_color = selected_color if selected else "#A8ADB3"
-        border_width = 5.0 if selected else 1.2
+        border_width = 4.0 if selected else 0.9
         overlay = _candidate_alignment_overlay(
             gallery_home,
             gallery_plus_x,
@@ -436,63 +461,76 @@ def write_orientation_diagnostic(
         for spine in ax.spines.values():
             spine.set_color(border_color)
             spine.set_linewidth(border_width)
-        reflection_tag = _reflection_tag(orientation)
-        signs = orientation.axis_signs
-        title = f"Rotation {orientation.rotate_deg} deg | {reflection_tag}"
-        if not show_details:
-            word = "Detected" if accepted else "Nearest (rejected)"
-            title = f"{word}: {orientation.rotate_deg} deg CW | {reflection_tag}"
-        ax.set_title(
-            title,
-            color=selected_color if selected else "#252A30",
-            fontweight="bold" if selected else "normal",
-            fontsize=11 if selected else 10,
-            pad=5,
-        )
-        if show_details:
-            ax.set_xlabel(
-                f"Map {_mapping_label(orientation)} | "
-                f"X{_sign_label(signs['stage_x'])} / Y{_sign_label(signs['stage_y'])}\n"
-                f"Net reflection: {_reflection_label(orientation)}\n"
-                f"Apply: {_correction_label(orientation)}",
-                color=selected_color if selected else "#4A5057",
-                fontweight="bold" if selected else "normal",
-                fontsize=9.5 if selected else 9,
-                labelpad=6,
-            )
         if selected:
             ax.text(
                 0.5,
-                0.98,
-                "DETECTED - BEST OVERLAP" if accepted else "NEAREST - REJECTED",
+                0.965,
+                "SELECTED" if accepted else "NEAREST - REJECTED",
                 transform=ax.transAxes,
                 ha="center",
                 va="top",
                 color="white",
-                fontsize=9,
+                fontsize=8.5,
                 fontweight="bold",
-                bbox={"facecolor": selected_color, "edgecolor": "none", "pad": 4},
+                bbox={"facecolor": selected_color, "edgecolor": "none", "pad": 3.5},
             )
 
-    winner_ax = fig.add_subplot(summary_grid[0, 0:4])
-    _draw_candidate(winner_ax, candidate, selected=True, show_details=False)
+    for row, label in enumerate(("NO\nREFLECTION", "REFLECTION")):
+        label_ax = fig.add_subplot(gallery_grid[row, 0])
+        label_ax.set_axis_off()
+        label_ax.text(
+            0.52,
+            0.5,
+            label,
+            transform=label_ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=9.5,
+            linespacing=1.25,
+            fontweight="bold",
+            color="#667179",
+        )
 
-    gallery_slots = tuple((row, column) for row in range(2) for column in range(4))
+    gallery_slots = tuple((row, column + 1) for row in range(2) for column in range(4))
     for orientation, (row, column) in zip(_gallery_orientations(), gallery_slots, strict=True):
+        ax = fig.add_subplot(gallery_grid[row, column])
+        if row == 0:
+            ax.set_title(
+                f"{orientation.rotate_deg}°",
+                fontsize=11,
+                fontweight="bold",
+                color="#354047",
+                pad=7,
+            )
         _draw_candidate(
-            fig.add_subplot(gallery_grid[row, column]),
+            ax,
             orientation,
             selected=orientation == candidate,
         )
 
-    fig.suptitle(
-        f"Orientation measurement | {session.reference_objective} | "
-        f"stage step {session.stage_move_um:g} um",
-        fontsize=14,
+    fig.text(
+        0.5,
+        0.025,
+        "Eight lossless possibilities: four rotations × reflection absent or present.",
+        ha="center",
+        va="center",
+        fontsize=9.5,
+        color="#667179",
     )
     output = session.paths.reports_dir / DIAGNOSTIC_NAME
-    fig.savefig(output, dpi=160)
+    fig.savefig(output, dpi=105, pil_kwargs={"compress_level": 9, "optimize": True})
     return output
+
+
+def show_measurement_result(session: OrientationSession) -> None:
+    """Display the compact eight-option result without notebook-side plotting."""
+    from IPython.display import Image, Markdown, display
+
+    diagnostic = session.paths.reports_dir / DIAGNOSTIC_NAME
+    if diagnostic.is_file():
+        display(Image(filename=str(diagnostic), width=1350))
+        return
+    display(Markdown(f"**Orientation not accepted:** {session.failure_reason}"))
 
 
 def _session_duration_s(session) -> float | None:
@@ -517,14 +555,16 @@ def _finite_registration(vote: dict) -> dict:
 
 
 def measure(session: OrientationSession) -> OrientationSession:
-    """Acquire raw home/+X/+Y and write the accepted orientation directly.
+    """Acquire raw home/+X/+Y and derive the candidate orientation.
 
-    Sets ``session.orientation`` + ``session.residual_from_d4`` and writes the
-    final ``orientation.json`` only when both votes are trusted and the D4
-    residual is within ``D4_RESIDUAL_MAX``. All eight lossless D4 transforms are
-    valid, including a mirror introduced by an acquisition setting. Otherwise
-    records ``session.failure_reason`` and leaves no active config.
+    Sets ``session.orientation`` + ``session.residual_from_d4`` only when both
+    votes are trusted and the D4 residual is within ``D4_RESIDUAL_MAX``. All
+    eight lossless D4 transforms are valid. Save and Adopt writes the active
+    config later, after validation.
     """
+    if session.adopted:
+        raise RuntimeError("this orientation session is already adopted")
+    _reset_measurement_outputs(session)
     session.images.clear()
     session.raw_files.clear()
     session.exported_files.clear()
@@ -540,11 +580,9 @@ def measure(session: OrientationSession) -> OrientationSession:
     session.pixel_size_um = None
     session.home_xy = None
 
-    # Unlink stale config and per-step TIFFs BEFORE any driver call so a
-    # mid-measure failure cannot leave this run looking valid.
+    # Invalidate state BEFORE any driver call so a mid-measure failure cannot
+    # leave this session looking valid.
     _invalidate_orientation_config(session)
-    for name in _PER_STEP_IMAGES:
-        (session.paths.data_dir / f"{name}.tif").unlink(missing_ok=True)
 
     xy = drv.get_xy(session.client, mode="api") or {}
     if "x_um" not in xy or "y_um" not in xy:
@@ -607,7 +645,7 @@ def measure(session: OrientationSession) -> OrientationSession:
                 "schema_version": REPORT_SCHEMA_VERSION,
                 "kind": "orientation_report",
                 "created_at": now_iso(),
-                "reference_objective": session.reference_objective,
+                "job_name": session.job_name,
                 "stage_move_um": float(session.stage_move_um),
                 "accepted": False,
                 "failure_reason": session.failure_reason,
@@ -672,7 +710,7 @@ def measure(session: OrientationSession) -> OrientationSession:
             "schema_version": REPORT_SCHEMA_VERSION,
             "kind": "orientation_report",
             "created_at": now_iso(),
-            "reference_objective": session.reference_objective,
+            "job_name": session.job_name,
             "stage_move_um": float(session.stage_move_um),
             "d4_label": session.d4_label,
             "residual_from_d4": session.residual_from_d4,
@@ -709,10 +747,19 @@ def measure(session: OrientationSession) -> OrientationSession:
     if not session.d4_accepted:
         return session
 
-    out = session.paths.session_dir / ORIENTATION_NAME
-    write_json_atomic(out, orientation_config(session.orientation, measured=True))
-    session.config_written = True
     return session
+
+
+def run_notebook_measurement() -> OrientationSession:
+    """Measure in one reusable notebook session without creating rerun litter."""
+    global _NOTEBOOK_SESSION
+
+    if _NOTEBOOK_SESSION is None:
+        _NOTEBOOK_SESSION = start_session()
+    if _NOTEBOOK_SESSION.adopted:
+        raise RuntimeError("this notebook session is adopted; restart the kernel for a new run")
+    _NOTEBOOK_SESSION = measure(_NOTEBOOK_SESSION)
+    return _NOTEBOOK_SESSION
 
 
 def acquire_validation_image(
@@ -723,19 +770,16 @@ def acquire_validation_image(
     The returned pixels come from the saved OME-TIFF, so displaying them checks
     the same rotation and reflection that later acquisitions will receive.
     """
-    if session.orientation is None:
+    if session.orientation is None or not session.d4_accepted:
         raise RuntimeError("Measure the orientation successfully before running validation.")
 
-    orientation_path = session.paths.session_dir / ORIENTATION_NAME
-    if not orientation_path.is_file():
-        raise RuntimeError("This run has no valid orientation.json; validation is unavailable.")
-    saved_orientation = orientation_from_config(
-        json.loads(orientation_path.read_text(encoding="utf-8"))
-    )
-    if saved_orientation != session.orientation:
-        raise RuntimeError("This run's orientation.json does not match the measured orientation.")
-
     output_root = session.paths.session_dir / "validation"
+    if output_root.parent != session.paths.session_dir:
+        raise RuntimeError(f"refusing to clear data outside orientation session: {output_root}")
+    if output_root.exists():
+        shutil.rmtree(output_root)
+    output_root.mkdir()
+
     acquisition = drv.acquire(session.client, session.job_name)
     saved = drv.save(
         session.client,
@@ -746,7 +790,7 @@ def acquire_validation_image(
             hash6=run_hash(),
             position_label="validation",
         ),
-        orientation=saved_orientation,
+        orientation=session.orientation,
     )
     if len(saved.image_paths) != 1:
         raise ValueError(f"Validation expected one saved image; got {len(saved.image_paths)}.")
@@ -760,11 +804,68 @@ def acquire_validation_image(
     return image, image_path
 
 
-def archive_notebook(session: OrientationSession, notebook_path: str | Path) -> Path:
-    """Copy the saved operator notebook into this run's final directory."""
-    import shutil
+def validate(session: OrientationSession) -> Path:
+    """Acquire validation data and show a compact JPEG preview in the notebook."""
+    from IPython.display import Image, Markdown, display
+    from PIL import Image as PillowImage
 
-    source = Path(notebook_path)
-    destination = session.paths.session_dir / "set_orientation.ipynb"
-    shutil.copy2(source, destination)
-    return destination
+    image, image_path = acquire_validation_image(session)
+    preview_path = image_path.parent / "orientation_validation_preview.jpg"
+    preview = PillowImage.fromarray(
+        np.rint(_normalise_for_display(image) * 255).astype(np.uint8),
+        mode="L",
+    )
+    preview.thumbnail((720, 720), PillowImage.Resampling.LANCZOS)
+    preview.save(preview_path, quality=78, optimize=True)
+    display(Image(filename=str(preview_path), width=640))
+    display(Markdown(f"Validation image: `{image_path}`"))
+    return image_path
+
+
+def archive_notebook(session: OrientationSession, notebook_path: str | Path) -> Path:
+    """Archive the completed notebook under this run's ``data/notebook``."""
+    return archive_operator_notebook(notebook_path, session.paths.session_dir)
+
+
+def adopt_orientation(session: OrientationSession, notebook_path: str | Path) -> dict[str, str]:
+    """Activate a validated orientation by writing its config last."""
+    if session.orientation is None or not session.d4_accepted:
+        raise RuntimeError("measure and accept the orientation before adoption")
+    if not any((session.paths.session_dir / "validation").rglob("*.tif*")):
+        raise RuntimeError("run orientation validation before adoption")
+    if session.machine is None or session.target_dir is None:
+        raise RuntimeError("orientation session has no machine adoption target")
+
+    target = Path(session.target_dir)
+    session_dir = Path(session.paths.session_dir)
+    if session_dir != target:
+        raise RuntimeError(f"unexpected orientation session directory: {session_dir}")
+
+    if session.adopted:
+        archived = archive_operator_notebook(notebook_path, session_dir)
+        return {
+            "snapshot": str(target),
+            "orientation_path": str(target / ORIENTATION_NAME),
+            "notebook_path": str(archived),
+        }
+
+    latest = session.machine.latest_snapshot("orientation")
+    if latest is not None and latest != target and target.name <= latest.name:
+        raise RuntimeError(
+            f"cannot adopt {target.name}: a newer orientation {latest.name} is already active"
+        )
+
+    # Archive the executed notebook first. orientation.json is the sole
+    # activation signal and is deliberately the final atomic write.
+    archived = archive_operator_notebook(notebook_path, session_dir)
+    write_json_atomic(
+        session_dir / ORIENTATION_NAME,
+        orientation_config(session.orientation, measured=True),
+    )
+    session.config_written = True
+    session.adopted = True
+    return {
+        "snapshot": str(target),
+        "orientation_path": str(target / ORIENTATION_NAME),
+        "notebook_path": str(archived),
+    }

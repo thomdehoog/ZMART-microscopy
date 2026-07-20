@@ -141,11 +141,13 @@ def test_flat_layout_migrates_copy_only_into_all_subsystems(tmp_path):
     assert old_origin.exists()
     assert (migrated["limits"] / "limits.json").exists()
     assert not (migrated["limits"] / ".limits-machine").exists()
-    assert (migrated["limits"] / "set_limits.ipynb").exists()
-    assert not (migrated["limits"] / "set_orientation.ipynb").exists()
+    assert (migrated["limits"] / "notebook" / "set_limits.ipynb").exists()
+    assert not (migrated["limits"] / "data" / "notebook" / "set_orientation.ipynb").exists()
     assert (migrated["calibration"] / "calibrations" / "water" / "calibration.json").exists()
-    assert (migrated["calibration"] / "calibrate_objective_pair.ipynb").exists()
-    assert (migrated["orientation"] / "set_orientation.ipynb").exists()
+    assert (
+        migrated["calibration"] / "data" / "notebook" / "calibrate_objective_pair.ipynb"
+    ).exists()
+    assert (migrated["orientation"] / "data" / "notebook" / "set_orientation.ipynb").exists()
     assert profile.read_origin()["origin"] == {"x_um": 5}
     assert profile.migrate_flat_snapshots() == {}
 
@@ -244,7 +246,7 @@ def test_publish_archives_notebook_with_owning_subsystem(tmp_path):
         limits={"marker": "limits"},
         notebook_paths=[notebook],
     )
-    assert (snapshot / notebook.name).read_text() == '{"cells": []}'
+    assert (snapshot / "notebook" / notebook.name).read_text() == '{"cells": []}'
 
 
 def test_publish_archives_evidence_directory_inside_atomic_snapshot(tmp_path):

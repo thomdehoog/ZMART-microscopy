@@ -91,12 +91,11 @@ def test_adopt_limits_archives_the_saved_notebook_with_the_snapshot_timestamp(tm
     )
 
     snapshot = m.latest_snapshot("limits")
-    archived = (
-        snapshot / "data" / "notebook" / f"set_limits_{format_snapshot_name(_ADOPT_MOMENT)}.ipynb"
-    )
+    archived = snapshot / "notebook" / f"set_limits_{format_snapshot_name(_ADOPT_MOMENT)}.ipynb"
     assert archived.read_text(encoding="utf-8") == '{"cells": [{"saved": true}]}'
     assert out["notebook_paths"] == [str(archived)]
     assert not (snapshot / notebook.name).exists()
+    assert not (snapshot / "data" / "notebook").exists()
     stamp = format_snapshot_name(_ADOPT_MOMENT)
     archived_templates = sorted((snapshot / "data" / "template").iterdir())
     assert [path.name for path in archived_templates] == [
@@ -107,6 +106,14 @@ def test_adopt_limits_archives_the_saved_notebook_with_the_snapshot_timestamp(tm
     assert out["template_paths"] == [
         str(snapshot / "data" / "template" / f"limits_{stamp}{path.suffix}") for path in templates
     ]
+
+
+def test_adopt_limits_writes_stage_ranges_before_optional_setters(tmp_path):
+    m = MachineProfile(programdata_root=tmp_path)
+    limits_config.adopt_limits(_ENV_B, machine=m, moment=_ADOPT_MOMENT)
+
+    payload = json.loads((m.latest_snapshot("limits") / "limits.json").read_text(encoding="utf-8"))
+    assert list(payload)[:4] == ["x_um", "y_um", "z_galvo_um", "z_wide_um"]
 
 
 def test_adopt_limits_refuses_a_notebook_without_its_template_trio(tmp_path):
@@ -282,16 +289,18 @@ def test_limits_notebook_publishes_the_exact_flat_template():
         (driver_root / "limits" / "defaults" / "limits.json").read_text(encoding="utf-8")
     )
     assert notebook_limits == bundled
-    assert "from navigator_expert.limits.config import adopt_limits" in source
-    assert "published = adopt_limits(" in source
-    assert "    LIMITS," in source
+    assert "from navigator_expert.limits.config import adopt_limits, validate_limits" in source
+    assert "lambda notebook: adopt_limits(" in source
+    assert "validated_limits," in source
     assert "import navigator_expert as drv" in source
     assert "drv.connect_microscope(load_calibration=False)" in source
     assert "captured_xy = capture_adaptive_xy_limits(client)" in source
     assert "remove_markers" not in source
     assert 'LIMITS.update(captured_xy["limits"])' in source
     assert 'template_paths=captured_xy["template_paths"]' in source
-    assert 'Path(published["snapshot"]) / "data" / "template"' in source
+    assert "validated_limits = validate_limits(LIMITS)" in source
+    assert source.index("validate_limits(LIMITS)") < source.index("save_and_adopt")
+    assert "# Save and Adopt" in source
     assert "plot_adaptive_xy_limits" not in source
     assert "zmart_controller" not in source
     assert "input(" not in source

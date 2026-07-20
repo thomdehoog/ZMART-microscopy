@@ -102,6 +102,20 @@ def _patch(
     monkeypatch.setattr(
         chk._model, "load_translations", lambda calibration_name=None: dict(translations)
     )
+    monkeypatch.setattr(
+        chk._model,
+        "load_calibration",
+        lambda path=None, **kwargs: {
+            "objectives": {
+                str(slot): {"translation_um": list(translation)}
+                for slot, translation in translations.items()
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "navigator_expert.calibration.core.adopt.compile_session_calibration",
+        lambda session: Path(session.paths.session_dir) / "calibration.json",
+    )
     monkeypatch.setattr(chk.drv, "connect_python_client", lambda *a, **k: object())
     monkeypatch.setattr(
         chk.drv, "connect_limits_handshake", lambda c, **k: SimpleNamespace(ok=True, error=None)

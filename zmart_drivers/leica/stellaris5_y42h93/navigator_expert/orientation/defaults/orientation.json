@@ -1,20 +1,10 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "measured": false,
-  "rotate_deg": 0,
-  "mirrored": false,
-  "reflection_axis": null,
-  "axis_signs": {
-    "stage_x": 1,
-    "stage_y": 1
-  },
-  "axis_mapping": {
+  "rotation_deg": 0,
+  "reflection": false,
+  "sign_convention": {
     "stage_x_from_image": "+X",
     "stage_y_from_image": "+Y"
-  },
-  "image_to_stage": [
-    [1, 0],
-    [0, 1]
-  ],
-  "_notes": "Placeholder, not this microscope's real value. The orientation notebook measures rotation, both axis signs, and whether the acquisition is mirrored, then publishes a complete machine-specific D4 mapping under ProgramData. Until it runs, measured=false leaves images unchanged."
+  }
 }
