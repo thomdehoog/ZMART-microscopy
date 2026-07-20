@@ -38,7 +38,7 @@ import threading
 from collections.abc import Callable, Iterator
 from typing import Any
 
-from ..utils import CALL_TIMEOUT
+from ..config.timing import CALL_TIMEOUT
 
 log = logging.getLogger(__name__)
 

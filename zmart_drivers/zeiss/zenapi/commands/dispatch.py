@@ -36,7 +36,7 @@ from __future__ import annotations
 import logging
 import time
 
-from ..utils import _make_log_entry, _make_timing
+from .envelope import _make_log_entry, _make_timing
 
 log = logging.getLogger(__name__)
 

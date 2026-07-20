@@ -19,10 +19,25 @@ from __future__ import annotations
 import logging
 
 from ..config.profiles import READERS
-from ..utils import _safe_float, m_to_um
+from ..config.units import m_to_um
 from .reading import Reading
 
 log = logging.getLogger(__name__)
+
+
+def _safe_float(val, default=None):
+    """Convert val to float. Returns default on failure or None input.
+
+    API responses are parsed defensively, so a field can arrive as a number,
+    a numeric string, or be missing; every reader funnels values through this
+    one forgiving conversion.
+    """
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
 
 
 def _attr(obj, *names, default=None):

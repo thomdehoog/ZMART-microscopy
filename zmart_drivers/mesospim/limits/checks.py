@@ -2,10 +2,11 @@
 Stage safety limits.
 ====================
 Hard safety limits for the five mesoSPIM axes (x, y, z, focus in micrometers;
-theta in degrees). Like the Leica/ZEN drivers, a module-level dict holds the
+theta in degrees). Like the Leica driver, a module-level dict holds the
 active limits; :func:`set_stage_limits` must configure them before any move, and
-:func:`check_move` raises immediately (Phase A of the command wrappers) when a
-target is out of range.
+:func:`check_move` raises immediately (Phase A of the command wrappers in
+:mod:`mesospim.commands.movement`) when a target is out of range. The checks
+are defined here in the rulebook; they fire only in the commands layer.
 
 The mutable module-level state is intentional: limits are set once at session
 start and shared across all command calls on the process.
@@ -24,7 +25,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..utils import AXES
+from ..config.axes import AXES
 
 # axis -> (min, max); None means "not configured".
 _stage_limits: dict[str, tuple[float, float] | None] = {axis: None for axis in AXES}
@@ -111,7 +112,7 @@ _SCHEMA_VERSION = 1
 
 def defaults_path() -> Path:
     """Path to the bundled default stage envelope (``limits/defaults/``)."""
-    return Path(__file__).resolve().parents[1] / "limits" / "defaults" / "stage_limits.json"
+    return Path(__file__).resolve().parent / "defaults" / "stage_limits.json"
 
 
 def load_stage_config(path: str | Path | None = None) -> dict[str, Any]:

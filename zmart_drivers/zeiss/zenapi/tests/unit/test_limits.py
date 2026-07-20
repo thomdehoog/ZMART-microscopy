@@ -2,7 +2,7 @@
 
 import pytest
 import zenapi as drv
-from zenapi.motion import limits
+from zenapi.limits import checks as limits
 
 
 def test_set_get_roundtrip():

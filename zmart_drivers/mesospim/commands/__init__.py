@@ -1,20 +1,12 @@
 """Command wrappers + the dispatch backbone.
 
-Instrument-state settings live here (:mod:`.commands`); stage movement lives in
-:mod:`mesospim.motion.movement` and is re-exported here so the historical
-``mesospim.commands.move_*`` surface keeps working.
+Everything that tells the instrument to do something lives here: stage
+movement (:mod:`.movement`), instrument-state settings (:mod:`.commands`),
+the shared result envelope (:mod:`.envelope`), and the fire/confirm backbone
+(:mod:`.dispatch`). The stage-limit rules live in :mod:`mesospim.limits`;
+this package is the only place they are enforced.
 """
 
-from ..motion.movement import (
-    move_absolute,
-    move_focus,
-    move_relative,
-    move_rotation,
-    move_xy,
-    move_z,
-    stop,
-    zero_axes,
-)
 from .commands import (
     set_etl,
     set_filter,
@@ -25,6 +17,16 @@ from .commands import (
     set_zoom,
 )
 from .dispatch import confirm_and_fire
+from .movement import (
+    move_absolute,
+    move_focus,
+    move_relative,
+    move_rotation,
+    move_xy,
+    move_z,
+    stop,
+    zero_axes,
+)
 
 __all__ = [
     "confirm_and_fire",

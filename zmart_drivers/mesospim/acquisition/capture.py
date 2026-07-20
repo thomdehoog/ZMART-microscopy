@@ -26,7 +26,7 @@ from pathlib import Path
 
 from ..config.profiles import ACQUISITION, HARDWARE
 from ..readers.readers import get_state
-from ..utils import _safe_float
+from ..readers.readers import _safe_float
 from .product import AcquisitionMetadata, AcquisitionResult, ChannelMetadata
 
 log = logging.getLogger(__name__)

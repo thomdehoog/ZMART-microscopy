@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from mesospim.motion import limits
+from mesospim.limits import checks as limits
 
 
 @pytest.fixture(autouse=True)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import mesospim
 import pytest
-from mesospim.motion import limits
+from mesospim.limits import checks as limits
 
 
 @pytest.fixture(autouse=True)
@@ -169,7 +169,7 @@ def test_repeated_same_label_acquire_does_not_overwrite(session):
 
 
 def test_acquire_stack_z_out_of_limits_raises(session):
-    from mesospim.motion import limits
+    from mesospim.limits import checks as limits
 
     limits.set_stage_limits(z=(0, 100))  # tight envelope for this test
     with pytest.raises(RuntimeError, match="stage limits"):
@@ -218,7 +218,7 @@ def test_bundled_function_limits_cover_every_mutating_op():
     from mesospim import mesospim_zmart_adapter as controller
     from mesospim.calibration import machine
 
-    from shared import limits as shared_limits
+    from mesospim.limits import function_limits as shared_limits
 
     path = machine._bundled_default(machine.FUNCTION_LIMITS_FILENAME)
     loaded = shared_limits.load(path, functions=controller._MUTATING_OPS)

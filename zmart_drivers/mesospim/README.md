@@ -176,7 +176,7 @@ import mesospim as drv
 Test/optional dependencies (the client itself needs none of these):
 
 ```bash
-pip install -r zmart_drivers/mesospim/requirements-dev.txt   # pytest, numpy, tifffile; PyQt5 optional (validator)
+pip install -r requirements-dev.txt   # repo-root dev list (covers pytest, numpy, tifffile); PyQt5 optional (validator)
 ```
 
 **Start Remote Scripting on the mesoSPIM PC:**
@@ -204,7 +204,7 @@ the acquisition PC, the server is off by default and started by an operator. See
 - **Stage limits (required before any move)** — limits fail **closed**: an axis with no configured limit is
   *rejected*, so a forgotten setup can never let an unbounded move reach a mounted sample. Configure once per
   session with `set_stage_limits(...)` or `apply_stage_limits_from_config(load_stage_config(...))`, in
-  micrometers (degrees for `theta`). The check code is [`motion/limits.py`](motion/limits.py) and the bundled
+  micrometers (degrees for `theta`). The check code is [`limits/checks.py`](limits/checks.py) and the bundled
   envelope is [`limits/defaults/stage_limits.json`](limits/defaults/stage_limits.json) (schema-versioned).
   **The `zmart_controller` path loads these automatically in `connect`.**
 - **Machine-local config (ProgramData wins, bundled defaults fall back)** — the controller path resolves each
@@ -419,10 +419,11 @@ zmart_drivers/mesospim/
 ├── connection/     client.py  blocking, line-oriented TCP client (lock-guarded, single in-flight)
 │                   session.py connect() / close()
 ├── commands/       dispatch.py  confirm_and_fire backbone (fire + transient retry → confirm + optional re-fire)
+│                   movement.py  move_*/stop/zero_axes wrappers (three-phase: validate+limits → backbone → envelope)
 │                   commands.py  set_*/set_state wrappers (instrument-state settings)
-├── motion/         movement.py  move_*/stop/zero_axes wrappers (three-phase: validate+limits → backbone → envelope)
-│                   limits.py    fail-closed 5-axis µm/deg envelope check
-├── limits/         defaults/    bundled stage_limits.json + function_limits.json (ship with the driver)
+│                   envelope.py  the shared result-envelope builders (leaf)
+├── limits/         checks.py    fail-closed 5-axis µm/deg envelope check (enforced only in commands/)
+│                   defaults/    bundled stage_limits.json + function_limits.json (ship with the driver)
 ├── calibration/    machine.py   ProgramData resolution of the stage envelope, function limits, persisted origin
 ├── readers/        readers.py   get_* reads + the Reading freshness gate
 ├── config/         profiles.py  CONNECTION/HARDWARE/ACQUISITION + CommandProfile instances (MOVE/MOVE_ROTATION/SET_STATE)
@@ -453,8 +454,8 @@ generic **Remote Scripting** feature *in mesoSPIM* (the upstream patch under [`p
 the driver reaches it over a socket. Nothing ZMART-specific runs inside the mesoSPIM process — the injected
 scripts are just text the MIT client sends (see [§10](#10-licensing--how-this-stays-mit)).
 
-**Dependency direction:** `utils` (stdlib) → `protocol` → `connection.scripts` → `connection.client` →
-`commands.dispatch` → `config.profiles`/`motion.limits` → `motion.movement`/`commands.commands`; `calibration`
+**Dependency direction:** `config.axes`/`commands.envelope` (stdlib leaves) → `protocol` → `connection.scripts` → `connection.client` →
+`commands.dispatch` → `config.profiles`/`limits.checks` → `commands.movement`/`commands.commands`; `calibration`
 (machine config), `readers`, `acquisition`, and `controller` sit above. No circular imports.
 
 ## 8. Configuration & tuning (profiles)
@@ -484,7 +485,7 @@ deadline, 600 s), and `HARDWARE` (the offline device model / validation referenc
 One self-contained gate ([`run_ci.py`](run_ci.py) — env header + lint + tests + reports), three modes:
 
 ```bash
-pip install -r zmart_drivers/mesospim/requirements-dev.txt        # first run only (pytest, numpy, tifffile)
+pip install -r requirements-dev.txt        # first run only; repo-root dev list (covers pytest, numpy, tifffile)
 
 python zmart_drivers/mesospim/run_ci.py            # OFFLINE (default, portable): mock-server suite + coverage
 python zmart_drivers/mesospim/run_ci.py online     # ONLINE:  live round-trip vs a running mesoSPIM -D demo
@@ -557,7 +558,7 @@ These **silently misbehave** instead of failing loudly — respect them or resul
 ## 12. Extending the driver
 
 - **New command** — add an injected-script template in `connection/scripts.py` (a body that reads `_a` and
-  sets `_result`), a wrapper in `motion/movement.py` (moves) or `commands/commands.py` (state) — three phases:
+  sets `_result`), a wrapper in `commands/movement.py` (moves) or `commands/commands.py` (state) — three phases:
   validate + limit-check → `confirm_and_fire(...)` with the profile + a `fire_fn` and target-bound `confirm_fn`
   → return the envelope — a `CommandProfile` in `config/profiles.py` if the defaults don't fit, and the export
   in `__init__.py`. The
