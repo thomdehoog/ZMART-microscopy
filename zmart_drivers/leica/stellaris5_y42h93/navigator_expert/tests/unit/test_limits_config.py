@@ -92,10 +92,7 @@ def test_adopt_limits_archives_the_saved_notebook_with_the_snapshot_timestamp(tm
 
     snapshot = m.latest_snapshot("limits")
     archived = (
-        snapshot
-        / "data"
-        / "notebook"
-        / f"set_limits_{format_snapshot_name(_ADOPT_MOMENT)}.ipynb"
+        snapshot / "data" / "notebook" / f"set_limits_{format_snapshot_name(_ADOPT_MOMENT)}.ipynb"
     )
     assert archived.read_text(encoding="utf-8") == '{"cells": [{"saved": true}]}'
     assert out["notebook_paths"] == [str(archived)]

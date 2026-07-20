@@ -119,6 +119,7 @@ def wait_all_stable(files, *, timeout=60, poll_interval=0.5, stable_readings=3):
 # file lives.
 # ---------------------------------------------------------------------------
 
+
 def _is_file_locked(path):
     """Return True if *path* is locked by another process (Windows).
 

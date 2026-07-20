@@ -218,7 +218,9 @@ def phase_readonly(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None
             else:
                 v.skip("get_info: tile positions available", "no tiles in the live template")
             if not info.get("focus_positions"):
-                v.skip("get_info: focus positions available", "no focus points in the live template")
+                v.skip(
+                    "get_info: focus positions available", "no focus points in the live template"
+                )
 
 
 def _within(value: float, lo: float, hi: float) -> bool:

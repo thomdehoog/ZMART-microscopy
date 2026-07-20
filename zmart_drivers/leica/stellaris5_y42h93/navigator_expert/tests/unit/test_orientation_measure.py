@@ -454,7 +454,10 @@ def test_successful_run_is_the_active_orientation_snapshot(monkeypatch, sessions
         "image_to_stage": [[0, -1], [1, 0]],
     }
     assert {path.name for path in session.paths.session_dir.iterdir()} == {
-        "data", "reports", "validation", "orientation.json"
+        "data",
+        "reports",
+        "validation",
+        "orientation.json",
     }
     assert not any(path.name.startswith(".") for path in session.paths.session_dir.iterdir())
     assert not (session.paths.session_dir / "configs").exists()

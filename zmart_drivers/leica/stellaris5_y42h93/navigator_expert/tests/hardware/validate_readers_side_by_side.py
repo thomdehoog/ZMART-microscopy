@@ -54,11 +54,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "helpers"))  # mock
 import navigator_expert as drv
 from _report import RunReport, attempts_of, confirmation_of, replay_envelope_logs
 from navigator_expert import readers
-from navigator_expert.commands.settings import make_changeable_copy
 from navigator_expert.config import profiles
 from navigator_expert.readers import capabilities
 from navigator_expert.readers import log_reader as L
-from navigator_expert.utils import parse_tile_geometry
+from navigator_expert.readers.parsing import make_changeable_copy, parse_tile_geometry
 
 API_HANG_MS = 1500.0  # an API read slower than this is treated as a dialog-hang
 

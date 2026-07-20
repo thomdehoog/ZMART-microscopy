@@ -99,7 +99,9 @@ def _patch(
         "z_moves": [],
     }
 
-    monkeypatch.setattr(chk._model, "load_translations", lambda calibration_name=None: dict(translations))
+    monkeypatch.setattr(
+        chk._model, "load_translations", lambda calibration_name=None: dict(translations)
+    )
     monkeypatch.setattr(chk.drv, "connect_python_client", lambda *a, **k: object())
     monkeypatch.setattr(
         chk.drv, "connect_limits_handshake", lambda c, **k: SimpleNamespace(ok=True, error=None)
@@ -119,7 +121,8 @@ def _patch(
         rig["z_moves"].append(z)
         return {"success": True, "confirmed": True}
 
-    job_settings = lambda c, job, **k: {"objective": {"slotIndex": rig["slot"], "name": f"obj-{rig['slot']}"}}  # noqa: E731
+    def job_settings(c, job, **k):
+        return {"objective": {"slotIndex": rig["slot"], "name": f"obj-{rig['slot']}"}}
 
     monkeypatch.setattr(chk.drv, "get_xy", get_xy)
     monkeypatch.setattr(cm.drv, "get_xy", get_xy)
@@ -137,9 +140,11 @@ def _patch(
         cm.drv, "acquire", lambda c, job, **k: SimpleNamespace(job=job, command_result={"ok": True})
     )
     seq = iter(frames)
-    monkeypatch.setattr(cm.drv, "save", lambda c, acq, output_root, naming, **k: _manifest(
-        output_root, naming, next(seq)
-    ))
+    monkeypatch.setattr(
+        cm.drv,
+        "save",
+        lambda c, acq, output_root, naming, **k: _manifest(output_root, naming, next(seq)),
+    )
     return rig
 
 

@@ -23,9 +23,7 @@ def _restore_mock_globals():
     """
     original_log_reader = profiles.LOG_READER
     original_state_readers = profiles.STATE_READERS
-    original_env = {
-        name: os.environ.get(name) for name in ("ZMART_MICROSCOPY_ROOT", "APPDATA")
-    }
+    original_env = {name: os.environ.get(name) for name in ("ZMART_MICROSCOPY_ROOT", "APPDATA")}
     try:
         yield
     finally:

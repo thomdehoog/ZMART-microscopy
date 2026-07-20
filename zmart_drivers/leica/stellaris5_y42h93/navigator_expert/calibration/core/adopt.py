@@ -158,13 +158,17 @@ def _trusted_reports(session: Any) -> list[tuple[Path, dict[str, Any]]]:
         if str(report.get("created_at") or "") > str(kept[1].get("created_at") or ""):
             log.info(
                 "calibration for slot %d: %s supersedes older measurement %s",
-                to_slot, path.parent.parent.name, kept[0].parent.parent.name,
+                to_slot,
+                path.parent.parent.name,
+                kept[0].parent.parent.name,
             )
             newest[to_slot] = (path, report)
         else:
             log.info(
                 "calibration for slot %d: keeping %s; %s is older and ignored",
-                to_slot, kept[0].parent.parent.name, path.parent.parent.name,
+                to_slot,
+                kept[0].parent.parent.name,
+                path.parent.parent.name,
             )
     return [newest[slot] for slot in sorted(newest)]
 

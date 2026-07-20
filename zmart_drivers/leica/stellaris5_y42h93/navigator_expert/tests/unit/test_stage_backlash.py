@@ -37,10 +37,14 @@ class TestCorrectBacklash:
         assert get_xy_calls[0]["mode"] == "api"
         # Three back-and-forth passes by default, every return leg
         # approaching (x, y) from -X -Y.
-        assert move_calls == [
-            (50.0, 150.0, "um", 20.0),
-            (100.0, 200.0, "um", 20.0),
-        ] * 3
+        assert (
+            move_calls
+            == [
+                (50.0, 150.0, "um", 20.0),
+                (100.0, 200.0, "um", 20.0),
+            ]
+            * 3
+        )
 
     def test_at_skips_the_position_read(self):
         """A caller that just commanded a confirmed move already knows where

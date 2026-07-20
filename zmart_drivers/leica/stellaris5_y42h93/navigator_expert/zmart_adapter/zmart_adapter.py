@@ -898,9 +898,7 @@ def acquire(
         # lossless manifest workflows need to distinguish channels from z/t.
         "images": [plane["path"] for plane in planes],
         "planes": planes,
-        "vendor_metadata": [
-            str(path) for path in getattr(saved, "vendor_metadata_paths", ())
-        ],
+        "vendor_metadata": [str(path) for path in getattr(saved, "vendor_metadata_paths", ())],
     }
 
 

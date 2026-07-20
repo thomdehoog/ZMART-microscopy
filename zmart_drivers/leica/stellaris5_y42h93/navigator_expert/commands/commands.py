@@ -668,9 +668,7 @@ def set_objective(
     # for clients the driver connected; a failed pre-read refuses the change
     # while nothing has happened yet.
     try:
-        before = _objective_shift.record_before_change(
-            client, job_name, compensate=compensate
-        )
+        before = _objective_shift.record_before_change(client, job_name, compensate=compensate)
     except Exception as exc:  # noqa: BLE001 -- fail closed before the change fires
         return {
             "success": False,
@@ -704,9 +702,7 @@ def set_objective(
     if before is not None and result.get("success"):
         result = _objective_shift.merge_into_result(
             result,
-            _objective_shift.compensate_after_change(
-                client, job_name, before, new_slot=slot
-            ),
+            _objective_shift.compensate_after_change(client, job_name, before, new_slot=slot),
         )
     return result
 
