@@ -281,12 +281,14 @@ value, independent of any reorganization.
 9. ~~`set_objective` invokes the limits gate **twice** per call.~~
    **Resolved** — one check, after the selector resolves to a physical
    slot; it covers the fail-closed state and the allow-list together.
-10. **OME handling overlaps itself** — *partly resolved*: tag-270 access
-    is now one public function (`ome.read_tiff_tag_270`) with the
-    generate/patch contract stated at the top of both modules, and the
-    "duplicate" `extract_embedded_ome_xml` turned out to be a one-line
-    delegate. Still open: z-stack parameters re-derived two ways in
-    `ome_canonical` (entangled with the readers↔commands cycle, §5.3.12).
+10. ~~**OME handling overlaps itself**~~ **Resolved**: tag-270 access is
+    one public function (`ome.read_tiff_tag_270`) with the generate/patch
+    contract stated at the top of both modules; the "duplicate"
+    `extract_embedded_ome_xml` turned out to be a one-line delegate; and
+    the z-stack section now has exactly one parser
+    (`readers.parsing.stack_from_settings`), used by both
+    `make_changeable_copy` and OME metadata generation — the raw-dict
+    fallback re-parse is gone.
 
 ### 5.3 Tangled layers and lying names
 
