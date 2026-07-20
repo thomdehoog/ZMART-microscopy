@@ -1494,7 +1494,7 @@ class TestDriverSetupReadiness(unittest.TestCase):
         )
 
         self.assertFalse(setup["ready"])
-        self.assertIn("machine-specific stage limits", setup["issues"][0])
+        self.assertIn("machine-specific limits", setup["issues"][0])
         self.assertIn("set_limits.ipynb", setup["issues"][0])
 
 

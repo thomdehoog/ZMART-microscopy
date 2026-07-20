@@ -15,7 +15,7 @@ acquisition settings mirror the camera image deliberately, so a measured mirror
 is recorded and corrected rather than treated as a broken rig. These transforms
 only rearrange pixels; they never resample or blur the image.
 
-This is a separate thing from pixel-size calibration and from the stage limits,
+This is a separate thing from pixel-size calibration and from the instrument limits,
 and it lives entirely inside the driver. Workflows never deal with it: the images
 they receive are already lined up with the stage.
 
