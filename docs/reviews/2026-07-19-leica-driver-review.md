@@ -293,9 +293,11 @@ value, independent of any reorganization.
 11. `config/profiles.py` imports confirmation callables from `commands/`,
     while `commands/` imports `config/profiles` back — config, conceptually
     a leaf, participates in an import cycle.
-12. `readers/derived.py` imports its job-settings parser from
-    `commands/settings.py` — a reader concern living in commands, closing
-    another cycle. Natural owner: `readers/`.
+12. ~~`readers/derived.py` imports its job-settings parser from
+    `commands/settings.py`.~~ **Resolved** — `make_changeable_copy` moved
+    to `readers/parsing.py`, its natural owner, and `commands/settings.py`
+    is deleted; the readers↔commands cycle and the `_safe_float` lazy shim
+    are gone.
 13. **`utils.py`'s docstring is false.** It claims "no domain knowledge …
     no knowledge of LAS X, microscopes, or API objects," while containing
     galvo physics (including the §4.0 constants), a LAS X encoding-repair

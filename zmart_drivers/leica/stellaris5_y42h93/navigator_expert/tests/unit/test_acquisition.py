@@ -292,7 +292,7 @@ class TestCanonicalPhysicalMetadataAuthority:
                 return_value=settings,
             ),
             patch.object(
-                ome_canonical._core_settings,
+                ome_canonical._parsing,
                 "make_changeable_copy",
                 return_value={"stack": {"begin": 95.0, "end": None, "sections": None}},
             ),

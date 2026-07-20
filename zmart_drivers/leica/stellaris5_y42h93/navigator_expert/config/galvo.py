@@ -1,6 +1,14 @@
-"""Galvo pan physics for this scope.
+"""Galvo pan physics for this scope — the XY SCAN galvos.
 
-How far a galvo "pan" value moves the sample, as a function of the
+Two different pieces of hardware are called "galvo" in this driver, and
+this module concerns only the first: the **scan galvos**, the
+beam-steering mirrors whose "pan" tilts the scan field sideways within
+the objective's field of view (per axis, X and Y). The **z-galvo** is a
+different device entirely — the fast focus drive (``z_galvo_um``,
+``move_z(z_mode="galvo")``) — and has nothing to do with the constants
+below.
+
+How far a scan-galvo "pan" value moves the sample, as a function of the
 objective's base field of view. Used by ``commands.move_galvo_to_pixel``.
 """
 

@@ -399,7 +399,7 @@ The backbone is deliberately *dumb*: it owns pipeline order, retry ceilings, and
 nothing about zoom/objectives/stages. Commands supply small zero-arg callables (extra params pre-bound
 with `functools.partial`).
 
-**Dependency direction:** leaf modules (`commands.envelope`, `config.timing`, `config.galvo`, `readers.parsing` — stdlib only) → `commands.errors/settings/prechecks/confirmations` →
+**Dependency direction:** leaf modules (`commands.envelope`, `config.timing`, `config.galvo`, `readers.parsing` — stdlib only) → `commands.errors/prechecks/confirmations` →
 `commands.dispatch` → `config.profiles` → `commands.commands`; `readers.*`, `limits.checks`, `scanfields.*`,
 `acquisition.*` sit above the CAM readback. No circular imports. One deliberate exception:
 `connection/session.py` is the connect-time composition point — `connect_microscope` reaches into

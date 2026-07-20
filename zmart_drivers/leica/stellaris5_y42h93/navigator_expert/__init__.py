@@ -139,6 +139,7 @@ del _sys, _Path, _here, _repo_root
 # -- parsing + command mechanics
 from .readers.parsing import (
     _safe_float,
+    make_changeable_copy,
     parse_format,
     parse_tile_geometry,
 )
@@ -164,7 +165,6 @@ from .readers import (
     get_lasx_settings,
     get_pending_dialog,
 )
-from .commands.settings import make_changeable_copy
 from .commands.confirmations import _readback
 from .commands.commands import (
     set_zoom,

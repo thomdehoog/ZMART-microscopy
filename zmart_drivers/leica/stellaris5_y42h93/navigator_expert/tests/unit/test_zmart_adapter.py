@@ -20,8 +20,8 @@ from limits_fixtures import (
     provision_machine_limits,
 )
 from navigator_expert.commands import gate as _gate
-from navigator_expert.commands import settings as _cmd_settings
 from navigator_expert.limits import checks as limits_checks
+from navigator_expert.readers import parsing as _readers_parsing
 from navigator_expert.zmart_adapter import zmart_adapter as adapter
 
 
@@ -75,7 +75,7 @@ def _patch_position(x_um=100.0, y_um=200.0, z_wide_um=50.0, z_galvo_um=0.0, job=
             return_value={"Name": job, "IsSelected": True},
         ),
         patch.object(
-            _cmd_settings,
+            _readers_parsing,
             "make_changeable_copy",
             side_effect=lambda settings: settings,
         ),
@@ -1308,7 +1308,7 @@ class TestObjectiveCompensation(unittest.TestCase):
                 "get_selected_job",
                 return_value={"Name": "Overview", "IsSelected": True},
             ),
-            patch.object(_cmd_settings, "make_changeable_copy", side_effect=lambda s: s),
+            patch.object(_readers_parsing, "make_changeable_copy", side_effect=lambda s: s),
         ):
             adapter.set_xyz(h, 12.0, -7.0, 4.0, with_actuators={"z": "z-galvo"})
             pos = adapter.get_xyz(h)
