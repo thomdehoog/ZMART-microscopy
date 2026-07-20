@@ -1218,9 +1218,11 @@ def test_objective_pair_notebook_only_configures_session_and_reference_slot():
     assert "parent_session=session" in code
     assert "calibration_name=session.calibration_name" not in code
     assert "MACHINE" not in code
-    assert code.count("objective_pair.measure(session)") == 4
-    assert code.count("_ = objective_pair.measure(session)") == 0
-    assert code.count("summary = objective_pair.measure(session)") == 1
+    assert "objective_pair.measure_parfocality_reference(session)" in code
+    assert "objective_pair.measure_parfocality_target(session)" in code
+    assert "objective_pair.measure_parcentricity_reference(session)" in code
+    assert "summary = objective_pair.measure_parcentricity_target_and_save(session)" in code
+    assert "objective_pair.measure(session)" not in code
     assert code.index("measure_target_and_report(check_session)") < code.index("save_and_adopt")
     assert code.index("save_and_adopt") < code.index("adopt_calibration")
     assert "# Save and Adopt" in code
