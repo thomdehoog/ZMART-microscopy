@@ -274,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
                     sys.executable,
                     str(hw / "validate_zmart_adapter.py"),
                     "--yes",
+                    "--enforce-ci-default-position",
                     "--allow-move",
                     "--allow-state",
                     "--allow-acquire",

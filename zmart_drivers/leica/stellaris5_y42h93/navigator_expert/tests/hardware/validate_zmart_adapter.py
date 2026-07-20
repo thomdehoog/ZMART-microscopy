@@ -12,6 +12,8 @@ LAS X at the scope and run the same script.
 
 Safe by default:
   - read-only unless a phase is opted in
+  - ``--enforce-ci-default-position`` moves to the rig's four-axis CI
+    baseline before any other write phase
   - ``--allow-move`` (set_origin + set_xyz round-trip, incl. the z-focus
     additive sub-check) restores the original XY / both z drives in a finally
   - ``--allow-acquire`` runs one real capture+save into the controller run root
@@ -34,6 +36,7 @@ exit 1 on any FAIL, or WARN with --strict-confirmation).
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 import tempfile
 import time
@@ -61,6 +64,16 @@ import zmart_controller
 # (confirm_move_xy default 20 um, confirm_move_z default 1.0 um).
 XY_TOL_UM = 20.0
 Z_TOL_UM = 1.0
+
+# Hardware CI always starts its mutating phases from this measured, known-safe
+# rig position. Keep the raw drives separate: controller frame-Z is their sum,
+# but the safety baseline is a four-coordinate hardware contract.
+CI_DEFAULT_POSITION_UM = {
+    "x_um": 63_500.0,
+    "y_um": 41_500.0,
+    "z_wide_um": 0.0,
+    "z_galvo_um": 0.0,
+}
 
 
 # --- setup ------------------------------------------------------------------
@@ -225,6 +238,102 @@ def phase_readonly(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None
 
 def _within(value: float, lo: float, hi: float) -> bool:
     return lo <= value <= hi
+
+
+def _nonnegative_finite_float(raw: str) -> float:
+    """Argparse type for a Z-wide excursion that can never point below zero."""
+    value = float(raw)
+    if not math.isfinite(value) or value < 0.0:
+        raise argparse.ArgumentTypeError("must be a finite value >= 0")
+    return value
+
+
+def _ci_default_position_error(limits: dict) -> str | None:
+    """Return why the fixed four-axis CI baseline cannot be commanded safely."""
+    if CI_DEFAULT_POSITION_UM["z_wide_um"] < 0.0:
+        return "Z-wide CI target must never be negative"
+    for axis in ("x", "y", "z_wide", "z_galvo"):
+        target = CI_DEFAULT_POSITION_UM[f"{axis}_um"]
+        lo, hi = limits.get(f"{axis}_min"), limits.get(f"{axis}_max")
+        if lo is None or hi is None:
+            return f"{axis} limits are not configured"
+        if not _within(target, float(lo), float(hi)):
+            return f"{axis} target {target} um outside [{lo}, {hi}]"
+    return None
+
+
+def phase_ci_default_position(v: vh.Validator, sess: Any, drv: Any) -> bool:
+    """Move to and verify the four-coordinate hardware-CI baseline.
+
+    All targets are preflighted before the first command. Z-wide is commanded
+    directly to 0 um (never through frame-focus arithmetic), so a non-zero
+    z-galvo cannot turn the Z-wide target negative.
+    """
+    with v.phase("hardware-CI default position"):
+        before = v.callable("ci default: read start", lambda: sess.get_xyz()["hardware"])
+        limits = v.callable("ci default: read limits", drv.get_stage_limits)
+        if not before or not limits:
+            return False
+        error = _ci_default_position_error(limits)
+        if error:
+            v.fail("ci default: preflight", error, context=dict(CI_DEFAULT_POSITION_UM))
+            return False
+        if not v.compare(
+            "ci default: Z-wide target is non-negative",
+            CI_DEFAULT_POSITION_UM["z_wide_um"] >= 0.0,
+            True,
+        ):
+            return False
+
+        job = before.get("job")
+        if not job:
+            v.fail("ci default: selected job", "no selected job for the Z commands")
+            return False
+
+        x_um = CI_DEFAULT_POSITION_UM["x_um"]
+        y_um = CI_DEFAULT_POSITION_UM["y_um"]
+        z_wide_um = CI_DEFAULT_POSITION_UM["z_wide_um"]
+        z_galvo_um = CI_DEFAULT_POSITION_UM["z_galvo_um"]
+        commands = (
+            v.command(
+                "ci default: move XY",
+                lambda: drv.move_xy(sess._handle.client, x_um, y_um, unit="um"),
+                context={"target_x_um": x_um, "target_y_um": y_um},
+            ),
+            v.command(
+                "ci default: move Z-wide",
+                lambda: drv.move_z(sess._handle.client, job, z_wide_um, unit="um", z_mode="zwide"),
+                context={"target_z_wide_um": z_wide_um, "non_negative": True},
+            ),
+            v.command(
+                "ci default: move Z-galvo",
+                lambda: drv.move_z(sess._handle.client, job, z_galvo_um, unit="um", z_mode="galvo"),
+                context={"target_z_galvo_um": z_galvo_um},
+            ),
+        )
+        if any(not result or not result.get("success") for result in commands):
+            return False
+
+        after = v.callable("ci default: readback", lambda: sess.get_xyz()["hardware"])
+        if not after:
+            return False
+        checks = [
+            v.compare("ci default: X readback", after.get("x_um"), x_um, tolerance=XY_TOL_UM),
+            v.compare("ci default: Y readback", after.get("y_um"), y_um, tolerance=XY_TOL_UM),
+            v.compare(
+                "ci default: Z-wide readback",
+                after.get("z_wide_um"),
+                z_wide_um,
+                tolerance=Z_TOL_UM,
+            ),
+            v.compare(
+                "ci default: Z-galvo readback",
+                after.get("z_galvo_um"),
+                z_galvo_um,
+                tolerance=Z_TOL_UM,
+            ),
+        ]
+        return all(checks)
 
 
 def _restore(
@@ -530,10 +639,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--allow-autofocus", action="store_true", help="run the autofocus procedure once"
     )
     p.add_argument("--allow-acquire", action="store_true", help="one capture+save")
+    p.add_argument(
+        "--enforce-ci-default-position",
+        action="store_true",
+        help="move to the fixed four-axis rig baseline before other write phases",
+    )
 
     # deltas
     p.add_argument("--xy-delta-um", type=float, default=25.0)
-    p.add_argument("--z-wide-delta-um", type=float, default=3.0)
+    p.add_argument(
+        "--z-wide-delta-um",
+        type=_nonnegative_finite_float,
+        default=3.0,
+        help="non-negative Z-wide excursion from the baseline (default: 3 um)",
+    )
     p.add_argument("--z-galvo-delta-um", type=float, default=2.0)
 
     # acquire
@@ -613,21 +732,29 @@ def main(argv: list[str] | None = None) -> int:
         elif not _confirm_live_write(args):
             log.warning("aborted before live writes")
         else:
-            if args.allow_move:
+            baseline_ready = True
+            if args.enforce_ci_default_position:
+                baseline_ready = phase_ci_default_position(v, sess, drv)
+            if not baseline_ready:
+                v.skip(
+                    "hardware write phases",
+                    "CI default position could not be enforced; refusing remaining writes",
+                )
+            elif args.allow_move:
                 phase_move(v, sess, drv, args)
             else:
                 v.skip("phase: move", "use --allow-move to enable")
-            if args.allow_state:
+            if baseline_ready and args.allow_state:
                 phase_state(v, sess)
-            else:
+            elif baseline_ready:
                 v.skip("phase: state", "use --allow-state to enable")
-            if args.allow_autofocus:
+            if baseline_ready and args.allow_autofocus:
                 phase_autofocus(v, sess)
-            else:
+            elif baseline_ready:
                 v.skip("phase: autofocus", "use --allow-autofocus to enable")
-            if args.allow_acquire:
+            if baseline_ready and args.allow_acquire:
                 phase_acquire(v, sess, args)
-            else:
+            elif baseline_ready:
                 v.skip("phase: acquire", "use --allow-acquire to enable")
 
         try:

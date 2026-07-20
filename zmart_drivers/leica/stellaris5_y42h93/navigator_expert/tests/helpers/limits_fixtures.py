@@ -1,9 +1,9 @@
 """Limits fixtures for the offline suite and the mock validators.
 
-Runtime limits resolve through ProgramData. An empty ProgramData root seeds the
-repo defaults there automatically; tests call ``provision_machine_limits`` only
-when they need a specific fixture envelope or gate policy. Command-mechanics
-unit tests can also install a permissive in-memory gate state for one client
+Runtime machine limits resolve through ProgramData only after publication;
+bundled defaults remain package-local. Tests call ``provision_machine_limits``
+when they need a machine-approved fixture envelope or gate policy.
+Command-mechanics unit tests can also install a permissive in-memory gate state for one client
 (``install_permissive_limits``).
 
 Each fixture publishes one ``limits/<datetime>/limits.json``: axis ranges,

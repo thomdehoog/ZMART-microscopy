@@ -53,7 +53,7 @@ def _machine_root() -> Path:
 def _raw_snapshot(root: Path, *, limits_text: str | None = None) -> MachineProfile:
     """Write a snapshot with a RAW single limits.json (for malformed attacks)."""
     profile = MachineProfile(programdata_root=Path(root))
-    snap = profile.snapshot_root() / "2026-01-01T00-00-00-000000Z"
+    snap = profile.subsystem_root("limits") / "2026-01-01T00-00-00-000000Z"
     snap.mkdir(parents=True, exist_ok=True)
     if limits_text is not None:
         (snap / "limits.json").write_text(limits_text, encoding="utf-8")
@@ -998,13 +998,13 @@ def test_containment_checker_accepts_the_template_and_narrower():
 # =============================================================================
 
 
-def test_resolution_seeds_programdata_and_returns_local_paths():
+def test_resolution_keeps_defaults_packaged_until_machine_limits_are_published():
     profile = MachineProfile(programdata_root=_machine_root())
-    path, is_fallback = profile.resolve("limits.json")
-    assert is_fallback is False
-    assert path == profile.latest_snapshot("limits") / "limits.json"
-    assert path.exists()
-    assert profile.require_machine_local("limits.json", "the physical stage envelope") == path
+    with pytest.raises(FileNotFoundError, match="operator-published"):
+        profile.resolve("limits.json")
+    with pytest.raises(FileNotFoundError, match="operator-published"):
+        profile.require_machine_local("limits.json", "the physical stage envelope")
+    assert profile.latest_snapshot("limits") is None
     assert limits_config.load()["stage_um"]["x"] == DEFAULT_STAGE_UM["x"]
 
 
@@ -1070,7 +1070,7 @@ def test_fresh_limits_adopt_writes_complete_limits_snapshot():
     )
     snap = profile.latest_snapshot("limits")
     files = sorted(p.name for p in snap.iterdir())
-    assert files == [".limits-machine", "limits.json"]
+    assert files == ["limits.json"]
     assert not (snap / "function_limits.json").exists()
 
 

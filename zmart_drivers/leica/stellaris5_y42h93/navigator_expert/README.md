@@ -96,8 +96,8 @@ runtime where possible. Override via the profile, not at call sites.
   is bounded only by the physical backstop, `set_orientation` is bounded by limits, and
   `calibrate_objective_pair` is bounded by limits and expects a measured orientation.
 - **Limits handshake** — `connect_limits_handshake(client)` (run by `connect_microscope`;
-  workflows/validators/notebooks call it directly). It resolves the ProgramData `limits.json` (seeding
-  defaults there first when needed), validates its exact flat keys, finite ranges, allowed
+  workflows/validators/notebooks call it directly). It resolves an operator-published ProgramData
+  `limits.json`, or uses the bundled defaults directly when none exists. It validates exact flat keys, finite ranges, allowed
   objective slots, and envelope **within the hardcoded physical backstop**
   `limits.checks.STAGE_BACKSTOP_UM`), applies the stage envelope, and installs the command safety gate
   for that client. **If the machine file is invalid (or loading is switched off), the session does not
@@ -130,9 +130,9 @@ assert ping(client)
 
 # 2. Limits handshake (REQUIRED before any mutating command; run automatically
 #    by connect_microscope and the zmart adapter — shown here for the low-level
-#    API): resolves and validates the ProgramData limits.json, seeding repo
-#    defaults there first when needed, and installs the limits gate for this
-#    client. An INVALID file falls back to the bundled defaults (loudly), so
+#    API): resolves and validates an operator-published ProgramData limits.json
+#    and installs the limits gate for this client. A MISSING or INVALID file
+#    uses the bundled defaults directly (loudly), so
 #    state.ok stays True — check state.limits.describe()["is_fallback"] if you
 #    need to know whether your measured envelope is really in force.
 state = connect_limits_handshake(client)

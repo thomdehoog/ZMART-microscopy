@@ -7,14 +7,14 @@ Every constraint explicitly says ``range`` or ``allowed``; an empty list means
 (unrestricted): which slots exist is hardware knowledge the wrapper checks
 live against the turret, so a written allow-list is only for deliberately
 fencing automation to specific slots (slots count from 0). There are
-no schema/source wrappers, named-constraint indirection, or nested ``functions``
-object. Runtime provenance is kept outside JSON in the snapshot's hidden
-``.limits-machine`` marker.
+no schema/source wrappers, named-constraint indirection, nested ``functions``
+object, or hidden marker. Presence under the ProgramData limits tree means the
+file was explicitly published for the machine.
 
 ``adopt_limits`` publishes a new snapshot holding this ``limits.json`` from the
-``set_limits`` notebook. On a fresh install, the bundled defaults are
-copied into ProgramData first, so runtime reads still point at machine-local
-files and CI can run without executing the notebooks.
+``set_limits`` notebook. On a fresh install, bundled defaults remain in the
+driver package and govern as a clearly reported fallback until the notebook
+publishes the first ProgramData limits snapshot.
 
 The per-run *working* envelope (boundary-marker / scan-field limits) is not
 machine state - it belongs to the acquisition workflow, above the vendor
@@ -54,15 +54,10 @@ def _driver_root() -> Path:
 
 
 def defaults_path() -> Path:
-    """Path to the active machine limits file in ProgramData.
-
-    Resolves through the machine profile to the newest
-    ``limits/<datetime>/limits.json``. If the limits tree is empty, the repo
-    default is seeded into a local snapshot before this returns.
-    """
+    """Path to the driver-bundled fallback ``limits.json``."""
     from ..config.machine import LIMITS_FILENAME, MACHINE
 
-    return MACHINE.require_machine_local(LIMITS_FILENAME, "the physical stage envelope")
+    return MACHINE.bundled_default_path(LIMITS_FILENAME)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -196,8 +191,9 @@ def build_limits_payload(stage_um: dict[str, Any]) -> dict[str, Any]:
 def load(limits_path: str | Path | None = None) -> dict[str, Any]:
     """Load the stage envelope and setter limits from ``limits.json``.
 
-    Without an explicit ``limits_path``, this reads the configured file via
-    ``defaults_path()`` - the active ProgramData limits snapshot. An explicit
+    Without an explicit ``limits_path``, this reads the bundled fallback via
+    ``defaults_path()``. The connect handshake passes the active ProgramData
+    path explicitly when an operator-published snapshot exists. An explicit
     ``limits_path`` is the caller's deliberate choice and is read as given.
 
     Returns the internal shapes consumed by the limit checks and the command gate. The
@@ -238,7 +234,9 @@ def adopt_limits(
         notebook_paths: Saved notebook(s) to archive in the snapshot. Each
             archived copy receives the snapshot datetime in its filename.
         template_paths: The saved LAS X ``.xml``, ``.rgn``, and ``.lrp``
-            experiment files to archive with the notebook.
+            experiment files to archive with the notebook. The archived trio
+            is renamed to ``limits_<snapshot-datetime>`` while preserving each
+            suffix.
 
     Returns:
         Snapshot path, limits path, timestamped notebook paths, and template
@@ -259,6 +257,10 @@ def adopt_limits(
 
     notebook_paths = tuple(Path(path) for path in notebook_paths)
     template_paths = tuple(Path(path) for path in template_paths)
+    if notebook_paths and not template_paths:
+        raise ValueError(
+            "publishing a limits notebook requires its .xml, .rgn, and .lrp template files"
+        )
     if template_paths:
         missing = [str(path) for path in template_paths if not path.is_file()]
         if missing:
@@ -290,7 +292,7 @@ def adopt_limits(
             for template in template_paths:
                 template_dir = data_dir / "template"
                 template_dir.mkdir(parents=True, exist_ok=True)
-                destination = template_dir / template.name
+                destination = template_dir / f"limits_{stamp}{template.suffix.lower()}"
                 shutil.copy2(template, destination)
                 archived_template_relpaths.append(destination.relative_to(Path(temp_dir)))
             snapshot = machine.publish_snapshot(

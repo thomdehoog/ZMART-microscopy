@@ -6,7 +6,6 @@ microscope API root::
     <programdata_root>/<vendor>/<microscope_id>/<api>/
         limits/<datetime>/
             limits.json
-            .limits-machine
             data/
                 notebook/set_limits_<datetime>.ipynb
                 template/<saved experiment>.{xml,rgn,lrp}
@@ -36,22 +35,22 @@ does not duplicate calibration or orientation, and every origin change keeps
 its own immutable record. The frame origin remains session-scoped: the driver
 does not restore it at connect.
 
-All runtime values live in ProgramData, not inside the installed code. The
-defaults under the driver tree are seed material only; after seeding, reads
-return paths under ProgramData.
+Operator-published runtime values live in ProgramData. Bundled defaults stay
+inside the installed code and are used directly only when no machine limits
+snapshot exists or a published file cannot be loaded.
 
 ``limits.json`` is deliberately flat: ``x_um``, ``y_um``, both Z ranges, the
 objective slot policy, and one entry per configurable setter. Each constraint
 explicitly says ``range`` or ``allowed``; ``[]`` means unrestricted.
-There is no metadata wrapper or separate ``function_limits.json``. A hidden
-snapshot marker preserves whether limits were explicitly adopted, so generic
-seed defaults cannot masquerade as measured limits. Backlash is a motion
+There is no metadata wrapper, hidden marker, or separate
+``function_limits.json``. A ProgramData ``limits.json`` exists only after an
+operator publishes it, so its location is the provenance. Backlash is a motion
 utility with baked-in defaults, not machine state.
 
 Flat timestamp folders from older releases are migration input. They remain
 untouched while their newest values are copied into the corresponding
-subsystem trees. If ProgramData is empty, each subsystem seeds its own first
-timestamp from the bundled repo default.
+subsystem trees. Calibration and orientation can seed ProgramData from bundled
+defaults; limits cannot, because mere presence now means operator-published.
 
 ``<datetime>`` is UTC with microsecond precision, formatted so it is both a
 legal Windows path segment (no colons) and lexicographically == chronologically
@@ -88,7 +87,9 @@ _SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z$")
 CALIBRATION_FILENAME = "calibration.json"
 CALIBRATIONS_DIRNAME = "calibrations"
 LIMITS_FILENAME = "limits.json"
-LIMITS_MACHINE_MARKER = ".limits-machine"
+# Read only while migrating snapshots written by releases that used a hidden
+# approval sentinel. New subsystem snapshots never create or copy this file.
+LEGACY_LIMITS_MACHINE_MARKER = ".limits-machine"
 ORIENTATION_FILENAME = "orientation.json"
 ORIGIN_FILENAME = "origin.json"
 CALIBRATION_NAME_ENV = "ZMART_CALIBRATION_NAME"
@@ -293,10 +294,6 @@ class MachineProfile:
                 named = source / CALIBRATIONS_DIRNAME
                 if named.is_dir():
                     shutil.copytree(named, staging / CALIBRATIONS_DIRNAME)
-            if subsystem == "limits":
-                marker = source / LIMITS_MACHINE_MARKER
-                if marker.exists():
-                    shutil.copy2(marker, staging / LIMITS_MACHINE_MARKER)
             for notebook in source.glob("*.ipynb"):
                 if self._notebook_matches(subsystem, notebook):
                     shutil.copy2(notebook, staging / notebook.name)
@@ -346,7 +343,15 @@ class MachineProfile:
         migrated: dict[str, Path] = {}
         for subsystem in ("limits", "calibration", "orientation"):
             filename = _SUBSYSTEM_FILENAME[subsystem]
-            source = next((path for path in reversed(flat) if (path / filename).is_file()), None)
+            source = next(
+                (
+                    path
+                    for path in reversed(flat)
+                    if (path / filename).is_file()
+                    and (subsystem != "limits" or (path / LEGACY_LIMITS_MACHINE_MARKER).is_file())
+                ),
+                None,
+            )
             latest = self.latest_snapshot(subsystem)
             if source is not None and (latest is None or source.name > latest.name):
                 migrated[subsystem] = self._migrate_flat_subsystem(subsystem, source)
@@ -526,6 +531,11 @@ class MachineProfile:
         filename = _SUBSYSTEM_FILENAME[subsystem]
         if latest is not None and (latest / filename).is_file():
             return latest
+        if subsystem == "limits":
+            raise FileNotFoundError(
+                "no operator-published ProgramData limits.json exists; publish one "
+                "with limits/notebooks/set_limits.ipynb"
+            )
         return self._publish_subsystem_snapshot(
             self._next_auto_moment(subsystem),
             subsystem,
@@ -592,17 +602,6 @@ class MachineProfile:
                 self._seed_calibrations_dir(staging, prior=prior)
                 if payload is not None and calibration_name is not None:
                     _write_json(staging / self.calibration_relpath(calibration_name), payload)
-            # limits.json itself stays flat and metadata-free. This tiny
-            # snapshot marker preserves the safety distinction between seeded
-            # generic defaults and a limits document explicitly published by
-            # the operator; later snapshots carry it forward.
-            if subsystem == "limits":
-                marker = staging / LIMITS_MACHINE_MARKER
-                prior_marker = prior / LIMITS_MACHINE_MARKER if prior is not None else None
-                if payload is not None:
-                    marker.touch()
-                elif prior_marker is not None and prior_marker.exists():
-                    shutil.copy2(prior_marker, marker)
             for source in archive_paths:
                 source = Path(source)
                 destination = staging / source.name

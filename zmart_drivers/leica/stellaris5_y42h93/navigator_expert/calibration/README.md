@@ -38,8 +38,9 @@ sets carried forward from the preceding calibration snapshot, and the notebook
 that produced the adoption. The driver reads the newest calibration timestamp.
 
 Limits, orientation, and origin have parallel independent trees. Publishing
-one subsystem never copies the others. ProgramData is the source of truth; an
-empty limits, calibration, or orientation tree seeds from its own repo default.
+one subsystem never copies the others. Calibration and orientation may seed
+from bundled defaults; an empty limits tree remains empty and the driver uses
+its packaged fallback until an operator publishes measured limits.
 
 The per-run *working* envelope (a boundary-marker sample area) is not machine
 state - it belongs to the acquisition workflow, not here.

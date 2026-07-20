@@ -3,7 +3,7 @@ configs, with per-file load switches.
 
 These exercise ``connection.session.connect_microscope`` against a mock CAM
 client and the hermetic ProgramData root the autouse conftest fixture points
-at (so limits/orientation/calibration seed from the bundled defaults).
+at (so orientation/calibration seed while limits use the bundled fallback).
 """
 
 from __future__ import annotations
