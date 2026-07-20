@@ -25,9 +25,10 @@ from dataclasses import dataclass
 from functools import partial
 
 from ..config.profiles import FOCUS_MOVE, OBJECTIVE, RUN_EXPERIMENT, SNAP, STAGE_MOVE
-from ..motion.limits import _check_xy_limits, _check_z_limits
+from ..limits.checks import _check_xy_limits, _check_z_limits
 from ..readers.api_reader import _attr
-from ..utils import _make_log_entry, _make_timing, to_um, um_to_m
+from ..config.units import to_um, um_to_m
+from .envelope import _make_log_entry, _make_timing
 from .confirmations import confirm_acquire, confirm_move_xy, confirm_move_z, confirm_objective
 from .dispatch import confirm_and_fire
 from .errors import classify_grpc_error

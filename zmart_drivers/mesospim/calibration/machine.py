@@ -6,7 +6,7 @@ one folder per instrument::
 
     <programdata_root>/mesospim/<microscope_id>/
         stage_limits.json      # physical stage envelope (schema v1)
-        function_limits.json   # function-keyed safety limits (shared.limits, v1)
+        function_limits.json   # function-keyed safety limits (mesospim.limits.function_limits, v1)
         origin.json            # frame zero point (set_origin; updated in place)
 
 Each file resolves machine copy first, then the driver-bundled default under

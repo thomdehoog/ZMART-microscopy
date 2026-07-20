@@ -85,8 +85,8 @@ from .connection.session import close, connect
 # --- controller integration ---
 from .mesospim_zmart_adapter import register
 
-# --- motion: stage limits (movement wrappers come in via .commands above) ---
-from .motion import (
+# --- stage limits (movement wrappers come in via .commands above) ---
+from .limits import (
     LimitError,
     apply_stage_limits_from_config,
     check_move,

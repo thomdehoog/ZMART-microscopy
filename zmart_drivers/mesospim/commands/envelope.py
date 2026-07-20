@@ -1,15 +1,11 @@
 """
-Utility functions.
-==================
-Shared low-level helpers with no domain knowledge: safe float conversion,
-timing-envelope construction, and structured log entries. Every function here is
-a pure utility -- no imports from other driver modules, no knowledge of mesoSPIM,
-sockets, or the wire protocol.
-
-Unit convention: the mesoSPIM driver speaks **micrometers** for the linear axes
-(x, y, z, focus) and **degrees** for the rotation axis (theta), on both the
-public API and the wire. The resident command server is responsible for any
-conversion to mesoSPIM's internal units.
+The command result envelope.
+============================
+Every command in this driver returns the same envelope shape: success flag,
+confirmation state, message, data, timing, and an ordered log trace. This
+module builds those pieces. It is a leaf -- no imports from other driver
+modules -- so the dispatch backbone, the movement wrappers, and the
+state-setting wrappers can all share it without creating import cycles.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -19,21 +15,6 @@ License: MIT
 from __future__ import annotations
 
 import time
-
-# The five mesoSPIM axes. Linear axes are micrometers; theta is degrees.
-LINEAR_AXES = ("x", "y", "z", "f")
-ROTARY_AXES = ("theta",)
-AXES = LINEAR_AXES + ROTARY_AXES
-
-
-def _safe_float(val, default=None):
-    """Convert val to float. Returns default on failure or None input."""
-    if val is None:
-        return default
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return default
 
 
 def _make_log_entry(level: str, msg: str) -> dict:
@@ -69,9 +50,8 @@ def _make_timing(
 def _fail(label: str, message: str) -> dict:
     """A pre-fire failure envelope (validation / limits): no request was sent.
 
-    Shared by the movement wrappers (:mod:`mesospim.motion.movement`) and the
-    state-setting wrappers (:mod:`mesospim.commands.commands`), so it lives here
-    rather than in either.
+    Shared by the movement wrappers (:mod:`mesospim.commands.movement`) and the
+    state-setting wrappers (:mod:`mesospim.commands.commands`).
     """
     return {
         "success": False,

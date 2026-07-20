@@ -24,7 +24,8 @@ import logging
 import time
 
 from ..readers.reading import _reading_value_after
-from ..utils import CONFIRM_POLL_S, _make_log_entry
+from ..config.timing import CONFIRM_POLL_S
+from .envelope import _make_log_entry
 
 log = logging.getLogger(__name__)
 

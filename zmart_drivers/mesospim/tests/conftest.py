@@ -13,7 +13,7 @@ _DRIVERS_DIR = Path(__file__).resolve().parents[2]
 if str(_DRIVERS_DIR) not in sys.path:
     sys.path.insert(0, str(_DRIVERS_DIR))
 
-# Add the repo root so `import zmart_controller` and `from shared...` resolve.
+# Add the repo root so `import zmart_controller` resolves.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))

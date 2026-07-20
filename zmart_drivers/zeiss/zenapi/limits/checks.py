@@ -48,7 +48,7 @@ def apply_stage_limits_from_config(stage_cfg: dict) -> None:
     """Configure stage limits from a stage_config dict.
 
     The dict shape is the one produced by
-    :func:`zenapi.motion.stage_config.load`; pass it through once at session
+    :func:`zenapi.limits.stage_config.load`; pass it through once at session
     start so notebooks and calibration share one source of truth.
     """
     lim = stage_cfg["stage_um"]

@@ -15,7 +15,7 @@ Expected JSON shape::
       }
     }
 
-Feed the result to :func:`zenapi.motion.limits.apply_stage_limits_from_config`.
+Feed the result to :func:`zenapi.limits.checks.apply_stage_limits_from_config`.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
