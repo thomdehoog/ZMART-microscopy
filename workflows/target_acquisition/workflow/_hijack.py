@@ -346,7 +346,7 @@ def hijack_records(records: list[dict], provider: Callable) -> int:
     2. Read the provider context from the canonical filename.
     3. Overwrite the pixels, preserving the OME-XML (:func:`_overwrite_preserving_ome`).
 
-    ``provider`` is a mock-image callable (see ``pipeline._mock_provider``;
+    ``provider`` is a mock-image callable (see ``workflow._mock_provider``;
     e.g. ``get_provider("skimage_human_mitosis")``).
 
     Returns the number of planes overwritten. Re-raises
