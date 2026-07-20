@@ -40,8 +40,9 @@ Scope of v1 (grow as needed):
     - ``get_state``/``set_state`` round-trip the selected job (the job
       is LAS X's unit of configuration, so reapplying the selection
       restores the whole setup).
-    - ``get_procedures`` offers backlash takeup and autofocus (with
-      job discovery); ``run_procedure`` runs them.
+    - ``get_procedures`` offers backlash takeup, zero-z-galvo (park the
+      galvo at 0 with the focus kept), and autofocus (with job
+      discovery); ``run_procedure`` runs them.
     - ``acquire`` selects the job, captures, and saves in one step;
       ``acquisition_type``/``position_label`` map onto the driver's
       Naming slots and travel verbatim in the save lineage.
@@ -1011,6 +1012,11 @@ def get_procedures(handle: ZmartHandle) -> dict:
         "backlash_takeup": {
             "description": "pin the XY leadscrew slack at the current position (+X +Y approach)"
         },
+        "zero_z_galvo": {
+            "description": "park the z-galvo at 0 without changing the focus "
+            "(its offset is transferred onto z-wide), freeing the galvo's "
+            "full travel for a following z-stack"
+        },
         "autofocus": {
             "description": "run a LAS X autofocus job (capture only, nothing saved); "
             "restores the previously selected job and returns the focus readback",
@@ -1027,9 +1033,34 @@ def run_procedure(handle: ZmartHandle, procedure: dict) -> dict:
     if name == "backlash_takeup":
         _motion.correct_backlash(handle.client)
         return {"ran": dict(procedure)}
+    if name == "zero_z_galvo":
+        return {"ran": dict(procedure), **_zero_z_galvo(handle)}
     if name == "autofocus":
         return _run_autofocus(handle, procedure)
     raise ValueError(f"unknown procedure {name!r}")
+
+
+def _zero_z_galvo(handle: ZmartHandle) -> dict:
+    """Park the z-galvo at 0 while keeping the focus.
+
+    A pure re-split of the focus sum between the two drives: z-wide
+    absorbs the galvo's current offset FIRST — so a refused z-wide leg
+    (limits) aborts with nothing moved — and only then does the galvo
+    drive to 0. The frame z is unchanged by construction, and the galvo's
+    full travel becomes available for whatever comes next. Both legs go
+    through the checked ``move_z`` door; raises unless each confirms.
+    """
+    snap = _hardware_snapshot(handle)
+    offset = snap["z_galvo_um"]
+    if offset == 0.0:
+        return {"transferred_um": 0.0}
+    for z_mode, target in (("zwide", snap["z_wide_um"] + offset), ("galvo", 0.0)):
+        result = _commands.move_z(handle.client, snap["job"], target, unit="um", z_mode=z_mode)
+        if not result.get("success") or not result.get("confirmed"):
+            raise RuntimeError(
+                f"zero_z_galvo: move_z ({z_mode}) failed or was unconfirmed: {result}"
+            )
+    return {"transferred_um": offset}
 
 
 def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
