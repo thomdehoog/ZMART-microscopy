@@ -43,9 +43,9 @@ import time
 from .. import readers as _readers
 from ..commands.errors import _check_api_error, _is_transient_error
 from ..config import timing as _timing
+from ..readers.parsing import make_changeable_copy
 from .confirm_specs import CONFIRM_SPECS
 from .envelope import _make_log_entry
-from .settings import make_changeable_copy
 
 log = logging.getLogger(__name__)
 

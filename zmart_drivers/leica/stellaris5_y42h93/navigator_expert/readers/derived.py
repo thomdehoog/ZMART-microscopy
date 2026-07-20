@@ -74,7 +74,7 @@ def z_um_from_settings(settings, key):
     unavailable (almost always means the job is not selected or the
     LAS X version does not expose Z readback in this shape).
     """
-    from ..commands.settings import make_changeable_copy
+    from .parsing import make_changeable_copy
 
     ch = make_changeable_copy(settings)
     if not ch or "zPosition" not in ch:

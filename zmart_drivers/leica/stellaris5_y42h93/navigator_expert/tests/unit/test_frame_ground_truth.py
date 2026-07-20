@@ -30,9 +30,9 @@ import navigator_expert.readers as readers
 import pytest
 from navigator_expert.commands import commands as commands_mod
 from navigator_expert.commands import objective_shift as shift
-from navigator_expert.commands import settings as _cmd_settings
 from navigator_expert.connection import session_state
 from navigator_expert.orientation import Orientation
+from navigator_expert.readers import parsing as _readers_parsing
 from navigator_expert.zmart_adapter import zmart_adapter as adapter
 
 # The ground-truth translation table (µm). Slot 1 is the reference lens.
@@ -110,7 +110,7 @@ def _running(sim: SimScope):
             "get_selected_job",
             return_value={"Name": "Overview", "IsSelected": True},
         ),
-        patch.object(_cmd_settings, "make_changeable_copy", side_effect=lambda s: s),
+        patch.object(_readers_parsing, "make_changeable_copy", side_effect=lambda s: s),
     ):
         yield
 

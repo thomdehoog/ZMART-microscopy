@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Any
 
 from .. import readers as _readers
-from ..commands import settings as _core_settings
 from ..readers import parsing as _parsing
 from . import ome as _ome
 from .product import AcquisitionMetadata, ChannelMetadata, PlaneIndex
@@ -498,7 +497,7 @@ def _z_spacing_from_job_settings(settings: dict) -> float | None | object:
 def _stack_from_job_settings(settings: dict) -> dict | None:
     stack = None
     try:
-        normalized = _core_settings.make_changeable_copy(settings)
+        normalized = _parsing.make_changeable_copy(settings)
     except Exception:
         normalized = None
     if isinstance(normalized, dict) and isinstance(normalized.get("stack"), dict):

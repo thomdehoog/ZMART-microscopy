@@ -797,7 +797,7 @@ def test_adapter_bypass_refuses_at_the_commands_layer(clear_stage_limits):
     not a missing handshake."""
     from unittest.mock import patch
 
-    from navigator_expert.commands import settings as _cmd_settings
+    from navigator_expert.readers import parsing as _cmd_settings
     from navigator_expert.zmart_adapter import zmart_adapter as adapter
 
     _raw_snapshot(_machine_root(), limits_text=_BAD_LIMITS_TEXTS["missing_axis"])
@@ -829,7 +829,7 @@ def test_controller_session_bypass_refuses_at_the_commands_layer(clear_stage_lim
     an out-of-envelope move still refuses at the commands layer."""
     from unittest.mock import patch
 
-    from navigator_expert.commands import settings as _cmd_settings
+    from navigator_expert.readers import parsing as _cmd_settings
     from navigator_expert.zmart_adapter import zmart_adapter as adapter
 
     import zmart_controller
