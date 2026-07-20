@@ -7,7 +7,7 @@ per-axis convenience wrappers (``move_xy`` / ``move_z`` / ``move_focus`` /
 Each move follows the three-phase pattern shared across the driver:
 
     Phase A -- pre-checks: validate axes/values, check the stage limits
-        (:mod:`mesospim.motion.limits`).
+        (:mod:`mesospim.limits.checks`).
     Phase B -- backbone: build a ``fire_fn`` (one protocol request) and a
         target-bound ``confirm_fn`` (reads position back with the freshness
         gate), then call ``confirm_and_fire`` (the dispatch backbone).
@@ -18,7 +18,8 @@ and the wire. Limit checks happen HERE, before the fire.
 
 Sibling: instrument-state settings (filter / zoom / laser / intensity / shutter
 / ETL) live in :mod:`mesospim.commands.commands`; acquisition lives in
-:mod:`mesospim.acquisition`.
+:mod:`mesospim.acquisition`. The limit rules themselves live in
+:mod:`mesospim.limits`; this module is where they are enforced.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -30,11 +31,12 @@ from __future__ import annotations
 import logging
 from functools import partial
 
-from ..commands.dispatch import confirm_and_fire
+from ..config.axes import AXES
 from ..config.profiles import MOVE, MOVE_ROTATION
-from ..readers.readers import _reading_value_after, get_positions
-from ..utils import AXES, _fail, _safe_float
-from .limits import LimitError, check_move
+from ..limits.checks import LimitError, check_move
+from ..readers.readers import _reading_value_after, _safe_float, get_positions
+from .dispatch import confirm_and_fire
+from .envelope import _fail
 
 log = logging.getLogger(__name__)
 

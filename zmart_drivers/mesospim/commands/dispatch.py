@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..connection.client import MesospimError
 from ..protocol import Reply
-from ..utils import _make_log_entry, _make_timing
+from .envelope import _make_log_entry, _make_timing
 
 if TYPE_CHECKING:
     from ..config.profiles import CommandProfile

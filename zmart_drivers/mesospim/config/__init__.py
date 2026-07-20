@@ -1,10 +1,11 @@
-"""Configuration: connection, hardware model, and acquisition profiles.
+"""Configuration: the axis vocabulary and the static profiles.
 
-Stage limits moved to :mod:`mesospim.motion.limits` and the machine-local
-coordinate config to :mod:`mesospim.calibration.machine`; this package is now
-just the static profiles (:mod:`.profiles`).
+Stage limits live in :mod:`mesospim.limits` and the machine-local coordinate
+config in :mod:`mesospim.calibration.machine`; this package holds the axis
+constants (:mod:`.axes`) and the static profiles (:mod:`.profiles`).
 """
 
+from .axes import AXES, LINEAR_AXES, ROTARY_AXES
 from .profiles import (
     ACQUISITION,
     CONNECTION,
@@ -16,6 +17,9 @@ from .profiles import (
 )
 
 __all__ = [
+    "AXES",
+    "LINEAR_AXES",
+    "ROTARY_AXES",
     "ACQUISITION",
     "CONNECTION",
     "HARDWARE",
