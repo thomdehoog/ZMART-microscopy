@@ -2,7 +2,7 @@
 
 import pytest
 import zenapi as drv
-from zenapi.utils import m_to_um, to_um, um_to_m
+from zenapi.config.units import m_to_um, to_um, um_to_m
 
 
 def test_scalar_conversions():

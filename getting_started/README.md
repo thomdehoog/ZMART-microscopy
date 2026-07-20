@@ -1,10 +1,14 @@
 # Getting Started
 
-First-time setup for ZMART Microscopy, in three steps. The environment files
-referenced here live at the **repo root**: [`environment.yml`](../environment.yml),
-[`requirements.txt`](../requirements.txt), [`requirements-dev.txt`](../requirements-dev.txt),
-and [`build_env.py`](../build_env.py)
-(manifests stay at the root so the toolchain auto-discovers them).
+First-time setup for ZMART Microscopy, in three steps. There is **one
+environment**: the conda-forge env defined in [`environment.yml`](../environment.yml)
+and built by [`build_env.py`](../build_env.py). The repo-root
+[`requirements.txt`](../requirements.txt) / [`requirements-dev.txt`](../requirements-dev.txt)
+are the documented **pip fallback** mirroring the same packages for machines
+without conda — not a second environment to maintain by hand. (A driver-local
+`requirements-dev.txt` inside the Leica driver exists only so GitHub CI can
+install that driver's offline suite lean; it is CI plumbing, not something you
+build for yourself.)
 
 ZMART Microscopy targets **Python 3.10-3.12**. The live system runs on **Windows**
 (the LAS X PC); registration, focusing, and image processing run on any OS. The

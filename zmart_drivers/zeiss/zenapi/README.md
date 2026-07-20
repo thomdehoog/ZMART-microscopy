@@ -285,10 +285,14 @@ zmart_drivers/zeiss/zenapi/
 │                 confirmations.py readbacks + confirm_acquire (status-stream consumer)
 │                 objectives.py   name/magnification → turret index
 │                 commands.py     move_xy/move_z/set_objective/load_experiment/run_snap/run_experiment
+│                 routines.py     correct_backlash
+│                 envelope.py     the shared result-envelope builders (leaf)
 ├── readers/      api_reader.py   unary reads → dicts (the single m→µm boundary); monitor()
 │                 reading.py      Reading envelope + freshness gate
 ├── config/       profiles.py     ZenApiProfile, ReaderProfile, CommandProfile + per-command instances
-├── motion/       limits.py, movement.py, stage_config.py
+│                 timing.py, units.py  timeouts + the µm/m unit contract
+├── limits/       checks.py       fail-closed XY/Z envelope (enforced only in commands/)
+│                 stage_config.py per-instrument envelope loader
 ├── acquisition/  product.py (neutral types), capture.py (acquire), save.py (CZI)
 └── tests/        unit/ + helpers/mock_zen_api.py + hardware/ (marked, excluded by default)
 ```
