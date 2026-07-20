@@ -29,6 +29,15 @@ Five operator steps, each one workflow call:
    write the acquisition report unconditionally, and rebuild the
    session-level ``calibration.json`` from trusted acquisition reports.
 
+Every measure step is safe to run again. A step first checks the active
+objective — if the wrong lens is in, it refuses with a clear message and
+discards nothing, so switching to the right lens and re-running just
+works. Only after that check passes does the step throw away its own
+previous outputs (and every later step that depended on them) and measure
+fresh. Re-running the target focus step with a *different* lens redefines
+which objective is the target, so a run with the wrong lens never locks
+the session.
+
 The notebook owns the operator-facing markdown and one workflow call
 per cell. This module owns LAS X I/O, schema construction, and
 visualization.
@@ -264,8 +273,19 @@ def _read_active_objective(session: ObjectivePairSession) -> tuple[int, str]:
     )
 
 
-def _observe_objective_for_step(session: ObjectivePairSession, role: str) -> tuple[int, str]:
-    """Record or verify the active reference/target objective, then report it."""
+def _observe_objective_for_step(
+    session: ObjectivePairSession,
+    role: str,
+    *,
+    establish: bool = False,
+) -> tuple[int, str]:
+    """Record or verify the active reference/target objective, then report it.
+
+    With ``establish=True`` (only the target focus step uses it), whatever
+    non-reference lens is active *becomes* the target — re-running that step
+    after switching lenses simply redefines the pair. Without it, the active
+    lens must match what was recorded earlier, or the step refuses.
+    """
     slot, name = _read_active_objective(session)
     if role == "reference":
         if session.from_slot is None:
@@ -279,27 +299,47 @@ def _observe_objective_for_step(session: ObjectivePairSession, role: str) -> tup
         if slot != session.from_slot:
             raise RuntimeError(
                 f"wrong objective for reference step: expected slot {session.from_slot} "
-                f"({session.from_objective}), got slot {slot} ({name})"
+                f"({session.from_objective}), got slot {slot} ({name}). "
+                "Nothing was discarded — switch to the expected objective and "
+                "run this cell again."
             )
         session.from_objective = name
         session.hardware_objectives[slot] = name
     elif role == "target":
         if session.from_slot is None:
             raise RuntimeError("measure the reference objective before the target objective")
-        if session.to_slot is None:
-            if slot == session.from_slot:
-                raise RuntimeError(
-                    f"target objective is still the reference objective: slot {slot} ({name}). "
-                    "Switch only the objective, keep the Navigator Expert job unchanged, and retry."
+        if slot == session.from_slot:
+            raise RuntimeError(
+                f"target objective is still the reference objective: slot {slot} ({name}). "
+                "Switch only the objective, keep the Navigator Expert job unchanged, and retry."
+            )
+        if establish:
+            # The target focus step defines the target lens. Re-running it
+            # with a different lens redefines the pair, so a run with the
+            # wrong lens never locks the session — the caller discards the
+            # old target data right after this returns.
+            if session.to_slot is not None and slot != session.to_slot:
+                print(
+                    f"Target objective changed: slot {session.to_slot} "
+                    f"({session.to_objective}) -> slot {slot} ({name}). "
+                    "Discarding the previous target measurements."
                 )
             session.to_slot = slot
             session.to_objective = name
             session.hardware_objectives[slot] = name
-        elif slot != session.to_slot:
-            raise RuntimeError(
-                f"wrong objective for target step: expected slot {session.to_slot} "
-                f"({session.to_objective}), got slot {slot} ({name})"
-            )
+        else:
+            if session.to_slot is None:
+                raise RuntimeError(
+                    "measure the target focus (measure_parfocality_target) before this step"
+                )
+            if slot != session.to_slot:
+                raise RuntimeError(
+                    f"wrong objective for target step: expected slot {session.to_slot} "
+                    f"({session.to_objective}), got slot {slot} ({name}). "
+                    "Nothing was discarded — switch to the expected objective and "
+                    "run this cell again, or re-run the target focus cell to "
+                    "measure a different target objective."
+                )
     else:
         raise ValueError(f"unknown objective role {role!r}")
     print(f"{role.capitalize()} objective: slot {slot} — {name}")
@@ -475,7 +515,9 @@ def _print_step5_summary(session, summary: dict) -> None:
 #
 # Every upstream rerun in a multi-step pipeline must invalidate the old
 # report and compiled session calibration, then clear every downstream
-# step that depended on what the rerun changed.
+# step that depended on what the rerun changed. The measure steps call
+# these only AFTER the active objective has been verified, so a run with
+# the wrong lens refuses without destroying anything.
 
 
 def _invalidate_compiled_calibration(session: ObjectivePairSession) -> None:
@@ -571,6 +613,11 @@ def measure_parfocality_reference(
     *,
     z_positions_um: list[float] | None = None,
 ) -> ObjectivePairSession:
+    # Verify the lens before touching anything: an accidental run with the
+    # wrong objective must refuse loudly while leaving every earlier
+    # measurement intact, so the operator can just switch back and re-run.
+    _observe_objective_for_step(session, "reference")
+
     # A 2a rerun invalidates every downstream step: target parfocality
     # (its math anchors on focus_z_ref_um), parcentricity reference
     # (its image is acquired at focus_z_ref_um), and parcentricity
@@ -582,8 +629,6 @@ def measure_parfocality_reference(
     _invalidate_compiled_calibration(session)
     session.home_xy = None
     session.home_z = None
-
-    _observe_objective_for_step(session, "reference")
 
     try:
         from IPython.display import display
@@ -663,6 +708,13 @@ def measure_parfocality_target(
             "measure_parfocality_reference must run before measure_parfocality_target"
         )
 
+    # This step DEFINES the target lens (establish=True): whatever
+    # non-reference objective is active now becomes the target, even if a
+    # different one was recorded on an earlier run. The check runs before
+    # anything is discarded, so a run while still on the reference lens
+    # refuses without destroying data.
+    _observe_objective_for_step(session, "target", establish=True)
+
     # A 2b rerun changes translation_z_um (which 3b uses to park
     # z-wide before the target acquire), so 3b's outputs are stale.
     # 3a's ref_image is still valid -- home_xy and focus_z_ref_um are
@@ -672,8 +724,6 @@ def measure_parfocality_target(
     _clear_parfocality_target(session, wipe_disk=True)
     _clear_parcentricity_target(session)
     _invalidate_compiled_calibration(session)
-
-    _observe_objective_for_step(session, "target")
 
     try:
         from IPython.display import display
@@ -755,14 +805,16 @@ def measure_parcentricity_reference(
             "measure_parfocality_reference must run before measure_parcentricity_reference"
         )
 
+    # Verify the lens before touching anything: a run with the wrong
+    # objective refuses without discarding the previous measurement.
+    _observe_objective_for_step(session, "reference")
+
     # A 3a rerun replaces ref_image, against which 3b registers. The
     # previous 3b vote, translation_xy, and compiled calibration are all
     # stale.
     _clear_parcentricity_ref(session)
     _clear_parcentricity_target(session)
     _invalidate_compiled_calibration(session)
-
-    _observe_objective_for_step(session, "reference")
 
     move_xy_and_verify(session.client, *session.home_xy)
     # Park z-wide at the reference Brenner focus (measured in Step 2)
@@ -811,30 +863,17 @@ def measure_parcentricity_target_and_save(
             "measure_parfocality_target must run before measure_parcentricity_target_and_save"
         )
 
-    # Reset this step's outputs.
-    session.xy_post = None
-    session.target_image = None
-    session.corrected_target_image = None
-    session.motor_shift_xy_um = None
-    session.correction_xy_um = None
-    session.translation_xy_um = None
-    session.registration = None
-    session.config_written = False
-    session.failure_reason = None
-    session.raw_files.pop("target_xy", None)
-    session.raw_files.pop("target_xy_corrected", None)
-    session.exported_files.pop("target_xy", None)
-    session.exported_files.pop("target_xy_corrected", None)
-    shutil.rmtree(session.paths.data_dir / "target_xy", ignore_errors=True)
-    shutil.rmtree(session.paths.data_dir / "target_xy_corrected", ignore_errors=True)
-
-    # Unlink the stale report and compiled calibration BEFORE any driver call. 3b has nine
-    # raisable call sites between here and the verdict-mirror block;
-    # any of them firing on a rerun would otherwise leave the previous
-    # run's objective config adoptable (Section 15 invariant).
-    _invalidate_compiled_calibration(session)
-
+    # Verify the lens before touching anything: a run with the wrong
+    # objective refuses while the previous, still-valid result stays intact.
     _observe_objective_for_step(session, "target")
+
+    # Once re-measurement starts, unlink the stale report and compiled
+    # calibration BEFORE any further driver call. 3b has nine raisable call
+    # sites between here and the verdict-mirror block; any of them firing on
+    # a rerun would otherwise leave the previous run's objective config
+    # adoptable (Section 15 invariant).
+    _clear_parcentricity_target(session)
+    _invalidate_compiled_calibration(session)
 
     try:
         from IPython.display import display
