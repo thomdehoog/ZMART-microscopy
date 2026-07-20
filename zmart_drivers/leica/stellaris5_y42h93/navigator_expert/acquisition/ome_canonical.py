@@ -480,7 +480,7 @@ def _xy_pixel_sizes_from_job_settings(
 
 
 def _z_spacing_from_job_settings(settings: dict) -> float | None | object:
-    stack = _stack_from_job_settings(settings)
+    stack = _parsing.stack_from_settings(settings)
     if not stack:
         return _UNKNOWN
 
@@ -492,27 +492,6 @@ def _z_spacing_from_job_settings(settings: dict) -> float | None | object:
     if sections <= 1:
         return None
     return abs(end - begin) / float(sections - 1)
-
-
-def _stack_from_job_settings(settings: dict) -> dict | None:
-    stack = None
-    try:
-        normalized = _parsing.make_changeable_copy(settings)
-    except Exception:
-        normalized = None
-    if isinstance(normalized, dict) and isinstance(normalized.get("stack"), dict):
-        stack = normalized["stack"]
-
-    required = ("begin", "end", "sections")
-    if not stack or any(stack.get(k) is None for k in required):
-        raw_stack = settings.get("stack") if isinstance(settings, dict) else None
-        if isinstance(raw_stack, dict):
-            stack = {
-                "begin": raw_stack.get("begin"),
-                "end": raw_stack.get("end"),
-                "sections": raw_stack.get("sections"),
-            }
-    return stack
 
 
 def _add_physical(attrs: dict[str, str], axis: str, value_um: float | None) -> None:

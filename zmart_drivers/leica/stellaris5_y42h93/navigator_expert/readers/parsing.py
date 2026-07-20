@@ -159,6 +159,39 @@ def parse_tile_geometry(settings):
 _REQUIRED_SETTINGS_KEYS = ["zoom", "scanSpeed", "activeSettings"]
 
 
+def stack_from_settings(settings):
+    """The z-stack section of raw job settings, normalized — or None.
+
+    THE one stack parser: ``make_changeable_copy`` uses it for its
+    ``stack`` section, and OME metadata generation reads it directly (a
+    degraded settings dict can fail the full schema guard while its
+    stack is still perfectly usable). Returns None when the settings
+    carry no stack dict.
+    """
+    if not isinstance(settings, dict):
+        return None
+    stack_raw = settings.get("stack")
+    if not isinstance(stack_raw, dict):
+        return None
+    begin = _safe_float(stack_raw.get("begin"))
+    end = _safe_float(stack_raw.get("end"))
+    step_size = _safe_float(stack_raw.get("stepSize"))
+    size = _safe_float(stack_raw.get("size"))
+    sections = stack_raw.get("sections")  # number of z-planes
+    z_drive = stack_raw.get("mode")  # e.g. "z-galvo", "z-wide"
+    # Compute size from begin/end if not provided
+    if size is None and begin is not None and end is not None:
+        size = abs(end - begin)
+    return {
+        "begin": begin,
+        "end": end,
+        "stepSize": step_size,
+        "size": size,
+        "sections": sections,
+        "zDrive": z_drive,
+    }
+
+
 def make_changeable_copy(settings):
     """Transform raw job settings JSON into a flat, navigable dict.
 
@@ -231,36 +264,19 @@ def make_changeable_copy(settings):
     # Z-stack — only include if scan mode involves Z
     scan_mode = ch.get("scanMode", "")
     has_z = "z" in scan_mode.lower() if scan_mode else False
-    stack_raw = settings.get("stack")
 
-    if has_z or (stack_raw and isinstance(stack_raw, dict)):
-        if stack_raw and isinstance(stack_raw, dict):
-            begin = _safe_float(stack_raw.get("begin"))
-            end = _safe_float(stack_raw.get("end"))
-            step_size = _safe_float(stack_raw.get("stepSize"))
-            size = _safe_float(stack_raw.get("size"))
-            sections = stack_raw.get("sections")  # number of z-planes
-            z_drive = stack_raw.get("mode")  # e.g. "z-galvo", "z-wide"
-            # Compute size from begin/end if not provided
-            if size is None and begin is not None and end is not None:
-                size = abs(end - begin)
-            ch["stack"] = {
-                "begin": begin,
-                "end": end,
-                "stepSize": step_size,
-                "size": size,
-                "sections": sections,
-                "zDrive": z_drive,
-            }
-        else:
-            ch["stack"] = {
-                "begin": None,
-                "end": None,
-                "stepSize": None,
-                "size": None,
-                "sections": None,
-                "zDrive": None,
-            }
+    stack = stack_from_settings(settings)
+    if stack is not None:
+        ch["stack"] = stack
+    elif has_z:
+        ch["stack"] = {
+            "begin": None,
+            "end": None,
+            "stepSize": None,
+            "size": None,
+            "sections": None,
+            "zDrive": None,
+        }
 
     # Z position (z-galvo / z-wide readback)
     zp_raw = settings.get("zPosition")

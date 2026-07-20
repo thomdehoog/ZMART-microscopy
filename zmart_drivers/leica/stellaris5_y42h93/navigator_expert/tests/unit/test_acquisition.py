@@ -279,23 +279,18 @@ class TestCanonicalPhysicalMetadataAuthority:
         assert out.physical_size_y_um == pytest.approx(2.28)
         assert out.physical_size_z_um == pytest.approx(2.41)
 
-    def test_z_spacing_uses_raw_stack_when_normalized_stack_is_partial(self):
+    def test_z_spacing_survives_schema_degraded_settings(self):
+        """The stack parser is independent of the full-schema parse: a
+        settings dict missing the required top-level keys (which would
+        fail make_changeable_copy's schema guard) still yields z spacing
+        as long as its stack section is usable."""
         metadata = replace(_metadata(), physical_size_z_um=1.0)
-        settings = _job_settings(
-            stack={"begin": 95.0, "end": 105.0, "sections": 3},
-        )
+        degraded = {"stack": {"begin": 95.0, "end": 105.0, "sections": 3}}
 
-        with (
-            patch.object(
-                readers_router,
-                "get_job_settings",
-                return_value=settings,
-            ),
-            patch.object(
-                ome_canonical._parsing,
-                "make_changeable_copy",
-                return_value={"stack": {"begin": 95.0, "end": None, "sections": None}},
-            ),
+        with patch.object(
+            readers_router,
+            "get_job_settings",
+            return_value=degraded,
         ):
             out = ome_canonical.metadata_with_job_physical_sizes(
                 metadata,
