@@ -95,6 +95,21 @@ def _legacy_v2_config(orientation: Orientation) -> dict:
     }
 
 
+def test_every_legacy_v2_snapshot_loads_unchanged(tmp_path):
+    """Migration guarantee: adopting schema 3 never orphans a measured rig.
+
+    A rig whose ProgramData snapshot was written by the schema-2 driver must
+    keep working after an upgrade, without re-measuring. Old files are only
+    rewritten as schema 3 when the operator next runs set_orientation.
+    """
+    for deg in (0, 90, 180, 270):
+        for mirrored in (False, True):
+            orientation = Orientation(rotate_deg=deg, mirrored=mirrored)
+            p = tmp_path / "orientation.json"
+            p.write_text(json.dumps(_legacy_v2_config(orientation)), encoding="utf-8")
+            assert orient.load_orientation(p) == orientation
+
+
 def test_legacy_complete_schema_accepts_snapshot_without_reflection_axis(tmp_path):
     orientation = Orientation(rotate_deg=180, mirrored=True)
     payload = _legacy_v2_config(orientation)
