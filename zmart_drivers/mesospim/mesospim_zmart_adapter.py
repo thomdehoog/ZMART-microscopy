@@ -47,7 +47,7 @@ from .calibration import machine as _machine
 from .config.profiles import ACQUISITION, HARDWARE
 from .connection.session import close as _close
 from .connection.session import connect as _connect
-from .motion import limits as _limits
+from .limits import checks as _limits
 from .readers import readers as _readers
 
 log = logging.getLogger(__name__)
@@ -93,7 +93,7 @@ class MesospimHandle:
     # Machine profile: where this instrument's machine-local config lives
     # (stage/function limits, persisted origin). Set at connect.
     machine: Any = None
-    # Function-keyed limits for this session (shared.limits.FunctionLimits),
+    # Function-keyed limits for this session (mesospim.limits.FunctionLimits),
     # loaded at connect; None when the file could not be loaded — every
     # mutating op then refuses (fail-closed), read-only use still works.
     function_limits: Any | None = None
@@ -177,7 +177,7 @@ def connect(connection: dict) -> MesospimHandle:
 
 
 def _load_function_limits(machine: Any, stage_cfg: dict | None) -> Any | None:
-    """Load the session's function-keyed limits (``shared.limits``), fail-closed.
+    """Load the session's function-keyed limits (:mod:`mesospim.limits.function_limits`), fail-closed.
 
     Resolves ``function_limits.json`` through the machine profile -- the machine
     copy, else the driver-bundled default -- and overlays the machine's physical
@@ -190,7 +190,7 @@ def _load_function_limits(machine: Any, stage_cfg: dict | None) -> Any | None:
     controller use still works.
     """
     try:
-        from shared import limits as _shared_limits  # repo root on sys.path
+        from .limits import function_limits as _shared_limits
 
         path, is_fallback = machine.resolve(_machine.FUNCTION_LIMITS_FILENAME)
         overrides = None
@@ -218,7 +218,7 @@ def _check_limits(handle: MesospimHandle, function: str, values: dict) -> None:
     """Gate one mutating op on the session's function-keyed limits.
 
     Fail-closed: with no limits loaded the op refuses outright. An
-    out-of-bounds value raises ``shared.limits.LimitViolation`` (a
+    out-of-bounds value raises ``mesospim.limits.LimitViolation`` (a
     RuntimeError) naming the value, the constraint, and the governing file.
     """
     if handle.function_limits is None:

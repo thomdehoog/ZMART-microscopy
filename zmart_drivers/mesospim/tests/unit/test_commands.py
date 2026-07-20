@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from mesospim import commands as cmd
-from mesospim.motion import limits
+from mesospim.limits import checks as limits
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +56,7 @@ def test_move_relative_respects_limits(client):
 def test_move_relative_baseline_failure_returns_envelope(client, monkeypatch):
     # A dropped link during the pre-fire baseline read must come back as the
     # standard failure envelope, like every sibling -- not a raw exception.
-    from mesospim.motion import movement
+    from mesospim.commands import movement
 
     def broken(_client):
         raise ConnectionError("link down")

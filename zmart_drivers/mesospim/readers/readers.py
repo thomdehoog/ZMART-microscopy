@@ -26,9 +26,25 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from ..utils import AXES, _safe_float
+from ..config.axes import AXES
 
 log = logging.getLogger(__name__)
+
+
+def _safe_float(val, default=None):
+    """Convert val to float. Returns default on failure or None input.
+
+    Server replies are parsed text, so a field can arrive as a number, a
+    numeric string, or garbage; every reader funnels values through this one
+    forgiving conversion. The movement and acquisition modules import it from
+    here for the same reason.
+    """
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
 
 
 @dataclass(frozen=True)

@@ -11,7 +11,7 @@ follows the three-phase pattern shared across the driver:
         then call ``confirm_and_fire``.
     Phase C -- the standard result envelope is returned as-is.
 
-Sibling: stage movement lives in :mod:`mesospim.motion.movement`; acquisition
+Sibling: stage movement lives in :mod:`mesospim.commands.movement`; acquisition
 (snap / run list) lives in :mod:`mesospim.acquisition`. These wrappers cover
 instrument state, not motion or capture.
 
@@ -27,7 +27,7 @@ from functools import partial
 
 from ..config.profiles import SET_STATE
 from ..readers.readers import _reading_value_after, get_state
-from ..utils import _fail
+from .envelope import _fail
 from .dispatch import confirm_and_fire
 
 log = logging.getLogger(__name__)
