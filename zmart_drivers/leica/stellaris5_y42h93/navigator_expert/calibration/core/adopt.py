@@ -2,12 +2,16 @@
 
 Each acquisition owns one report. The session-level ``calibration.json`` is a
 derived file rebuilt from the trusted reports, so there is no second staging
-payload that can disagree with the report.
+payload that can disagree with the report. When several acquisitions in one
+session measured the same target objective, only the newest report (by its
+``created_at`` timestamp) is applied — re-measuring a pair supersedes the
+earlier measurement no matter what the acquisition folders are named.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +19,8 @@ from typing import Any
 
 from . import model as calibration_model
 from .common import STAGING_SCHEMA_VERSION
+
+log = logging.getLogger(__name__)
 
 _REPORT_NAME = "objective_pair_report.json"
 
@@ -133,7 +139,34 @@ def _trusted_reports(session: Any) -> list[tuple[Path, dict[str, Any]]]:
             "all acquisitions in one calibration session must use the same "
             f"reference slot; found {sorted(reference_slots)}"
         )
-    return loaded
+
+    # One measurement per target objective: the NEWEST trusted report wins,
+    # judged by its created_at timestamp — never by what the acquisition
+    # folder happened to be named. Without this, re-measuring a pair under
+    # a new acquisition name left both reports in play and the
+    # alphabetically-last folder silently won.
+    newest: dict[int, tuple[Path, dict[str, Any]]] = {}
+    for path, report in loaded:
+        try:
+            to_slot = int(report["to_slot"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"acquisition report has no valid target slot: {path}") from exc
+        kept = newest.get(to_slot)
+        if kept is None:
+            newest[to_slot] = (path, report)
+            continue
+        if str(report.get("created_at") or "") > str(kept[1].get("created_at") or ""):
+            log.info(
+                "calibration for slot %d: %s supersedes older measurement %s",
+                to_slot, path.parent.parent.name, kept[0].parent.parent.name,
+            )
+            newest[to_slot] = (path, report)
+        else:
+            log.info(
+                "calibration for slot %d: keeping %s; %s is older and ignored",
+                to_slot, kept[0].parent.parent.name, path.parent.parent.name,
+            )
+    return [newest[slot] for slot in sorted(newest)]
 
 
 def compile_session_calibration(

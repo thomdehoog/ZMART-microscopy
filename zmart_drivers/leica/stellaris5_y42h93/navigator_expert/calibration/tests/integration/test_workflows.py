@@ -3019,3 +3019,51 @@ def test_objective_pair_brenner_peak_at_stack_edge_raises(
     )
     with pytest.raises(RuntimeError, match="stack edge"):
         wf_obj.measure_parfocality_reference(session)
+
+
+def test_remeasured_pair_newest_report_wins_regardless_of_folder_name(sessions_root, machine):
+    """Re-measuring a pair under a NEW acquisition name must supersede the
+    old measurement by its created_at timestamp — never by which folder
+    name sorts last. The folder names here are adversarial: the older
+    measurement's folder sorts alphabetically last, so path order would
+    silently pick the wrong one."""
+    session_id = "remeasure"
+    reports = (
+        # (folder, created_at, translation_xy, translation_z)
+        ("a-second-try", "2026-07-19T12:00:00+00:00", [99.0, -88.0], 7.5),  # newest
+        ("z-first-try", "2026-07-01T09:00:00+00:00", [12.0, 17.0], 3.0),  # older
+    )
+    paths = None
+    for acquisition_name, created_at, xy, z in reports:
+        paths = cm.make_session_paths(
+            session_id,
+            sessions_root,
+            acquisition_name=acquisition_name,
+        )
+        cm.write_json_atomic(
+            paths.reports_dir / "objective_pair_report.json",
+            {
+                "schema_version": cm.STAGING_SCHEMA_VERSION,
+                "kind": "objective_translation_report",
+                "session_id": session_id,
+                "acquisition_name": acquisition_name,
+                "created_at": created_at,
+                "config_written": True,
+                "from_slot": 1,
+                "to_slot": 2,
+                "from_objective": "10x",
+                "to_objective": "20x",
+                "translation_xy_um": xy,
+                "translation_z_um": z,
+            },
+        )
+
+    session = SimpleNamespace(
+        session_id=session_id,
+        paths=paths,
+        calibration_path=machine.bundled_default_path("calibration.json"),
+        hardware_objectives={1: "10x", 2: "20x"},
+    )
+    compiled = wf_adopt.compile_session_calibration(session)
+    config = json.loads(compiled.read_text(encoding="utf-8"))
+    assert config["objectives"]["2"]["translation_um"] == [99.0, -88.0, 7.5]
