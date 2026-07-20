@@ -288,3 +288,50 @@ def test_swap_compensation_keeps_the_viewed_point():
         assert sim.viewed_point() == pytest.approx(viewed_before)
     finally:
         session_state.uninstall(client)
+
+
+def test_zero_z_galvo_procedure_preserves_frame_z():
+    """The new procedure judged by ground truth: after zero_z_galvo the
+    galvo is at 0, the frame z is unchanged (pure re-split of the focus
+    sum), and the transferred amount is reported."""
+    sim = SimScope(**ORIGIN_STATE, slot=1)
+    h = _handle_at(sim)
+    sim.z_galvo = 42.0  # someone parked the galvo off-zero
+
+    with _running(sim):
+        z_before = adapter.get_xyz(h)["z"]["value"]
+        result = adapter.run_procedure(h, {"name": "zero_z_galvo"})
+        z_after = adapter.get_xyz(h)["z"]["value"]
+
+    assert sim.z_galvo == 0.0
+    assert sim.z_wide == pytest.approx(ORIGIN_STATE["z_wide"] + 42.0)
+    assert z_after == pytest.approx(z_before)
+    assert result["transferred_um"] == pytest.approx(42.0)
+
+
+def test_zero_z_galvo_is_a_noop_when_already_zero():
+    sim = SimScope(**ORIGIN_STATE, slot=1)
+    h = _handle_at(sim)
+    before = sim.state()
+    with _running(sim):
+        result = adapter.run_procedure(h, {"name": "zero_z_galvo"})
+    assert sim.state() == before
+    assert result["transferred_um"] == 0.0
+
+
+def test_zero_z_galvo_refused_first_leg_moves_nothing():
+    """Fail-safe leg order: if z-wide refuses to absorb the offset (e.g.
+    a limit), the galvo must not have been touched — the procedure aborts
+    with the hardware exactly as it found it."""
+    sim = SimScope(**ORIGIN_STATE, slot=1)
+    h = _handle_at(sim)
+    sim.z_galvo = 42.0
+    before = sim.state()
+
+    def refusing_move_z(client, job, z, unit="um", z_mode="galvo", **_k):
+        return {"success": False, "message": "z_wide_um outside range"}
+
+    with _running(sim), patch.object(adapter._commands, "move_z", refusing_move_z):
+        with pytest.raises(RuntimeError, match="zero_z_galvo"):
+            adapter.run_procedure(h, {"name": "zero_z_galvo"})
+    assert sim.state() == before
