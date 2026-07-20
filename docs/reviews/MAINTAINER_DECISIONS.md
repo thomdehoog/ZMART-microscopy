@@ -124,3 +124,37 @@ fallback until an explicit calibration adopt.
 - Relevant findings: AS-01, LM-02, OP-01-adjacent seam checks, CF-02/CF-03 (superseded
   for the idle wait specifically by the no-deadline decision above; still applicable
   to any other unbounded wait that is not gating a live acquisition).
+
+## 8. Objective compensation is explicit and session-scoped (decided 2026-07-19)
+
+Keeping the sample point across a lens swap stays in the command layer (below
+the adapter, same reasoning as §7), but the behavior is **visible in the
+signature, never hidden**: `set_objective` and `select_job` take
+`compensate: bool | None = None`.
+
+- `None` (default) follows the session's connect-time calibration policy —
+  compensate when calibration was loaded; stay bare when the session is
+  unarmed or connected with `load_calibration=False`. Connect is the single
+  place session policy is decided, matching limits and orientation.
+- `True` requires compensation: it refuses up front when the session carries
+  no calibration, instead of proceeding bare.
+- `False` asks for a bare swap even in a calibrated session — the explicit
+  escape hatch the calibration-measurement workflow uses in its own words.
+
+Two distinct "no calibration" states, deliberately different: a session that
+**declined** calibration (`load_calibration=False` → translations `None`)
+swaps bare — it declared itself uncalibrated, and refusing anyway would be
+paternalism. A session that **wanted** calibration but got none (unreadable
+file, no measured pairs → translations `{}`) refuses swaps fail-closed —
+that session believes it is protected, so silent bare swaps would betray it.
+Cross-objective *frame moves* refuse in both, because that math genuinely
+cannot be done without translations.
+
+The delta math and the missing-pair policy are single-sourced in
+`calibration/core/model.py::translation_delta_um` (sign convention:
+`T[to] − T[from]`), shared by the driver's swap-time compensation
+(`commands/objective_shift.py`) and the adapter's per-move frame mapping
+(`zmart_adapter._objective_delta_um`) — the two layers keep their two
+distinct moments (stationary correctness at swap time; coordinate mapping at
+move time) but can no longer drift apart in sign or policy. A property test
+pins that the two deltas agree for the same lens pair.

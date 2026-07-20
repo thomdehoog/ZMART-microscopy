@@ -1,0 +1,195 @@
+# The React widgets' wire protocol
+
+This file documents how the browser half and the Python half of each React
+widget talk to each other. It exists so the widgets can one day be embedded
+outside Jupyter (for example in a website) with as little friction as
+possible: everything a front end needs is listed here, and nothing else is
+part of the contract.
+
+## The model in one paragraph
+
+Each widget is an [anywidget](https://anywidget.dev) — a Python object whose
+state lives in **traits** (named values kept in sync between Python and the
+browser) plus **messages** (small one-off packets either side sends). The
+browser only ever *asks* for things; Python alone drives the microscope,
+and every stage move still passes the controller session's safety gating.
+Nothing the browser sends — a message or a trait write — is trusted:
+Python validates counts and indices, recomputes gating decisions from the
+raw inputs at the moment they matter, and treats malformed values as
+absent rather than raising mid-update.
+
+## The React runtime is vendored
+
+The official MIT-licensed production builds of react and react-dom 18.3.1
+ship inside the Python package (`vendor/`) and are evaluated into a private
+scope in the browser (never onto the page's own `window`, which runs a
+different React). No CDN, no internet requirement, no third-party code
+fetched into a page whose buttons drive a real microscope. A website build
+can keep this or swap `REACT_PRELUDE` in `_support.py` for its own bundle —
+that is the only place the runtime is wired.
+
+## Streaming: messages for new items, buffers for pixels
+
+A trait update always retransmits the whole value. Appending tile 25 to a
+trait list would resend tiles 1–24 as well — megabytes per update, growing
+with the square of the count, on the same channel the operator watches.
+So streamed lists follow one rule everywhere:
+
+- each **new** item is sent once, as a custom message
+  `{"type": <kind>, "index": <position>, "entry": <item>, "buffer_keys": [...]}`
+  whose image pixels ride as **binary buffers** (raw PNG bytes, in
+  `buffer_keys` order — about a quarter smaller than base64 and no
+  encode/decode work); the browser turns each buffer into an object URL
+  and revokes it immediately when that entry is replaced, reset, or unmounted;
+- the matching trait holds the full **metadata** snapshot with empty image
+  fields, refreshed when a view syncs and when a run commits — so mid-run
+  it can lag the messages. When a browser view sends `{"type": "sync"}`
+  (every view does on mount), Python sends `<kind>:reset` followed by one
+  bounded binary message per item. Catch-up therefore never creates one
+  giant base64 JSON trait;
+- freshly streamed overview tiles are kept under 1.5 million pixels;
+  every whole-list replay — a catch-up `sync`, a channel edit's
+  recomposite, a `reload()` — and all gallery images use a tighter
+  250,000-pixel display budget, so complete 25-tile / 10-row replays stay
+  bounded. Two honest trade-offs follow: a replay is broadcast to every
+  view of the model, so a tab that was watching full-budget live tiles
+  sees them replaced by the smaller display copies as soon as any view
+  syncs or a channel is edited; and the map is therefore a *display*,
+  while hover previews cut their crops from the full-resolution files on
+  disk.
+
+A front end renders `trait ∪ streamed messages`, clears its local list on
+`<kind>:reset`, and replaces entries by index. Object URLs are owned per
+entry/field and revoked immediately when that entry is replaced. That is
+exactly what the shared `useStream` hook in `_support.py` does.
+
+## Common to every widget
+
+| Name | Kind | Direction | Meaning |
+|---|---|---|---|
+| `status` | trait (str) | Python → browser | One plain-language line for the operator. Errors land here too (`"failed: ..."`). |
+| `busy` | trait (bool) | Python → browser | True while a hardware run is in progress; buttons disable on it. Healed if the page rewrites it: the run-overlap interlock and the cancel path read a Python-private flag, so a script can neither fake a run nor hide one. |
+| `read_only` | trait (bool) | Python → browser | Display mirror of a model-wide freeze (buttons hide), healed in BOTH directions: a forged `false` on a frozen model and a forged `true` on a live one are both restored. The LOCK is Python-private state set by `make_read_only()` — it applies to every tab showing this widget model, refuses hardware/cancel/curation edits, and restores browser-writable input traits. Display-only reads (a hover preview) still work. It is not a per-tab permission system. |
+| `{"type": "sync"}` | message | browser → Python | "I just mounted — reset and replay the bounded binary snapshot." |
+| `{"type": "cancel"}` | message | browser → Python | Ask a running loop to stop before its next site. Cooperative and clean: the current site finishes, nothing is committed, no further move fires (`RunCancelled`). Honesty note: under classic Jupyter the kernel may only process the click when it next comes up for air; a website host that handles messages concurrently gets immediate cancellation through this same path. When no run is active, the status line says so. |
+
+A word on trust: "Python → browser" traits are *display*. The ones that
+could mislead a hardware decision if forged by page code — `busy`,
+`read_only`, `verdicts`, `gated_mask`, `picked_indices`,
+`acquired_indices` — are healed back from Python-private truth the moment
+they are rewritten. The purely cosmetic ones (`status`, `marks`, hover
+previews, report panels) are best-effort display and are not
+authenticated; nothing in Python ever reads them back.
+
+Button-triggered runs are debounced: a request arriving within 2 seconds of
+the previous run's end is ignored (clicks queue in the browser while Python
+is busy, and would otherwise start a second hardware run the moment the
+first finishes). Scripted runs (`gallery.acquire(...)`, `picker.measure()`)
+share the same busy flag, read-only lock, and debounce bookkeeping. A
+*refused* run (empty gate, no points) never arms the debounce.
+
+## OverviewViewerReact
+
+| Name | Kind | Direction | Meaning |
+|---|---|---|---|
+| `tiles` | trait (list) | Python → browser | Metadata snapshot: `{src: "", x0, y0, w, h, label}`, positions and sizes in frame micrometres. Pixels arrive in bounded binary messages. |
+| `{"type": "tile:reset"}` | message | Python → browser | Clear local streamed tiles before a catch-up replay. |
+| `{"type": "tile", index, entry}` + buffer | message | Python → browser | One freshly acquired tile (PNG in the buffer). |
+| `channels` | trait (list) | both ways | Per-channel display state: `{color, palette, visible, lo, hi}`. The browser edits it; Python recomposites every tile PNG in response (malformed entries fall back to defaults). |
+| `marks` | trait (list) | Python → browser | Discovered cells overlaid on the map: `{x, y, gated}`. Kept live against the linked explorer's gate (`show_targets(targets, explorer)`). |
+| `{"type": "mark", index}` | message | browser → Python | Ask for a marked cell's crop; answered via the `mark_hover` trait (cached, rendered with the map's own display window). Cross-highlights the cell's dot in the linked explorer. |
+| `{"type": "pick", index}` | message | browser → Python | Clicking a ring picks that cell — forwarded to the linked explorer's pick set. |
+
+Marks carry `picked` / `acquired` flags (white outline / green fill), the
+map draws an adaptive scale bar, and `expect_tiles(n)` before a scan lets
+the status line report progress and an estimated time left.
+
+Python-side extras (not wire protocol, but part of the operator surface):
+`save_display(path)` / `load_display(path)` persist the channel settings
+across kernel restarts.
+
+## FocusPickerReact
+
+| Name | Kind | Direction | Meaning |
+|---|---|---|---|
+| `points` | trait (list) | both ways | The picked focus points `{x, y}` (frame µm). Editing them invalidates a fitted surface. |
+| `squares` | trait (list) | Python → browser | Overview tile markers `{x, y, fill}`; `fill` carries the fitted-z tint. |
+| `measured` | trait (list) | Python → browser | Autofocus results so far, `{x_um, y_um, z_um, residual_um}` — the residual is how far the point sits from the fitted surface (one large residual = one bad autofocus bending the fit; the status line names the worst). |
+| `heatmap` | trait (dict) | Python → browser | The fitted surface as `{src, x0, y0, w, h}`. |
+| `{"type": "measure"}` | message | browser → Python | Autofocus every point (cached results reused). |
+| `{"type": "measure", "fresh": true}` | message | browser → Python | Forget the session's cache first — re-drive every point. |
+
+## TargetExplorerReact
+
+| Name | Kind | Direction | Meaning |
+|---|---|---|---|
+| `features`, `x_feature`, `y_feature` | traits | both ways | The plottable features and the current axes. Switching an axis clears the gate. |
+| `dots` | trait (list) | Python → browser | `{fx, fy}` per target in the current feature space. |
+| `hist` | trait (dict) | Python → browser | 20-bin distribution backdrops for the current axes (`{"x": [...], "y": [...]}`, peak-normalized) so thresholds are set against the data, not blind. |
+| `gate` | trait (dict) | browser → Python | The operator's intent: `{x: [lo, hi], y: [lo, hi], lasso: [[x, y], ...]}` — any piece may be absent. Thresholds AND lasso gate together. |
+| `gated_mask` | trait (list) | Python → browser | **Display output only.** Which dots pass the gate. Python recomputes the real decision from `gate` whenever `explorer.gated` is read, and heals this trait if anything scribbled over it. |
+| `{"type": "hover", index}` | message | browser → Python | Ask for a cell's crop; answered via the `hover` trait (crops are cached, rendered with the linked viewer's display window so a cell looks the same everywhere). With a linked viewer, hover also cross-highlights the same cell on the map. |
+| `picked_indices` | trait (list) | Python → browser | **Display output only.** The cells picked by hand for targeted acquisition (white outline). The pick set lives in Python; writing this trait from the page changes nothing the microscope does. |
+| `acquired_indices` | trait (list) | Python → browser | Cells already acquired this session (drawn filled), so nothing is imaged twice by accident. |
+| `{"type": "pick", index}` | message | browser → Python | Toggle one cell in/out of the pick set (validated; also accepted by the overview viewer, which forwards it here). |
+| `{"type": "clear_picks"}` | message | browser → Python | Forget every pick. |
+
+Python-side extras: `save_gate(path)` / `load_gate(path)` persist the whole
+gate (axes + thresholds + lasso) — a repeat experiment's thresholds, one
+file away; `toggle_pick(i)` / `clear_picks()` / `picked_targets` are the
+scriptable pick surface, and `note_acquired(targets)` is how the gallery
+reports a committed run back.
+
+## AcquisitionGalleryReact
+
+| Name | Kind | Direction | Meaning |
+|---|---|---|---|
+| `rows` | trait (list) | Python → browser | Metadata snapshot of acquired pairs; `stream_index` is the authoritative acquisition/verdict index, while `low_src`/`high_src` are empty until their bounded binary messages arrive. |
+| `{"type": "row:reset"}` | message | Python → browser | Clear local streamed rows before a catch-up replay. |
+| `{"type": "row", index, entry}` + 2 buffers | message | Python → browser | One freshly acquired pair (both PNGs as buffers). `entry.stream_index == index`; a view must use it rather than a compacted sparse-array position for verdict actions. |
+| `gate_count`, `default_count` | traits | Python → browser | How many targets pass the gate; the count box's starting value. |
+| `verdicts` | trait (list) | Python → browser | Per-row curation: `"good"` / `"bad"` / null — the operator's QC record. |
+| `selected_count` | trait (int) | Python → browser | How many cells are hand-picked in the linked explorer (drives the "Acquire selected" button). |
+| `{"type": "acquire", count}` | message | browser → Python | Acquire `count` random gated targets. The count is validated in Python (a positive whole number) before anything moves. |
+| `{"type": "acquire_selected"}` | message | browser → Python | Acquire exactly the hand-picked cells. Every pick is re-validated against the CURRENT gate in Python — a pick the gate excludes refuses the whole run loudly. Same busy/debounce/read-only guards as every hardware path. |
+| `{"type": "verdict", index, value}` | message | browser → Python | Set one row's verdict (validated; out-of-range or unknown values are ignored). |
+
+Rows carry `width_um` so the browser can draw a scale bar on each image;
+clicking a row opens it enlarged (Esc closes); mid-run the status line
+includes an estimated time left, computed from the sites finished so far
+(and silent when there is no honest basis for an estimate). On commit the
+gallery calls the explorer's `note_acquired`, which fills the acquired
+cells in on both figures and releases their picks.
+
+`picked` / `records` (plain Python attributes, not traits) commit only when
+the whole run succeeds, and starting a new run clears them — and the
+verdicts — first: a failed re-run can never leave the previous run posing
+as "the result". `save_curation(root)` writes the verdicts to
+`curation.json` in the run folder.
+
+## RunStatusReact
+
+| Name | Kind | Direction | Meaning |
+|---|---|---|---|
+| `rows` | trait (list) | Python → browser | The checklist: `{label, state: "ok"|"todo"|"warn", detail}` per step. |
+
+Built by `refresh(globals())` from the notebook's own variables; it never
+touches hardware. (The matplotlib edition prints the same rows via
+`workflow.print_run_status(globals())`.)
+
+## Embedding outside Jupyter, later
+
+Three things to know when the time comes:
+
+1. anywidget models speak the Jupyter widgets comm protocol; hosts exist
+   for plain web pages (`@anywidget/...` front-end packages and the
+   ipywidgets HTML manager) — the traits/messages above are the whole
+   surface a host must carry, including binary buffers on custom messages.
+2. The React runtime is already vendored and page-isolated; a website
+   build may keep it as-is or swap `REACT_PRELUDE` in `_support.py` for
+   its own bundle — nothing else changes.
+3. The image mathematics (compositing, cropping, pairing) lives in the
+   matplotlib widget modules and is imported by the Python side here —
+   a web front end never re-implements it; it only displays the PNGs it
+   is handed. A host that processes messages concurrently also gets
+   working mid-run cancellation for free (see the `cancel` message).

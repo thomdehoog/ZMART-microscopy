@@ -8,15 +8,16 @@
 # Install into a Python 3.10-3.12 env:
 #     python -m pip install -r requirements.txt
 #
-# Test/lint tools are NOT here -- see
-# zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt.
+# Test/lint/browser tools are NOT here -- install root requirements-dev.txt for
+# the complete pip-based CI environment.
 
 # --- compute core (registration, focusing, image I/O, calibration) ---
 numpy>=1.24
 scipy>=1.10
-scikit-image>=0.22      # registration: ORB, RANSAC, phase_cross_correlation
+scikit-image>=0.22,<0.26 # registration: ORB, RANSAC, phase_cross_correlation
 opencv-python>=4.8      # registration: cv2 feature matching
 tifffile>=2024.1        # read/write OME-TIFF image data
+pillow>=10              # PNG/image encoding used by reports and widgets
 ome-types>=0.5          # OME-XML model: validates the driver's OME-TIFF output
 lxml>=4.9               # ome-types schema-validation backend (validate=True)
 
@@ -25,6 +26,9 @@ lxml>=4.9               # ome-types schema-validation backend (validate=True)
 # only the bridge itself is pip-installable.
 pythonnet>=3.0
 
-# Optional: diagnostic plots / visualization (lazy-imported; not required
-# for API / registration / focusing). Uncomment to enable the plot paths.
-# matplotlib>=3.7
+# Operator notebook and interactive target-acquisition widgets.
+matplotlib>=3.7
+ipympl>=0.9
+# React-based notebook widgets (zmart_microscopy_v4_react.ipynb).
+anywidget>=0.9
+traitlets>=5.9

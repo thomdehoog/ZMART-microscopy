@@ -6,15 +6,14 @@ Owns:
 - Job geometry parsing + non-square pixel rejection (``ImageGeometry``)
 - Geometry-mismatch validator
 - Move helpers that verify readback within tolerance
-- Frame-acquire helper that writes raw TIFFs into the session
+- Acquisition helpers that write canonical OME-TIFFs into the session
 - Atomic JSON write + ISO timestamp
 - Minimal magenta/green overlay and Brenner-curve plot helpers
 
 Path-base convention (used by every workflow's save / save_and_visualize):
 
-- Report image paths under ``images:`` and ``figures:`` stay
-  session-root-relative (e.g. ``"data/<kind>/home.tif"``). A report JSON
-  already carries the session_id, so the prefix would be redundant.
+- Report image paths stay acquisition-relative (for example,
+  ``"data/reference/calibration-frame/<plane>.ome.tiff"``).
 - Summary dicts returned to the notebook and adoption return paths use
   absolute strings; ``sessions_root`` lives outside the package tree so
   there is no meaningful package-relative form.
@@ -33,7 +32,10 @@ import numpy as np
 import tifffile
 
 import navigator_expert as drv
-from shared.output_layout import Naming, run_hash
+
+from ... import orientation as _orientation
+from ...acquisition.naming import Naming, run_hash
+from ...commands import routines as _movement
 
 # matplotlib is imported lazily inside the plot helpers so test imports
 # (and headless environments) do not pull in a display backend on import.
@@ -50,10 +52,10 @@ MIN_FOCUS_STACK_SECTIONS: int = 5
 
 @dataclass(frozen=True)
 class SessionPaths:
+    session_root: Path
     session_dir: Path
     configs_dir: Path
     reports_dir: Path
-    notebooks_dir: Path
     data_dir: Path
 
 
@@ -69,36 +71,29 @@ class ImageGeometry:
 # -- Path / naming helpers ---------------------------------------------
 
 
-def slug(value: str) -> str:
-    """Filesystem-safe objective label.
-
-    '10x' -> '10x', '100x oil' -> '100x_oil', '0.5x' -> '0p5x'.
-    """
-    return value.strip().replace(" ", "_").replace("/", "_").replace("\\", "_").replace(".", "p")
-
-
-def objective_config_name(from_objective: str, to_objective: str) -> str:
-    return f"objective_{slug(from_objective)}_to_{slug(to_objective)}.json"
-
-
 def make_session_paths(
     session_id: str,
-    kind: str,
     sessions_root: str | Path,
+    *,
+    acquisition_name: str | None = None,
 ) -> SessionPaths:
     # absolute(), not resolve(): mapped-drive letters and symlinks stay
     # as the operator spelled them. resolve() once turned Z:\ into a UNC
     # path on the rig and broke acquisition writes.
     root = Path(sessions_root).absolute()
-    session_dir = root / session_id
+    session_root = root / session_id
+    session_dir = session_root if acquisition_name is None else session_root / acquisition_name
     paths = SessionPaths(
+        session_root=session_root,
         session_dir=session_dir,
         configs_dir=session_dir / "configs",
         reports_dir=session_dir / "reports",
-        notebooks_dir=session_dir / "notebooks",
-        data_dir=session_dir / "data" / kind,
+        data_dir=session_dir / "data",
     )
-    for p in (paths.configs_dir, paths.reports_dir, paths.notebooks_dir, paths.data_dir):
+    directories = [paths.reports_dir, paths.data_dir]
+    if acquisition_name is None:
+        directories.append(paths.configs_dir)
+    for p in directories:
         try:
             p.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -204,23 +199,64 @@ def move_zwide_and_verify(
     result = drv.move_z(client, job_name, z_um, unit="um", z_mode="zwide", tolerance=tolerance_um)
     if not result or not result.get("success"):
         raise RuntimeError(f"move_z zwide failed: {result}")
-    actual = drv.read_zwide_um(client, job_name, mode="api")
-    if actual is None:
-        raise RuntimeError(f"z-wide readback unavailable for job '{job_name}'")
-    if abs(actual - z_um) > tolerance_um:
-        raise RuntimeError(f"z-wide readback outside tolerance: requested {z_um}, got {actual}")
+    if result.get("confirmed") is not True:
+        raise RuntimeError(f"move_z zwide remained unconfirmed: {result}")
 
 
-def zero_z_galvo(client: Any, job_name: str) -> None:
-    result = drv.move_z(client, job_name, 0.0, unit="um", z_mode="galvo")
-    if not result or not result.get("success"):
-        raise RuntimeError(f"move_z galvo zero failed: {result}")
+def read_selected_job_name(client: Any) -> str:
+    """Return the active Navigator Expert job name."""
+    selected = drv.get_selected_job(client, mode="api") or {}
+    job_name = str(selected.get("Name") or "").strip()
+    if not job_name:
+        raise RuntimeError("No Navigator Expert job is selected in LAS X.")
+    return job_name
+
+
+def read_active_objective(
+    client: Any,
+    job_name: str,
+    known_names: dict[int, str] | None = None,
+) -> tuple[int, str]:
+    """Read the selected job's objective slot and name, changing nothing.
+
+    Verifies the operator kept ``job_name`` selected (the calibration
+    notebooks ask for the objective to be the only thing that changes
+    between steps), then returns ``(slot, name)`` for the objective the
+    microscope reports as active. ``known_names`` supplies a fallback
+    name per slot for hardware records that omit one.
+    """
+    selected = drv.get_selected_job(client, mode="api") or {}
+    selected_name = selected.get("Name")
+    if selected_name != job_name:
+        raise RuntimeError(
+            f"Navigator Expert job changed: expected {job_name!r}, "
+            f"but {selected_name!r} is selected. Re-select {job_name!r}; "
+            "change only the objective between calibration steps."
+        )
+    settings = drv.get_job_settings(client, job_name, mode="api") or {}
+    objective = settings.get("objective") or {}
+    slot = objective.get("slotIndex")
+    if slot is None:
+        raise RuntimeError(f"could not read the active objective slot from job {job_name!r}")
+    slot = int(slot)
+    name = str(objective.get("name") or (known_names or {}).get(slot) or "").strip()
+    if not name:
+        raise RuntimeError(
+            f"could not read the active objective name for slot {slot} from job {job_name!r}"
+        )
+    return slot, name
 
 
 # -- Acquisition helper ------------------------------------------------
 
 
-def acquire_frame_to(session: Any, name: str, *, orientation=None) -> np.ndarray:
+def acquire_frame_to(
+    session: Any,
+    name: str,
+    *,
+    orientation=None,
+    backlash_passes: int | None = None,
+) -> np.ndarray:
     """Acquire one frame, save into ``session.paths.data_dir``, track paths.
 
     Any parent directories implied by ``name`` are created as needed.
@@ -231,21 +267,26 @@ def acquire_frame_to(session: Any, name: str, *, orientation=None) -> np.ndarray
     """
     saved = _capture_for_calibration(
         session,
+        name=name,
         acquisition_type="calibration-frame",
         orientation=orientation,
+        backlash_passes=backlash_passes,
     )
     img = _single_plane_image(saved, context=name)
-    out = session.paths.data_dir / f"{name}.tif"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    tifffile.imwrite(out, img)
-    rel = str(out.relative_to(session.paths.session_dir)).replace("\\", "/")
-    session.raw_files[name] = rel
     _idx, exported_path = next(iter(saved.image_paths.items()))
+    rel = str(Path(exported_path).relative_to(session.paths.session_dir)).replace("\\", "/")
+    session.raw_files[name] = rel
     session.exported_files[name] = str(exported_path)
     return img
 
 
-def acquire_stack_to(session: Any, dirname: str, *, orientation=None) -> np.ndarray:
+def acquire_stack_to(
+    session: Any,
+    dirname: str,
+    *,
+    orientation=None,
+    backlash_passes: int | None = None,
+) -> np.ndarray:
     """Trigger the operator-configured LAS X z-stack, save slices, track paths.
 
     The workflow never configures the stack (range, step, sections,
@@ -253,15 +294,18 @@ def acquire_stack_to(session: Any, dirname: str, *, orientation=None) -> np.ndar
     already set up in LAS X and persists what comes back. The saved
     image must have shape ``(slices, H, W)``; anything else is a hard error.
 
-    Slices land in ``session.paths.data_dir / dirname / z_<index>.tif``
-    and are tracked under session-root-relative ``raw_files`` keys.
+    Canonical planes and metadata land below
+    ``session.paths.data_dir / dirname`` and are tracked under
+    acquisition-relative ``raw_files`` keys.
     ``orientation`` is threaded to the driver save path (``None`` = rig
     orientation).
     """
     saved = _capture_for_calibration(
         session,
+        name=dirname,
         acquisition_type="calibration-stack",
         orientation=orientation,
+        backlash_passes=backlash_passes,
     )
     arr = _stack_from_saved_planes(saved, context=dirname)
     if arr.ndim != 3:
@@ -270,12 +314,8 @@ def acquire_stack_to(session: Any, dirname: str, *, orientation=None) -> np.ndar
             f"{arr.shape!r}. The LAS X job may not be in z-stack mode, or "
             "the export produced an unexpected layout."
         )
-    out_dir = session.paths.data_dir / dirname
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for i in range(arr.shape[0]):
-        slice_path = out_dir / f"z_{i:03d}.tif"
-        tifffile.imwrite(slice_path, arr[i])
-        rel = str(slice_path.relative_to(session.paths.session_dir)).replace("\\", "/")
+    for i, (_idx, slice_path) in enumerate(sorted(saved.image_paths.items())):
+        rel = str(Path(slice_path).relative_to(session.paths.session_dir)).replace("\\", "/")
         session.raw_files[f"{dirname}/z_{i:03d}"] = rel
     session.exported_files[dirname] = ";".join(
         str(p) for _idx, p in sorted(saved.image_paths.items())
@@ -286,13 +326,18 @@ def acquire_stack_to(session: Any, dirname: str, *, orientation=None) -> np.ndar
 def _capture_for_calibration(
     session: Any,
     *,
+    name: str,
     acquisition_type: str,
     orientation=None,
+    backlash_passes: int | None = None,
 ):
-    """Use the public driver acquire/save workflow for calibration captures."""
-    if orientation is None:
-        from ... import orientation as _orientation
+    """Use the public driver acquire/save workflow for calibration captures.
 
+    When backlash_passes is provided, pin motoric XY backlash immediately
+    before capture with that many jog-and-return passes. This is operational
+    only: it has zero intended net displacement and is never persisted.
+    """
+    if orientation is None:
         orientation = _orientation.rig_orientation()
     position_label = f"{len(session.exported_files):06d}"
     naming = Naming(
@@ -300,11 +345,13 @@ def _capture_for_calibration(
         hash6=run_hash(),
         position_label=position_label,
     )
+    if backlash_passes is not None:
+        _movement.correct_backlash(session.client, passes=backlash_passes)
     acq = drv.acquire(session.client, session.job_name)
     return drv.save(
         session.client,
         acq,
-        session.paths.session_dir / "driver-save",
+        session.paths.data_dir / name,
         naming,
         orientation=orientation,
     )
@@ -480,15 +527,37 @@ def now_iso() -> str:
 # -- Visualization helpers --------------------------------------------
 
 
+def _overlay_rgb(ref_norm: np.ndarray, tgt_norm: np.ndarray) -> np.ndarray:
+    """Combine two normalised images into one colour picture.
+
+    The reference is drawn in magenta and the target in green. Where the
+    two images carry the same structure the colours add up to white/grey,
+    so any misalignment stands out as coloured fringes.
+    """
+    h = max(ref_norm.shape[0], tgt_norm.shape[0])
+    w = max(ref_norm.shape[1], tgt_norm.shape[1])
+    rgb = np.zeros((h, w, 3), dtype=np.float64)
+    rgb[: ref_norm.shape[0], : ref_norm.shape[1], 0] = ref_norm  # magenta = R + B
+    rgb[: ref_norm.shape[0], : ref_norm.shape[1], 2] = ref_norm
+    rgb[: tgt_norm.shape[0], : tgt_norm.shape[1], 1] = tgt_norm  # green
+    return np.clip(rgb, 0.0, 1.0)
+
+
 def plot_overlay(
     ref: np.ndarray,
     tgt: np.ndarray,
     title: str,
     *,
-    shift_um: tuple[float, float] | None = None,
-    pixel_size_um: float | None = None,
+    subtitle: str | None = None,
+    corrected_target: np.ndarray | None = None,
+    corrected_title: str = "Acquisition after stage correction",
 ):
-    """Magenta = reference, green = target. Returns the matplotlib Figure."""
+    """Magenta = reference, green = target. Returns the matplotlib Figure.
+
+    When *corrected_target* is given, the second panel shows that separately
+    acquired image. This helper never shifts image pixels to imitate a stage
+    correction.
+    """
     import matplotlib.pyplot as plt
 
     def _norm(img: np.ndarray) -> np.ndarray:
@@ -500,30 +569,22 @@ def plot_overlay(
 
     r = _norm(ref)
     t = _norm(tgt)
-    h = max(r.shape[0], t.shape[0])
-    w = max(r.shape[1], t.shape[1])
-    rgb = np.zeros((h, w, 3), dtype=np.float64)
-    rgb[: r.shape[0], : r.shape[1], 0] = r  # magenta = R + B
-    rgb[: r.shape[0], : r.shape[1], 2] = r
-    rgb[: t.shape[0], : t.shape[1], 1] = t  # green
-    rgb = np.clip(rgb, 0.0, 1.0)
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.imshow(rgb, origin="upper")
-    subtitle = title
-    # shift_um may be a 2-tuple of floats, or a 2-tuple containing
-    # None when registration was untrusted; skip the annotation in
-    # that case rather than format-erroring.
-    has_shift = shift_um is not None and shift_um[0] is not None and shift_um[1] is not None
-    if has_shift and pixel_size_um is not None:
-        subtitle += (
-            f"\nimage shift: ({shift_um[0]:+.2f}, {shift_um[1]:+.2f}) um"
-            f"  (pixel_size_um={pixel_size_um:g})"
-        )
-    elif has_shift:
-        subtitle += f"\nimage shift: ({shift_um[0]:+.2f}, {shift_um[1]:+.2f}) um"
-    ax.set_title(subtitle)
+    if corrected_target is not None:
+        fig, (ax, ax_corrected) = plt.subplots(1, 2, figsize=(12, 6))
+    else:
+        fig, ax = plt.subplots(figsize=(6, 6))
+
+    ax.imshow(_overlay_rgb(r, t), origin="upper")
+    ax.set_title(title if subtitle is None else f"{title}\n{subtitle}")
     ax.set_axis_off()
+
+    if corrected_target is not None:
+        corrected = _norm(corrected_target)
+        ax_corrected.imshow(_overlay_rgb(r, corrected), origin="upper")
+        ax_corrected.set_title(corrected_title)
+        ax_corrected.set_axis_off()
+
     fig.tight_layout()
     return fig
 
@@ -532,16 +593,32 @@ def plot_brenner_curve(
     z_positions_um: list[float],
     scores: list[float],
     peak_z_um: float,
+    *,
+    focus_image: np.ndarray | None = None,
 ):
-    """Plot Brenner score vs. z and mark the peak. Returns the Figure."""
+    """Plot Brenner score vs. z and mark the peak. Returns the Figure.
+
+    When *focus_image* is given (the stack slice closest to the fitted
+    peak), it is shown next to the curve so the operator can see the
+    picture the microscope considered sharpest. That is a quick sanity
+    check: the slice should look like the sample in focus, not like an
+    empty field or an artifact.
+    """
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(6, 4))
+    if focus_image is None:
+        fig, ax = plt.subplots(figsize=(9, 6))
+    else:
+        fig, (ax, ax_img) = plt.subplots(1, 2, figsize=(16, 7))
     ax.plot(z_positions_um, scores, marker="o")
     ax.axvline(peak_z_um, color="red", linestyle="--", label=f"peak z = {peak_z_um:.3f} um")
     ax.set_xlabel("z-wide (um, absolute)")
-    ax.set_ylabel("Brenner score")
-    ax.set_title("Parfocality Brenner curve")
+    ax.set_ylabel("Brenner Gradient Score")
+    ax.set_title("Software Autofocus")
     ax.legend(loc="best")
+    if focus_image is not None:
+        ax_img.imshow(focus_image, cmap="gray", origin="upper")
+        ax_img.set_title(f"Focus positions (Z = {peak_z_um:.2f} µm)")
+        ax_img.set_axis_off()
     fig.tight_layout()
     return fig

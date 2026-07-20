@@ -585,7 +585,7 @@ CONNECTION = {
 }
 
 
-def get_context(handle: MesospimHandle) -> dict:
+def get_info(handle: MesospimHandle) -> dict:
     """Read-only extras the driver exposes: initial positions, focus/rotation."""
     pos = _readers.get_positions(handle.client)
     return {
@@ -610,7 +610,7 @@ OPS = {
     "set_state": set_state,
     "get_procedures": get_procedures,
     "run_procedure": run_procedure,
-    "get_context": get_context,
+    "get_info": get_info,
 }
 
 

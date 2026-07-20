@@ -393,10 +393,10 @@ _ENVELOPE = {
     "x_max": 130000.0,
     "y_min": 1000.0,
     "y_max": 100000.0,
-    "z_galvo_min": -200.0,
-    "z_galvo_max": 200.0,
+    "z_galvo_min": -250.0,
+    "z_galvo_max": 250.0,
     "z_wide_min": 0.0,
-    "z_wide_max": 25000.0,
+    "z_wide_max": 8000.0,
 }
 
 
@@ -452,7 +452,7 @@ def test_z_start_outside_envelope_is_skip_not_fail():
 
         @staticmethod
         def get_job_settings(_client, _job, **_kwargs):
-            return {"zPosition": {"z-galvo": 500.0}}  # outside [-200, 200]
+            return {"zPosition": {"z-galvo": 500.0}}  # outside [-250, 250]
 
         @staticmethod
         def get_stage_limits():

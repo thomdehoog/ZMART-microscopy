@@ -252,7 +252,7 @@ save(client, acq, output_root, naming, *, stable_timeout_s=60.0, stable_poll_s=0
 ```
 Resolve the CZI ZEN wrote (`get_image_output_path`), wait for the file to stop growing, and copy it
 into `output_root/<acquisition_type>/data/` using the lab-wide
-[`Naming`](../../../shared/output_layout/naming.py) slots (`.czi` extension). Returns
+the driver's private [`Naming`](acquisition/naming.py) slots (`.czi` extension). Returns
 `SavedAcquisition(czi_path, naming)`.
 
 ### Monitoring

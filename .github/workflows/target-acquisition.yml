@@ -1,0 +1,63 @@
+# Target-acquisition workflow CI.
+#
+# The operator workflow (workflows/target_acquisition) sits on top of both the
+# controller and the Leica driver, so a change in EITHER can break it — which
+# is why this trigger watches all three trees. The suite is fully offline: it
+# drives the controller's mock driver and the Leica driver's mock CAM client,
+# no microscope or vendor software needed.
+name: target-acquisition
+
+on:
+  push:
+    branches: [main, microscope-agnostic-layer]
+    paths:
+      - "workflows/target_acquisition/**"
+      - "zmart_controller/**"
+      - "zmart_drivers/leica/stellaris5_y42h93/navigator_expert/**"
+      - "shared/**"
+      - ".github/workflows/target-acquisition.yml"
+  pull_request:
+    paths:
+      - "workflows/target_acquisition/**"
+      - "zmart_controller/**"
+      - "zmart_drivers/leica/stellaris5_y42h93/navigator_expert/**"
+      - "shared/**"
+      - ".github/workflows/target-acquisition.yml"
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  tests:
+    name: tests (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    env:
+      MPLBACKEND: Agg # headless matplotlib for the focus-widget and plot tests
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test dependencies
+        # The workflow imports the driver, so it shares the driver's dev
+        # requirements; nbformat is extra, for the notebook structure tests.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt nbformat
+
+      - name: Run controller, workflow, and Leica-adapter integration suites
+        run: >-
+          python -m pytest -q
+          zmart_controller/tests
+          workflows/target_acquisition/tests
+          zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/unit/test_zmart_adapter.py
+          --tb=short

@@ -13,9 +13,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import pytest
 
 _HERE = Path(__file__).resolve().parent
 _HELPERS = _HERE.parent / "helpers"
@@ -59,6 +62,48 @@ def test_within_envelope_helper():
     assert not validate_zmart_adapter._within(10.1, 0.0, 10.0)
 
 
+def test_hardware_ci_default_is_the_four_measured_coordinates():
+    assert validate_zmart_adapter.CI_DEFAULT_POSITION_UM == {
+        "x_um": 63_500.0,
+        "y_um": 41_500.0,
+        "z_wide_um": 0.0,
+        "z_galvo_um": 0.0,
+    }
+    limits = {
+        "x_min": 1_000.0,
+        "x_max": 130_000.0,
+        "y_min": 1_000.0,
+        "y_max": 100_000.0,
+        "z_wide_min": 0.0,
+        "z_wide_max": 8_000.0,
+        "z_galvo_min": -250.0,
+        "z_galvo_max": 250.0,
+    }
+    assert validate_zmart_adapter._ci_default_position_error(limits) is None
+
+
+def test_hardware_ci_rejects_a_negative_zwide_excursion():
+    with pytest.raises(SystemExit):
+        validate_zmart_adapter.parse_args(["--z-wide-delta-um", "-0.1"])
+
+
+def test_hardware_ci_enforces_baseline_without_negative_zwide_target(tmp_path):
+    exit_code, records = _run_mock(
+        tmp_path,
+        "--enforce-ci-default-position",
+        "--allow-move",
+    )
+    assert exit_code == 0
+    by_name = {record["name"]: record for record in records}
+    assert by_name["ci default: X readback"]["status"] == "PASS"
+    assert by_name["ci default: Y readback"]["status"] == "PASS"
+    assert by_name["ci default: Z-wide readback"]["status"] == "PASS"
+    assert by_name["ci default: Z-galvo readback"]["status"] == "PASS"
+    zwide_move = by_name["ci default: move Z-wide"]
+    assert zwide_move["context"]["target_z_wide_um"] == 0.0
+    assert zwide_move["context"]["target_z_wide_um"] >= 0.0
+
+
 def test_readonly_mock_run(tmp_path):
     exit_code, records = _run_mock(tmp_path, "--read-only")
     assert exit_code == 0
@@ -86,8 +131,7 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     by_name = {r["name"]: r for r in records}
     # The controller round-trip, z-focus model, and state round-trip are exercised.
     assert {
-        "run_procedure: get_root",
-        "get_root: root returned",
+        "get_info: output_root returned",
         "set_origin",
         "xy: frame x",
         "zgalvo: frame z",
@@ -99,8 +143,8 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     assert by_name["state: restored"]["status"] == "PASS"
     assert by_name["zgalvo: frame z"]["status"] == "PASS"
     assert by_name["zwide: frame z is additive (z-wide + z-galvo)"]["status"] == "PASS"
-    assert by_name["run_procedure: get_positions"]["status"] == "SKIP"
-    assert by_name["run_procedure: get_focus_points"]["status"] == "SKIP"
+    assert by_name["get_info: tile positions available"]["status"] == "SKIP"
+    assert by_name["get_info: focus positions available"]["status"] == "SKIP"
     # Acquire needs real LAS X export files, so it is skipped under the mock.
     assert by_name["phase: acquire"]["status"] == "SKIP"
 
@@ -114,6 +158,33 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     assert "set_xyz: XY move" in text
     assert "move: restore XY + focus (frame 0,0,0)" in text
     assert "set_state: restore" in text
+
+
+def test_state_phase_does_not_switch_away_from_autofocus_job():
+    captured = {
+        "changeable": {"job": "AF Job"},
+        "observed": {"autofocus_jobs": [{"Name": "AF Job"}]},
+    }
+    session = SimpleNamespace(
+        get_state=Mock(return_value=captured),
+        get_acquisition_options=Mock(return_value={"job": {"options": ["Overview", "HiRes"]}}),
+        set_state=Mock(side_effect=AssertionError("must not switch an autofocus job")),
+    )
+    validator = SimpleNamespace(
+        phase=Mock(return_value=nullcontext()),
+        callable=Mock(side_effect=lambda _name, run, **_kwargs: run()),
+        compare=Mock(),
+        skip=Mock(),
+    )
+
+    validate_zmart_adapter.phase_state(validator, session)
+
+    session.set_state.assert_not_called()
+    validator.compare.assert_not_called()
+    validator.skip.assert_called_once_with(
+        "state: switch",
+        "current job 'AF Job' is autofocus-only and cannot be restored via set_state",
+    )
 
 
 def test_connect_session_leaves_output_root_for_driver_discovery():

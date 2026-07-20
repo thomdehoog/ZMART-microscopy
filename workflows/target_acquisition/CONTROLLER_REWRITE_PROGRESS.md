@@ -132,5 +132,5 @@ Still open (needs the bench / real cells):
 ## Controller surface (reference)
 
 `get_instruments · set_instrument · disconnect · set_origin · get_xyz/set_xyz · get_actuators ·
-get_state/set_state · get_procedures/run_procedure · get_acquisition_options · acquire · get_context`.
+get_state/set_state · get_procedures/run_procedure · get_acquisition_options · acquire · get_info`.
 The Leica adapter (`zmart_adapter.py`) registers all of them and was live-validated on the sim.

@@ -1,37 +1,27 @@
 {
-  "constraints": {
-    "stage.x": {
-      "max": 130000,
-      "min": 1000
-    },
-    "stage.y": {
-      "max": 100000,
-      "min": 1000
-    },
-    "stage.z_galvo": {
-      "max": 200,
-      "min": -200
-    },
-    "stage.z_wide": {
-      "max": 25000,
-      "min": 0
-    }
-  },
-  "functions": {
-    "acquire": null,
-    "load_experiment": null,
-    "move_galvo_to_pixel": null,
-    "run_procedure": null,
-    "save_experiment": null,
-    "set_origin": null,
-    "set_state": null,
-    "set_xyz": {
-      "x_um": "@stage.x",
-      "y_um": "@stage.y",
-      "z_galvo_um": "@stage.z_galvo",
-      "z_wide_um": "@stage.z_wide"
-    }
-  },
-  "schema_version": 1,
-  "source": "defaults"
+  "x_um": {"range": [1000, 130000]},
+  "y_um": {"range": [1000, 100000]},
+  "z_galvo_um": {"range": [-250, 250]},
+  "z_wide_um": {"range": [0, 8000]},
+  "objective_slot": [],
+  "set_zoom": [],
+  "set_scan_speed": [],
+  "set_scan_resonant": [],
+  "set_scan_mode": [],
+  "set_sequential_mode": [],
+  "set_scan_field_rotation": [],
+  "set_image_format": [],
+  "set_z_stack_definition": [],
+  "set_z_stack_step_size": [],
+  "set_z_stack_size": [],
+  "set_frame_accumulation": [],
+  "set_frame_average": [],
+  "set_line_accumulation": [],
+  "set_line_average": [],
+  "set_pinhole_airy": [],
+  "set_detector_gain": [],
+  "set_laser_intensity": [],
+  "set_laser_shutter": [],
+  "set_filter_wheel_slot": [],
+  "set_filter_wheel_spectrum": []
 }

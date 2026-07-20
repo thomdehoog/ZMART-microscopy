@@ -55,8 +55,8 @@ LAS X.
   import navigator_expert as lasx                       # namespace import
   from navigator_expert import connect_python_client, set_zoom, acquire, save
   ```
-  The package self-bootstraps the repo root onto `sys.path` so `shared.output_layout` (used by
-  `save()`) resolves.
+  The Leica package is self-contained; its filename helper lives under
+  `navigator_expert.acquisition.naming`.
 
 ### Machine paths this driver assumes
 
@@ -76,31 +76,43 @@ runtime where possible. Override via the profile, not at call sites.
   `delay_ms` (Leica's client-side pacing knob `DelayInMilliseconds`, default 250 ms).
 - **Log reader** — `LogReaderProfile`: the `lcsCommand.log` / `MatrixScreener.log` paths + freshness windows.
 - **Machine-local calibration & limits** — `config/machine.py` resolves the instrument's calibration
-  (image↔stage matrix, per-objective translation), stage limits, orientation, and origin from a
-  **machine-local ProgramData snapshot** (out of the repo). The repo ships defaults only. If
-  ProgramData is empty, those defaults are copied into the first local snapshot so runtime reads still
-  use ProgramData paths. Each snapshot holds `limits.json`, `calibration.json` or
-  `calibrations/<name>/calibration.json`, `orientation.json`, and `origin.json`. The notebooks publish
-  measured replacements by copying the latest snapshot forward and changing only their part. The
-  single `limits.json` is function-keyed (`constraints` = the `stage.*` envelope + `functions` = the
-  gate policy; no `backlash` block — backlash is a motion utility with baked-in defaults, §2b).
-- **Limits handshake (required before any mutation)** — `connect_limits_handshake(client)` (run
-  automatically by the zmart adapter's `connect()`; workflows/validators/notebooks call it once after
-  connecting). It resolves the ProgramData `limits.json` (seeding defaults there first when needed),
-  validates it (schema, finite numbers only, min ≤ max, its `constraints`/`functions`, envelope
-  **within the hardcoded physical backstop** `motion.limits.STAGE_BACKSTOP_UM`), applies the stage
-  envelope, and installs the function-keyed gate for that client. On failure the
-  session stays usable **read-only** and every mutating command returns a fail-closed refusal that
-  names the file tried and points at the notebook. Manual `set_stage_limits(...)` still adjusts the
-  in-memory envelope, but it does not open the gate — only a successful handshake does — and the
-  backstop bounds every move regardless.
-- **Function-keyed limits (fail-closed gate, commands layer)** — `commands/gate.py`. Every mutating
-  command wrapper (`set_*`, `move_*`, `acquire`, `select_job`, plus `save_experiment` /
-  `load_experiment`) declares one key in `gate.MUTATING_COMMANDS` and checks it **before the native
-  call fires** — nothing built on top (adapter, controller, workflows, notebooks) can bypass it.
-  The machine-local `limits.json` (its `functions` block) must carry an entry for every key (`null` =
-  reviewed-and-unlimited; an **absent** key fails closed at load). If every move/acquire is refusing,
-  read the refusal message: it says exactly which file is missing/invalid and how to create it.
+  (image↔stage matrix, per-objective translation), limits, orientation, and origin from a
+  machine-local ProgramData. Directly below `navigator_expert`, each subsystem owns an independent
+  timestamp tree: `limits/<datetime>/`, `calibration/<datetime>/`,
+  `orientation/<datetime>/`, and `origin/<datetime>/`. The newest timestamp in each tree wins.
+  Limits, calibration, and orientation seed their own repo defaults when empty. Origin remains
+  session-scoped and is not restored at connect. Setup notebooks append only to their owning tree,
+  so publishing one subsystem never duplicates another. The single `limits.json` is
+  flat: four typed stage-axis `range` entries, `objective_slot` with `allowed` values,
+  and either a typed constraint or explicit `[]` for each setter. Backlash remains a
+  command routine, not configuration.
+- **The driver loads the configs at connect** — `connect_microscope(...)` (`connection/session.py`)
+  is the driver's own front door. It opens the CAM client and then loads this microscope's three
+  machine-local configs — the **instrument limits**, the **orientation**, and the **calibration** — so the
+  whole session works from one consistent picture. The zmart adapter's `connect()` simply delegates to
+  it. Normal image orientation is enabled by `IMAGE_SAVE` in `config/profiles.py`; only the
+  orientation measurement explicitly requests raw pixels. Limits and calibration can still be skipped.
+  This is a deliberate ladder: the limits notebook
+  is bounded only by the physical backstop, `set_orientation` is bounded by limits, and
+  `calibrate_objective_pair` is bounded by limits and expects a measured orientation.
+- **Limits handshake** — `connect_limits_handshake(client)` (run by `connect_microscope`;
+  workflows/validators/notebooks call it directly). It resolves an operator-published ProgramData
+  `limits.json`, or uses the bundled defaults directly when none exists. It validates exact flat keys, finite ranges, allowed
+  objective slots, and envelope **within the hardcoded physical backstop**
+  `limits.checks.STAGE_BACKSTOP_UM`), applies the stage envelope, and installs the command safety gate
+  for that client. **If the machine file is invalid (or loading is switched off), the session does not
+  go dead — it falls back to the bundled default envelope** (loudly warned, marked a fallback). The
+  defaults sit within the physical backstop, and the backstop bounds every move regardless, so an
+  over-wide or corrupt file can never authorise a move the defaults forbid. The only fully fail-closed
+  state is a client that never handshook at all (every mutating command then refuses, naming the
+  notebook). Manual `set_stage_limits(...)` still adjusts the in-memory envelope, but it does not open
+  the gate — only a successful handshake does.
+- **Command safety gate** — `commands/gate.py`. Every mutating wrapper checks that the session
+  completed its limits handshake before the native call fires. Stage commands use the four flat
+  axis ranges, objective changes use `objective_slot.allowed`, and every listed setter with `[]` is
+  explicitly unrestricted. Setter constraints use `range` or `allowed`. Missing or unknown entries invalidate the file and
+  trigger the defaults fallback above. Nothing built on top—adapter, controller, workflow, or
+  notebook—can bypass this command-layer check.
 
 ## 4. Quick start
 
@@ -110,17 +122,21 @@ from navigator_expert import (
     connect_limits_handshake, select_job, set_zoom, set_scan_speed,
     move_xy, acquire, save,
 )
-from shared.output_layout import Naming, run_hash
+from navigator_expert.acquisition.naming import Naming, run_hash
 
 # 1. Connect and validate the scope
 client = connect_python_client()
 assert ping(client)
 
-# 2. Limits handshake (REQUIRED before any mutating command): resolves and
-#    validates the ProgramData limits.json, seeding repo defaults there first
-#    when needed, then installs the fail-closed gate for this client.
+# 2. Limits handshake (REQUIRED before any mutating command; run automatically
+#    by connect_microscope and the zmart adapter — shown here for the low-level
+#    API): resolves and validates an operator-published ProgramData limits.json
+#    and installs the limits gate for this client. A MISSING or INVALID file
+#    uses the bundled defaults directly (loudly), so
+#    state.ok stays True — check state.limits.describe()["is_fallback"] if you
+#    need to know whether your measured envelope is really in force.
 state = connect_limits_handshake(client)
-assert state.ok, state.error   # points at limits/notebooks/set_stage_limits.ipynb
+assert state.ok, state.error   # False only if even the bundled defaults are unusable
 
 # 3. Select and configure a job (live commands return a result dict)
 select_job(client, "MyExperiment")
@@ -132,7 +148,7 @@ set_scan_speed(client, "MyExperiment", 600)
 move_xy(client, 65_000, 65_000, unit="um")
 acq = acquire(client, "MyExperiment")                     # -> AcquisitionResult (RAISES on failure)
 
-# 5. Persist to the lab-wide layout (a separate step from acquire)
+# 5. Persist with Leica's private naming helper (a separate step from acquire)
 naming = Naming(acquisition_type="overview", hash6=run_hash())
 saved = save(client, acq, output_root="D:/runs/demo", naming=naming)
 print(saved.image_paths)                                  # {PlaneIndex(t,z,c): Path, ...}
@@ -142,22 +158,37 @@ print(saved.image_paths)                                  # {PlaneIndex(t,z,c): 
 > `{"success": ...}` dict. Saving is a deliberate second step (see §6).
 
 > The explicit `output_root` above is for the low-level driver API. Through
-> `zmart_controller`, the Leica adapter discovers the run root from LAS X native
-> AutoSave via `run_procedure({"name": "get_root"})`; operator workflows should
-> use that discovered root instead of hard-coding a drive path.
+> `zmart_controller`, the Leica adapter discovers the `ZMART-microscopy` root
+> beside LAS X native AutoSave and reports it through `get_info()["output_root"]`;
+> the workflow creates the experiment/acquisition folders under that root.
 
 > No machine config yet? The first connect seeds ProgramData from the repo defaults so CI and local
-> mock runs work. On the rig, run `limits/notebooks/set_stage_limits.ipynb`,
+> mock runs work. On the rig, run `limits/notebooks/set_limits.ipynb`,
 > `orientation/notebooks/set_orientation.ipynb`, and the calibration notebook to replace those defaults
-> with measured values. If validation fails, mutating commands refuse fail-closed and the message names
-> the ProgramData file to fix.
+> with measured values. If a machine file is invalid, the session falls back to the bundled default
+> envelope (loudly) rather than refusing — fix the file the warning names and reconnect.
 
 ## 5. Core concepts
 
-**The client.** `connect_python_client()` loads the LAS X runtime, connects, applies the API pacing
-delay, and pings. Every command/reader takes the returned `client` as its first argument.
-The CAM client has no disconnect counterpart — it lives for the process; there is
-nothing to close when a session ends.
+**The client.** `connect_microscope(...)` is the normal entry point: it opens the CAM client and
+loads this microscope's three machine-local configs (limits, orientation, calibration), so the whole
+session works from one consistent picture; `connect_python_client()` is the lower-level primitive that
+only opens and pings the client (the setup notebooks use it, since they load just the one config they
+need). Every command/reader takes the returned `client` as its first argument. The CAM client has no
+disconnect counterpart — it lives for the process; there is nothing to close when a session ends.
+
+**Which configs to load.** `connect_microscope(load_limits=…, load_calibration=…)` chooses whether
+limits and calibration are loaded. `load_limits=False` governs the session with the bundled **default**
+envelope (never ungated; the physical backstop still holds); `load_calibration=False` refuses
+cross-objective moves rather than computing uncompensated ones. Normal image saves always use the
+`IMAGE_SAVE.apply_orientation=True` profile default. Only orientation measurement passes an explicit
+identity orientation to obtain raw camera pixels.
+
+**The origin is session-scoped.** `set_origin` makes the current position the frame zero — from then
+until it is set again or the session ends. It appends `origin/<datetime>/origin.json` as a record,
+but the driver does **not** restore it at connect: a fresh connection is an absolute frame
+until `set_origin` runs. (An earlier version restored the last origin across sessions; it no longer
+does.)
 
 **Live vs. file.** `set_zoom(...)` talks to the running scope and confirms by reading hardware back;
 `lrp_set_zoom(...)` edits a `.lrp` template *file* (nothing happens on the scope until LAS X reloads
@@ -294,9 +325,8 @@ acquire(client, job, *, poll_interval=None, poll_timeout=None, heartbeat_interva
 save(client, acq, output_root, naming, *, lineage=None, fix_ome=True,
      cleanup_source=False) -> SavedAcquisition                                    # image_paths / xml_paths / naming
 ```
-`save()` collects LAS X native AutoSave output into a neutral product,
-and writes canonical single-plane OME-TIFFs into the `shared.output_layout` tree, with OME-XML embedded
-in each image file.
+`save()` collects LAS X native AutoSave output into a neutral product and
+writes canonical single-plane OME-TIFFs with OME-XML embedded in each image.
 **OME metadata:** `acquisition/ome.py` repairs known Leica OME violations (e.g. laser `Wavelength="0"`)
 in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clean canonical ZMART OME;
 `save(..., fix_ome=True)` validates/repairs each written file.
@@ -304,15 +334,14 @@ in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clea
 **Acquiring empties the scanning template by default.** Through the zmart adapter, every `acquire()`
 (and the autofocus procedure) applies the `strip_scan_fields` acquisition option: operator-drawn scan
 fields, regions, and focus points vanish from LAS X. The strip is sidecar-backed — restore with
-`restore_template` — but read stored positions through the zmart procedures (`get_positions`,
-`get_focus_points`) *before* the first acquire, or pass `options={"strip_scan_fields": False}`.
+`restore_template` — but read `get_info()["tile_positions"]` and `focus_positions`
+*before* the first acquire, or pass `options={"strip_scan_fields": False}`.
 
-**`Naming` constraints and slot overwrites.** Name parts (`acquisition_type` etc.) must be
+**`Naming` constraints.** Name parts (`acquisition_type` etc.) must be
 kebab-case lowercase (`"overview"`, `"target-scan"`); `Naming` raises `ValueError` on `"Prescan"` or
 `"target_scan"` — and on the adapter path that raise happens **after the scan has fired**, so the
-capture is wasted. Validate names before acquiring. A numeric `position_label` claims that `p` slot
-directly and **overwrites** any previous output saved at the same slot (upsert); non-numeric labels
-take the next unused slot and appear only in the lineage record, never the filename.
+capture is wasted. Validate names before acquiring. The adapter's driver-owned helper gives every
+acquired position a unique hash, and the workflow supplies the `K/M/G/P/V` position label.
 
 ### Templates / scan-fields (offline-capable)
 
@@ -343,16 +372,15 @@ code is **load-bearing** (used by `move_galvo_to_pixel`, `disable_roi_scan`, `re
 
 ```
 zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
-├── connection/   lasx_runtime.py (load .NET CAM assemblies) · session.py (connect / ping / orientation)
+├── connection/   lasx_runtime.py (load .NET CAM assemblies) · session.py (connect_python_client / connect_microscope) · session_state.py (per-connection orientation + calibration)
 ├── commands/     dispatch.py (the backbone) · errors.py · prechecks.py · confirmations.py ·
-│                 settings.py · objectives.py · commands.py (set_*/move_*/acquire/select_job)
+│                 settings.py · objectives.py · commands.py (set_*/move_*/acquire/select_job) · routines.py (backlash)
 ├── readers/      router.py (api/log/hybrid) · api_reader.py · log_reader.py · capabilities.py · derived.py
 ├── config/       profiles.py (CommandProfile + per-command instances, LasxApi/LogReader profiles) · machine.py
-├── motion/       limits.py (µm safety envelope) · movement.py (backlash) · stage_config.py
 ├── acquisition/  product.py (neutral types) · capture.py (acquire) · save.py (persistence) · ome.py
 ├── scanfields/   .lrp/.rgn/.xml parsing + templates    experimental/lrp_edits/  offline template editors
 ├── calibration/  objective-pair calibration (data machine-local; defaults/ + notebooks/ inside)
-├── limits/       stage/function limits defaults + setup notebook; runtime truth is ProgramData
+├── limits/       config.py · checks.py (envelope + backstop + objective/setter allow-lists) · defaults/ · setup notebook; runtime truth is ProgramData
 ├── orientation/  camera↔stage quarter-turn, applied at save; measured by set_orientation, stored in the machine snapshot next to calibration + limits
 ├── zmart_adapter/  ops table plugging this driver into zmart_controller (import to register)
 ├── tests/        unit/ (offline) + hardware/ (validate_*.py live scripts + mock-backed test_* gates)
@@ -371,9 +399,12 @@ The backbone is deliberately *dumb*: it owns pipeline order, retry ceilings, and
 nothing about zoom/objectives/stages. Commands supply small zero-arg callables (extra params pre-bound
 with `functools.partial`).
 
-**Dependency direction:** `utils` (stdlib) → `commands.errors/settings/prechecks/confirmations` →
-`commands.dispatch` → `config.profiles` → `commands.commands`; `readers.*`, `motion.*`, `scanfields.*`,
-`acquisition.*` sit above the CAM readback. No circular imports.
+**Dependency direction:** leaf modules (`commands.envelope`, `config.timing`, `config.galvo`, `readers.parsing` — stdlib only) → `commands.errors/prechecks/confirmations` →
+`commands.dispatch` → `config.profiles` → `commands.commands`; `readers.*`, `limits.checks`, `scanfields.*`,
+`acquisition.*` sit above the CAM readback. No circular imports. One deliberate exception:
+`connection/session.py` is the connect-time composition point — `connect_microscope` reaches into
+`commands.gate`, `orientation`, and `calibration` (via function-local imports, which is what keeps
+the import graph acyclic) to load the machine configs in one place.
 
 ## 8. Configuration & tuning (profiles)
 
@@ -384,7 +415,7 @@ callables + retry/confirm tuning). Tuning a command = editing its profile; nothi
 @dataclass(frozen=True)
 class CommandProfile:
     pre_check_fn=None ; error_check_fn=_default_error_check ; confirm_fn=None
-    max_retries=3 ; max_confirm_attempts=3 ; refire_on_unconfirmed=True
+    max_retries=3 ; max_confirm_attempts=4 ; refire_on_unconfirmed=True
     confirm_poll_s=CONFIRM_POLL_S ; confirm_tolerance=None
     success_on_unconfirmed=True                # exhausted readback -> unconfirmed, never hard-fail
     # + poll/heartbeat/backoff/receipt/async knobs
@@ -446,7 +477,10 @@ restores — with confirmation status and timing. **Bench-run instructions** (pr
 
 These **silently misbehave** instead of failing loudly — respect them or results are wrong without an error:
 
-1. **Configure stage limits before any movement** — `move_xy`/`move_z` fail immediately if unset.
+1. **Movement needs a limits handshake** — a client that never handshook refuses `move_xy`/`move_z`
+   fail-closed. Through `connect_microscope` (and the adapter) the handshake always runs, falling back
+   to the bundled default envelope if the machine file is invalid, so a connected session can always
+   move within the defaults; the physical backstop bounds every move regardless.
 2. **`acquire()` returns an `AcquisitionResult` and raises on failure** — not a dict; read timing via
    `acq.command_result["timing"]`. Persisting is a separate `save()` call.
 3. **For setting commands, check `confirmed`, not just `success`** — most `set_*` return
@@ -464,9 +498,13 @@ These **silently misbehave** instead of failing loudly — respect them or resul
    select the wrong job after reload.
 10. **`load_experiment` confirms only the receipt, not on-disk state** — follow with `save_experiment`
     (or use `apply_lrp_change`, which does).
-11. **Adapter mutating ops are gated by `limits.json` (its `functions` block), fail-closed** — if it
-    fails to load/validate at connect, every `set_*`/`acquire` on the zmart-adapter surface refuses; the only
-    hint is the connect-time warning (see §3).
+11. **Adapter mutating ops are gated by the flat `limits.json` at the commands layer** — if the machine file
+    fails to load/validate at connect, the session falls back to the bundled **default** envelope
+    (loudly warned) rather than refusing everything; the connect-time warning names what happened
+    (see §3). Out-of-envelope moves still refuse at the commands layer, below the adapter.
+12. **The origin is session-scoped, not restored at connect** — after connecting, the frame is
+    absolute stage coordinates until `set_origin` runs. It persists to the machine-local `origin/`
+    folder only as a record (see §5).
 
 ## 11. Extending the driver
 
@@ -485,4 +523,4 @@ Copy the closest existing command of a similar shape.
 ## 12. References
 - ZMART controller (the vendor-agnostic surface this driver registers with): [`zmart_controller/`](../../../../zmart_controller/README.md)
 - Sibling drivers: [`zmart_drivers/zeiss/zenapi/`](../../../zeiss/zenapi/README.md) (gRPC), [`zmart_drivers/nikon/`](../../../nikon/README.md) (socket macro)
-- Output layout used by `save()`: [`shared/output_layout/`](../../../../shared/output_layout/README.md)
+- Leica filename implementation: [`acquisition/naming.py`](acquisition/naming.py)

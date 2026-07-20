@@ -52,8 +52,8 @@ zmart_controller.acquire(acquisition_type=String, position_label=String, options
 zmart_controller.get_procedures()
 zmart_controller.run_procedure(Dict)
 
-# 7) Optionally inspect extra diagnostic context the driver provides
-zmart_controller.get_context()
+# 7) Optionally inspect extra diagnostic information the driver provides
+zmart_controller.get_info()
 
 # 8) Close the session
 zmart_controller.disconnect()
@@ -99,8 +99,6 @@ plus setup and docs:
   driver. This is the **emerging `zmart` surface** — the vendor-agnostic API the
   rest of the world would import. See its README for the full API and for how to
   register a new driver.
-- **`shared/`** — vendor-independent utilities: the lab-wide output layout and
-  image algorithms (registration, focus) used across drivers and workflows.
 - **`workflows/`** — the zmart-microscopy workflows themselves (current:
   `workflows/target_acquisition/`).
 - **`getting_started/`** — setup and orientation: the one-step environment build,
@@ -129,6 +127,11 @@ python build_env.py --name zmart-microscopy
 conda activate zmart-microscopy
 ```
 
+The builder also installs and launches the matching Playwright Chromium,
+verifies Node.js for generated-widget syntax checks, and import-checks the
+notebook and CI dependencies. For a pip-based test environment use
+`requirements-dev.txt`, then run `python -m playwright install chromium`.
+
 ### 3. Machine Setup (Limits, Orientation, & Calibration)
 The driver reads machine-local configuration from `C:\ProgramData\zmart-microscopy\...`.
 If ProgramData is empty, repo defaults are copied there so mock CI and first
@@ -138,7 +141,7 @@ values by running the setup notebooks:
 For the production Leica Stellaris driver:
 
 1.  **Set Stage Limits:** Defines the physical travel range.
-    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb`
+    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_limits.ipynb`
     
 3.  **Set Orientation:** Defines the stage coordinate system relative to the camera/detector.
     `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/orientation/notebooks/set_orientation.ipynb`

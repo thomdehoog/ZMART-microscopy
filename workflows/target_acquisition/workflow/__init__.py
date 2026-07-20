@@ -5,20 +5,37 @@ surface only -- no ``import navigator_expert`` in the operator path. The
 notebook imports the numbered step functions from this package and runs
 them in order:
 
-  connect -> measure_focus / fit_focus_surface ->
-  run_overview -> discover_targets -> acquire_targets
+  connect -> pick_focus_points (click points, Measure focus) ->
+  run_overview -> view_overview (channel overlay mosaic) ->
+  discover_targets -> explore_targets (gate + inspect) ->
+  acquire_gallery (pick N at random, review same-scale pairs)
 
 Re-exports:
 
 - the step functions (``workflow.steps``): ``connect``, ``load_positions``,
-  ``load_analysis_engine``, ``with_focus_z``, ``run_overview``,
-  ``overview_inputs_from_records``, ``acquire_targets``,
+  ``load_analysis_engine``, ``preflight_analysis_engine``, ``with_focus_z``,
+  ``run_overview``, ``overview_inputs_from_records``, ``acquire_targets``,
   ``hijack_if_simulating``, ``write_run_report``;
-- focus (``workflow._focus_run`` / ``workflow._focus_surface``):
-  ``measure_focus``, ``fit_focus_surface``, ``FocusSurface``;
+- focus (``workflow._focus_run`` / ``workflow._focus_surface`` /
+  ``workflow._focus_widget``): ``measure_focus``, ``fit_focus_surface``,
+  ``FocusSurface``, ``pick_focus_points``, ``FocusPicker`` (the interactive
+  point-picking figure with the in-place focus-map heatmap);
 - target discovery (``workflow.discovery``): ``discover_targets``;
+- the interactive review widgets (each a matplotlib figure; see the module
+  docstrings): ``view_overview`` / ``OverviewViewer`` (zoomable tile mosaic
+  with per-channel colour, brightness and contrast), ``explore_targets`` /
+  ``TargetExplorer`` (feature scatter with threshold + lasso gating and
+  hover cell crops), ``acquire_gallery`` / ``AcquisitionGallery`` (random
+  pick from the gate, then same-scale overview/target image pairs);
 - the shared acquire primitive (``workflow._capture_run``):
-  ``capture_positions``;
+  ``capture_positions`` and ``RunCancelled`` (the clean between-sites stop
+  raised when a run's ``cancel`` check answers True);
+- focus-fit quality (``workflow._focus_surface``): ``residuals_um`` /
+  ``worst_residual_um`` — how far each measured point sits from the fitted
+  surface, the number that unmasks one bad autofocus bending the fit;
+- the run checklist (``workflow._run_status``): ``print_run_status`` —
+  pass ``globals()`` and see at a glance which steps are done, still to
+  do, or worth a second look (never touches the microscope);
 - the pixel->frame geometry (``workflow._geom``): ``overview_pixel_to_frame``;
 - run summary + plots (``workflow.viz``): ``summarize_run``, ``write_summary``,
   ``plot_focus_surface``, ``plot_frame_layout`` (plots lazy-import matplotlib);
@@ -31,18 +48,21 @@ positive ``SystemTypeName == "SIMULATOR"`` allowlist); the driver's OME check
 it uses is lazy-imported, so ``import workflow`` stays driver-free and the
 operator step functions never learn about simulation.
 
-The pre-controller driver-coupled flow is preserved under
-``workflow.retired`` (see that package's docstring).
-
 Modules whose names start with ``_`` are internal.
 """
 
-from ._capture_run import capture_positions
+from ._acquisition_widget import AcquisitionGallery, acquire_gallery
+from ._capture_run import RunCancelled, capture_positions
+from ._discovery_widget import TargetExplorer, explore_targets
 from ._focus_run import measure_focus
-from ._focus_surface import FocusSurface, fit_focus_surface
+from ._focus_surface import FocusSurface, fit_focus_surface, residuals_um, worst_residual_um
+from ._focus_widget import FocusPicker, pick_focus_points
 from ._geom import overview_pixel_to_frame
 from ._hijack import NonSimulatorFrameError, hijack_records
 from ._mock_provider import get_provider
+from ._output import position_label, prepare_experiment
+from ._overview_widget import OverviewViewer, view_overview
+from ._run_status import print_run_status
 from .discovery import build_overview_inputs, discover_targets, read_overview_geometry
 from .steps import (
     acquire_targets,
@@ -51,6 +71,8 @@ from .steps import (
     load_analysis_engine,
     load_positions,
     overview_inputs_from_records,
+    preflight_analysis_engine,
+    require_driver_ready,
     run_overview,
     with_focus_z,
     write_run_report,
@@ -64,12 +86,24 @@ from .viz import (
 
 __all__ = [
     "connect",
+    "prepare_experiment",
+    "position_label",
     "load_positions",
     "load_analysis_engine",
+    "preflight_analysis_engine",
+    "require_driver_ready",
     "with_focus_z",
     "measure_focus",
     "fit_focus_surface",
     "FocusSurface",
+    "pick_focus_points",
+    "FocusPicker",
+    "view_overview",
+    "OverviewViewer",
+    "explore_targets",
+    "TargetExplorer",
+    "acquire_gallery",
+    "AcquisitionGallery",
     "run_overview",
     "overview_inputs_from_records",
     "build_overview_inputs",
@@ -78,6 +112,10 @@ __all__ = [
     "acquire_targets",
     "hijack_if_simulating",
     "capture_positions",
+    "RunCancelled",
+    "residuals_um",
+    "worst_residual_um",
+    "print_run_status",
     "overview_pixel_to_frame",
     "summarize_run",
     "write_summary",

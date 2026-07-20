@@ -57,14 +57,14 @@ class MockHandle:
     serial: str = "MOCK-0001"
     client: str | None = None
     connection: dict = field(default_factory=dict)
-    initial: list[dict] = field(default_factory=list)
+    tile_positions: list[dict] = field(default_factory=list)
 
     # set by disconnect(); every other op refuses a closed handle
     closed: bool = False
 
 
 def connect(connection: dict):
-    """Open a session and capture the initial positions.
+    """Open a session with a small vendor-authored tile setup.
 
     Receives the whole variable connection dict; a real driver would validate the
     api and authenticate with e.g. ``connection["client"]`` / credentials. The
@@ -73,10 +73,10 @@ def connect(connection: dict):
     handle = MockHandle()
     handle.client = connection.get("client")
     handle.connection = dict(connection)
-    handle.initial = [
-        {"x": 0.0, "y": 0.0, "z": 0.0},
-        {"x": 120.0, "y": 0.0, "z": 0.0},
-        {"x": 0.0, "y": 120.0, "z": 0.0},
+    handle.tile_positions = [
+        {"x": 0.0, "y": 0.0, "z": 0.0, "tile_size": {"x": 100.0, "y": 100.0}},
+        {"x": 120.0, "y": 0.0, "z": 0.0, "tile_size": {"x": 100.0, "y": 100.0}},
+        {"x": 0.0, "y": 120.0, "z": 0.0, "tile_size": {"x": 100.0, "y": 100.0}},
     ]
     return handle
 
@@ -220,7 +220,10 @@ def get_state(handle: MockHandle) -> dict:
     _require_open(handle)
     return {
         "changeable": {"laser_power": handle.laser_power, "gain": handle.gain},
-        "observed": {"serial": handle.serial},
+        "observed": {
+            "serial": handle.serial,
+            "pixel_size": {"x": 1.0, "y": 1.0, "unit": "um"},
+        },
     }
 
 
@@ -249,9 +252,6 @@ def get_procedures(handle: MockHandle) -> dict:
     return {
         "autofocus": {"description": "hardware autofocus"},
         "find_sample": {"description": "locate the sample"},
-        "get_root": {"description": "return the run output root"},
-        "get_positions": {"description": "return the initial positions"},
-        "get_focus_points": {"description": "return focus positions"},
     }
 
 
@@ -259,24 +259,28 @@ def run_procedure(handle: MockHandle, procedure: dict) -> dict:
     """Run a procedure and report what ran."""
     _require_open(handle)
     name = procedure.get("name")
-    if name == "get_root":
-        root = Path(handle.connection.get("output_root") or "mock-output")
-        handle.connection["output_root"] = str(root)
-        return {"ran": dict(procedure), "root": str(root), "output_root": str(root)}
-    if name == "get_positions":
-        return {"ran": dict(procedure), "positions": [dict(pos) for pos in handle.initial]}
-    if name == "get_focus_points":
-        return {"ran": dict(procedure), "positions": [dict(pos) for pos in handle.initial]}
+    if name == "autofocus":
+        # Mirror the real drivers' contract: report the sharp z in frame
+        # terms (``frame_z_um``). The mock's "sharp" z is simply wherever
+        # the stage currently sits, which is deterministic and lets the
+        # workflow's focus step run end-to-end offline.
+        frame_z = handle.z - handle.origin_z
+        return {"ran": dict(procedure), "focus_um": handle.z, "frame_z_um": frame_z}
     return {"ran": dict(procedure)}
 
 
-def get_context(handle: MockHandle) -> dict:
-    """Whatever extra context the driver chooses to expose."""
+def get_info(handle: MockHandle) -> dict:
+    """Return the live vendor-authored setup and resolved output root."""
     _require_open(handle)
+    root = Path(handle.connection.get("output_root") or "mock-output")
     return {
-        "initial_positions": [dict(pos) for pos in handle.initial],
+        "tile_positions": [dict(pos) for pos in handle.tile_positions],
+        "focus_positions": [
+            {"x": pos["x"], "y": pos["y"], "z": pos["z"]}
+            for pos in handle.tile_positions
+        ],
         "client": handle.client,
-        "output_root": handle.connection.get("output_root"),
+        "output_root": str(root),
     }
 
 
@@ -303,6 +307,6 @@ def register_mock() -> None:
             "set_state": set_state,
             "get_procedures": get_procedures,
             "run_procedure": run_procedure,
-            "get_context": get_context,
+            "get_info": get_info,
         },
     )

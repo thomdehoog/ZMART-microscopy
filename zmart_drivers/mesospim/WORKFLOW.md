@@ -97,7 +97,7 @@ sess = zmart_controller.set_instrument({
     "host": "127.0.0.1", "port": 42000, "token": "choose-a-token",   # omit if open
 })
 
-sess.get_context()             # identity, initial positions, focus/rotation, output_root
+sess.get_info()                # identity, initial positions, focus/rotation, output_root
 sess.get_actuators()           # {'x': ['motoric'], 'y': [...], 'z': [...]}
 sess.get_xyz()                 # {'x': {'value','actuator','unit'}, ...} — µm from origin
 sess.get_state()               # {'changeable': {laser,intensity,filter,zoom,shutter,etl_*}, 'observed': {...}}

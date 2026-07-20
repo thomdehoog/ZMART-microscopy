@@ -5,7 +5,7 @@ responsive during LRP editing.  Restoring reloads the original
 template (with all objects) and copies the modified LRP back.
 
 Dependency direction:
-    - Imports: ``.files``, ``_file_utils``, stdlib.
+    - Imports: ``.files``, ``..acquisition.files``, stdlib.
     - Imported by: ``__init__`` (re-export).
 """
 
@@ -14,7 +14,7 @@ import shutil
 import time
 import xml.etree.ElementTree as ET
 
-from .._file_utils import _wait_file_stable
+from ..acquisition.files import _wait_file_stable
 from .files import (
     STRIPPED_LRP,
     STRIPPED_RGN,
@@ -262,6 +262,11 @@ def strip_template_in_place(client, *, save_timeout=120):
 # Restore template
 # =============================================================================
 
+# How long to wait (seconds) for LAS X to finish writing the .rgn sidecar
+# before reading it back. 15 s is generous; expiry raises rather than
+# reading a half-written file.
+RGN_STABLE_TIMEOUT_S = 15
+
 _RESTORE_SAVE_TIMEOUTS = (120, 120, 180, 240)
 
 
@@ -330,7 +335,7 @@ def restore_template(client):
                 "waiting for file locks before restoring backup",
                 attempt,
             )
-            _wait_file_stable(rgn_path, 15)
+            _wait_file_stable(rgn_path, RGN_STABLE_TIMEOUT_S)
             shutil.copy2(bak_xml, xml_path)
             shutil.copy2(bak_rgn, rgn_path)
             continue
@@ -348,7 +353,7 @@ def restore_template(client):
             fields,
             items,
         )
-        _wait_file_stable(rgn_path, 15)
+        _wait_file_stable(rgn_path, RGN_STABLE_TIMEOUT_S)
         shutil.copy2(bak_xml, xml_path)
         shutil.copy2(bak_rgn, rgn_path)
     else:

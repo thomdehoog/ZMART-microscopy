@@ -20,8 +20,8 @@ from types import SimpleNamespace
 
 import pytest
 from limits_fixtures import install_permissive_limits
+from navigator_expert.config.timing import RECEIPT_TIMEOUT
 from navigator_expert.scanfields import files
-from navigator_expert.utils import RECEIPT_TIMEOUT
 
 # Content with no operator objects: no ScanFieldData in the XML, empty
 # Items/FocusMap in the RGN.

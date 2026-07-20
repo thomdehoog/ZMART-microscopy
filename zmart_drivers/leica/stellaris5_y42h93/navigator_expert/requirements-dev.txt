@@ -24,8 +24,13 @@ pillow>=10
 ome-types>=0.5           # OME-XML model in tests/unit/test_acquisition.py
 lxml>=4.9                # ome-types XML-validation backend (else: "requires lxml or xmlschema")
 
-# Calibration subsystem (lives inside the driver) + shared.algorithms.
+# Calibration + algorithms subsystems (both live inside the driver).
 matplotlib>=3.7          # calibration report figures (calibration/tests)
-scikit-image>=0.21       # shared.algorithms.registration: ORB/RANSAC/phase-corr
-opencv-python-headless>=4.8  # cv2 in shared.algorithms.registration; headless for CI
+scikit-image>=0.21       # navigator_expert.algorithms.registration: ORB/RANSAC/phase-corr
+opencv-python-headless>=4.8  # cv2 in navigator_expert.algorithms.registration; headless for CI
 ipython>=8               # calibration visualize: `from IPython.display import display`
+anywidget>=0.9           # React notebook widgets (workflows/target_acquisition tests)
+ipympl>=0.9              # interactive matplotlib canvas the v4 notebook cells import
+nbformat>=5.9            # read the v4 notebooks (guard + end-to-end tests skip without it)
+nbclient>=0.9            # execute the v4 notebooks offline in the end-to-end tests
+ipykernel                # kernel the notebook end-to-end execution runs in

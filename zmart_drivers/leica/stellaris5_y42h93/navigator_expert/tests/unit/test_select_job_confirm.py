@@ -274,14 +274,14 @@ class TestLegsBuilder(SelectJobCase):
 
     def test_hybrid_window_defaults_to_confirm_poll_s(self):
         """With no explicit timeout the window is the shared CONFIRM_POLL_S --
-        the same 3x3 window every command uses."""
+        the same 4x3 window every command uses."""
         self._use(selected_job_confirm_source="hybrid")
         api_leg, _, budget = confirm_select_job.select_job_confirm_legs(
             "HiRes", command_started_at=100.0, api_baseline_name="Overview"
         )
         # Read the live module constant the code reads (a conftest patches it
         # down for suite speed), not the import-time value.
-        expected = confirm_select_job._utils.CONFIRM_POLL_S
+        expected = confirm_select_job._timing.CONFIRM_POLL_S
         self.assertEqual(budget, expected)
         self.assertEqual(api_leg.keywords["timeout"], expected)
 

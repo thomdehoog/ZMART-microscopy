@@ -50,6 +50,18 @@ class Session:
 
         self.context = context
 
+    @property
+    def closed(self) -> bool:
+        """Whether :meth:`disconnect` has been called on this session.
+
+        Lifecycle reporting may inspect this without touching the microscope.
+        It deliberately says nothing about an unexpected transport failure
+        the driver has not observed yet — and, because disconnect marks the
+        session closed before calling the driver's teardown, it stays true
+        even if that teardown then raised.
+        """
+        return self._closed
+
     # --- the frame (its origin) ---------------------------------------------
 
     def set_origin(self) -> dict:
@@ -158,17 +170,19 @@ class Session:
             options=options,
         )
 
-    # --- context and lifecycle ----------------------------------------------
+    # --- information and lifecycle ------------------------------------------
 
-    def get_context(self) -> dict:
-        """Additional context the driver provides; keys are driver-defined.
+    def get_info(self) -> dict:
+        """Read the connected setup information live.
 
-        Opaque to the controller -- whatever the driver chooses to expose
-        (e.g. the mock's ``initial_positions``, the Leica driver's
-        ``scan_field``). Read-only with respect to instrument state, but a
-        driver may persist working files and block briefly while gathering it.
+        Target-acquisition-capable drivers expose operator-authored
+        ``tile_positions`` (not the physical stage position; use
+        :meth:`get_xyz` for that), optional ``focus_positions``, and the
+        resolved ``output_root``. Other keys remain driver-defined. The
+        controller does not cache this snapshot. A driver may persist working
+        files and block briefly while gathering truthful vendor information.
         """
-        return self._ops["get_context"](self._handle)
+        return self._ops["get_info"](self._handle)
 
     def disconnect(self) -> None:
         """Close the session if the driver provides a teardown hook.

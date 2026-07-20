@@ -163,6 +163,8 @@ def plot_focus_surface(
 
     if save_path is not None:
         save_figure(fig, save_path)
+    if not show:
+        plt.close(fig)
     return fig
 
 
@@ -229,4 +231,6 @@ def plot_frame_layout(
 
     if save_path is not None:
         save_figure(fig, save_path)
+    if not show:
+        plt.close(fig)
     return fig
