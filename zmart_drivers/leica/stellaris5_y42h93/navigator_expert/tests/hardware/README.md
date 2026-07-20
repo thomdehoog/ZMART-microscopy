@@ -25,13 +25,20 @@ end-to-end driver validator once per reader route (`--state-reader-mode api`,
 Hardware validation uses only production driver modules — nothing under
 `experimental/` (maintainer decision).
 
+Before the first stage-moving validator, hardware CI enforces and verifies the raw
+four-axis baseline **X = 63,500 um, Y = 41,500 um, Z-wide = 0 um, Z-galvo =
+0 um**. Z-wide has a physical lower backstop of 0 um: the CI excursion is
+restricted to a non-negative delta (default +3 um), so the validator never
+commands a negative Z-wide target and restores it to 0 um.
+
 ## Prerequisites
 
 - LAS X running (simulator or scope) with the NavigatorExpert CAM add-in;
   no modal dialog open (a dialog blocks the whole CAM API).
 - A template/experiment loaded with **at least two jobs** (e.g. Overview +
   HiRes) so job-selection round-trips have a target.
-- Stage clear (no sample you care about): `--hardware` moves XY in a
+- Stage clear (no sample you care about): `--hardware` first moves to the
+  fixed four-axis baseline above, then moves XY in a
   10-position pattern (±25 µm around the current position) and does a ±2 µm
   z-galvo round-trip, plus one or more capture+save smoke checks. Park the
   stage inside the calibrated envelope first — the validators refuse to move
@@ -59,8 +66,9 @@ Hardware validation uses only production driver modules — nothing under
 - Job selection: every reported job is selected once, then the original is
   restored. (`validate_readers_side_by_side --allow-job-switch` is NOT part of
   the run_ci set — it pops the manual-turret dialog; run it manually if wanted.)
-- Stage: the XY pattern and z-galvo round-trip above; the adapter validator
-  additionally does `set_origin` + small frame moves and a job switch, restored.
+- Stage: the adapter validator first enforces the fixed four-axis CI baseline,
+  then does `set_origin` + small frame moves and restores to that baseline. The
+  later XY pattern and z-galvo round-trips restore to the same captured start.
 - Acquisition: the adapter validator reads the notebook-critical live
   `get_info()` snapshot (output root, tile positions, focus positions) and one
   acquire+save smoke through LAS X native AutoSave. Each end-to-end reader route

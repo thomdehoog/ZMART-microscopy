@@ -63,7 +63,7 @@ def test_adopt_limits_first_time_writes_complete_limits_snapshot(tmp_path):
     limits_config.adopt_limits(_ENV_B, machine=m, moment=_ADOPT_MOMENT)
     snap = m.latest_snapshot("limits")
     files = sorted(p.name for p in snap.iterdir())
-    assert files == [".limits-machine", "limits.json"]
+    assert files == ["limits.json"]
     lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert lim["z_wide_um"] == {"range": [0.0, 60.0]}
     # §2b: no backlash block is ever written
@@ -97,21 +97,42 @@ def test_adopt_limits_archives_the_saved_notebook_with_the_snapshot_timestamp(tm
     assert archived.read_text(encoding="utf-8") == '{"cells": [{"saved": true}]}'
     assert out["notebook_paths"] == [str(archived)]
     assert not (snapshot / notebook.name).exists()
+    stamp = format_snapshot_name(_ADOPT_MOMENT)
     archived_templates = sorted((snapshot / "data" / "template").iterdir())
-    assert [path.suffix for path in archived_templates] == [".lrp", ".rgn", ".xml"]
-    assert out["template_paths"] == [
-        str(snapshot / "data" / "template" / path.name) for path in templates
+    assert [path.name for path in archived_templates] == [
+        f"limits_{stamp}.lrp",
+        f"limits_{stamp}.rgn",
+        f"limits_{stamp}.xml",
     ]
+    assert out["template_paths"] == [
+        str(snapshot / "data" / "template" / f"limits_{stamp}{path.suffix}") for path in templates
+    ]
+
+
+def test_adopt_limits_refuses_a_notebook_without_its_template_trio(tmp_path):
+    m = MachineProfile(programdata_root=tmp_path / "programdata")
+    notebook = tmp_path / "set_limits.ipynb"
+    notebook.write_text('{"cells": []}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="requires its .xml, .rgn, and .lrp"):
+        limits_config.adopt_limits(
+            _ENV_B,
+            machine=m,
+            moment=_ADOPT_MOMENT,
+            notebook_paths=[notebook],
+        )
+
+    assert m.latest_snapshot("limits") is None
 
 
 def test_limits_snapshot_is_unchanged_by_later_calibration_adoption(tmp_path):
     m = MachineProfile(programdata_root=tmp_path)
     limits_config.adopt_limits(_ENV_B, machine=m, moment=_SEED_MOMENT)
     first = m.latest_snapshot("limits")
-    assert (first / ".limits-machine").exists()
+    assert (first / "limits.json").exists()
 
     later = m.publish_snapshot(_ADOPT_MOMENT, calibration={"marker": "new calibration"})
-    assert not (later / ".limits-machine").exists()
+    assert not (later / "limits.json").exists()
     assert m.latest_snapshot("limits") == first
     assert json.loads((first / "limits.json").read_text(encoding="utf-8"))["x_um"] == {
         "range": [1200.0, 120000.0]
@@ -182,31 +203,29 @@ def test_load_rejects_a_stray_backlash_block(tmp_path):
         limits_config.load(limits_path=limits)
 
 
-def test_limits_paths_are_separate_from_calibration_state(tmp_path, monkeypatch):
-    # With no machine snapshot (hermetic root fixture): the physical limits
-    # seed into ProgramData from the bundled template shipped in the driver tree.
+def test_bundled_limits_stay_outside_programdata(tmp_path, monkeypatch):
     driver_root = Path(__file__).resolve().parents[2]
     template_limits = driver_root / "limits" / "defaults" / "limits.json"
     monkeypatch.setenv("ZMART_MICROSCOPY_ROOT", str(tmp_path / "programdata"))
 
     defaults = limits_config.defaults_path()
     assert defaults.name == "limits.json"
-    assert defaults != template_limits
+    assert defaults == template_limits
     assert defaults.exists()
-    # The bundled template stays shipped; ProgramData gets the runtime copy.
+    assert not (tmp_path / "programdata").exists()
     assert template_limits.exists()
     template = json.loads(template_limits.read_text(encoding="utf-8"))
     assert set(template) == set(limits_config._REQUIRED_FILE_KEYS)
     assert template["x_um"] == {"range": [1000, 130000]}
 
 
-def test_defaults_path_returns_the_machine_local_snapshot_copy(tmp_path, monkeypatch):
+def test_defaults_path_remains_bundled_after_machine_limits_are_published(tmp_path, monkeypatch):
     import navigator_expert.config.machine as machine_mod
 
     monkeypatch.setenv("ZMART_MICROSCOPY_ROOT", str(tmp_path))
     m = machine_mod.MachineProfile()
     m.publish_snapshot(_SEED_MOMENT, limits=merged_limits_payload(_ENV_A))
-    assert limits_config.defaults_path() == m.latest_snapshot("limits") / "limits.json"
+    assert limits_config.defaults_path() == m.bundled_default_path("limits.json")
 
 
 def test_load_defaults_to_defaults_path(tmp_path, monkeypatch):
@@ -268,9 +287,11 @@ def test_limits_notebook_publishes_the_exact_flat_template():
     assert "    LIMITS," in source
     assert "import navigator_expert as drv" in source
     assert "drv.connect_microscope(load_calibration=False)" in source
-    assert "capture_adaptive_xy_limits(client, remove_markers=True)" in source
+    assert "captured_xy = capture_adaptive_xy_limits(client)" in source
+    assert "remove_markers" not in source
     assert 'LIMITS.update(captured_xy["limits"])' in source
     assert 'template_paths=captured_xy["template_paths"]' in source
+    assert 'Path(published["snapshot"]) / "data" / "template"' in source
     assert "plot_adaptive_xy_limits" not in source
     assert "zmart_controller" not in source
     assert "input(" not in source

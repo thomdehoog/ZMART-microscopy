@@ -36,7 +36,7 @@ def test_boundary_points_require_exactly_four_clean_point_markers():
         adaptive.boundary_points_from_template(_parsed(POINTS[:3]))
 
 
-def test_boundary_points_refuse_other_template_content_before_strip():
+def test_boundary_points_refuse_other_template_content():
     parsed = _parsed()
     parsed["geometries"]["scan"] = {
         "type": "Rectangle",
@@ -69,7 +69,7 @@ def test_xy_limits_refuse_points_outside_the_maximum_stage_envelope():
         adaptive.xy_limits_from_points(outside)
 
 
-def test_capture_uses_driver_save_parse_and_strip(monkeypatch, tmp_path):
+def test_capture_saves_archives_then_parses_without_mutating_template(monkeypatch, tmp_path):
     calls = []
     client = object()
     for filename in (
@@ -89,20 +89,16 @@ def test_capture_uses_driver_save_parse_and_strip(monkeypatch, tmp_path):
         "parse_scan_positions",
         lambda *args, **kwargs: calls.append(("parse", args, kwargs)) or _parsed(),
     )
-    monkeypatch.setattr(
-        adaptive,
-        "strip_template_in_place",
-        lambda *args, **kwargs: calls.append(("strip", args, kwargs)) or {"success": True},
-    )
-
     captured = adaptive.capture_adaptive_xy_limits(client)
     try:
         assert captured["limits"]["x_um"]["range"] == [10_000.0, 30_000.0]
-        assert captured["markers_removed"] is True
-        assert [name for name, _args, _kwargs in calls] == ["save", "parse", "strip"]
+        assert "markers_removed" not in captured
+        assert [name for name, _args, _kwargs in calls] == ["save", "parse"]
         assert calls[0][1][0] is client
         assert calls[1][2]["client"] is client
         archived = [Path(path) for path in captured["template_paths"]]
+        assert calls[1][1][0] == archived[0].parent
+        assert calls[1][1][0] != tmp_path
         assert {path.suffix for path in archived} == {".xml", ".rgn", ".lrp"}
         assert all(path.read_text(encoding="utf-8") == path.name for path in archived)
     finally:

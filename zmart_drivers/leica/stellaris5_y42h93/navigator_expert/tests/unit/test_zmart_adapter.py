@@ -1534,15 +1534,16 @@ class TestLifecycle(unittest.TestCase):
         self.assertEqual(described["source"], "machine")
         self.assertFalse(described["is_fallback"])
 
-    def test_connect_seeds_default_limits_when_programdata_is_empty(self):
-        """Empty ProgramData is initialized from defaults, then governs the session."""
+    def test_connect_uses_packaged_fallback_when_programdata_is_empty(self):
+        """Empty ProgramData uses defaults without creating a limits snapshot."""
         with patch.object(adapter._session, "connect_python_client", return_value=object()):
             h = adapter.connect(dict(adapter.CONNECTION))
         self.assertIsInstance(h, adapter.ZmartHandle)
         self.assertFalse(h.closed)
         described = _gate.describe(h.client)
         self.assertEqual(described["source"], "defaults")
-        self.assertFalse(described["is_fallback"])
+        self.assertTrue(described["is_fallback"])
+        self.assertIsNone(adapter._machine.MACHINE.latest_snapshot("limits"))
         state = _gate.state_for(h.client)
         self.assertTrue(state.ok)
 

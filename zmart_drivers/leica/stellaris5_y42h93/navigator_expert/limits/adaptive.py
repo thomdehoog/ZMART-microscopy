@@ -2,8 +2,8 @@
 
 The operator places exactly four temporary Point markers in the active LAS X
 Navigator Expert template. This module saves and parses that template through
-the Leica driver, derives the inclusive XY bounding box, optionally strips the
-temporary markers, and returns the recorded coordinates and limits as data.
+the Leica driver, preserves the saved experiment files, derives the inclusive
+XY bounding box, and returns the recorded coordinates and limits as data.
 
 No controller API is involved.
 """
@@ -26,7 +26,6 @@ from ..scanfields.files import (
     save_experiment,
 )
 from ..scanfields.parsers import parse_scan_positions
-from ..scanfields.strip_restore import strip_template_in_place
 from .checks import STAGE_BACKSTOP_UM
 
 
@@ -59,7 +58,7 @@ def boundary_points_from_template(
     """Return exactly four temporary Point-marker centers from parsed scan data.
 
     Refuse templates containing scan fields, focus markers, or non-Point
-    geometry so the later strip operation cannot silently remove real work.
+    geometry so the four boundary points are unambiguous.
     """
     geometries = parsed.get("geometries", {})
     non_points = [
@@ -139,14 +138,13 @@ def xy_limits_from_points(
 def capture_adaptive_xy_limits(
     client: Any,
     *,
-    remove_markers: bool = True,
     save_timeout: float = 60,
 ) -> dict[str, Any]:
-    """Read four live LAS X Point markers and optionally remove them afterward.
+    """Preserve and read four live LAS X Point markers.
 
-    All reads and mutations use the Leica navigator_expert driver. Markers are
-    stripped only after the saved template has been validated as containing
-    exactly four Points and no other scan-field or focus content.
+    The Leica driver first saves the active experiment, then the exact XML/RGN/LRP
+    trio is copied to a temporary archive. Coordinates are read from that preserved
+    copy. The active LAS X template and its Point markers are not modified.
     """
     templates_dir = find_scanning_templates_dir()
     if templates_dir is None:
@@ -162,25 +160,19 @@ def capture_adaptive_xy_limits(
     if saved is None:
         raise RuntimeError("LAS X did not save the active template; no points were read")
 
-    parsed = parse_scan_positions(templates_dir, TEMPLATE_BASE, client=client)
-    points = boundary_points_from_template(parsed)
-    limits = xy_limits_from_points(points)
     template_archive, template_paths = _archive_saved_template(Path(templates_dir))
-
-    markers_removed = False
-    if remove_markers:
-        stripped = strip_template_in_place(client, save_timeout=save_timeout)
-        if stripped is None:
-            raise RuntimeError(
-                "The four points were read, but the driver could not remove them "
-                "from the LAS X template"
-            )
-        markers_removed = True
+    try:
+        archive_dir = template_paths[0].parent
+        parsed = parse_scan_positions(archive_dir, TEMPLATE_BASE, client=client)
+        points = boundary_points_from_template(parsed)
+        limits = xy_limits_from_points(points)
+    except BaseException:
+        template_archive.cleanup()
+        raise
 
     return {
         "points_um": points,
         "limits": limits,
-        "markers_removed": markers_removed,
         "template_paths": [str(path) for path in template_paths],
         # Retain the temporary directory until the notebook publishes the files.
         "_template_archive": template_archive,

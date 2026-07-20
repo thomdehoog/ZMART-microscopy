@@ -103,29 +103,28 @@ def test_snapshot_listing_ignores_malformed_entries(tmp_path):
     assert profile.snapshots("limits") == [valid]
 
 
-def test_each_resolver_seeds_only_its_own_tree(tmp_path):
+def test_limits_do_not_seed_while_other_resolvers_seed_their_own_tree(tmp_path):
     profile = _profile(tmp_path)
     calibration = profile.calibration_path()
     assert calibration.parent.parent == profile.subsystem_root("calibration")
     assert profile.latest_snapshot("limits") is None
     assert profile.latest_snapshot("orientation") is None
 
-    limits = profile.limits_path()
+    with pytest.raises(FileNotFoundError, match="operator-published"):
+        profile.limits_path()
     orientation = profile.orientation_path()
-    assert limits.parent.parent == profile.subsystem_root("limits")
+    assert profile.latest_snapshot("limits") is None
     assert orientation.parent.parent == profile.subsystem_root("orientation")
-    assert not (limits.parent / "calibration.json").exists()
     assert not (orientation.parent / "limits.json").exists()
 
 
-def test_incomplete_subsystem_snapshot_is_repaired_with_a_new_timestamp(tmp_path):
+def test_incomplete_limits_snapshot_does_not_seed_or_masquerade_as_machine_limits(tmp_path):
     profile = _profile(tmp_path)
     incomplete = profile.subsystem_root("limits") / "2026-07-01T14-30-00-000000Z"
     incomplete.mkdir(parents=True)
-    resolved = profile.limits_path()
-    assert resolved.exists()
-    assert resolved.parent != incomplete
-    assert profile.latest_snapshot("limits") == resolved.parent
+    with pytest.raises(FileNotFoundError, match="operator-published"):
+        profile.limits_path()
+    assert profile.latest_snapshot("limits") == incomplete
 
 
 def test_flat_layout_migrates_copy_only_into_all_subsystems(tmp_path):
@@ -141,7 +140,7 @@ def test_flat_layout_migrates_copy_only_into_all_subsystems(tmp_path):
     assert flat.exists()
     assert old_origin.exists()
     assert (migrated["limits"] / "limits.json").exists()
-    assert (migrated["limits"] / ".limits-machine").exists()
+    assert not (migrated["limits"] / ".limits-machine").exists()
     assert (migrated["limits"] / "set_limits.ipynb").exists()
     assert not (migrated["limits"] / "set_orientation.ipynb").exists()
     assert (migrated["calibration"] / "calibrations" / "water" / "calibration.json").exists()
@@ -157,6 +156,7 @@ def test_pre_api_flat_snapshot_copies_then_migrates(tmp_path):
     legacy.mkdir(parents=True)
     for filename in ("limits.json", "calibration.json", "orientation.json"):
         (legacy / filename).write_text("{}", encoding="utf-8")
+    (legacy / ".limits-machine").touch()  # legacy proof that limits were operator-published
 
     migrated = profile.migrate_flat_snapshots()
 
@@ -220,7 +220,7 @@ def test_publish_does_not_duplicate_other_subsystems(tmp_path):
     snapshot = profile.publish_snapshot(_AT_1430, limits={"marker": "limits"})
     assert snapshot.parent == profile.subsystem_root("limits")
     assert json.loads((snapshot / "limits.json").read_text()) == {"marker": "limits"}
-    assert (snapshot / ".limits-machine").exists()
+    assert not (snapshot / ".limits-machine").exists()
     assert list(snapshot.glob("calibration*")) == []
     assert profile.latest_snapshot("calibration") is None
     assert profile.latest_snapshot("orientation") is None
@@ -232,7 +232,7 @@ def test_publish_carries_forward_only_within_subsystem(tmp_path):
     second = profile.publish_snapshot(_AT_1500, limits={"marker": "B"})
     assert json.loads((first / "limits.json").read_text()) == {"marker": "A"}
     assert json.loads((second / "limits.json").read_text()) == {"marker": "B"}
-    assert (second / ".limits-machine").exists()
+    assert sorted(path.name for path in second.iterdir()) == ["limits.json"]
 
 
 def test_publish_archives_notebook_with_owning_subsystem(tmp_path):

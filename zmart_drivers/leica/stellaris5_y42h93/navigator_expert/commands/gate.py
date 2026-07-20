@@ -312,8 +312,9 @@ def connect_handshake(
 
     1. When ``load`` is False, the machine file is skipped and the session is
        governed by the bundled DEFAULT limits (see below). Otherwise the single
-       ``limits.json`` resolves through ProgramData, seeding repo defaults there
-       first when needed. It must contain exactly the flat keys shown by the
+       ``limits.json`` resolves through ProgramData. If none has been published,
+       the bundled defaults are used directly and are never copied into the
+       machine tree. A published file must contain exactly the flat keys shown by the
        limits notebook and finite ranges with min <= max; ``objective_slot``
        is ``[]`` (unrestricted) or a non-empty non-negative allow-list.
        ``stage_limits_path`` overrides the resolution
@@ -357,8 +358,7 @@ def connect_handshake(
             limits_file = machine.require_machine_local(
                 _machine.LIMITS_FILENAME, "the machine limits"
             )
-            marker = limits_file.parent / _machine.LIMITS_MACHINE_MARKER
-            source = "machine" if marker.exists() else "defaults"
+            source = "machine"
         state = _build_gate_from_file(
             client,
             limits_file,
