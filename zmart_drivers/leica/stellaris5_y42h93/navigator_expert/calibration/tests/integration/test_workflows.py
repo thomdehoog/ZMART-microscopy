@@ -1115,7 +1115,7 @@ def _patch_objective_driver(
     # Most integration tests exercise measurement arithmetic rather than the
     # live objective reader. Give them a stable operator-driven 10x/20x pair;
     # dedicated tests below exercise the real read/record/verify helper.
-    def _observe_objective_for_step(session, role):
+    def _observe_objective_for_step(session, role, **_kwargs):
         if role == "reference":
             session.from_slot = 1
             session.from_objective = session.from_objective or "10x"
@@ -1478,7 +1478,8 @@ def test_objective_cells_record_and_report_target_then_verify_both_roles(monkeyp
 
     wf_obj._observe_objective_for_step(session, "reference")
     live.update(slot=2, name="HC PL APO CS2 20x/0.75 DRY")
-    wf_obj._observe_objective_for_step(session, "target")
+    # The target focus step is the one that DEFINES the target lens.
+    wf_obj._observe_objective_for_step(session, "target", establish=True)
     assert session.to_slot == 2
     assert session.to_objective == "HC PL APO CS2 20x/0.75 DRY"
 
@@ -1520,6 +1521,79 @@ def test_objective_verification_refuses_wrong_slot_same_reference_as_target_and_
     live["job"] = "Another job"
     with pytest.raises(RuntimeError, match="Navigator Expert job changed"):
         wf_obj._observe_objective_for_step(session, "reference")
+
+
+def test_target_focus_rerun_with_a_different_lens_redefines_the_target(monkeypatch, capsys):
+    """Re-running the target focus step with another lens must not lock the session.
+
+    An accidental first run with the wrong lens used to pin ``to_slot``
+    forever; the only escape was rebuilding the whole session. With
+    ``establish=True`` the step simply adopts the new lens and the caller
+    discards the old target data.
+    """
+    session = _live_objective_session()
+    session.to_slot = 2
+    session.to_objective = "HC PL APO CS2 20x/0.75 DRY"
+    live = {"job": "Overview", "slot": 3, "name": "HC PL APO CS2 40x/1.10 WATER"}
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "get_selected_job",
+        lambda _client, **_kwargs: {"Name": live["job"]},
+    )
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "get_job_settings",
+        lambda _client, _job, **_kwargs: {
+            "objective": {"slotIndex": live["slot"], "name": live["name"]}
+        },
+    )
+
+    wf_obj._observe_objective_for_step(session, "target", establish=True)
+
+    assert session.to_slot == 3
+    assert session.to_objective == "HC PL APO CS2 40x/1.10 WATER"
+    output = capsys.readouterr().out
+    assert "Target objective changed" in output
+    assert "Discarding the previous target measurements" in output
+
+    # Establishing still refuses the reference lens itself.
+    live.update(slot=1, name=session.from_objective)
+    with pytest.raises(RuntimeError, match="still the reference objective"):
+        wf_obj._observe_objective_for_step(session, "target", establish=True)
+    assert session.to_slot == 3
+
+
+def test_target_verify_refuses_changed_lens_without_adopting_it(monkeypatch):
+    """The final target step verifies against the recorded lens; it never adopts."""
+    session = _live_objective_session()
+    session.to_slot = 2
+    session.to_objective = "HC PL APO CS2 20x/0.75 DRY"
+    live = {"job": "Overview", "slot": 3, "name": "HC PL APO CS2 40x/1.10 WATER"}
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "get_selected_job",
+        lambda _client, **_kwargs: {"Name": live["job"]},
+    )
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "get_job_settings",
+        lambda _client, _job, **_kwargs: {
+            "objective": {"slotIndex": live["slot"], "name": live["name"]}
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="wrong objective for target step"):
+        wf_obj._observe_objective_for_step(session, "target")
+    assert session.to_slot == 2
+
+    # Without an established target (e.g. a hand-built session), verifying
+    # refuses instead of silently adopting whatever lens is active.
+    session.to_slot = None
+    session.to_objective = None
+    live.update(slot=2, name="HC PL APO CS2 20x/0.75 DRY")
+    with pytest.raises(RuntimeError, match="measure the target focus"):
+        wf_obj._observe_objective_for_step(session, "target")
+    assert session.to_slot is None
 
 
 def test_observe_reference_refuses_a_session_without_a_configured_reference(monkeypatch):
@@ -2174,6 +2248,53 @@ def test_objective_pair_rerun_3a_invalidates_parcentricity_target(
             session,
             machine=machine,
         )
+
+
+def test_wrong_objective_rerun_refuses_before_discarding_anything(
+    monkeypatch,
+    sessions_root,
+    machine,
+):
+    """A rerun with the wrong lens must refuse WITHOUT wiping earlier data.
+
+    The frustrating failure mode this pins down: the operator finishes a
+    measurement, accidentally runs a cell with the wrong objective in, and
+    loses everything that cell would have re-measured — even though the run
+    was refused. The objective check must come before any invalidation, so
+    the refusal costs nothing: switch lenses and run the cell again.
+    """
+    session, state, cfg = _full_objective_run(
+        monkeypatch,
+        sessions_root,
+        machine,
+        session_id="obj_wrong_lens_refusal",
+    )
+
+    def _refuse(_session, _role, **_kwargs):
+        raise RuntimeError("wrong objective for this step (simulated)")
+
+    monkeypatch.setattr(wf_obj, "_observe_objective_for_step", _refuse)
+
+    for step in (
+        wf_obj.measure_parfocality_reference,
+        wf_obj.measure_parfocality_target,
+        wf_obj.measure_parcentricity_reference,
+        wf_obj.measure_parcentricity_target_and_save,
+    ):
+        with pytest.raises(RuntimeError, match="wrong objective"):
+            step(session)
+
+    # Everything the completed run produced is still there.
+    assert cfg.is_file()
+    assert session.config_written is True
+    assert session.focus_z_ref_um is not None
+    assert session.focus_z_target_um is not None
+    assert session.translation_z_um is not None
+    assert session.ref_image is not None
+    assert session.target_image is not None
+    assert session.translation_xy_um is not None
+    assert session.registration is not None
+    assert (session.paths.reports_dir / "objective_pair_report.json").is_file()
 
 
 def test_objective_pair_rerun_2b_wipes_target_z_stack_dir(
