@@ -19,6 +19,14 @@ pytest>=8
 pytest-cov>=5
 ruff>=0.6
 
+# Real-browser web-interface tests (workflows/target_acquisition). The package
+# alone is enough wherever a Chromium already exists -- the remote session
+# containers ship one at /opt/pw-browsers/chromium, and the test knows to look
+# there. Where no browser can launch (e.g. a bare CI runner without
+# `playwright install chromium`), the browser tests skip cleanly instead of
+# failing, so this line only ever adds coverage.
+playwright>=1.58,<2
+
 # Core numerics + imaging IO (driver acquisition, scanfield parsing, save()).
 numpy>=1.24
 scipy>=1.10
