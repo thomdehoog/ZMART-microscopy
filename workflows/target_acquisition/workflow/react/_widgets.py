@@ -355,7 +355,7 @@ function App({ model }) {
   const [, bump] = React.useReducer((n) => n + 1, 0);
   const [cursor, setCursor] = React.useState(null);
   const box = React.useRef(null);
-  const W = 640, H = 520;
+  const W = widgetPx(640), H = widgetPx(520);
 
   const fit = () => {
     if (!tiles.length) return;
@@ -861,22 +861,53 @@ function App({ model }) {
   const [heatmap] = useTrait(model, "heatmap");
   const [busy] = useTrait(model, "busy");
   const [status] = useTrait(model, "status");
-  const W = 620, H = 470, pad = 40;
+  const W = widgetPxFor("focus", 620), H = widgetPxFor("focus", 470), pad = 40;
 
-  const xs = [...squares.map((s) => s.x), ...points.map((p) => p.x), 0];
-  const ys = [...squares.map((s) => s.y), ...points.map((p) => p.y), 0];
+  // Every position carries the selected overview job's physical field size.
+  // Fit the complete field bounds (not just their centres), keeping the same
+  // x/y scale so overlaps and spacing are geometrically honest.
+  const xBounds = squares.flatMap((q) => Number(q.w) > 0
+    ? [q.x - q.w / 2, q.x + q.w / 2] : [q.x]);
+  const yBounds = squares.flatMap((q) => Number(q.h) > 0
+    ? [q.y - q.h / 2, q.y + q.h / 2] : [q.y]);
+  const xs = [...xBounds, ...points.map((p) => p.x)];
+  const ys = [...yBounds, ...points.map((p) => p.y)];
+  if (!xs.length) xs.push(0);
+  if (!ys.length) ys.push(0);
   const lo = (v) => Math.min(...v), hi = (v) => Math.max(...v);
-  const spanX = Math.max(hi(xs) - lo(xs), 1), spanY = Math.max(hi(ys) - lo(ys), 1);
+  const xLo = lo(xs), yLo = lo(ys);
+  const spanX = Math.max(hi(xs) - xLo, 1), spanY = Math.max(hi(ys) - yLo, 1);
   const s = Math.min((W - 2 * pad) / spanX, (H - 2 * pad) / spanY);
-  const X = (x) => pad + (x - lo(xs)) * s + ((W - 2 * pad) - spanX * s) / 2;
-  const Y = (y) => pad + (y - lo(ys)) * s + ((H - 2 * pad) - spanY * s) / 2;
+  const offsetX = pad + ((W - 2 * pad) - spanX * s) / 2;
+  const offsetY = pad + ((H - 2 * pad) - spanY * s) / 2;
+  const X = (x) => offsetX + (x - xLo) * s;
+  const Y = (y) => offsetY + (y - yLo) * s;
   const toUm = (e, svg) => {
     const r = svg.getBoundingClientRect();
-    return { x: (e.clientX - r.left - (X(0) - 0 * s)) / s + 0, y: (e.clientY - r.top - Y(0)) / s };
+    const localX = (e.clientX - r.left) * W / r.width;
+    const localY = (e.clientY - r.top) * H / r.height;
+    return { x: xLo + (localX - offsetX) / s,
+             y: yLo + (localY - offsetY) / s };
+  };
+  const fieldRect = (q, i, layer) => {
+    const physical = Number(q.w) > 0 && Number(q.h) > 0;
+    const width = physical ? q.w * s : 14;
+    const height = physical ? q.h * s : 14;
+    return h("rect", {
+      key: `${layer}${i}`,
+      x: X(q.x) - width / 2,
+      y: Y(q.y) - height / 2,
+      width,
+      height,
+      fill: layer === "base" ? "#f8fafc" : "none",
+      stroke: layer === "border" ? "#e5e7eb" : "none",
+      strokeWidth: 1,
+    });
   };
 
   const [readOnly] = useTrait(model, "read_only");
-  return h("div", { style: { ...card, width: W + 24 } },
+  return h("div", { style: { ...card, width: W, padding: 0,
+      background: "transparent", border: "none", boxShadow: "none" } },
     h("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 8 } },
       readOnly ? pill("read-only view") : h("button", { style: btn(busy), disabled: busy,
         onClick: () => model.send({ type: "measure" }) },
@@ -895,19 +926,18 @@ function App({ model }) {
       h("span", { style: { color: T.dim, fontSize: 12 } }, status)),
     h("svg", {
         width: W, height: H,
-        style: { background: "#000", borderRadius: 10, cursor: "crosshair" },
+        style: { background: "#ffffff", borderRadius: 10, cursor: "crosshair" },
         onClick: (e) => {
           if (busy || readOnly) return;
           const svg = e.currentTarget;
           const um = toUm(e, svg);
           setPoints([...points, { x: um.x, y: um.y }]);
         } },
+      squares.map((q, i) => fieldRect(q, i, "base")),
       heatmap.src ? h("image", { href: heatmap.src, x: X(heatmap.x0), y: Y(heatmap.y0),
         width: heatmap.w * s, height: heatmap.h * s, preserveAspectRatio: "none",
-        opacity: 0.9 }) : null,
-      squares.map((q, i) => h("rect", { key: `s${i}`, x: X(q.x) - 7, y: Y(q.y) - 7,
-        width: 14, height: 14, fill: q.fill || "none", stroke: T.accent, strokeWidth: 1.5,
-        style: { transition: "fill 0.3s" } })),
+        opacity: 0.82, style: { imageRendering: "auto" } }) : null,
+      squares.map((q, i) => fieldRect(q, i, "border")),
       points.map((p, i) => {
         const m = measured[i];
         return h("g", { key: `p${i}`, style: { cursor: "pointer" },
@@ -941,9 +971,20 @@ export default mount(App);
         self.session = session
         self.af_job = af_job
         self.start_z = start_z
-        self.squares = [
-            {"x": float(p["x"]), "y": float(p["y"]), "fill": ""} for p in (positions or [])
-        ]
+        self.squares = []
+        for position in positions or []:
+            size = position.get("tile_size") or {}
+            width = float(size.get("x") or 0.0)
+            height = float(size.get("y") or 0.0)
+            self.squares.append(
+                {
+                    "x": float(position["x"]),
+                    "y": float(position["y"]),
+                    "w": width if width > 0 else 0.0,
+                    "h": height if height > 0 else 0.0,
+                    "fill": "",
+                }
+            )
         self.focus: Any = None
         self._measured_points: list[dict] | None = None
         # Autofocus results already collected this session, keyed by the
@@ -1084,8 +1125,13 @@ export default mount(App);
     def _render_heatmap(self) -> dict:
         import numpy as np
 
-        xs = [m["x_um"] for m in self.measured] + [q["x"] for q in self.squares]
-        ys = [m["y_um"] for m in self.measured] + [q["y"] for q in self.squares]
+        xs = [m["x_um"] for m in self.measured]
+        ys = [m["y_um"] for m in self.measured]
+        for square in self.squares:
+            half_width = float(square.get("w") or 0.0) / 2.0
+            half_height = float(square.get("h") or 0.0) / 2.0
+            xs.extend((square["x"] - half_width, square["x"] + half_width))
+            ys.extend((square["y"] - half_height, square["y"] + half_height))
 
         def _span(values):
             lo, hi = float(min(values)), float(max(values))
@@ -1172,7 +1218,7 @@ function App({ model }) {
   const [picked] = useTrait(model, "picked_indices");
   const [acquired] = useTrait(model, "acquired_indices");
   const [readOnly] = useTrait(model, "read_only");
-  const W = 460, H = 360, pad = 42;
+  const W = widgetPxFor("explorer", 460), H = widgetPxFor("explorer", 360), pad = 42;
   const moved = React.useRef(false);
 
   const fx = dots.map((d) => d.fx), fy = dots.map((d) => d.fy);
@@ -1738,7 +1784,10 @@ function App({ model }) {
       scaleBar(r),
       h("div", { style: { color: big ? "#f1f5f9" : T.dim, fontSize: 12, marginTop: 2 } }, title)));
 
-  return h("div", { style: { ...card, width: 700, position: "relative" } },
+  const fillWidth = Boolean(globalThis.ZMART_WIDGET_FILL?.gallery);
+  return h("div", { style: { ...card,
+      width: fillWidth ? "100%" : widgetPxFor("gallery", 700),
+      position: "relative" } },
     h("style", null, "@keyframes zin { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: none;} }"),
     h("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 10,
                         flexWrap: "wrap" } },

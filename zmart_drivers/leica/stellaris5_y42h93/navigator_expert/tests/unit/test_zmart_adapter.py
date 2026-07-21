@@ -389,9 +389,8 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(opts["job"]["options"], ["Overview", "HiRes"])
         self.assertEqual(opts["job"]["active"], "HiRes")
         self.assertNotIn("mode", selected.call_args.kwargs)
-        self.assertEqual(
-            opts["backlash_rounds"]["active"], adapter._motion.BACKLASH_DEFAULT_ROUNDS
-        )
+        self.assertEqual(opts["backlash_rounds"]["active"], 0)
+        self.assertEqual(adapter.ACQUISITION_BACKLASH_DEFAULT_ROUNDS, 0)
         self.assertEqual(opts["backlash_rounds"]["options"], "int >= 0")
         self.assertEqual(opts["strip_scan_fields"]["active"], True)  # default on
         self.assertEqual(opts["format"]["active"], "ome-tiff")
@@ -605,7 +604,11 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
             patch.object(adapter._readers, "get_hardware_info", return_value={}),
             patch.object(adapter._commands, "select_job", return_value={"success": True}),
-            patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
+            patch.object(
+                adapter._motion,
+                "correct_backlash",
+                side_effect=lambda client, **k: calls.setdefault("backlash", []).append(k["passes"]),
+            ),
             patch.object(
                 adapter._capture, "acquire", lambda client, job, **k: SimpleNamespace(job=job)
             ),
@@ -639,6 +642,9 @@ class TestAcquire(unittest.TestCase):
             record0 = adapter.acquire(h)
             record1 = adapter.acquire(h)
         self.assertEqual(record0["acquisition_type"], "scan")
+        self.assertEqual(calls.get("backlash", []), [])
+        self.assertEqual(record0["settle"], "direct")
+        self.assertEqual(record0["backlash_rounds"], 0)
         # unlabeled acquires consume the per-session counter, zero-padded
         self.assertEqual(record0["position_label"], "000000")
         self.assertEqual(record1["position_label"], "000001")

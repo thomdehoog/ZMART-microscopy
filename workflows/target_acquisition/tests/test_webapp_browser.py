@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import contextmanager
 
 import matplotlib
 
@@ -67,9 +68,29 @@ def _launch_browser(pw):
         pytest.skip(f"no Chromium available for Playwright: {first_error}")
 
 
+@contextmanager
+def _playwright():
+    """Skip cleanly when Playwright is only partially installed."""
+    try:
+        from playwright._impl._driver import compute_driver_executable
+
+        compute_driver_executable()
+    except Exception as exc:  # pragma: no cover - environment-specific
+        pytest.skip(f"Playwright driver is unavailable: {exc}")
+    manager = playwright_api.sync_playwright()
+    try:
+        pw = manager.start()
+    except Exception as exc:  # pragma: no cover - environment-specific
+        pytest.skip(f"Playwright driver is unavailable: {exc}")
+    try:
+        yield pw
+    finally:
+        manager.stop()
+
+
 def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path):
     base, hub, flow = demo_server
-    with playwright_api.sync_playwright() as pw:
+    with _playwright() as pw:
         browser = _launch_browser(pw)
         page = browser.new_page()
         errors: list[str] = []
@@ -81,7 +102,7 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         page.wait_for_selector('button[data-step="connect"]:enabled', timeout=30_000)
 
         # The page is operator language, not code.
-        assert "ZMART target acquisition" in page.content()
+        assert "ZMART-microscopy: Target acquisition" in page.content()
         playwright_api.expect(page.locator("#demo-banner")).to_be_visible(timeout=10_000)
 
         for step in _STEP_ORDER:
@@ -93,6 +114,7 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         focus.locator('button:has-text("Measure focus")').first.click(timeout=30_000)
         page.wait_for_selector('#widget-focus :text("focus surface fitted")', timeout=60_000)
 
+        page.locator("#step-run_overview > summary").click()
         page.click('button[data-step="run_overview"]')
         page.wait_for_selector("#note-run_overview.ok", timeout=120_000)
         # The live map really shows tiles, streamed as binary and mounted
@@ -115,10 +137,12 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         assert images.evaluate_all("els => els.map((el) => el.src)") == previous_sources
         page.unroute("**/buffer/*")
 
+        page.locator("#step-discover_targets > summary").click()
         page.click('button[data-step="discover_targets"]')
         page.wait_for_selector("#note-discover_targets.ok", timeout=120_000)
         page.wait_for_selector("#widget-explorer svg", timeout=30_000)
 
+        page.locator("#step-gallery > summary").click()
         gallery = page.locator("#widget-gallery")
         gallery.locator("input").first.fill("2")
         gallery.locator('button:has-text("Acquire")').first.click()
@@ -127,6 +151,7 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         )  # 2 pairs
         gallery.locator('button:has-text("✓")').first.click()
 
+        page.locator("#step-save_results > summary").click()
         page.click('button[data-step="save_results"]')
         page.wait_for_selector("#note-save_results.ok", timeout=60_000)
         page.click('button[data-step="disconnect"]')
@@ -176,7 +201,7 @@ def test_live_event_wins_over_an_older_boot_snapshot(demo_server):
 
     mutation = threading.Thread(target=_start_run_during_snapshot, daemon=True)
     mutation.start()
-    with playwright_api.sync_playwright() as pw:
+    with _playwright() as pw:
         browser = _launch_browser(pw)
         page = browser.new_page()
         page.goto(base, wait_until="domcontentloaded")
@@ -194,7 +219,7 @@ def test_live_event_wins_over_an_older_boot_snapshot(demo_server):
 def test_rapid_local_edits_are_not_built_from_stale_browser_state(demo_server):
     """Two focus clicks inside one worker round trip must both survive."""
     base, hub, flow = demo_server
-    with playwright_api.sync_playwright() as pw:
+    with _playwright() as pw:
         browser = _launch_browser(pw)
         page = browser.new_page()
         page.goto(base, wait_until="domcontentloaded")
@@ -252,7 +277,7 @@ def test_rapid_local_edits_are_not_built_from_stale_browser_state(demo_server):
 
 def test_failed_first_snapshot_retries_and_unwedges_the_page(demo_server):
     base, _hub, _flow = demo_server
-    with playwright_api.sync_playwright() as pw:
+    with _playwright() as pw:
         browser = _launch_browser(pw)
         page = browser.new_page()
         attempts = 0
@@ -284,10 +309,11 @@ def test_explorer_lasso_ignores_slips_and_commits_real_drags(demo_server):
     flow.run_step("discover_targets")
     hub.drain(120)
 
-    with playwright_api.sync_playwright() as pw:
+    with _playwright() as pw:
         browser = _launch_browser(pw)
         page = browser.new_page()
         page.goto(base, wait_until="domcontentloaded")
+        page.locator("#step-discover_targets > summary").click()
         svg = page.locator("#widget-explorer svg")
         playwright_api.expect(svg).to_be_visible(timeout=30_000)
         svg.scroll_into_view_if_needed()

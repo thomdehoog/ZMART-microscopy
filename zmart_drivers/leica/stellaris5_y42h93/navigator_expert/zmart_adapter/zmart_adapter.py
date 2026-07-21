@@ -124,6 +124,11 @@ _Z_MODES = {"z-wide": "zwide", "z-galvo": "galvo"}
 # quirky but unavoidable: the on-disk template is the only complete source.
 EXPERIMENT_FLUSH_TIMEOUT_S = 60
 
+# Routine backlash take-up remains explicitly available, but ordinary
+# controller acquisitions do not add in-place correction cycles unless the
+# caller opts in with a positive ``backlash_rounds`` value.
+ACQUISITION_BACKLASH_DEFAULT_ROUNDS = 0
+
 # Limits are enforced BELOW this adapter, in the command wrappers
 # themselves (commands/gate.py + limits/checks.py; maintainer decision §7).
 # The adapter does NO limit checking of its own — it composes commands and
@@ -661,7 +666,8 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
     selected one active; ``cleanup_source`` is forwarded
     to the driver's ``save()``; ``backlash_correction`` runs an XY slack
     takeup before capture and optional ``backlash_rounds`` controls its pass
-    count (``0`` skips it); ``strip_scan_fields`` (Leica-specific, default on)
+    count (default ``0``, which skips it); ``strip_scan_fields``
+    (Leica-specific, default on)
     empties the scanning template before the capture so LAS X acquires the
     single current position, never a stored scan-field pattern.
     """
@@ -679,7 +685,7 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
         "backlash_correction": {"options": [True, False], "active": True},
         "backlash_rounds": {
             "options": "int >= 0",
-            "active": _motion.BACKLASH_DEFAULT_ROUNDS,
+            "active": ACQUISITION_BACKLASH_DEFAULT_ROUNDS,
         },
         "strip_scan_fields": {"options": [True, False], "active": True},
         "format": {"options": ["ome-tiff"], "active": "ome-tiff"},

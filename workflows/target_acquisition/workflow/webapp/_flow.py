@@ -175,6 +175,57 @@ class RunFlow:
             completed = list(self.completed)
         return {"completed": completed, "demo": self.demo}
 
+    def reset(self, timeout: float = 30.0) -> None:
+        """Safely disconnect this run and replace it with a fresh one.
+
+        Reset is deliberately separate from browser reconnect: a dropped tab
+        must never erase an active acquisition. Once Connect has completed,
+        the explicit reset runs on the hub worker, releases the microscope and
+        analysis engine, and then clears the browser-facing run state.
+        """
+        with self._state_lock:
+            if "connect" not in self.completed:
+                raise FlowError("connect before restarting the workflow")
+            if self._pending:
+                raise FlowError("wait for the current workflow action to finish")
+
+        finished = threading.Event()
+        errors: list[BaseException] = []
+
+        def apply() -> None:
+            try:
+                self._reset_now()
+            except BaseException as exc:  # surfaced to the requesting browser
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        if not self.hub.submit(apply):
+            raise FlowError("the server is busy — wait before starting a new run")
+        if not finished.wait(timeout):
+            raise FlowError("the new run did not initialize in time")
+        if errors:
+            raise errors[0]
+
+    def _reset_now(self) -> None:
+        with self._state_lock:
+            completed = set(self.completed)
+            if "connect" not in completed:
+                raise FlowError("connect before restarting the workflow")
+        if "disconnect" not in completed:
+            self._disconnect()
+        settings = {
+            "demo": self.demo,
+            "analysis_repo": self.analysis_repo,
+            "vendor": self.vendor,
+            "demo_root": self.demo_root,
+            "af_job": self.af_job,
+            "experiment": self.experiment,
+        }
+        self.hub.clear_widgets()
+        self.__init__(self.hub, **settings)
+        self.hub.broadcast({"kind": "reset"})
+
     # -- the steps, in notebook order -------------------------------------------
 
     def _require(self, condition: Any, message: str) -> None:
@@ -324,7 +375,6 @@ class RunFlow:
         if self.explorer is None:
             self.explorer = wreact.explore_targets(targets, self.overviews)
             self.ns["explorer"] = self.explorer
-            self.viewer.show_targets(targets, self.explorer)
             self.hub.add_widget("explorer", self.explorer)
             self.gallery = wreact.acquire_gallery(
                 self.session,

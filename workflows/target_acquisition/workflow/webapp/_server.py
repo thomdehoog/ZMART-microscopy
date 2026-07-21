@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlsplit
 
-from ._flow import RunFlow
+from ._flow import FlowError, RunFlow
 from ._host import WidgetHub, _jsonable
 from ._page import page_html
 
@@ -194,6 +194,14 @@ class _Handler(BaseHTTPRequestHandler):
                 {"ok": ok, **({} if ok else {"error": "work queue is full"})},
                 status=200 if ok else 503,
             )
+            return
+        if self.path == "/reset":
+            try:
+                self.flow.reset()
+            except FlowError as exc:
+                self._send_json({"ok": False, "error": str(exc)}, status=409)
+            else:
+                self._send_json({"ok": True})
             return
         if self.path == "/msg":
             name, content = body.get("widget"), body.get("content")

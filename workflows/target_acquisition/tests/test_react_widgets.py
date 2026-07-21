@@ -247,6 +247,31 @@ def test_focus_seeds_from_lasx():
     assert picker.points == [{"x": 1.0, "y": 2.0}]
 
 
+def test_focus_map_carries_the_driver_field_sizes_into_the_browser():
+    picker = wreact.pick_focus_points(
+        _FocusSession(),
+        [
+            {"x": 10.0, "y": 20.0, "tile_size": {"x": 1162.24, "y": 900.0}},
+            {"x": 30.0, "y": 40.0},
+        ],
+        seed=False,
+    )
+
+    assert picker.squares == [
+        {"x": 10.0, "y": 20.0, "w": 1162.24, "h": 900.0, "fill": ""},
+        {"x": 30.0, "y": 40.0, "w": 0.0, "h": 0.0, "fill": ""},
+    ]
+    assert "q.w * s" in picker._esm and "q.h * s" in picker._esm
+    assert 'background: "transparent", border: "none"' in picker._esm
+    assert 'background: "#ffffff"' in picker._esm
+    assert 'fill: layer === "base" ? "#f8fafc" : "none"' in picker._esm
+    assert 'stroke: layer === "border" ? "#e5e7eb" : "none"' in picker._esm
+    base = picker._esm.index('fieldRect(q, i, "base")')
+    surface = picker._esm.index("heatmap.src ?", base)
+    border = picker._esm.index('fieldRect(q, i, "border")', surface)
+    assert base < surface < border  # continuous surface, subtle borders on top
+
+
 def test_focus_measure_without_points_reports_on_status():
     picker = wreact.pick_focus_points(_FocusSession(), seed=False)
     picker.handle_message({"type": "measure"})

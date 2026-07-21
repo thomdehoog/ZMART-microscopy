@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -74,6 +75,7 @@ def test_demo_flow_runs_the_whole_notebook_order(tmp_path):
     # The same assertions the notebook end-to-end test makes about a run.
     assert len(flow.viewer.overviews) == 4
     assert len(flow.targets) >= 4
+    assert flow.viewer.marks == []  # step 6 never rewrites the step 5 overview
     assert len(flow.gallery.records) == 2 == len(flow.gallery.picked)
     assert flow.gallery._verdicts[0] == "good"
     root = flow.root
@@ -86,6 +88,39 @@ def test_demo_flow_runs_the_whole_notebook_order(tmp_path):
     rows = {row["label"]: row for row in flow.status_widget.rows}
     assert rows["Microscope"]["state"] == "warn"
     assert "disconnected" in rows["Microscope"]["detail"]
+
+
+def test_reset_requires_connection_then_safely_disconnects_and_starts_fresh(tmp_path):
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+
+    with pytest.raises(RuntimeError, match="connect before restarting"):
+        flow.reset()
+
+    flow.run_step("connect")
+    hub.drain(60)
+    first_root = flow.root
+    first_viewer = flow.viewer
+    first_session = flow.session
+    first_engine = flow.engine
+
+    flow.reset()
+
+    assert first_session.disconnected and first_engine.shut_down
+    assert flow.completed == []
+    assert flow.session is None and flow.engine is None and flow.root is None
+    assert flow.viewer is not first_viewer
+    assert set(hub.state_snapshot()) == {"status", "overview"}
+    assert hub.widget("focus") is None
+    assert hub.widget("explorer") is None
+    assert hub.widget("gallery") is None
+
+    flow.run_step("connect")
+    hub.drain(60)
+    assert flow.completed == ["connect"]
+    assert flow.root != first_root
+    flow.run_step("disconnect")
+    hub.drain(60)
 
 
 def test_steps_refuse_out_of_order_with_plain_sentences(tmp_path):
@@ -336,7 +371,38 @@ def test_http_surface_serves_page_modules_state_and_actions(demo_server):
     base, hub, flow = demo_server
 
     page = _get(base, "/").decode("utf-8")
-    assert "ZMART target acquisition" in page
+    assert page.count("ZMART-microscopy: Target acquisition") == 2
+    assert "Where the run stands" not in page
+    assert "The same run as the operator notebook" not in page
+    assert 'id="widget-status"' not in page
+    assert "padding: 28px 16px 60px 50px" in page
+    assert "header, .step { max-width: 1600px" in page
+    assert "max-width: 1600px; margin: 0 0 12px" in page
+    assert "globalThis.ZMART_WIDGET_SCALE = 2" in page
+    assert 'globalThis.ZMART_WIDGET_SCALES = { explorer: 2.5 }' in page
+    assert 'globalThis.ZMART_WIDGET_FILL = { gallery: true }' in page
+    assert re.findall(r'<details class="step" id="step-([^"]+)"[^>]* open>', page) == [
+        "connect"
+    ]
+    assert 'id="widget-overview" hidden' in page
+    assert 'id="new-run-btn" disabled' in page
+    assert "Restart workflow" in page
+    assert "Available after Connect." in page
+    connect_body = page.split('id="step-connect"', 1)[1].split("</details>", 1)[0]
+    assert connect_body.index('data-step="connect"') < connect_body.index('id="new-run-btn"')
+    assert 'content: "Collapsed"' in page and 'content: "Open"' in page
+    assert 'if (ev.step === "run_overview") showOverview()' in page
+    assert 'button.classList.toggle("running", ev.state === "running")' in page
+    assert "@keyframes button-spin" in page
+    assert 'position: absolute; left: 10px' in page
+    assert ".step-btn.running { padding: 8px 2px 8px 34px; }" in page
+    assert ".step.done .step-btn { background: #16a34a" in page
+    assert 'connect: "Reconnect"' in page
+    assert 'set_origin: "Change Origin"' in page
+    assert 'capture_overview_job: "Recapture Overview Job"' in page
+    assert "label.textContent = completedLabels[step]" in page
+    assert 'section.dataset.opened === "true"' in page
+    assert 'post("/reset", {})' in page
     # The operator page shows no code and fetches nothing from the internet.
     # (The one allowed "http" string is the inline favicon's SVG namespace
     # identifier — an XML name, never a network request.)
@@ -367,6 +433,26 @@ def test_http_surface_serves_page_modules_state_and_actions(demo_server):
     with pytest.raises(urllib.error.HTTPError) as err:
         _post(base, "/msg", {"widget": "nope", "content": {}})
     assert err.value.code == 404
+
+
+def test_reset_endpoint_refuses_unconnected_run_then_safely_resets_active_run(demo_server):
+    base, hub, flow = demo_server
+
+    with pytest.raises(urllib.error.HTTPError) as err:
+        _post(base, "/reset", {})
+    assert err.value.code == 409
+
+    assert _post(base, "/action", {"step": "connect"}) == {"ok": True}
+    hub.drain(60)
+    first_session = flow.session
+    first_engine = flow.engine
+
+    assert _post(base, "/reset", {}) == {"ok": True}
+    assert first_session.disconnected and first_engine.shut_down
+    state = json.loads(_get(base, "/state"))
+    assert state["flow"] == {"completed": [], "demo": True}
+    assert set(state["widgets"]) == {"status", "overview"}
+    assert flow.session is None and flow.root is None
 
 
 def test_loopback_server_rejects_host_header_rebinding_reads(demo_server):

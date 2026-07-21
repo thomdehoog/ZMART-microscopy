@@ -39,6 +39,13 @@ Two things the notebook also asks of you still apply: select the overview
 job in LAS X before step 3a and the target job before step 3b (the page
 reminds you), and end the session with the Disconnect step.
 
+**Restart workflow** sits beside Connect in step 1 and becomes available after
+the session connects. It safely disconnects the current session, clears the
+website's steps, widgets, positions, images, segmentation, and selections, and
+returns to step 1; files already written remain on disk. A browser refresh or
+temporary stream reconnect deliberately preserves an active run and is not a
+restart.
+
 ## Safety notes
 
 - The server binds to 127.0.0.1: the page is reachable only from the

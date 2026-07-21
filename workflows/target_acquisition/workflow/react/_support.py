@@ -230,6 +230,15 @@ REACT_PRELUDE = (
     _vendored_react_js()
     + """
 const h = React.createElement;
+const requestedWidgetScale = Number(globalThis.ZMART_WIDGET_SCALE);
+const widgetScale = Number.isFinite(requestedWidgetScale) && requestedWidgetScale > 0
+  ? requestedWidgetScale : 1;
+const widgetPx = (value) => Math.round(value * widgetScale);
+const widgetPxFor = (name, value) => {
+  const requested = Number(globalThis.ZMART_WIDGET_SCALES?.[name]);
+  const scale = Number.isFinite(requested) && requested > 0 ? requested : widgetScale;
+  return Math.round(value * scale);
+};
 
 // Bind a React state to an anywidget trait (either side can change it).
 function useTrait(model, name) {
