@@ -101,6 +101,9 @@ def _clear_limits():
 
 
 class TestRegistration(unittest.TestCase):
+    def test_connection_profile_does_not_select_operator_calibration(self):
+        self.assertNotIn("calibration_name", adapter.CONNECTION)
+
     def test_importing_the_adapter_registers_the_instrument(self):
         from zmart_controller import registry
 
@@ -386,6 +389,10 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(opts["job"]["options"], ["Overview", "HiRes"])
         self.assertEqual(opts["job"]["active"], "HiRes")
         self.assertNotIn("mode", selected.call_args.kwargs)
+        self.assertEqual(
+            opts["backlash_rounds"]["active"], adapter._motion.BACKLASH_DEFAULT_ROUNDS
+        )
+        self.assertEqual(opts["backlash_rounds"]["options"], "int >= 0")
         self.assertEqual(opts["strip_scan_fields"]["active"], True)  # default on
         self.assertEqual(opts["format"]["active"], "ome-tiff")
         self.assertEqual(opts["cleanup_source"]["active"], False)
@@ -408,6 +415,15 @@ class TestAcquire(unittest.TestCase):
                 adapter.acquire(
                     h, acquisition_type="prescan", position_label="A1", options={"job": "Nope"}
                 )
+            for value in (-1, 1.5, True, "2"):
+                with self.subTest(backlash_rounds=value):
+                    with self.assertRaisesRegex(ValueError, "non-negative integer"):
+                        adapter.acquire(
+                            h,
+                            acquisition_type="prescan",
+                            position_label="A1",
+                            options={"backlash_rounds": value},
+                        )
 
     def test_missing_output_root_is_a_clear_error(self):
         h = _handle()
@@ -672,7 +688,7 @@ class TestAcquire(unittest.TestCase):
             return {"success": True}
 
         def fake_correct_backlash(client, **kwargs):
-            order.append(("backlash", client))
+            order.append(("backlash", client, kwargs["passes"]))
 
         def fake_capture(client, job, **kwargs):
             order.append(("capture", job))
@@ -699,12 +715,50 @@ class TestAcquire(unittest.TestCase):
                 h,
                 acquisition_type="prescan",
                 position_label="7",
-                options={"job": "HiRes", "backlash_correction": True},
+                options={
+                    "job": "HiRes",
+                    "backlash_correction": True,
+                    "backlash_rounds": 2,
+                },
             )
         # select -> backlash takeup -> capture, in that order (backlash pins the
         # slack-state right before the image is taken, not before job selection).
-        self.assertEqual(order, [("select", "HiRes"), ("backlash", h.client), ("capture", "HiRes")])
+        self.assertEqual(
+            order,
+            [("select", "HiRes"), ("backlash", h.client, 2), ("capture", "HiRes")],
+        )
         self.assertEqual(record["settle"], "backlash-corrected")
+        self.assertEqual(record["backlash_rounds"], 2)
+
+    def test_zero_backlash_rounds_skips_correction(self):
+        calls = []
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        patches = _patch_position(job="Overview")
+        with (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(adapter._motion, "correct_backlash", side_effect=calls.append),
+            patch.object(
+                adapter._capture,
+                "acquire",
+                return_value=SimpleNamespace(job="Overview"),
+            ),
+            patch.object(
+                adapter._save,
+                "save",
+                return_value=SimpleNamespace(image_paths={}, xml_paths={}, naming=None),
+            ),
+            patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
+            patches[2],
+        ):
+            record = adapter.acquire(
+                h,
+                acquisition_type="prescan",
+                position_label="7",
+                options={"backlash_rounds": 0},
+            )
+        self.assertEqual(calls, [])
+        self.assertEqual(record["settle"], "direct")
+        self.assertEqual(record["backlash_rounds"], 0)
 
     def _acquire_with_template_state(self, state, strip_result=None, options=None):
         """Run acquire with the scanfield layer patched; returns the calls list."""
@@ -790,12 +844,19 @@ class TestStateAndProcedures(unittest.TestCase):
     def test_state_shape_changeable_first_then_observed(self):
         h = _handle()
         p = self._state_patches()
-        with p[0] as hardware, p[1] as selected, p[2]:
+        with (
+            p[0] as hardware,
+            p[1] as selected,
+            p[2] as jobs,
+            patch.object(adapter._readers, "get_job_settings", return_value={}) as settings,
+        ):
             state = adapter.get_state(h)
         self.assertEqual(list(state), ["changeable", "observed"])  # changeable first
         self.assertEqual(state["changeable"], {"job": "Overview"})
         self.assertNotIn("mode", hardware.call_args.kwargs)
         self.assertNotIn("mode", selected.call_args.kwargs)
+        self.assertNotIn("mode", jobs.call_args.kwargs)
+        self.assertNotIn("mode", settings.call_args.kwargs)
         observed = state["observed"]
         self.assertEqual(observed["vendor"], "leica")
         self.assertEqual(observed["microscope"], "stellaris5-y42h93")
@@ -993,12 +1054,26 @@ class TestScanFieldInfo(unittest.TestCase):
         },
     }
 
-    def _info(self, parsed=None, save_result=None, templates_dir="X:/tpl", calls=None):
+    def _info(
+        self,
+        parsed=None,
+        save_result=None,
+        templates_dir="X:/tpl",
+        calls=None,
+        parse_kwargs=None,
+    ):
         h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_focus_um=30.0))
         h.connection["output_root"] = "/tmp/zmart-test"
         calls = [] if calls is None else calls
         position = _patch_position()
         save_result = {"success": True} if save_result is None else save_result
+
+        def fake_parse(*args, **kwargs):
+            calls.append("parse")
+            if parse_kwargs is not None:
+                parse_kwargs.update(kwargs)
+            return dict(parsed if parsed is not None else self._PARSED)
+
         with (
             position[0],
             position[1],
@@ -1017,17 +1092,17 @@ class TestScanFieldInfo(unittest.TestCase):
             patch.object(
                 adapter._scanfields,
                 "parse_scan_positions",
-                side_effect=lambda *a, **k: (
-                    calls.append("parse") or dict(parsed if parsed is not None else self._PARSED)
-                ),
+                side_effect=fake_parse,
             ),
             patch.object(adapter._scanfields, "get_template_state", return_value="unstripped"),
         ):
             return adapter.get_info(h), calls
 
     def test_positions_are_typed_and_in_both_spaces(self):
-        info, calls = self._info()
+        parse_kwargs = {}
+        info, calls = self._info(parse_kwargs=parse_kwargs)
         self.assertEqual(calls, ["save", "parse"])  # always flush before parsing
+        self.assertEqual(parse_kwargs["default_job_name"], info["selected_job"])
         tiles = info["tile_positions"]
         first = tiles[0]
         self.assertEqual(first["group"], {"region": "0", "row": 0, "col": 0})
@@ -1041,6 +1116,41 @@ class TestScanFieldInfo(unittest.TestCase):
         self.assertEqual(focus[0]["id"], "F1")
         self.assertEqual(focus[0]["z"], 3.0)
         self.assertEqual(focus[1]["id"], "AF1")
+
+    def test_unassigned_point_geometries_remain_markers_not_tiles(self):
+        parsed = {
+            "acquisition_positions": {
+                "0": {
+                    "job_name": "Overview",
+                    "tile_size_um": 100.0,
+                    "source": "geometry_plan",
+                    "geometry_id": "point",
+                    "positions": [{"row": 0, "col": 0, "x_um": 1100.0, "y_um": 2200.0}],
+                },
+                "1": {
+                    "job_name": "Overview",
+                    "tile_size_um": 100.0,
+                    "source": "geometry_plan",
+                    "geometry_id": "rectangle",
+                    "positions": [{"row": 0, "col": 0, "x_um": 1200.0, "y_um": 2300.0}],
+                },
+            },
+            "focus_points": [],
+            "autofocus_points": [],
+            "geometries": {
+                "point": {
+                    "type": "Point",
+                    "center_um": {"x_um": 1100.0, "y_um": 2200.0},
+                    "label": "P1",
+                },
+                "rectangle": {"type": "Rectangle"},
+            },
+        }
+
+        info, _ = self._info(parsed=parsed)
+
+        self.assertEqual(len(info["tile_positions"]), 1)
+        self.assertEqual(info["tile_positions"][0]["group"]["region"], "1")
 
     def test_no_templates_profile_reports_none(self):
         info, calls = self._info(templates_dir=None)

@@ -77,9 +77,9 @@ class StateReaderProfile:
     These modes govern routed state reads, including command confirmation.
     Freshness limits reject old log state; transition-sensitive confirmations
     additionally reject observations from before the command. Reads that
-    produce persisted or foundational correctness artifacts, such as
-    calibration geometry or canonical OME physical metadata, may explicitly
-    pin API when only that source is authoritative.
+    produce persisted or foundational correctness artifacts still use this
+    policy. Callers never pin a backend; source availability belongs to the
+    capability table and source preference belongs here.
     """
 
     hybrid_log_grace_s: float = 0.25

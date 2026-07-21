@@ -2168,7 +2168,7 @@ class TestCheckIdle(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertIsInstance(result["logs"], list)
 
-    def test_check_idle_pins_api_mode(self):
+    def test_check_idle_uses_configured_reader_mode(self):
         prior = profiles.STATE_READERS
         calls = []
 
@@ -2184,7 +2184,7 @@ class TestCheckIdle(unittest.TestCase):
             profiles.STATE_READERS = prior
 
         self.assertTrue(result["success"])
-        self.assertEqual(calls[0]["mode"], "api")
+        self.assertNotIn("mode", calls[0])
 
     def test_check_idle_treats_none_as_not_idle(self):
         values = [None, "eScanIdle"]
@@ -2715,7 +2715,7 @@ class TestHybridSelectJobApiLegEndToEnd(unittest.TestCase):
 
 
 class TestCommandReaderSafety(unittest.TestCase):
-    def test_move_galvo_to_pixel_routes_selected_job_and_pins_metadata_to_api(self):
+    def test_move_galvo_to_pixel_uses_configured_reader_policy(self):
         client = make_client()
         calls = {"selected": [], "settings": [], "base_fov": []}
 
@@ -2755,8 +2755,8 @@ class TestCommandReaderSafety(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertNotIn("mode", calls["selected"][0])
-        self.assertEqual(calls["settings"][0][1]["mode"], "api")
-        self.assertEqual(calls["base_fov"][0][1]["mode"], "api")
+        self.assertNotIn("mode", calls["settings"][0][1])
+        self.assertNotIn("mode", calls["base_fov"][0][1])
 
 
 # =============================================================================

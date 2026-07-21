@@ -92,6 +92,7 @@ class ObjectivePairSession:
     calibration_name: str | None
     calibration_path: Path
     kind: str
+    backlash_rounds: int
     # Recorded when the reference XY image is acquired (Step 4). The
     # target XY image (Step 5) must match this pixel size so voting
     # registration sees the same scale on both sides.
@@ -148,6 +149,7 @@ def start_session(
     session_id: str,
     reference_slot: int,
     acquisition_name: str = "objective-pair",
+    backlash_rounds: int = 5,
     job_name: str | None = None,
     sessions_root: str | Path | None = None,
     calibration_path: str | Path | None = None,
@@ -158,6 +160,14 @@ def start_session(
     # the target is read live when the operator has switched to it. The
     # session folder starts under the operator-provided acquisition name.
     kind = "objective_pair"
+    if (
+        isinstance(backlash_rounds, bool)
+        or not isinstance(backlash_rounds, int)
+        or backlash_rounds < 0
+    ):
+        raise ValueError(
+            "backlash_rounds must be a whole number greater than or equal to 0"
+        )
 
     from ...config.machine import MACHINE, validate_calibration_name
 
@@ -214,7 +224,7 @@ def start_session(
     limits_state = drv.connect_limits_handshake(client)
     if not limits_state.ok:
         raise RuntimeError(limits_state.error)
-    hw = drv.get_hardware_info(client, mode="api")
+    hw = drv.get_hardware_info(client)
     if hw is None:
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")
     if job_name is None:
@@ -260,6 +270,7 @@ def start_session(
         calibration_name=calibration_name,
         calibration_path=resolved_path,
         kind=kind,
+        backlash_rounds=backlash_rounds,
         from_slot=reference_slot,
         hardware_objectives=hardware_objectives,
         started_at_s=time.time(),
@@ -405,7 +416,6 @@ def _registration_for_report(vote: dict | None) -> dict | None:
 _STACK_LEADING_SLICES_TO_SKIP = 1
 _STACK_TRAILING_SLICES_TO_SKIP = 1
 _MIN_FIT_SAMPLES = 3
-_BACKLASH_PASSES = 5
 _MIN_STACK_SECTIONS_FOR_FOCUS_FIT = (
     _STACK_LEADING_SLICES_TO_SKIP + _STACK_TRAILING_SLICES_TO_SKIP + _MIN_FIT_SAMPLES
 )
@@ -635,7 +645,7 @@ def measure_parfocality_reference(
     except Exception:
         display = None
 
-    xy = drv.get_xy(session.client, mode="api") or {}
+    xy = drv.get_xy(session.client) or {}
     if "x_um" not in xy or "y_um" not in xy:
         raise RuntimeError(f"get_xy returned no readback: {xy}")
     session.home_xy = (float(xy["x_um"]), float(xy["y_um"]))
@@ -647,7 +657,7 @@ def measure_parfocality_reference(
     stack = acquire_stack_to(
         session,
         "ref_z_stack",
-        backlash_passes=_BACKLASH_PASSES,
+        backlash_passes=session.backlash_rounds or None,
     )
     session.ref_z_stack = stack
 
@@ -738,7 +748,7 @@ def measure_parfocality_target(
     stack = acquire_stack_to(
         session,
         "target_z_stack",
-        backlash_passes=_BACKLASH_PASSES,
+        backlash_passes=session.backlash_rounds or None,
     )
     session.target_z_stack = stack
 
@@ -828,7 +838,7 @@ def measure_parcentricity_reference(
     ref_image = acquire_frame_to(
         session,
         "ref_xy",
-        backlash_passes=_BACKLASH_PASSES,
+        backlash_passes=session.backlash_rounds or None,
     )
     session.ref_image = ref_image
 
@@ -880,7 +890,7 @@ def measure_parcentricity_target_and_save(
     except Exception:
         display = None
 
-    xy = drv.get_xy(session.client, mode="api") or {}
+    xy = drv.get_xy(session.client) or {}
     if "x_um" not in xy or "y_um" not in xy:
         raise RuntimeError(f"get_xy returned no readback: {xy}")
     xy_post = (float(xy["x_um"]), float(xy["y_um"]))
@@ -904,7 +914,7 @@ def measure_parcentricity_target_and_save(
     target_image = acquire_frame_to(
         session,
         "target_xy",
-        backlash_passes=_BACKLASH_PASSES,
+        backlash_passes=session.backlash_rounds or None,
     )
     session.target_image = target_image
 
@@ -965,7 +975,7 @@ def measure_parcentricity_target_and_save(
         session.corrected_target_image = acquire_frame_to(
             session,
             "target_xy_corrected",
-            backlash_passes=_BACKLASH_PASSES,
+            backlash_passes=session.backlash_rounds or None,
         )
         config_written = True
     else:
@@ -1024,6 +1034,7 @@ def measure_parcentricity_target_and_save(
         "source_calibration_file": source_calibration_file,
         "session_id": session.session_id,
         "acquisition_name": session.acquisition_name,
+        "backlash_rounds": session.backlash_rounds,
         "from_slot": session.from_slot,
         "to_slot": session.to_slot,
         "from_objective": session.from_objective,

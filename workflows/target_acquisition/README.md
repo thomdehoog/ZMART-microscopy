@@ -24,8 +24,8 @@ microscope (see `workflow/webapp/README.md`), and on the microscope PC
 server is Python standard library only.
 
 The setup cell expects a checkout of
-[`smart-analysis`](https://github.com/thomdehoog/smart-analysis) on its `v4-engine`
-branch at `ANALYSIS_REPO`. Before connecting to LAS X it registers the external
+[smart analysis](https://github.com/thomdehoog/smart-analysis) on its `v4-engine`
+branch in a repository next to ZMART. Before connecting to LAS X it registers the external
 target-acquisition pipeline and runs a 64x64 blank tile through its Cellpose
 worker. This fails early when the analysis repository, declared worker conda
 environment, Cellpose model, or GPU setup is unavailable; on success the worker

@@ -546,8 +546,8 @@ def get_job_settings_bounded(client, job_name, *, deadline_s, api_timeout=0.25):
     so the read runs on a daemon worker thread; when ``deadline_s`` passes
     the thread is abandoned (never joined) and ``None`` is returned. Use
     this where a slow read must degrade gracefully instead of stalling the
-    caller — e.g. metadata generation during save. The api source is
-    pinned: a routed/log read has no business under a hard deadline.
+    caller — e.g. metadata generation during save. Source selection remains
+    owned by ``StateReaderProfile``; this helper adds only the outer deadline.
 
     Returns the settings dict, or ``None`` on any failure or timeout.
     """
@@ -564,7 +564,6 @@ def get_job_settings_bounded(client, job_name, *, deadline_s, api_timeout=0.25):
             result["settings"] = get_job_settings(
                 client,
                 job_name,
-                mode="api",
                 timeout=api_timeout,
                 poll_interval=0.01,
                 max_retries=1,

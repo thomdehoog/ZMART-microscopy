@@ -147,7 +147,7 @@ def start_session(
     limits_state = drv.connect_limits_handshake(client)
     if not limits_state.ok:
         raise RuntimeError(limits_state.error)
-    if drv.get_hardware_info(client, mode="api") is None:
+    if drv.get_hardware_info(client) is None:
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")
     if job_name is None:
         job_name = read_selected_job_name(client)
@@ -179,7 +179,7 @@ def measure_reference(session: CalibrationCheckSession) -> CalibrationCheckSessi
     session.from_slot, session.from_objective = slot, name
     print(f"Reference objective: slot {slot} — {name}")
 
-    xy = drv.get_xy(session.client, mode="api") or {}
+    xy = drv.get_xy(session.client) or {}
     if "x_um" not in xy or "y_um" not in xy:
         raise RuntimeError(f"get_xy returned no readback: {xy}")
     session.home_xy = (float(xy["x_um"]), float(xy["y_um"]))

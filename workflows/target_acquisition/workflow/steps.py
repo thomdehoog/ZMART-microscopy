@@ -72,15 +72,39 @@ def _normalize_positions(data: Any) -> list[dict]:
     return positions
 
 
-def load_analysis_engine(analysis_repo: Any):
-    """Load smart-analysis v4 and register its target-acquisition pipeline."""
-    repo = Path(analysis_repo).expanduser().resolve()
+def _find_analysis_repo() -> Path:
+    """Find the adjacent smart analysis checkout without exposing its folder name."""
+    zmart_repo = Path(__file__).resolve().parents[3]
+    candidates = []
+    for path in zmart_repo.parent.iterdir():
+        pipeline = path / "workflows" / "target_acquisition" / "pipelines" / "overview.yaml"
+        if path != zmart_repo and pipeline.is_file() and (path / "engine").is_dir():
+            candidates.append(path.resolve())
+    if not candidates:
+        raise FileNotFoundError(
+            f"smart analysis repository not found next to the ZMART repository: {zmart_repo.parent}"
+        )
+    if len(candidates) > 1:
+        raise RuntimeError(
+            "multiple smart analysis repositories found next to the ZMART repository: "
+            + ", ".join(map(str, candidates))
+        )
+    return candidates[0]
+
+
+def load_analysis_engine(analysis_repo: Any = None):
+    """Load smart analysis v4 and register its target-acquisition pipeline."""
+    repo = (
+        _find_analysis_repo()
+        if analysis_repo is None
+        else Path(analysis_repo).expanduser().resolve()
+    )
     if not repo.is_dir():
-        raise FileNotFoundError(f"smart-analysis repository not found: {repo}")
+        raise FileNotFoundError(f"smart analysis repository not found: {repo}")
     pipeline = repo / "workflows" / "target_acquisition" / "pipelines" / "overview.yaml"
     if not pipeline.is_file():
         raise FileNotFoundError(
-            f"smart-analysis target-acquisition pipeline not found: {pipeline}; "
+            f"smart analysis target-acquisition pipeline not found: {pipeline}; "
             "checkout the v4-engine branch"
         )
     if str(repo) not in sys.path:
@@ -91,8 +115,8 @@ def load_analysis_engine(analysis_repo: Any):
         module_path.relative_to(repo)
     except ValueError as exc:
         raise ImportError(
-            f"Python imported smart-analysis engine from {module_path}, not {repo}; "
-            "restart the notebook kernel after changing ANALYSIS_REPO"
+            f"Python imported the smart analysis engine from {module_path}, not {repo}; "
+            "restart the notebook kernel after changing the repository location"
         ) from exc
     engine = engine_module.Engine()
     try:
@@ -106,7 +130,7 @@ def load_analysis_engine(analysis_repo: Any):
 def preflight_analysis_engine(engine: Any) -> None:
     """Run one tiny blank tile through the registered analysis worker.
 
-    Registration alone does not start smart-analysis' declared Cellpose conda
+    Registration alone does not start the smart analysis Cellpose conda
     environment. This warm-up therefore happens before the microscope connects:
     a missing environment/model/GPU fails before any hardware work, and a valid
     worker stays warm for the overview run.
@@ -118,7 +142,7 @@ def preflight_analysis_engine(engine: Any) -> None:
 
     from .discovery import discover_targets
 
-    with tempfile.TemporaryDirectory(prefix="zmart-analysis-preflight-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="zmart-preflight-") as tmp:
         image_path = Path(tmp) / "blank.tiff"
         tifffile.imwrite(image_path, np.zeros((64, 64), dtype=np.uint16))
         discover_targets(

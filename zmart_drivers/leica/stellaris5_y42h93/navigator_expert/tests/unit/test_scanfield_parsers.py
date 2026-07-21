@@ -267,7 +267,7 @@ class TestParseTemplatePositionsFromRgnGrid:
 
         def fake_get_job_settings(_client, job_name, *, mode=None):
             assert job_name == "Overview"
-            assert mode == "api"
+            assert mode is None
             return {"imageSize": "1200.0 um x 1200.0 um"}
 
         monkeypatch.setattr(readers, "get_job_settings", fake_get_job_settings)
@@ -300,6 +300,57 @@ class TestParseTemplatePositionsFromRgnGrid:
         assert region["label"] == "R1 (2)"
         assert region["job_name"] == "Overview"
         assert region["num_tiles"] == 2
+
+    def test_live_job_size_and_template_overlap_win_over_other_job_count(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        base = self._write_grid_template(tmp_path, tag="R1 (56)")
+        xml_path = tmp_path / f"{base}.xml"
+        xml_path.write_text(
+            xml_path.read_text(encoding="utf-8").replace(
+                "          <ConfocalData FieldRotation=\"0\" />",
+                """\
+          <ConfocalData FieldRotation="0" />
+          <ArrayFilledRandom><FilledData>
+            <MosaicOverlapInPercent>10</MosaicOverlapInPercent>
+          </FilledData></ArrayFilledRandom>""",
+            ),
+            encoding="utf-8",
+        )
+        rgn_path = tmp_path / f"{base}.rgn"
+        rgn_path.write_text(
+            rgn_path.read_text(encoding="utf-8")
+            .replace("0.010</X><Y>0.020", "0.0211163815</X><Y>0.0172624772")
+            .replace("0.012</X><Y>0.020", "0.0249710607</X><Y>0.0172624772")
+            .replace("0.010</X><Y>0.021", "0.0211163815</X><Y>0.0208966719")
+            .replace("0.012</X><Y>0.021", "0.0249710607</X><Y>0.0208966719"),
+            encoding="utf-8",
+        )
+
+        from navigator_expert import readers as readers
+
+        def fake_get_job_settings(_client, job_name, *, mode=None):
+            assert job_name == "Overview"
+            assert mode is None
+            return {"imageSize": "1162.24 um x 1162.24 um"}
+
+        monkeypatch.setattr(readers, "get_job_settings", fake_get_job_settings)
+
+        parsed = parse_scan_positions(
+            tmp_path,
+            base,
+            client=object(),
+            default_job_name="Overview",
+        )
+
+        region = parsed["acquisition_positions"]["0"]
+        assert region["source"] == "geometry_plan"
+        assert region["job_name"] == "Overview"
+        assert region["num_rows"] == 1
+        assert region["num_cols"] == 16
+        assert region["num_tiles"] == 16
 
     def test_materialized_xml_positions_win_over_rgn_grid(self, tmp_path):
         base = "PythonInspect"

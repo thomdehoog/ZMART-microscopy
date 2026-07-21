@@ -72,17 +72,19 @@ def run_status_rows(ns: dict[str, Any]) -> list[dict]:
     if overview_state is None:
         rows.append(_row("Overview job", TODO, "capture it in step 3a"))
     else:
-        limits = (overview_state.get("observed") or {}).get("limits") or {}
+        setup = (overview_state.get("observed") or {}).get("setup")
         job = (overview_state.get("changeable") or {}).get("job")
-        if limits.get("source") == "machine" and not limits.get("is_fallback"):
-            rows.append(_row("Overview job", OK, f"{job!r}, measured stage limits active"))
+        if setup is None:
+            rows.append(_row("Overview job", WARN, f"{job!r}, driver readiness unavailable"))
+        elif setup.get("ready"):
+            rows.append(_row("Overview job", OK, f"{job!r}, driver reports ready"))
         else:
+            issues = setup.get("issues") or ["unspecified driver setup problem"]
             rows.append(
                 _row(
                     "Overview job",
                     WARN,
-                    f"{job!r}, but the limits are not this machine's measured "
-                    f"envelope ({limits.get('source')!r})",
+                    f"{job!r}, driver reports not ready: " + "; ".join(map(str, issues)),
                 )
             )
     target_state = ns.get("target_state")
@@ -93,8 +95,19 @@ def run_status_rows(ns: dict[str, Any]) -> list[dict]:
         o_job = ((overview_state or {}).get("changeable") or {}).get("job")
         if o_job is not None and t_job == o_job:
             rows.append(_row("Target job", WARN, f"same job as the overview ({t_job!r})"))
+        elif (setup := (target_state.get("observed") or {}).get("setup")) is None:
+            rows.append(_row("Target job", WARN, f"{t_job!r}, driver readiness unavailable"))
+        elif not setup.get("ready"):
+            issues = setup.get("issues") or ["unspecified driver setup problem"]
+            rows.append(
+                _row(
+                    "Target job",
+                    WARN,
+                    f"{t_job!r}, driver reports not ready: " + "; ".join(map(str, issues)),
+                )
+            )
         else:
-            rows.append(_row("Target job", OK, f"{t_job!r}"))
+            rows.append(_row("Target job", OK, f"{t_job!r}, driver reports ready"))
 
     positions = ns.get("positions")
     rows.append(

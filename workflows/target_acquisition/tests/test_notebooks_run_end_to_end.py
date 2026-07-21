@@ -69,7 +69,7 @@ def _run_notebook(nb_path: Path, session: _SimSession, engine: _SimEngine, monke
 
     # The only boundary that is faked: connecting and loading the engine.
     monkeypatch.setattr(workflow, "connect", lambda vendor, **kw: session)
-    monkeypatch.setattr(workflow, "load_analysis_engine", lambda repo: engine)
+    monkeypatch.setattr(workflow, "load_analysis_engine", lambda: engine)
     # (preflight_analysis_engine runs for real, against the fake engine.)
 
     namespace: dict = {"__name__": "__main__", "display": lambda *a, **k: None}
@@ -143,6 +143,7 @@ def test_notebook_runs_end_to_end_offline(notebook, tmp_path, monkeypatch):
     session = _SimSession(tmp_path / "run")
     engine = _SimEngine()
     ns = _run_notebook(_NB_DIR / notebook, session, engine, monkeypatch)
+    assert "ANALYSIS_REPO" not in ns
     _assert_full_run(ns, session, engine, tmp_path / "run")
 
 

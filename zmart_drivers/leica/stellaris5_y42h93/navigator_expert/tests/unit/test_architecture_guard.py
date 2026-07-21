@@ -14,6 +14,7 @@ the rulebook via a command) instead.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 DRIVER_ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +24,19 @@ DRIVER_ROOT = Path(__file__).resolve().parents[2]
 # they may exercise anything.
 COMMANDS = "commands"
 LIMITS = "limits"
+
+# Source selection is policy, not caller behaviour. The router implements
+# the profile-controlled modes; the confirmation modules construct explicit
+# API/log legs that the command policy races. Higher-level code must leave
+# ``mode`` unset and consume the configured reader abstraction.
+READER_SOURCE_POLICY_MODULES = {
+    Path("readers/router.py"),
+    Path("commands/confirmations.py"),
+    Path("commands/confirm_select_job.py"),
+    Path("commands/dispatch.py"),
+}
+EXPLICIT_READER_MODE = re.compile(r"\bmode\s*=\s*['\"](?:api|log|hybrid)['\"]")
+LOW_LEVEL_READER_CALL = re.compile(r"(?<!\w)_?(?:api_reader|log_reader)\.")
 
 
 def _driver_sources():
@@ -76,6 +90,40 @@ def test_the_decision_engine_lives_in_limits():
     gate_text = (DRIVER_ROOT / "commands" / "gate.py").read_text(encoding="utf-8")
     assert "class LeicaLimits" in checks_text
     assert "class LeicaLimits" not in gate_text
+
+
+def test_reader_source_is_selected_only_by_reader_and_confirmation_policy():
+    """Operational callers consume the configured reader policy.
+
+    An adapter, calibration routine, scanfield parser, or command helper that
+    pins ``api``/``log``/``hybrid`` silently defeats ``StateReaderProfile``.
+    Explicit modes belong only to the router and to confirmation-policy code
+    constructing the individual legs of a configured race.
+    """
+    offenders = [
+        str(rel)
+        for rel, text in _driver_sources()
+        if rel not in READER_SOURCE_POLICY_MODULES and EXPLICIT_READER_MODE.search(text)
+    ]
+    assert offenders == [], (
+        f"reader source pinned outside policy layer: {offenders}; remove the "
+        "mode override and let StateReaderProfile/capabilities route the datum"
+    )
+
+
+def test_low_level_readers_are_called_only_by_reader_and_confirmation_policy():
+    """Operational callers cannot bypass the routed reader API."""
+    offenders = [
+        str(rel)
+        for rel, text in _driver_sources()
+        if rel.parts[0] != "readers"
+        and rel not in READER_SOURCE_POLICY_MODULES
+        and LOW_LEVEL_READER_CALL.search(text)
+    ]
+    assert offenders == [], (
+        f"low-level reader called outside policy layer: {offenders}; route the "
+        "read through navigator_expert.readers instead"
+    )
 
 
 def test_the_utils_grab_bag_stays_dissolved():

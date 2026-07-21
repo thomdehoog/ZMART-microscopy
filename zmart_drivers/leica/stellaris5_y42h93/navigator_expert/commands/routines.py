@@ -36,6 +36,7 @@ log = logging.getLogger(__name__)
 # each one as its own motion.
 BACKLASH_OVERSHOOT_UM = 50.0
 BACKLASH_SETTLE_MS = 100
+BACKLASH_DEFAULT_ROUNDS = 3
 
 
 def arrive_xy(client, x_um, y_um):
@@ -88,7 +89,7 @@ def correct_backlash(
     overshoot_um=BACKLASH_OVERSHOOT_UM,
     settle_ms=BACKLASH_SETTLE_MS,
     tolerance_um=20.0,
-    passes=3,
+    passes=BACKLASH_DEFAULT_ROUNDS,
 ):
     """Pin the stage to the +X +Y slack-state with no net displacement.
 
@@ -132,7 +133,7 @@ def correct_backlash(
     if at is None:
         # This read parameterizes the corrective moves below, so bypass the
         # passive reader profile and use the authoritative API path.
-        pos = _readers.get_xy(client, mode="api")
+        pos = _readers.get_xy(client)
         if pos is None:
             raise RuntimeError("backlash takeup: could not read XY")
         x, y = float(pos["x_um"]), float(pos["y_um"])

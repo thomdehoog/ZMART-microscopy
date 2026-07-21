@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 from .. import readers as _readers
@@ -101,9 +100,7 @@ def _load_objective_calibration(
     # This import must stay inside the function: the package root imports this
     # module when the driver loads, and the calibration modules import the
     # package root — a module-level import here would be a circular import.
-    from ..config.machine import CALIBRATION_NAME_ENV
-
-    effective_name = calibration_name or os.environ.get(CALIBRATION_NAME_ENV)
+    effective_name = calibration_name
     empty_info = {
         "enabled": enabled,
         "loaded": False,

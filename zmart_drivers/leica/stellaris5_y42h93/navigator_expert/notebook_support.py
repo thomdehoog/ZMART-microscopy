@@ -28,9 +28,11 @@ class NotebookCheckpoint:
         previous_mtime_ns = self.path.stat().st_mtime_ns
         display(
             Markdown(
-                "**Save this notebook now (`Ctrl+S`), then run the next cell.** "
-                "Browser-based Jupyter may save automatically; VS Code requires "
-                "the manual save."
+                '<div style="color: #c00000; background: #fff1f1; '
+                'border: 2px solid #c00000; border-radius: 4px; '
+                'padding: 12px; font-size: 1.25em; font-weight: 700;">'
+                "Press save (Ctrl+S) to save the notebook."
+                "</div>"
             )
         )
         display(
@@ -86,7 +88,14 @@ class NotebookCheckpoint:
     def save_and_adopt(self, adopter: Callable[[Path], _T]) -> _T:
         """Save the completed notebook, validate its checkpoint, then adopt."""
         previous_mtime_ns = self.request_save()
-        return adopter(self.wait_for_save(previous_mtime_ns))
+        saved_path = self.wait_for_save(previous_mtime_ns)
+
+        # The save prompt is useful only while waiting for the checkpoint.
+        # Clear it before adoption so browser Jupyter and VS Code behave alike.
+        from IPython.display import clear_output
+
+        clear_output()
+        return adopter(saved_path)
 
 
 def archive_notebook(

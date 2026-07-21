@@ -1050,9 +1050,12 @@ def test_run_status_reports_the_steps():
         "ROOT": "/tmp/run",
         "overview_state": {
             "changeable": {"job": "Over"},
-            "observed": {"limits": {"source": "machine", "is_fallback": False}},
+            "observed": {"setup": {"ready": True, "issues": []}},
         },
-        "target_state": {"changeable": {"job": "Over"}},  # same job: worth a look
+        "target_state": {
+            "changeable": {"job": "Over"},
+            "observed": {"setup": {"ready": True, "issues": []}},
+        },  # same job: worth a look
         "positions": [1, 2],
     }
     status.refresh(ns)
@@ -1061,6 +1064,26 @@ def test_run_status_reports_the_steps():
     assert by_label["Overview job"]["state"] == "ok"
     assert by_label["Target job"]["state"] == "warn"  # same as the overview job
     assert by_label["Focus surface"]["state"] == "todo"
+
+
+def test_run_status_treats_driver_setup_as_an_opaque_verdict():
+    from workflow._run_status import run_status_rows
+
+    rows = run_status_rows(
+        {
+            "overview_state": {
+                "changeable": {"job": "Overview"},
+                "observed": {
+                    "setup": {"ready": False, "issues": ["driver-owned reason"]},
+                    "limits": {"source": "machine", "is_fallback": False},
+                },
+            }
+        }
+    )
+    overview = next(row for row in rows if row["label"] == "Overview job")
+    assert overview["state"] == "warn"
+    assert "driver-owned reason" in overview["detail"]
+    assert "limits" not in overview["detail"]
 
 
 def test_run_status_does_not_call_dead_or_unknown_objects_connected():

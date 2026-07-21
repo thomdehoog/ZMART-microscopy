@@ -18,7 +18,7 @@ The pieces mirror the real boundary exactly:
   two objectives, and the target job is deliberately mis-aimed by
   :data:`INJECTED_ERROR_UM` — the small calibration error the notebooks'
   calibration check exists to measure.
-- :class:`SimulatedEngine` answers the smart-analysis contract with
+- :class:`SimulatedEngine` answers the smart analysis contract with
   honest blob segmentation, so the targets you gate and acquire really
   are the bright cells in the overview tiles.
 """
@@ -221,7 +221,7 @@ class SimulatedSession:
 
 
 class SimulatedEngine:
-    """The smart-analysis contract, answered by honest blob segmentation.
+    """The smart analysis contract, answered by honest blob segmentation.
 
     ``submit``/``status``/``results`` match what ``discover_targets``
     drives; the picks come from thresholding the actual rendered images,
