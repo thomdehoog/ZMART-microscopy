@@ -337,6 +337,11 @@ fields, regions, and focus points vanish from LAS X. The strip is sidecar-backed
 `restore_template` — but read `get_info()["tile_positions"]` and `focus_positions`
 *before* the first acquire, or pass `options={"strip_scan_fields": False}`.
 
+**Extra in-place backlash rounds are off by default.** The acquisition option
+`backlash_rounds` defaults to `0`; pass a positive whole number to opt in for a
+particular capture. The normal XY move still uses the driver's consistent final
+approach to the requested position.
+
 **`Naming` constraints.** Name parts (`acquisition_type` etc.) must be
 kebab-case lowercase (`"overview"`, `"target-scan"`); `Naming` raises `ValueError` on `"Prescan"` or
 `"target_scan"` — and on the adapter path that raise happens **after the scan has fired**, so the

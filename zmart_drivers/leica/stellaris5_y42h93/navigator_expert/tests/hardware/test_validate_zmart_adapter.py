@@ -204,17 +204,18 @@ def test_connect_session_leaves_output_root_for_driver_discovery():
         zmart_controller.disconnect()
 
 
-def test_acquire_backlash_correction_through_the_controller_seam(tmp_path):
-    """acquire(options={"backlash_correction": True}) through the real Session.
+@pytest.mark.parametrize(("rounds", "corrects"), [(None, False), (1, True)])
+def test_acquire_backlash_rounds_through_the_controller_seam(tmp_path, rounds, corrects):
+    """Default-zero and positive rounds both cross the real Session seam.
 
     Unlike the adapter-direct unit tests (which patch driver internals and pass
     ``object()`` as the client), this opens a real ``zmart_controller.Session``
     against the in-process mock CAM (same connect path ``phase_acquire`` would
     use live) and only patches the I/O boundary (``_capture``/``_save``) that a
     mock CAM cannot satisfy -- so the seam decision #3 cares about (Session ->
-    ops table -> adapter) is what is actually exercised for the
-    ``backlash_correction`` acquisition option. ``strip_scan_fields`` is passed
-    as ``False`` for the same reason: stripping needs ``PyApiSaveExperiment``,
+    ops table -> adapter) is what is actually exercised for both the default
+    and a positive ``backlash_rounds`` acquisition option. ``strip_scan_fields``
+    is passed as ``False`` for the same reason: stripping needs ``PyApiSaveExperiment``,
     which ``MockLasxClient`` does not implement, and scan-field handling is
     unrelated to what this test verifies.
     """
@@ -245,17 +246,24 @@ def test_acquire_backlash_correction_through_the_controller_seam(tmp_path):
             patch.object(adapter._capture, "acquire", fake_capture),
             patch.object(adapter._save, "save", fake_save),
         ):
+            options = {"backlash_correction": True, "strip_scan_fields": False}
+            if rounds is not None:
+                options["backlash_rounds"] = rounds
             record = session.acquire(
                 acquisition_type="prescan",
                 position_label="1",
-                options={"backlash_correction": True, "strip_scan_fields": False},
+                options=options,
             )
     finally:
         adapter._session.connect_python_client = original_connect
         profiles.STATE_READERS = original_profile
         zmart_controller.disconnect()
 
-    # backlash takeup fires before capture, through the real Session -> ops
-    # table -> adapter seam (not the adapter called in isolation).
-    assert order == [("backlash", order[0][1]), ("capture", active_job)]
-    assert record["settle"] == "backlash-corrected"
+    # Positive rounds fire takeup before capture; an omitted value resolves to
+    # zero and reaches capture directly through the same Session -> adapter seam.
+    if corrects:
+        assert order == [("backlash", order[0][1]), ("capture", active_job)]
+    else:
+        assert order == [("capture", active_job)]
+    assert record["settle"] == ("backlash-corrected" if corrects else "direct")
+    assert record["backlash_rounds"] == (rounds or 0)

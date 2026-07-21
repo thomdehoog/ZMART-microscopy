@@ -113,7 +113,6 @@ _STEPS = [
 
 # Which widget mounts inside which step's section.
 _WIDGET_SECTIONS = {
-    "status": "status",
     "overview": "run_overview",
     "focus": "load_positions",
     "explorer": "discover_targets",
@@ -125,18 +124,29 @@ def _sections_html() -> str:
     parts = []
     for step_id, title, meaning, button, auto_collapse in _STEPS:
         widget_holes = "".join(
-            f'<div class="widget" id="widget-{widget}"></div>'
+            f'<div class="widget" id="widget-{widget}"'
+            f'{" hidden" if widget == "overview" else ""}></div>'
             for widget, section in _WIDGET_SECTIONS.items()
             if section == step_id
         )
-        button_html = (
-            f'<button class="step-btn" data-step="{step_id}" disabled>{button}</button>'
-            if button
-            else ""
-        )
+        if step_id == "connect":
+            button_html = f"""
+          <div class="step-actions">
+            <button class="step-btn" data-step="{step_id}" disabled><span class="button-label">{button}</span></button>
+            <button id="new-run-btn" disabled>Restart workflow</button>
+            <span id="new-run-note">Available after Connect.</span>
+          </div>"""
+        else:
+            button_html = (
+                f'<button class="step-btn" data-step="{step_id}" disabled>'
+                f'<span class="button-label">{button}</span></button>'
+                if button
+                else ""
+            )
+        open_attr = " open" if step_id == "connect" else ""
         parts.append(
             f"""
-      <details class="step" id="step-{step_id}" data-collapse="{str(auto_collapse).lower()}" open>
+      <details class="step" id="step-{step_id}" data-collapse="{str(auto_collapse).lower()}"{open_attr}>
         <summary>
           <span class="step-title">{title}</span>
           <span class="step-note" id="note-{step_id}"></span>
@@ -157,25 +167,13 @@ def page_html() -> str:
         _HEAD
         + """
     <header>
-      <h1>ZMART target acquisition</h1>
-      <p>
-        The same run as the operator notebook, one step at a time. A green
-        ✓ marks a finished step (finished steps fold away — click any title
-        to open it again), and every panel updates live while the
-        microscope works.
-      </p>
+      <h1>ZMART-microscopy: Target acquisition</h1>
       <p id="demo-banner" hidden>
         This is the <strong>demo</strong>: a simulated microscope imaging a
         synthetic sample — the very one the offline tests drive. Nothing
         here touches real hardware, so click around freely.
       </p>
     </header>
-    <details class="step" id="step-status" open>
-      <summary><span class="step-title">Where the run stands</span></summary>
-      <div class="step-body">
-        <div class="widget" id="widget-status"></div>
-      </div>
-    </details>
 """
         + _sections_html()
         + _SCRIPT
@@ -187,17 +185,17 @@ _HEAD = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ZMART target acquisition</title>
+<title>ZMART-microscopy: Target acquisition</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%230284c7'/%3E%3C/svg%3E">
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 28px 16px 60px; background: #ffffff; color: #0f172a;
+    margin: 0; padding: 28px 16px 60px 50px; background: #ffffff; color: #0f172a;
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     font-size: 15px; line-height: 1.5;
   }
-  header, .step { max-width: 980px; margin: 0 auto 12px; }
+  header, .step { max-width: 1600px; margin: 0 0 12px; }
   header { margin-bottom: 22px; }
   header h1 { font-size: 24px; margin: 0 0 8px; letter-spacing: -0.01em; }
   header p { color: #475569; margin: 4px 0; max-width: 72ch; }
@@ -211,14 +209,27 @@ _HEAD = """<!DOCTYPE html>
   .step summary {
     display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
     padding: 12px 16px; cursor: pointer; list-style: none; user-select: none;
+    background: #f8fafc; border-radius: 10px;
   }
+  .step[open] > summary {
+    background: #eff6ff; border-bottom: 1px solid #dbeafe;
+    border-radius: 10px 10px 0 0;
+  }
+  .step:not([open]) > summary:hover { background: #f1f5f9; }
   .step summary::-webkit-details-marker { display: none; }
   .step summary::before {
-    content: "▸"; color: #94a3b8; font-size: 12px; align-self: center;
+    content: "▸"; color: #0284c7; font-size: 18px; line-height: 1;
+    width: 18px; align-self: center;
     transition: transform 0.15s;
   }
   .step[open] summary::before { transform: rotate(90deg); }
-  .step-title { font-weight: 600; font-size: 15px; }
+  .step summary::after {
+    content: "Collapsed"; margin-left: auto; color: #64748b;
+    font-size: 12px; font-weight: 600;
+  }
+  .step[open] summary::after { content: "Open"; color: #0369a1; }
+  .step-title { font-weight: 650; font-size: 15px; }
+  .step[open] .step-title { color: #075985; }
   .step.done .step-title::after { content: " ✓"; color: #16a34a; }
   .step-note { color: #64748b; font-size: 13.5px; }
   .step-note.ok { color: #15803d; }
@@ -228,9 +239,33 @@ _HEAD = """<!DOCTYPE html>
   .step-btn {
     background: #0284c7; color: #ffffff; border: none; border-radius: 8px;
     padding: 8px 18px; font-weight: 600; cursor: pointer; font-size: 14px;
+    display: inline-flex; align-items: center; justify-content: center;
+    position: relative;
   }
+  .step-btn::before {
+    content: ""; width: 12px; height: 12px; position: absolute; left: 10px;
+    border: 2px solid transparent; border-radius: 50%;
+  }
+  .step-btn.running { padding: 8px 2px 8px 34px; }
+  .step-btn.running::before {
+    border-color: rgba(100, 116, 139, 0.35); border-top-color: #475569;
+    animation: button-spin 0.7s linear infinite;
+  }
+  @keyframes button-spin { to { transform: rotate(360deg); } }
   .step-btn:hover:enabled { background: #0369a1; }
   .step-btn:disabled { background: #e2e8f0; color: #94a3b8; cursor: default; }
+  .step.done .step-btn { background: #16a34a; color: #ffffff; }
+  .step.done .step-btn:hover:enabled { background: #15803d; }
+  .step.done .step-btn.running { background: #e2e8f0; color: #94a3b8; }
+  .step-btn[data-step="connect"] { min-width: 112px; }
+  .step-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  #new-run-btn {
+    background: #0f172a; color: #ffffff; border: none; border-radius: 8px;
+    padding: 8px 18px; font-weight: 600; cursor: pointer; font-size: 14px;
+  }
+  #new-run-btn:hover:enabled { background: #334155; }
+  #new-run-btn:disabled { background: #cbd5e1; cursor: default; }
+  #new-run-note { color: #64748b; font-size: 13.5px; }
   /* The panels are self-contained light cards; give them room and let wide
      ones scroll sideways inside their step instead of the whole page. */
   .widget { margin-top: 12px; max-width: 100%; overflow-x: auto; }
@@ -253,6 +288,10 @@ _SCRIPT = """
 // messages. In Jupyter, anywidget provides it; here this small class does,
 // backed by one server-sent-events stream (Python -> page) and small POSTs
 // (page -> Python). Image bytes are fetched separately, never inlined.
+
+globalThis.ZMART_WIDGET_SCALE = 2;
+globalThis.ZMART_WIDGET_SCALES = { explorer: 2.5 };
+globalThis.ZMART_WIDGET_FILL = { gallery: true };
 
 const models = {};
 const mounting = new Map();
@@ -407,13 +446,55 @@ async function ensureWidget(name) {
 
 function noteFor(step) { return document.getElementById(`note-${step}`); }
 
-function markDone(step) {
+const newRunButton = document.getElementById("new-run-btn");
+const newRunNote = document.getElementById("new-run-note");
+
+// The first time the operator enters a new section, fold whatever section
+// was open before it. Reopening an already-visited section is unrestricted,
+// so completed maps and controls can still be compared side by side.
+document.querySelectorAll("details.step").forEach((section) => {
+  section.dataset.opened = section.open ? "true" : "false";
+  section.addEventListener("toggle", () => {
+    if (!section.open || section.dataset.opened === "true") return;
+    document.querySelectorAll("details.step[open]").forEach((other) => {
+      if (other !== section) other.open = false;
+    });
+    section.dataset.opened = "true";
+  });
+});
+
+function setNewRunAvailable(available) {
+  newRunButton.disabled = !available;
+  newRunNote.textContent = available
+    ? "Disconnects this session, clears the website state, and returns to step 1."
+    : "Available after Connect.";
+}
+
+function showOverview() {
+  document.getElementById("widget-overview").hidden = false;
+}
+
+function openNextStep(step) {
+  const section = document.getElementById(`step-${step}`);
+  let next = section?.nextElementSibling;
+  while (next && !next.classList.contains("step")) next = next.nextElementSibling;
+  if (next) next.open = true;
+}
+
+function markDone(step, keepInteractiveOpen = true) {
   const section = document.getElementById(`step-${step}`);
   if (!section) return;
   section.classList.add("done");
-  // Finished button-only steps fold away so the page reads as "what's
-  // next"; panels the operator keeps using stay open. A click reopens any.
-  if (section.dataset.collapse === "true") section.open = false;
+  const completedLabels = {
+    connect: "Reconnect",
+    set_origin: "Change Origin",
+    capture_overview_job: "Recapture Overview Job",
+  };
+  if (completedLabels[step]) {
+    const label = section.querySelector(".button-label");
+    if (label) label.textContent = completedLabels[step];
+  }
+  section.open = keepInteractiveOpen && section.dataset.collapse !== "true";
 }
 
 function flowUpdate(ev) {
@@ -422,10 +503,14 @@ function flowUpdate(ev) {
   if (ev.state === "running") {
     note.textContent = "working…";
     note.className = "step-note";
+    if (ev.step === "run_overview") showOverview();
   } else if (ev.state === "done") {
     note.textContent = ev.message;
     note.className = "step-note ok";
     markDone(ev.step);
+    const section = document.getElementById(`step-${ev.step}`);
+    if (section?.dataset.collapse === "true") openNextStep(ev.step);
+    if (ev.step === "connect") setNewRunAvailable(true);
   } else {
     note.textContent = ev.message;
     note.className = "step-note bad";
@@ -433,7 +518,10 @@ function flowUpdate(ev) {
     if (section) section.open = true;
   }
   const button = document.querySelector(`button[data-step="${ev.step}"]`);
-  if (button) button.disabled = ev.state === "running";
+  if (button) {
+    button.disabled = ev.state === "running";
+    button.classList.toggle("running", ev.state === "running");
+  }
 }
 
 document.querySelectorAll(".step-btn").forEach((button) => {
@@ -442,8 +530,10 @@ document.querySelectorAll(".step-btn").forEach((button) => {
     // Close the double-click window locally; Python independently coalesces
     // duplicate pending steps, so this is UX rather than the safety gate.
     button.disabled = true;
+    button.classList.add("running");
     post("/action", { step: button.dataset.step }).catch((error) => {
       button.disabled = false;
+      button.classList.remove("running");
       const note = noteFor(button.dataset.step);
       if (note) {
         note.textContent = `request failed: ${error.message}`;
@@ -451,6 +541,24 @@ document.querySelectorAll(".step-btn").forEach((button) => {
       }
     });
   });
+});
+
+newRunButton.addEventListener("click", async () => {
+  const confirmed = window.confirm(
+    "Restart the workflow for a new run? The current microscope session will be " +
+    "disconnected, and current steps, images, segmentation, and selections will be " +
+    "cleared. Files already saved stay on disk."
+  );
+  if (!confirmed) return;
+  newRunButton.disabled = true;
+  newRunNote.textContent = "restarting…";
+  try {
+    await post("/reset", {});
+    window.location.reload();
+  } catch (error) {
+    newRunButton.disabled = false;
+    newRunNote.textContent = `restart failed: ${error.message}`;
+  }
 });
 
 // ---- boot: connect the live stream FIRST, then the state snapshot ----------
@@ -470,7 +578,21 @@ async function applySnapshot() {
       await mountWidget(name, traits);
     }
   }
-  (snapshot.flow.completed || []).forEach(markDone);
+  const completed = snapshot.flow.completed || [];
+  completed.forEach((step) => markDone(step, false));
+  const completedSet = new Set(completed);
+  let firstIncomplete = [...document.querySelectorAll("details.step")]
+    .find((section) => !completedSet.has(section.id.replace("step-", "")));
+  const focusMeasured = Boolean(snapshot.widgets.focus?.measured?.length);
+  if (completedSet.has("load_positions") && !focusMeasured
+      && !completedSet.has("run_overview")) {
+    firstIncomplete = document.getElementById("step-load_positions");
+  }
+  if (firstIncomplete) firstIncomplete.open = true;
+  const overviewStarted = completed.includes("run_overview")
+    || Boolean(snapshot.widgets.overview?.status);
+  document.getElementById("widget-overview").hidden = !overviewStarted;
+  setNewRunAvailable(completed.includes("connect"));
   if (snapshot.flow.demo) document.getElementById("demo-banner").hidden = false;
   return snapshot;
 }
@@ -482,7 +604,15 @@ let snapshotChain = Promise.resolve(true);
 let retryTimer = null;
 const events = new EventSource("/events");
 function applyEvent(ev) {
+  if (ev.widget === "overview" && (
+      (ev.kind === "msg" && ev.content?.type === "tile")
+      || (ev.kind === "trait" && ev.name === "status" && ev.value))) {
+    showOverview();
+  }
   if ((ev.kind === "trait" || ev.kind === "msg") && !models[ev.widget]) {
+    // Some workflow widgets are intentionally backend-only. Do not retain
+    // browser events forever when the page has no mount point for one.
+    if (!document.getElementById(`widget-${ev.widget}`)) return;
     if (!pendingWidgetEvents.has(ev.widget)) pendingWidgetEvents.set(ev.widget, []);
     pendingWidgetEvents.get(ev.widget).push(ev);
     ensureWidget(ev.widget);
@@ -492,6 +622,7 @@ function applyEvent(ev) {
   else if (ev.kind === "msg") models[ev.widget].applyMsg(ev.content, ev.buffers);
   else if (ev.kind === "widget") ensureWidget(ev.widget);
   else if (ev.kind === "flow") flowUpdate(ev);
+  else if (ev.kind === "reset") window.location.reload();
 }
 
 function synchronizedSnapshot() {

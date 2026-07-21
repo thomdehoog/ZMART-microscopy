@@ -113,7 +113,7 @@ across kernel restarts.
 | Name | Kind | Direction | Meaning |
 |---|---|---|---|
 | `points` | trait (list) | both ways | The picked focus points `{x, y}` (frame µm). Editing them invalidates a fitted surface. |
-| `squares` | trait (list) | Python → browser | Overview tile markers `{x, y, fill}`; `fill` carries the fitted-z tint. |
+| `squares` | trait (list) | Python → browser | Overview fields `{x, y, w, h, fill}` in frame µm. `w`/`h` come from each driver position's overview-job `tile_size`, and `fill` carries the fitted-z tint. |
 | `measured` | trait (list) | Python → browser | Autofocus results so far, `{x_um, y_um, z_um, residual_um}` — the residual is how far the point sits from the fitted surface (one large residual = one bad autofocus bending the fit; the status line names the worst). |
 | `heatmap` | trait (dict) | Python → browser | The fitted surface as `{src, x0, y0, w, h}`. |
 | `{"type": "measure"}` | message | browser → Python | Autofocus every point (cached results reused). |

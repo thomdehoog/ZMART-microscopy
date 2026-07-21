@@ -66,6 +66,7 @@ class WidgetHub:
 
     def __init__(self) -> None:
         self._widgets: dict[str, Any] = {}
+        self._widget_observers: dict[str, tuple[Any, Any, list[str]]] = {}
         self._widgets_lock = threading.Lock()
         self._clients: list[queue.Queue[str | None]] = []
         self._clients_lock = threading.Lock()
@@ -85,15 +86,45 @@ class WidgetHub:
 
     def add_widget(self, name: str, widget: Any) -> None:
         """Register a widget under a stable name and start mirroring it."""
-        with self._widgets_lock:
-            self._widgets[name] = widget
         names = self._synced_trait_names(widget)
-        widget.observe(partial(self._on_trait_changed, name), names=names)
+        observer = partial(self._on_trait_changed, name)
+        with self._widgets_lock:
+            previous = self._widget_observers.pop(name, None)
+            self._widgets[name] = widget
+            self._widget_observers[name] = (widget, observer, names)
+        if previous is not None:
+            old_widget, old_observer, old_names = previous
+            old_widget.unobserve(old_observer, names=old_names)
+            old_widget.send = lambda *_args, **_kwargs: None
+        widget.observe(observer, names=names)
         # The widget's own ``send`` normally rides the Jupyter comm; here it
         # fans out to every connected tab instead. Python-side semantics are
         # unchanged: a message goes to every view of the model.
         widget.send = partial(self._broadcast_message, name)
         self.broadcast({"kind": "widget", "widget": name})
+
+    def clear_widgets(self) -> None:
+        """Detach every run widget and discard its browser replay buffers.
+
+        Called only by the serialized new-run operation after it safely
+        disconnects the active session, so no hardware work can still be
+        using these widgets. Existing browser
+        event streams remain connected and receive the fresh widgets that the
+        replacement flow registers immediately afterwards.
+        """
+        with self._widgets_lock:
+            observers = list(self._widget_observers.values())
+            self._widgets.clear()
+            self._widget_observers.clear()
+        for widget, observer, names in observers:
+            widget.unobserve(observer, names=names)
+            widget.send = lambda *_args, **_kwargs: None
+        with self._buffers_lock:
+            self._buffers.clear()
+            self._buffer_order.clear()
+            self._buffer_bytes = 0
+        with self._pending_messages_lock:
+            self._pending_messages.clear()
 
     def widget(self, name: str) -> Any | None:
         with self._widgets_lock:
