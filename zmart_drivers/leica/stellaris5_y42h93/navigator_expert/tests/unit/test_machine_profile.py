@@ -302,15 +302,16 @@ def test_named_calibration_sets_copy_forward_inside_calibration_only(tmp_path):
     assert profile.latest_snapshot("limits") is None
 
 
-def test_named_calibration_can_be_selected_by_environment(tmp_path, monkeypatch):
+def test_named_calibration_cannot_be_selected_by_ambient_environment(tmp_path, monkeypatch):
     profile = _profile(tmp_path)
-    snapshot = profile.publish_snapshot(
+    profile.publish_snapshot(
         _AT_1430,
         calibration={"marker": "lens-A"},
         calibration_name="lens_A",
     )
-    monkeypatch.setenv(machine.CALIBRATION_NAME_ENV, "lens_A")
-    assert profile.calibration_path() == snapshot / "calibrations" / "lens_A" / "calibration.json"
+    snapshot = profile.publish_snapshot(_AT_1500, calibration={"marker": "default"})
+    monkeypatch.setenv("ZMART_CALIBRATION_NAME", "lens_A")
+    assert profile.calibration_path() == snapshot / "calibration.json"
 
 
 def test_named_calibration_rejects_path_segments(tmp_path):

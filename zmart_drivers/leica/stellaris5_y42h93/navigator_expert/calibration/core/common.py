@@ -116,7 +116,7 @@ def read_job_geometry(
     """
     # Calibration geometry is a persisted correctness artifact. Use the
     # authoritative API reader, not the passive state-reader profile.
-    settings = drv.get_job_settings(client, job_name, mode="api") or {}
+    settings = drv.get_job_settings(client, job_name) or {}
     geom = drv.parse_tile_geometry(settings)
     if geom is None or geom.get("pixel_w_um") is None or geom.get("pixels_x") is None:
         raise ValueError(
@@ -179,7 +179,7 @@ def move_xy_and_verify(
         raise RuntimeError(f"move_xy failed: {result}")
     if settle_s > 0:
         time.sleep(settle_s)
-    xy = drv.get_xy(client, mode="api") or {}
+    xy = drv.get_xy(client) or {}
     if ("x_um" not in xy) or ("y_um" not in xy):
         raise RuntimeError(f"get_xy returned no readback: {xy}")
     if abs(xy["x_um"] - x_um) > tolerance_um or abs(xy["y_um"] - y_um) > tolerance_um:
@@ -205,7 +205,7 @@ def move_zwide_and_verify(
 
 def read_selected_job_name(client: Any) -> str:
     """Return the active Navigator Expert job name."""
-    selected = drv.get_selected_job(client, mode="api") or {}
+    selected = drv.get_selected_job(client) or {}
     job_name = str(selected.get("Name") or "").strip()
     if not job_name:
         raise RuntimeError("No Navigator Expert job is selected in LAS X.")
@@ -225,7 +225,7 @@ def read_active_objective(
     microscope reports as active. ``known_names`` supplies a fallback
     name per slot for hardware records that omit one.
     """
-    selected = drv.get_selected_job(client, mode="api") or {}
+    selected = drv.get_selected_job(client) or {}
     selected_name = selected.get("Name")
     if selected_name != job_name:
         raise RuntimeError(
@@ -233,7 +233,7 @@ def read_active_objective(
             f"but {selected_name!r} is selected. Re-select {job_name!r}; "
             "change only the objective between calibration steps."
         )
-    settings = drv.get_job_settings(client, job_name, mode="api") or {}
+    settings = drv.get_job_settings(client, job_name) or {}
     objective = settings.get("objective") or {}
     slot = objective.get("slotIndex")
     if slot is None:
@@ -423,7 +423,7 @@ def read_stack_z_positions(
 
     # Z-stack positions are persisted calibration geometry. Use the
     # authoritative API reader, not the passive state-reader profile.
-    raw = drv.get_job_settings(client, job_name, mode="api")
+    raw = drv.get_job_settings(client, job_name)
     if not raw:
         raise RuntimeError(
             f"Could not read job settings for job {job_name!r}; cannot "

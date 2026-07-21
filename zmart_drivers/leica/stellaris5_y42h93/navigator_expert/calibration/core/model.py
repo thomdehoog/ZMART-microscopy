@@ -39,8 +39,8 @@ def default_path(calibration_name: str | None = None) -> Path:
     Resolves through the machine profile: the newest calibration timestamp for
     this microscope, seeding the calibration tree from repo defaults when needed.
     ``calibration_name`` selects ``calibrations/<name>/calibration.json`` in the
-    snapshot; omitting it uses ``ZMART_CALIBRATION_NAME`` when set, otherwise
-    the legacy/default flat ``calibration.json``.
+    snapshot; omitting it uses the default flat ``calibration.json``.
+    Named sets must always be selected explicitly by the caller.
     """
     from ...config.machine import MACHINE
 
@@ -265,8 +265,8 @@ def load_translations(calibration_name: str | None = None) -> dict[int, tuple[fl
     """Per-slot objective translations (micrometres) from the active calibration.
 
     Resolves the machine-local ``calibration.json`` (or the named set selected
-    by ``calibration_name`` / the ``ZMART_CALIBRATION_NAME`` environment
-    variable), and returns ``{slot: (x, y, z)}`` for every objective it lists.
+    explicitly by ``calibration_name``), and returns ``{slot: (x, y, z)}`` for
+    every objective it lists.
     Raises on any IO/schema problem; callers that must not fail the connection
     wrap this and degrade to ``None`` instead.
     """

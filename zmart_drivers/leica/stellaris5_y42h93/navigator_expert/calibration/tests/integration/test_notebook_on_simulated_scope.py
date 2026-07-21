@@ -17,8 +17,7 @@ the way an operator would, against a small physical simulator:
   notebook instructions ask.
 
 The pass criterion is physical: the calibration the notebook publishes must
-reconstruct the simulator's ground-truth translations, and the validation
-cells must show the compensated move landing back on the same spot.
+reconstruct the simulator's ground-truth translations.
 
 A second test drives the operator-mistake paths through the same cells:
 running a cell with the wrong lens in must refuse without destroying
@@ -106,7 +105,7 @@ class SimulatedScope:
 def _install_simulator(monkeypatch, machine) -> SimulatedScope:
     """Wire the simulator into every LAS X seam the workflow talks to."""
     sim = SimulatedScope()
-    drv = cm.drv  # objective_pair / calibration_check import the same module
+    drv = cm.drv  # objective-pair workflow modules import the same driver module
 
     monkeypatch.setattr("navigator_expert.config.machine.MACHINE", machine)
     monkeypatch.setattr(drv, "connect_python_client", lambda *a, **k: object())
@@ -220,15 +219,11 @@ def _notebook_cells() -> dict[str, str]:
         "parfocality_target": "measure_parfocality_target",
         "parcentricity_ref": "measure_parcentricity_reference",
         "parcentricity_target": "measure_parcentricity_target_and_save",
-        "check_ref": "calibration_check.start_session",
-        "check_target": "measure_target_and_report",
         "adopt": "save_and_adopt",
     }
     cells: dict[str, str] = {}
     for key, marker in markers.items():
         matches = [src for src in sources if marker in src]
-        # check_target's marker also appears in the adopt cell's required_code
-        # comment-free source; keep the first cell that is not already taken.
         for src in matches:
             if src not in cells.values():
                 cells[key] = src
@@ -299,19 +294,6 @@ def test_notebook_cells_reconstruct_ground_truth_on_simulated_scope(notebook_run
     tx, ty = summary["translation_xy_um"]
     assert abs(tx - TRUE_T[2][0]) < 0.51
     assert abs(ty - TRUE_T[2][1]) < 0.51
-
-    # Validation: park on the spot with the reference lens, focused.
-    sim.turret(1)
-    sim.zwide = FOCUS0
-    run("check_ref")
-    sim.turret(2)
-    run("check_target")
-    check_session = notebook_runtime.ns["check_session"]
-    report = check_session.report
-    assert report["trusted"] is True
-    # The compensated move must land back on the same spot: the leftover
-    # offset is the physical proof the calibration works on this simulator.
-    assert report["offset_um"] is not None and report["offset_um"] < 0.75
 
     # Save and Adopt: publishes the machine snapshot and archives the notebook.
     run("adopt")

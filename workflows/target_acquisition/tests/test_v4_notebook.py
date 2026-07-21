@@ -67,7 +67,7 @@ def test_setup_cell_runs_from_repo_root(monkeypatch, tmp_path):
     fake = FakeController()
     fake_engine = FakeEngine()
     monkeypatch.setattr(workflow, "connect", lambda vendor: fake)
-    monkeypatch.setattr(workflow, "load_analysis_engine", lambda repo: fake_engine)
+    monkeypatch.setattr(workflow, "load_analysis_engine", lambda: fake_engine)
     monkeypatch.setattr(workflow, "preflight_analysis_engine", lambda engine: None)
 
     namespace = {}
@@ -75,6 +75,7 @@ def test_setup_cell_runs_from_repo_root(monkeypatch, tmp_path):
     exec(compile(setup_cell, str(_NB_PATH), "exec"), namespace)
     assert namespace["zmart_controller"] is fake
     assert namespace["engine"] is fake_engine
+    assert "ANALYSIS_REPO" not in namespace
     assert fake.info_calls == 1
     # The cell's failure path tears the session down; on a clean setup it must
     # not run. Asserting this keeps a real error from hiding behind the

@@ -92,7 +92,6 @@ LIMITS_FILENAME = "limits.json"
 LEGACY_LIMITS_MACHINE_MARKER = ".limits-machine"
 ORIENTATION_FILENAME = "orientation.json"
 ORIGIN_FILENAME = "origin.json"
-CALIBRATION_NAME_ENV = "ZMART_CALIBRATION_NAME"
 SUBSYSTEMS = ("limits", "calibration", "orientation", "origin")
 
 # Driver-bundled last-known-good defaults, each owned by its subsystem.
@@ -406,9 +405,6 @@ class MachineProfile:
     def resolve_calibration(self, calibration_name: str | None = None) -> tuple[Path, bool]:
         """Resolve the active ProgramData calibration, optionally by lens setup."""
         if calibration_name is None:
-            env_name = os.environ.get(CALIBRATION_NAME_ENV)
-            if env_name:
-                return self.resolve_calibration(env_name)
             return self.resolve(CALIBRATION_FILENAME)
 
         self.migrate_flat_snapshots()
@@ -449,8 +445,9 @@ class MachineProfile:
 
         Pass ``calibration_name`` to select a named lens/session calibration
         under ``calibrations/<name>/calibration.json``. With no name, the
-        ``ZMART_CALIBRATION_NAME`` environment variable can select one; otherwise
-        the legacy/default flat ``calibration.json`` is used.
+        the default flat ``calibration.json`` is used. Named sets must be
+        selected explicitly by the caller; ambient environment variables never
+        change the active calibration.
         """
         path, _ = self.resolve_calibration(calibration_name)
         return path

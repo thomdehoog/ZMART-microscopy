@@ -33,7 +33,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--analysis-repo",
-        help="path to the smart-analysis checkout (required for a real session)",
+        help="path to the smart analysis checkout (required for a real session)",
     )
     parser.add_argument(
         "--vendor", default="leica", help="controller vendor to connect (default: leica)"

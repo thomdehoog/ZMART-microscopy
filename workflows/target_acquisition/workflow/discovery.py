@@ -169,7 +169,7 @@ def discover_targets(
             {
                 "image_path": str(overview["image_path"]),
                 "naming_p": index,
-                # smart-analysis requires a stable (region, row, col) identity.
+                # Smart analysis requires a stable (region, row, col) identity.
                 # The notebook's overviews are a flat ordered list.
                 "tile_id": ("overview", 0, index),
                 "tile_stage_xy_um": tuple(overview["center_frame_um"]),
@@ -178,7 +178,7 @@ def discover_targets(
                     float(overview["pixel_size_um"]),
                     float(overview["pixel_size_um"]),
                 ),
-                # smart-analysis uses (width, height), while this package stores
+                # Smart analysis uses (width, height), while this package stores
                 # image shapes as the NumPy-native (height, width).
                 "source_image_size_px": (
                     int(overview["image_size_px"][1]),
@@ -198,9 +198,9 @@ def discover_targets(
         for result in engine.results(queue):
             result_index = int(result["input"]["naming_p"])
             if result_index in seen:
-                raise RuntimeError(f"smart-analysis returned overview {result_index} more than once")
+                raise RuntimeError(f"smart analysis returned overview {result_index} more than once")
             if result_index not in by_index:
-                raise RuntimeError(f"smart-analysis returned unknown overview index {result_index}")
+                raise RuntimeError(f"smart analysis returned unknown overview index {result_index}")
             seen.add(result_index)
             overview = by_index[result_index]
             for pick in result.get("pick_targets", {}).get("picks", []):
@@ -229,11 +229,11 @@ def discover_targets(
                 f"{failure.get('step', 'unknown')}: {failure.get('error', 'unknown error')}"
                 for failure in failures
             )
-            raise RuntimeError(f"smart-analysis target discovery failed: {details}")
+            raise RuntimeError(f"smart analysis target discovery failed: {details}")
         if status["pending"] == 0 and status["running"] == 0:
             break
         time.sleep(poll_interval)
     missing = sorted(set(by_index) - seen)
     if missing:
-        raise RuntimeError(f"smart-analysis completed without results for overviews {missing}")
+        raise RuntimeError(f"smart analysis completed without results for overviews {missing}")
     return targets

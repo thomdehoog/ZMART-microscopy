@@ -103,9 +103,6 @@ CONNECTION = {
     "client": "PythonClient",
     "api_delay_ms": None,
     "output_root": None,  # optional override; otherwise discovered from native AutoSave
-    # Microscope-specific active objective calibration. Workflows do not select
-    # or apply calibration; this driver profile owns that decision.
-    "calibration_name": "water_lens_setup",
     # Limits and calibration connection choices. Image orientation is enabled
     # by IMAGE_SAVE in config/profiles.py; only the orientation measurement
     # explicitly saves raw pixels.
@@ -316,14 +313,14 @@ def disconnect(handle: ZmartHandle) -> None:
 def _hardware_snapshot(handle: ZmartHandle) -> dict:
     """One consistent read of everything the frame math needs.
 
-    Stage XY, both z drives, and the current objective come from the
-    authoritative API route; raises when any of them is unreadable.
+    Stage XY, both z drives, and the current objective use the configured
+    reader policy; raises when any of them is unreadable.
     """
-    xy = _readers.get_xy(handle.client, mode="api")
+    xy = _readers.get_xy(handle.client)
     if not xy:
         raise RuntimeError("could not read stage XY position")
     job = _selected_job_name(handle)
-    settings = _readers.get_job_settings(handle.client, job, mode="api")
+    settings = _readers.get_job_settings(handle.client, job)
     if not settings:
         raise RuntimeError(f"could not read job settings for '{job}'")
     return {
@@ -441,7 +438,7 @@ def _job_catalog(handle: ZmartHandle) -> tuple[list[dict], list[dict]]:
     Autofocus jobs are a separate category: they never appear as acquisition
     or state options and run only through the ``autofocus`` procedure.
     """
-    jobs = _readers.get_jobs(handle.client, mode="api") or []
+    jobs = _readers.get_jobs(handle.client) or []
     normal = [dict(j) for j in jobs if not j.get("IsAutofocus")]
     autofocus = [dict(j) for j in jobs if j.get("IsAutofocus")]
     return normal, autofocus
@@ -663,9 +660,10 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
     Discovered live on every call: ``job`` lists the LAS X jobs with the
     selected one active; ``cleanup_source`` is forwarded
     to the driver's ``save()``; ``backlash_correction`` runs an XY slack
-    takeup before capture; ``strip_scan_fields`` (Leica-specific, default
-    on) empties the scanning template before the capture so LAS X acquires
-    the single current position, never a stored scan-field pattern.
+    takeup before capture and optional ``backlash_rounds`` controls its pass
+    count (``0`` skips it); ``strip_scan_fields`` (Leica-specific, default on)
+    empties the scanning template before the capture so LAS X acquires the
+    single current position, never a stored scan-field pattern.
     """
     _require_open(handle)
     normal, _ = _job_catalog(handle)
@@ -679,6 +677,10 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
     return {
         "job": {"options": names, "active": selected},
         "backlash_correction": {"options": [True, False], "active": True},
+        "backlash_rounds": {
+            "options": "int >= 0",
+            "active": _motion.BACKLASH_DEFAULT_ROUNDS,
+        },
         "strip_scan_fields": {"options": [True, False], "active": True},
         "format": {"options": ["ome-tiff"], "active": "ome-tiff"},
         "cleanup_source": {"options": [True, False], "active": False},
@@ -692,6 +694,14 @@ def _with_defaults(handle: ZmartHandle, options: dict | None) -> dict:
     for name, value in (options or {}).items():
         if name not in menu:
             raise ValueError(f"unknown acquisition option {name!r}")
+        if name == "backlash_rounds":
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(
+                    "invalid value for acquisition option 'backlash_rounds': "
+                    f"expected a non-negative integer, got {value!r}"
+                )
+            resolved[name] = value
+            continue
         if value not in menu[name]["options"]:
             raise ValueError(
                 f"invalid value {value!r} for acquisition option {name!r} "
@@ -774,8 +784,8 @@ def _export_state(
             "client": handle.connection.get("client"),
             "api": handle.connection.get("api"),
         },
-        "hardware": _try(lambda: _readers.get_hardware_info(handle.client, mode="api")),
-        "job_settings": _try(lambda: _readers.get_job_settings(handle.client, job, mode="api")),
+        "hardware": _try(lambda: _readers.get_hardware_info(handle.client)),
+        "job_settings": _try(lambda: _readers.get_job_settings(handle.client, job)),
         "job_state": (machine_state or {}).get("changeable") if machine_state else None,
         "position": _try(lambda: get_xyz(handle)),
         "provenance": {
@@ -838,8 +848,10 @@ def acquire(
         if not select.get("success"):
             raise RuntimeError(f"select_job('{job}') failed: {select}")
 
-    if resolved["backlash_correction"]:
-        _motion.correct_backlash(handle.client)
+    backlash_rounds = resolved["backlash_rounds"]
+    apply_backlash = resolved["backlash_correction"] and backlash_rounds > 0
+    if apply_backlash:
+        _motion.correct_backlash(handle.client, passes=backlash_rounds)
 
     acq = _capture.acquire(handle.client, job)
 
@@ -893,7 +905,8 @@ def acquire(
         "job": job,
         "format": resolved["format"],
         "acquisition_hash": acquisition_hash,
-        "settle": "backlash-corrected" if resolved["backlash_correction"] else "direct",
+        "settle": "backlash-corrected" if apply_backlash else "direct",
+        "backlash_rounds": backlash_rounds if apply_backlash else 0,
         # ``images`` stays as the simple compatibility list. ``planes`` is the
         # lossless manifest workflows need to distinguish channels from z/t.
         "images": [plane["path"] for plane in planes],
@@ -926,7 +939,7 @@ def get_state(handle: ZmartHandle) -> dict:
     selected = _readers.get_selected_job(handle.client) or {}
     if not selected.get("Name"):
         raise RuntimeError("could not determine the selected LAS X job")
-    settings = _readers.get_job_settings(handle.client, selected["Name"], mode="api") or {}
+    settings = _readers.get_job_settings(handle.client, selected["Name"]) or {}
     try:
         geometry = _parse_tile_geometry(settings)
         pixel_x = float(geometry["pixel_w_um"])
@@ -1115,7 +1128,7 @@ def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
 # =============================================================================
 
 
-def _scan_field(handle: ZmartHandle) -> dict | None:
+def _scan_field(handle: ZmartHandle, *, default_job_name: str) -> dict | None:
     """Positions and focus points the operator stored in the scanning template.
 
     Saves the experiment first (the parsers read the on-disk template; a
@@ -1141,7 +1154,10 @@ def _scan_field(handle: ZmartHandle) -> dict | None:
     if not saved:
         raise RuntimeError("save_experiment did not confirm; the template on disk may be stale")
     parsed = _scanfields.parse_scan_positions(
-        templates_dir, _scanfields.TEMPLATE_BASE, client=handle.client
+        templates_dir,
+        _scanfields.TEMPLATE_BASE,
+        client=handle.client,
+        default_job_name=default_job_name,
     )
     dt = _delta_or_warn(handle, _hardware_snapshot(handle))
     origin = handle.origin
@@ -1160,6 +1176,12 @@ def _scan_field(handle: ZmartHandle) -> dict | None:
 
     positions = []
     for region_key, region in (parsed.get("acquisition_positions") or {}).items():
+        geometry_id = region.get("geometry_id")
+        geometry = (parsed.get("geometries") or {}).get(geometry_id, {})
+        # Unassigned LAS X point shapes are operator markers.  They are
+        # exposed below as ``marker`` entries, never duplicated as tiles.
+        if region.get("source") == "geometry_plan" and geometry.get("type") == "Point":
+            continue
         for tile in region.get("positions") or []:
             positions.append(
                 entry(
@@ -1217,7 +1239,7 @@ def get_info(handle: ZmartHandle) -> dict:
     """
     _require_open(handle)
     selected = _selected_job_name(handle)
-    scan_field = _scan_field(handle)
+    scan_field = _scan_field(handle, default_job_name=selected)
     root = _info.output_root(handle, _save.save_source_root)
     return {
         "selected_job": selected,

@@ -9,8 +9,8 @@ from navigator_expert.commands import routines as stage_movement
 
 
 class TestCorrectBacklash:
-    def test_current_position_read_pins_api_mode(self):
-        """The current XY read parameterizes moves, so it must bypass routing."""
+    def test_current_position_read_uses_configured_reader_policy(self):
+        """The current XY read must not bypass the configured reader policy."""
         get_xy_calls = []
         move_calls = []
 
@@ -34,7 +34,7 @@ class TestCorrectBacklash:
                 tolerance_um=20.0,
             )
 
-        assert get_xy_calls[0]["mode"] == "api"
+        assert "mode" not in get_xy_calls[0]
         # Three back-and-forth passes by default, every return leg
         # approaching (x, y) from -X -Y.
         assert (

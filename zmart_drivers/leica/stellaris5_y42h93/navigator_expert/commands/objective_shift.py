@@ -101,16 +101,16 @@ def record_before_change(
     from .. import readers as _readers
 
     if job_name is None:
-        selected = _readers.get_selected_job(client, mode="api") or {}
+        selected = _readers.get_selected_job(client) or {}
         job_name = selected.get("Name")
         if not job_name:
             raise RuntimeError("could not determine the selected job")
-    xy = _readers.get_xy(client, mode="api") or {}
+    xy = _readers.get_xy(client) or {}
     if "x_um" not in xy or "y_um" not in xy:
         raise RuntimeError(f"get_xy returned no readback: {xy}")
-    settings = _readers.get_job_settings(client, job_name, mode="api") or {}
+    settings = _readers.get_job_settings(client, job_name) or {}
     slot = (settings.get("objective") or {}).get("slotIndex")
-    z_wide = _readers.read_zwide_um(client, job_name, mode="api")
+    z_wide = _readers.read_zwide_um(client, job_name)
     if z_wide is None:
         raise RuntimeError(f"z-wide readback unavailable for job {job_name!r}")
     return {
@@ -154,7 +154,7 @@ def compensate_after_change(
         from .. import readers as _readers
 
         if new_slot is None:
-            settings = _readers.get_job_settings(client, job_name, mode="api") or {}
+            settings = _readers.get_job_settings(client, job_name) or {}
             new_slot = (settings.get("objective") or {}).get("slotIndex")
         new_slot = None if new_slot is None else int(new_slot)
         old_slot = before["slot"]

@@ -1373,11 +1373,11 @@ def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, im
         }
 
     if pixel_size_um is None or image_size is None:
-        geo = parse_tile_geometry(get_job_settings(client, job_name, mode="api") or {})
+        geo = parse_tile_geometry(get_job_settings(client, job_name) or {})
         pixel_size_um = pixel_size_um if pixel_size_um is not None else float(geo["pixel_w_um"])
         image_size = image_size if image_size is not None else int(geo["pixels_x"])
 
-    base_fov_m = get_base_fov(client, job_name, mode="api")
+    base_fov_m = get_base_fov(client, job_name)
     if not base_fov_m:
         return {
             "success": False,

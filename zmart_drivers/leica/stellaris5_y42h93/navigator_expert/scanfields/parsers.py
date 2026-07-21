@@ -115,8 +115,8 @@ def _tile_size_from_image_size_str(image_size_str):
     return round(avg, 4)
 
 
-def _get_tile_sizes_from_api(client, job_names):
-    """Query LAS X API for tile sizes of the given jobs.
+def _get_tile_sizes_from_reader(client, job_names):
+    """Query the configured LAS X reader for tile sizes of the given jobs.
 
     Args:
         client: Live LAS X CAM client.
@@ -129,12 +129,12 @@ def _get_tile_sizes_from_api(client, job_names):
 
     sizes = {}
     for jn in job_names:
-        settings = get_job_settings(client, jn, mode="api")
+        settings = get_job_settings(client, jn)
         if settings and "imageSize" in settings:
             ts = _tile_size_from_image_size_str(settings["imageSize"])
             if ts is not None:
                 sizes[jn] = ts
-                log.debug("_get_tile_sizes_from_api: %s = %.1f um", jn, ts)
+                log.debug("_get_tile_sizes_from_reader: %s = %.1f um", jn, ts)
     return sizes
 
 
@@ -928,12 +928,12 @@ def parse_scan_positions(
 
     Tile sizes are resolved in priority order:
 
-    1. **API** — if ``client`` is provided, query LAS X for each job's
-       ``imageSize``.
+    1. **Configured reader** — if ``client`` is provided, query LAS X for
+       each job's ``imageSize`` using the reader profile.
     2. **Manual** — ``tile_size_um`` fills in any jobs not resolved by
-       the API and is used for unassigned tiles.
+       the configured reader and is used for unassigned tiles.
     3. **Fallback** — unassigned tiles get the first available tile
-       size (from API or manual).
+       size (from the configured reader or manual input).
 
     Args:
         templates_dir: Path to the ScanningTemplates folder.
@@ -944,8 +944,9 @@ def parse_scan_positions(
         default_job_name: Job to use for geometry-derived scan fields
             when the XML contains only unassigned placeholders.
         overlap_pct: Optional manual overlap for geometry-derived scan
-            fields. If omitted, LAS X geometry count labels are used to
-            infer the overlap when possible.
+            fields. Live parsing uses the overlap stored in the template
+            together with the live-reported tile size. Offline parsing falls
+            back to LAS X geometry count labels when possible.
 
     Returns:
         Dict with::
@@ -972,8 +973,8 @@ def parse_scan_positions(
     job_tile_sizes = {}
 
     if client is not None:
-        api_sizes = _get_tile_sizes_from_api(client, job_names)
-        job_tile_sizes.update(api_sizes)
+        reader_sizes = _get_tile_sizes_from_reader(client, job_names)
+        job_tile_sizes.update(reader_sizes)
 
     if tile_size_um is not None:
         for jn in job_names:
@@ -995,6 +996,18 @@ def parse_scan_positions(
     tile_colors = parse_rgn_tile_colors(rgn_path) if rgn_path.is_file() else {}
     matrix_settings = parse_matrix_settings(xml_root) if xml_root is not None else {}
 
+    # A live client gives us the selected job's exact field size, so the
+    # template's explicit mosaic overlap is the matching source of truth.
+    # Parenthesized RGN counts can have been calculated while another job was
+    # selected (for example a 20x autofocus job around a rectangle later
+    # acquired with a 10x overview job), and using that count to infer overlap
+    # silently changes the requested grid cardinality.  Offline callers often
+    # provide only an approximate tile size, where the count label remains a
+    # useful fallback.
+    planning_overlap_pct = overlap_pct
+    if planning_overlap_pct is None and client is not None:
+        planning_overlap_pct = matrix_settings.get("mosaicOverlapPct")
+
     acquisition_positions = {}
     if xml_root is not None:
         acquisition_positions = parse_acquisition_positions(xml_root, job_tile_sizes)
@@ -1007,7 +1020,7 @@ def parse_scan_positions(
             matrix_settings,
             job_tile_sizes,
             default_job_name=default_job_name,
-            overlap_pct=overlap_pct,
+            overlap_pct=planning_overlap_pct,
         )
 
     return {

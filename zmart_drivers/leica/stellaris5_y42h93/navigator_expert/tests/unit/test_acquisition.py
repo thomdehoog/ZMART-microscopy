@@ -274,7 +274,7 @@ class TestCanonicalPhysicalMetadataAuthority:
                 "Overview",
             )
 
-        assert read_settings.call_args.kwargs["mode"] == "api"
+        assert "mode" not in read_settings.call_args.kwargs
         assert out.physical_size_x_um == pytest.approx(2.27)
         assert out.physical_size_y_um == pytest.approx(2.28)
         assert out.physical_size_z_um == pytest.approx(2.41)

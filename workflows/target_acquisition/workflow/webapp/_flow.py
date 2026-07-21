@@ -50,7 +50,7 @@ class RunFlow:
     ) -> None:
         if not demo and analysis_repo is None:
             raise ValueError(
-                "a real session needs --analysis-repo (the smart-analysis checkout); "
+                "a real session needs --analysis-repo (the smart analysis checkout); "
                 "or start with --demo to use the simulated microscope"
             )
         self.hub = hub

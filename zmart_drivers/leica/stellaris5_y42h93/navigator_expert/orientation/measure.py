@@ -137,7 +137,7 @@ def start_session(
     limits_state = drv.connect_limits_handshake(client)
     if not limits_state.ok:
         raise RuntimeError(limits_state.error)
-    hw = drv.get_hardware_info(client, mode="api")
+    hw = drv.get_hardware_info(client)
     if hw is None:
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")
     if job_name is None:
@@ -584,7 +584,7 @@ def measure(session: OrientationSession) -> OrientationSession:
     # leave this session looking valid.
     _invalidate_orientation_config(session)
 
-    xy = drv.get_xy(session.client, mode="api") or {}
+    xy = drv.get_xy(session.client) or {}
     if "x_um" not in xy or "y_um" not in xy:
         raise RuntimeError(f"get_xy returned no readback: {xy}")
     home_x, home_y = float(xy["x_um"]), float(xy["y_um"])
