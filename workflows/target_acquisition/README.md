@@ -23,6 +23,10 @@ microscope (see `workflow/webapp/README.md`), and on the microscope PC
 `python run_webapp.py --analysis-repo ...` drives the real one. The
 server is Python standard library only.
 
+The exact production microscope-PC command, browser address, and safe shutdown
+sequence are recorded in [MEMORY.md](MEMORY.md) and the
+[webapp README](workflow/webapp/README.md#on-the-microscope-pc).
+
 The setup cell expects a checkout of
 [smart analysis](https://github.com/thomdehoog/smart-analysis) on its `v4-engine`
 branch in a repository next to ZMART. Before connecting to LAS X it registers the external

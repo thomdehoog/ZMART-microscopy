@@ -22,9 +22,20 @@ cells you gated.
 
 ## On the microscope PC
 
+The Python command starts both the website and its local server; there is no
+separate frontend process. In PowerShell on the production microscope PC, run:
+
+```powershell
+Set-Location "\\zmbstaff.core.uzh.ch\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\ZMART-microscopy\workflows\target_acquisition"
+
+& "C:\ProgramData\MinicondaZMB\envs\zmart-microscopy\python.exe" `
+  .\run_webapp.py `
+  --analysis-repo "\\zmbstaff.core.uzh.ch\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-analysis"
 ```
-python run_webapp.py --analysis-repo C:/code/smart-analysis
-```
+
+Open <http://127.0.0.1:8765/> and keep the PowerShell window open while using
+the website. To stop safely, first press **Disconnect** in the website and then
+press **Ctrl+C** in PowerShell. Saved experiment files remain on disk.
 
 Use `--experiment organoid-screen` to choose the experiment folder name.
 The website workflow adds the experiment hash and organizes every acquisition
