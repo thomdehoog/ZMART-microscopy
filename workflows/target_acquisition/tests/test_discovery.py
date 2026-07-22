@@ -102,6 +102,32 @@ def test_no_cells_returns_empty():
     assert discover_targets(engine, [_ov("a", (0.0, 0.0), 1.0, (100, 200))]) == []
 
 
+def test_segmentation_channel_selects_which_image_the_engine_sees():
+    # The overview kept its channels as separate images. Choosing channel 1
+    # must feed the engine channel 1's image, not the default channel 0.
+    engine = _FakeEngine({0: []})
+    overview = _ov("c0.tif", (0.0, 0.0), 1.0, (100, 200))
+    overview["channel_paths"] = ["c0.tif", "c1.tif"]
+    discover_targets(engine, [overview], segmentation_channel=1)
+    assert engine.jobs[0]["image_path"] == "c1.tif"
+
+
+def test_segmentation_channel_defaults_to_the_first_channel():
+    engine = _FakeEngine({0: []})
+    overview = _ov("c0.tif", (0.0, 0.0), 1.0, (100, 200))
+    overview["channel_paths"] = ["c0.tif", "c1.tif"]
+    discover_targets(engine, [overview])
+    assert engine.jobs[0]["image_path"] == "c0.tif"
+
+
+def test_out_of_range_segmentation_channel_is_a_clear_error():
+    engine = _FakeEngine({0: []})
+    overview = _ov("c0.tif", (0.0, 0.0), 1.0, (100, 200))
+    overview["channel_paths"] = ["c0.tif", "c1.tif"]
+    with pytest.raises(ValueError, match="channel 5 cannot be segmented"):
+        discover_targets(engine, [overview], segmentation_channel=5)
+
+
 def test_engine_failure_is_not_silently_returned_as_no_targets():
     class FailedEngine(_FakeEngine):
         def status(self, queue):

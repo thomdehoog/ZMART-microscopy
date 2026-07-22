@@ -75,6 +75,9 @@ def _targets(n):
         {
             "x": float(i),
             "y": 0.0,
+            # Explicit z: these unit tests acquire without a focus surface,
+            # and with_focus_z now refuses a position that has neither.
+            "z": 0.0,
             "source": {"naming_p": 0, "centroid_col_row_px": (50.0, 50.0)},
         }
         for i in range(n)
