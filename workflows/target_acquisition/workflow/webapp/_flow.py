@@ -21,6 +21,7 @@ without a Leica in the room.
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -172,6 +173,38 @@ class RunFlow:
 
     def _flow_event(self, step: str, state: str, message: str) -> None:
         self.hub.broadcast({"kind": "flow", "step": step, "state": state, "message": message})
+        self._journal(step, state, message)
+
+    def _journal(self, step: str, state: str, message: str) -> None:
+        """Append one step event to the run's on-disk journal.
+
+        The website's progress is otherwise only ever shown live in the
+        browser and lost when the tab closes. This gives every web run the
+        same timestamped, reconstructable narrative the notebook runs get:
+        one JSON line per step start / finish / failure, next to the images
+        in the run folder. It is best-effort — a journal write must never
+        take down a run — and only starts once the run folder exists (after
+        connect). All flow events come from the single worker thread, so the
+        lines never interleave.
+        """
+        if self.root is None:
+            return
+        try:
+            from datetime import datetime, timezone
+
+            line = json.dumps(
+                {
+                    "time": datetime.now(timezone.utc).isoformat(),
+                    "step": step,
+                    "state": state,
+                    "message": message,
+                }
+            )
+            with open(self.root / "run_journal.jsonl", "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except Exception as exc:  # noqa: BLE001 -- journalling must never fail a run
+            # A single warning to the server console; the run continues.
+            print(f"warning: could not write the run journal: {exc}")
 
     def flow_snapshot(self) -> dict:
         """What a fresh (or refreshed) tab needs to restore its buttons."""
@@ -192,6 +225,18 @@ class RunFlow:
                 raise FlowError("connect before restarting the workflow")
             if self._pending:
                 raise FlowError("wait for the current workflow action to finish")
+        # A flow step is not the only thing that drives hardware: the focus
+        # Measure and the gallery Acquire run on the same worker as their own
+        # widget actions, and ``_pending`` does not see them. Refuse to restart
+        # while one is in flight — otherwise the reset queues behind a long
+        # acquisition, times out, tells the operator "restart failed", and then
+        # still disconnects the microscope later when the acquisition ends.
+        busy = self._busy_widget()
+        if busy is not None:
+            raise FlowError(
+                f"a {busy} is running — wait for it to finish (or press Cancel) "
+                "before restarting the workflow"
+            )
 
         finished = threading.Event()
         errors: list[BaseException] = []
@@ -210,6 +255,19 @@ class RunFlow:
             raise FlowError("the new run did not initialize in time")
         if errors:
             raise errors[0]
+
+    def _busy_widget(self) -> str | None:
+        """The operator-facing name of an in-flight hardware widget, or None.
+
+        The focus picker's Measure and the gallery's Acquire each drive the
+        stage on the shared worker; both carry a private ``_busy`` flag while
+        running. Restart checks this so it never queues behind an acquisition.
+        """
+        if self.picker is not None and getattr(self.picker, "_busy", False):
+            return "focus measurement"
+        if self.gallery is not None and getattr(self.gallery, "_busy", False):
+            return "target acquisition"
+        return None
 
     def release_on_shutdown(self) -> None:
         """Best-effort hardware release when the server itself is stopping.

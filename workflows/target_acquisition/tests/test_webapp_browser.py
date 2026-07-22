@@ -171,6 +171,35 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
     assert flow.session.disconnected and flow.engine.shut_down
 
 
+def test_a_fresh_tab_opened_mid_run_recovers_the_overview_images(demo_server):
+    """A tab first opened after the scan already ran must not be blank.
+
+    Tile pixels travel only over the live stream, never in the /state
+    snapshot, so a fresh page (or a second tab) has to ask for the image
+    catch-up. Without that it renders tile metadata with no pictures.
+    """
+    base, hub, flow = demo_server
+    for step in _STEP_ORDER:
+        flow.run_step(step)
+    hub.drain(60)
+    hub.dispatch_message("focus", {"type": "measure"})
+    flow.run_step("run_overview")
+    hub.drain(120)
+
+    with _playwright() as pw:
+        browser = _launch_browser(pw)
+        # A brand-new page — everConnected starts false, i.e. NOT a reconnect.
+        page = browser.new_page(viewport={"width": 1440, "height": 1100})
+        page.goto(base, wait_until="domcontentloaded")
+        page.wait_for_selector("#step-run_overview.done", timeout=30_000)
+        page.locator("#step-run_overview > summary").click()
+        # The four overview tiles must actually arrive as images.
+        playwright_api.expect(page.locator('#widget-overview img[src^="blob:"]')).to_have_count(
+            4, timeout=30_000
+        )
+        browser.close()
+
+
 def test_live_event_wins_over_an_older_boot_snapshot(demo_server):
     """A new tab must not lose busy/cancel truth while /state is in flight."""
     base, hub, flow = demo_server
