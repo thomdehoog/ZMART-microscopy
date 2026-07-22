@@ -99,6 +99,9 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         page = browser.new_page()
         errors: list[str] = []
         page.on("pageerror", lambda err: errors.append(str(err)))
+        # Disconnect asks "are you sure?" — accept it, as an operator ending
+        # the session would.
+        page.on("dialog", lambda dialog: dialog.accept())
         # networkidle never comes: the live event stream stays open by design.
         # Buttons enable only after the state snapshot applied, so waiting
         # for an ENABLED button is waiting for the page to be truly ready.

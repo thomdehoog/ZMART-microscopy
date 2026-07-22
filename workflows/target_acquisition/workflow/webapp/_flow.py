@@ -22,6 +22,7 @@ without a Leica in the room.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -29,6 +30,8 @@ from typing import Any
 
 from .. import react as wreact
 from ._host import WidgetHub
+
+log = logging.getLogger(__name__)
 
 
 class FlowError(RuntimeError):
@@ -158,9 +161,18 @@ class RunFlow:
                 )
             message = step()
         except FlowError as exc:
+            # A refusal we wrote for the operator — show it as-is.
             self._flow_event(name, "failed", str(exc))
         except Exception as exc:  # noqa: BLE001 -- shown to the operator, not lost
-            self._flow_event(name, "failed", f"{type(exc).__name__}: {exc}")
+            # An unexpected hardware/driver error. Lead with a plain sentence
+            # naming the step, then the underlying message — never a bare
+            # traceback the operator cannot act on. The full traceback is still
+            # available in the server console for a maintainer.
+            step_label = name.replace("_", " ")
+            self._flow_event(
+                name, "failed", f"{step_label} could not finish: {exc}"
+            )
+            log.exception("step %r failed", name)
         else:
             with self._state_lock:
                 if name not in self.completed:

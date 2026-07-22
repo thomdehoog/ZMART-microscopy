@@ -1233,6 +1233,13 @@ function App({ model }) {
   const sx = (hix - lox) || 1, sy = (hiy - loy) || 1;
   const X = (v) => pad + ((v - lox) / sx) * (W - 2 * pad);
   const Y = (v) => H - pad - ((v - loy) / sy) * (H - 2 * pad);
+  // Compact axis-tick label: whole numbers for large values, otherwise a
+  // couple of decimals; very large/small fall back to exponential.
+  const tick = (v) => {
+    const a = Math.abs(v);
+    if (a !== 0 && (a >= 1e5 || a < 1e-2)) return v.toExponential(1);
+    return a >= 100 ? v.toFixed(0) : v.toFixed(1);
+  };
   const toData = (e, svg) => {
     const r = svg.getBoundingClientRect();
     return [lox + ((e.clientX - r.left - pad) / (W - 2 * pad)) * sx,
@@ -1339,6 +1346,13 @@ function App({ model }) {
         h("text", { x: W / 2, y: H - 8, fill: T.dim, fontSize: 11, textAnchor: "middle" }, xf),
         h("text", { x: 12, y: H / 2, fill: T.dim, fontSize: 11, transform: `rotate(-90 12 ${H / 2})`,
           textAnchor: "middle" }, yf),
+        // Numeric ticks so a threshold is read against real values, not a
+        // bare bar shape: min / middle / max of each axis.
+        [0, 0.5, 1].map((f, i) => h("text", { key: `xt${i}`, x: X(lox + f * sx),
+          y: H - pad + 13, fill: T.dim, fontSize: 10,
+          textAnchor: i === 0 ? "start" : i === 2 ? "end" : "middle" }, tick(lox + f * sx))),
+        [0, 0.5, 1].map((f, i) => h("text", { key: `yt${i}`, x: pad - 5, y: Y(loy + f * sy) + 3,
+          fill: T.dim, fontSize: 10, textAnchor: "end" }, tick(loy + f * sy))),
         trail.length ? h("polyline", {
           points: trail.map(([a, b]) => `${X(a)},${Y(b)}`).join(" "),
           fill: "rgba(56,189,248,0.15)", stroke: T.accent, strokeDasharray: "4 3" }) : null,
