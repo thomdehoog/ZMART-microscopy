@@ -407,7 +407,7 @@ function App({ model }) {
                  overflow: "hidden", position: "relative", cursor: "grab", flex: "none" } },
       tiles.map((t, i) => {
         const v = view.current;
-        return h("img", { key: i, src: t.src, draggable: false, style: {
+        return h("img", { key: i, src: t.src, draggable: false, decoding: "async", style: {
           position: "absolute", left: t.x0 * v.scale + v.tx, top: t.y0 * v.scale + v.ty,
           width: t.w * v.scale, height: t.h * v.scale, imageRendering: "pixelated" } });
       }),
@@ -1299,7 +1299,7 @@ function App({ model }) {
           pickedCrops.map((c) => h("div", { key: c.index,
               style: { flex: "none", textAlign: "center", width: 88 } },
             c.src
-              ? h("img", { src: c.src, title: c.title,
+              ? h("img", { src: c.src, title: c.title, loading: "lazy", decoding: "async",
                   style: { width: 84, height: 84, objectFit: "cover", borderRadius: 6,
                     border: `1px solid ${T.edge}`, imageRendering: "pixelated" } })
               : h("div", { style: { width: 84, height: 84, borderRadius: 6,
@@ -2057,7 +2057,8 @@ function App({ model }) {
 
   const pairPanels = (r, big) => [["low", r.low_title], ["high", r.high_title]].map(
     ([side, title]) => h("div", { key: side, style: { flex: 1, position: "relative" } },
-      h("img", { src: r[side + "_src"], style: { width: "100%", borderRadius: 10,
+      h("img", { src: r[side + "_src"], loading: "lazy", decoding: "async",
+        style: { width: "100%", borderRadius: 10,
         imageRendering: big ? "auto" : "pixelated", border: `1px solid ${T.edge}` } }),
       scaleBar(r),
       h("div", { style: { color: big ? "#f1f5f9" : T.dim, fontSize: 12, marginTop: 2 } }, title)));
