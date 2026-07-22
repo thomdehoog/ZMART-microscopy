@@ -1198,6 +1198,11 @@ class TargetExplorerReact(_ZmartWidget):
     #: Cells already acquired this session (drawn filled) — so nobody
     #: images the same cell twice without meaning to.
     acquired_indices = traitlets.List().tag(sync=True)
+    #: Field-of-view crops of the currently picked cells, in overview
+    #: context — the strip under the plot that shows, before acquiring,
+    #: exactly which cells were selected. Display output only (like the
+    #: hover preview); the acquisition step never reads it.
+    picked_crops = traitlets.List().tag(sync=True)
     _read_only_input_traits = ("x_feature", "y_feature", "gate")
     #: Hovering a dot only serves a crop preview — an observer may browse.
     _read_only_safe_messages = ("hover",)
@@ -1217,6 +1222,7 @@ function App({ model }) {
   const [hist] = useTrait(model, "hist");
   const [picked] = useTrait(model, "picked_indices");
   const [acquired] = useTrait(model, "acquired_indices");
+  const [pickedCrops] = useTrait(model, "picked_crops");
   const [readOnly] = useTrait(model, "read_only");
   const W = widgetPxFor("explorer", 460), H = widgetPxFor("explorer", 360), pad = 42;
   const moved = React.useRef(false);
@@ -1259,7 +1265,37 @@ function App({ model }) {
     setGate(next);
   };
 
-  return h("div", { style: { ...card, display: "flex", gap: 12 } },
+  // The strip under the plot: each hand-picked cell shown as it sits in the
+  // overview (its field of view), so the operator sees exactly what will be
+  // acquired before pressing Acquire. Lazy — only picked cells are cropped.
+  const fovStrip = h("div", { style: { marginTop: 14, borderTop: `1px solid ${T.edge}`,
+      paddingTop: 10 } },
+    h("div", { style: { fontWeight: 700, marginBottom: 6 } },
+      picked.length
+        ? `selected cells — field of view in the overview (${picked.length})`
+        : "selected cells — field of view in the overview"),
+    picked.length === 0
+      ? h("div", { style: { color: T.dim, fontSize: 12 } },
+          "click cells in the plot (or rings on the map) to pick them — each " +
+          "picked cell's field of view appears here so you can see what will be acquired")
+      : h("div", { style: { display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6 } },
+          pickedCrops.map((c) => h("div", { key: c.index,
+              style: { flex: "none", textAlign: "center", width: 88 } },
+            c.src
+              ? h("img", { src: c.src, title: c.title,
+                  style: { width: 84, height: 84, objectFit: "cover", borderRadius: 6,
+                    border: `1px solid ${T.edge}`, imageRendering: "pixelated" } })
+              : h("div", { style: { width: 84, height: 84, borderRadius: 6,
+                  border: `1px dashed ${T.edge}`, color: T.dim, fontSize: 10,
+                  display: "flex", alignItems: "center", justifyContent: "center" } }, "no image"),
+            h("div", { style: { fontSize: 11, color: T.dim, marginTop: 2 } }, `#${c.index}`)))
+          .concat(picked.length > pickedCrops.length
+            ? [h("div", { key: "more", style: { flex: "none", alignSelf: "center",
+                color: T.dim, fontSize: 12 } }, `+${picked.length - pickedCrops.length} more`)]
+            : [])));
+
+  return h("div", { style: { ...card } },
+   h("div", { style: { display: "flex", gap: 12 } },
     h("div", null,
       h("div", { style: { display: "flex", gap: 8, marginBottom: 8, alignItems: "center" } },
         h("span", { style: { color: T.dim } }, "x"), select(xf, setXf),
@@ -1346,7 +1382,8 @@ function App({ model }) {
               imageRendering: "pixelated", border: `1px solid ${T.edge}` } }),
             h("div", { style: { color: T.dim, fontSize: 12, marginTop: 4 } }, hover.title))
         : h("div", { style: { color: T.dim, fontSize: 12 } }, "hover a point to see the cell"),
-      h("div", { style: { color: T.dim, fontSize: 12, marginTop: 10 } }, status)));
+      h("div", { style: { color: T.dim, fontSize: 12, marginTop: 10 } }, status))),
+   fovStrip);
 }
 export default mount(App);
 """
@@ -1365,6 +1402,10 @@ export default mount(App);
         self.targets = targets
         self.overviews = {i: o for i, o in enumerate(overviews or [])}
         self.crop_um = float(crop_um)
+        # Most thumbnails the picked-cell strip will build at once. Beyond this
+        # the strip stops growing (the true pick count still shows), so a huge
+        # hand-selection never floods the browser with images.
+        self._picked_crop_cap = 24
         self._crop_cache: dict[int, dict] = {}
         self._resetting_gate = False
         self._healing_axes = False
@@ -1457,6 +1498,7 @@ export default mount(App);
             self.picked_indices = sorted(self._picked)
         finally:
             self._publishing_indices = False
+        self._publish_picked_crops()
         self.status = (
             f"{len(self._picked)} cell(s) picked for targeted acquisition"
             if self._picked
@@ -1464,6 +1506,38 @@ export default mount(App);
         )
         if self._linked_viewer is not None:
             self._linked_viewer._refresh_marks()
+
+    def _publish_picked_crops(self) -> None:
+        """Refresh the field-of-view strip for the currently picked cells.
+
+        Only the picked cells are cropped (a bounded set), and each crop is
+        cached, so this stays light no matter how many cells were discovered.
+        Beyond a cap the strip stops adding thumbnails — the status still
+        reports the true pick count — so a huge hand-selection cannot flood
+        the browser with images.
+        """
+        picked = sorted(self._picked)
+        self.picked_crops = [self._crop_entry(index) for index in picked[: self._picked_crop_cap]]
+
+    def _crop_entry(self, index: int) -> dict:
+        """The cached ``{index, src, title}`` field-of-view crop for one cell.
+
+        Reads the full-resolution overview tile once per cell and caches the
+        encoded crop, shared by the hover preview and the picked-cell strip.
+        """
+        if index not in self._crop_cache:
+            crop = crop_for_target(self.targets[index], self.overviews, crop_um=self.crop_um)
+            source = self.targets[index].get("source") or {}
+            # With a linked viewer, crops use ITS display window, so a cell
+            # looks the same here as on the map it came from.
+            viewer = self._linked_viewer
+            display_range = viewer._display_range_for_crops() if viewer is not None else None
+            self._crop_cache[index] = {
+                "index": index,
+                "src": "" if crop is None else png_data_url_ranged(crop, display_range),
+                "title": f"target {index} (tile {source.get('naming_p', '?')})",
+            }
+        return self._crop_cache[index]
 
     def _heal_index_traits(self, change: dict) -> None:
         """The pick and acquired records are Python truth; traits display them.
@@ -1684,22 +1758,9 @@ export default mount(App);
             return
         if index is None or not 0 <= index < len(self.targets):
             return
-        if index not in self._crop_cache:
-            # Cropping reads the full-resolution tile from disk — cache it,
-            # or a fast mouse over many dots queues seconds of disk reads
-            # ahead of the next button press.
-            crop = crop_for_target(self.targets[index], self.overviews, crop_um=self.crop_um)
-            source = self.targets[index].get("source") or {}
-            # With a linked viewer, crops use ITS display window, so a cell
-            # looks the same in the side panel as on the map it came from.
-            viewer = self._linked_viewer
-            display_range = viewer._display_range_for_crops() if viewer is not None else None
-            self._crop_cache[index] = {
-                "index": index,
-                "src": "" if crop is None else png_data_url_ranged(crop, display_range),
-                "title": f"target {index} (tile {source.get('naming_p', '?')})",
-            }
-        self.hover = self._crop_cache[index]
+        # Cropping reads the full-resolution tile from disk; _crop_entry caches
+        # it, so a fast mouse over many dots does not queue seconds of reads.
+        self.hover = self._crop_entry(index)
         if self._linked_viewer is not None:
             # Cross-highlight: the same cell lights up on the overview map.
             self._linked_viewer.mark_hover = self.hover
