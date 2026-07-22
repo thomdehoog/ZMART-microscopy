@@ -472,6 +472,12 @@ class RunFlow:
         self.ns["targets"] = targets
         if self.explorer is None:
             self.explorer = wreact.explore_targets(targets, self.overviews)
+            # Where "save gates" writes and "load gates" reads. A stable path
+            # beside the experiment folders (not inside this run's hashed one),
+            # so a double/triple-positive definition carries across runs saving
+            # under the same output location.
+            if self.root is not None:
+                self.explorer._gates_path = self.root.parent / "saved_gates.json"
             self.ns["explorer"] = self.explorer
             self.hub.add_widget("explorer", self.explorer)
             self.gallery = wreact.acquire_gallery(
