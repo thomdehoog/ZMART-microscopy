@@ -8,6 +8,7 @@ calibration, no ``navigator_expert`` import); the engine is used only to find ce
 
 from __future__ import annotations
 
+import math
 import time
 import xml.etree.ElementTree as ET
 from typing import Any
@@ -240,19 +241,23 @@ def discover_targets(
                     pixel_size_um=float(overview["pixel_size_um"]),
                     image_center_frame_um=tuple(overview["center_frame_um"]),
                 )
-                targets.append(
-                    {
-                        "x": x_um,
-                        "y": y_um,
-                        "source": {
-                            "naming_p": result_index,
-                            "centroid_col_row_px": tuple(pick["centroid_col_row_px"]),
-                            "area_px": pick.get("area_px"),
-                            "eccentricity": pick.get("eccentricity"),
-                            "mean_intensity": pick.get("mean_intensity"),
-                        },
-                    }
-                )
+                source = {
+                    "naming_p": result_index,
+                    "centroid_col_row_px": tuple(pick["centroid_col_row_px"]),
+                    "area_px": pick.get("area_px"),
+                    "eccentricity": pick.get("eccentricity"),
+                    "mean_intensity": pick.get("mean_intensity"),
+                }
+                # Any extra per-cell measurements the engine reports (for the
+                # simulator, one mean intensity per channel) become gateable
+                # features — that is what lets the explorer gate on marker A
+                # AND marker B to select the double-positive cells.
+                for name, value in (pick.get("metrics") or {}).items():
+                    if isinstance(value, bool) or not isinstance(value, (int, float)):
+                        continue
+                    if math.isfinite(value):
+                        source[str(name)] = float(value)
+                targets.append({"x": x_um, "y": y_um, "source": source})
         if status.get("failed", 0):
             failures = status.get("failures") or []
             details = "; ".join(

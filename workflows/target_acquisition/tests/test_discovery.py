@@ -120,6 +120,27 @@ def test_segmentation_channel_defaults_to_the_first_channel():
     assert engine.jobs[0]["image_path"] == "c0.tif"
 
 
+def test_engine_metrics_become_gateable_features(tmp_path):
+    # Extra per-cell measurements the engine reports (e.g. one intensity per
+    # channel) must ride into each target's source as gateable features —
+    # that is what enables gating on marker_a AND marker_b (double positive).
+    engine = _FakeEngine(
+        {
+            0: [
+                {
+                    "centroid_col_row_px": (100, 50),
+                    "area_px": 40,
+                    "metrics": {"marker_a": 900.0, "marker_b": 120.0, "bad": float("nan")},
+                }
+            ]
+        }
+    )
+    targets = discover_targets(engine, [_ov("a", (0.0, 0.0), 1.0, (100, 200))])
+    src = targets[0]["source"]
+    assert src["marker_a"] == 900.0 and src["marker_b"] == 120.0
+    assert "bad" not in src  # non-finite metrics are dropped, not passed on
+
+
 def test_out_of_range_segmentation_channel_is_a_clear_error():
     engine = _FakeEngine({0: []})
     overview = _ov("c0.tif", (0.0, 0.0), 1.0, (100, 200))

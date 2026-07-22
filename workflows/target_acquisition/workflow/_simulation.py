@@ -11,7 +11,12 @@ The pieces mirror the real boundary exactly:
   cells, scattered over the stage area. Every acquisition renders the
   commanded field of view from this one world, so overview tiles, target
   shots, and calibration pairs all agree about where things are — like a
-  real (if suspiciously tidy) piece of tissue.
+  real (if suspiciously tidy) piece of tissue. The sample is **three
+  channels**: a *structure* channel that lights every cell (what discovery
+  segments), and two *marker* channels (A and B) that each light only a
+  random subset. That is enough for demo mode to show the additive colour
+  overlay and to exercise combined gating — gate on marker A high AND
+  marker B high to pick the double-positive cells.
 - :class:`SimulatedSession` answers the same calls a
   ``zmart_controller.Session`` does (``set_origin``, ``get_state``,
   ``run_procedure``, ``acquire``, ...). Its two "jobs" stand in for the
@@ -25,20 +30,38 @@ The pieces mirror the real boundary exactly:
 
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 
 import numpy as np
 import tifffile
 
+#: Matches the ``_C00_`` channel slot in a saved plane's filename, so the
+#: segmentation engine can find a cell's other channels from the one it was
+#: handed.
+_CHANNEL_IN_NAME = re.compile(r"(_C)(\d{2})(_)")
+
 #: How far the simulated target job lands from where it was told to go, in
 #: micrometres. Small enough not to disturb the acquisition flow, and there
 #: for any scripted calibration check that wants a real error to measure.
 INJECTED_ERROR_UM = (1.8, -1.2)
 
+#: The sample's channels, in order. Channel 0 (structure) lights every cell
+#: and is what discovery segments; the two marker channels each light a random
+#: subset, so gating on both selects the double-positive cells.
+CHANNEL_NAMES = ("structure", "marker-a", "marker-b")
+
 
 class SimulatedWorld:
-    """The synthetic sample: gaussian "cells" scattered over the stage."""
+    """The synthetic sample: gaussian "cells" in three channels.
+
+    Every cell shows in the *structure* channel; each also carries an
+    independent, per-cell brightness in *marker A* and *marker B* — high
+    (positive) for a random ~half of the cells, near-zero for the rest. So
+    about a quarter of the cells are double-positive, which is what makes
+    combined gating meaningful in demo mode.
+    """
 
     def __init__(self, seed: int = 7, extent_um: float = 1200.0) -> None:
         rng = np.random.default_rng(seed)
@@ -47,10 +70,22 @@ class SimulatedWorld:
         self.cx = rng.uniform(-extent_um, extent_um, n)
         self.cy = rng.uniform(-extent_um, extent_um, n)
         self.sigma = rng.uniform(2.5, 5.0, n)
-        self.amp = rng.uniform(0.4, 1.0, n)
+        # Channel 0: structure — every cell, moderate brightness.
+        structure = rng.uniform(0.4, 1.0, n)
+        # Channels 1 and 2: markers — each cell is independently "positive"
+        # (bright) or "negative" (near-zero). Half positive per marker, so
+        # ~a quarter of cells are positive in BOTH.
+        marker_a = np.where(rng.random(n) < 0.5, rng.uniform(0.6, 1.0, n), rng.uniform(0.0, 0.1, n))
+        marker_b = np.where(rng.random(n) < 0.5, rng.uniform(0.6, 1.0, n), rng.uniform(0.0, 0.1, n))
+        # One amplitude array per channel, in CHANNEL_NAMES order.
+        self.channel_amps = [structure, marker_a, marker_b]
+        #: Back-compatible alias: the structure channel's per-cell amplitude.
+        self.amp = structure
 
-    def render(self, center_x: float, center_y: float, pixel_um: float, shape: tuple) -> np.ndarray:
-        """The image a camera at (x, y) would see, at this pixel size."""
+    def _render_amps(
+        self, amps: np.ndarray, center_x: float, center_y: float, pixel_um: float, shape: tuple
+    ) -> np.ndarray:
+        """Render one channel: the cells' gaussians weighted by ``amps``."""
         h, w = shape
         # The same pixel convention the pipeline uses: index - size/2.
         xs = center_x + (np.arange(w) - w / 2.0) * pixel_um
@@ -64,16 +99,33 @@ class SimulatedWorld:
         )
         image = np.zeros((h, w), dtype=np.float32)
         for cx, cy, sigma, amp in zip(
-            self.cx[keep], self.cy[keep], self.sigma[keep], self.amp[keep], strict=True
+            self.cx[keep], self.cy[keep], self.sigma[keep], amps[keep], strict=True
         ):
             gx = np.exp(-((xs - cx) ** 2) / (2 * sigma**2))
             gy = np.exp(-((ys - cy) ** 2) / (2 * sigma**2))
             image += amp * np.outer(gy, gx).astype(np.float32)
         return (np.clip(image, 0.0, 2.0) * 20000.0 + 800.0).astype(np.uint16)
 
+    def render(self, center_x: float, center_y: float, pixel_um: float, shape: tuple) -> np.ndarray:
+        """The 2-D *structure* channel a camera at (x, y) would see.
+
+        Kept as a single 2-D image for callers (and the segmentation harness)
+        that want one plane; :meth:`render_channels` returns all three.
+        """
+        return self._render_amps(self.amp, center_x, center_y, pixel_um, shape)
+
+    def render_channels(
+        self, center_x: float, center_y: float, pixel_um: float, shape: tuple
+    ) -> np.ndarray:
+        """All channels as a ``(C, H, W)`` stack (structure, marker A, marker B)."""
+        return np.stack(
+            [self._render_amps(a, center_x, center_y, pixel_um, shape) for a in self.channel_amps],
+            axis=0,
+        )
+
 
 def write_ome(path: Path, array: np.ndarray, pixel_um: float) -> Path:
-    """Save one rendered image the way the driver would: OME-TIFF on disk."""
+    """Save one rendered 2-D channel the way the driver would: OME-TIFF on disk."""
     h, w = array.shape
     description = (
         '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
@@ -196,24 +248,31 @@ class SimulatedSession:
         x, y, _z = self.position
         self.count += 1
         acquisition_hash = uuid.uuid4().hex[:6]
-        image = self.world.render(x + err_x, y + err_y, job["pixel_um"], job["shape"])
-        path = write_ome(
-            self.root
-            / ".staging"
-            / acquisition_type
-            / (
-                f"{acquisition_type}_{acquisition_hash}_{position_label}_"
-                "T000000_C00_Z00000.ome.tiff"
-            ),
-            image,
-            job["pixel_um"],
-        )
+        stack = self.world.render_channels(x + err_x, y + err_y, job["pixel_um"], job["shape"])
+        staging = self.root / ".staging" / acquisition_type
+        images: list[str] = []
+        planes: list[dict] = []
+        # One OME-TIFF per channel, like a driver that saves each plane to its
+        # own file. The C-index in the name is how the channels are told apart
+        # (and how the segmentation engine finds a cell's other channels).
+        for channel in range(stack.shape[0]):
+            path = write_ome(
+                staging
+                / (
+                    f"{acquisition_type}_{acquisition_hash}_{position_label}_"
+                    f"T000000_C{channel:02d}_Z00000.ome.tiff"
+                ),
+                stack[channel],
+                job["pixel_um"],
+            )
+            images.append(str(path))
+            planes.append({"t": 0, "c": channel, "z": 0, "path": str(path)})
         return {
             "acquisition_type": acquisition_type,
             "acquisition_hash": acquisition_hash,
             "position_label": position_label,
-            "images": [str(path)],
-            "planes": [{"t": 0, "c": 0, "z": 0, "path": str(path)}],
+            "images": images,
+            "planes": planes,
         }
 
     def disconnect(self) -> None:
@@ -246,12 +305,33 @@ class SimulatedEngine:
     def status(self, _queue: str) -> dict:
         return {"pending": len(self._pending), "running": 0, "failed": 0, "failures": []}
 
+    @staticmethod
+    def _channel_images(seg_path: str) -> dict[int, np.ndarray]:
+        """Every channel image saved next to the segmented one, by channel index.
+
+        The engine is handed one channel's file; a cell's brightness in the
+        OTHER channels (the markers) lives in the sibling files named with a
+        different ``_C0d_`` slot. Returns ``{}`` for a file with no channel
+        slot in its name (e.g. a plain single-channel test tile).
+        """
+        path = Path(seg_path)
+        if not _CHANNEL_IN_NAME.search(path.name):
+            return {}
+        pattern = _CHANNEL_IN_NAME.sub(r"\g<1>??\g<3>", path.name)
+        found: dict[int, np.ndarray] = {}
+        for sibling in path.parent.glob(pattern):
+            match = _CHANNEL_IN_NAME.search(sibling.name)
+            if match:
+                found[int(match.group(2))] = tifffile.imread(str(sibling)).astype(np.float32)
+        return found
+
     def results(self, _queue: str) -> list[dict]:
         from skimage.measure import label, regionprops
 
         while self._pending:
             payload = self._pending.pop(0)
             image = tifffile.imread(payload["image_path"]).astype(np.float32)
+            channels = self._channel_images(payload["image_path"])
             threshold = float(image.mean() + 2.0 * image.std())
             labels = label(image > threshold)
             picks = []
@@ -259,12 +339,23 @@ class SimulatedEngine:
                 if region.area < 6:
                     continue  # noise specks are not cells
                 row, col = region.centroid
+                # Each cell's mean brightness in every channel — the per-marker
+                # features the explorer gates on (marker_a AND marker_b high ->
+                # double positive). Measured over the region's own pixels.
+                rows, cols = region.coords[:, 0], region.coords[:, 1]
+                metrics = {
+                    (CHANNEL_NAMES[c].replace("-", "_") if c < len(CHANNEL_NAMES) else f"channel_{c}"): float(
+                        img[rows, cols].mean()
+                    )
+                    for c, img in channels.items()
+                }
                 picks.append(
                     {
                         "centroid_col_row_px": (float(col), float(row)),
                         "area_px": float(region.area),
                         "eccentricity": float(region.eccentricity),
                         "mean_intensity": float(getattr(region, "intensity_mean", 0.0)),
+                        "metrics": metrics,
                     }
                 )
             n_picks = payload.get("n_picks")
