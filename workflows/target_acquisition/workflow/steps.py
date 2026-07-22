@@ -313,25 +313,41 @@ def write_run_report(
     focus: Any,
     overview_records: list[dict],
     targets: list[dict],
+    overviews: list[dict] | None = None,
     show: bool = True,
 ) -> dict:
-    """Write the summary JSON and frame-layout plot for the notebook run."""
-    from .viz import plot_frame_layout, summarize_run, write_summary
+    """Write the run's summary JSON and figures.
+
+    Always writes ``summary.json`` and the schematic ``run_layout.png`` (frame
+    coordinates). When ``overviews`` (the discovery inputs, carrying each tile's
+    saved image) is given, it also writes ``overview_targets.png``: the real
+    overview mosaic with the acquired targets drawn on top — the picture that
+    shows, at a glance, that the run imaged the cells it meant to.
+    """
+    from .viz import plot_frame_layout, plot_overview_targets, summarize_run, write_summary
 
     output_root = Path(output_root)
-    overview_positions = with_focus_z(positions, focus)
+    # The report only needs each tile's (x, y); it never moves the stage, so it
+    # does not attach a focus z (and must not demand a focus surface to save).
     summary = summarize_run(
         focus=focus,
-        overview_positions=overview_positions,
+        overview_positions=positions,
         overview_records=overview_records,
         targets=targets,
     )
     write_summary(summary, output_root / "summary.json")
     plot_frame_layout(
-        overview_positions=overview_positions,
+        overview_positions=positions,
         targets=targets,
         focus=focus,
         save_path=output_root / "run_layout.png",
         show=show,
     )
+    if overviews:
+        plot_overview_targets(
+            overviews,
+            targets,
+            save_path=output_root / "overview_targets.png",
+            show=show,
+        )
     return summary

@@ -80,6 +80,7 @@ from .steps import (
 from .viz import (
     plot_focus_surface,
     plot_frame_layout,
+    plot_overview_targets,
     summarize_run,
     write_summary,
 )
@@ -122,6 +123,7 @@ __all__ = [
     "write_run_report",
     "plot_focus_surface",
     "plot_frame_layout",
+    "plot_overview_targets",
     "get_provider",
     "hijack_records",
     "NonSimulatorFrameError",

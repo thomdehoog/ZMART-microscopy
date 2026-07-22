@@ -14,9 +14,13 @@ import pytest
 matplotlib.use("Agg")
 
 from workflow._focus_surface import fit_focus_surface  # noqa: E402
+import numpy as np  # noqa: E402
+import tifffile  # noqa: E402
+
 from workflow.viz import (  # noqa: E402
     plot_focus_surface,
     plot_frame_layout,
+    plot_overview_targets,
     summarize_run,
     write_summary,
 )
@@ -123,4 +127,34 @@ def test_plot_frame_layout_writes_files(tmp_path):
 def test_plot_frame_layout_tolerates_empty_inputs(tmp_path):
     png = tmp_path / "empty.png"
     plot_frame_layout(save_path=png)
+    _assert_siblings(png)
+
+
+def _overview_tile(tmp_path, name, center, pixel_um=1.0, shape=(64, 64)):
+    path = tmp_path / name
+    tifffile.imwrite(path, np.random.default_rng(0).integers(0, 4000, shape, dtype=np.uint16))
+    return {
+        "image_path": path,
+        "center_frame_um": center,
+        "pixel_size_um": pixel_um,
+        "image_size_px": shape,
+    }
+
+
+def test_plot_overview_targets_writes_files(tmp_path):
+    overviews = [
+        _overview_tile(tmp_path, "ov0.tif", (0.0, 0.0)),
+        _overview_tile(tmp_path, "ov1.tif", (64.0, 0.0)),
+    ]
+    targets = [{"x": 2.0, "y": 3.0}, {"x": 64.0, "y": -5.0}]
+    png = tmp_path / "overview_targets.png"
+    fig = plot_overview_targets(overviews, targets, save_path=png)
+    _assert_siblings(png)
+    assert fig is not None
+
+
+def test_plot_overview_targets_tolerates_no_targets(tmp_path):
+    overviews = [_overview_tile(tmp_path, "ov0.tif", (0.0, 0.0))]
+    png = tmp_path / "no_targets.png"
+    plot_overview_targets(overviews, [], save_path=png)
     _assert_siblings(png)
