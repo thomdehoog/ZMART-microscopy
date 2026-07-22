@@ -81,8 +81,22 @@ def test_demo_flow_runs_the_whole_notebook_order(tmp_path):
     root = flow.root
     assert root.parent == tmp_path / "run"
     assert root.name.startswith("target-acquisition_")
-    for artifact in ("summary.json", "run_layout.png", "curation.json"):
+    for artifact in (
+        "summary.json",
+        "run_layout.png",
+        "overview_targets.png",  # the overview mosaic with acquired targets on top
+        "curation.json",
+        "run_journal.jsonl",  # the timestamped step-by-step record
+    ):
         assert (root / artifact).exists(), artifact
+    # The journal recorded the run as it happened: a line per step event.
+    journal = [
+        json.loads(line)
+        for line in (root / "run_journal.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert any(e["step"] == "connect" and e["state"] == "done" for e in journal)
+    assert any(e["step"] == "save_results" and e["state"] == "done" for e in journal)
     assert flow.session.disconnected and flow.engine.shut_down
     # The checklist read the simulated session like a real one.
     rows = {row["label"]: row for row in flow.status_widget.rows}
@@ -313,6 +327,30 @@ def test_worker_queue_is_bounded_and_recovers_after_pressure():
     hub.drain()
     assert hub.submit(lambda: None) is True
     hub.drain()
+
+
+def test_restart_refuses_while_an_acquisition_is_in_flight(tmp_path):
+    # Restart must not queue behind a running Acquire/Measure — otherwise it
+    # times out, reports failure, then disconnects the scope later anyway.
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    for step in _ORDERED_STEPS[:5]:
+        flow.run_step(step)
+    hub.drain()
+    hub.dispatch_message("focus", {"type": "measure"})
+    for step in ("run_overview", "discover_targets"):
+        flow.run_step(step)
+    hub.drain(120)
+
+    flow.gallery._set_busy(True)  # an acquisition is in flight
+    try:
+        with pytest.raises(RuntimeError, match="target acquisition is running"):
+            flow.reset()
+        assert flow.session is not None  # the session was NOT torn down
+    finally:
+        flow.gallery._set_busy(False)
+    # Once it finishes, restart works again.
+    flow.reset()
 
 
 def test_cancel_is_applied_immediately_not_queued(tmp_path):

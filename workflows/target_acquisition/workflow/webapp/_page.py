@@ -752,8 +752,13 @@ async function restoreConnection(reconnecting) {
   }
   retryTimer = null;
   enableSteps();
-  if (reconnecting) {
-    for (const name of ["overview", "gallery"]) models[name]?.send({ type: "sync" });
+  // Tile and gallery pixels travel ONLY over the live stream, never in the
+  // /state snapshot. So any streaming widget already mounted from the snapshot
+  // needs its images fetched — whether this is a dropped-stream reconnect OR a
+  // fresh tab (or a second tab) opened into a run already in progress. Asking
+  // only mounted widgets keeps a fresh, empty run silent.
+  for (const name of ["overview", "gallery"]) {
+    if (models[name]) models[name].send({ type: "sync" });
   }
 }
 
