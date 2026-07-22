@@ -612,6 +612,16 @@ function flowUpdate(ev) {
 document.querySelectorAll(".step-btn").forEach((button) => {
   button.addEventListener("click", (e) => {
     e.preventDefault();
+    // Disconnect ends the session and releases the microscope — a stray click
+    // should not tear a run down. Confirm first (it stays available early on
+    // purpose, so this guard matters). Reconnecting later is one click.
+    if (button.dataset.step === "disconnect" &&
+        !window.confirm(
+          "Disconnect and release the microscope? This ends the session. " +
+          "Anything already saved stays on disk; you can reconnect afterwards."
+        )) {
+      return;
+    }
     // Close the double-click window locally; Python independently coalesces
     // duplicate pending steps, so this is UX rather than the safety gate.
     button.disabled = true;
