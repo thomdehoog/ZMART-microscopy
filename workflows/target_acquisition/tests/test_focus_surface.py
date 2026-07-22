@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from workflow._focus_surface import fit_focus_surface
+from workflow._focus_surface import EXTRAPOLATION_MARGIN_UM, fit_focus_surface
 
 
 def _pts(triples):
@@ -51,3 +51,26 @@ def test_four_plus_curved_points_give_spline():
 def test_empty_raises():
     with pytest.raises(ValueError):
         fit_focus_surface([])
+
+
+def test_far_extrapolation_is_clamped_to_the_safe_range():
+    # A tilted plane z = 0.1*x. Measured z spans 0..1 (span 1), so the safe
+    # range is [0 - (10+1), 1 + (10+1)] = [-11, 12]. A query far outside the
+    # measured footprint (x=1000 -> plane says z=100) must be clamped, not
+    # allowed to drive the objective to a runaway z.
+    surface = fit_focus_surface(_pts([(0, 0, 0.0), (10, 0, 1.0), (0, 10, 0.0)]))
+    span = 1.0
+    upper = 1.0 + EXTRAPOLATION_MARGIN_UM + span
+    assert float(surface.z_at(1000, 0)) == pytest.approx(upper)
+    assert float(surface.z_at(-1000, 0)) == pytest.approx(0.0 - EXTRAPOLATION_MARGIN_UM - span)
+    # Inside the measured region the clamp never bites.
+    assert float(surface.z_at(5, 0)) == pytest.approx(0.5)
+
+
+def test_spline_extrapolation_cannot_run_away():
+    surface = fit_focus_surface(
+        _pts([(0, 0, 0.0), (10, 0, 1.0), (0, 10, 1.0), (10, 10, 0.0), (5, 5, 2.0)])
+    )
+    lo, hi = surface.z_bounds_um
+    # A thin-plate spline diverges far from its points; the clamp holds it.
+    assert lo <= float(surface.z_at(10_000, 10_000)) <= hi

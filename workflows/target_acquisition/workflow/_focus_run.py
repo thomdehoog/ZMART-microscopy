@@ -53,6 +53,13 @@ def measure_focus(
             procedure["job"] = af_job
         result = session.run_procedure(procedure)
         z = result.get("frame_z_um", result.get("focus_um"))
+        if z is None:
+            job_note = f" (job {af_job!r})" if af_job is not None else ""
+            raise RuntimeError(
+                f"autofocus at point {index} of {len(points)}{job_note} reported no "
+                "focus z (neither 'frame_z_um' nor 'focus_um'); the driver's autofocus "
+                "may have failed here — check that this point is on the sample."
+            )
         measurement = {"x_um": point["x"], "y_um": point["y"], "z_um": float(z)}
         measured.append(measurement)
         if on_point is not None:

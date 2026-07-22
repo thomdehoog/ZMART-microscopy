@@ -19,6 +19,17 @@ import numpy as np
 FLAT_TOLERANCE_UM = 0.1
 SPLINE_SMOOTHING = 0.1
 
+# How far beyond the measured z range a queried focus is allowed to wander.
+# Outside the region where focus was actually measured, both the plane and
+# (especially) the thin-plate spline can extrapolate to a z far from anything
+# real — a thin-plate spline grows without bound away from its points. A tile
+# that lands outside the measured footprint therefore gets its focus CLAMPED to
+# the measured range plus this margin, so a stray extrapolation can never drive
+# the objective to an extreme z. The margin also grows with the measured
+# variation (see :func:`fit_focus_surface`), so a genuinely tilted sample still
+# gets sensible focus a little past its measured edge.
+EXTRAPOLATION_MARGIN_UM = 10.0
+
 
 @dataclass(frozen=True)
 class FocusSurface:
@@ -29,10 +40,19 @@ class FocusSurface:
     origin_xy_um: tuple[float, float]
     measured: list[dict]
     scale_um: float = 1.0
+    # The safe focus range: queries are clamped here so an extrapolated z
+    # outside the measured region can never reach the objective unbounded.
+    z_bounds_um: tuple[float, float] | None = None
     _interpolator: Any = field(default=None, repr=False, compare=False)
 
     def z_at(self, x, y):
-        """Interpolated frame z at frame (x, y) -- scalar or array, matching input."""
+        """Interpolated frame z at frame (x, y) -- scalar or array, matching input.
+
+        The result is clamped to :attr:`z_bounds_um` (the measured z range plus
+        a margin) so a position outside the measured focus footprint cannot be
+        driven to a wild extrapolated z. Within the measured region the clamp
+        never bites; only a far-outside query is capped.
+        """
         x0, y0 = self.origin_xy_um
         if self.model == "spline":
             xa, ya = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
@@ -40,9 +60,16 @@ class FocusSurface:
                 [(xa.ravel() - x0) / self.scale_um, (ya.ravel() - y0) / self.scale_um]
             )
             z = self._interpolator(xy).reshape(xa.shape)
+            z = self._clamp(z)
             return float(z) if z.ndim == 0 else z
         c0, c1, c2 = self.coeffs
-        return c0 * (x - x0) + c1 * (y - y0) + c2
+        return self._clamp(c0 * (x - x0) + c1 * (y - y0) + c2)
+
+    def _clamp(self, z):
+        """Hold z inside the safe focus range (a no-op within the measured area)."""
+        if self.z_bounds_um is None:
+            return z
+        return np.clip(z, self.z_bounds_um[0], self.z_bounds_um[1])
 
 
 def residuals_um(surface: FocusSurface) -> list[dict]:
@@ -74,8 +101,28 @@ def worst_residual_um(surface: FocusSurface) -> tuple[int, float] | None:
     return index, residuals[index]["residual_um"]
 
 
+def _z_bounds(zs: np.ndarray) -> tuple[float, float]:
+    """The safe focus range: measured z span plus a margin that grows with it.
+
+    The clamp in :meth:`FocusSurface.z_at` holds every queried focus inside
+    this range. The margin is the fixed floor (:data:`EXTRAPOLATION_MARGIN_UM`)
+    plus the measured span, so a flat sample keeps a small allowance while a
+    genuinely tilted one is allowed to extend a bit past its measured edge.
+    """
+    z_lo, z_hi = float(zs.min()), float(zs.max())
+    margin = EXTRAPOLATION_MARGIN_UM + (z_hi - z_lo)
+    return (z_lo - margin, z_hi + margin)
+
+
 def fit_focus_surface(measured: list[dict]) -> FocusSurface:
-    """Fit a :class:`FocusSurface` from ``[{"x_um","y_um","z_um"}, ...]``."""
+    """Fit a :class:`FocusSurface` from ``[{"x_um","y_um","z_um"}, ...]``.
+
+    Every returned surface carries a safe focus range (measured z span plus a
+    margin); :meth:`FocusSurface.z_at` clamps to it, so a position outside the
+    measured footprint can never be driven to a runaway extrapolated z. Use
+    :func:`fit_warning` after fitting to catch a point that badly disagrees
+    with the surface (usually one bad autofocus).
+    """
     if not measured:
         raise ValueError("need at least one focus measurement")
     xs = np.array([m["x_um"] for m in measured], dtype=float)
@@ -83,9 +130,12 @@ def fit_focus_surface(measured: list[dict]) -> FocusSurface:
     zs = np.array([m["z_um"] for m in measured], dtype=float)
     x0, y0 = float(xs.mean()), float(ys.mean())
     xc, yc = xs - x0, ys - y0
+    bounds = _z_bounds(zs)
 
     if float(zs.max() - zs.min()) < FLAT_TOLERANCE_UM:
-        return FocusSurface("constant", (0.0, 0.0, float(zs.mean())), (x0, y0), list(measured))
+        return FocusSurface(
+            "constant", (0.0, 0.0, float(zs.mean())), (x0, y0), list(measured), z_bounds_um=bounds
+        )
 
     if len(measured) >= 4 and np.linalg.matrix_rank(np.column_stack([xc, yc])) >= 2:
         from scipy.interpolate import RBFInterpolator
@@ -98,11 +148,47 @@ def fit_focus_surface(measured: list[dict]) -> FocusSurface:
             smoothing=SPLINE_SMOOTHING,
         )
         return FocusSurface(
-            "spline", None, (x0, y0), list(measured), scale_um=scale, _interpolator=interpolator
+            "spline",
+            None,
+            (x0, y0),
+            list(measured),
+            scale_um=scale,
+            z_bounds_um=bounds,
+            _interpolator=interpolator,
         )
 
+    # Fewer than four points, or all measured points lie on a line: the plane
+    # is under-determined across the line. numpy's least-squares returns the
+    # minimum-norm solution — the tilt ALONG the measured line, flat across it
+    # — which is the conservative choice (it never invents a cross-line slope).
     design = np.column_stack([xc, yc, np.ones(len(measured))])
     coeffs, *_ = np.linalg.lstsq(design, zs, rcond=None)
     return FocusSurface(
-        "plane", (float(coeffs[0]), float(coeffs[1]), float(coeffs[2])), (x0, y0), list(measured)
+        "plane",
+        (float(coeffs[0]), float(coeffs[1]), float(coeffs[2])),
+        (x0, y0),
+        list(measured),
+        z_bounds_um=bounds,
+    )
+
+
+def fit_warning(surface: FocusSurface) -> str | None:
+    """A one-line caution when the fit looks untrustworthy, else ``None``.
+
+    Right now it flags a single measured point sitting more than
+    :data:`RESIDUAL_WARN_UM` from the fitted surface — the classic sign that
+    one autofocus landed on dust, a bubble, or an empty spot and is bending
+    the whole surface. The operator-facing widgets can show this so a bad
+    focus point is caught before it defocuses the run.
+    """
+    worst = worst_residual_um(surface)
+    if worst is None:
+        return None
+    index, residual = worst
+    if abs(residual) <= RESIDUAL_WARN_UM:
+        return None
+    return (
+        f"focus point {index + 1} sits {abs(residual):.1f} um from the fitted "
+        "surface — that usually means one autofocus landed badly (dust, a bubble, "
+        "an empty spot). Re-measure or remove it, or the whole surface is bent."
     )

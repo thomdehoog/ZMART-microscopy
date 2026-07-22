@@ -161,13 +161,34 @@ def preflight_analysis_engine(engine: Any) -> None:
 
 
 def with_focus_z(positions: list[dict], focus: Any = None) -> list[dict]:
-    """Attach z while preserving vendor location fields used in output labels."""
+    """Attach a focus z to each position, preserving its other fields.
+
+    Where the z comes from:
+
+    - With a fitted ``focus`` surface, z is read from the surface at each
+      position's (x, y) — the normal path, after the focus step.
+    - With no surface, a position that already carries its own ``z`` keeps
+      it (for example, positions loaded from a file that stored a z).
+    - With neither, there is no safe focus height to move to. Rather than
+      silently driving to frame z = 0 — which, depending on where the
+      origin sits, can defocus the whole run or push the objective into
+      the sample — this refuses and asks for a focus surface or an
+      explicit z. (A deliberate z = 0 is still fine: just set it on the
+      position.)
+    """
     placed = []
     for pos in positions:
         if focus is not None:
             z = float(focus.z_at(pos["x"], pos["y"]))
+        elif "z" in pos:
+            z = float(pos["z"])
         else:
-            z = float(pos.get("z", 0.0))
+            raise ValueError(
+                "no focus surface was measured and this position has no z of its "
+                "own, so there is no safe focus height to move to. Measure a focus "
+                "surface (the focus step) before acquiring, or give each position "
+                "an explicit z (z=0 is allowed — set it deliberately)."
+            )
         placed.append({**pos, "x": pos["x"], "y": pos["y"], "z": z})
     return placed
 
@@ -208,23 +229,29 @@ def overview_inputs_from_records(
     positions: list[dict],
     records: list[dict],
     *,
-    focus: Any = None,
+    focus: Any = None,  # noqa: ARG001 -- accepted for call-site symmetry; see below
     **geometry: Any,
 ) -> list[dict]:
-    """Build target-discovery inputs from overview positions and acquire records."""
+    """Build target-discovery inputs from overview positions and acquire records.
+
+    ``focus`` is accepted so callers can pass it alongside the acquisition
+    steps, but discovery inputs only need each tile's (x, y) centre — the
+    focus z never travels into an overview input — so it is intentionally not
+    applied here. (Applying it would also wrongly demand a focus surface just
+    to pair images with positions.)
+    """
     from .discovery import build_overview_inputs
 
     if len(positions) != len(records):
         raise ValueError(
             f"overview positions/records length mismatch: {len(positions)} != {len(records)}"
         )
-    placed = with_focus_z(positions, focus)
     channel_paths = [
         record_channel_paths(record, context=f"overview record {index}")
         for index, record in enumerate(records)
     ]
     inputs = build_overview_inputs(
-        placed,
+        positions,
         [paths[0] for paths in channel_paths],
         **geometry,
     )
