@@ -382,26 +382,45 @@ def test_forged_feature_gates_trait_cannot_change_the_selection(tmp_path):
     assert explorer.feature_gates == [{"feature": "area_px", "lo": 15.0, "hi": 45.0}]
 
 
-def test_explorer_picking_populates_the_fov_strip(tmp_path):
+def test_fov_strip_previews_the_gated_population_when_nothing_is_picked(tmp_path):
+    # With no hand-picks, the strip previews the gated cells (what a plain
+    # Acquire samples from) so it is never blank on the default path.
     explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)], crop_um=20.0)
-    assert explorer.picked_crops == []  # nothing picked yet
+    assert explorer.selection_info["mode"] == "gated"
+    assert explorer.selection_info["total"] == 4  # all four pass the empty gate
+    assert {c["index"] for c in explorer.picked_crops} == {0, 1, 2, 3}
+    # Narrowing the gate shrinks the previewed population live.
+    explorer.gate = {"x": [1.0, 3.0]}  # keeps x in {1,2,3}
+    assert explorer.selection_info["total"] == 3
+    assert {c["index"] for c in explorer.picked_crops} == {1, 2, 3}
+
+
+def test_fov_strip_switches_to_picks_once_cells_are_picked(tmp_path):
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)], crop_um=20.0)
     explorer.handle_message({"type": "pick", "index": 1})
     explorer.handle_message({"type": "pick", "index": 3})
-    got = {c["index"] for c in explorer.picked_crops}
-    assert got == {1, 3}
+    assert explorer.selection_info["mode"] == "picked"
+    assert {c["index"] for c in explorer.picked_crops} == {1, 3}
     assert all(c["src"].startswith("data:image/png") for c in explorer.picked_crops)
-    # Un-picking removes its crop from the strip.
+    # Un-picking everything falls back to the gated preview.
     explorer.handle_message({"type": "pick", "index": 1})
-    assert {c["index"] for c in explorer.picked_crops} == {3}
+    explorer.handle_message({"type": "pick", "index": 3})
+    assert explorer.selection_info["mode"] == "gated"
 
 
-def test_explorer_fov_strip_is_capped_for_large_selections(tmp_path):
+def test_fov_strip_samples_and_caps_a_large_gated_population(tmp_path):
     explorer = wreact.explore_targets(_targets(6), [_overview(tmp_path)], crop_um=20.0)
     explorer._picked_crop_cap = 3
+    explorer._publish_selection_crops()
+    # Six gated cells, cap 3: an evenly-spaced sample of three, honest total.
+    assert explorer.selection_info == {"mode": "gated", "total": 6, "shown": 3}
+    assert len(explorer.picked_crops) == 3
+    # Hand-picking more than the cap keeps the true count but caps thumbnails.
     for i in range(6):
         explorer.handle_message({"type": "pick", "index": i})
-    assert len(explorer.picked_indices) == 6  # the true pick count is unbounded
-    assert len(explorer.picked_crops) == 3  # the strip stops building thumbnails
+    assert len(explorer.picked_indices) == 6
+    assert explorer.selection_info["mode"] == "picked"
+    assert len(explorer.picked_crops) == 3
 
 
 # --- acquisition gallery ---------------------------------------------------------
@@ -579,10 +598,14 @@ def test_explorer_hover_crops_are_cached(tmp_path, monkeypatch):
 
     monkeypatch.setattr(widgets_module, "crop_for_target", _counting)
     explorer = wreact.explore_targets(_targets(2), [_overview(tmp_path)])
+    # Isolate the hover behaviour from the strip's init pre-caching: start
+    # from an empty crop cache and call count, then hover the same cell thrice.
+    explorer._crop_cache.clear()
+    calls.clear()
     explorer.handle_message({"type": "hover", "index": 1})
     explorer.handle_message({"type": "hover", "index": 1})
     explorer.handle_message({"type": "hover", "index": 1})
-    assert len(calls) == 1
+    assert len(calls) == 1  # read once, then served from cache
 
 
 def test_focus_failed_measure_does_not_expose_a_partial_surface():
