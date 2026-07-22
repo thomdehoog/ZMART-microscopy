@@ -1203,6 +1203,10 @@ class TargetExplorerReact(_ZmartWidget):
     #: exactly which cells were selected. Display output only (like the
     #: hover preview); the acquisition step never reads it.
     picked_crops = traitlets.List().tag(sync=True)
+    #: What the field-of-view strip is previewing: ``{"mode", "total", "shown"}``
+    #: where mode is "picked" (hand-picked cells), "gated" (a sample of the
+    #: gated population), or "empty". Lets the page label the strip honestly.
+    selection_info = traitlets.Dict().tag(sync=True)
     #: Saved feature gates: a list of ``{"feature", "lo", "hi"}`` thresholds,
     #: each on a named feature, that persist across axis switches and are
     #: ALL required together (logical AND). Adding one gate per channel is how
@@ -1232,6 +1236,7 @@ function App({ model }) {
   const [picked] = useTrait(model, "picked_indices");
   const [acquired] = useTrait(model, "acquired_indices");
   const [pickedCrops] = useTrait(model, "picked_crops");
+  const [selectionInfo] = useTrait(model, "selection_info");
   const [featureGates] = useTrait(model, "feature_gates");
   const [readOnly] = useTrait(model, "read_only");
   const W = widgetPxFor("explorer", 460), H = widgetPxFor("explorer", 360), pad = 42;
@@ -1283,18 +1288,22 @@ function App({ model }) {
   };
 
   // The strip under the plot: each hand-picked cell shown as it sits in the
-  // overview (its field of view), so the operator sees exactly what will be
-  // acquired before pressing Acquire. Lazy — only picked cells are cropped.
+  // overview (its field of view), so the operator sees exactly what Acquire
+  // will image: the hand-picked cells, or a sample of the gated population.
+  const selMode = selectionInfo.mode || "empty";
+  const selTotal = selectionInfo.total || 0;
+  const selHeading = selMode === "picked"
+    ? `picked cells — field of view in the overview (${selTotal})`
+    : selMode === "gated"
+      ? `gated cells — a sample of ${selTotal} (Acquire images from these)`
+      : "cells to acquire — field of view in the overview";
   const fovStrip = h("div", { style: { marginTop: 14, borderTop: `1px solid ${T.edge}`,
       paddingTop: 10 } },
-    h("div", { style: { fontWeight: 700, marginBottom: 6 } },
-      picked.length
-        ? `selected cells — field of view in the overview (${picked.length})`
-        : "selected cells — field of view in the overview"),
-    picked.length === 0
+    h("div", { style: { fontWeight: 700, marginBottom: 6 } }, selHeading),
+    pickedCrops.length === 0
       ? h("div", { style: { color: T.dim, fontSize: 12 } },
-          "click cells in the plot (or rings on the map) to pick them — each " +
-          "picked cell's field of view appears here so you can see what will be acquired")
+          "no cells to preview yet — widen the gate, or click cells in the plot " +
+          "(or rings on the map) to hand-pick them; their field of view shows here")
       : h("div", { style: { display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6 } },
           pickedCrops.map((c) => h("div", { key: c.index,
               style: { flex: "none", textAlign: "center", width: 88 } },
@@ -1306,9 +1315,9 @@ function App({ model }) {
                   border: `1px dashed ${T.edge}`, color: T.dim, fontSize: 10,
                   display: "flex", alignItems: "center", justifyContent: "center" } }, "no image"),
             h("div", { style: { fontSize: 11, color: T.dim, marginTop: 2 } }, `#${c.index}`)))
-          .concat(picked.length > pickedCrops.length
+          .concat(selMode === "picked" && selTotal > pickedCrops.length
             ? [h("div", { key: "more", style: { flex: "none", alignSelf: "center",
-                color: T.dim, fontSize: 12 } }, `+${picked.length - pickedCrops.length} more`)]
+                color: T.dim, fontSize: 12 } }, `+${selTotal - pickedCrops.length} more`)]
             : [])));
 
   return h("div", { style: { ...card } },
@@ -1556,7 +1565,7 @@ export default mount(App);
             self.picked_indices = sorted(self._picked)
         finally:
             self._publishing_indices = False
-        self._publish_picked_crops()
+        self._publish_selection_crops()
         self.status = (
             f"{len(self._picked)} cell(s) picked for targeted acquisition"
             if self._picked
@@ -1565,17 +1574,34 @@ export default mount(App);
         if self._linked_viewer is not None:
             self._linked_viewer._refresh_marks()
 
-    def _publish_picked_crops(self) -> None:
-        """Refresh the field-of-view strip for the currently picked cells.
+    def _publish_selection_crops(self) -> None:
+        """Refresh the field-of-view strip to preview what Acquire will image.
 
-        Only the picked cells are cropped (a bounded set), and each crop is
-        cached, so this stays light no matter how many cells were discovered.
-        Beyond a cap the strip stops adding thumbnails — the status still
-        reports the true pick count — so a huge hand-selection cannot flood
-        the browser with images.
+        The strip shows the cells actually on deck: the hand-picked cells if
+        any (what "Acquire selected" images), otherwise a representative,
+        evenly-spaced sample of the gated population (what a plain Acquire
+        draws its random N from). It stays light — at most a capped number of
+        thumbnails, each crop cached — no matter how many cells were found, and
+        it doubles as a quick visual check that the gate holds real cells, not
+        debris. ``selection_info`` tells the page which mode it is and the true
+        total so the label can be honest ("a sample of 98 gated cells").
         """
-        picked = sorted(self._picked)
-        self.picked_crops = [self._crop_entry(index) for index in picked[: self._picked_crop_cap]]
+        cap = self._picked_crop_cap
+        if self._picked:
+            indices = sorted(self._picked)
+            mode, total = "picked", len(indices)
+        else:
+            gated = [i for i, keep in enumerate(self._mask_from_gate()) if keep]
+            total = len(gated)
+            if total > cap:
+                # Even spacing across the gated set, so the sample spans it
+                # rather than showing only the first cells.
+                indices = [gated[int(k * total / cap)] for k in range(cap)]
+            else:
+                indices = gated
+            mode = "gated" if gated else "empty"
+        self.picked_crops = [self._crop_entry(index) for index in indices[:cap]]
+        self.selection_info = {"mode": mode, "total": total, "shown": len(self.picked_crops)}
 
     def _crop_entry(self, index: int) -> dict:
         """The cached ``{index, src, title}`` field-of-view crop for one cell.
@@ -1757,6 +1783,7 @@ export default mount(App);
         finally:
             self._publishing_feature_gates = False
         self._publish_gated_mask(self._mask_from_gate())
+        self._publish_selection_crops()
         n = len(self._feature_gates)
         self.status = (
             f"{n} saved gate(s) combined (a cell must pass all of them)"
@@ -1872,6 +1899,7 @@ export default mount(App);
             finally:
                 self._resetting_gate = False
         self._publish_gated_mask(self._mask_from_gate())
+        self._publish_selection_crops()
         self.status = "thresholds AND lasso gate together"
 
     def save_gate(self, path: Any) -> None:
