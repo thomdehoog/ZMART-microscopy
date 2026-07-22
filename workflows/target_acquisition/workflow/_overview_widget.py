@@ -83,6 +83,40 @@ def _load_overview_channels(overview: dict, *, step: int = 1):
     return np.concatenate(stacks, axis=0)
 
 
+def default_channel_states(stack) -> list[dict]:
+    """Per-channel display state for a ``(C, H, W)`` stack: colour, visible, range.
+
+    Gives each channel the next colour in :data:`CHANNEL_COLORS` and an
+    auto-contrast window (the same 1st–99.5th percentile stretch the live
+    viewers seed with), so a one-shot composite — the acquisition gallery's
+    image pairs, for instance — comes out looking like the overview map
+    without the operator having to touch a control. A single-channel stack
+    gets white, which composites to plain grayscale: the raw camera look.
+
+    This is the sensible *default*; the interactive map keeps its own,
+    operator-adjustable copy of this same state shape.
+    """
+    import numpy as np
+
+    states = []
+    for c in range(stack.shape[0]):
+        values = stack[c].ravel()
+        full_lo, full_hi = float(values.min()), float(values.max())
+        lo, hi = (float(v) for v in np.percentile(values, (1.0, 99.5)))
+        if hi - lo < 1e-9:
+            # A (nearly) flat channel: a percentile window collapses to
+            # black. Show its real span instead.
+            lo, hi = min(0.0, full_lo), max(full_hi, full_lo + 1.0)
+        states.append(
+            {
+                "color": CHANNEL_COLORS[c % len(CHANNEL_COLORS)],
+                "visible": True,
+                "range": (lo, hi),
+            }
+        )
+    return states
+
+
 def composite_channels(stack, channels):
     """Blend a ``(C, H, W)`` stack into one RGB image (additive overlay).
 

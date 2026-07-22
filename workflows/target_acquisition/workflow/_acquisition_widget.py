@@ -351,8 +351,10 @@ class AcquisitionGallery:
         low, high, width_um, height_um = pair
         half_w, half_h = width_um / 2.0, height_um / 2.0
         extent = (-half_w, half_w, half_h, -half_h)
-        ax_low.imshow(low, cmap="gray", extent=extent, interpolation="nearest")
-        ax_high.imshow(high, cmap="gray", extent=extent, interpolation="nearest")
+        # Both panels are RGB channel composites (see pair_images), so no
+        # colour map applies — matplotlib shows the composited colours as-is.
+        ax_low.imshow(low, extent=extent, interpolation="nearest")
+        ax_high.imshow(high, extent=extent, interpolation="nearest")
         source = target.get("source") or {}
         ax_low.set_title(
             f"overview crop — tile {source.get('naming_p', '?')} "
@@ -371,19 +373,35 @@ def pair_images(target: dict, record: dict, overviews: dict[int, dict]):
     """The (overview crop, target image, width_um, height_um) for one pair.
 
     ``overviews`` maps the tile index (``naming_p``) to the overview entry.
+    Both images come back as ``(H, W, 3)`` RGB — every channel composited as
+    an additive colour overlay, exactly the way the overview map shows them,
+    so a multi-channel acquisition is reviewed in full and not as its first
+    channel alone. A single-channel image composites to plain grayscale.
+
     Returns ``None`` when the record carries no image (the controller's
     mock driver, for instance) — the caller shows a placeholder instead of
     failing the whole gallery. Shared by the matplotlib gallery and the
     React gallery so both review the identical same-scale pair.
     """
+    import numpy as np
+
     from ._geom import crop_overview_at_target_fov
-    from ._overview_widget import _load_channels
+    from ._overview_widget import (
+        _load_channels,
+        _load_overview_channels,
+        composite_channels,
+        default_channel_states,
+    )
     from .discovery import read_overview_geometry
 
     images = record_channel_paths(record, context="target record", allow_empty=True)
     if not images:
         return None
-    high = _load_channels(images[0])[0]
+    # Every channel of the target, composited the way the map shows them.
+    # ``record_channel_paths`` returns one path per channel (or a single
+    # path holding a channel stack); load each and stack them together.
+    high_stack = np.concatenate([_load_channels(path) for path in images], axis=0)
+    high = composite_channels(high_stack, default_channel_states(high_stack))
     geometry = read_overview_geometry(images[0])
     target_pixel_size = float(geometry["pixel_size_um"])
     target_shape = geometry["image_size_px"]
@@ -396,17 +414,23 @@ def pair_images(target: dict, record: dict, overviews: dict[int, dict]):
     if overview is None or centroid is None:
         # No overview to crop from; show the target beside a blank panel
         # rather than refusing the row.
-        import numpy as np
-
-        low = np.zeros((2, 2), dtype=high.dtype)
+        low = np.zeros((2, 2, 3), dtype=np.float32)
     else:
-        low = crop_overview_at_target_fov(
-            _load_channels(overview["image_path"])[0],
-            centroid_col_row_px=tuple(centroid),
-            source_pixel_size_um=float(overview["pixel_size_um"]),
-            target_shape_px=target_shape,
-            target_pixel_size_um=target_pixel_size,
-        )
+        # Crop each overview channel at the cell, then composite — the crop
+        # helper works one plane at a time (square pixels, per-channel).
+        overview_stack = _load_overview_channels(overview)
+        low_planes = [
+            crop_overview_at_target_fov(
+                overview_stack[c],
+                centroid_col_row_px=tuple(centroid),
+                source_pixel_size_um=float(overview["pixel_size_um"]),
+                target_shape_px=target_shape,
+                target_pixel_size_um=target_pixel_size,
+            )
+            for c in range(overview_stack.shape[0])
+        ]
+        low_stack = np.stack(low_planes, axis=0)
+        low = composite_channels(low_stack, default_channel_states(low_stack))
     return low, high, width_um, height_um
 
 

@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import tifffile  # noqa: E402
-from workflow._acquisition_widget import acquire_gallery  # noqa: E402
+from workflow._acquisition_widget import acquire_gallery, pair_images  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -134,9 +134,60 @@ def test_gallery_pairs_share_the_same_physical_window(tmp_path, overview):
         # Both panels span the identical 10x10 um window...
         assert tuple(low.get_extent()) == tuple(high.get_extent()) == (-5.0, 5.0, 5.0, -5.0)
         # ...covered by 10 overview pixels (1 um each) on the left and the
-        # full 40 target pixels (0.25 um each) on the right.
-        assert np.asarray(low.get_array()).shape == (10, 10)
-        assert np.asarray(high.get_array()).shape == (40, 40)
+        # full 40 target pixels (0.25 um each) on the right. Panels are RGB
+        # channel composites, so compare the spatial shape (drop the colour
+        # axis).
+        assert np.asarray(low.get_array()).shape[:2] == (10, 10)
+        assert np.asarray(high.get_array()).shape[:2] == (40, 40)
+
+
+def _write_multichannel_ome(path, stack, pixel_size_um):
+    """A minimal 2-channel OME-TIFF (channel axis first), for pair tests."""
+    c, h, w = stack.shape
+    description = (
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+        '<Image><Pixels DimensionOrder="XYCZT" Type="uint16" '
+        f'SizeX="{w}" SizeY="{h}" SizeC="{c}" SizeZ="1" SizeT="1" '
+        f'PhysicalSizeX="{pixel_size_um}" PhysicalSizeY="{pixel_size_um}"/>'
+        "</Image></OME>"
+    )
+    tifffile.imwrite(path, stack, description=description)
+    return path
+
+
+def test_gallery_pair_shows_every_channel_not_just_the_first(tmp_path):
+    # A two-channel target: channel 0 lights the LEFT half, channel 1 the
+    # RIGHT half. If the gallery only rendered channel 0 (the old bug), the
+    # right half of the composite would be black. All channels compositing
+    # means both halves carry colour.
+    target = np.zeros((2, 40, 40), dtype=np.uint16)
+    target[0, :, :20] = 4000  # channel 0 -> white, left half
+    target[1, :, 20:] = 4000  # channel 1 -> lime, right half
+    target_path = _write_multichannel_ome(tmp_path / "t.ome.tif", target, 0.25)
+
+    overview_stack = np.full((2, 100, 100), 100, dtype=np.uint16)
+    overview_path = _write_multichannel_ome(tmp_path / "ov.ome.tif", overview_stack, 1.0)
+    overview = {
+        "image_path": overview_path,
+        "center_frame_um": (0.0, 0.0),
+        "pixel_size_um": 1.0,
+        "image_size_px": (100, 100),
+        "label": 0,
+    }
+    target_entry = {"source": {"naming_p": 0, "centroid_col_row_px": (50.0, 50.0)}}
+    record = {"images": [str(target_path)]}
+
+    low, high, _w, _h = pair_images(target_entry, record, {0: overview})
+
+    # RGB composite, not a 2-D grayscale plane.
+    assert high.ndim == 3 and high.shape[2] == 3
+    left_half = high[:, :20, :].sum()
+    right_half = high[:, 20:, :].sum()
+    # Both channels contribute: neither half is dark.
+    assert left_half > 0 and right_half > 0
+    # Channel 1 is lime (green, no red), so the right half carries green.
+    assert high[:, 20:, 1].sum() > 0
+    assert low.ndim == 3 and low.shape[2] == 3
 
 
 def test_source_can_be_an_explorer_like_object(tmp_path, overview):
