@@ -76,7 +76,10 @@ def test_demo_flow_runs_the_whole_notebook_order(tmp_path):
     # The same assertions the notebook end-to-end test makes about a run.
     assert len(flow.viewer.overviews) == 4
     assert len(flow.targets) >= 4
-    assert flow.viewer.marks == []  # step 6 never rewrites the step 5 overview
+    # Discovery links the cells onto the overview map: one mark per target,
+    # each carrying its gated/picked/acquired state for the map to colour.
+    assert len(flow.viewer.marks) == len(flow.targets)
+    assert all(set(m) >= {"x", "y", "gated", "picked", "acquired"} for m in flow.viewer.marks)
     assert len(flow.gallery.records) == 2 == len(flow.gallery.picked)
     assert flow.gallery._verdicts[0] == "good"
     root = flow.root

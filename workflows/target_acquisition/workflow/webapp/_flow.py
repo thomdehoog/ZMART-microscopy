@@ -524,8 +524,15 @@ class RunFlow:
             )
             self.ns["gallery"] = self.gallery
             self.hub.add_widget("gallery", self.gallery)
+        # Link the discovered cells onto the overview map: every cell becomes a
+        # dot at its real position (bright when it passes the gate, ringed when
+        # picked, filled once acquired), so gating and picking are judged
+        # against the sample itself — and hovering or clicking is mirrored
+        # between the map and the scatter.
+        self.viewer.show_targets(targets, self.explorer)
         return (
-            f"{len(targets)} candidate cells found — gate them in the explorer, then acquire below"
+            f"{len(targets)} candidate cells found — gate them in the explorer or on the map, "
+            "then acquire"
         )
 
     def _save_results(self) -> str:

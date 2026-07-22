@@ -512,7 +512,11 @@ const newRunNote = document.getElementById("new-run-note");
 const STAGE_VIEWS = {
   load_positions: ["focus"],
   run_overview: ["overview"],
-  discover_targets: ["explorer"],
+  // Discovery shows the overview map AND the scatter together: the map is the
+  // spatial view (cells as dots on the real sample), the explorer the
+  // feature view (gate + histograms + the field-of-view strip). They are
+  // linked, so a gate or a pick in one lights up in the other.
+  discover_targets: ["overview", "explorer"],
   gallery: ["gallery"],
   save_results: ["gallery"],
   disconnect: ["gallery"],
