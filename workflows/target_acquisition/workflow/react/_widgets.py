@@ -2140,6 +2140,9 @@ export default mount(App);
         self.session = session
         self.source = source
         self.overviews = {i: o for i, o in enumerate(overviews or [])}
+        # Overview tiles loaded while building gallery rows, kept between rows
+        # so many targets on one tile do not each re-read the same large file.
+        self._overview_stack_cache: dict = {}
         self.state = state
         self.focus = focus
         self.options = options
@@ -2415,7 +2418,9 @@ export default mount(App);
         return records
 
     def _row_entry(self, target: dict, record: dict) -> dict:
-        pair = pair_images(target, record, self.overviews)
+        pair = pair_images(
+            target, record, self.overviews, overview_cache=self._overview_stack_cache
+        )
         source = target.get("source") or {}
         if pair is None:
             return {

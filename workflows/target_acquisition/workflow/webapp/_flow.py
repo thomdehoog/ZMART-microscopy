@@ -91,6 +91,9 @@ class RunFlow:
         self._state_lock = threading.Lock()
         self._engine_shutdown_attempted = False
         self._engine_shutdown_error: Exception | None = None
+        # Set once the microscope session has been released, so the shutdown
+        # path never disconnects a second time (see _disconnect).
+        self._session_released = False
 
         # The checklist and the (still empty) overview map exist from the
         # start, so the page always has something honest to show.
@@ -196,8 +199,10 @@ class RunFlow:
         one JSON line per step start / finish / failure, next to the images
         in the run folder. It is best-effort — a journal write must never
         take down a run — and only starts once the run folder exists (after
-        connect). All flow events come from the single worker thread, so the
-        lines never interleave.
+        connect). Nearly all events come from the single worker thread; the
+        one exception is a "server busy" refusal emitted from a request
+        thread, so the append relies on the OS's atomic append for a single
+        short line rather than assuming one writer.
         """
         if self.root is None:
             return
@@ -239,14 +244,22 @@ class RunFlow:
                 raise FlowError("wait for the current workflow action to finish")
         # A flow step is not the only thing that drives hardware: the focus
         # Measure and the gallery Acquire run on the same worker as their own
-        # widget actions, and ``_pending`` does not see them. Refuse to restart
-        # while one is in flight — otherwise the reset queues behind a long
-        # acquisition, times out, tells the operator "restart failed", and then
-        # still disconnects the microscope later when the acquisition ends.
+        # widget actions, and ``_pending`` does not see them. Name a running one
+        # for a helpful message.
         busy = self._busy_widget()
         if busy is not None:
             raise FlowError(
                 f"a {busy} is running — wait for it to finish (or press Cancel) "
+                "before restarting the workflow"
+            )
+        # And refuse if ANY work is running or merely queued on the worker: an
+        # Acquire that was just clicked is queued but has not set its ``_busy``
+        # flag yet, so without this check the reset would queue behind it, time
+        # out, report "restart failed", and then still disconnect the scope when
+        # the acquisition finally ran. Checking the worker closes that window.
+        if self.hub.busy():
+            raise FlowError(
+                "the microscope is busy — wait for the current work to finish "
                 "before restarting the workflow"
             )
 
@@ -281,25 +294,46 @@ class RunFlow:
             return "target acquisition"
         return None
 
-    def release_on_shutdown(self) -> None:
-        """Best-effort hardware release when the server itself is stopping.
+    def release_on_shutdown(self, timeout: float = 30.0) -> None:
+        """Release the microscope on the worker thread when the server stops.
 
         Ctrl+C or a crash ends the process, but the microscope session and the
-        analysis engine must not be left connected and locked — otherwise the
-        operator has to recover them by hand in the vendor software. Called
-        from the server's shutdown path (not the step worker), so it is
-        deliberately defensive: it acts only if something is still connected,
-        never raises, and says what it did. The driver's disconnect is
-        idempotent, so a later explicit Disconnect (if any) stays safe.
+        analysis engine must not be left connected and locked. The catch: this
+        runs on the MAIN thread during shutdown while the step worker may still
+        be mid-acquisition, and driving the same session from two threads at
+        once could corrupt it. So the release is submitted to the worker queue
+        — it runs AFTER any in-flight acquisition, never alongside it — and we
+        wait a bounded time for it. If the worker is wedged past the timeout we
+        warn (pointing the operator at the vendor software) rather than reach in
+        and disconnect concurrently. Best-effort and never raises.
         """
         with self._state_lock:
             already_disconnected = "disconnect" in self.completed
-        if self.session is None or already_disconnected:
+        if self.session is None or self._session_released or already_disconnected:
             return
-        try:
-            self._disconnect()
-        except Exception as exc:  # noqa: BLE001 -- the process is stopping anyway
-            print(f"warning: could not fully release the microscope on shutdown: {exc}")
+
+        done = threading.Event()
+        outcome: dict[str, Any] = {}
+
+        def _release() -> None:
+            try:
+                self._disconnect()
+                outcome["ok"] = True
+            except Exception as exc:  # noqa: BLE001 -- process is stopping anyway
+                outcome["error"] = exc
+            finally:
+                done.set()
+
+        if not self.hub.submit(_release):
+            print("warning: could not queue the shutdown release; the microscope may be left connected")
+            return
+        if not done.wait(timeout):
+            print(
+                "warning: the microscope did not release before shutdown timed out — "
+                "check the vendor software"
+            )
+        elif "error" in outcome:
+            print(f"warning: could not fully release the microscope on shutdown: {outcome['error']}")
         else:
             print("released the microscope session on shutdown")
 
@@ -528,7 +562,14 @@ class RunFlow:
                 except Exception as exc:
                     self._engine_shutdown_error = exc
         finally:
+            # Mark the session released BEFORE the raising engine-shutdown
+            # branch below, so a Disconnect step that fails on the engine still
+            # records that the session itself was released — otherwise the
+            # shutdown path (which sees the step did not "complete") would call
+            # disconnect a second time. The driver's disconnect is idempotent
+            # anyway; this makes the intent explicit instead of relying on it.
             self.session.disconnect()
+            self._session_released = True
         if self._engine_shutdown_error is not None:
             exc = self._engine_shutdown_error
             raise FlowError(
