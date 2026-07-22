@@ -20,6 +20,7 @@ import json
 import queue
 import re
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -351,6 +352,79 @@ def test_restart_refuses_while_an_acquisition_is_in_flight(tmp_path):
         flow.gallery._set_busy(False)
     # Once it finishes, restart works again.
     flow.reset()
+
+
+def test_restart_refuses_while_work_is_merely_queued(tmp_path):
+    # The TOCTOU the widget _busy flag misses: work sits on the worker queue
+    # but has not started (so no _busy yet). Restart must still refuse, or it
+    # queues behind that work and disconnects later after "restart failed".
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    flow.run_step("connect")
+    hub.drain(60)
+
+    started, release = threading.Event(), threading.Event()
+
+    def _block_worker():
+        started.set()
+        release.wait(10)
+
+    assert hub.submit(_block_worker)  # the worker is now busy
+    assert started.wait(10)
+    assert hub.submit(lambda: None)  # and a second job is queued behind it
+    try:
+        with pytest.raises(RuntimeError, match="microscope is busy"):
+            flow.reset()
+        assert flow.session is not None  # not torn down
+    finally:
+        release.set()
+    hub.drain()
+
+
+def test_release_on_shutdown_runs_after_in_flight_work_not_concurrently(tmp_path):
+    # Shutdown release must serialize behind the worker, never drive the
+    # session from the main thread while the worker is mid-acquisition.
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    flow.run_step("connect")
+    hub.drain(60)
+    assert not flow.session.disconnected
+
+    order, started, release = [], threading.Event(), threading.Event()
+
+    def _block_worker():
+        started.set()
+        release.wait(10)
+        order.append("worker-done")
+
+    assert hub.submit(_block_worker)
+    assert started.wait(10)
+
+    def _shutdown():
+        flow.release_on_shutdown(timeout=10)
+        order.append("released")
+
+    shutdown = threading.Thread(target=_shutdown, daemon=True)
+    shutdown.start()
+    time.sleep(0.2)
+    assert not flow.session.disconnected  # release has NOT run alongside the worker
+    release.set()
+    shutdown.join(10)
+    assert order == ["worker-done", "released"]  # release ran AFTER the worker
+    assert flow.session.disconnected and flow.engine.shut_down
+
+
+def test_release_on_shutdown_skips_when_already_disconnected(tmp_path):
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    flow.run_step("connect")
+    flow.run_step("disconnect")
+    hub.drain(60)
+    engine = flow.engine
+    # A second release must not disconnect or shut down anything again.
+    engine.shut_down = False  # if release ran, it would flip this back to True
+    flow.release_on_shutdown(timeout=5)
+    assert engine.shut_down is False
 
 
 def test_cancel_is_applied_immediately_not_queued(tmp_path):

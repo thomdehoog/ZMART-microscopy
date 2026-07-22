@@ -369,14 +369,20 @@ class AcquisitionGallery:
         return pair_images(target, record, self.overviews)
 
 
-def pair_images(target: dict, record: dict, overviews: dict[int, dict]):
+def pair_images(target: dict, record: dict, overviews: dict[int, dict], *, overview_cache=None):
     """The (overview crop, target image, width_um, height_um) for one pair.
 
     ``overviews`` maps the tile index (``naming_p``) to the overview entry.
     Both images come back as ``(H, W, 3)`` RGB — every channel composited as
-    an additive colour overlay, exactly the way the overview map shows them,
-    so a multi-channel acquisition is reviewed in full and not as its first
-    channel alone. A single-channel image composites to plain grayscale.
+    an additive colour overlay, the way the overview map shows them, so a
+    multi-channel acquisition is reviewed in full and not as its first channel
+    alone. A single-channel image composites to plain grayscale. (The contrast
+    here is auto-set per crop, so a cell can read a little brighter or darker
+    than on the interactive map, which uses one window across the whole tile.)
+
+    ``overview_cache`` (optional dict) lets a caller keep the loaded overview
+    tiles between rows, so a gallery with many targets on one tile does not
+    re-read the same large file once per target.
 
     Returns ``None`` when the record carries no image (the controller's
     mock driver, for instance) — the caller shows a placeholder instead of
@@ -398,9 +404,15 @@ def pair_images(target: dict, record: dict, overviews: dict[int, dict]):
     if not images:
         return None
     # Every channel of the target, composited the way the map shows them.
-    # ``record_channel_paths`` returns one path per channel (or a single
-    # path holding a channel stack); load each and stack them together.
-    high_stack = np.concatenate([_load_channels(path) for path in images], axis=0)
+    # ``record_channel_paths`` returns one path per channel (or a single path
+    # holding a channel stack); load each and stack them together. If the
+    # per-channel files disagree on size (a corrupt or hand-edited set), fall
+    # back to the first channel rather than failing the whole gallery row.
+    channel_stacks = [_load_channels(path) for path in images]
+    try:
+        high_stack = np.concatenate(channel_stacks, axis=0)
+    except ValueError:
+        high_stack = channel_stacks[0]
     high = composite_channels(high_stack, default_channel_states(high_stack))
     geometry = read_overview_geometry(images[0])
     target_pixel_size = float(geometry["pixel_size_um"])
@@ -417,8 +429,15 @@ def pair_images(target: dict, record: dict, overviews: dict[int, dict]):
         low = np.zeros((2, 2, 3), dtype=np.float32)
     else:
         # Crop each overview channel at the cell, then composite — the crop
-        # helper works one plane at a time (square pixels, per-channel).
-        overview_stack = _load_overview_channels(overview)
+        # helper works one plane at a time (square pixels, per-channel). The
+        # loaded tile is cached so many targets on one tile reuse it.
+        cache_key = str(overview.get("image_path"))
+        if overview_cache is not None and cache_key in overview_cache:
+            overview_stack = overview_cache[cache_key]
+        else:
+            overview_stack = _load_overview_channels(overview)
+            if overview_cache is not None:
+                overview_cache[cache_key] = overview_stack
         low_planes = [
             crop_overview_at_target_fov(
                 overview_stack[c],

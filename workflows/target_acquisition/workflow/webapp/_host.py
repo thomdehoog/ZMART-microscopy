@@ -75,6 +75,11 @@ class WidgetHub:
         self._buffer_bytes = 0
         self._buffers_lock = threading.Lock()
         self._work: queue.Queue = queue.Queue(maxsize=_WORK_QUEUE_CAP)
+        # True only while the worker is executing a job. Combined with an empty
+        # queue this tells the flow whether any hardware work is running or
+        # still waiting — the restart and shutdown guards need that to avoid
+        # queueing behind (or racing) an acquisition.
+        self._running = False
         self._pending_messages: set[tuple[str, str]] = set()
         self._pending_messages_lock = threading.Lock()
         self._worker = threading.Thread(
@@ -302,9 +307,21 @@ class WidgetHub:
             return False
         return self.submit(lambda: widget.set_state(changes))
 
+    def busy(self) -> bool:
+        """Whether the worker is running a job or has one queued.
+
+        A hint for the flow's restart and shutdown guards. Restart must not
+        queue behind an acquisition that is either running OR already queued
+        but not yet started — the widget's ``_busy`` flag only catches the
+        running case, so the queued case would otherwise slip through and fire
+        a disconnect after the operator was told the restart failed.
+        """
+        return self._running or not self._work.empty()
+
     def _run_worker(self) -> None:
         while True:
             fn = self._work.get()
+            self._running = True
             try:
                 fn()
             except Exception:  # noqa: BLE001 -- a step must not kill the host
@@ -313,6 +330,8 @@ class WidgetHub:
                 import traceback
 
                 traceback.print_exc()
+            finally:
+                self._running = False
 
     def drain(self, timeout: float = 30.0) -> None:
         """Wait until the queued work is done (used by the tests)."""

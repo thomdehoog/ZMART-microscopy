@@ -692,6 +692,11 @@ async function applySnapshot(layout) {
       firstIncomplete.open = true;
       // A freshly loaded page: point the stage at the step it opens on.
       focusStage(firstIncomplete.id.replace("step-", ""));
+    } else {
+      // Every step is done (a reload after the run finished): show the
+      // results, not every viewer stacked. Without this, focusStage would
+      // never run and all mounted viewers would sit on the stage at once.
+      focusStage("gallery");
     }
   }
   const overviewStarted = completed.includes("run_overview")

@@ -119,9 +119,9 @@ def fit_focus_surface(measured: list[dict]) -> FocusSurface:
 
     Every returned surface carries a safe focus range (measured z span plus a
     margin); :meth:`FocusSurface.z_at` clamps to it, so a position outside the
-    measured footprint can never be driven to a runaway extrapolated z. Use
-    :func:`fit_warning` after fitting to catch a point that badly disagrees
-    with the surface (usually one bad autofocus).
+    measured footprint can never be driven to a runaway extrapolated z.
+    :func:`worst_residual_um` reports how far the worst-fitting measured point
+    sits from the surface, which the widgets already surface.
     """
     if not measured:
         raise ValueError("need at least one focus measurement")
@@ -169,26 +169,4 @@ def fit_focus_surface(measured: list[dict]) -> FocusSurface:
         (x0, y0),
         list(measured),
         z_bounds_um=bounds,
-    )
-
-
-def fit_warning(surface: FocusSurface) -> str | None:
-    """A one-line caution when the fit looks untrustworthy, else ``None``.
-
-    Right now it flags a single measured point sitting more than
-    :data:`RESIDUAL_WARN_UM` from the fitted surface — the classic sign that
-    one autofocus landed on dust, a bubble, or an empty spot and is bending
-    the whole surface. The operator-facing widgets can show this so a bad
-    focus point is caught before it defocuses the run.
-    """
-    worst = worst_residual_um(surface)
-    if worst is None:
-        return None
-    index, residual = worst
-    if abs(residual) <= RESIDUAL_WARN_UM:
-        return None
-    return (
-        f"focus point {index + 1} sits {abs(residual):.1f} um from the fitted "
-        "surface — that usually means one autofocus landed badly (dust, a bubble, "
-        "an empty spot). Re-measure or remove it, or the whole surface is bent."
     )
