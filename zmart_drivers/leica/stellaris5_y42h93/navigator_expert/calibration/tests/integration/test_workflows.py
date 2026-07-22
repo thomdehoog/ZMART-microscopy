@@ -194,7 +194,9 @@ def test_read_job_geometry_rejects_non_square_pixels(monkeypatch):
         cm.read_job_geometry(client=object(), job_name="Overview")
 
 
-def test_read_job_geometry_pins_api_mode(monkeypatch):
+def test_read_job_geometry_leaves_reader_mode_to_the_profile(monkeypatch):
+    # Source selection is policy (StateReaderProfile), never the caller's:
+    # calibration reads must not pin a backend with an explicit mode.
     calls = []
 
     def _get_job_settings(client, job_name, **kwargs):
@@ -215,7 +217,7 @@ def test_read_job_geometry_pins_api_mode(monkeypatch):
 
     cm.read_job_geometry(client=object(), job_name="Overview")
 
-    assert calls[0][1]["mode"] == "api"
+    assert "mode" not in calls[0][1]
 
 
 def test_read_job_geometry_uses_image_shape_when_provided(monkeypatch):
@@ -2940,7 +2942,9 @@ def test_read_stack_z_positions_falls_back_on_partial_normalized(monkeypatch):
     assert positions[-1] == pytest.approx(105.0)
 
 
-def test_read_stack_z_positions_pins_api_mode(monkeypatch):
+def test_read_stack_z_positions_leaves_reader_mode_to_the_profile(monkeypatch):
+    # Source selection is policy (StateReaderProfile), never the caller's:
+    # calibration reads must not pin a backend with an explicit mode.
     calls = []
     full_raw = {
         "stack": {
@@ -2968,7 +2972,7 @@ def test_read_stack_z_positions_pins_api_mode(monkeypatch):
         expected_slices=5,
     )
 
-    assert calls[0][1]["mode"] == "api"
+    assert "mode" not in calls[0][1]
 
 
 def test_read_stack_z_positions_ignores_rounded_step_size(monkeypatch):

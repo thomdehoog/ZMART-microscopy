@@ -166,6 +166,50 @@ IMAGE_SAVE = ImageSaveProfile()
 
 
 @dataclass(frozen=True)
+class ZmartAdapterProfile:
+    """Driver decisions the ZMART controller adapter applies by default.
+
+    The adapter (``zmart_adapter``) is meant to be a thin translator between
+    the controller's vocabulary and this driver. Whenever it needs a default
+    — how a capture behaves unless the workflow says otherwise, or which z
+    drive realizes a move when none is chosen — that is a decision about
+    *this microscope*, so the value lives here with the rest of the driver's
+    tuning instead of being buried in the adapter's code. Tuning the adapter
+    for your hardware means editing this profile, nothing else.
+    """
+
+    # How long ``get_info`` waits (seconds) for LAS X to flush the live
+    # experiment to disk before parsing its scan fields. A read that needs a
+    # save first is quirky but unavoidable: the on-disk template is the only
+    # complete source of the stored positions.
+    experiment_flush_timeout_s: float = 60.0
+
+    # Ordinary controller acquisitions add no in-place backlash-correction
+    # cycles unless the caller opts in with a positive ``backlash_rounds``
+    # value. The explicit backlash-takeup procedure remains available.
+    acquisition_backlash_rounds: int = 0
+
+    # Whether a positive ``backlash_rounds`` request is honoured at all —
+    # the workflow-facing on/off switch for pre-capture slack takeup.
+    backlash_correction: bool = True
+
+    # Empty the scanning template before every capture, so LAS X acquires
+    # the single current position and never a stored scan-field pattern.
+    strip_scan_fields: bool = True
+
+    # Keep LAS X's own export files on disk after the OME-TIFF product is
+    # saved (``True`` would delete them once the save is verified).
+    cleanup_source: bool = False
+
+    # The z drive that realizes a frame-z move when the workflow does not
+    # pick one with ``with_actuators`` (either "z-wide" or "z-galvo").
+    default_z_actuator: str = "z-wide"
+
+
+ZMART_ADAPTER = ZmartAdapterProfile()
+
+
+@dataclass(frozen=True)
 class CommandProfile:
     """Complete recipe for a single command's backbone behaviour.
 

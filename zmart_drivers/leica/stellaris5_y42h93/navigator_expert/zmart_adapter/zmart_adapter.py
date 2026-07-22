@@ -87,6 +87,7 @@ from ..commands import commands as _commands
 from ..commands import gate as _gate
 from ..commands import routines as _motion
 from ..config import machine as _machine
+from ..config import profiles as _profiles
 from ..connection import session as _session
 from ..connection import session_state as _session_state
 from ..readers.derived import z_um_from_settings as _z_um_from_settings
@@ -112,22 +113,30 @@ CONNECTION = {
 
 _ACTUATORS = {"x": ("motoric",), "y": ("motoric",), "z": ("z-wide", "z-galvo")}
 
-# Fixed defaults for axes omitted from ``with_actuators`` — never sticky: a
-# previous call's choice is not state.
-_DEFAULT_ACTUATORS = {"x": "motoric", "y": "motoric", "z": "z-wide"}
-
 # controller actuator name -> driver move_z z_mode
 _Z_MODES = {"z-wide": "zwide", "z-galvo": "galvo"}
 
-# How long get_info waits (seconds) for LAS X to flush the live experiment
-# to disk before parsing its scan fields. A read that needs a save first is
-# quirky but unavoidable: the on-disk template is the only complete source.
-EXPERIMENT_FLUSH_TIMEOUT_S = 60
+# Tunable defaults (flush timeout, backlash rounds, capture options, the
+# default z drive) are DRIVER decisions and live with the driver's other
+# tuning in ``config/profiles.py`` (``ZMART_ADAPTER``), not here. The
+# adapter reads them fresh on every call, so a test or an operator can
+# swap the profile without re-importing this module.
 
-# Routine backlash take-up remains explicitly available, but ordinary
-# controller acquisitions do not add in-place correction cycles unless the
-# caller opts in with a positive ``backlash_rounds`` value.
-ACQUISITION_BACKLASH_DEFAULT_ROUNDS = 0
+
+def _defaults() -> _profiles.ZmartAdapterProfile:
+    """The driver-owned adapter defaults, read fresh from the config profile."""
+    return _profiles.ZMART_ADAPTER
+
+
+def _default_actuators() -> dict[str, str]:
+    """Fixed per-axis defaults for axes omitted from ``with_actuators``.
+
+    Never sticky: a previous call's choice is not state. X and Y have only
+    the motoric stage; the default z drive is the driver decision recorded
+    in ``config/profiles.py``.
+    """
+    return {"x": "motoric", "y": "motoric", "z": _defaults().default_z_actuator}
+
 
 # Limits are enforced BELOW this adapter, in the command wrappers
 # themselves (commands/gate.py + limits/checks.py; maintainer decision §7).
@@ -509,8 +518,9 @@ def get_actuators(handle: ZmartHandle) -> dict:
 
     ``{"x": ["motoric"], "y": ["motoric"], "z": ["z-wide", "z-galvo"]}``.
     Axes omitted from ``with_actuators`` use the fixed defaults (x/y
-    ``motoric``, z ``z-wide``) — never sticky: a previous call's choice is
-    not remembered.
+    ``motoric``; the default z drive is set by the driver's config profile,
+    normally ``z-wide``) — never sticky: a previous call's choice is not
+    remembered.
     """
     _require_open(handle)
     return {axis: list(opts) for axis, opts in _ACTUATORS.items()}
@@ -518,7 +528,7 @@ def get_actuators(handle: ZmartHandle) -> dict:
 
 def _resolve_actuators(with_actuators: dict | None) -> dict[str, str]:
     """Merge a per-call actuator selection over the fixed defaults."""
-    chosen = dict(_DEFAULT_ACTUATORS)
+    chosen = _default_actuators()
     for axis, actuator in (with_actuators or {}).items():
         if actuator not in _ACTUATORS.get(axis, ()):
             raise ValueError(f"unknown actuator {actuator!r} for axis {axis!r}")
@@ -680,16 +690,26 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
         selected = None
     if selected not in names:
         selected = next((j["Name"] for j in normal if j.get("IsSelected")), None)
+    defaults = _defaults()
     return {
         "job": {"options": names, "active": selected},
-        "backlash_correction": {"options": [True, False], "active": True},
+        "backlash_correction": {
+            "options": [True, False],
+            "active": defaults.backlash_correction,
+        },
         "backlash_rounds": {
             "options": "int >= 0",
-            "active": ACQUISITION_BACKLASH_DEFAULT_ROUNDS,
+            "active": defaults.acquisition_backlash_rounds,
         },
-        "strip_scan_fields": {"options": [True, False], "active": True},
+        "strip_scan_fields": {
+            "options": [True, False],
+            "active": defaults.strip_scan_fields,
+        },
         "format": {"options": ["ome-tiff"], "active": "ome-tiff"},
-        "cleanup_source": {"options": [True, False], "active": False},
+        "cleanup_source": {
+            "options": [True, False],
+            "active": defaults.cleanup_source,
+        },
     }
 
 
@@ -1154,7 +1174,7 @@ def _scan_field(handle: ZmartHandle, *, default_job_name: str) -> dict | None:
         handle.client,
         _scanfields.TEMPLATE_XML,
         templates_dir,
-        timeout=EXPERIMENT_FLUSH_TIMEOUT_S,
+        timeout=_defaults().experiment_flush_timeout_s,
         confirm_path=Path(templates_dir) / _scanfields.TEMPLATE_RGN,
     )
     if not saved:

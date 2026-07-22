@@ -114,8 +114,9 @@ def read_job_geometry(
     If ``image`` is provided, its ``shape[-2:]`` populates ``image_size_px``;
     otherwise ``image_size_px`` falls back to the LAS X format.
     """
-    # Calibration geometry is a persisted correctness artifact. Use the
-    # authoritative API reader, not the passive state-reader profile.
+    # Calibration geometry is a persisted correctness artifact, but the
+    # reader backend is still the configured profile's choice — callers
+    # never pin one (the profile's freshness limits protect this read too).
     settings = drv.get_job_settings(client, job_name) or {}
     geom = drv.parse_tile_geometry(settings)
     if geom is None or geom.get("pixel_w_um") is None or geom.get("pixels_x") is None:
@@ -421,8 +422,9 @@ def read_stack_z_positions(
             )
         return [float(z) for z in override]
 
-    # Z-stack positions are persisted calibration geometry. Use the
-    # authoritative API reader, not the passive state-reader profile.
+    # Z-stack positions are persisted calibration geometry, but the reader
+    # backend is still the configured profile's choice — callers never pin
+    # one (the profile's freshness limits protect this read too).
     raw = drv.get_job_settings(client, job_name)
     if not raw:
         raise RuntimeError(
