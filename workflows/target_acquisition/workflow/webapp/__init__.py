@@ -50,7 +50,7 @@ def serve(*, open_browser: bool = False, **kwargs) -> None:
     double-click launcher scripts use, so starting the website is one
     action instead of "run a command, then type an address".
     """
-    server, _hub, _flow = make_server(**kwargs)
+    server, _hub, flow = make_server(**kwargs)
     host, port = server.server_address[:2]
     address = _page_address(host, port)
     mode = "demo (simulated microscope)" if kwargs.get("demo") else "live microscope"
@@ -69,6 +69,10 @@ def serve(*, open_browser: bool = False, **kwargs) -> None:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nstopping — remember to disconnect the session if it was live")
+        print("\nstopping…")
     finally:
+        # Ctrl+C (or a crash) must not leave the microscope and analysis
+        # engine connected and locked. Release them before the process exits
+        # — best-effort, since we are already shutting down.
+        flow.release_on_shutdown()
         server.server_close()

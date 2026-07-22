@@ -116,8 +116,18 @@ def test_with_focus_z_preserves_vendor_location_indices():
     assert with_focus_z([position], focus=_TILTED)[0] == {**position, "z": pytest.approx(4.5)}
 
 
-def test_with_focus_z_defaults_to_zero_without_a_surface():
-    assert with_focus_z([{"x": 1, "y": 2}]) == [{"x": 1, "y": 2, "z": 0.0}]
+def test_with_focus_z_keeps_an_explicit_z_without_a_surface():
+    # A position that carries its own z is honoured as-is (including a
+    # deliberate z=0) when there is no fitted surface.
+    assert with_focus_z([{"x": 1, "y": 2, "z": 3.5}]) == [{"x": 1, "y": 2, "z": 3.5}]
+    assert with_focus_z([{"x": 1, "y": 2, "z": 0.0}]) == [{"x": 1, "y": 2, "z": 0.0}]
+
+
+def test_with_focus_z_refuses_without_a_surface_or_an_explicit_z():
+    # The dangerous case: no focus surface AND no z. Silently moving to
+    # frame z=0 could defocus the run or crash the objective, so refuse.
+    with pytest.raises(ValueError, match="no safe focus height"):
+        with_focus_z([{"x": 1, "y": 2}])
 
 
 def test_run_overview_captures_each_at_focus_z(mic):
@@ -187,7 +197,10 @@ def test_overview_inputs_refuse_z_stacks():
 
 
 def test_acquire_targets_uses_the_target_type(mic):
-    records = acquire_targets(mic, [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}])
+    # Positions carry an explicit z (no focus surface in this unit test).
+    records = acquire_targets(
+        mic, [{"x": 0.0, "y": 0.0, "z": 0.0}, {"x": 1.0, "y": 1.0, "z": 0.0}]
+    )
     assert [r["acquisition_type"] for r in records] == ["target", "target"]
     assert [r["position_label"] for r in records] == ["1", "2"]
 

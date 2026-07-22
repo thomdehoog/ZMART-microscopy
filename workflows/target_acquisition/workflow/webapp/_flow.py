@@ -207,6 +207,28 @@ class RunFlow:
         if errors:
             raise errors[0]
 
+    def release_on_shutdown(self) -> None:
+        """Best-effort hardware release when the server itself is stopping.
+
+        Ctrl+C or a crash ends the process, but the microscope session and the
+        analysis engine must not be left connected and locked — otherwise the
+        operator has to recover them by hand in the vendor software. Called
+        from the server's shutdown path (not the step worker), so it is
+        deliberately defensive: it acts only if something is still connected,
+        never raises, and says what it did. The driver's disconnect is
+        idempotent, so a later explicit Disconnect (if any) stays safe.
+        """
+        with self._state_lock:
+            already_disconnected = "disconnect" in self.completed
+        if self.session is None or already_disconnected:
+            return
+        try:
+            self._disconnect()
+        except Exception as exc:  # noqa: BLE001 -- the process is stopping anyway
+            print(f"warning: could not fully release the microscope on shutdown: {exc}")
+        else:
+            print("released the microscope session on shutdown")
+
     def _reset_now(self) -> None:
         with self._state_lock:
             completed = set(self.completed)
