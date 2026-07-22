@@ -735,6 +735,7 @@ def test_demo_cli_stays_driver_free(monkeypatch):
     cli.main()
     assert calls == [
         {
+            "open_browser": False,
             "host": "127.0.0.1",
             "port": 8765,
             "demo": True,

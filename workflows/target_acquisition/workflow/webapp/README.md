@@ -9,12 +9,17 @@ same widgets the notebook shows.
 
 ## Try it without a microscope
 
+The quickest way is a double-click on `start_website_demo.bat` (Windows) in
+`workflows/target_acquisition` — it starts the server and opens the page in
+your browser by itself. The same from a terminal:
+
 ```
 cd workflows/target_acquisition
-python run_webapp.py --demo
+python run_webapp.py --demo --open
 ```
 
-Open the printed address (http://127.0.0.1:8765). The demo drives a
+Without `--open`, open the printed address (http://127.0.0.1:8765)
+yourself. The demo drives a
 simulated microscope imaging a synthetic sample — the very same one the
 offline notebook tests execute — so every step behaves like the real run:
 discovery really segments the tiles, and Acquire really "images" the
@@ -22,20 +27,31 @@ cells you gated.
 
 ## On the microscope PC
 
-The Python command starts both the website and its local server; there is no
-separate frontend process. In PowerShell on the production microscope PC, run:
+The recommended way is a double-click on `start_website.bat` in
+`workflows/target_acquisition`: it starts the local server and opens the
+page in the browser (one process does both; there is no separate frontend).
+Each microscope PC keeps its own choices — which Python environment to use
+and where the analysis repository lives — in a small file named
+`start_website.local.bat` next to the launcher. That file is written once
+per machine and is ignored by git, so pulling repository updates never
+overwrites it. Example content:
 
-```powershell
-Set-Location "\\zmbstaff.core.uzh.ch\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\ZMART-microscopy\workflows\target_acquisition"
-
-& "C:\ProgramData\MinicondaZMB\envs\zmart-microscopy\python.exe" `
-  .\run_webapp.py `
-  --analysis-repo "\\zmbstaff.core.uzh.ch\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-analysis"
+```bat
+set "PYTHON=C:\ProgramData\MinicondaZMB\envs\zmart-microscopy\python.exe"
+set "ZMART_ARGS=--analysis-repo C:\path\to\smart-analysis"
 ```
 
-Open <http://127.0.0.1:8765/> and keep the PowerShell window open while using
-the website. To stop safely, first press **Disconnect** in the website and then
-press **Ctrl+C** in PowerShell. Saved experiment files remain on disk.
+The equivalent PowerShell command, if you prefer to see what runs:
+
+```powershell
+Set-Location "path\to\ZMART-microscopy\workflows\target_acquisition"
+& "C:\...\envs\zmart-microscopy\python.exe" .\run_webapp.py --open `
+  --analysis-repo "path\to\smart-analysis"
+```
+
+Keep the console window open while using the website. To stop safely, first
+press **Disconnect** in the website and then press **Ctrl+C** in the console.
+Saved experiment files remain on disk.
 
 Use `--experiment organoid-screen` to choose the experiment folder name.
 The website workflow adds the experiment hash and organizes every acquisition
