@@ -109,7 +109,7 @@ class StateReaderProfile:
     # cannot witness a transition to a target it already read pre-command)
     # against the log leg (post-command CurrentBlock event). The race runs for
     # one confirm window (the shared CONFIRM_POLL_S), so the whole confirmation
-    # is the uniform 4x3: the initial window plus three retries and
+    # is the uniform 5x3: the initial window plus four retries and
     # CONFIRM_POLL_S per attempt.
     # Default hybrid: the api confirm is measured-wrong on the real scope
     # (stale 15 s+, wrong job) and log-only is insufficient on the
@@ -274,7 +274,7 @@ class CommandProfile:
     error_check_fn: Callable[..., dict] | None = _default_error_check
     confirm_fn: Callable[..., dict] | None = None
     max_retries: int = 3
-    max_confirm_attempts: int = 4
+    max_confirm_attempts: int = 5
     refire_on_unconfirmed: bool = True
     confirm_poll_s: float = CONFIRM_POLL_S  # Per-attempt readback poll window (s).
     confirm_tolerance: float | None = None
@@ -306,8 +306,8 @@ COMMAND_DEFAULT = CommandProfile()
 def _leica_setting_profile(confirm_fn, **overrides):
     """Profile for Leica setting updates with occasionally stale readback.
 
-    Setting commands get four 3-second readback poll windows: the initial
-    attempt plus three retries. If a window does
+    Setting commands get five 3-second readback poll windows: the initial
+    attempt plus four retries. If a window does
     not confirm the requested state, the command is re-fired before the next
     window. If LAS X still reports another state after all windows, the result
     is ``success=True, confirmed=False`` so the larger acquisition workflow
@@ -358,7 +358,7 @@ IMAGE_FORMAT = _leica_setting_profile(
 OBJECTIVE = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_objective,
-    # Uniform posture: 3 confirm windows, re-fire between them, unconfirmed-not-
+    # Uniform posture: 5 confirm windows, re-fire between them, unconfirmed-not-
     # fail. A slow turret change is absorbed by the idle-wait before each re-fire.
 )
 
@@ -465,7 +465,7 @@ MOVE_Z = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_move_z,
     confirm_tolerance=1.0,
-    # Uniform posture (was single-attempt hard-fail): 3 windows, re-fire,
+    # Uniform posture (was single-attempt hard-fail): 5 windows, re-fire,
     # unconfirmed-not-fail - same as MOVE_XY.
 )
 
@@ -499,11 +499,11 @@ SELECT_JOB = CommandProfile(
     # select_job's confirmation legs are built per call by
     # confirm_select_job.select_job_confirm_legs (api / log / hybrid policy from
     # StateReaderProfile.selected_job_confirm_source), not by this profile.
-    # Same 4x3 posture as every other command: max_confirm_attempts confirm
+    # Same 5x3 posture as every other command: max_confirm_attempts confirm
     # windows of confirm_poll_s seconds each (the shared CONFIRM_POLL_S), re-fire
     # between, unconfirmed-not-fail. No bespoke poll_timeout — the window comes
     # from the profile like every setting command.
     confirm_fn=None,
-    max_confirm_attempts=4,
+    max_confirm_attempts=5,
     poll_interval=0.01,
 )

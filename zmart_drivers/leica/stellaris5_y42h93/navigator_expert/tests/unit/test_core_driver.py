@@ -839,20 +839,20 @@ class TestRetryBackoff(unittest.TestCase):
 
     def test_default_setting_and_acquire_profiles_encode_retry_policy(self):
         """Uniform posture; acquisition is the one command that never re-sends."""
-        # Settings inherit the uniform posture: initial poll window plus three
+        # Settings inherit the uniform posture: initial poll window plus four
         # retries, re-fire,
         # unconfirmed-not-fail, the shared poll window.
-        self.assertEqual(profiles.ZOOM.max_confirm_attempts, 4)
+        self.assertEqual(profiles.ZOOM.max_confirm_attempts, 5)
         self.assertEqual(profiles.ZOOM.confirm_poll_s, profiles.CONFIRM_POLL_S)
         self.assertTrue(profiles.ZOOM.refire_on_unconfirmed)
         self.assertTrue(profiles.ZOOM.success_on_unconfirmed)
 
         # OBJECTIVE and MOVE_Z used to deviate (single attempt / hard-fail);
         # they now match the uniform posture.
-        self.assertEqual(profiles.OBJECTIVE.max_confirm_attempts, 4)
+        self.assertEqual(profiles.OBJECTIVE.max_confirm_attempts, 5)
         self.assertEqual(profiles.OBJECTIVE.confirm_poll_s, profiles.CONFIRM_POLL_S)
         self.assertTrue(profiles.OBJECTIVE.success_on_unconfirmed)
-        self.assertEqual(profiles.MOVE_Z.max_confirm_attempts, 4)
+        self.assertEqual(profiles.MOVE_Z.max_confirm_attempts, 5)
         self.assertTrue(profiles.MOVE_Z.success_on_unconfirmed)
         self.assertTrue(profiles.MOVE_XY.refire_on_unconfirmed)
 
@@ -878,12 +878,12 @@ class TestRetryBackoff(unittest.TestCase):
             profiles.ACQUIRE.poll_interval,
         )
 
-        # select_job is the uniform 4x3, not an outlier: no bespoke poll_timeout;
+        # select_job is the uniform 5x3, not an outlier: no bespoke poll_timeout;
         # the per-attempt window is the shared confirm_poll_s (CONFIRM_POLL_S),
         # over max_confirm_attempts attempts, re-fire between.
         self.assertIsNone(profiles.SELECT_JOB.poll_timeout)
         self.assertEqual(profiles.SELECT_JOB.confirm_poll_s, profiles.CONFIRM_POLL_S)
-        self.assertEqual(profiles.SELECT_JOB.max_confirm_attempts, 4)
+        self.assertEqual(profiles.SELECT_JOB.max_confirm_attempts, 5)
 
 
 class TestCommandProfileGuard(unittest.TestCase):
