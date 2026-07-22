@@ -85,7 +85,11 @@ def _playwright():
     try:
         yield pw
     finally:
-        manager.stop()
+        # ``sync_playwright().start()`` hands back the running Playwright
+        # object; stopping THAT is what shuts the driver down. (The context
+        # manager itself has no ``stop`` — calling it there raised and
+        # masked the test's real failure.)
+        pw.stop()
 
 
 def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path):
@@ -311,8 +315,14 @@ def test_explorer_lasso_ignores_slips_and_commits_real_drags(demo_server):
 
     with _playwright() as pw:
         browser = _launch_browser(pw)
-        page = browser.new_page()
+        # The explorer plot is 1150x900; mouse drags only land inside the
+        # viewport, so use one that shows the whole plot (as a run PC does).
+        page = browser.new_page(viewport={"width": 1440, "height": 1100})
         page.goto(base, wait_until="domcontentloaded")
+        # Wait for the boot snapshot to lay the page out (it marks completed
+        # sections done) — a summary click before that would be undone by the
+        # boot layout folding completed sections.
+        page.wait_for_selector("#step-discover_targets.done", timeout=30_000)
         page.locator("#step-discover_targets > summary").click()
         svg = page.locator("#widget-explorer svg")
         playwright_api.expect(svg).to_be_visible(timeout=30_000)

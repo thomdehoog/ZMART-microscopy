@@ -481,7 +481,13 @@ function openNextStep(step) {
   if (next) next.open = true;
 }
 
-function markDone(step, keepInteractiveOpen = true) {
+// openBehavior: "live" folds button-only steps away and keeps panel steps
+// (map, explorer, gallery) open — what should happen when a step finishes
+// while the operator watches. "boot" folds everything (the boot layout then
+// opens the current section). "silent" never touches the fold state: used by
+// mid-session state re-fetches, which must not rearrange what the operator
+// is looking at.
+function markDone(step, openBehavior = "live") {
   const section = document.getElementById(`step-${step}`);
   if (!section) return;
   section.classList.add("done");
@@ -494,7 +500,8 @@ function markDone(step, keepInteractiveOpen = true) {
     const label = section.querySelector(".button-label");
     if (label) label.textContent = completedLabels[step];
   }
-  section.open = keepInteractiveOpen && section.dataset.collapse !== "true";
+  if (openBehavior === "live") section.open = section.dataset.collapse !== "true";
+  else if (openBehavior === "boot") section.open = false;
 }
 
 function flowUpdate(ev) {
@@ -565,7 +572,11 @@ newRunButton.addEventListener("click", async () => {
 // Buttons stay disabled until the stream is provably open, so a click can
 // never fire while its progress events would have nowhere to arrive.
 
-async function applySnapshot() {
+// ``layout`` folds completed sections and opens the current one — wanted
+// exactly once, when a fresh page catches up on an existing run. Mid-session
+// re-fetches (a widget mounting late, a rejected request restoring truth)
+// pass layout=false so they never rearrange the sections under the operator.
+async function applySnapshot(layout) {
   const response = await fetch("/state");
   if (!response.ok) throw new Error(`state snapshot failed: ${response.status}`);
   const snapshot = await response.json();
@@ -579,16 +590,18 @@ async function applySnapshot() {
     }
   }
   const completed = snapshot.flow.completed || [];
-  completed.forEach((step) => markDone(step, false));
-  const completedSet = new Set(completed);
-  let firstIncomplete = [...document.querySelectorAll("details.step")]
-    .find((section) => !completedSet.has(section.id.replace("step-", "")));
-  const focusMeasured = Boolean(snapshot.widgets.focus?.measured?.length);
-  if (completedSet.has("load_positions") && !focusMeasured
-      && !completedSet.has("run_overview")) {
-    firstIncomplete = document.getElementById("step-load_positions");
+  completed.forEach((step) => markDone(step, layout ? "boot" : "silent"));
+  if (layout) {
+    const completedSet = new Set(completed);
+    let firstIncomplete = [...document.querySelectorAll("details.step")]
+      .find((section) => !completedSet.has(section.id.replace("step-", "")));
+    const focusMeasured = Boolean(snapshot.widgets.focus?.measured?.length);
+    if (completedSet.has("load_positions") && !focusMeasured
+        && !completedSet.has("run_overview")) {
+      firstIncomplete = document.getElementById("step-load_positions");
+    }
+    if (firstIncomplete) firstIncomplete.open = true;
   }
-  if (firstIncomplete) firstIncomplete.open = true;
   const overviewStarted = completed.includes("run_overview")
     || Boolean(snapshot.widgets.overview?.status);
   document.getElementById("widget-overview").hidden = !overviewStarted;
@@ -625,11 +638,11 @@ function applyEvent(ev) {
   else if (ev.kind === "reset") window.location.reload();
 }
 
-function synchronizedSnapshot() {
+function synchronizedSnapshot(layout = false) {
   snapshotChain = snapshotChain.then(async () => {
     applyingSnapshot = true;
     try {
-      await applySnapshot();
+      await applySnapshot(layout);
       return true;
     } catch (_) {
       return false;
@@ -648,7 +661,9 @@ function enableSteps() {
 }
 
 async function restoreConnection(reconnecting) {
-  const restored = await synchronizedSnapshot();
+  // A fresh page lays the sections out to match the run; a mere stream
+  // reconnect only refreshes state and leaves the operator's view alone.
+  const restored = await synchronizedSnapshot(!reconnecting);
   if (!restored) {
     retryTimer = setTimeout(() => restoreConnection(reconnecting), 250);
     return;

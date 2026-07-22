@@ -50,6 +50,11 @@ def main() -> None:
         default="target-acquisition",
         help="experiment folder name (default: target-acquisition)",
     )
+    parser.add_argument(
+        "--open",
+        action="store_true",
+        help="open the page in the default browser once the server is running",
+    )
     parser.add_argument("--port", type=int, default=8765, help="port to listen on")
     parser.add_argument(
         "--host",
@@ -64,6 +69,7 @@ def main() -> None:
     if not args.demo:
         _register_live_instrument()
     serve(
+        open_browser=args.open,
         host=args.host,
         port=args.port,
         demo=args.demo,

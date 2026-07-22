@@ -18,13 +18,17 @@ Open `zmart_microscopy_v4.ipynb`. The notebook is the operator UI; implementatio
 `zmart_microscopy_v4_react.ipynb` is the same run with the widgets as React apps inside the cells (via `anywidget`): the browser UI streams in real time and its buttons drive the kernel, which drives the hardware through the same gated paths. It needs only the `anywidget` package — React itself ships inside the repository (the official MIT-licensed build), so both notebooks work fully offline.
 
 The same run also exists as a plain browser page — no Jupyter, no code on
-screen: `python run_webapp.py --demo` starts it against a simulated
-microscope (see `workflow/webapp/README.md`), and on the microscope PC
-`python run_webapp.py --analysis-repo ...` drives the real one. The
-server is Python standard library only.
+screen. On Windows, double-click `start_website.bat` (live microscope) or
+`start_website_demo.bat` (simulated microscope): each starts the server and
+opens the page by itself. From a terminal, `python run_webapp.py --demo
+--open` does the same against the simulated scope (see
+`workflow/webapp/README.md`), and `python run_webapp.py --analysis-repo ...
+--open` drives the real one. The server is Python standard library only.
 
-The exact production microscope-PC command, browser address, and safe shutdown
-sequence are recorded in [MEMORY.md](MEMORY.md) and the
+Each microscope PC keeps its machine-specific choices (Python environment,
+analysis-repo path) in `start_website.local.bat` next to the launcher; the
+ZMB machine's copy, the browser address, and the safe shutdown sequence are
+recorded in [MEMORY.md](MEMORY.md) and the
 [webapp README](workflow/webapp/README.md#on-the-microscope-pc).
 
 The setup cell expects a checkout of
