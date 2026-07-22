@@ -315,6 +315,73 @@ def test_explorer_refuses_empty_targets():
         wreact.explore_targets([])
 
 
+def test_combined_feature_gates_and_together_for_multi_positive(tmp_path):
+    # Four cells; combine a gate on 'area_px' with one on 'mean_intensity'.
+    # Only cells passing BOTH stay gated — a double-positive selection.
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.add_feature_gate("area_px", 15.0, 45.0)  # keeps i=1,2,3 (10*(i+1))
+    assert {t["source"]["area_px"] for t in explorer.gated} == {20.0, 30.0, 40.0}
+    explorer.add_feature_gate("mean_intensity", 0.0, 1.5)  # keeps i=0,1 (mean=i)
+    # AND of the two gates: area in [15,45] and intensity in [0,1.5] -> i=1 only.
+    assert [t["source"]["area_px"] for t in explorer.gated] == [20.0]
+    assert [g["feature"] for g in explorer.feature_gates] == ["area_px", "mean_intensity"]
+
+
+def test_feature_gates_persist_across_axis_switches(tmp_path):
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.add_feature_gate("area_px", 15.0, 45.0)
+    explorer.x_feature = "mean_intensity"  # switching axes clears the live gate...
+    assert explorer.gate == {}
+    # ...but the saved feature gate stays and still restricts the population.
+    assert len(explorer.feature_gates) == 1
+    assert {t["source"]["area_px"] for t in explorer.gated} == {20.0, 30.0, 40.0}
+
+
+def test_re_adding_a_feature_gate_replaces_its_range(tmp_path):
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.add_feature_gate("area_px", 15.0, 45.0)
+    explorer.add_feature_gate("area_px", 25.0, 45.0)  # adjust, not stack
+    assert len(explorer.feature_gates) == 1
+    assert {t["source"]["area_px"] for t in explorer.gated} == {30.0, 40.0}
+    explorer.remove_feature_gate(0)
+    assert explorer.feature_gates == [] and len(explorer.gated) == 4
+
+
+def test_feature_gates_save_and_load_round_trip(tmp_path):
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.add_feature_gate("area_px", 15.0, 45.0)
+    explorer.add_feature_gate("mean_intensity", 0.0, 1.5)
+    path = explorer.save_gates(tmp_path / "gates.json")
+    assert path.exists()
+
+    fresh = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    fresh.load_gates(path)
+    assert [g["feature"] for g in fresh.feature_gates] == ["area_px", "mean_intensity"]
+    assert [t["source"]["area_px"] for t in fresh.gated] == [20.0]
+
+
+def test_loading_gates_skips_features_this_run_does_not_have(tmp_path):
+    (tmp_path / "gates.json").write_text(
+        '[{"feature": "area_px", "lo": 15, "hi": 45}, {"feature": "ghost", "lo": 0, "hi": 1}]'
+    )
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.load_gates(tmp_path / "gates.json")
+    assert [g["feature"] for g in explorer.feature_gates] == ["area_px"]
+    assert "skipped 1" in explorer.status
+
+
+def test_forged_feature_gates_trait_cannot_change_the_selection(tmp_path):
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.add_feature_gate("area_px", 15.0, 45.0)
+    gated_before = {t["source"]["area_px"] for t in explorer.gated}
+    # A page script tries to widen the gate by scribbling the display trait.
+    explorer.feature_gates = [{"feature": "area_px", "lo": -1e9, "hi": 1e9}]
+    # The selection is recomputed from Python truth — unchanged — and the
+    # display heals back.
+    assert {t["source"]["area_px"] for t in explorer.gated} == gated_before
+    assert explorer.feature_gates == [{"feature": "area_px", "lo": 15.0, "hi": 45.0}]
+
+
 def test_explorer_picking_populates_the_fov_strip(tmp_path):
     explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)], crop_um=20.0)
     assert explorer.picked_crops == []  # nothing picked yet

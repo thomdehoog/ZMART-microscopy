@@ -1203,6 +1203,15 @@ class TargetExplorerReact(_ZmartWidget):
     #: exactly which cells were selected. Display output only (like the
     #: hover preview); the acquisition step never reads it.
     picked_crops = traitlets.List().tag(sync=True)
+    #: Saved feature gates: a list of ``{"feature", "lo", "hi"}`` thresholds,
+    #: each on a named feature, that persist across axis switches and are
+    #: ALL required together (logical AND). Adding one gate per channel is how
+    #: the operator selects double / triple-positive cells. Like the pick
+    #: record, the real list lives in Python (``_feature_gates``); this trait
+    #: only displays it, and the gated set is always recomputed from the
+    #: Python truth — a page write here can never choose which cells are
+    #: imaged.
+    feature_gates = traitlets.List().tag(sync=True)
     _read_only_input_traits = ("x_feature", "y_feature", "gate")
     #: Hovering a dot only serves a crop preview — an observer may browse.
     _read_only_safe_messages = ("hover",)
@@ -1223,6 +1232,7 @@ function App({ model }) {
   const [picked] = useTrait(model, "picked_indices");
   const [acquired] = useTrait(model, "acquired_indices");
   const [pickedCrops] = useTrait(model, "picked_crops");
+  const [featureGates] = useTrait(model, "feature_gates");
   const [readOnly] = useTrait(model, "read_only");
   const W = widgetPxFor("explorer", 460), H = widgetPxFor("explorer", 360), pad = 42;
   const moved = React.useRef(false);
@@ -1381,7 +1391,7 @@ function App({ model }) {
           onCommit: (v) => setRange("y", 0, v) }),
         h(NumBox, { value: rngY[1], width: 72, disabled: readOnly,
           onCommit: (v) => setRange("y", 1, v) }))),
-    h("div", { style: { width: 190 } },
+    h("div", { style: { width: 220 } },
       h("div", { style: { fontWeight: 700, marginBottom: 6 } },
         `${mask.filter(Boolean).length} / ${dots.length} in the gate`),
       h("div", { style: { color: T.dim, fontSize: 12, marginBottom: 6, display: "flex",
@@ -1390,6 +1400,33 @@ function App({ model }) {
         picked.length && !readOnly ? h("button", {
           style: { ...btn(false), padding: "2px 8px", background: T.edge, color: T.dim },
           onClick: () => model.send({ type: "clear_picks" }) }, "clear") : null),
+      // Combined feature gates: one threshold per channel, all required
+      // together — how the operator picks double / triple-positive cells.
+      h("div", { style: { marginTop: 4, marginBottom: 8, borderTop: `1px solid ${T.edge}`,
+          paddingTop: 8 } },
+        h("div", { style: { fontWeight: 700, marginBottom: 2 } }, "combined gates"),
+        h("div", { style: { color: T.dim, fontSize: 11, marginBottom: 6 } },
+          "a cell must pass every gate — add one per channel for double / triple positive"),
+        featureGates.map((g, i) => h("div", { key: i, style: { display: "flex",
+            alignItems: "center", gap: 6, fontSize: 12, marginBottom: 3 } },
+          h("span", { style: { flex: 1 } }, `${g.feature}: ${tick(g.lo)} – ${tick(g.hi)}`),
+          readOnly ? null : h("button", { title: "remove this gate",
+            style: { ...btn(false), padding: "0 7px", background: T.edge, color: T.dim },
+            onClick: () => model.send({ type: "remove_gate", index: i }) }, "×"))),
+        readOnly ? null : h("div", { style: { display: "flex", gap: 6, marginTop: 6,
+            flexWrap: "wrap" } },
+          h("button", { style: { ...btn(false), padding: "3px 8px" },
+            onClick: () => model.send({ type: "add_gate", feature: xf, range: rng }) },
+            `add ${xf} range`),
+          featureGates.length ? h("button", { style: { ...btn(false), padding: "3px 8px",
+              background: T.edge, color: T.dim },
+            onClick: () => model.send({ type: "clear_gates" }) }, "clear") : null,
+          h("button", { style: { ...btn(false), padding: "3px 8px", background: T.edge,
+              color: T.dim }, title: "save these gates to reuse next run",
+            onClick: () => model.send({ type: "save_gates" }) }, "save"),
+          h("button", { style: { ...btn(false), padding: "3px 8px", background: T.edge,
+              color: T.dim }, title: "load previously saved gates",
+            onClick: () => model.send({ type: "load_gates" }) }, "load"))),
       hover.src
         ? h("div", null,
             h("img", { src: hover.src, style: { width: 180, borderRadius: 8,
@@ -1427,6 +1464,12 @@ export default mount(App);
         self._publishing_mask = False
         self._picked: set[int] = set()  # Python owns the truth; the trait displays it
         self._acquired: set[int] = set()
+        # Saved feature gates (Python truth). Each is {"feature", "lo", "hi"};
+        # a target must fall inside EVERY one to stay gated. Set by the flow to
+        # a path if gates should be saveable to disk across runs.
+        self._feature_gates: list[dict] = []
+        self._gates_path: Any = None
+        self._publishing_feature_gates = False
         self._linked_viewer: Any = None  # set by OverviewViewerReact.show_targets
         self.features = _numeric_features(targets)
         self.x_feature = self.features[0]
@@ -1435,6 +1478,7 @@ export default mount(App);
         self.observe(self._on_gate_changed, names="gate")
         self.observe(self._heal_index_traits, names=["picked_indices", "acquired_indices"])
         self.observe(self._heal_gated_mask, names="gated_mask")
+        self.observe(self._heal_feature_gates, names="feature_gates")
         self._recompute(reset_gate=True)
 
     @property
@@ -1663,8 +1707,128 @@ export default mount(App);
                 keep &= y_range[0] <= fy <= y_range[1]
             if keep and path is not None:
                 keep = bool(path.contains_point((fx, fy)))
+            # Every saved feature gate must also pass (logical AND): this is
+            # what makes combining gates select double / triple-positive cells.
+            for entry in self._feature_gates:
+                if not keep:
+                    break
+                value = _feature_value(target, entry["feature"])
+                keep = math.isfinite(value) and entry["lo"] <= value <= entry["hi"]
             mask.append(bool(keep))
         return mask
+
+    # --- saved feature gates (double / triple-positive) ----------------------
+
+    def add_feature_gate(self, feature: str, lo: float, hi: float) -> None:
+        """Save a threshold on ``feature`` that every gated cell must pass.
+
+        Adding one gate per channel and combining them selects the cells that
+        are positive in all of them at once. A second gate on a feature that
+        already has one replaces it (one range per feature), so re-adding just
+        adjusts it.
+        """
+        if feature not in self.features:
+            raise ValueError(f"{feature!r} is not a gateable feature")
+        lo, hi = float(lo), float(hi)
+        if not (math.isfinite(lo) and math.isfinite(hi)):
+            raise ValueError("a feature gate needs two finite numbers")
+        if hi < lo:
+            lo, hi = hi, lo
+        self._feature_gates = [g for g in self._feature_gates if g["feature"] != feature]
+        self._feature_gates.append({"feature": feature, "lo": lo, "hi": hi})
+        self._publish_feature_gates()
+
+    def remove_feature_gate(self, index: int) -> None:
+        """Drop the saved feature gate at ``index`` (no-op if out of range)."""
+        if 0 <= index < len(self._feature_gates):
+            del self._feature_gates[index]
+            self._publish_feature_gates()
+
+    def clear_feature_gates(self) -> None:
+        """Forget every saved feature gate."""
+        if self._feature_gates:
+            self._feature_gates = []
+            self._publish_feature_gates()
+
+    def _publish_feature_gates(self) -> None:
+        self._publishing_feature_gates = True
+        try:
+            self.feature_gates = [dict(g) for g in self._feature_gates]
+        finally:
+            self._publishing_feature_gates = False
+        self._publish_gated_mask(self._mask_from_gate())
+        n = len(self._feature_gates)
+        self.status = (
+            f"{n} saved gate(s) combined (a cell must pass all of them)"
+            if n
+            else "thresholds AND lasso gate together"
+        )
+        if self._linked_viewer is not None:
+            self._linked_viewer._refresh_marks()
+
+    def _heal_feature_gates(self, change: dict) -> None:
+        """Keep the saved-gates display honest against the Python truth.
+
+        The gated set is always recomputed from ``_feature_gates`` in Python,
+        so a page write here can never change which cells are imaged — but it
+        could misrepresent the saved gates on screen. Restore the display the
+        moment anything but this widget writes the trait.
+        """
+        if self._publishing_feature_gates:
+            return
+        truth = [dict(g) for g in self._feature_gates]
+        if list(change["new"]) == truth:
+            return
+        self._publish_feature_gates()
+        self.status = "ignored an invalid browser write to the saved gates"
+
+    def save_gates(self, path: Any = None) -> Any:
+        """Write the saved feature gates to JSON so a later run can reuse them.
+
+        ``path`` defaults to the location the flow provided (``_gates_path``);
+        raises if neither is set. Reusing a saved set across runs is how a
+        standing double/triple-positive definition is kept.
+        """
+        import json
+        from pathlib import Path as _Path
+
+        target = _Path(path) if path is not None else self._gates_path
+        if target is None:
+            raise RuntimeError("no path to save gates to")
+        target = _Path(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(self._feature_gates, indent=2), encoding="utf-8")
+        return target
+
+    def load_gates(self, path: Any = None) -> None:
+        """Replace the saved feature gates with those read from JSON.
+
+        Gates naming a feature this run does not have are skipped (a different
+        job can offer different measurements), so a reused file never crashes
+        the explorer — it applies what fits and reports the rest.
+        """
+        import json
+        from pathlib import Path as _Path
+
+        source = _Path(path) if path is not None else self._gates_path
+        if source is None or not _Path(source).is_file():
+            raise RuntimeError(f"no saved gates to load at {source}")
+        raw = json.loads(_Path(source).read_text(encoding="utf-8"))
+        kept, skipped = [], []
+        for entry in raw if isinstance(raw, list) else []:
+            try:
+                feature = str(entry["feature"])
+                lo, hi = float(entry["lo"]), float(entry["hi"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if feature in self.features and math.isfinite(lo) and math.isfinite(hi):
+                kept.append({"feature": feature, "lo": min(lo, hi), "hi": max(lo, hi)})
+            else:
+                skipped.append(entry.get("feature"))
+        self._feature_gates = kept
+        self._publish_feature_gates()
+        if skipped:
+            self.status = f"loaded {len(kept)} gate(s); skipped {len(skipped)} for missing features"
 
     @staticmethod
     def _histogram(values: list[float], bins: int = 20) -> list[float]:
@@ -1752,6 +1916,32 @@ export default mount(App);
         gate = payload.get("gate")
         self.gate = dict(gate) if isinstance(gate, dict) else {}
 
+    def _handle_add_gate(self, content: dict) -> None:
+        """Save a feature gate from a browser 'add_gate' message.
+
+        The feature and range come from the browser; a bad one degrades to a
+        status line rather than raising, so a fat-fingered value never freezes
+        the explorer.
+        """
+        feature = content.get("feature", self.x_feature)
+        gate = content.get("range")
+        try:
+            lo, hi = float(gate[0]), float(gate[1])
+            self.add_feature_gate(feature, lo, hi)
+        except (TypeError, ValueError, IndexError, KeyError):
+            self.status = "a saved gate needs a feature and two numbers"
+
+    def _handle_gate_io(self, kind: str) -> None:
+        """Save or load the feature gates, reporting the outcome on the status."""
+        try:
+            if kind == "save_gates":
+                path = self.save_gates()
+                self.status = f"saved {len(self._feature_gates)} gate(s) to {path.name}"
+            else:
+                self.load_gates()
+        except Exception as exc:  # noqa: BLE001 -- shown to the operator, not lost
+            self.status = f"could not {kind.replace('_', ' ')}: {exc}"
+
     def handle_message(self, content: dict) -> None:
         kind = content.get("type")
         # The index comes from the browser: validate it rather than trusting
@@ -1766,6 +1956,19 @@ export default mount(App);
         if kind == "pick":
             if index is not None and 0 <= index < len(self.targets):
                 self.toggle_pick(index)
+            return
+        if kind == "add_gate":
+            self._handle_add_gate(content)
+            return
+        if kind == "remove_gate":
+            if index is not None:
+                self.remove_feature_gate(index)
+            return
+        if kind == "clear_gates":
+            self.clear_feature_gates()
+            return
+        if kind in ("save_gates", "load_gates"):
+            self._handle_gate_io(kind)
             return
         if kind != "hover":
             self.status = f"unknown message: {content.get('type')}"
