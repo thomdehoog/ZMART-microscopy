@@ -78,6 +78,10 @@ class RunFlow:
         self.targets: list[dict] | None = None
         self.explorer: Any = None
         self.gallery: Any = None
+        # Which overview channel cells are detected in (0 = the first). The
+        # operator can change this before running discovery; the overview map
+        # shows every channel so they can see which one holds the structure.
+        self.segmentation_channel: int = 0
         self.completed: list[str] = []
         self._pending: set[str] = set()
         self._state_lock = threading.Lock()
@@ -390,7 +394,9 @@ class RunFlow:
         self._require(self.engine is not None, "connect first")
         self._require(self.overviews, "run the overview scan first")
         self._require(self.target_state is not None, "capture the target job first")
-        targets = discover_targets(self.engine, self.overviews)
+        targets = discover_targets(
+            self.engine, self.overviews, segmentation_channel=self.segmentation_channel
+        )
         self._require(targets, "discovery found no cells in the overview tiles")
         self.targets = targets
         self.ns["targets"] = targets

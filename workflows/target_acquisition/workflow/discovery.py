@@ -147,12 +147,33 @@ def build_overview_inputs(
     return inputs
 
 
+def _segmentation_path(overview: dict, channel: int, index: int) -> Any:
+    """The image the engine should segment for one overview tile.
+
+    Detection runs on a SINGLE channel. By default that is channel 0, but a
+    biologist whose segmentation stain (nuclei, membrane) is not the first
+    channel can point discovery at the right one. The choice is by saved
+    channel image, so it only works when the overview kept its channels as
+    separate images (the usual case); a single stacked file exposes just
+    channel 0 here.
+    """
+    paths = overview.get("channel_paths") or [overview["image_path"]]
+    if channel >= len(paths):
+        raise ValueError(
+            f"overview tile {index} has {len(paths)} channel image(s), so channel "
+            f"{channel} cannot be segmented. Choose a channel in the range "
+            f"0..{len(paths) - 1}, or save that channel as its own overview image."
+        )
+    return paths[channel]
+
+
 def discover_targets(
     engine: Any,
     overviews: list[dict],
     *,
     feature: str = "area",
     n_picks: int | None = None,
+    segmentation_channel: int = 0,
     queue: str = "overview",
     poll_interval: float = 0.05,
 ) -> list[dict]:
@@ -162,12 +183,21 @@ def discover_targets(
     frame position the overview was captured at), ``pixel_size_um``, and
     ``image_size_px`` (H, W). Submits every overview, drains the engine to
     completion, and returns ``[{"x", "y", "source": {...}}]`` frame targets.
+
+    ``segmentation_channel`` chooses which channel the cells are detected in
+    (default the first). Detection is single-channel; the overview map still
+    shows every channel, so the operator can see which channel holds the
+    structure to segment and pick it here.
     """
+    if isinstance(segmentation_channel, bool) or not isinstance(segmentation_channel, int):
+        raise ValueError("segmentation_channel must be a whole number (0 for the first channel)")
+    if segmentation_channel < 0:
+        raise ValueError("segmentation_channel cannot be negative")
     for index, overview in enumerate(overviews):
         engine.submit(
             queue,
             {
-                "image_path": str(overview["image_path"]),
+                "image_path": str(_segmentation_path(overview, segmentation_channel, index)),
                 "naming_p": index,
                 # Smart analysis requires a stable (region, row, col) identity.
                 # The notebook's overviews are a flat ordered list.
