@@ -25,6 +25,7 @@ import math  # noqa: E402
 import re  # noqa: E402
 from pathlib import Path  # noqa: E402
 
+import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
 nbformat = pytest.importorskip("nbformat")
@@ -156,3 +157,41 @@ def test_the_fake_engine_finds_the_fake_cells(tmp_path):
     engine.submit("overview", {"image_path": str(path), "naming_p": 0})
     picks = engine.results("overview")[0]["pick_targets"]["picks"]
     assert len(picks) >= 3
+
+
+def test_the_simulated_sample_is_three_channels(tmp_path):
+    """render_channels stacks the structure + two marker channels; render() is ch0."""
+    world = _World()
+    stack = world.render_channels(0.0, 0.0, 1.2, (128, 128))
+    assert stack.shape == (3, 128, 128)
+    # The 2-D render() is exactly the first (structure) channel.
+    np.testing.assert_array_equal(stack[0], world.render(0.0, 0.0, 1.2, (128, 128)))
+    # A cell bright in the structure channel need not be bright in a marker.
+    assert stack[1].max() > stack[1].mean()  # some marker-A-positive cells
+    assert stack[2].max() > stack[2].mean()  # some marker-B-positive cells
+
+
+def test_simulated_acquire_saves_one_file_per_channel(tmp_path):
+    session = _SimSession(tmp_path)
+    record = session.acquire(acquisition_type="overview", position_label="A1")
+    assert len(record["images"]) == 3
+    assert [p["c"] for p in record["planes"]] == [0, 1, 2]
+    # Each plane is its own file, named with its channel slot.
+    assert all(f"_C{p['c']:02d}_" in p["path"] for p in record["planes"])
+
+
+def test_engine_reports_per_channel_marker_intensities(tmp_path):
+    # Acquire (3 channel files), then segment channel 0 and check the picks
+    # carry a mean intensity for each channel so gating can tell markers apart.
+    session = _SimSession(tmp_path)
+    record = session.acquire(acquisition_type="overview", position_label="A1")
+    engine = _SimEngine()
+    engine.submit("overview", {"image_path": record["images"][0], "naming_p": 0})
+    picks = engine.results("overview")[0]["pick_targets"]["picks"]
+    assert picks
+    metrics = picks[0]["metrics"]
+    assert set(metrics) == {"structure", "marker_a", "marker_b"}
+    # Across the cells, the two markers vary independently — not every bright
+    # nucleus is bright in a given marker.
+    a = [p["metrics"]["marker_a"] for p in picks]
+    assert max(a) > 2 * (min(a) + 1)
