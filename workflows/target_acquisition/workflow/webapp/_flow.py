@@ -432,6 +432,7 @@ class RunFlow:
             focus=self.ns.get("focus"),
             overview_records=self.overview_records,
             targets=self.gallery.picked,
+            overviews=self.overviews,
             show=False,
         )
         self.ns["summary"] = summary

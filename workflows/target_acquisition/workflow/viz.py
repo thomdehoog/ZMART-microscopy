@@ -234,3 +234,98 @@ def plot_frame_layout(
     if not show:
         plt.close(fig)
     return fig
+
+
+def _overview_extent_um(overview: dict) -> tuple[float, float, float, float]:
+    """The frame-coordinate rectangle one overview tile covers (x_lo, x_hi, y_lo, y_hi).
+
+    The tile was captured centred on ``center_frame_um``; its half-width and
+    half-height in micrometres are the pixel counts times the pixel size. Row 0
+    of the image maps to the smaller frame y (the same convention the pixel ->
+    frame mapping uses), so the figure draws it with ``origin="lower"``.
+    """
+    cx, cy = float(overview["center_frame_um"][0]), float(overview["center_frame_um"][1])
+    height_px, width_px = int(overview["image_size_px"][0]), int(overview["image_size_px"][1])
+    pixel = float(overview["pixel_size_um"])
+    half_w, half_h = width_px * pixel / 2.0, height_px * pixel / 2.0
+    return (cx - half_w, cx + half_w, cy - half_h, cy + half_h)
+
+
+def plot_overview_targets(
+    overviews: list[dict],
+    targets: list[dict] | None = None,
+    *,
+    downsample: int | None = None,
+    save_path: Any = None,
+    show: bool = False,
+):
+    """The overview mosaic with the acquired targets drawn on top.
+
+    This is the "where did the run actually image" picture: every overview tile
+    is composited (all channels, the same additive colour overlay the live map
+    uses) and placed at its true frame position, and each acquired target is
+    marked on top. It answers, at a glance, that the targets sit where the cells
+    were — the check the operator would otherwise do by eye across two windows.
+
+    Returns the matplotlib ``Figure``. ``save_path`` (a ``.png``) also writes the
+    vector siblings. ``downsample`` skips pixels for a lighter figure (the
+    placement stays exact); left unset it keeps the mosaic under a fixed budget.
+    """
+    import matplotlib
+
+    if not show:
+        matplotlib.use("Agg", force=False)
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    from ._overview_widget import (
+        _load_overview_channels,
+        composite_channels,
+        default_channel_states,
+    )
+
+    overviews = list(overviews or [])
+    if downsample is None:
+        # Keep the whole mosaic under a fixed pixel budget so a large run does
+        # not build a huge figure; placement in micrometres stays exact.
+        total = sum(int(o["image_size_px"][0]) * int(o["image_size_px"][1]) for o in overviews)
+        budget = 8_000_000
+        downsample = max(1, int(np.ceil(np.sqrt(total / budget)))) if total else 1
+    step = max(1, int(downsample))
+
+    fig, ax = plt.subplots(figsize=(7, 7))
+    for overview in overviews:
+        stack = _load_overview_channels(overview, step=step)
+        composite = composite_channels(stack, default_channel_states(stack))
+        ax.imshow(
+            composite,
+            extent=_overview_extent_um(overview),
+            origin="lower",
+            interpolation="nearest",
+            zorder=1,
+        )
+    if targets:
+        ax.scatter(
+            [t["x"] for t in targets],
+            [t["y"] for t in targets],
+            marker="o",
+            facecolors="none",
+            edgecolors="#fde047",
+            linewidths=1.6,
+            s=90,
+            zorder=3,
+            label=f"acquired targets ({len(targets)})",
+        )
+        ax.legend(loc="upper right", fontsize=8, framealpha=0.85)
+
+    ax.set_aspect("equal", adjustable="datalim")
+    ax.set_xlabel("frame x (um)")
+    ax.set_ylabel("frame y (um)")
+    ax.set_title("overview mosaic with acquired targets")
+    fig.tight_layout()
+
+    if save_path is not None:
+        save_figure(fig, save_path)
+    if not show:
+        plt.close(fig)
+    return fig
