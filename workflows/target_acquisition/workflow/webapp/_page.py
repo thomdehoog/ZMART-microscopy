@@ -111,24 +111,18 @@ _STEPS = [
     ),
 ]
 
-# Which widget mounts inside which step's section.
-_WIDGET_SECTIONS = {
-    "overview": "run_overview",
-    "focus": "load_positions",
-    "explorer": "discover_targets",
-    "gallery": "gallery",
-}
+# The viewers live in one shared stage on the right (the "playing ground"),
+# not tucked inside individual steps. They mount by these ids; an unmounted
+# one is empty and hides itself, so the stage naturally shows whichever views
+# the run has reached. The overview map additionally starts ``hidden`` until
+# the scan begins. Order here is the order they stack down the stage.
+_STAGE_WIDGETS = ("focus", "overview", "explorer", "gallery")
 
 
 def _sections_html() -> str:
+    """The left column: each step as a collapsible bar of controls (no viewers)."""
     parts = []
     for step_id, title, meaning, button, auto_collapse in _STEPS:
-        widget_holes = "".join(
-            f'<div class="widget" id="widget-{widget}"'
-            f'{" hidden" if widget == "overview" else ""}></div>'
-            for widget, section in _WIDGET_SECTIONS.items()
-            if section == step_id
-        )
         if step_id == "connect":
             button_html = f"""
           <div class="step-actions">
@@ -154,11 +148,32 @@ def _sections_html() -> str:
         <div class="step-body">
           <p class="meaning">{meaning}</p>
           {button_html}
-          {widget_holes}
         </div>
       </details>"""
         )
     return "\n".join(parts)
+
+
+def _stage_html() -> str:
+    """The right column: one big shared canvas the viewers mount into.
+
+    Like the viewing area in most microscopy software, this stays put while
+    the operator works the steps on the left. Each viewer appears here as the
+    run reaches it; before anything is loaded a gentle placeholder explains
+    what will show up.
+    """
+    holes = "".join(
+        f'<div class="widget" id="widget-{name}"{" hidden" if name == "overview" else ""}></div>'
+        for name in _STAGE_WIDGETS
+    )
+    return f"""
+      <div class="stage" id="stage">
+        <p class="stage-empty">
+          The overview map, the cell explorer and the acquired images will
+          appear here as you work through the steps on the left.
+        </p>
+        {holes}
+      </div>"""
 
 
 def page_html() -> str:
@@ -174,8 +189,17 @@ def page_html() -> str:
         here touches real hardware, so click around freely.
       </p>
     </header>
+    <div class="shell">
+      <div class="controls">
 """
         + _sections_html()
+        + """
+      </div>
+"""
+        + _stage_html()
+        + """
+    </div>
+"""
         + _SCRIPT
     )
 
@@ -191,12 +215,41 @@ _HEAD = """<!DOCTYPE html>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 28px 16px 60px 50px; background: #ffffff; color: #0f172a;
+    margin: 0; padding: 28px 24px 60px 24px; background: #ffffff; color: #0f172a;
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     font-size: 15px; line-height: 1.5;
   }
-  header, .step { max-width: 1600px; margin: 0 0 12px; }
-  header { margin-bottom: 22px; }
+  header { max-width: 1900px; margin: 0 0 22px; }
+  /* The two-pane shell: collapsible step controls on the left, one big
+     shared viewing stage on the right, like most microscopy software. */
+  .shell {
+    display: flex; gap: 22px; align-items: flex-start;
+    max-width: 1900px; margin: 0;
+  }
+  .controls { flex: 0 0 440px; min-width: 360px; }
+  .controls .step { margin: 0 0 12px; }
+  .stage {
+    flex: 1 1 auto; min-width: 0;
+    position: sticky; top: 20px; align-self: stretch;
+    max-height: calc(100vh - 40px); overflow: auto;
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 16px;
+  }
+  .stage-empty {
+    color: #94a3b8; font-size: 14px; margin: 0; padding: 40px 20px;
+    text-align: center; max-width: 46ch; margin-inline: auto;
+  }
+  /* The stage shows the viewer(s) for the step being worked; the rest are
+     held off-stage (still mounted and live, just not shown). */
+  .widget.stage-off { display: none !important; }
+  /* Once a viewer for the active step is mounted and shown, drop the hint. */
+  .stage:has(.widget:not(:empty):not([hidden]):not(.stage-off)) .stage-empty { display: none; }
+  /* On a narrow screen the stage drops below the controls and stops sticking. */
+  @media (max-width: 1100px) {
+    .shell { flex-direction: column; }
+    .controls { flex: 1 1 auto; width: 100%; max-width: 900px; }
+    .stage { position: static; max-height: none; width: 100%; }
+  }
   header h1 { font-size: 24px; margin: 0 0 8px; letter-spacing: -0.01em; }
   header p { color: #475569; margin: 4px 0; max-width: 72ch; }
   #demo-banner { color: #92400e; background: #fffbeb; border: 1px solid #fde68a;
@@ -452,10 +505,35 @@ const newRunNote = document.getElementById("new-run-note");
 // The first time the operator enters a new section, fold whatever section
 // was open before it. Reopening an already-visited section is unrestricted,
 // so completed maps and controls can still be compared side by side.
+// Which viewer(s) belong on the stage for each step. A step that is not here
+// (connect, set origin, capture jobs) shows no viewer — the stage keeps its
+// placeholder. Viewers not for the active step are held off-stage but stay
+// mounted and live, so switching back is instant.
+const STAGE_VIEWS = {
+  load_positions: ["focus"],
+  run_overview: ["overview"],
+  discover_targets: ["explorer"],
+  gallery: ["gallery"],
+  save_results: ["gallery"],
+  disconnect: ["gallery"],
+};
+
+function focusStage(stepId) {
+  const views = STAGE_VIEWS[stepId] || [];
+  for (const name of ["focus", "overview", "explorer", "gallery"]) {
+    const widget = document.getElementById(`widget-${name}`);
+    if (widget) widget.classList.toggle("stage-off", !views.includes(name));
+  }
+}
+
 document.querySelectorAll("details.step").forEach((section) => {
   section.dataset.opened = section.open ? "true" : "false";
   section.addEventListener("toggle", () => {
-    if (!section.open || section.dataset.opened === "true") return;
+    if (!section.open) return;
+    // Point the stage at this step's viewer whenever it opens — including
+    // reopening a completed step to look at its map again.
+    focusStage(section.id.replace("step-", ""));
+    if (section.dataset.opened === "true") return;
     document.querySelectorAll("details.step[open]").forEach((other) => {
       if (other !== section) other.open = false;
     });
@@ -600,7 +678,11 @@ async function applySnapshot(layout) {
         && !completedSet.has("run_overview")) {
       firstIncomplete = document.getElementById("step-load_positions");
     }
-    if (firstIncomplete) firstIncomplete.open = true;
+    if (firstIncomplete) {
+      firstIncomplete.open = true;
+      // A freshly loaded page: point the stage at the step it opens on.
+      focusStage(firstIncomplete.id.replace("step-", ""));
+    }
   }
   const overviewStarted = completed.includes("run_overview")
     || Boolean(snapshot.widgets.overview?.status);
