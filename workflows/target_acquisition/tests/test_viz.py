@@ -13,10 +13,9 @@ import pytest
 
 matplotlib.use("Agg")
 
-from workflow._focus_surface import fit_focus_surface  # noqa: E402
 import numpy as np  # noqa: E402
 import tifffile  # noqa: E402
-
+from workflow._focus_surface import fit_focus_surface  # noqa: E402
 from workflow.viz import (  # noqa: E402
     plot_focus_surface,
     plot_frame_layout,
