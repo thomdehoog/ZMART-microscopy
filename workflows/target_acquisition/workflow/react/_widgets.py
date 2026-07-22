@@ -2098,20 +2098,26 @@ function App({ model }) {
     h("style", null, "@keyframes zin { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: none;} }"),
     h("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 10,
                         flexWrap: "wrap" } },
-      readOnly ? pill("read-only view") : h("span", { style: { color: T.dim } }, "how many"),
-      readOnly ? null : h("input", { style: inp, value: count,
-        onChange: (e) => setCount(e.target.value),
-        onKeyDown: (e) => { if (e.key === "Enter" && !busy)
-          model.send({ type: "acquire", count }); } }),
-      readOnly ? null : h("button", { style: btn(busy), disabled: busy,
-        onClick: () => model.send({ type: "acquire", count }) },
-        busy ? "acquiring..." : "Acquire"),
-      !readOnly && selectedCount > 0 ? h("button", {
-        title: "acquire exactly the cells you picked on the map / scatter",
+      readOnly ? pill("read-only view") : null,
+      // One Acquire, matching the preview strip: your hand-picks if you have
+      // any, otherwise N sampled from the gate (with the count box). The
+      // action and the preview can never disagree.
+      (!readOnly && selectedCount > 0) ? h("button", {
+        title: "image exactly the cells you picked on the map / scatter",
         style: { ...btn(busy), background: busy ? T.edge : T.good, color: "#ffffff" },
         disabled: busy,
         onClick: () => model.send({ type: "acquire_selected" }) },
-        `Acquire selected (${selectedCount})`) : null,
+        busy ? "acquiring..." : `Acquire ${selectedCount} picked`) : null,
+      (!readOnly && selectedCount === 0) ? [
+        h("span", { key: "hm", style: { color: T.dim } }, "how many"),
+        h("input", { key: "in", style: inp, value: count,
+          onChange: (e) => setCount(e.target.value),
+          onKeyDown: (e) => { if (e.key === "Enter" && !busy)
+            model.send({ type: "acquire", count }); } }),
+        h("button", { key: "ab", style: btn(busy), disabled: busy,
+          onClick: () => model.send({ type: "acquire", count }) },
+          busy ? "acquiring..." : "Acquire"),
+      ] : null,
       busy && !readOnly ? h("button", {
         title: "stop cleanly before the next target (nothing is committed)",
         style: { ...btn(false), background: T.bad, color: "#ffffff" },
