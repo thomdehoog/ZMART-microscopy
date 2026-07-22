@@ -375,9 +375,18 @@ def test_http_surface_serves_page_modules_state_and_actions(demo_server):
     assert "Where the run stands" not in page
     assert "The same run as the operator notebook" not in page
     assert 'id="widget-status"' not in page
-    assert "padding: 28px 16px 60px 50px" in page
-    assert "header, .step { max-width: 1600px" in page
-    assert "max-width: 1600px; margin: 0 0 12px" in page
+    # Two-pane shell: collapsible step controls on the left, one shared
+    # viewing stage on the right. The viewers mount into the stage, not into
+    # the individual step sections.
+    assert '<div class="shell">' in page
+    assert '<div class="controls">' in page
+    assert '<div class="stage" id="stage">' in page
+    controls = page.split('<div class="controls">', 1)[1].split('<div class="stage"', 1)[0]
+    assert "step-connect" in controls  # steps live in the left controls column
+    assert 'id="widget-overview"' not in controls  # viewers are NOT in the steps
+    stage = page.split('<div class="stage" id="stage">', 1)[1]
+    for name in ("focus", "overview", "explorer", "gallery"):
+        assert f'id="widget-{name}"' in stage  # every viewer mounts on the stage
     assert "globalThis.ZMART_WIDGET_SCALE = 2" in page
     assert 'globalThis.ZMART_WIDGET_SCALES = { explorer: 2.5 }' in page
     assert 'globalThis.ZMART_WIDGET_FILL = { gallery: true }' in page
