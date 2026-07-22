@@ -189,6 +189,22 @@ def discover_targets(
     (default the first). Detection is single-channel; the overview map still
     shows every channel, so the operator can see which channel holds the
     structure to segment and pick it here.
+
+    Each pick becomes a target whose ``source`` carries the engine's per-cell
+    measurements. The base features (``area_px``, ``eccentricity``,
+    ``mean_intensity``) are always present; anything the engine additionally
+    reports under ``pick["metrics"]`` — for the simulator, one mean intensity
+    per channel — is passed through as an extra gateable feature.
+
+    IMPORTANT dependency: the explorer's combined gates can only select
+    double / triple-positive cells when the engine reports a PER-CHANNEL
+    intensity per cell (so there is a "marker A" and a "marker B" to gate on
+    together). That is a property of the smart-analysis pipeline's feature
+    extraction, not of this workflow. When the engine reports only a single
+    ``mean_intensity`` (one channel), gating still works — on area,
+    eccentricity, and that intensity — but multi-marker gating has nothing to
+    combine. The demo's simulated engine reports per-channel intensities so
+    the whole path can be exercised without a microscope.
     """
     if isinstance(segmentation_channel, bool) or not isinstance(segmentation_channel, int):
         raise ValueError("segmentation_channel must be a whole number (0 for the first channel)")
