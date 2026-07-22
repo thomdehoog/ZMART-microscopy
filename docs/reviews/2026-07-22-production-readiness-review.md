@@ -103,6 +103,47 @@ segment on is first — or we add "segmentation channel" as an explicit option
    the mock rightly skips them.
 5. **Segmentation channel choice** — see the channels section above.
 
+## Known design limitations (found in a later critical review)
+
+These are not bugs — the code behaves as written and is tested — but they are
+places where a feature promises more than the current data or wiring delivers.
+They are recorded here so nobody mistakes the demo for the production story.
+
+1. **Combined gates need per-channel features the real engine may not report.**
+   The explorer can gate on any per-cell measurement discovery hands it, and
+   selecting double / triple-positive cells specifically needs a per-channel
+   intensity (a "marker A" and a "marker B" to require together). Today the
+   ONLY producer of per-channel metrics in this repository is the simulated
+   engine; the real smart-analysis pipeline must be configured to extract
+   per-channel intensities for multi-marker gating to work on a microscope.
+   Until that is confirmed, treat the multi-marker gating demo as aspirational:
+   the ZMART side is correctly built to consume the features (a generic
+   `pick["metrics"]` passthrough) and degrades gracefully to area / eccentricity
+   / single intensity, but the production data feeding double-positive gating is
+   unverified. This is the first thing to settle before relying on the feature.
+
+2. **The field-of-view preview shows hand-picked cells, not a random sample.**
+   The strip under the plot previews the cells picked by hand. The gallery's
+   default Acquire draws a RANDOM sample from the gate instead, and those cells
+   are not previewed — so "see what will be acquired" only matches reality when
+   the operator uses "Acquire selected".
+
+3. **The overview map does not show the discovered cells in the web app.** The
+   viewer supports cell marks over the mosaic (`_linked_viewer`), but the web
+   flow never links the explorer to the map, so discovery shows a feature-space
+   scatter rather than dots on the real image. The intuitive "cells lit on the
+   map" view exists in code but is unwired.
+
+4. **Two orchestration paths.** The notebook cells and the web `RunFlow` both
+   implement the same run and can drift; several behaviours (the run journal,
+   the restart/shutdown guards, the segmentation-channel plumbing) live only in
+   the web flow.
+
+5. **The widget JavaScript is only covered by browser tests.** The React apps
+   live in Python strings that unit tests never execute, so a JS mistake passes
+   pytest and is caught only by the Playwright tests — which are slow and skip
+   when Playwright is absent.
+
 ## How to re-verify
 
 ```bash
