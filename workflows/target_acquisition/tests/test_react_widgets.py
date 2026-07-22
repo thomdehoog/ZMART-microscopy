@@ -315,6 +315,28 @@ def test_explorer_refuses_empty_targets():
         wreact.explore_targets([])
 
 
+def test_explorer_picking_populates_the_fov_strip(tmp_path):
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)], crop_um=20.0)
+    assert explorer.picked_crops == []  # nothing picked yet
+    explorer.handle_message({"type": "pick", "index": 1})
+    explorer.handle_message({"type": "pick", "index": 3})
+    got = {c["index"] for c in explorer.picked_crops}
+    assert got == {1, 3}
+    assert all(c["src"].startswith("data:image/png") for c in explorer.picked_crops)
+    # Un-picking removes its crop from the strip.
+    explorer.handle_message({"type": "pick", "index": 1})
+    assert {c["index"] for c in explorer.picked_crops} == {3}
+
+
+def test_explorer_fov_strip_is_capped_for_large_selections(tmp_path):
+    explorer = wreact.explore_targets(_targets(6), [_overview(tmp_path)], crop_um=20.0)
+    explorer._picked_crop_cap = 3
+    for i in range(6):
+        explorer.handle_message({"type": "pick", "index": i})
+    assert len(explorer.picked_indices) == 6  # the true pick count is unbounded
+    assert len(explorer.picked_crops) == 3  # the strip stops building thumbnails
+
+
 # --- acquisition gallery ---------------------------------------------------------
 
 
