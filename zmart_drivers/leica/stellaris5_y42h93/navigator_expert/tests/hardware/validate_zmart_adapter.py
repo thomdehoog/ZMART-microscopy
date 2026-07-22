@@ -113,6 +113,11 @@ def _connect_session(args: argparse.Namespace, adapter: Any, output_root: str | 
         # Use a hermetic ProgramData fixture so the adapter connect's REAL
         # limits handshake succeeds without touching this developer machine.
         hermetic_mock_machine_root()
+        # The fixture publishes its two-objective translations as the NAMED
+        # set below (named sets are only ever selected explicitly). Without
+        # it, connect loads the placeholder default and the mock's job switch
+        # (slot 3 <-> 1) is refused fail-closed for lacking translations.
+        inst["calibration_name"] = "water_lens_setup"
         adapter._session.connect_python_client = lambda **_kw: MockLasxClient(
             latency=args.mock_latency
         )

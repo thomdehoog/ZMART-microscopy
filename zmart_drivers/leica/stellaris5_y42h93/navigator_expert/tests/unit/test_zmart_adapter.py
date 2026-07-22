@@ -390,7 +390,9 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(opts["job"]["active"], "HiRes")
         self.assertNotIn("mode", selected.call_args.kwargs)
         self.assertEqual(opts["backlash_rounds"]["active"], 0)
-        self.assertEqual(adapter.ACQUISITION_BACKLASH_DEFAULT_ROUNDS, 0)
+        # The active defaults come from the driver's config profile — the
+        # adapter must reflect it, not carry its own copy of the decision.
+        self.assertEqual(adapter._profiles.ZMART_ADAPTER.acquisition_backlash_rounds, 0)
         self.assertEqual(opts["backlash_rounds"]["options"], "int >= 0")
         self.assertEqual(opts["strip_scan_fields"]["active"], True)  # default on
         self.assertEqual(opts["format"]["active"], "ome-tiff")
