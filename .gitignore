@@ -29,3 +29,6 @@ hardware_run_report_*.md
 driver_log_*.log
 zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/current.json
 workflows/target_acquisition/*_worked*.ipynb
+
+# The demo webapp's run folder (created by `run_webapp.py --demo`).
+workflows/target_acquisition/zmart_demo_run/
