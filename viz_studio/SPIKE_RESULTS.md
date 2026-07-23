@@ -19,9 +19,10 @@ now **fixed** — see "The render bug and its fix" below.
 ## What is proven (here, in a headless browser)
 
 - **Bundling (was the #1 risk — now retired).** neuroglancer 2.41 bundles and
-  boots in Vite + React 19, mounted chrome-hidden in our own component. Both
-  `vite dev` and `vite build` work. The workers end up inlined into the bundle,
-  so there are no worker-file 404s.
+  boots in Vite + React 19, mounted chrome-hidden in our own component. The
+  production build (`npm run build`, served by Python) is the verified path; its
+  two background workers are compiled ahead of time and emitted as real asset
+  files (not inlined — that is what lets them fetch chunks; see the fix below).
 - **The integration recipe** (the real unknown, now known):
   - `optimizeDeps.exclude: ['neuroglancer']` in `vite.config.js`.
   - Import four registration modules before creating the viewer, or every data
@@ -61,16 +62,16 @@ main thread) loaded; pixel chunks (fetched in the worker) never did.
 
 **Fix** (in `frontend/`):
 
-1. `build-workers.mjs` pre-compiles both worker entry points with esbuild into
+1. `precompile-workers.mjs` pre-compiles both worker entry points with esbuild into
    real, self-contained bundles (all `#src/...` resolved). Runs before every
    build. It asserts each compiled worker is large, so a silent regression to
    the stub fails the build loudly.
-2. `postbuild.mjs` copies the compiled `async_computation.bundle.js` to the site
+2. `copy-async-worker.mjs` copies the compiled `async_computation.bundle.js` to the site
    root, where the chunk worker loads it from at runtime.
 3. `vite.config.js` sets `build.assetsInlineLimit: 0` so the worker is emitted as
    a real file (a data:-URL worker has no origin and cannot fetch chunks).
 4. `package.json` build script chains them:
-   `node build-workers.mjs && vite build && node postbuild.mjs`.
+   `node precompile-workers.mjs && vite build && node copy-async-worker.mjs`.
 
 **Verified here:** with the fix, the demo volume reaches `270/270` visible chunks
 available and the blob "cells" render in all cross-sections and the 3-D view, in
@@ -92,7 +93,7 @@ machine (a real GPU) it will render at least as well.
 After building, `frontend/dist/assets/` must contain a **large** (~1 MB)
 `chunk_worker.bundle-*.js`, and `frontend/dist/async_computation.bundle.js` must
 exist (~1.5 MB). If either is missing or tiny (~669 bytes), the worker fix did
-not take and the viewer will grey out. `build-workers.mjs` already fails the
+not take and the viewer will grey out. `precompile-workers.mjs` already fails the
 build if the compiled workers are too small.
 
 ## Notes / gotchas recorded for later
