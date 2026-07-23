@@ -32,3 +32,7 @@ ipympl>=0.9
 # React-based notebook widgets (zmart_microscopy_v4_react.ipynb).
 anywidget>=0.9
 traitlets>=5.9
+
+# Shows the operator website in its own desktop window (`run_webapp.py
+# --window`). Optional: without it the page still serves to a browser.
+pywebview>=5

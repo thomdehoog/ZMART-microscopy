@@ -20,6 +20,23 @@ offline notebook tests execute — so every step behaves like the real run:
 discovery really segments the tiles, and Acquire really "images" the
 cells you gated.
 
+## In its own window instead of a browser
+
+Add `--window` to either command and the page opens as a desktop
+application window — no browser, no address bar, no tab to lose behind
+other windows:
+
+```
+python run_webapp.py --demo --window
+```
+
+Closing the window ends the run, exactly like Ctrl+C in the terminal.
+This needs the `pywebview` package, which the `zmart-microscopy`
+environment installs (`environment.yml`, via pip — conda-forge does not
+package it). If it is missing, or a Windows PC lacks the WebView2 runtime
+the window is drawn with, the page still serves at the printed address
+and says so — so `--window` is safe to pass on any machine.
+
 ## On the microscope PC
 
 The Python command starts both the website and its local server; there is no
@@ -36,6 +53,10 @@ Set-Location "\\zmbstaff.core.uzh.ch\zmbstaff\10374\Protocols_Notes\thom\notes\r
 Open <http://127.0.0.1:8765/> and keep the PowerShell window open while using
 the website. To stop safely, first press **Disconnect** in the website and then
 press **Ctrl+C** in PowerShell. Saved experiment files remain on disk.
+
+Adding `--window` to that command gives the operator an application window
+instead of a browser tab; the PowerShell window must still stay open, and the
+same Disconnect-then-stop order applies before closing it.
 
 Use `--experiment organoid-screen` to choose the experiment folder name.
 The website workflow adds the experiment hash and organizes every acquisition
