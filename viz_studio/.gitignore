@@ -1,0 +1,10 @@
+# Node dependencies and the built page are generated, not source.
+frontend/node_modules/
+frontend/dist/
+
+# The demo volume is generated on first run.
+backend/demo_store/
+
+# Python and test scratch.
+**/__pycache__/
+backend/_check/

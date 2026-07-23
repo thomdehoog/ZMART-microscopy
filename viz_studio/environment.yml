@@ -1,0 +1,33 @@
+# Conda environment for the ZMART visualization studio.
+#
+# This installs everything the *running* tool needs on the microscope PC:
+# Python, the array library, the OME-Zarr writer, and the native-window
+# library. It deliberately avoids heavy web frameworks — the server is Python's
+# built-in one — so the install stays small and offline-friendly.
+#
+# Node.js is included only to *build* the viewer web page from source. Once the
+# page is built (into frontend/dist) it is plain files, and an end user who is
+# handed a pre-built copy does not need Node at all.
+#
+# Create it with:   conda env create -f environment.yml
+# then:             conda activate zmart-viz && python run_demo.py
+
+name: zmart-viz
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python>=3.11
+  - numpy
+  # Writes the image volume in OME-Zarr. zarr-python 3.x writes the widely-read
+  # version-2 on-disk layout that the viewer engine reads most reliably.
+  - zarr>=3
+  # Opens the viewer in a native desktop window using the operating system's own
+  # web engine (WebView2/Chromium on Windows) — lightweight, no bundled browser.
+  - pywebview
+  # Build-time only: compiles the viewer web page. Not needed by an end user who
+  # receives a pre-built page.
+  - nodejs>=20
+  # Optional: drives a real browser for the automated rendering check
+  # (backend/browsercheck.py). Handy for developers, not required to run.
+  - playwright
