@@ -47,12 +47,6 @@ def main(argv: list[str] | None = None) -> int:
         help="which tiles to open, e.g. 0,1 — default is every tile found",
     )
     parser.add_argument(
-        "--volume",
-        action="store_true",
-        help="render as a volume in the 3-D panel, with intensity driving "
-        "opacity and the window measured high so background stays clear",
-    )
-    parser.add_argument(
         "--depth-samples",
         type=int,
         default=256,
@@ -60,6 +54,11 @@ def main(argv: list[str] | None = None) -> int:
         "This, not the zoom, is what sets the resolution the volume is drawn "
         "at: neuroglancer picks the pyramid level a ray crosses in about this "
         "many steps. Higher is sharper and slower.",
+    )
+    parser.add_argument(
+        "--chrome",
+        action="store_true",
+        help="show neuroglancer's own bounding box and axis lines (off by default)",
     )
     parser.add_argument(
         "--filter",
@@ -101,8 +100,8 @@ def main(argv: list[str] | None = None) -> int:
             data_dir=parent,
             store=names,
             window=window,
-            volumetric=args.volume,
             depth_samples=args.depth_samples,
+            chrome=args.chrome,
         )
         return 0
 
@@ -114,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Making the demo volume (first run only)...")
         write_demo_zarr(store)
     print("Opening the visualization studio (demo mode)...")
-    open_window(window=window, volumetric=args.volume, depth_samples=args.depth_samples)
+    open_window(window=window, depth_samples=args.depth_samples, chrome=args.chrome)
     return 0
 
 

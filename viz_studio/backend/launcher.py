@@ -63,8 +63,8 @@ def open_window(
     data_dir: Path | None = None,
     store: str | list[str] = "demo.zarr",
     window: tuple[float, float] | None = None,
-    volumetric: bool = False,
     depth_samples: int = 256,
+    chrome: bool = False,
 ) -> None:
     """Start the server and open the studio in a native window.
 
@@ -75,8 +75,8 @@ def open_window(
     kwargs = {
         "store": store,
         "window": window,
-        "volumetric": volumetric,
         "depth_samples": depth_samples,
+        "chrome": chrome,
     }
     if data_dir is not None:
         kwargs["data_dir"] = data_dir

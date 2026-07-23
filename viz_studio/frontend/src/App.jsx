@@ -1,12 +1,31 @@
 import React from "react";
 import NeuroglancerView from "./NeuroglancerView.jsx";
+import LayerPanel from "./LayerPanel.jsx";
 
-// What to open, and how to display it, comes from the Python side: pointing the
-// viewer at a real acquisition is then a server-side argument rather than a
-// rebuild of this page. The demo store is the fallback so `vite dev` still shows
-// something when no server config is reachable.
+// The two ways of looking at a volume, and the only thing the operator has to
+// choose between. 2-D is the working view -- one plane, scroll through the
+// stack. 3-D is for reading shape: the same data ray-cast, rotatable.
+const MODES = { flat: "2D", volume: "3D" };
+
+// Neuroglancer names its panels after *display* axes, while an OME-Zarr volume
+// arrives ordered z, y, x. Its "yz" panel is therefore the one showing the
+// image plane with z perpendicular -- the plane you scroll through. Measured,
+// not assumed: in "xy" the wheel steps x.
+const SLICE_LAYOUT = "yz";
+const VOLUME_LAYOUT = "3d";
+
 const FALLBACK = {
-  layers: [{ name: "volume", source: "/data/demo.zarr/|zarr2:", window: null, color: null }],
+  layers: [
+    {
+      name: "volume",
+      source: "/data/demo.zarr/|zarr2:",
+      window: null,
+      volumeWindow: null,
+      color: null,
+    },
+  ],
+  depthSamples: 256,
+  chrome: false,
 };
 
 async function fetchConfig() {
@@ -19,81 +38,154 @@ async function fetchConfig() {
   }
 }
 
-// Stretch the given intensity window across the display ramp. Real acquisitions
-// occupy a narrow band of the 16-bit range, so without this they render black.
-// A colour is emitted when several channels are shown together, so they overlay
-// legibly instead of washing into one grey.
-// In 3-D the intensity has to drive opacity as well, or every background voxel
-// along the ray adds a little haze and the specimen is lost in fog.
+// Real acquisitions occupy a narrow band of the 16-bit range, so without an
+// explicit window they render black. In 3-D the intensity drives opacity as
+// well, or every background voxel along the ray adds haze and the specimen is
+// lost in fog.
 function shaderFor(window_, color, volumetric) {
   if (!window_) return undefined;
-  let control = `#uicontrol invlerp normalized(range=[${window_.low}, ${window_.high}])\n`;
+  let source = `#uicontrol invlerp normalized(range=[${window_.low}, ${window_.high}])\n`;
   if (volumetric) {
-    control += "#uicontrol float opacity slider(min=0, max=1, default=1)\n";
+    source += "#uicontrol float opacity slider(min=0, max=1, default=1)\n";
     const [r, g, b] = color || [1, 1, 1];
-    return control + `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized() * opacity)); }`;
+    return source + `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized() * opacity)); }`;
   }
-  if (!color) return control + "void main() { emitGrayscale(normalized()); }";
+  if (!color) return source + "void main() { emitGrayscale(normalized()); }";
   const [r, g, b] = color;
-  return control + `void main() { emitRGB(vec3(${r}, ${g}, ${b}) * normalized()); }`;
+  return source + `void main() { emitRGB(vec3(${r}, ${g}, ${b}) * normalized()); }`;
+}
+
+function layersFor(config, mode, layerState) {
+  const volumetric = mode === "volume";
+  return config.layers.map((spec, index) => {
+    const { visible, color } = layerState[index];
+    const layer = {
+      type: "image",
+      name: spec.name,
+      source: `${window.location.origin}${spec.source}`,
+    };
+    const shader = shaderFor(
+      volumetric ? spec.volumeWindow || spec.window : spec.window,
+      color,
+      volumetric,
+    );
+    if (shader) layer.shader = shader;
+    layer.visible = visible;
+    if (volumetric) {
+      layer.volumeRendering = "on";
+      // This, not the zoom, chooses the pyramid level the volume is drawn from.
+      layer.volumeRenderingDepthSamples = config.depthSamples;
+    }
+    return layer;
+  });
+}
+
+function ModeToggle({ mode, onChange }) {
+  return (
+    <div style={styles.toggle}>
+      {Object.entries(MODES).map(([key, label]) => (
+        <button
+          key={key}
+          onClick={() => onChange(key)}
+          style={{ ...styles.button, ...(mode === key ? styles.buttonActive : null) }}
+          title={key === "flat" ? "One plane; scroll to move through z" : "Ray-cast volume; drag to rotate"}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /**
  * The application shell, and the single owner of what the viewer shows.
  *
- * <NeuroglancerView> mounts the engine and hands us the `viewer`. Everything
- * about *what* is displayed — which layers, the 2-D/3-D layout, and later the
- * brightness and z-position — lives here and is pushed into the engine through
- * its `viewer.state`. Because this is the only writer of that state, adding
- * controls later is just more of the same call, with no second owner to fight.
- *
- * The layout is a flex row so the control panel (layers, contrast, ...) can grow
- * on the left in the next step, with the viewer filling the rest.
+ * <NeuroglancerView> mounts the engine and hands back the `viewer`; everything
+ * about *what* is displayed is pushed in from here. Switching between the plane
+ * and the volume re-applies state to the same viewer rather than rebuilding it,
+ * so the data already fetched stays in memory and the toggle is instant.
  */
 export default function App() {
   const [viewer, setViewer] = React.useState(null);
+  const [config, setConfig] = React.useState(null);
+  const [mode, setMode] = React.useState("flat");
+  // Per-layer interface state. Held here rather than in the engine because the
+  // panel and the viewer must never disagree about what is showing.
+  const [layerState, setLayerState] = React.useState([]);
 
-  // Once the engine exists, load the demo volume into it. This effect is the
-  // one and only place viewer state is set; the future control panel will write
-  // through the same `viewer` handle.
   React.useEffect(() => {
-    if (!viewer) return undefined;
-    window.zmartViewer = viewer; // handy for inspection and the browser test
     let cancelled = false;
-    fetchConfig().then((config) => {
+    fetchConfig().then((loaded) => {
       if (cancelled) return;
-      const layers = config.layers.map((spec) => {
-        const layer = {
-          type: "image",
-          name: spec.name,
-          source: `${window.location.origin}${spec.source}`,
-        };
-        const shader = shaderFor(spec.window, spec.color, spec.volumetric);
-        if (shader) layer.shader = shader;
-        if (spec.volumetric) {
-          layer.volumeRendering = "on";
-          // Not cosmetic: this is what picks the pyramid level in 3-D. Zooming
-          // does not sharpen a volume — neuroglancer chooses the level a ray
-          // crosses in about this many samples, so 64 (its default) stays
-          // coarse however far you zoom in.
-          layer.volumeRenderingDepthSamples = spec.depthSamples;
-        }
-        return layer;
-      });
-      viewer.state.restoreState({ layers, layout: "4panel" });
-      window.zmartConfig = config; // what the page was told to open
+      setConfig(loaded);
+      setLayerState(loaded.layers.map((spec) => ({ visible: true, color: spec.color })));
     });
     return () => {
       cancelled = true;
     };
-  }, [viewer]);
+  }, []);
+
+  React.useEffect(() => {
+    if (!viewer || !config || layerState.length !== config.layers.length) return;
+    window.zmartViewer = viewer; // handy for inspection and the browser tests
+    window.zmartConfig = config;
+    window.zmartMode = mode;
+    window.zmartLayerState = layerState;
+    viewer.state.restoreState({
+      layers: layersFor(config, mode, layerState),
+      layout: mode === "volume" ? VOLUME_LAYOUT : SLICE_LAYOUT,
+      // The engine's own furniture -- the yellow data-bounds box and the axis
+      // lines -- is off unless asked for. We are supplying the interface.
+      showDefaultAnnotations: config.chrome ?? false,
+      showAxisLines: config.chrome ?? false,
+      showScaleBar: true,
+    });
+  }, [viewer, config, mode, layerState]);
+
+  const setLayer = (index, change) =>
+    setLayerState((current) =>
+      current.map((entry, i) => (i === index ? { ...entry, ...change } : entry)),
+    );
 
   return (
-    <div style={{ position: "absolute", inset: 0, display: "flex", background: "#0b0d10" }}>
-      {/* The control panel will live here, to the left of the viewer. */}
-      <main style={{ flex: 1, position: "relative" }}>
+    <div style={styles.shell}>
+      {config && (
+        <LayerPanel
+          layers={config.layers}
+          state={layerState}
+          onToggle={(i) => setLayer(i, { visible: !layerState[i].visible })}
+          onColor={(i, color) => setLayer(i, { color })}
+        />
+      )}
+      <main style={styles.stage}>
         <NeuroglancerView onViewer={setViewer} />
+        <ModeToggle mode={mode} onChange={setMode} />
       </main>
     </div>
   );
 }
+
+const styles = {
+  shell: { position: "absolute", inset: 0, display: "flex", background: "#0b0d10" },
+  stage: { flex: 1, position: "relative" },
+  toggle: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    zIndex: 10,
+    display: "flex",
+    borderRadius: 6,
+    overflow: "hidden",
+    border: "1px solid #2c333d",
+    boxShadow: "0 1px 4px rgba(0,0,0,.5)",
+  },
+  button: {
+    padding: "6px 14px",
+    border: "none",
+    background: "#161a20",
+    color: "#8b95a3",
+    font: "600 12px/1 system-ui, sans-serif",
+    cursor: "pointer",
+  },
+  buttonActive: { background: "#2f6feb", color: "#fff" },
+};

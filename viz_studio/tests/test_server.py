@@ -99,10 +99,14 @@ def test_config_tells_the_page_what_to_open(serving):
     """The page fetches this instead of hardcoding a store, so --data works."""
     status, _, body = request(serving, "/api/config")
     assert status == 200
-    layers = json.loads(body)["layers"]
+    config = json.loads(body)
+    layers = config["layers"]
     assert len(layers) == 1
     assert layers[0]["source"] == "/data/demo.zarr/|zarr2:"
     assert layers[0]["window"]["high"] > layers[0]["window"]["low"]
+    # Both windows travel up front so the 2-D/3-D toggle needs no round trip.
+    assert layers[0]["volumeWindow"]["high"] > layers[0]["volumeWindow"]["low"]
+    assert config["chrome"] is False, "the engine's own furniture stays hidden"
 
 
 def test_config_reports_the_store_it_was_given(tmp_path):

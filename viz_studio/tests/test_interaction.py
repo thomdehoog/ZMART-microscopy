@@ -1,27 +1,25 @@
-"""Can the operator actually navigate the volume?
+"""Can the operator actually navigate, in both modes?
 
 This is the regression guard for a bug that made the viewer look finished and
 be unusable: neuroglancer's panels received every mouse event, the volume
-rendered, and nothing moved — because ``makeMinimalViewer`` builds a viewer but
-does not install the default input bindings (its own entry points call
-``setDefaultInputEventBindings`` separately). Rendering tests cannot catch that;
+rendered, and nothing moved -- because ``makeMinimalViewer`` builds a viewer but
+does not install the default input bindings. Rendering tests cannot catch that;
 only driving the gestures can.
 
-The gestures asserted here are neuroglancer's own defaults:
+The gestures are neuroglancer's own defaults, checked in the layout we actually
+ship -- a single plane, and the volume behind the 3-D toggle:
 
 ===================  =========================================
 gesture              effect
 ===================  =========================================
-drag a slice panel   pans (moves the position)
+drag                 pans
 plain wheel          steps one z-plane
 control+wheel        zooms
-drag the 3-D panel   rotates (changes the orientation)
+drag in 3-D mode     rotates
 ===================  =========================================
 """
 
 from __future__ import annotations
-
-import pytest
 
 _STATE = """() => {
   const v = window.zmartViewer;
@@ -32,33 +30,14 @@ _STATE = """() => {
   };
 }"""
 
-# The 3-D panel renders many slice views at once (``sliceViews``); a
-# cross-section panel holds exactly one (``sliceView``). That distinction
-# survives minification, unlike class names.
-_PANELS = """() => Array.from(window.zmartViewer.display.panels).map(p => {
-  const r = p.element.getBoundingClientRect();
-  return {
-    cx: Math.round(r.x + r.width / 2),
-    cy: Math.round(r.y + r.height / 2),
-    perspective: 'sliceViews' in p,
-  };
-})"""
+_CENTRE = """() => {
+  const r = document.querySelector('.neuroglancer-panel').getBoundingClientRect();
+  return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
+}"""
 
 
-def panels(page):
-    found = page.evaluate(_PANELS)
-    assert len(found) == 4, f"expected the 4panel layout, got {len(found)}"
-    return found
-
-
-def slice_panel(page):
-    return next(p for p in panels(page) if not p["perspective"])
-
-
-def perspective_panel(page):
-    matches = [p for p in panels(page) if p["perspective"]]
-    assert len(matches) == 1, f"expected exactly one 3-D panel, got {len(matches)}"
-    return matches[0]
+def centre(page):
+    return page.evaluate(_CENTRE)
 
 
 def drag(page, x, y, dx, dy):
@@ -67,52 +46,58 @@ def drag(page, x, y, dx, dy):
     for step in range(1, 11):
         page.mouse.move(x + dx * step / 10, y + dy * step / 10)
     page.mouse.up()
-    page.wait_for_timeout(500)
+    page.wait_for_timeout(600)
 
 
-def test_the_four_panel_layout_has_three_slices_and_one_three_d(viewer_page):
-    found = panels(viewer_page)
-    assert sum(p["perspective"] for p in found) == 1
-    assert sum(not p["perspective"] for p in found) == 3
+def test_the_viewer_opens_as_a_single_panel(viewer_page):
+    assert viewer_page.evaluate("() => document.querySelectorAll('.neuroglancer-panel').length") == 1
 
 
-def test_dragging_a_slice_panel_pans_the_volume(viewer_page):
+def test_dragging_pans(viewer_page):
     before = viewer_page.evaluate(_STATE)
-    target = slice_panel(viewer_page)
-    drag(viewer_page, target["cx"], target["cy"], 120, 80)
+    point = centre(viewer_page)
+    drag(viewer_page, point["x"], point["y"], 120, 80)
     after = viewer_page.evaluate(_STATE)
     assert after["position"] != before["position"], "drag did not move the position"
 
 
-def test_plain_wheel_steps_through_z(viewer_page):
+def test_plain_wheel_steps_through_z_without_zooming(viewer_page):
     before = viewer_page.evaluate(_STATE)
-    target = slice_panel(viewer_page)
-    viewer_page.mouse.move(target["cx"], target["cy"])
+    point = centre(viewer_page)
+    viewer_page.mouse.move(point["x"], point["y"])
     viewer_page.mouse.wheel(0, -300)
-    viewer_page.wait_for_timeout(500)
+    viewer_page.wait_for_timeout(600)
     after = viewer_page.evaluate(_STATE)
-    assert after["position"] != before["position"]
+    assert after["position"][0] != before["position"][0], "the wheel must step z"
     assert after["zoom"] == before["zoom"], "a plain wheel must scroll, not zoom"
 
 
 def test_control_wheel_zooms(viewer_page):
     before = viewer_page.evaluate(_STATE)
-    target = slice_panel(viewer_page)
-    viewer_page.mouse.move(target["cx"], target["cy"])
+    point = centre(viewer_page)
+    viewer_page.mouse.move(point["x"], point["y"])
     viewer_page.keyboard.down("Control")
     viewer_page.mouse.wheel(0, -600)
     viewer_page.keyboard.up("Control")
-    viewer_page.wait_for_timeout(500)
+    viewer_page.wait_for_timeout(600)
     after = viewer_page.evaluate(_STATE)
     assert after["zoom"] != before["zoom"], "control+wheel did not zoom"
 
 
-def test_dragging_the_three_d_panel_rotates_the_volume(viewer_page):
+def test_dragging_rotates_once_in_three_d(viewer_page):
+    viewer_page.click("text=3D")
+    viewer_page.wait_for_timeout(2000)
     before = viewer_page.evaluate(_STATE)
-    target = perspective_panel(viewer_page)
-    drag(viewer_page, target["cx"], target["cy"], 100, -60)
+    point = centre(viewer_page)
+    drag(viewer_page, point["x"], point["y"], 100, -60)
     after = viewer_page.evaluate(_STATE)
     assert after["orientation"] != before["orientation"], "3-D drag did not rotate"
-    assert after["orientation"] != pytest.approx([0.0, 0.0, 0.0, 1.0]), (
-        "orientation is still the identity quaternion"
-    )
+
+
+def test_the_plane_does_not_rotate(viewer_page):
+    """In 2-D a drag pans; rotation would be a mode leaking where it shouldn't."""
+    before = viewer_page.evaluate(_STATE)
+    point = centre(viewer_page)
+    drag(viewer_page, point["x"], point["y"], 100, -60)
+    after = viewer_page.evaluate(_STATE)
+    assert after["orientation"] == before["orientation"]
