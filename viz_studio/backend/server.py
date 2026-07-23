@@ -183,8 +183,8 @@ def make_server(
     site_dir: Path = _FRONTEND_DIST,
     store: str | list[str] = "demo.zarr",
     window: tuple[float, float] | None = None,
-    volumetric: bool = False,
     depth_samples: int = 256,
+    chrome: bool = False,
 ) -> ThreadingHTTPServer:
     """Create (but do not start) the viewer's web server.
 
@@ -206,22 +206,26 @@ def make_server(
     labels = layer_names(names)
     layers = []
     for name, label in zip(names, labels, strict=True):
-        if window is not None:
-            low, high = window
-        else:
-            low, high = display_window(data_dir / name, volumetric=volumetric)
+        # Both windows travel with the layer so switching between the plane and
+        # the volume is instant: the client already has what each mode needs
+        # and never goes back to the server for it.
+        flat = window if window is not None else display_window(data_dir / name)
+        volume = (
+            window
+            if window is not None
+            else display_window(data_dir / name, volumetric=True)
+        )
         color = channel_color(name) if len(names) > 1 else None
         layers.append(
             {
                 "name": label,
                 "source": f"/data/{name}/|zarr2:",
-                "window": {"low": low, "high": high},
+                "window": {"low": flat[0], "high": flat[1]},
+                "volumeWindow": {"low": volume[0], "high": volume[1]},
                 "color": list(color) if color else None,
-                "volumetric": volumetric,
-                "depthSamples": depth_samples,
             }
         )
-    config = {"layers": layers}
+    config = {"layers": layers, "depthSamples": depth_samples, "chrome": chrome}
     handler = functools.partial(
         _Handler,
         data_dir=data_dir,
