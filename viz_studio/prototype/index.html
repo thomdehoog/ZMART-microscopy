@@ -16,6 +16,8 @@
     width:min(1160px,100%);height:min(760px,calc(100vh - 44px));display:flex;flex-direction:column;
     border:1px solid #20262e;border-radius:12px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6);background:var(--bg);
   }
+
+  /* window chrome */
   .titlebar{height:38px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:0 12px;
     background:linear-gradient(#171b21,#12151a);border-bottom:1px solid #20262e;user-select:none}
   .dot{width:11px;height:11px;border-radius:50%}
@@ -25,11 +27,15 @@
     color:var(--ink-faint);border:1px solid #262d36;border-radius:999px;padding:4px 9px}
   .shell{flex:1;display:flex;min-height:0}
 
+  /* sidebar */
   .side{width:252px;flex:0 0 auto;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
   .side .scroll{overflow-y:auto;overflow-x:hidden;flex:1;min-height:0}
   .sec-head{padding:12px 14px 8px;font:600 11px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;
     color:var(--ink-faint);display:flex;align-items:center;gap:8px}
   .sec-head .hint{margin-left:auto;font-weight:600;letter-spacing:0;text-transform:none;color:var(--ink-dim)}
+  .divider{height:1px;background:var(--line);margin:2px 0}
+
+  /* layer-control widgets */
   .ctrls{padding:2px 14px 12px;display:flex;flex-direction:column;gap:11px}
   .ctrl{display:grid;grid-template-columns:60px 1fr 36px;align-items:center;gap:9px}
   .ctrl label{color:var(--ink-dim);font-size:12px}
@@ -37,6 +43,7 @@
   input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:2px;background:#2a323c;outline:none;cursor:pointer}
   input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:#e8edf2;border:2px solid #0b0d10;box-shadow:0 0 0 1px #3a4551;cursor:pointer}
   input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:#e8edf2;border:2px solid #0b0d10;cursor:pointer}
+  input[type=range]:focus-visible{box-shadow:0 0 0 2px var(--accent)}
   .hist{width:100%;height:40px;display:block;background:#0d1116;border:1px solid var(--line);border-radius:5px;grid-column:1/-1}
   .contrast-rows{grid-column:1/-1;display:flex;flex-direction:column;gap:7px}
   .crow{display:grid;grid-template-columns:34px 1fr 34px;align-items:center;gap:9px}
@@ -51,8 +58,8 @@
   .btn:hover{background:#1b212a;color:var(--ink)}
   .btn.tiny{padding:5px 8px}
   .auto-row{grid-column:1/-1;display:flex;justify-content:flex-end}
-  .divider{height:1px;background:var(--line);margin:2px 0}
 
+  /* layer list */
   .layers{padding:2px 8px 8px;display:flex;flex-direction:column;gap:2px}
   .lrow{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent}
   .lrow:hover{background:#171c23}
@@ -65,6 +72,7 @@
   .lrow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .lrow .tag{font:500 10px/1 ui-monospace,Menlo,monospace;color:var(--ink-faint)}
 
+  /* tools */
   .tools{display:flex;gap:6px;padding:0 14px 4px}
   .tool{flex:1;border:1px solid var(--line2);background:#161a20;color:var(--ink-dim);border-radius:7px;padding:8px 4px;
     font:600 11px/1.2 system-ui;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px;transition:.1s}
@@ -72,6 +80,7 @@
   .tool:hover{background:#1b212a;color:var(--ink)}
   .tool.on{background:var(--accent-soft);border-color:var(--accent);color:#dbe7ff}
 
+  /* targets list */
   .targets{padding:2px 14px 10px;display:flex;flex-direction:column;gap:6px}
   .empty{color:var(--ink-faint);font-size:12px;line-height:1.5;padding:2px 0 4px}
   .trow{display:flex;align-items:center;gap:9px;padding:7px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:7px}
@@ -89,6 +98,7 @@
   .send-all:hover{background:#3f7bf5}
   .send-all:disabled{background:#1c2530;color:#4a5563;cursor:default}
 
+  /* stage */
   .stage{flex:1;position:relative;background:#000;overflow:hidden;min-width:0}
   canvas#view{position:absolute;inset:0;width:100%;height:100%;display:block}
   .stage.cross{cursor:crosshair}
@@ -117,8 +127,12 @@
     font:500 12px/1.35 system-ui;color:var(--ink);box-shadow:0 6px 20px rgba(0,0,0,.5);max-width:280px;animation:pop .25s ease}
   .toast b{color:#dbe7ff}
   @keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
   .foot{flex:0 0 auto;height:26px;display:flex;align-items:center;padding:0 14px;background:#0d1116;border-top:1px solid var(--line);font:500 10.5px/1 system-ui;color:#4e5763}
   .foot b{color:#69737f;font-weight:600}
+
+  .btn:focus-visible,.tool:focus-visible,.swatch:focus-visible,.toggle button:focus-visible,.eye:focus-visible,.go:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  @media (prefers-reduced-motion:reduce){.toast{animation:none}}
   @media (max-width:720px){.side{width:214px}}
 </style>
 
@@ -177,405 +191,723 @@
 
 <script>
 "use strict";
-/* ============================================================
-   A self-contained stand-in for the real viewer. Nothing here is
-   fixed to a channel count, a volume size, or a number of
-   timepoints: the DATASET object below stands in for the metadata
-   read from an OME-Zarr store, and the whole interface is derived
-   from it. Change it and the UI follows. Production swaps this
-   renderer for neuroglancer on the real store.
-   ============================================================ */
+/* ============================================================================
+   ZMART viewer — interactive prototype
+   ----------------------------------------------------------------------------
+   A single self-contained page that demonstrates the viewer's INTERFACE. It
+   generates a synthetic multi-channel, multi-timepoint lightsheet volume and
+   draws it with a small built-in renderer. The production viewer keeps this
+   exact interface and swaps the renderer for the neuroglancer engine reading
+   real OME-Zarr, out-of-core.
 
-function mulberry32(a){return function(){a|=0;a=(a+0x6D2B79F5)|0;let t=Math.imul(a^(a>>>15),1|a);
-  t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;};}
+   Design rule honoured throughout: nothing is fixed to a channel count, a
+   volume size, or a number of timepoints. The DATASET object below stands in
+   for the metadata that would be read from an OME-Zarr store, and every part
+   of the interface is derived from it. Change DATASET and the UI follows.
 
-const PALETTE=[
-  {name:"green",rgb:[0.10,1.00,0.42]},{name:"magenta",rgb:[1.00,0.22,1.00]},
-  {name:"cyan",rgb:[0.25,0.82,1.00]},{name:"amber",rgb:[1.00,0.78,0.16]},
-  {name:"blue",rgb:[0.36,0.50,1.00]},{name:"red",rgb:[1.00,0.32,0.30]},
-  {name:"grey",rgb:[0.85,0.88,0.92]},
-];
-const cssRGB=(rgb)=>`rgb(${rgb.map(v=>Math.round(v*255)).join(",")})`;
+   The file reads top-to-bottom in one logical flow:
+     1. utilities            small pure helpers
+     2. dataset + geometry   the sample descriptor and the constants it implies
+     3. sample data          synthetic volume/cloud/histograms  (PROTOTYPE ONLY)
+     4. state                what the viewer is currently showing
+     5. rendering            2-D plane, 3-D volume, annotation overlay, HUD
+     6. control panel        per-layer widgets
+     7. layer + target lists the napari-style lists
+     8. interaction          tools, mouse, sliders, mode toggle
+     9. microscope + chrome  the target handoff, toasts, hints
+    10. animation + boot     the render loop and start-up
+   ========================================================================== */
 
-/* ---- the sample dataset (stands in for OME-Zarr metadata) ----
-   Two channels for now. Add a third entry (or change nx/ny/nz/nt)
-   and every part of the UI adapts — nothing below hard-codes 2. */
-const DATASET={
-  nx:200, ny:200, nz:60, nt:8, vox:1.1,
-  channels:[
-    {name:"Ch488", tag:"GFP",     color:[0.10,1.00,0.42], gen:{count:380,rmin:1.6,rmax:3.4,shell:0.90}},
-    {name:"Ch647", tag:"far-red", color:[1.00,0.22,1.00], gen:{count:135,rmin:2.6,rmax:5.6,shell:0.16}},
+/* ---------------------------------------------------------------------------
+   1. UTILITIES
+   ------------------------------------------------------------------------- */
+
+// A tiny seeded random generator, so the synthetic sample looks identical on
+// every load instead of reshuffling. Returns a function giving values in [0,1).
+function makeRandom(seed){
+  return function(){
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+const rgbToCss = (rgb) => `rgb(${rgb.map(v => Math.round(v * 255)).join(",")})`;
+
+/* ---------------------------------------------------------------------------
+   2. DATASET + GEOMETRY
+   The sample descriptor stands in for OME-Zarr metadata. Two channels for now;
+   add a third entry, or change the dimensions, and the whole UI adapts.
+   ------------------------------------------------------------------------- */
+
+const DATASET = {
+  nx: 200, ny: 200, nz: 60, nt: 8, voxelUm: 1.1,
+  channels: [
+    { name: "Ch488", tag: "GFP",     color: [0.10, 1.00, 0.42], gen: { count: 380, rMin: 1.6, rMax: 3.4, shell: 0.90 } },
+    { name: "Ch647", tag: "far-red", color: [1.00, 0.22, 1.00], gen: { count: 135, rMin: 2.6, rMax: 5.6, shell: 0.16 } },
   ],
 };
-const NX=DATASET.nx, NY=DATASET.ny, NZ=DATASET.nz, NT=DATASET.nt, VOX=DATASET.vox;
-const NC=DATASET.channels.length, SLICE=NX*NY;
-const idx=(x,y,z)=>(z*NY+y)*NX+x;
 
-// per-(time,channel) volumes and clouds; per-channel histograms/sprites
-const vol=Array.from({length:NT},()=>Array.from({length:NC},()=>new Uint8Array(NX*NY*NZ)));
-const cloud=Array.from({length:NT},()=>Array.from({length:NC},()=>[]));
-const hist=Array.from({length:NC},()=>null);
-const sprites=Array.from({length:NC},()=>null);
+// Constants implied by the dataset. Everything downstream reads these, never
+// literal numbers, so a different dataset needs no other edits.
+const NX = DATASET.nx, NY = DATASET.ny, NZ = DATASET.nz, NT = DATASET.nt;
+const VOX = DATASET.voxelUm, NC = DATASET.channels.length;
+const PLANE = NX * NY;                      // voxels in one z-plane
+const voxelIndex = (x, y, z) => (z * NY + y) * NX + x;
+const DEPTH_STRETCH = 2.0;                  // exaggerates z in 3-D so shape reads
+const CLOUD_CAP = 1400;                     // brightest voxels kept per channel for 3-D
 
-// image layers derived from the dataset's channels
-const layers=DATASET.channels.map((c,i)=>({name:c.name,tag:c.tag,ch:i,color:c.color.slice(),visible:true,opacity:1,low:20,high:180}));
-// annotations live in their own layer (napari-style), separate from the image
-const annoLayer={name:"Targets",kind:"anno",visible:true,color:"#ffd34d"};
+// Colours offered when recolouring an image layer, and when recolouring targets.
+const PALETTE = [
+  { name: "green",  rgb: [0.10, 1.00, 0.42] }, { name: "magenta", rgb: [1.00, 0.22, 1.00] },
+  { name: "cyan",   rgb: [0.25, 0.82, 1.00] }, { name: "amber",   rgb: [1.00, 0.78, 0.16] },
+  { name: "blue",   rgb: [0.36, 0.50, 1.00] }, { name: "red",     rgb: [1.00, 0.32, 0.30] },
+  { name: "grey",   rgb: [0.85, 0.88, 0.92] },
+];
+const TARGET_COLORS = [["#ffd34d","amber"],["#ffffff","white"],["#57e0ff","cyan"],["#ff6b6b","red"],["#8affc1","green"]];
 
-let sel=0;            // image index (0..NC-1) or "anno"
-let mode="2d", z=Math.floor(NZ/2), tp=0, tool="nav";
-let yaw=0.6, pitch=-0.35, zoom=1, dragging=null;
-let annots=[], annotSeq=0;
+/* ---------------------------------------------------------------------------
+   3. SAMPLE DATA  (PROTOTYPE ONLY)
+   Build a synthetic embryo-like volume that evolves over time, plus the derived
+   structures the two renderers need. In production the engine streams real
+   chunks instead, so none of this section survives — but the interface above
+   and below it does, unchanged.
+   ------------------------------------------------------------------------- */
 
-// ---------------- build the synthetic, time-evolving volume ----------------
-function splat(V,cx,cy,cz,r,peak){
-  const R=Math.ceil(r*2.2), inv=1/(2*r*r);
-  for(let dz=-R;dz<=R;dz++){const zz=cz+dz; if(zz<0||zz>=NZ)continue;
-    for(let dy=-R;dy<=R;dy++){const yy=cy+dy; if(yy<0||yy>=NY)continue;
-      for(let dx=-R;dx<=R;dx++){const xx=cx+dx; if(xx<0||xx>=NX)continue;
-        const g=peak*Math.exp(-(dx*dx+dy*dy+dz*dz)*inv); if(g<3)continue;
-        const p=idx(xx,yy,zz),v=V[p]+g; V[p]=v>255?255:v;
+// vol[t][c]      full intensity volume per timepoint and channel (2-D renderer)
+// cloud[t][c]    the brightest voxels only, as flat typed arrays (3-D renderer)
+// histogram[c]   intensity distribution per channel (contrast panel)
+const vol = Array.from({ length: NT }, () => Array.from({ length: NC }, () => new Uint8Array(NX * NY * NZ)));
+const cloud = Array.from({ length: NT }, () => new Array(NC));
+const histogram = new Array(NC);
+
+// Add one soft, round blob of signal into a volume (a cell body).
+function addBlob(volume, cx, cy, cz, radius, peak){
+  const reach = Math.ceil(radius * 2.2), falloff = 1 / (2 * radius * radius);
+  for (let dz = -reach; dz <= reach; dz++){ const zz = cz + dz; if (zz < 0 || zz >= NZ) continue;
+    for (let dy = -reach; dy <= reach; dy++){ const yy = cy + dy; if (yy < 0 || yy >= NY) continue;
+      for (let dx = -reach; dx <= reach; dx++){ const xx = cx + dx; if (xx < 0 || xx >= NX) continue;
+        const g = peak * Math.exp(-(dx*dx + dy*dy + dz*dz) * falloff);
+        if (g < 3) continue;
+        const p = voxelIndex(xx, yy, zz), sum = volume[p] + g;
+        volume[p] = sum > 255 ? 255 : sum;
       }}}
 }
-function genCells(ch){
-  const c=DATASET.channels[ch], G=c.gen, rng=mulberry32(20260723+ch*7919);
-  const cx=NX/2,cy=NY/2,cz=NZ/2, ax=NX*0.36,ay=NY*0.28,az=NZ*0.37, cells=[];
-  for(let i=0;i<G.count;i++){
-    const u=rng()*2-1, th=rng()*Math.PI*2, s=Math.sqrt(1-u*u);
-    const rad=(rng()<G.shell)?(0.62+rng()*0.42):(Math.pow(rng(),0.6)*0.92);
+
+// Seed a channel's worth of cells, each with a small drift velocity so the
+// sample genuinely changes across timepoints (something for the T slider to do).
+function seedCells(channelIndex){
+  const g = DATASET.channels[channelIndex].gen;
+  const rand = makeRandom(20260723 + channelIndex * 7919);
+  const cx = NX/2, cy = NY/2, cz = NZ/2, ax = NX*0.36, ay = NY*0.28, az = NZ*0.37;
+  const cells = [];
+  for (let i = 0; i < g.count; i++){
+    const u = rand()*2 - 1, theta = rand()*Math.PI*2, ring = Math.sqrt(1 - u*u);
+    // A fraction `shell` of cells sit near the surface, the rest fill the interior.
+    const rf = rand() < g.shell ? 0.62 + rand()*0.42 : Math.pow(rand(), 0.6) * 0.92;
     cells.push({
-      x:cx+ax*rad*s*Math.cos(th)+(rng()-0.5)*7,
-      y:cy+ay*rad*s*Math.sin(th)+(rng()-0.5)*7,
-      z:cz+az*rad*u+(rng()-0.5)*4,
-      r:G.rmin+rng()*(G.rmax-G.rmin), peak:110+rng()*140,
-      vx:(rng()-0.5)*1.1, vy:(rng()-0.5)*1.1, vz:(rng()-0.5)*0.5, ph:rng()*6.28,
+      x: cx + ax*rf*ring*Math.cos(theta) + (rand()-0.5)*7,
+      y: cy + ay*rf*ring*Math.sin(theta) + (rand()-0.5)*7,
+      z: cz + az*rf*u + (rand()-0.5)*4,
+      radius: g.rMin + rand()*(g.rMax - g.rMin), peak: 110 + rand()*140,
+      vx: (rand()-0.5)*1.1, vy: (rand()-0.5)*1.1, vz: (rand()-0.5)*0.5, phase: rand()*6.28,
     });
   }
   return cells;
 }
-function buildVolume(){
-  for(let ch=0;ch<NC;ch++){
-    const cells=genCells(ch);
-    for(let t=0;t<NT;t++){
-      const V=vol[t][ch];
-      for(const c of cells){
-        const x=(c.x+c.vx*t)|0, y=(c.y+c.vy*t)|0, zz=(c.z+c.vz*t)|0;
-        const peak=c.peak*(0.82+0.18*Math.sin(c.ph+t*0.6));
-        splat(V,x,y,zz,c.r,peak);
+
+// Paint every (timepoint, channel) volume from its drifting, pulsing cells.
+function buildVolumes(){
+  for (let c = 0; c < NC; c++){
+    const cells = seedCells(c);
+    for (let t = 0; t < NT; t++){
+      const volume = vol[t][c];
+      for (const cell of cells){
+        const x = (cell.x + cell.vx*t) | 0, y = (cell.y + cell.vy*t) | 0, z = (cell.z + cell.vz*t) | 0;
+        const peak = cell.peak * (0.82 + 0.18*Math.sin(cell.phase + t*0.6));
+        addBlob(volume, x, y, z, cell.radius, peak);
       }
     }
   }
 }
-function buildCloud(){
-  for(let t=0;t<NT;t++)for(let ch=0;ch<NC;ch++){
-    const V=vol[t][ch], pts=[];
-    for(let p=0;p<V.length;p++){const v=V[p]; if(v<44)continue;
-      const zz=(p/SLICE)|0, r=p-zz*SLICE, yy=(r/NX)|0, xx=r-yy*NX; pts.push({x:xx,y:yy,z:zz,v});}
-    pts.sort((a,b)=>b.v-a.v); cloud[t][ch]=pts.slice(0,1800);
-  }
-}
-function buildHist(){
-  for(let ch=0;ch<NC;ch++){
-    const h=new Float32Array(64), V=vol[0][ch];
-    for(let p=0;p<V.length;p++){const v=V[p]; if(v>4)h[(v>>2)]++;}
-    let m=0;for(let i=0;i<64;i++)m=Math.max(m,h[i]);
-    for(let i=0;i<64;i++)h[i]=m?Math.pow(h[i]/m,0.42):0; hist[ch]=h;
-  }
-}
-function autoContrast(L){
-  const h=hist[L.ch]; let tot=0;for(let i=0;i<64;i++)tot+=h[i];
-  let c=0,lo=8,hi=200,seenLo=false;
-  for(let i=0;i<64;i++){c+=h[i];const f=c/tot;
-    if(!seenLo&&f>0.02){lo=i*4;seenLo=true;} if(f>0.985){hi=i*4;break;}}
-  L.low=Math.max(4,lo); L.high=Math.max(L.low+12,hi);
-}
 
-// ================= rendering =================
-const stage=document.getElementById("stage"), view=document.getElementById("view"), g=view.getContext("2d");
-const off=document.createElement("canvas");off.width=NX;off.height=NY;
-const og=off.getContext("2d"), oimg=og.createImageData(NX,NY);
-let W=0,H=0,DPR=1, fit={s:1,ox:0,oy:0};
-
-function makeSprite(rgb){
-  const s=document.createElement("canvas");s.width=s.height=32;const c=s.getContext("2d");
-  const col=`${(rgb[0]*255)|0},${(rgb[1]*255)|0},${(rgb[2]*255)|0}`;
-  const gr=c.createRadialGradient(16,16,0,16,16,16);
-  gr.addColorStop(0,`rgba(${col},1)`);gr.addColorStop(0.35,`rgba(${col},0.55)`);gr.addColorStop(1,`rgba(${col},0)`);
-  c.fillStyle=gr;c.fillRect(0,0,32,32);return s;
-}
-function refreshSprites(){for(let i=0;i<NC;i++)sprites[i]=makeSprite(layers[i].color);}
-
-function resize(){
-  DPR=Math.min(window.devicePixelRatio||1,2);
-  W=stage.clientWidth;H=stage.clientHeight;view.width=W*DPR;view.height=H*DPR;g.setTransform(DPR,0,0,DPR,0,0);
-  const s=Math.min(W/NX,H/NY)*0.92; fit={s,ox:(W-NX*s)/2,oy:(H-NY*s)/2};
-  document.getElementById("scaleLn").style.width=Math.round((50/VOX)*(mode==="2d"?s:s*zoom))+"px";
-  render();
-}
-const v2s=(vx,vy)=>[fit.ox+vx*fit.s, fit.oy+vy*fit.s];
-const s2v=(sx,sy)=>[(sx-fit.ox)/fit.s,(sy-fit.oy)/fit.s];
-function render(){ mode==="2d"?render2D():render3D(); drawOverlay(); updateHUD(); }
-
-function render2D(){
-  const d=oimg.data, base=z*SLICE;
-  for(let p=0;p<SLICE;p++){
-    let r=0,gg=0,b=0;
-    for(const L of layers){ if(!L.visible)continue;
-      const v=vol[tp][L.ch][base+p]; if(v<=L.low)continue;
-      let n=(v-L.low)/(L.high-L.low); if(n>1)n=1; const f=n*L.opacity;
-      r+=L.color[0]*f;gg+=L.color[1]*f;b+=L.color[2]*f;
+// Extract the brightest voxels of each volume into flat typed arrays, with
+// coordinates pre-centred for 3-D so the render loop only rotates and projects.
+// Storing points as parallel typed arrays (not objects) keeps the hot path free
+// of per-frame allocation.
+function buildClouds(){
+  for (let t = 0; t < NT; t++){
+    for (let c = 0; c < NC; c++){
+      const volume = vol[t][c];
+      // First pass: collect indices of bright voxels so we can keep the top N.
+      const bright = [];
+      for (let p = 0; p < volume.length; p++) if (volume[p] >= 44) bright.push(p);
+      bright.sort((a, b) => volume[b] - volume[a]);
+      const n = Math.min(bright.length, CLOUD_CAP);
+      const X = new Float32Array(n), Y = new Float32Array(n), Z = new Float32Array(n), V = new Uint8Array(n);
+      for (let i = 0; i < n; i++){
+        const p = bright[i], z = (p / PLANE) | 0, r = p - z*PLANE, y = (r / NX) | 0, x = r - y*NX;
+        X[i] = x - NX/2; Y[i] = y - NY/2; Z[i] = (z - NZ/2) * DEPTH_STRETCH; V[i] = volume[p];
+      }
+      cloud[t][c] = { n, X, Y, Z, V };
     }
-    const q=p*4; d[q]=r>1?255:r*255; d[q+1]=gg>1?255:gg*255; d[q+2]=b>1?255:b*255; d[q+3]=255;
   }
-  og.putImageData(oimg,0,0);
-  g.clearRect(0,0,W,H);g.fillStyle="#000";g.fillRect(0,0,W,H);
-  g.imageSmoothingEnabled=true;g.imageSmoothingQuality="high";
-  g.drawImage(off,fit.ox,fit.oy,NX*fit.s,NY*fit.s);
 }
-function render3D(){
-  g.clearRect(0,0,W,H);g.fillStyle="#000";g.fillRect(0,0,W,H);
-  const cx=W/2,cy=H/2, scale=Math.min(W/NX,H/NY)*0.92*zoom;
-  const cyaw=Math.cos(yaw),syaw=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch),dz=2.0, acc=[];
-  for(const L of layers){ if(!L.visible||L.opacity<=0.01)continue;
-    for(const pt of cloud[tp][L.ch]){ if(pt.v<=L.low)continue;
-      let n=(pt.v-L.low)/(L.high-L.low); if(n>1)n=1;
-      const x=pt.x-NX/2,y=pt.y-NY/2,zc=(pt.z-NZ/2)*dz;
-      const rx=x*cyaw+zc*syaw, rz=-x*syaw+zc*cyaw, ry=y*cp-rz*sp, rz2=y*sp+rz*cp;
-      acc.push({sx:cx+rx*scale, sy:cy+ry*scale, depth:rz2, a:n*L.opacity, ch:L.ch});
-    }}
-  acc.sort((a,b)=>a.depth-b.depth);
-  g.globalCompositeOperation="lighter"; const sz=Math.max(5,scale*3.0);
-  for(const pt of acc){ g.globalAlpha=pt.a<0?0:pt.a>1?1:pt.a; g.drawImage(sprites[pt.ch],pt.sx-sz/2,pt.sy-sz/2,sz,sz); }
-  g.globalAlpha=1;g.globalCompositeOperation="source-over";
+
+// A coarse 64-bin intensity histogram per channel, used to draw the contrast
+// panel and to pick sensible auto-contrast limits.
+function buildHistograms(){
+  for (let c = 0; c < NC; c++){
+    const bins = new Float32Array(64), volume = vol[0][c];
+    for (let p = 0; p < volume.length; p++){ const v = volume[p]; if (v > 4) bins[v >> 2]++; }
+    let peak = 0; for (let i = 0; i < 64; i++) peak = Math.max(peak, bins[i]);
+    // Gamma-compress for display so faint-but-real bins stay visible next to tall ones.
+    for (let i = 0; i < 64; i++) bins[i] = peak ? Math.pow(bins[i] / peak, 0.42) : 0;
+    histogram[c] = bins;
+  }
 }
-function proj3D(vx,vy,vz){
-  const cx=W/2,cy=H/2, scale=Math.min(W/NX,H/NY)*0.92*zoom;
-  const cyaw=Math.cos(yaw),syaw=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch),dz=2.0;
-  const x=vx-NX/2,y=vy-NY/2,zc=(vz-NZ/2)*dz;
-  const rx=x*cyaw+zc*syaw, rz=-x*syaw+zc*cyaw, ry=y*cp-rz*sp;
-  return [cx+rx*scale, cy+ry*scale];
+
+// Choose black/white points from the cumulative histogram: clip the darkest 2%
+// and brightest ~1.5%, which is what makes a narrow-band 16-bit image visible.
+function autoContrast(layer){
+  const bins = histogram[layer.ch];
+  let total = 0; for (let i = 0; i < 64; i++) total += bins[i];
+  let cum = 0, low = 8, high = 200, foundLow = false;
+  for (let i = 0; i < 64; i++){
+    cum += bins[i]; const frac = cum / total;
+    if (!foundLow && frac > 0.02){ low = i * 4; foundLow = true; }
+    if (frac > 0.985){ high = i * 4; break; }
+  }
+  layer.low = Math.max(4, low);
+  layer.high = Math.max(layer.low + 12, high);
 }
+
+/* ---------------------------------------------------------------------------
+   4. STATE
+   The single source of truth for what the viewer is showing. The renderers read
+   it; the controls write it and ask for a redraw.
+   ------------------------------------------------------------------------- */
+
+// One image layer per channel, derived from the dataset.
+const layers = DATASET.channels.map((c, i) => ({
+  name: c.name, tag: c.tag, ch: i, color: c.color.slice(),
+  visible: true, opacity: 1, low: 20, high: 180,
+}));
+
+// Annotations live in their own layer, separate from the image (as in napari):
+// hide it, or recolour every target, without touching the channels.
+const targetLayer = { name: "Targets", visible: true, color: "#ffd34d" };
+const targets = [];      // { type:"point"|"box", x, y, z, t, x2?, y2?, label }
+let targetCount = 0;
+
+const view = {
+  selected: 0,           // selected layer: an index into `layers`, or "targets"
+  mode: "2d",            // "2d" (plane) | "3d" (volume)
+  z: Math.floor(NZ / 2), // current plane in the 2-D view
+  t: 0,                  // current timepoint
+  tool: "nav",           // "nav" | "point" | "box"
+  yaw: 0.6, pitch: -0.35, zoom: 1,   // 3-D camera
+};
+let drag = null;         // in-progress mouse gesture, or null
+
+/* ---------------------------------------------------------------------------
+   5. RENDERING
+   drawScene() paints the canvas (cheap, may run every animation frame).
+   refresh() also updates the text HUD (only for discrete changes, so the HUD is
+   never rewritten 60 times a second — a real source of jank if it were).
+   ------------------------------------------------------------------------- */
+
+const stage = document.getElementById("stage");
+const canvas = document.getElementById("view");
+const ctx = canvas.getContext("2d");
+
+// An offscreen canvas the size of one plane; the 2-D view is composited here at
+// native resolution, then scaled up once, which the GPU does smoothly.
+const plane = document.createElement("canvas"); plane.width = NX; plane.height = NY;
+const planeCtx = plane.getContext("2d");
+const planePixels = planeCtx.createImageData(NX, NY);
+
+// Per-channel glow sprites for the 3-D view, tinted to match the layer colour.
+const sprites = new Array(NC);
+function rebuildSprites(){ for (let i = 0; i < NC; i++) sprites[i] = makeGlowSprite(layers[i].color); }
+function makeGlowSprite(rgb){
+  const s = document.createElement("canvas"); s.width = s.height = 32;
+  const c = s.getContext("2d"), col = `${rgb[0]*255|0},${rgb[1]*255|0},${rgb[2]*255|0}`;
+  const grad = c.createRadialGradient(16, 16, 0, 16, 16, 16);
+  grad.addColorStop(0, `rgba(${col},1)`); grad.addColorStop(0.35, `rgba(${col},0.55)`); grad.addColorStop(1, `rgba(${col},0)`);
+  c.fillStyle = grad; c.fillRect(0, 0, 32, 32);
+  return s;
+}
+
+// Scratch buffers for the 3-D pass, sized once to the largest possible point
+// count, then reused every frame so rotation allocates nothing.
+const MAX_POINTS = CLOUD_CAP * NC;
+const scr = { sx: new Float32Array(MAX_POINTS), sy: new Float32Array(MAX_POINTS),
+              depth: new Float32Array(MAX_POINTS), alpha: new Float32Array(MAX_POINTS),
+              chan: new Uint8Array(MAX_POINTS), order: [] };
+
+// Canvas size and the transform mapping volume pixels to screen pixels.
+let cw = 0, ch = 0, dpr = 1;
+const box = { scale: 1, ox: 0, oy: 0 };                 // 2-D fit
+const cam = { cos: 1, sin: 0, cosP: 1, sinP: 0, scale: 1, cx: 0, cy: 0 };  // 3-D camera
+
+function onResize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cw = stage.clientWidth; ch = stage.clientHeight;
+  canvas.width = cw * dpr; canvas.height = ch * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const s = Math.min(cw / NX, ch / NY) * 0.92;
+  box.scale = s; box.ox = (cw - NX*s) / 2; box.oy = (ch - NY*s) / 2;
+  const barPx = (50 / VOX) * (view.mode === "2d" ? s : s * view.zoom);
+  document.getElementById("scaleLn").style.width = Math.round(barPx) + "px";
+  refresh();
+}
+const planeToScreen = (x, y) => [box.ox + x*box.scale, box.oy + y*box.scale];
+const screenToPlane = (x, y) => [(x - box.ox) / box.scale, (y - box.oy) / box.scale];
+
+// Rotate a pre-centred point by the current camera and project to the screen.
+function project(cx, cy, cz){
+  const rx = cx*cam.cos + cz*cam.sin;
+  const rz = -cx*cam.sin + cz*cam.cos;
+  const ry = cy*cam.cosP - rz*cam.sinP;
+  const depth = cy*cam.sinP + rz*cam.cosP;
+  return [cam.cx + rx*cam.scale, cam.cy + ry*cam.scale, depth];
+}
+function updateCamera(){
+  cam.cos = Math.cos(view.yaw); cam.sin = Math.sin(view.yaw);
+  cam.cosP = Math.cos(view.pitch); cam.sinP = Math.sin(view.pitch);
+  cam.scale = Math.min(cw / NX, ch / NY) * 0.92 * view.zoom;
+  cam.cx = cw / 2; cam.cy = ch / 2;
+}
+
+// --- 2-D: composite the current plane, additively over black --------------
+function draw2D(){
+  // Gather the visible layers' contrast constants once, outside the pixel loop.
+  const active = [];
+  for (const L of layers) if (L.visible) active.push({ vol: vol[view.t][L.ch], low: L.low,
+    inv: 1 / (L.high - L.low), r: L.color[0]*L.opacity, g: L.color[1]*L.opacity, b: L.color[2]*L.opacity });
+
+  const px = planePixels.data, base = view.z * PLANE;
+  for (let p = 0; p < PLANE; p++){
+    let r = 0, g = 0, b = 0;
+    for (let a = 0; a < active.length; a++){
+      const L = active[a], v = L.vol[base + p];
+      if (v <= L.low) continue;
+      let n = (v - L.low) * L.inv; if (n > 1) n = 1;
+      r += L.r * n; g += L.g * n; b += L.b * n;
+    }
+    const q = p * 4;
+    px[q] = r > 1 ? 255 : r*255; px[q+1] = g > 1 ? 255 : g*255; px[q+2] = b > 1 ? 255 : b*255; px[q+3] = 255;
+  }
+  planeCtx.putImageData(planePixels, 0, 0);
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cw, ch);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(plane, box.ox, box.oy, NX*box.scale, NY*box.scale);
+}
+
+// --- 3-D: rotate the brightest voxels, depth-sort, draw as additive glow ---
+function draw3D(){
+  updateCamera();
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cw, ch);
+
+  // Fill the scratch buffers with every visible point for this timepoint.
+  let count = 0;
+  for (const L of layers){
+    if (!L.visible || L.opacity <= 0.01) continue;
+    const c = cloud[view.t][L.ch], inv = 1 / (L.high - L.low), op = L.opacity;
+    for (let i = 0; i < c.n; i++){
+      const v = c.V[i]; if (v <= L.low) continue;
+      let n = (v - L.low) * inv; if (n > 1) n = 1;
+      const rx = c.X[i]*cam.cos + c.Z[i]*cam.sin;
+      const rz = -c.X[i]*cam.sin + c.Z[i]*cam.cos;
+      const ry = c.Y[i]*cam.cosP - rz*cam.sinP;
+      scr.sx[count] = cam.cx + rx*cam.scale;
+      scr.sy[count] = cam.cy + ry*cam.scale;
+      scr.depth[count] = c.Y[i]*cam.sinP + rz*cam.cosP;
+      scr.alpha[count] = n * op; scr.chan[count] = L.ch; count++;
+    }
+  }
+  // Painter's order: draw far points first. Sort an index array, not the data.
+  const order = scr.order; order.length = count;
+  for (let i = 0; i < count; i++) order[i] = i;
+  order.sort((a, b) => scr.depth[a] - scr.depth[b]);
+
+  ctx.globalCompositeOperation = "lighter";
+  const size = Math.max(5, cam.scale * 3.0);
+  for (let k = 0; k < count; k++){
+    const i = order[k];
+    ctx.globalAlpha = scr.alpha[i];
+    ctx.drawImage(sprites[scr.chan[i]], scr.sx[i] - size/2, scr.sy[i] - size/2, size, size);
+  }
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+}
+
+// --- annotation overlay (both modes) --------------------------------------
 function drawOverlay(){
-  if(!annoLayer.visible)return;
-  for(const a of annots){
-    let sx,sy;
-    if(mode==="2d"){[sx,sy]=v2s(a.x,a.y); g.globalAlpha=Math.abs(a.z-z)<=2?1:0.28;}
-    else{[sx,sy]=proj3D(a.x,a.y,a.z); g.globalAlpha=0.95;}
-    g.lineWidth=1.6;g.strokeStyle=annoLayer.color;g.fillStyle=annoLayer.color;
-    if(a.type==="point"){ g.beginPath();g.arc(sx,sy,4,0,7);g.fill(); g.beginPath();g.arc(sx,sy,9,0,7);g.stroke(); }
-    else{ const [x2,y2]= mode==="2d"?v2s(a.x2,a.y2):proj3D(a.x2,a.y2,a.z);
-      g.strokeRect(Math.min(sx,x2),Math.min(sy,y2),Math.abs(x2-sx),Math.abs(y2-sy)); }
-    g.font="600 11px system-ui";g.fillText(a.label,sx+11,sy-7); g.globalAlpha=1;
+  if (!targetLayer.visible) return;
+  // Batch every marker into a handful of paths, so hundreds of tracked cells
+  // still draw in a couple of canvas calls rather than one per target. Labels
+  // are text (expensive) and clutter in bulk, so they show only when few.
+  const showLabels = targets.length <= 40;
+  const dotsNear = new Path2D(), ringsNear = new Path2D();   // in-plane / facing markers
+  const dotsFar  = new Path2D(), ringsFar  = new Path2D();   // out-of-plane, drawn dimmer
+  const labels = [];
+
+  for (const a of targets){
+    let sx, sy, far = false;
+    if (view.mode === "2d"){ [sx, sy] = planeToScreen(a.x, a.y); far = Math.abs(a.z - view.z) > 2; }
+    else { [sx, sy] = project(a.x - NX/2, a.y - NY/2, (a.z - NZ/2)*DEPTH_STRETCH); }
+    const rings = far ? ringsFar : ringsNear;
+    if (a.type === "point"){
+      const dots = far ? dotsFar : dotsNear;
+      dots.moveTo(sx + 4, sy); dots.arc(sx, sy, 4, 0, 7);      // moveTo first so subpaths don't join
+      rings.moveTo(sx + 9, sy); rings.arc(sx, sy, 9, 0, 7);
+    } else {
+      const [x2, y2] = view.mode === "2d" ? planeToScreen(a.x2, a.y2)
+                                          : project(a.x2 - NX/2, a.y2 - NY/2, (a.z - NZ/2)*DEPTH_STRETCH);
+      rings.rect(Math.min(sx, x2), Math.min(sy, y2), Math.abs(x2 - sx), Math.abs(y2 - sy));
+    }
+    if (showLabels) labels.push([a.label, sx + 11, sy - 7, far]);
   }
-  if(dragging&&dragging.mode==="box"&&mode==="2d"){
-    const [x1,y1]=v2s(dragging.vx,dragging.vy),[x2,y2]=v2s(dragging.cx,dragging.cy);
-    g.setLineDash([5,4]);g.strokeStyle="#fff";g.lineWidth=1.4;
-    g.strokeRect(Math.min(x1,x2),Math.min(y1,y2),Math.abs(x2-x1),Math.abs(y2-y1));g.setLineDash([]);
+
+  ctx.strokeStyle = targetLayer.color; ctx.fillStyle = targetLayer.color; ctx.lineWidth = 1.6;
+  const baseAlpha = view.mode === "2d" ? 1 : 0.95;
+  ctx.globalAlpha = baseAlpha;        ctx.fill(dotsNear); ctx.stroke(ringsNear);
+  ctx.globalAlpha = baseAlpha * 0.3;  ctx.fill(dotsFar);  ctx.stroke(ringsFar);
+  if (showLabels){
+    ctx.font = "600 11px system-ui";
+    for (const [text, x, y, far] of labels){ ctx.globalAlpha = far ? 0.4 : 1; ctx.fillText(text, x, y); }
   }
-}
-function updateHUD(){
-  document.getElementById("hud").innerHTML = mode==="2d"
-    ? `voxel <b>${VOX} × ${VOX} µm</b><br>z <b>${z+1}</b>/${NZ} · t <b>${tp+1}</b>/${NT}<br>${NC} channels · <b>L0</b> full res`
-    : `volume <b>${NX}·${NY}·${NZ}</b><br>t <b>${tp+1}</b>/${NT} · out-of-core<br>zoom <b>${zoom.toFixed(2)}×</b>`;
+  ctx.globalAlpha = 1;
+
+  // The rubber-band box while the user is dragging one out.
+  if (drag && drag.mode === "box" && view.mode === "2d"){
+    const [x1, y1] = planeToScreen(drag.x, drag.y), [x2, y2] = planeToScreen(drag.cx, drag.cy);
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.4;
+    ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+    ctx.setLineDash([]);
+  }
 }
 
-// ================= panel (controls) =================
-const ctrlsEl=document.getElementById("ctrls");
+function drawScene(){ view.mode === "2d" ? draw2D() : draw3D(); drawOverlay(); }
+function refresh(){ drawScene(); updateHud(); }
+
+function updateHud(){
+  document.getElementById("hud").innerHTML = view.mode === "2d"
+    ? `voxel <b>${VOX} × ${VOX} µm</b><br>z <b>${view.z+1}</b>/${NZ} · t <b>${view.t+1}</b>/${NT}<br>${NC} channels · <b>L0</b> full res`
+    : `volume <b>${NX}·${NY}·${NZ}</b><br>t <b>${view.t+1}</b>/${NT} · out-of-core<br>zoom <b>${view.zoom.toFixed(2)}×</b>`;
+}
+
+/* ---------------------------------------------------------------------------
+   6. CONTROL PANEL
+   Small, flat DOM builders — one per widget — and a single buildControls() that
+   assembles the panel for whichever layer is selected.
+   ------------------------------------------------------------------------- */
+
+const controlsEl = document.getElementById("ctrls");
+
+function sliderRow(label, min, max, step, value, format, onInput){
+  const row = document.createElement("div"); row.className = "ctrl";
+  const name = document.createElement("label"); name.textContent = label;
+  const input = document.createElement("input"); input.type = "range";
+  input.min = min; input.max = max; input.step = step; input.value = value;
+  const read = document.createElement("span"); read.className = "val"; read.textContent = format(value);
+  input.oninput = () => { const v = parseFloat(input.value); read.textContent = format(v); onInput(v); };
+  row.append(name, input, read); return row;
+}
+function contrastRow(label, value, onInput){
+  const row = document.createElement("div"); row.className = "crow";
+  const name = document.createElement("span"); name.textContent = label;
+  const input = document.createElement("input"); input.type = "range";
+  input.min = 0; input.max = 255; input.step = 1; input.value = value;
+  const read = document.createElement("span"); read.className = "val"; read.textContent = Math.round(value);
+  input.oninput = () => { const v = parseInt(input.value); read.textContent = v; onInput(v); };
+  row.append(name, input, read); return row;
+}
+function swatchRow(colours, isSelected, onPick){
+  const wrap = document.createElement("div"); wrap.className = "swatches";
+  const label = document.createElement("span");
+  label.style.cssText = "color:#8b95a3;font-size:12px;margin-right:2px"; label.textContent = "colour";
+  wrap.appendChild(label);
+  for (const c of colours){
+    const b = document.createElement("button"); b.className = "swatch" + (isSelected(c) ? " on" : "");
+    b.style.background = c.css; b.title = c.name; b.onclick = () => onPick(c);
+    wrap.appendChild(b);
+  }
+  return wrap;
+}
+
 function buildControls(){
-  ctrlsEl.innerHTML="";
-  if(sel==="anno"){
-    document.getElementById("selName").textContent=annoLayer.name;
-    const n=document.createElement("div");n.className="note";
-    n.innerHTML=`<b style="color:#c9d1d9">${annots.length}</b> target${annots.length===1?"":"s"} in this layer. Points and regions you draw live here — hide the layer with its eye, or recolour every target below.`;
-    ctrlsEl.appendChild(n);
-    const sw=document.createElement("div");sw.className="swatches";
-    const lbl=document.createElement("span");lbl.style.cssText="color:#8b95a3;font-size:12px;margin-right:2px";lbl.textContent="colour";sw.appendChild(lbl);
-    [["#ffd34d","amber"],["#ffffff","white"],["#57e0ff","cyan"],["#ff6b6b","red"],["#8affc1","green"]].forEach(([hex,nm])=>{
-      const b=document.createElement("button");b.className="swatch"+(annoLayer.color.toLowerCase()===hex?" on":"");
-      b.style.background=hex;b.title=nm;b.onclick=()=>{annoLayer.color=hex;buildControls();buildLayers();buildTargets();render();};
-      sw.appendChild(b);
-    });
-    ctrlsEl.appendChild(sw);
-    return;
+  controlsEl.replaceChildren();
+  if (view.selected === "targets"){ buildTargetControls(); return; }
+
+  const L = layers[view.selected];
+  document.getElementById("selName").textContent = L.name;
+
+  controlsEl.appendChild(sliderRow("opacity", 0, 1, 0.01, L.opacity, v => v.toFixed(2),
+    v => { L.opacity = v; drawScene(); }));
+
+  const hist = document.createElement("canvas"); hist.className = "hist"; hist.width = 212; hist.height = 40;
+  controlsEl.appendChild(hist); drawHistogram(hist, L);
+
+  const rows = document.createElement("div"); rows.className = "contrast-rows";
+  rows.appendChild(contrastRow("black", L.low,  v => { L.low  = Math.min(v, L.high - 4); drawHistogram(hist, L); drawScene(); }));
+  rows.appendChild(contrastRow("white", L.high, v => { L.high = Math.max(v, L.low  + 4); drawHistogram(hist, L); drawScene(); }));
+  const autoWrap = document.createElement("div"); autoWrap.className = "auto-row";
+  const auto = document.createElement("button"); auto.className = "btn tiny"; auto.textContent = "auto contrast";
+  auto.onclick = () => { autoContrast(L); buildControls(); drawScene(); showToast(`Auto-contrast · <b>${L.name}</b>`); };
+  autoWrap.appendChild(auto); rows.appendChild(autoWrap);
+  controlsEl.appendChild(rows);
+
+  const colours = PALETTE.map(p => ({ css: rgbToCss(p.rgb), name: p.name, rgb: p.rgb }));
+  controlsEl.appendChild(swatchRow(colours,
+    c => c.rgb.every((v, i) => Math.abs(v - L.color[i]) < 0.02),
+    c => { L.color = c.rgb.slice(); rebuildSprites(); buildControls(); buildLayerList(); drawScene(); }));
+}
+
+function buildTargetControls(){
+  document.getElementById("selName").textContent = targetLayer.name;
+  const note = document.createElement("div"); note.className = "note";
+  note.innerHTML = `<b style="color:#c9d1d9">${targets.length}</b> target${targets.length === 1 ? "" : "s"} in this layer. `
+    + `Points and regions you draw live here — hide the layer with its eye, or recolour every target below.`;
+  controlsEl.appendChild(note);
+  const colours = TARGET_COLORS.map(([css, name]) => ({ css, name }));
+  controlsEl.appendChild(swatchRow(colours,
+    c => targetLayer.color.toLowerCase() === c.css,
+    c => { targetLayer.color = c.css; buildControls(); buildLayerList(); buildTargetList(); drawScene(); }));
+}
+
+function drawHistogram(canvasEl, layer){
+  const c = canvasEl.getContext("2d"), w = canvasEl.width, h = canvasEl.height;
+  const bins = histogram[layer.ch], lowX = (layer.low / 255) * w, highX = (layer.high / 255) * w;
+  c.clearRect(0, 0, w, h);
+  c.fillStyle = "#0d1116"; c.fillRect(0, 0, w, h);
+  c.fillStyle = "rgba(47,111,235,0.14)"; c.fillRect(lowX, 0, highX - lowX, h);   // the kept window
+  c.fillStyle = "#41505f"; const bw = w / 64;
+  for (let i = 0; i < 64; i++){ const bh = bins[i] * (h - 4); c.fillRect(i*bw, h - bh, bw - 0.5, bh); }
+  c.strokeStyle = "#e8edf2"; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(lowX, 0); c.lineTo(lowX, h); c.moveTo(highX, 0); c.lineTo(highX, h); c.stroke();
+}
+
+/* ---------------------------------------------------------------------------
+   7. LAYER LIST + TARGET LIST  (napari-style)
+   ------------------------------------------------------------------------- */
+
+const layerListEl = document.getElementById("layers");
+
+function eyeButton(isOn, onToggle){
+  const b = document.createElement("button"); b.className = "eye" + (isOn ? "" : " off");
+  b.textContent = isOn ? "◉" : "◎"; b.title = isOn ? "Hide" : "Show";
+  b.onclick = (e) => { e.stopPropagation(); onToggle(); };
+  return b;
+}
+function layerRow(opts){
+  const row = document.createElement("div"); row.className = "lrow" + (opts.selected ? " sel" : "") + (opts.anno ? " anno" : "");
+  row.onclick = opts.onSelect;
+  const swatch = document.createElement("span"); swatch.className = "sw" + (opts.round ? " pt" : ""); swatch.style.background = opts.swatch;
+  const name = document.createElement("span"); name.className = "nm"; name.textContent = opts.name;
+  const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = opts.tag;
+  row.append(eyeButton(opts.visible, opts.onToggle), swatch, name, tag);
+  return row;
+}
+function buildLayerList(){
+  document.getElementById("chCount").textContent = NC + " ch";
+  const rows = layers.map((L, i) => layerRow({
+    selected: view.selected === i, visible: L.visible, swatch: rgbToCss(L.color), name: L.name, tag: L.tag,
+    onSelect: () => { view.selected = i; buildControls(); buildLayerList(); },
+    onToggle: () => { L.visible = !L.visible; buildLayerList(); drawScene(); },
+  }));
+  rows.push(layerRow({
+    anno: true, round: true, selected: view.selected === "targets", visible: targetLayer.visible,
+    swatch: targetLayer.color, name: targetLayer.name, tag: targets.length ? targets.length + " pts" : "empty",
+    onSelect: () => { view.selected = "targets"; buildControls(); buildLayerList(); },
+    onToggle: () => { targetLayer.visible = !targetLayer.visible; buildLayerList(); drawScene(); },
+  }));
+  layerListEl.replaceChildren(...rows);
+}
+
+const targetListEl = document.getElementById("targets");
+function buildTargetList(){
+  document.getElementById("tCount").textContent = targets.length || "";
+  document.getElementById("sendAll").disabled = targets.length === 0;
+  if (targets.length === 0){
+    const empty = document.createElement("div"); empty.className = "empty";
+    empty.innerHTML = "No targets yet. Pick the <b>point</b> or <b>box</b> tool and click the image to mark cells or regions to image.";
+    targetListEl.replaceChildren(empty); return;
   }
-  const L=layers[sel];
-  document.getElementById("selName").textContent=L.name;
-  ctrlsEl.appendChild(row("opacity", slider(0,1,0.01,L.opacity,v=>{L.opacity=v;render();},()=>L.opacity.toFixed(2))));
-  const hc=document.createElement("canvas");hc.className="hist";hc.width=212;hc.height=40;ctrlsEl.appendChild(hc);drawHist(hc,L);
-  const rows=document.createElement("div");rows.className="contrast-rows";
-  rows.appendChild(crow("black",0,255,1,L.low, v=>{L.low=Math.min(v,L.high-4);drawHist(hc,L);render();}));
-  rows.appendChild(crow("white",0,255,1,L.high,v=>{L.high=Math.max(v,L.low+4);drawHist(hc,L);render();}));
-  const ar=document.createElement("div");ar.className="auto-row";
-  const ab=document.createElement("button");ab.className="btn tiny";ab.textContent="auto contrast";
-  ab.onclick=()=>{autoContrast(L);buildControls();render();toast(`Auto-contrast · <b>${L.name}</b>`);};
-  ar.appendChild(ab);rows.appendChild(ar);ctrlsEl.appendChild(rows);
-  const sw=document.createElement("div");sw.className="swatches";
-  const lbl=document.createElement("span");lbl.style.cssText="color:#8b95a3;font-size:12px;margin-right:2px";lbl.textContent="colour";sw.appendChild(lbl);
-  PALETTE.forEach(pl=>{
-    const b=document.createElement("button");b.className="swatch";b.style.background=cssRGB(pl.rgb);
-    if(pl.rgb.every((v,i)=>Math.abs(v-L.color[i])<0.02))b.classList.add("on");b.title=pl.name;
-    b.onclick=()=>{L.color=pl.rgb.slice();refreshSprites();buildControls();buildLayers();render();};
-    sw.appendChild(b);
+  const um = v => Math.round(v * VOX);
+  const rows = targets.map(a => {
+    const row = document.createElement("div"); row.className = "trow";
+    const mark = document.createElement("span"); mark.className = "mk" + (a.type === "point" ? " pt" : ""); mark.style.background = targetLayer.color;
+    const text = document.createElement("div"); text.className = "tl";
+    text.innerHTML = `<b>${a.label}</b><small>${a.type} · x${um(a.x)} y${um(a.y)} z${Math.round(a.z*VOX)} µm · t${a.t+1}</small>`;
+    const go = document.createElement("button"); go.className = "go"; go.textContent = "→ scope"; go.onclick = () => sendToScope(a);
+    const remove = document.createElement("button"); remove.className = "rm"; remove.textContent = "✕";
+    remove.onclick = () => { targets.splice(targets.indexOf(a), 1); buildTargetList(); buildLayerList(); drawScene(); };
+    row.append(mark, text, go, remove); return row;
   });
-  ctrlsEl.appendChild(sw);
-}
-function row(label,control){const d=document.createElement("div");d.className="ctrl";
-  const l=document.createElement("label");l.textContent=label;const v=document.createElement("span");v.className="val";control._val=v;
-  d.append(l,control,v); if(control._read)v.textContent=control._read();return d;}
-function slider(min,max,step,val,on,read){const i=document.createElement("input");i.type="range";
-  i.min=min;i.max=max;i.step=step;i.value=val;i._read=read;
-  i.oninput=()=>{on(parseFloat(i.value)); if(i._val&&read)i._val.textContent=read();};return i;}
-function crow(name,min,max,step,val,on){const d=document.createElement("div");d.className="crow";
-  const s=document.createElement("span");s.textContent=name;
-  const i=document.createElement("input");i.type="range";i.min=min;i.max=max;i.step=step;i.value=val;
-  const v=document.createElement("span");v.className="val";v.textContent=Math.round(val);
-  i.oninput=()=>{on(parseInt(i.value));v.textContent=i.value;};d.append(s,i,v);return d;}
-function drawHist(cv,L){
-  const c=cv.getContext("2d"),w=cv.width,h=cv.height;c.clearRect(0,0,w,h);
-  const H0=hist[L.ch], lx=(L.low/255)*w, hx=(L.high/255)*w;
-  c.fillStyle="#0d1116";c.fillRect(0,0,w,h);
-  c.fillStyle="rgba(47,111,235,0.14)";c.fillRect(lx,0,hx-lx,h);
-  c.fillStyle="#41505f";const bw=w/64;
-  for(let i=0;i<64;i++){const bh=H0[i]*(h-4);c.fillRect(i*bw,h-bh,bw-0.5,bh);}
-  c.strokeStyle="#e8edf2";c.lineWidth=1;c.beginPath();c.moveTo(lx,0);c.lineTo(lx,h);c.moveTo(hx,0);c.lineTo(hx,h);c.stroke();
+  targetListEl.replaceChildren(...rows);
 }
 
-// ================= layer list (image layers + annotation layer) =================
-const layersEl=document.getElementById("layers");
-function buildLayers(){
-  document.getElementById("chCount").textContent=NC+" ch";
-  layersEl.innerHTML="";
-  layers.forEach((L,i)=>{
-    const r=document.createElement("div");r.className="lrow"+(sel===i?" sel":"");
-    r.onclick=()=>{sel=i;buildControls();buildLayers();};
-    const eye=mkEye(L.visible,(e)=>{e.stopPropagation();L.visible=!L.visible;buildLayers();render();});
-    const sw=document.createElement("span");sw.className="sw";sw.style.background=cssRGB(L.color);
-    const nm=document.createElement("span");nm.className="nm";nm.textContent=L.name;
-    const tag=document.createElement("span");tag.className="tag";tag.textContent=L.tag;
-    r.append(eye,sw,nm,tag);layersEl.appendChild(r);
-  });
-  // annotation layer row
-  const r=document.createElement("div");r.className="lrow anno"+(sel==="anno"?" sel":"");
-  r.onclick=()=>{sel="anno";buildControls();buildLayers();};
-  const eye=mkEye(annoLayer.visible,(e)=>{e.stopPropagation();annoLayer.visible=!annoLayer.visible;buildLayers();render();});
-  const sw=document.createElement("span");sw.className="sw pt";sw.style.background=annoLayer.color;
-  const nm=document.createElement("span");nm.className="nm";nm.textContent=annoLayer.name;
-  const tag=document.createElement("span");tag.className="tag";tag.textContent=annots.length?annots.length+" pts":"empty";
-  r.append(eye,sw,nm,tag);layersEl.appendChild(r);
-}
-function mkEye(on,fn){const b=document.createElement("button");b.className="eye"+(on?"":" off");
-  b.textContent=on?"◉":"◎";b.title=on?"Hide":"Show";b.onclick=fn;return b;}
+/* ---------------------------------------------------------------------------
+   8. INTERACTION
+   Tools, the stage mouse gestures, the Z/T sliders, and the 2-D/3-D toggle.
+   ------------------------------------------------------------------------- */
 
-// ================= tools =================
-document.getElementById("tools").addEventListener("click",e=>{
-  const b=e.target.closest(".tool");if(!b)return;tool=b.dataset.tool;
-  document.querySelectorAll(".tool").forEach(t=>t.classList.toggle("on",t===b));
-  stage.classList.toggle("cross", tool!=="nav" && mode==="2d");
-  if(tool!=="nav" && mode==="3d") showHint("Switch to 2-D to place targets on a plane");
-  else if(tool==="point") showHint("Click a cell to drop a target point");
-  else if(tool==="box") showHint("Drag to mark a region to re-image"); else hideHint();
+document.getElementById("tools").addEventListener("click", (e) => {
+  const button = e.target.closest(".tool"); if (!button) return;
+  view.tool = button.dataset.tool;
+  for (const t of document.querySelectorAll(".tool")) t.classList.toggle("on", t === button);
+  stage.classList.toggle("cross", view.tool !== "nav" && view.mode === "2d");
+  if (view.tool !== "nav" && view.mode === "3d") showHint("Switch to 2-D to place targets on a plane");
+  else if (view.tool === "point") showHint("Click a cell to drop a target point");
+  else if (view.tool === "box") showHint("Drag to mark a region to re-image");
+  else hideHint();
 });
 
-// ================= targets list =================
-const targetsEl=document.getElementById("targets");
-function buildTargets(){
-  targetsEl.innerHTML="";document.getElementById("tCount").textContent=annots.length||"";
-  if(!annots.length){const e=document.createElement("div");e.className="empty";
-    e.innerHTML="No targets yet. Pick the <b>point</b> or <b>box</b> tool and click the image to mark cells or regions to image.";
-    targetsEl.appendChild(e);document.getElementById("sendAll").disabled=true;return;}
-  document.getElementById("sendAll").disabled=false;
-  annots.forEach(a=>{
-    const r=document.createElement("div");r.className="trow";
-    const mk=document.createElement("span");mk.className="mk"+(a.type==="point"?" pt":"");mk.style.background=annoLayer.color;
-    const tl=document.createElement("div");tl.className="tl";const um=v=>Math.round(v*VOX);
-    tl.innerHTML=`<b>${a.label}</b><small>${a.type} · x${um(a.x)} y${um(a.y)} z${Math.round(a.z*VOX)} µm · t${a.t+1}</small>`;
-    const go=document.createElement("button");go.className="go";go.textContent="→ scope";go.onclick=()=>sendOne(a);
-    const rm=document.createElement("button");rm.className="rm";rm.textContent="✕";
-    rm.onclick=()=>{annots=annots.filter(x=>x!==a);buildTargets();buildLayers();render();};
-    r.append(mk,tl,go,rm);targetsEl.appendChild(r);
-  });
-}
+function mousePos(e){ const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
 
-// ================= stage interaction =================
-function evPos(e){const r=view.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top];}
-view.addEventListener("mousedown",e=>{
-  const [sx,sy]=evPos(e);
-  if(mode==="3d"){dragging={mode:"rot",x:e.clientX,y:e.clientY,yaw,pitch};return;}
-  if(tool==="point"){const [vx,vy]=s2v(sx,sy);if(vx<0||vy<0||vx>=NX||vy>=NY)return;addAnnot({type:"point",x:vx,y:vy,z,t:tp});}
-  else if(tool==="box"){const [vx,vy]=s2v(sx,sy);dragging={mode:"box",vx,vy,cx:vx,cy:vy};}
+canvas.addEventListener("mousedown", (e) => {
+  const [sx, sy] = mousePos(e);
+  if (view.mode === "3d"){ drag = { mode: "rotate", x: e.clientX, y: e.clientY, yaw: view.yaw, pitch: view.pitch }; return; }
+  if (view.tool === "point"){
+    const [x, y] = screenToPlane(sx, sy);
+    if (x < 0 || y < 0 || x >= NX || y >= NY) return;
+    addTarget({ type: "point", x, y, z: view.z, t: view.t });
+  } else if (view.tool === "box"){
+    const [x, y] = screenToPlane(sx, sy);
+    drag = { mode: "box", x, y, cx: x, cy: y };
+  }
 });
-window.addEventListener("mousemove",e=>{
-  if(!dragging)return;
-  if(dragging.mode==="rot"){yaw=dragging.yaw+(e.clientX-dragging.x)*0.008;
-    pitch=Math.max(-1.4,Math.min(1.4,dragging.pitch+(e.clientY-dragging.y)*0.008));render();}
-  else if(dragging.mode==="box"){const [sx,sy]=evPos(e);[dragging.cx,dragging.cy]=s2v(sx,sy);render();}
+window.addEventListener("mousemove", (e) => {
+  if (!drag) return;
+  if (drag.mode === "rotate"){
+    view.yaw = drag.yaw + (e.clientX - drag.x) * 0.008;
+    view.pitch = clamp(drag.pitch + (e.clientY - drag.y) * 0.008, -1.4, 1.4);
+    drawScene();
+  } else if (drag.mode === "box"){
+    const [sx, sy] = mousePos(e); [drag.cx, drag.cy] = screenToPlane(sx, sy); drawScene();
+  }
 });
-window.addEventListener("mouseup",()=>{
-  if(dragging&&dragging.mode==="box"){const x=dragging.vx,y=dragging.vy,x2=dragging.cx,y2=dragging.cy;
-    if(Math.abs(x2-x)>3&&Math.abs(y2-y)>3) addAnnot({type:"box",x,y,x2,y2,z,t:tp});render();}
-  dragging=null;
+window.addEventListener("mouseup", () => {
+  if (drag && drag.mode === "box" && Math.abs(drag.cx - drag.x) > 3 && Math.abs(drag.cy - drag.y) > 3)
+    addTarget({ type: "box", x: drag.x, y: drag.y, x2: drag.cx, y2: drag.cy, z: view.z, t: view.t });
+  drag = null; drawScene();
 });
-view.addEventListener("wheel",e=>{
+canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
-  if(mode==="2d"){z=Math.max(0,Math.min(NZ-1,z+(e.deltaY>0?1:-1)));document.getElementById("zslider").value=z;updateZread();render();}
-  else{zoom=Math.max(0.5,Math.min(3,zoom*(e.deltaY>0?0.92:1.08)));resize();}
-},{passive:false});
-function addAnnot(a){
-  a.label=(a.type==="point"?"Target ":"Region ")+(++annotSeq);
-  if(!annoLayer.visible){annoLayer.visible=true;} // drawing into a hidden layer reveals it, like napari
-  annots.push(a);buildTargets();buildLayers();render();toast(`Marked <b>${a.label}</b>`);
+  if (view.mode === "2d"){
+    setPlane(view.z + (e.deltaY > 0 ? 1 : -1));
+  } else {
+    view.zoom = clamp(view.zoom * (e.deltaY > 0 ? 0.92 : 1.08), 0.5, 3);
+    onResize();
+  }
+}, { passive: false });
+
+function addTarget(a){
+  a.label = (a.type === "point" ? "Target " : "Region ") + (++targetCount);
+  targetLayer.visible = true;   // drawing into a hidden layer reveals it, as in napari
+  targets.push(a);
+  buildTargetList(); buildLayerList(); drawScene();
+  showToast(`Marked <b>${a.label}</b>`);
 }
 
-// ================= mode / sliders =================
+// --- dimension sliders ----------------------------------------------------
+const zSlider = document.getElementById("zslider");
+const tSlider = document.getElementById("tslider");
+zSlider.min = 0; zSlider.max = Math.max(0, NZ - 1); zSlider.value = view.z;
+tSlider.min = 0; tSlider.max = Math.max(0, NT - 1); tSlider.value = view.t;
+zSlider.oninput = () => setPlane(parseInt(zSlider.value));
+tSlider.oninput = () => setTime(parseInt(tSlider.value));
+
+function setPlane(z){
+  view.z = clamp(z, 0, NZ - 1); zSlider.value = view.z;
+  document.getElementById("zread").textContent = `plane ${view.z + 1} / ${NZ}`;
+  refresh();
+}
+function setTime(t){
+  view.t = clamp(t, 0, NT - 1); tSlider.value = view.t;
+  document.getElementById("tread").textContent = `time ${view.t + 1} / ${NT}`;
+  refresh();
+}
+
+// --- mode toggle + dock layout -------------------------------------------
 function layoutDock(){
-  document.getElementById("rowZ").classList.toggle("hide", mode!=="2d");
-  document.getElementById("rowT").classList.toggle("hide", NT<=1);
-  const dh=document.getElementById("zdock").offsetHeight;
-  document.getElementById("scalebar").style.bottom=(dh+14)+"px";
-  document.getElementById("toasts").style.bottom=(dh+14)+"px";
+  // Only show a slider for an axis that actually exists, and drop the depth
+  // slider in 3-D, where z is a displayed axis rather than one you scroll.
+  document.getElementById("rowZ").classList.toggle("hide", view.mode !== "2d" || NZ <= 1);
+  document.getElementById("rowT").classList.toggle("hide", NT <= 1);
+  const dockHeight = document.getElementById("zdock").offsetHeight;
+  document.getElementById("scalebar").style.bottom = (dockHeight + 14) + "px";
+  document.getElementById("toasts").style.bottom = (dockHeight + 14) + "px";
 }
-function setMode(m){
-  mode=m;
-  document.getElementById("b2d").classList.toggle("on",m==="2d");
-  document.getElementById("b3d").classList.toggle("on",m==="3d");
-  stage.classList.toggle("cross", tool!=="nav" && m==="2d");
-  if(m==="3d"&&tool!=="nav") showHint("Rotating volume — switch to 2-D to place targets"); else hideHint();
-  layoutDock();resize();
+function setMode(mode){
+  view.mode = mode;
+  document.getElementById("b2d").classList.toggle("on", mode === "2d");
+  document.getElementById("b3d").classList.toggle("on", mode === "3d");
+  stage.classList.toggle("cross", view.tool !== "nav" && mode === "2d");
+  if (mode === "3d" && view.tool !== "nav") showHint("Rotating volume — switch to 2-D to place targets"); else hideHint();
+  layoutDock(); onResize();
 }
-document.getElementById("b2d").onclick=()=>setMode("2d");
-document.getElementById("b3d").onclick=()=>setMode("3d");
-const zEl=document.getElementById("zslider");zEl.min=0;zEl.max=NZ-1;zEl.value=z;
-zEl.oninput=()=>{z=parseInt(zEl.value);updateZread();render();};
-function updateZread(){document.getElementById("zread").textContent=`plane ${z+1} / ${NZ}`;}
-const tEl=document.getElementById("tslider");tEl.min=0;tEl.max=NT-1;tEl.value=tp;
-tEl.oninput=()=>{tp=parseInt(tEl.value);updateTread();render();};
-function updateTread(){document.getElementById("tread").textContent=`time ${tp+1} / ${NT}`;}
+document.getElementById("b2d").onclick = () => setMode("2d");
+document.getElementById("b3d").onclick = () => setMode("3d");
 
-// ================= microscope loop (mock) =================
-function sendOne(a){
-  toast(`Moving stage → <b>${a.label}</b><br><span style="color:#8b95a3">x${Math.round(a.x*VOX)} y${Math.round(a.y*VOX)} z${Math.round(a.z*VOX)} µm</span>`);
-  setTimeout(()=>toast(`<b>${a.label}</b> acquired ✓`),1100);
+/* ---------------------------------------------------------------------------
+   9. MICROSCOPE HANDOFF + TRANSIENT CHROME
+   The step that makes this a ZMART tool: a target carries physical coordinates
+   and can be sent to the stage. Mocked here with a toast.
+   ------------------------------------------------------------------------- */
+
+function sendToScope(a){
+  showToast(`Moving stage → <b>${a.label}</b><br><span style="color:#8b95a3">x${Math.round(a.x*VOX)} y${Math.round(a.y*VOX)} z${Math.round(a.z*VOX)} µm</span>`);
+  setTimeout(() => showToast(`<b>${a.label}</b> acquired ✓`), 1100);
 }
-document.getElementById("sendAll").onclick=()=>{ if(!annots.length)return;
-  toast(`Queuing <b>${annots.length}</b> target${annots.length>1?"s":""} for acquisition…`);
-  setTimeout(()=>toast(`Acquisition run started · <b>${annots.length}</b> position${annots.length>1?"s":""}`),1100);
+document.getElementById("sendAll").onclick = () => {
+  if (targets.length === 0) return;
+  const n = targets.length, plural = n > 1 ? "s" : "";
+  showToast(`Queuing <b>${n}</b> target${plural} for acquisition…`);
+  setTimeout(() => showToast(`Acquisition run started · <b>${n}</b> position${plural}`), 1100);
 };
 
-// ================= toasts / hint =================
-const toastsEl=document.getElementById("toasts");
-function toast(html){const t=document.createElement("div");t.className="toast";t.innerHTML=html;toastsEl.appendChild(t);
-  setTimeout(()=>{t.style.transition="opacity .4s";t.style.opacity="0";setTimeout(()=>t.remove(),400);},2600);}
-let hintT=null;
-function showHint(txt){const p=document.getElementById("hintPill");p.textContent=txt;p.classList.add("show");clearTimeout(hintT);hintT=setTimeout(hideHint,2600);}
-function hideHint(){document.getElementById("hintPill").classList.remove("show");}
+const toastsEl = document.getElementById("toasts");
+function showToast(html){
+  const t = document.createElement("div"); t.className = "toast"; t.innerHTML = html;
+  toastsEl.appendChild(t);
+  setTimeout(() => { t.style.transition = "opacity .4s"; t.style.opacity = "0"; setTimeout(() => t.remove(), 400); }, 2600);
+}
+let hintTimer = null;
+function showHint(text){
+  const pill = document.getElementById("hintPill"); pill.textContent = text; pill.classList.add("show");
+  clearTimeout(hintTimer); hintTimer = setTimeout(hideHint, 2600);
+}
+function hideHint(){ document.getElementById("hintPill").classList.remove("show"); }
 
-// ================= idle auto-rotate in 3-D =================
-function loop(){ if(mode==="3d"&&!dragging){ yaw+=0.0025; render(); } requestAnimationFrame(loop); }
+/* ---------------------------------------------------------------------------
+   10. ANIMATION + BOOT
+   The volume view idles with a gentle rotation (unless the viewer prefers
+   reduced motion). Only the canvas is redrawn in the loop — never the HUD or
+   the panel — so idle animation costs one draw call and nothing else.
+   ------------------------------------------------------------------------- */
 
-// ================= boot =================
-buildVolume();buildCloud();buildHist();layers.forEach(autoContrast);refreshSprites();
-document.getElementById("badge").textContent=`sample · ${NC}-channel · ${NT} timepoints`;
-buildControls();buildLayers();buildTargets();updateZread();updateTread();
-window.addEventListener("resize",()=>{layoutDock();resize();});
-layoutDock();resize();requestAnimationFrame(loop);
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function animate(){
+  if (view.mode === "3d" && !drag && !reduceMotion){ view.yaw += 0.0025; drawScene(); }
+  requestAnimationFrame(animate);
+}
+
+// Build the sample once, wire the derived UI to the dataset, and start.
+buildVolumes(); buildClouds(); buildHistograms();
+layers.forEach(autoContrast); rebuildSprites();
+document.getElementById("badge").textContent =
+  `sample · ${NC} channel${NC === 1 ? "" : "s"} · ${NT} timepoint${NT === 1 ? "" : "s"}`;
+buildControls(); buildLayerList(); buildTargetList();
+window.addEventListener("resize", () => { layoutDock(); onResize(); });
+layoutDock(); onResize();            // size the canvas before the first real draw
+setPlane(view.z); setTime(view.t);
+requestAnimationFrame(animate);
+
+// Exposed only so the automated stress tests can drive and measure the viewer.
+window.__viewer = { view, layers, targets, setPlane, setTime, setMode, drawScene, addTarget, autoContrast,
+  stats: () => ({ NC, NT, NZ, targets: targets.length, points: MAX_POINTS }) };
 </script>
