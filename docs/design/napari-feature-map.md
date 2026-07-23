@@ -29,6 +29,19 @@ this rather than just hand people neuroglancer is that neuroglancer's own
 interface is built for power users and shows everything at once. A biologist
 should see four friendly controls, not forty.
 
+## The commitment, stated plainly
+
+neuroglancer runs **headless**. Every panel and button it would otherwise draw
+for itself is switched off, and the whole viewer is driven from the outside
+through its *state* — a single object we read to see what is showing and write to
+change it. Our own web application is the only interface a person ever sees;
+neuroglancer is the engine behind it, never the face. This is not a trick played
+against the tool — it is how neuroglancer is built to be embedded (the same way
+its own makers drive it from Python), and the spike already runs exactly this way
+on real data. Everything else in this document follows from that one commitment:
+if a capability can be reached by reading or writing that state, we can build our
+own control for it; if it cannot, that is the rare case worth calling out.
+
 ## Why this is cheap — the two channels of communication
 
 It helps to picture the viewer as two separate flows of information that never
@@ -243,6 +256,49 @@ drag it, the volume follows — is the requirement and lives in the viewer.
 **Automatic playback** — a button that animates through time on its own, useful
 mainly for making a movie — is a separate, later nicety, not part of the working
 viewer.
+
+## Responsiveness — the feel of the thing
+
+A viewer people reach for every day has to feel instant, and "instant" is the
+first thing that tends to break when a large-data viewer is put on the web. So it
+is a first-class requirement here, not a finishing touch. The way to keep it is
+to hold two kinds of action apart in your head, because they have very different
+costs.
+
+**Instant — changing how loaded data looks, or where you are standing.** Opacity,
+contrast, colour, the flat/volume toggle, rotating, and zooming *within* data
+that is already fetched are all just a value handed to the graphics card, which
+redraws from what it already holds. Nothing is fetched again, so these are
+immediate and stay immediate however large the acquisition is. This is why the
+spike's flat/volume toggle is already instant, and this whole category is
+essentially free.
+
+**Streaming — asking for data that is not loaded yet.** Zooming in for new detail,
+moving to a new region, or stepping the time slider all mean bytes must arrive
+from disk or over the network. What keeps *this* feeling responsive is the
+resolution pyramid: the coarse version appears **immediately** and sharpens as
+finer pieces arrive, so there is never a blank wait. The rule that makes it feel
+fast is simply *never block — always show something now and refine a moment
+later*. Stepping through time is the hardest case, because each moment is an
+entirely new volume, so it will "settle" rather than snap; that is worth setting
+expectations around rather than trying to hide.
+
+And the honest part: responsiveness is not automatic, it is designed. Three
+things decide it, and all three are ours to get right —
+
+- **re-apply state to the same viewer; never rebuild the engine.** This is the
+  pattern the spike already follows, and it is why switching views keeps the data
+  in memory instead of reloading it.
+- **keep the control panel light.** Dragging a slider should set one cheap value
+  and no more; nothing heavy should run on every little movement.
+- **chunk and pyramid the data well when it is written.** Chunk size and
+  compression are what make streaming smooth or stuttery, and that choice is made
+  on the data-writing side when the OME-Zarr is saved — the viewer cannot repair
+  a badly laid-out store after the fact.
+
+The short version of the contract: **instant for the controls, stream-and-refine
+for the data, and never block the view.** The engine gives you most of that for
+free; the rest is the handful of habits above.
 
 ## Two decisions to hold
 
