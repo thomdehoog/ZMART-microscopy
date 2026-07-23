@@ -43,6 +43,30 @@ WebView2 engine (Chromium), so the 3-D rendering runs on your graphics card. If
 a native window cannot open, the address is printed so you can open it in a
 browser instead.
 
+## Check that it really renders
+
+The acceptance test drives a real headless browser and asserts that pixels
+arrived, not merely that the page loaded. It needs a one-time browser download:
+
+```bash
+playwright install chromium
+python backend/browsercheck.py     # 0 = rendered, 1 = did not, 2 = could not run
+```
+
+It prints a per-check table and writes a screenshot to `backend/_check/render.png`.
+Read the `RESULT:` line rather than the exit status alone — exit 2 means the
+check could not run (page not built, no browser), which is neither a pass nor a
+regression.
+
+If your machine restricts where executables may run (AppLocker/SRP, common on
+managed lab PCs), send the browser download somewhere allowed *before* the two
+commands above, or Chromium will download fine and then fail to start with
+`spawn UNKNOWN`:
+
+```bash
+set PLAYWRIGHT_BROWSERS_PATH=C:\some\allowed\path\ms-playwright
+```
+
 ## What is here
 
 | Path | What it is |

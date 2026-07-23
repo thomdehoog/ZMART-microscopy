@@ -21,7 +21,11 @@ choice was forced by a concrete requirement:
 | Window | **pywebview** (WebView2 = Chromium on Windows) | native, lightweight, full WebGL2; no Electron/node for the user |
 | Backend | **Python** | analysis + microscope control stay Python (the brain/hands) |
 | Data | **multiscale OME-Zarr** | streams to neuroglancer over HTTP; demo synthesizes it directly |
-| Delivery | **conda** + prebuilt frontend as package data | one `conda install`, no node on the user's machine |
+| Delivery | **conda** + prebuilt frontend as package data | one environment file, no node on the user's machine |
+
+The delivery row says conda, but it cannot be conda *only*: pywebview is not on
+conda-forge, so the environment file carries a small pip section. That is a
+constraint on the packaging milestone (M6), not on the design.
 
 Windows-only is confirmed, which is what makes pywebview a no-compromise
 choice: on Windows its webview *is* Chromium, so neuroglancer runs on the
