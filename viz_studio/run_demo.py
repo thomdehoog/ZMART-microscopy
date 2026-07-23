@@ -41,7 +41,10 @@ def main() -> int:
         return 1
 
     store = _HERE / "backend" / "demo_store" / "demo.zarr"
-    if not store.exists():
+    # Check for the metadata file, not just the folder: a run interrupted
+    # mid-write can leave a folder behind with no usable volume in it, and we
+    # want the next launch to simply rebuild it rather than fail.
+    if not (store / ".zattrs").exists():
         print("Making the demo volume (first run only)...")
         write_demo_zarr(store)
     print("Opening the visualization studio (demo mode)...")

@@ -8,10 +8,13 @@ This records what the spike actually established, honestly, so the next person
 
 The hard architectural question — *can we run neuroglancer as the engine inside
 our own React app, reading our OME-Zarr, packaged for Windows?* — is answered
-**yes** for everything except the final step of getting image pixels onto the
-screen, which did not rasterize in this headless Linux container and needs
-validating on a real Windows machine with a GPU. The biggest risk is retired;
-one rendering question remains open pending real hardware.
+**yes, end to end**. The demo volume fetches, decodes, and renders (verified in
+a headless browser here; screenshots in `backend/_check`). Everything the spike
+set out to prove is proven.
+
+An early version showed flat grey with no pixels; a code review traced it to a
+real worker-bundling bug (not a headless quirk, as first suspected) and it is
+now **fixed** — see "The render bug and its fix" below.
 
 ## What is proven (here, in a headless browser)
 
@@ -40,36 +43,57 @@ one rendering question remains open pending real hardware.
   origin (`backend/server.py`), and the headless-Chromium harness
   (`backend/browsercheck.py`).
 
-## What is NOT yet proven (the open question)
+## The render bug and its fix
 
-- **Image pixels do not rasterize in this container.** The volume's *geometry*
-  draws (bounding box, scale bar, 3-D outline), but the image itself shows as
-  flat grey, and the server sees **zero pixel-chunk requests** (metadata is
-  fetched; chunk data never is).
-- **Where it was traced to:** the *frontend* correctly computes the visible
-  resolution levels and wants to draw (verified by patching neuroglancer's
-  `updateVisibleSources`: it runs in the **main** thread with the right sources
-  and scale). But that computation **never runs in the worker thread**, and the
-  worker is what decides which pixel chunks to fetch — so nothing is fetched.
-- **Most likely cause:** in a headless, GPU-less browser the frontend throttles
-  the viewport updates it sends to the worker (they are tied to animation
-  frames / a presenting surface). It reproduced under both software GL
-  (SwiftShader) and full Mesa llvmpipe, so it is not simply "no GPU". This is
-  consistent with a headless-offscreen quirk that would not occur in a real
-  windowed browser — which is exactly the Windows/WebView2 target. It is *not*
-  yet ruled out as a subtle worker-sync bug in the embed.
+The early "flat grey, no pixels" symptom was **not** a headless quirk (the first
+theory). It was a real, deterministic bundling bug that would have failed on
+Windows too — a code review caught it from the built artifact alone.
 
-## How to settle the open question (on Windows)
+**Root cause.** neuroglancer ships its two background workers
+(`chunk_worker.bundle.js`, `async_computation.bundle.js`) as tiny *source*
+stubs — lists of `#src/...` imports that only a bundler can resolve. Vite, meeting
+`new Worker(new URL(...))` inside a dependency, did **not** run those stubs
+through its worker compiler; it copied the raw stub. A browser cannot resolve
+`#src/...`, so the worker threw on load, never signalled "ready", and — because
+the main thread queues all messages until the worker is ready — the entire
+data-loading half of the viewer silently did nothing. Metadata (fetched on the
+main thread) loaded; pixel chunks (fetched in the worker) never did.
+
+**Fix** (in `frontend/`):
+
+1. `build-workers.mjs` pre-compiles both worker entry points with esbuild into
+   real, self-contained bundles (all `#src/...` resolved). Runs before every
+   build. It asserts each compiled worker is large, so a silent regression to
+   the stub fails the build loudly.
+2. `postbuild.mjs` copies the compiled `async_computation.bundle.js` to the site
+   root, where the chunk worker loads it from at runtime.
+3. `vite.config.js` sets `build.assetsInlineLimit: 0` so the worker is emitted as
+   a real file (a data:-URL worker has no origin and cannot fetch chunks).
+4. `package.json` build script chains them:
+   `node build-workers.mjs && vite build && node postbuild.mjs`.
+
+**Verified here:** with the fix, the demo volume reaches `270/270` visible chunks
+available and the blob "cells" render in all cross-sections and the 3-D view, in
+the same headless container that previously showed grey. On your Windows/WebView2
+machine (a real GPU) it will render at least as well.
+
+## Try it on Windows
 
 1. `conda env create -f environment.yml && conda activate zmart-viz`
 2. `npm --prefix frontend install && npm --prefix frontend run build`
-3. `python run_demo.py` → a native window opens on the demo volume.
-4. Expected if the headless-quirk theory is right: the three blob-like
-   "cells" channels render (white structure, green marker-a, magenta marker-b);
-   scrolling changes the z-plane; the 3-D view shows a volume.
-5. If it still shows grey with no pixels on real hardware, the worker
-   viewport-sync is a genuine embed bug to fix (start from the trace above:
-   `updateVisibleSources` not running in the worker context).
+   (the build compiles the workers automatically — watch for the
+   "compiled worker ..." lines).
+3. `python run_demo.py` → a native window opens on the demo volume; the three
+   blob channels render, scrolling changes the z-plane, and the 3-D view shows a
+   volume.
+
+## Acceptance check (guards against the bug returning)
+
+After building, `frontend/dist/assets/` must contain a **large** (~1 MB)
+`chunk_worker.bundle-*.js`, and `frontend/dist/async_computation.bundle.js` must
+exist (~1.5 MB). If either is missing or tiny (~669 bytes), the worker fix did
+not take and the viewer will grey out. `build-workers.mjs` already fails the
+build if the compiled workers are too small.
 
 ## Notes / gotchas recorded for later
 

@@ -44,7 +44,9 @@ def _webview2_present() -> bool:
                 try:
                     with winreg.OpenKey(root, key) as k:
                         version, _ = winreg.QueryValueEx(k, "pv")
-                        if version:
+                        # An uninstalled runtime can leave the key behind with a
+                        # zero version; treat that as "not present".
+                        if version and version != "0.0.0.0":
                             return True
                 except OSError:
                     continue
@@ -93,10 +95,15 @@ def open_window(port: int = 8848, *, width: int = 1500, height: int = 950) -> No
 
 
 def _serve_until_interrupt(server, url: str) -> None:
+    import time
+
     print(f"Serving at {url} — press Ctrl+C to stop.")
     try:
+        # A short polling sleep, rather than one long wait: on Windows only
+        # time.sleep is interrupted promptly by Ctrl+C, so this keeps the
+        # "press Ctrl+C to stop" promise on the machines that use the fallback.
         while True:
-            threading.Event().wait(3600)
+            time.sleep(0.5)
     except KeyboardInterrupt:
         server.shutdown()
 
