@@ -52,9 +52,10 @@ class _Handler(SimpleHTTPRequestHandler):
     # small chunks; without this each one would open a fresh connection.
     protocol_version = "HTTP/1.1"
 
-    def __init__(self, *args, data_dir: Path, site_dir: Path, **kwargs):
+    def __init__(self, *args, data_dir: Path, site_dir: Path, config: dict, **kwargs):
         self._data_dir = data_dir  # the OME-Zarr store, served under /data
         self._site_dir = site_dir  # the built page, served as the base directory
+        self._config = config  # what the page should open, answered at /api/config
         super().__init__(*args, directory=str(site_dir), **kwargs)
 
     def handle_one_request(self) -> None:
@@ -127,7 +128,19 @@ class _Handler(SimpleHTTPRequestHandler):
         if self.path.rstrip("/") == "/api/health":
             self._send_json({"ok": True})
             return
+        if self.path.rstrip("/") == "/api/config":
+            self._serve_config()
+            return
         self.send_error(HTTPStatus.NOT_FOUND)
+
+    def _serve_config(self) -> None:
+        """Tell the page which store to open and how to display it.
+
+        The page asks rather than assumes, so that pointing the viewer at a real
+        acquisition is a server-side decision (a ``--data`` argument) and needs
+        no rebuild of the frontend.
+        """
+        self._send_json(self._config)
 
     def _serve_api_post(self) -> None:
         """Handle the one control command the spike understands.
@@ -168,13 +181,53 @@ def make_server(
     *,
     data_dir: Path = _DEMO_STORE,
     site_dir: Path = _FRONTEND_DIST,
+    store: str | list[str] = "demo.zarr",
+    window: tuple[float, float] | None = None,
+    volumetric: bool = False,
+    depth_samples: int = 256,
 ) -> ThreadingHTTPServer:
     """Create (but do not start) the viewer's web server.
 
     Bound to localhost only. Call ``serve_forever`` on the returned server to
     run it, or use :func:`serve`.
+
+    Both directories are resolved here, and that is load-bearing rather than
+    tidiness: the traversal check in the handler resolves each request target,
+    so a caller-supplied directory that is *not* already resolved can never
+    contain it and every file is refused. A mapped network drive is the case
+    that bites — ``Z:\\...`` resolves to ``\\\\server\\share\\...``, which
+    shares no prefix with what the caller passed.
     """
-    handler = functools.partial(_Handler, data_dir=data_dir, site_dir=site_dir)
+    from contrast import display_window
+    from stores import channel_color, layer_names
+
+    data_dir = Path(data_dir).resolve()
+    names = [store] if isinstance(store, str) else list(store)
+    labels = layer_names(names)
+    layers = []
+    for name, label in zip(names, labels, strict=True):
+        if window is not None:
+            low, high = window
+        else:
+            low, high = display_window(data_dir / name, volumetric=volumetric)
+        color = channel_color(name) if len(names) > 1 else None
+        layers.append(
+            {
+                "name": label,
+                "source": f"/data/{name}/|zarr2:",
+                "window": {"low": low, "high": high},
+                "color": list(color) if color else None,
+                "volumetric": volumetric,
+                "depthSamples": depth_samples,
+            }
+        )
+    config = {"layers": layers}
+    handler = functools.partial(
+        _Handler,
+        data_dir=data_dir,
+        site_dir=Path(site_dir).resolve(),
+        config=config,
+    )
     return ThreadingHTTPServer(("127.0.0.1", port), handler)
 
 

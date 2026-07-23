@@ -55,13 +55,32 @@ def _webview2_present() -> bool:
     return False
 
 
-def open_window(port: int = 8848, *, width: int = 1500, height: int = 950) -> None:
+def open_window(
+    port: int = 8848,
+    *,
+    width: int = 1500,
+    height: int = 950,
+    data_dir: Path | None = None,
+    store: str | list[str] = "demo.zarr",
+    window: tuple[float, float] | None = None,
+    volumetric: bool = False,
+    depth_samples: int = 256,
+) -> None:
     """Start the server and open the studio in a native window.
 
     Blocks until the window is closed. Falls back to printing the address if a
-    native window cannot be opened.
+    native window cannot be opened. ``data_dir``/``store`` point the viewer at
+    any OME-Zarr store; leaving them unset opens the demo volume.
     """
-    server = make_server(port)
+    kwargs = {
+        "store": store,
+        "window": window,
+        "volumetric": volumetric,
+        "depth_samples": depth_samples,
+    }
+    if data_dir is not None:
+        kwargs["data_dir"] = data_dir
+    server = make_server(port, **kwargs)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{port}"
 
