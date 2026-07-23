@@ -25,6 +25,12 @@ dependencies:
   # Opens the viewer in a native desktop window using the operating system's own
   # web engine (WebView2/Chromium on Windows) — lightweight, no bundled browser.
   - pywebview
+  # The .NET bridge pywebview's Windows (WebView2) backend needs. conda-forge
+  # usually pulls it in with pywebview on Windows, but we list it so a fresh
+  # Windows box is guaranteed to get it.
+  - pythonnet
+  # Note: the optional playwright check also needs a one-time browser download,
+  # `playwright install chromium`, after the environment is created.
   # Build-time only: compiles the viewer web page. Not needed by an end user who
   # receives a pre-built page.
   - nodejs>=20

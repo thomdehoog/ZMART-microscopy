@@ -12,11 +12,13 @@ in a [React](https://react.dev) interface that is entirely ours to shape. The
 analysis and the microscope control stay in Python; this tool is the *view* and
 the *controls*, talking to Python over a small local connection.
 
-> **Status: early spike.** The engine, the app shell, and the OME-Zarr data
-> path are working; the last step — actually painting the image pixels — still
-> needs validating on a real Windows machine with a graphics card. See
-> `SPIKE_RESULTS.md` for the honest, detailed state, and `PLAN.md` for the
-> design and the decisions behind it.
+> **Status: working spike.** The engine, the app shell, the OME-Zarr data path,
+> and image rendering all work end to end — the demo volume fetches, decodes,
+> and displays (verified in an automated headless-browser check). What is *not*
+> built yet is the control panel (layers, contrast, z-scroll, 2D/3D, the movable
+> box) — that is the next step. See `SPIKE_RESULTS.md` for exactly what was
+> proven (including a worker-bundling bug that was found and fixed), and
+> `PLAN.md` for the design.
 
 ## Try the demo (no microscope needed)
 
