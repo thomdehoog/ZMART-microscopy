@@ -247,8 +247,9 @@ def write_demo_zarr(path: str | Path, *, seed: int = 7, overwrite: bool = True) 
             break
         levels.append(smaller)
 
-    # Write a zarr v2 group with one array per pyramid level. Chunking one z
-    # plane of one channel per file keeps each fetched piece small.
+    # Write a zarr v2 group with one array per pyramid level. Chunks span one
+    # channel and one z plane (tiled to at most 256x256 within the plane), so
+    # each file the viewer fetches stays small.
     group = zarr.open_group(str(path), mode="w", zarr_format=2)
     for level, vol in enumerate(levels):
         c, z, y, x = vol.shape

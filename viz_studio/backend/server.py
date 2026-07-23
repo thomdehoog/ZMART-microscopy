@@ -47,11 +47,28 @@ class _Handler(SimpleHTTPRequestHandler):
     single-page app loads however it is addressed).
     """
 
+    # Keep connections alive between requests. The viewer fetches hundreds of
+    # small chunks; without this each one would open a fresh connection.
+    protocol_version = "HTTP/1.1"
+
     # Directory the base class serves from; set per-instance in __init__.
     def __init__(self, *args, data_dir: Path, site_dir: Path, **kwargs):
         self._data_dir = data_dir
         self._site_dir = site_dir
         super().__init__(*args, directory=str(site_dir), **kwargs)
+
+    def handle_one_request(self) -> None:
+        """Serve one request, ignoring the client hanging up early.
+
+        The viewer constantly cancels chunk requests it no longer needs (you
+        panned away before they arrived). That shows up here as a dropped
+        connection; it is normal, not an error, so we swallow it quietly
+        instead of printing a scary traceback to the operator's console.
+        """
+        try:
+            super().handle_one_request()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True
 
     # -- routing ---------------------------------------------------------
 
@@ -76,8 +93,10 @@ class _Handler(SimpleHTTPRequestHandler):
         """Serve one file from the OME-Zarr store under ``/data``.
 
         The browser requests image chunks by path, e.g.
-        ``/data/demo.zarr/0/0/0/0/0``. We translate that to a file inside the
-        demo store, refusing any path that tries to climb out of it.
+        ``/data/demo.zarr/0/0.24.0.0`` (the numbers are the chunk's position;
+        the volume's metadata tells the viewer to join them with dots). We
+        translate that to a file inside the demo store, refusing any path that
+        tries to climb out of it.
         """
         rel = self.path[len("/data/") :].split("?", 1)[0].split("#", 1)[0]
         target = (self._data_dir / rel).resolve()
