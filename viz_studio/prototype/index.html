@@ -1,0 +1,581 @@
+<title>ZMART viewer — interactive prototype</title>
+<style>
+  :root{
+    --bg:#0b0d10; --panel:#12161c; --panel2:#161b22; --line:#232a33; --line2:#2c333d;
+    --ink:#c9d1d9; --ink-dim:#8b95a3; --ink-faint:#6b7684; --accent:#2f6feb; --accent-soft:#1b3a6b;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1400px 900px at 50% -15%,#14181f 0%,#0a0c0f 60%,#070809 100%);
+    color:var(--ink);font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+    display:flex;align-items:center;justify-content:center;padding:22px;min-height:100vh;
+  }
+  .frame{
+    width:min(1160px,100%);height:min(760px,calc(100vh - 44px));display:flex;flex-direction:column;
+    border:1px solid #20262e;border-radius:12px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6);background:var(--bg);
+  }
+  .titlebar{height:38px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:0 12px;
+    background:linear-gradient(#171b21,#12151a);border-bottom:1px solid #20262e;user-select:none}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+  .titlebar .title{margin-left:6px;font:600 12px/1 system-ui;color:var(--ink-dim)}
+  .titlebar .badge{margin-left:auto;font:600 10px/1 system-ui;text-transform:uppercase;letter-spacing:.09em;
+    color:var(--ink-faint);border:1px solid #262d36;border-radius:999px;padding:4px 9px}
+  .shell{flex:1;display:flex;min-height:0}
+
+  .side{width:252px;flex:0 0 auto;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .side .scroll{overflow-y:auto;overflow-x:hidden;flex:1;min-height:0}
+  .sec-head{padding:12px 14px 8px;font:600 11px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-faint);display:flex;align-items:center;gap:8px}
+  .sec-head .hint{margin-left:auto;font-weight:600;letter-spacing:0;text-transform:none;color:var(--ink-dim)}
+  .ctrls{padding:2px 14px 12px;display:flex;flex-direction:column;gap:11px}
+  .ctrl{display:grid;grid-template-columns:60px 1fr 36px;align-items:center;gap:9px}
+  .ctrl label{color:var(--ink-dim);font-size:12px}
+  .ctrl .val{font:500 11px/1 ui-monospace,Menlo,monospace;color:var(--ink-faint);text-align:right}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:2px;background:#2a323c;outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:#e8edf2;border:2px solid #0b0d10;box-shadow:0 0 0 1px #3a4551;cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:#e8edf2;border:2px solid #0b0d10;cursor:pointer}
+  .hist{width:100%;height:40px;display:block;background:#0d1116;border:1px solid var(--line);border-radius:5px;grid-column:1/-1}
+  .contrast-rows{grid-column:1/-1;display:flex;flex-direction:column;gap:7px}
+  .crow{display:grid;grid-template-columns:34px 1fr 34px;align-items:center;gap:9px}
+  .crow span:first-child{color:var(--ink-dim);font-size:11px}
+  .crow .val{font:500 11px/1 ui-monospace,Menlo,monospace;color:var(--ink-faint);text-align:right}
+  .swatches{grid-column:1/-1;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  .swatch{width:17px;height:17px;border-radius:4px;border:1px solid #39424e;cursor:pointer;padding:0;transition:transform .08s}
+  .swatch:hover{transform:scale(1.12)}
+  .swatch.on{box-shadow:0 0 0 2px var(--accent);border-color:var(--accent)}
+  .note{grid-column:1/-1;color:var(--ink-faint);font-size:12px;line-height:1.5}
+  .btn{border:1px solid var(--line2);background:#161a20;color:var(--ink-dim);border-radius:6px;padding:6px 10px;font:600 11px/1 system-ui;cursor:pointer;transition:.1s}
+  .btn:hover{background:#1b212a;color:var(--ink)}
+  .btn.tiny{padding:5px 8px}
+  .auto-row{grid-column:1/-1;display:flex;justify-content:flex-end}
+  .divider{height:1px;background:var(--line);margin:2px 0}
+
+  .layers{padding:2px 8px 8px;display:flex;flex-direction:column;gap:2px}
+  .lrow{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+  .lrow:hover{background:#171c23}
+  .lrow.sel{background:#1b212a;border-color:#26303b}
+  .lrow.anno{margin-top:3px;border-top:1px dashed #232a33;border-radius:6px}
+  .lrow .eye{background:none;border:none;color:var(--ink);cursor:pointer;font-size:14px;width:16px;padding:0;line-height:1}
+  .lrow .eye.off{opacity:.32}
+  .lrow .sw{width:13px;height:13px;border-radius:3px;border:1px solid #39424e;flex:0 0 auto}
+  .lrow .sw.pt{border-radius:50%}
+  .lrow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lrow .tag{font:500 10px/1 ui-monospace,Menlo,monospace;color:var(--ink-faint)}
+
+  .tools{display:flex;gap:6px;padding:0 14px 4px}
+  .tool{flex:1;border:1px solid var(--line2);background:#161a20;color:var(--ink-dim);border-radius:7px;padding:8px 4px;
+    font:600 11px/1.2 system-ui;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px;transition:.1s}
+  .tool svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.6}
+  .tool:hover{background:#1b212a;color:var(--ink)}
+  .tool.on{background:var(--accent-soft);border-color:var(--accent);color:#dbe7ff}
+
+  .targets{padding:2px 14px 10px;display:flex;flex-direction:column;gap:6px}
+  .empty{color:var(--ink-faint);font-size:12px;line-height:1.5;padding:2px 0 4px}
+  .trow{display:flex;align-items:center;gap:9px;padding:7px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:7px}
+  .trow .mk{width:10px;height:10px;border-radius:2px;flex:0 0 auto}
+  .trow .mk.pt{border-radius:50%}
+  .trow .tl{flex:1;overflow:hidden}
+  .trow .tl b{font:600 12px/1.2 system-ui;color:var(--ink);display:block}
+  .trow .tl small{color:var(--ink-faint);font:500 10px/1.3 ui-monospace,Menlo,monospace}
+  .trow .go{border:none;background:none;color:var(--accent);cursor:pointer;font:600 11px/1 system-ui;padding:4px}
+  .trow .go:hover{text-decoration:underline}
+  .trow .rm{border:none;background:none;color:#5b6470;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1}
+  .trow .rm:hover{color:#ff6b6b}
+  .send-all{margin:2px 14px 14px;display:block;width:calc(100% - 28px);text-align:center;background:var(--accent);
+    border:none;color:#fff;border-radius:7px;padding:9px;font:600 12px/1 system-ui;cursor:pointer}
+  .send-all:hover{background:#3f7bf5}
+  .send-all:disabled{background:#1c2530;color:#4a5563;cursor:default}
+
+  .stage{flex:1;position:relative;background:#000;overflow:hidden;min-width:0}
+  canvas#view{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .stage.cross{cursor:crosshair}
+  .toggle{position:absolute;top:14px;left:14px;z-index:10;display:flex;border-radius:7px;overflow:hidden;border:1px solid var(--line2);box-shadow:0 1px 5px rgba(0,0,0,.55)}
+  .toggle button{padding:7px 16px;border:none;background:#161a20cc;backdrop-filter:blur(3px);color:var(--ink-dim);font:600 12px/1 system-ui;cursor:pointer}
+  .toggle button.on{background:var(--accent);color:#fff}
+  .hud{position:absolute;top:14px;right:14px;z-index:8;text-align:right;font:500 11px/1.55 ui-monospace,Menlo,monospace;color:#8994a2;text-shadow:0 1px 3px #000;pointer-events:none}
+  .hud b{color:#c3ccd8}
+  .scalebar{position:absolute;left:18px;bottom:84px;z-index:6;display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none}
+  .scalebar .ln{height:3px;background:#e8edf2;border-radius:1px}
+  .scalebar .lb{font:600 11px/1 ui-monospace,Menlo,monospace;color:#e8edf2;text-shadow:0 1px 2px #000}
+  .zdock{position:absolute;left:0;right:0;bottom:0;z-index:9;display:flex;flex-direction:column;gap:3px;padding:7px 18px;
+    background:linear-gradient(#0d1116cc,#0d1116);border-top:1px solid var(--line);backdrop-filter:blur(3px)}
+  .zrow{display:flex;align-items:center;gap:12px;height:26px}
+  .zrow.hide{display:none}
+  .zrow .axis{font:700 11px/1 system-ui;letter-spacing:.05em;width:12px}
+  .zrow.z .axis{color:var(--accent)}
+  .zrow.t .axis{color:#f0a34a}
+  .zrow input[type=range]{flex:1}
+  .zrow .rd{font:500 11px/1 ui-monospace,Menlo,monospace;color:var(--ink-faint);min-width:82px;text-align:right}
+  .hint-pill{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:8;background:#161a20e6;border:1px solid var(--line2);
+    border-radius:999px;padding:6px 13px;font:500 11px/1 system-ui;color:#c9d1d9;box-shadow:0 2px 8px rgba(0,0,0,.5);pointer-events:none;opacity:0;transition:opacity .2s}
+  .hint-pill.show{opacity:1}
+  .toasts{position:absolute;right:16px;bottom:84px;z-index:20;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+  .toast{background:#12161ce6;border:1px solid var(--line2);border-left:3px solid var(--accent);border-radius:8px;padding:9px 13px;
+    font:500 12px/1.35 system-ui;color:var(--ink);box-shadow:0 6px 20px rgba(0,0,0,.5);max-width:280px;animation:pop .25s ease}
+  .toast b{color:#dbe7ff}
+  @keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .foot{flex:0 0 auto;height:26px;display:flex;align-items:center;padding:0 14px;background:#0d1116;border-top:1px solid var(--line);font:500 10.5px/1 system-ui;color:#4e5763}
+  .foot b{color:#69737f;font-weight:600}
+  @media (max-width:720px){.side{width:214px}}
+</style>
+
+<div class="frame">
+  <div class="titlebar">
+    <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+    <span class="title">ZMART&nbsp;·&nbsp;viewer</span>
+    <span class="badge" id="badge">sample</span>
+  </div>
+
+  <div class="shell">
+    <aside class="side">
+      <div class="scroll">
+        <div class="sec-head">layer controls <span class="hint" id="selName"></span></div>
+        <div class="ctrls" id="ctrls"></div>
+        <div class="divider"></div>
+        <div class="sec-head">layers <span class="hint" id="chCount"></span></div>
+        <div class="layers" id="layers"></div>
+        <div class="divider"></div>
+        <div class="sec-head">tools</div>
+        <div class="tools" id="tools">
+          <button class="tool on" data-tool="nav" title="Pan / scroll / rotate">
+            <svg viewBox="0 0 20 20"><path d="M10 2v16M2 10h16"/><circle cx="10" cy="10" r="3"/></svg>navigate</button>
+          <button class="tool" data-tool="point" title="Mark a target cell">
+            <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.2" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="7"/></svg>point</button>
+          <button class="tool" data-tool="box" title="Mark a region to re-image">
+            <svg viewBox="0 0 20 20"><rect x="3.5" y="3.5" width="13" height="13" rx="1.5"/></svg>box</button>
+        </div>
+        <div class="sec-head">targets <span class="hint" id="tCount"></span></div>
+        <div class="targets" id="targets"></div>
+      </div>
+      <button class="send-all" id="sendAll" disabled>Send targets to microscope</button>
+    </aside>
+
+    <main class="stage" id="stage">
+      <canvas id="view"></canvas>
+      <div class="toggle">
+        <button id="b2d" class="on" title="One plane; scroll to move through z">2D</button>
+        <button id="b3d" title="Rotatable volume">3D</button>
+      </div>
+      <div class="hud" id="hud"></div>
+      <div class="hint-pill" id="hintPill"></div>
+      <div class="scalebar" id="scalebar"><div class="ln" id="scaleLn"></div><div class="lb">50 µm</div></div>
+      <div class="zdock" id="zdock">
+        <div class="zrow z" id="rowZ"><span class="axis">Z</span><input type="range" id="zslider"><span class="rd" id="zread"></span></div>
+        <div class="zrow t" id="rowT"><span class="axis">T</span><input type="range" id="tslider"><span class="rd" id="tread"></span></div>
+      </div>
+      <div class="toasts" id="toasts"></div>
+    </main>
+  </div>
+
+  <div class="foot">
+    <span>Interactive prototype of the ZMART viewer design. Channels, timepoints, colours and scale are read from the sample dataset — production renders real OME-Zarr through the <b>neuroglancer</b> engine, out-of-core.</span>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   A self-contained stand-in for the real viewer. Nothing here is
+   fixed to a channel count, a volume size, or a number of
+   timepoints: the DATASET object below stands in for the metadata
+   read from an OME-Zarr store, and the whole interface is derived
+   from it. Change it and the UI follows. Production swaps this
+   renderer for neuroglancer on the real store.
+   ============================================================ */
+
+function mulberry32(a){return function(){a|=0;a=(a+0x6D2B79F5)|0;let t=Math.imul(a^(a>>>15),1|a);
+  t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;};}
+
+const PALETTE=[
+  {name:"green",rgb:[0.10,1.00,0.42]},{name:"magenta",rgb:[1.00,0.22,1.00]},
+  {name:"cyan",rgb:[0.25,0.82,1.00]},{name:"amber",rgb:[1.00,0.78,0.16]},
+  {name:"blue",rgb:[0.36,0.50,1.00]},{name:"red",rgb:[1.00,0.32,0.30]},
+  {name:"grey",rgb:[0.85,0.88,0.92]},
+];
+const cssRGB=(rgb)=>`rgb(${rgb.map(v=>Math.round(v*255)).join(",")})`;
+
+/* ---- the sample dataset (stands in for OME-Zarr metadata) ----
+   Two channels for now. Add a third entry (or change nx/ny/nz/nt)
+   and every part of the UI adapts — nothing below hard-codes 2. */
+const DATASET={
+  nx:200, ny:200, nz:60, nt:8, vox:1.1,
+  channels:[
+    {name:"Ch488", tag:"GFP",     color:[0.10,1.00,0.42], gen:{count:380,rmin:1.6,rmax:3.4,shell:0.90}},
+    {name:"Ch647", tag:"far-red", color:[1.00,0.22,1.00], gen:{count:135,rmin:2.6,rmax:5.6,shell:0.16}},
+  ],
+};
+const NX=DATASET.nx, NY=DATASET.ny, NZ=DATASET.nz, NT=DATASET.nt, VOX=DATASET.vox;
+const NC=DATASET.channels.length, SLICE=NX*NY;
+const idx=(x,y,z)=>(z*NY+y)*NX+x;
+
+// per-(time,channel) volumes and clouds; per-channel histograms/sprites
+const vol=Array.from({length:NT},()=>Array.from({length:NC},()=>new Uint8Array(NX*NY*NZ)));
+const cloud=Array.from({length:NT},()=>Array.from({length:NC},()=>[]));
+const hist=Array.from({length:NC},()=>null);
+const sprites=Array.from({length:NC},()=>null);
+
+// image layers derived from the dataset's channels
+const layers=DATASET.channels.map((c,i)=>({name:c.name,tag:c.tag,ch:i,color:c.color.slice(),visible:true,opacity:1,low:20,high:180}));
+// annotations live in their own layer (napari-style), separate from the image
+const annoLayer={name:"Targets",kind:"anno",visible:true,color:"#ffd34d"};
+
+let sel=0;            // image index (0..NC-1) or "anno"
+let mode="2d", z=Math.floor(NZ/2), tp=0, tool="nav";
+let yaw=0.6, pitch=-0.35, zoom=1, dragging=null;
+let annots=[], annotSeq=0;
+
+// ---------------- build the synthetic, time-evolving volume ----------------
+function splat(V,cx,cy,cz,r,peak){
+  const R=Math.ceil(r*2.2), inv=1/(2*r*r);
+  for(let dz=-R;dz<=R;dz++){const zz=cz+dz; if(zz<0||zz>=NZ)continue;
+    for(let dy=-R;dy<=R;dy++){const yy=cy+dy; if(yy<0||yy>=NY)continue;
+      for(let dx=-R;dx<=R;dx++){const xx=cx+dx; if(xx<0||xx>=NX)continue;
+        const g=peak*Math.exp(-(dx*dx+dy*dy+dz*dz)*inv); if(g<3)continue;
+        const p=idx(xx,yy,zz),v=V[p]+g; V[p]=v>255?255:v;
+      }}}
+}
+function genCells(ch){
+  const c=DATASET.channels[ch], G=c.gen, rng=mulberry32(20260723+ch*7919);
+  const cx=NX/2,cy=NY/2,cz=NZ/2, ax=NX*0.36,ay=NY*0.28,az=NZ*0.37, cells=[];
+  for(let i=0;i<G.count;i++){
+    const u=rng()*2-1, th=rng()*Math.PI*2, s=Math.sqrt(1-u*u);
+    const rad=(rng()<G.shell)?(0.62+rng()*0.42):(Math.pow(rng(),0.6)*0.92);
+    cells.push({
+      x:cx+ax*rad*s*Math.cos(th)+(rng()-0.5)*7,
+      y:cy+ay*rad*s*Math.sin(th)+(rng()-0.5)*7,
+      z:cz+az*rad*u+(rng()-0.5)*4,
+      r:G.rmin+rng()*(G.rmax-G.rmin), peak:110+rng()*140,
+      vx:(rng()-0.5)*1.1, vy:(rng()-0.5)*1.1, vz:(rng()-0.5)*0.5, ph:rng()*6.28,
+    });
+  }
+  return cells;
+}
+function buildVolume(){
+  for(let ch=0;ch<NC;ch++){
+    const cells=genCells(ch);
+    for(let t=0;t<NT;t++){
+      const V=vol[t][ch];
+      for(const c of cells){
+        const x=(c.x+c.vx*t)|0, y=(c.y+c.vy*t)|0, zz=(c.z+c.vz*t)|0;
+        const peak=c.peak*(0.82+0.18*Math.sin(c.ph+t*0.6));
+        splat(V,x,y,zz,c.r,peak);
+      }
+    }
+  }
+}
+function buildCloud(){
+  for(let t=0;t<NT;t++)for(let ch=0;ch<NC;ch++){
+    const V=vol[t][ch], pts=[];
+    for(let p=0;p<V.length;p++){const v=V[p]; if(v<44)continue;
+      const zz=(p/SLICE)|0, r=p-zz*SLICE, yy=(r/NX)|0, xx=r-yy*NX; pts.push({x:xx,y:yy,z:zz,v});}
+    pts.sort((a,b)=>b.v-a.v); cloud[t][ch]=pts.slice(0,1800);
+  }
+}
+function buildHist(){
+  for(let ch=0;ch<NC;ch++){
+    const h=new Float32Array(64), V=vol[0][ch];
+    for(let p=0;p<V.length;p++){const v=V[p]; if(v>4)h[(v>>2)]++;}
+    let m=0;for(let i=0;i<64;i++)m=Math.max(m,h[i]);
+    for(let i=0;i<64;i++)h[i]=m?Math.pow(h[i]/m,0.42):0; hist[ch]=h;
+  }
+}
+function autoContrast(L){
+  const h=hist[L.ch]; let tot=0;for(let i=0;i<64;i++)tot+=h[i];
+  let c=0,lo=8,hi=200,seenLo=false;
+  for(let i=0;i<64;i++){c+=h[i];const f=c/tot;
+    if(!seenLo&&f>0.02){lo=i*4;seenLo=true;} if(f>0.985){hi=i*4;break;}}
+  L.low=Math.max(4,lo); L.high=Math.max(L.low+12,hi);
+}
+
+// ================= rendering =================
+const stage=document.getElementById("stage"), view=document.getElementById("view"), g=view.getContext("2d");
+const off=document.createElement("canvas");off.width=NX;off.height=NY;
+const og=off.getContext("2d"), oimg=og.createImageData(NX,NY);
+let W=0,H=0,DPR=1, fit={s:1,ox:0,oy:0};
+
+function makeSprite(rgb){
+  const s=document.createElement("canvas");s.width=s.height=32;const c=s.getContext("2d");
+  const col=`${(rgb[0]*255)|0},${(rgb[1]*255)|0},${(rgb[2]*255)|0}`;
+  const gr=c.createRadialGradient(16,16,0,16,16,16);
+  gr.addColorStop(0,`rgba(${col},1)`);gr.addColorStop(0.35,`rgba(${col},0.55)`);gr.addColorStop(1,`rgba(${col},0)`);
+  c.fillStyle=gr;c.fillRect(0,0,32,32);return s;
+}
+function refreshSprites(){for(let i=0;i<NC;i++)sprites[i]=makeSprite(layers[i].color);}
+
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=stage.clientWidth;H=stage.clientHeight;view.width=W*DPR;view.height=H*DPR;g.setTransform(DPR,0,0,DPR,0,0);
+  const s=Math.min(W/NX,H/NY)*0.92; fit={s,ox:(W-NX*s)/2,oy:(H-NY*s)/2};
+  document.getElementById("scaleLn").style.width=Math.round((50/VOX)*(mode==="2d"?s:s*zoom))+"px";
+  render();
+}
+const v2s=(vx,vy)=>[fit.ox+vx*fit.s, fit.oy+vy*fit.s];
+const s2v=(sx,sy)=>[(sx-fit.ox)/fit.s,(sy-fit.oy)/fit.s];
+function render(){ mode==="2d"?render2D():render3D(); drawOverlay(); updateHUD(); }
+
+function render2D(){
+  const d=oimg.data, base=z*SLICE;
+  for(let p=0;p<SLICE;p++){
+    let r=0,gg=0,b=0;
+    for(const L of layers){ if(!L.visible)continue;
+      const v=vol[tp][L.ch][base+p]; if(v<=L.low)continue;
+      let n=(v-L.low)/(L.high-L.low); if(n>1)n=1; const f=n*L.opacity;
+      r+=L.color[0]*f;gg+=L.color[1]*f;b+=L.color[2]*f;
+    }
+    const q=p*4; d[q]=r>1?255:r*255; d[q+1]=gg>1?255:gg*255; d[q+2]=b>1?255:b*255; d[q+3]=255;
+  }
+  og.putImageData(oimg,0,0);
+  g.clearRect(0,0,W,H);g.fillStyle="#000";g.fillRect(0,0,W,H);
+  g.imageSmoothingEnabled=true;g.imageSmoothingQuality="high";
+  g.drawImage(off,fit.ox,fit.oy,NX*fit.s,NY*fit.s);
+}
+function render3D(){
+  g.clearRect(0,0,W,H);g.fillStyle="#000";g.fillRect(0,0,W,H);
+  const cx=W/2,cy=H/2, scale=Math.min(W/NX,H/NY)*0.92*zoom;
+  const cyaw=Math.cos(yaw),syaw=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch),dz=2.0, acc=[];
+  for(const L of layers){ if(!L.visible||L.opacity<=0.01)continue;
+    for(const pt of cloud[tp][L.ch]){ if(pt.v<=L.low)continue;
+      let n=(pt.v-L.low)/(L.high-L.low); if(n>1)n=1;
+      const x=pt.x-NX/2,y=pt.y-NY/2,zc=(pt.z-NZ/2)*dz;
+      const rx=x*cyaw+zc*syaw, rz=-x*syaw+zc*cyaw, ry=y*cp-rz*sp, rz2=y*sp+rz*cp;
+      acc.push({sx:cx+rx*scale, sy:cy+ry*scale, depth:rz2, a:n*L.opacity, ch:L.ch});
+    }}
+  acc.sort((a,b)=>a.depth-b.depth);
+  g.globalCompositeOperation="lighter"; const sz=Math.max(5,scale*3.0);
+  for(const pt of acc){ g.globalAlpha=pt.a<0?0:pt.a>1?1:pt.a; g.drawImage(sprites[pt.ch],pt.sx-sz/2,pt.sy-sz/2,sz,sz); }
+  g.globalAlpha=1;g.globalCompositeOperation="source-over";
+}
+function proj3D(vx,vy,vz){
+  const cx=W/2,cy=H/2, scale=Math.min(W/NX,H/NY)*0.92*zoom;
+  const cyaw=Math.cos(yaw),syaw=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch),dz=2.0;
+  const x=vx-NX/2,y=vy-NY/2,zc=(vz-NZ/2)*dz;
+  const rx=x*cyaw+zc*syaw, rz=-x*syaw+zc*cyaw, ry=y*cp-rz*sp;
+  return [cx+rx*scale, cy+ry*scale];
+}
+function drawOverlay(){
+  if(!annoLayer.visible)return;
+  for(const a of annots){
+    let sx,sy;
+    if(mode==="2d"){[sx,sy]=v2s(a.x,a.y); g.globalAlpha=Math.abs(a.z-z)<=2?1:0.28;}
+    else{[sx,sy]=proj3D(a.x,a.y,a.z); g.globalAlpha=0.95;}
+    g.lineWidth=1.6;g.strokeStyle=annoLayer.color;g.fillStyle=annoLayer.color;
+    if(a.type==="point"){ g.beginPath();g.arc(sx,sy,4,0,7);g.fill(); g.beginPath();g.arc(sx,sy,9,0,7);g.stroke(); }
+    else{ const [x2,y2]= mode==="2d"?v2s(a.x2,a.y2):proj3D(a.x2,a.y2,a.z);
+      g.strokeRect(Math.min(sx,x2),Math.min(sy,y2),Math.abs(x2-sx),Math.abs(y2-sy)); }
+    g.font="600 11px system-ui";g.fillText(a.label,sx+11,sy-7); g.globalAlpha=1;
+  }
+  if(dragging&&dragging.mode==="box"&&mode==="2d"){
+    const [x1,y1]=v2s(dragging.vx,dragging.vy),[x2,y2]=v2s(dragging.cx,dragging.cy);
+    g.setLineDash([5,4]);g.strokeStyle="#fff";g.lineWidth=1.4;
+    g.strokeRect(Math.min(x1,x2),Math.min(y1,y2),Math.abs(x2-x1),Math.abs(y2-y1));g.setLineDash([]);
+  }
+}
+function updateHUD(){
+  document.getElementById("hud").innerHTML = mode==="2d"
+    ? `voxel <b>${VOX} × ${VOX} µm</b><br>z <b>${z+1}</b>/${NZ} · t <b>${tp+1}</b>/${NT}<br>${NC} channels · <b>L0</b> full res`
+    : `volume <b>${NX}·${NY}·${NZ}</b><br>t <b>${tp+1}</b>/${NT} · out-of-core<br>zoom <b>${zoom.toFixed(2)}×</b>`;
+}
+
+// ================= panel (controls) =================
+const ctrlsEl=document.getElementById("ctrls");
+function buildControls(){
+  ctrlsEl.innerHTML="";
+  if(sel==="anno"){
+    document.getElementById("selName").textContent=annoLayer.name;
+    const n=document.createElement("div");n.className="note";
+    n.innerHTML=`<b style="color:#c9d1d9">${annots.length}</b> target${annots.length===1?"":"s"} in this layer. Points and regions you draw live here — hide the layer with its eye, or recolour every target below.`;
+    ctrlsEl.appendChild(n);
+    const sw=document.createElement("div");sw.className="swatches";
+    const lbl=document.createElement("span");lbl.style.cssText="color:#8b95a3;font-size:12px;margin-right:2px";lbl.textContent="colour";sw.appendChild(lbl);
+    [["#ffd34d","amber"],["#ffffff","white"],["#57e0ff","cyan"],["#ff6b6b","red"],["#8affc1","green"]].forEach(([hex,nm])=>{
+      const b=document.createElement("button");b.className="swatch"+(annoLayer.color.toLowerCase()===hex?" on":"");
+      b.style.background=hex;b.title=nm;b.onclick=()=>{annoLayer.color=hex;buildControls();buildLayers();buildTargets();render();};
+      sw.appendChild(b);
+    });
+    ctrlsEl.appendChild(sw);
+    return;
+  }
+  const L=layers[sel];
+  document.getElementById("selName").textContent=L.name;
+  ctrlsEl.appendChild(row("opacity", slider(0,1,0.01,L.opacity,v=>{L.opacity=v;render();},()=>L.opacity.toFixed(2))));
+  const hc=document.createElement("canvas");hc.className="hist";hc.width=212;hc.height=40;ctrlsEl.appendChild(hc);drawHist(hc,L);
+  const rows=document.createElement("div");rows.className="contrast-rows";
+  rows.appendChild(crow("black",0,255,1,L.low, v=>{L.low=Math.min(v,L.high-4);drawHist(hc,L);render();}));
+  rows.appendChild(crow("white",0,255,1,L.high,v=>{L.high=Math.max(v,L.low+4);drawHist(hc,L);render();}));
+  const ar=document.createElement("div");ar.className="auto-row";
+  const ab=document.createElement("button");ab.className="btn tiny";ab.textContent="auto contrast";
+  ab.onclick=()=>{autoContrast(L);buildControls();render();toast(`Auto-contrast · <b>${L.name}</b>`);};
+  ar.appendChild(ab);rows.appendChild(ar);ctrlsEl.appendChild(rows);
+  const sw=document.createElement("div");sw.className="swatches";
+  const lbl=document.createElement("span");lbl.style.cssText="color:#8b95a3;font-size:12px;margin-right:2px";lbl.textContent="colour";sw.appendChild(lbl);
+  PALETTE.forEach(pl=>{
+    const b=document.createElement("button");b.className="swatch";b.style.background=cssRGB(pl.rgb);
+    if(pl.rgb.every((v,i)=>Math.abs(v-L.color[i])<0.02))b.classList.add("on");b.title=pl.name;
+    b.onclick=()=>{L.color=pl.rgb.slice();refreshSprites();buildControls();buildLayers();render();};
+    sw.appendChild(b);
+  });
+  ctrlsEl.appendChild(sw);
+}
+function row(label,control){const d=document.createElement("div");d.className="ctrl";
+  const l=document.createElement("label");l.textContent=label;const v=document.createElement("span");v.className="val";control._val=v;
+  d.append(l,control,v); if(control._read)v.textContent=control._read();return d;}
+function slider(min,max,step,val,on,read){const i=document.createElement("input");i.type="range";
+  i.min=min;i.max=max;i.step=step;i.value=val;i._read=read;
+  i.oninput=()=>{on(parseFloat(i.value)); if(i._val&&read)i._val.textContent=read();};return i;}
+function crow(name,min,max,step,val,on){const d=document.createElement("div");d.className="crow";
+  const s=document.createElement("span");s.textContent=name;
+  const i=document.createElement("input");i.type="range";i.min=min;i.max=max;i.step=step;i.value=val;
+  const v=document.createElement("span");v.className="val";v.textContent=Math.round(val);
+  i.oninput=()=>{on(parseInt(i.value));v.textContent=i.value;};d.append(s,i,v);return d;}
+function drawHist(cv,L){
+  const c=cv.getContext("2d"),w=cv.width,h=cv.height;c.clearRect(0,0,w,h);
+  const H0=hist[L.ch], lx=(L.low/255)*w, hx=(L.high/255)*w;
+  c.fillStyle="#0d1116";c.fillRect(0,0,w,h);
+  c.fillStyle="rgba(47,111,235,0.14)";c.fillRect(lx,0,hx-lx,h);
+  c.fillStyle="#41505f";const bw=w/64;
+  for(let i=0;i<64;i++){const bh=H0[i]*(h-4);c.fillRect(i*bw,h-bh,bw-0.5,bh);}
+  c.strokeStyle="#e8edf2";c.lineWidth=1;c.beginPath();c.moveTo(lx,0);c.lineTo(lx,h);c.moveTo(hx,0);c.lineTo(hx,h);c.stroke();
+}
+
+// ================= layer list (image layers + annotation layer) =================
+const layersEl=document.getElementById("layers");
+function buildLayers(){
+  document.getElementById("chCount").textContent=NC+" ch";
+  layersEl.innerHTML="";
+  layers.forEach((L,i)=>{
+    const r=document.createElement("div");r.className="lrow"+(sel===i?" sel":"");
+    r.onclick=()=>{sel=i;buildControls();buildLayers();};
+    const eye=mkEye(L.visible,(e)=>{e.stopPropagation();L.visible=!L.visible;buildLayers();render();});
+    const sw=document.createElement("span");sw.className="sw";sw.style.background=cssRGB(L.color);
+    const nm=document.createElement("span");nm.className="nm";nm.textContent=L.name;
+    const tag=document.createElement("span");tag.className="tag";tag.textContent=L.tag;
+    r.append(eye,sw,nm,tag);layersEl.appendChild(r);
+  });
+  // annotation layer row
+  const r=document.createElement("div");r.className="lrow anno"+(sel==="anno"?" sel":"");
+  r.onclick=()=>{sel="anno";buildControls();buildLayers();};
+  const eye=mkEye(annoLayer.visible,(e)=>{e.stopPropagation();annoLayer.visible=!annoLayer.visible;buildLayers();render();});
+  const sw=document.createElement("span");sw.className="sw pt";sw.style.background=annoLayer.color;
+  const nm=document.createElement("span");nm.className="nm";nm.textContent=annoLayer.name;
+  const tag=document.createElement("span");tag.className="tag";tag.textContent=annots.length?annots.length+" pts":"empty";
+  r.append(eye,sw,nm,tag);layersEl.appendChild(r);
+}
+function mkEye(on,fn){const b=document.createElement("button");b.className="eye"+(on?"":" off");
+  b.textContent=on?"◉":"◎";b.title=on?"Hide":"Show";b.onclick=fn;return b;}
+
+// ================= tools =================
+document.getElementById("tools").addEventListener("click",e=>{
+  const b=e.target.closest(".tool");if(!b)return;tool=b.dataset.tool;
+  document.querySelectorAll(".tool").forEach(t=>t.classList.toggle("on",t===b));
+  stage.classList.toggle("cross", tool!=="nav" && mode==="2d");
+  if(tool!=="nav" && mode==="3d") showHint("Switch to 2-D to place targets on a plane");
+  else if(tool==="point") showHint("Click a cell to drop a target point");
+  else if(tool==="box") showHint("Drag to mark a region to re-image"); else hideHint();
+});
+
+// ================= targets list =================
+const targetsEl=document.getElementById("targets");
+function buildTargets(){
+  targetsEl.innerHTML="";document.getElementById("tCount").textContent=annots.length||"";
+  if(!annots.length){const e=document.createElement("div");e.className="empty";
+    e.innerHTML="No targets yet. Pick the <b>point</b> or <b>box</b> tool and click the image to mark cells or regions to image.";
+    targetsEl.appendChild(e);document.getElementById("sendAll").disabled=true;return;}
+  document.getElementById("sendAll").disabled=false;
+  annots.forEach(a=>{
+    const r=document.createElement("div");r.className="trow";
+    const mk=document.createElement("span");mk.className="mk"+(a.type==="point"?" pt":"");mk.style.background=annoLayer.color;
+    const tl=document.createElement("div");tl.className="tl";const um=v=>Math.round(v*VOX);
+    tl.innerHTML=`<b>${a.label}</b><small>${a.type} · x${um(a.x)} y${um(a.y)} z${Math.round(a.z*VOX)} µm · t${a.t+1}</small>`;
+    const go=document.createElement("button");go.className="go";go.textContent="→ scope";go.onclick=()=>sendOne(a);
+    const rm=document.createElement("button");rm.className="rm";rm.textContent="✕";
+    rm.onclick=()=>{annots=annots.filter(x=>x!==a);buildTargets();buildLayers();render();};
+    r.append(mk,tl,go,rm);targetsEl.appendChild(r);
+  });
+}
+
+// ================= stage interaction =================
+function evPos(e){const r=view.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top];}
+view.addEventListener("mousedown",e=>{
+  const [sx,sy]=evPos(e);
+  if(mode==="3d"){dragging={mode:"rot",x:e.clientX,y:e.clientY,yaw,pitch};return;}
+  if(tool==="point"){const [vx,vy]=s2v(sx,sy);if(vx<0||vy<0||vx>=NX||vy>=NY)return;addAnnot({type:"point",x:vx,y:vy,z,t:tp});}
+  else if(tool==="box"){const [vx,vy]=s2v(sx,sy);dragging={mode:"box",vx,vy,cx:vx,cy:vy};}
+});
+window.addEventListener("mousemove",e=>{
+  if(!dragging)return;
+  if(dragging.mode==="rot"){yaw=dragging.yaw+(e.clientX-dragging.x)*0.008;
+    pitch=Math.max(-1.4,Math.min(1.4,dragging.pitch+(e.clientY-dragging.y)*0.008));render();}
+  else if(dragging.mode==="box"){const [sx,sy]=evPos(e);[dragging.cx,dragging.cy]=s2v(sx,sy);render();}
+});
+window.addEventListener("mouseup",()=>{
+  if(dragging&&dragging.mode==="box"){const x=dragging.vx,y=dragging.vy,x2=dragging.cx,y2=dragging.cy;
+    if(Math.abs(x2-x)>3&&Math.abs(y2-y)>3) addAnnot({type:"box",x,y,x2,y2,z,t:tp});render();}
+  dragging=null;
+});
+view.addEventListener("wheel",e=>{
+  e.preventDefault();
+  if(mode==="2d"){z=Math.max(0,Math.min(NZ-1,z+(e.deltaY>0?1:-1)));document.getElementById("zslider").value=z;updateZread();render();}
+  else{zoom=Math.max(0.5,Math.min(3,zoom*(e.deltaY>0?0.92:1.08)));resize();}
+},{passive:false});
+function addAnnot(a){
+  a.label=(a.type==="point"?"Target ":"Region ")+(++annotSeq);
+  if(!annoLayer.visible){annoLayer.visible=true;} // drawing into a hidden layer reveals it, like napari
+  annots.push(a);buildTargets();buildLayers();render();toast(`Marked <b>${a.label}</b>`);
+}
+
+// ================= mode / sliders =================
+function layoutDock(){
+  document.getElementById("rowZ").classList.toggle("hide", mode!=="2d");
+  document.getElementById("rowT").classList.toggle("hide", NT<=1);
+  const dh=document.getElementById("zdock").offsetHeight;
+  document.getElementById("scalebar").style.bottom=(dh+14)+"px";
+  document.getElementById("toasts").style.bottom=(dh+14)+"px";
+}
+function setMode(m){
+  mode=m;
+  document.getElementById("b2d").classList.toggle("on",m==="2d");
+  document.getElementById("b3d").classList.toggle("on",m==="3d");
+  stage.classList.toggle("cross", tool!=="nav" && m==="2d");
+  if(m==="3d"&&tool!=="nav") showHint("Rotating volume — switch to 2-D to place targets"); else hideHint();
+  layoutDock();resize();
+}
+document.getElementById("b2d").onclick=()=>setMode("2d");
+document.getElementById("b3d").onclick=()=>setMode("3d");
+const zEl=document.getElementById("zslider");zEl.min=0;zEl.max=NZ-1;zEl.value=z;
+zEl.oninput=()=>{z=parseInt(zEl.value);updateZread();render();};
+function updateZread(){document.getElementById("zread").textContent=`plane ${z+1} / ${NZ}`;}
+const tEl=document.getElementById("tslider");tEl.min=0;tEl.max=NT-1;tEl.value=tp;
+tEl.oninput=()=>{tp=parseInt(tEl.value);updateTread();render();};
+function updateTread(){document.getElementById("tread").textContent=`time ${tp+1} / ${NT}`;}
+
+// ================= microscope loop (mock) =================
+function sendOne(a){
+  toast(`Moving stage → <b>${a.label}</b><br><span style="color:#8b95a3">x${Math.round(a.x*VOX)} y${Math.round(a.y*VOX)} z${Math.round(a.z*VOX)} µm</span>`);
+  setTimeout(()=>toast(`<b>${a.label}</b> acquired ✓`),1100);
+}
+document.getElementById("sendAll").onclick=()=>{ if(!annots.length)return;
+  toast(`Queuing <b>${annots.length}</b> target${annots.length>1?"s":""} for acquisition…`);
+  setTimeout(()=>toast(`Acquisition run started · <b>${annots.length}</b> position${annots.length>1?"s":""}`),1100);
+};
+
+// ================= toasts / hint =================
+const toastsEl=document.getElementById("toasts");
+function toast(html){const t=document.createElement("div");t.className="toast";t.innerHTML=html;toastsEl.appendChild(t);
+  setTimeout(()=>{t.style.transition="opacity .4s";t.style.opacity="0";setTimeout(()=>t.remove(),400);},2600);}
+let hintT=null;
+function showHint(txt){const p=document.getElementById("hintPill");p.textContent=txt;p.classList.add("show");clearTimeout(hintT);hintT=setTimeout(hideHint,2600);}
+function hideHint(){document.getElementById("hintPill").classList.remove("show");}
+
+// ================= idle auto-rotate in 3-D =================
+function loop(){ if(mode==="3d"&&!dragging){ yaw+=0.0025; render(); } requestAnimationFrame(loop); }
+
+// ================= boot =================
+buildVolume();buildCloud();buildHist();layers.forEach(autoContrast);refreshSprites();
+document.getElementById("badge").textContent=`sample · ${NC}-channel · ${NT} timepoints`;
+buildControls();buildLayers();buildTargets();updateZread();updateTread();
+window.addEventListener("resize",()=>{layoutDock();resize();});
+layoutDock();resize();requestAnimationFrame(loop);
+</script>
