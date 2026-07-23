@@ -18,6 +18,8 @@
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { rename } from "node:fs/promises";
+import { statSync } from "node:fs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const lib = join(here, "node_modules", "neuroglancer", "lib");
@@ -41,9 +43,7 @@ for (const name of workers) {
     conditions: ["default"],
     legalComments: "none",
   });
-  const { rename } = await import("node:fs/promises");
   await rename(out, entry);
-  const { statSync } = await import("node:fs");
   const kb = Math.round(statSync(entry).size / 1024);
   if (kb < 50) {
     throw new Error(

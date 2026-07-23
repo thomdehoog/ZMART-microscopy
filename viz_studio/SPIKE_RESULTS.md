@@ -8,9 +8,11 @@ This records what the spike actually established, honestly, so the next person
 
 The hard architectural question — *can we run neuroglancer as the engine inside
 our own React app, reading our OME-Zarr, packaged for Windows?* — is answered
-**yes, end to end**. The demo volume fetches, decodes, and renders (verified in
-a headless browser here; screenshots in `backend/_check`). Everything the spike
-set out to prove is proven.
+**yes, end to end**. The demo volume fetches, decodes, and renders — verified by
+an automated headless-browser acceptance test (`backend/browsercheck.py`, which
+strictly asserts pixels arrived and writes a screenshot to
+`backend/_check/render.png` when you run it). Everything the spike set out to
+prove is proven.
 
 An early version showed flat grey with no pixels; a code review traced it to a
 real worker-bundling bug (not a headless quirk, as first suspected) and it is
