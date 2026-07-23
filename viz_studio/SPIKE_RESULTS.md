@@ -36,6 +36,13 @@ now **fixed** — see "The render bug and its fix" below.
   - **Source URL format is `http://host/path/|zarr2:`** — the pipeline/kvstore
     form. The legacy `zarr://http://...` form is *dead* in 2.41 ("unsupported
     scheme"). This corrected a wrong assumption from the up-front research.
+  - **Call `setDefaultInputEventBindings(viewer.inputEventBindings)` after
+    creating the viewer**, or nothing responds to the mouse. `makeMinimalViewer`
+    builds the engine but installs no navigation bindings; neuroglancer's own
+    entry points (`default_viewer_setup.js`, `main_python.js`) call this
+    separately. Without it the panels still receive every DOM event and the
+    volume still renders — it simply never moves. See "The interaction bug"
+    below.
 - **The OME-Zarr data pipeline works.** Python writes v0.4 / zarr v2; the engine
   reads the group, the multiscale pyramid levels, the array metadata, and the
   transform, and reports the layer ready with the correct coordinate space
@@ -90,13 +97,43 @@ machine (a real GPU) it will render at least as well.
    blob channels render, scrolling changes the z-plane, and the 3-D view shows a
    volume.
 
+## The interaction bug and its fix
+
+Found on the first run of the native window on Windows (2026-07-23): the volume
+rendered correctly and **nothing responded to the mouse** — no pan, no zoom, no
+z-scroll, no 3-D rotation.
+
+**Root cause.** `makeMinimalViewer` constructs the engine but does not install
+neuroglancer's default input bindings; `setDefaultInputEventBindings` is called
+separately by its own entry points, which we did not use. The panels received
+every DOM event (verified: `mousedown`/`wheel` land on
+`.neuroglancer-rendered-data-panel`) but no action was mapped to them, so the
+navigation state never changed. `showUIControls: false` was *not* the cause —
+that flag only ANDs into UI *visibility*, never into input bindings.
+
+**Fix.** One call in `NeuroglancerView.jsx`, immediately after creating the
+viewer. Verified: dragging a slice panel pans, plain wheel steps z, `control`
++wheel zooms, dragging the 3-D panel rotates.
+
+**Why the render test missed it.** Rendering and navigation are independent —
+with the bindings absent, every render assertion still passes. Confirmed by
+removing the fix and re-running: the four interaction tests fail, the render
+tests stay green.
+
 ## Acceptance check (guards against the bug returning)
+
+`viz_studio/tests/` is the gate; run it with `pytest viz_studio/tests`. It
+covers the demo volume's OME-Zarr contract, the server's HTTP contract, the
+build artifacts, the render, and the four navigation gestures. The
+browser-driven tests skip (with a reason) where the page is not built or no
+Chromium is available.
 
 After building, `frontend/dist/assets/` must contain a **large** (~1 MB)
 `chunk_worker.bundle-*.js`, and `frontend/dist/async_computation.bundle.js` must
 exist (~1.5 MB). If either is missing or tiny (~669 bytes), the worker fix did
 not take and the viewer will grey out. `precompile-workers.mjs` already fails the
-build if the compiled workers are too small.
+build if the compiled workers are too small, and
+`tests/test_build_artifacts.py` asserts it from the emitted files.
 
 ## Notes / gotchas recorded for later
 

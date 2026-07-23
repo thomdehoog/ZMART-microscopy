@@ -11,6 +11,13 @@ import "neuroglancer/unstable/layer/enabled_frontend_modules.js";
 import "neuroglancer/unstable/datasource/enabled_frontend_modules.js";
 import "neuroglancer/unstable/kvstore/enabled_frontend_modules.js";
 import { makeMinimalViewer } from "neuroglancer/unstable/ui/minimal_viewer.js";
+// Mouse and keyboard navigation (pan, zoom, scroll through z, rotate the 3-D
+// view) is NOT part of building a viewer. neuroglancer's panels receive the DOM
+// events either way, but without this binding table no *action* is attached to
+// them, so every drag and wheel silently does nothing. Its own entry points
+// (default_viewer_setup.js, main_python.js) call this immediately after
+// creating the viewer; makeMinimalViewer does not, so we must.
+import { setDefaultInputEventBindings } from "neuroglancer/unstable/ui/default_input_event_bindings.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
 
 /**
@@ -50,6 +57,8 @@ export default function NeuroglancerView({ onViewer }) {
       showLayerDialog: false,
       resetStateWhenEmpty: false,
     });
+
+    setDefaultInputEventBindings(viewer.inputEventBindings);
 
     onViewer?.(viewer);
     return () => viewer.dispose();
