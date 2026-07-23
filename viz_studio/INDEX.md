@@ -42,10 +42,11 @@ workflow. Both run with no microscope (demo mode).
 | What | full acquisition flow (steps, gates, gallery, report) | image/volume viewer (neuroglancer), 3-D capable |
 | Maturity | mature, 42 tests, demo-complete | proven spike: renders, tested; no control panel yet |
 | Run (demo, no scope) | `python workflows/target_acquisition/run_webapp.py --demo --window` | `python viz_studio/run_demo.py` (after building the frontend once) |
-| Test | `pytest workflows/target_acquisition/tests/test_webapp*.py` | `python viz_studio/backend/browsercheck.py` |
+| Test | `pytest workflows/target_acquisition/tests/test_webapp*.py` | `pytest viz_studio/tests` (32 tests, incl. the navigation gestures) |
 
-Both open in a native desktop window via `pywebview` (`conda install -c
-conda-forge pywebview`), and both fall back to a browser if it is missing.
+Both open in a native desktop window via `pywebview` (`pip install pywebview` —
+conda-forge does not package it), and both fall back to a browser if it is
+missing.
 
 ## Current status
 
@@ -54,8 +55,11 @@ conda-forge pywebview`), and both fall back to a browser if it is missing.
   chunks), clean and tested; **not yet** a product — no control panel, demo data
   only, not wired to the workflow. Next step is the control panel, then moving
   the workflow's overview onto OME-Zarr/neuroglancer (see the roadmap).
-- Not yet seen by anyone: the native windows physically opening on Windows.
-  Everything they wrap is verified.
+- The native window has now been opened on Windows (2026-07-23) and works. That
+  first run found the interaction bug described in `SPIKE_RESULTS.md`: the
+  volume rendered but nothing responded to the mouse, because the default input
+  bindings were never installed. Fixed, and now covered by
+  `viz_studio/tests/test_interaction.py`.
 
 ## Branches
 
