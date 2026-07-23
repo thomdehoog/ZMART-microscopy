@@ -42,6 +42,30 @@ on real data. Everything else in this document follows from that one commitment:
 if a capability can be reached by reading or writing that state, we can build our
 own control for it; if it cannot, that is the rare case worth calling out.
 
+## How it ships — one reusable component
+
+The viewer is meant to be a single, self-contained piece: the neuroglancer
+engine and the control panel bundled together as one unit. The spike is already
+shaped this way — the application shell owns both the panel and the engine, so
+the two can never disagree about what is on screen. The intent is that this one
+component is what gets embedded *everywhere* images need looking at — the
+operator website, a standalone window, and, when it belongs in a notebook, shown
+there through a simple embedded frame that points at the running viewer. One
+component, many places it can be mounted, rather than a fresh viewer rebuilt for
+each home.
+
+It is worth being explicit about one thing this deliberately is *not*, because it
+was weighed and set aside. ZMART's other in-notebook controls are built in the
+"anywidget" style, where the interface is written as text inside Python and drawn
+directly in a notebook cell. neuroglancer does not fit comfortably there: it is a
+large bundle of code that relies on background "workers", and packing that into
+the inline-inside-Python model is enough of a fight that the visualization work
+was given its own ordinary web build (`viz_studio/`) instead. So the viewer ships
+as a normal web component and reaches a notebook through an embedded frame, not
+as a native notebook-cell widget. This gives the "one viewer everywhere" goal in
+full without reopening a decision the roadmap already made — see
+`../../viz_studio/INTEGRATION_ROADMAP.md` for that history.
+
 ## Why this is cheap — the two channels of communication
 
 It helps to picture the viewer as two separate flows of information that never
