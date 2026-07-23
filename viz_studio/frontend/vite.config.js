@@ -18,6 +18,14 @@ export default defineConfig({
   worker: {
     format: "es",
   },
+  build: {
+    // Emit the engine's background worker as a real file, never inlined as a
+    // data: URL. A data:-URL worker has no origin, so absolute-path fetches
+    // from inside it (how the worker loads image chunks) cannot resolve —
+    // metadata would load but pixels never would. Keeping the worker a real
+    // asset gives it a normal origin and lets it fetch chunks.
+    assetsInlineLimit: 0,
+  },
   server: {
     // During local development the frontend runs on Vite's own port. Anything
     // the app asks for under /data (the image volume) or /api (the Python
