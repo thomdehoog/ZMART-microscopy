@@ -5,9 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node build-workers.mjs && vite build && node postbuild.mjs",
-    "preview": "vite preview",
-    "build:workers": "node build-workers.mjs"
+    "build": "node precompile-workers.mjs && vite build && node copy-async-worker.mjs",
+    "preview": "vite preview"
   },
   "dependencies": {
     "neuroglancer": "2.41.2",
