@@ -1,12 +1,41 @@
 import React from "react";
 import NeuroglancerView from "./NeuroglancerView.jsx";
 
-// The image volume to show, in neuroglancer's data-source syntax: the folder to
-// read, then "|zarr2:" meaning "read it as version-2 Zarr". Built from the
-// page's own origin so it works both under `vite dev` and when the Python
-// server serves the built page.
-function demoSource() {
-  return `${window.location.origin}/data/demo.zarr/|zarr2:`;
+// What to open, and how to display it, comes from the Python side: pointing the
+// viewer at a real acquisition is then a server-side argument rather than a
+// rebuild of this page. The demo store is the fallback so `vite dev` still shows
+// something when no server config is reachable.
+const FALLBACK = {
+  layers: [{ name: "volume", source: "/data/demo.zarr/|zarr2:", window: null, color: null }],
+};
+
+async function fetchConfig() {
+  try {
+    const response = await fetch("/api/config");
+    if (!response.ok) return FALLBACK;
+    return await response.json();
+  } catch {
+    return FALLBACK;
+  }
+}
+
+// Stretch the given intensity window across the display ramp. Real acquisitions
+// occupy a narrow band of the 16-bit range, so without this they render black.
+// A colour is emitted when several channels are shown together, so they overlay
+// legibly instead of washing into one grey.
+// In 3-D the intensity has to drive opacity as well, or every background voxel
+// along the ray adds a little haze and the specimen is lost in fog.
+function shaderFor(window_, color, volumetric) {
+  if (!window_) return undefined;
+  let control = `#uicontrol invlerp normalized(range=[${window_.low}, ${window_.high}])\n`;
+  if (volumetric) {
+    control += "#uicontrol float opacity slider(min=0, max=1, default=1)\n";
+    const [r, g, b] = color || [1, 1, 1];
+    return control + `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized() * opacity)); }`;
+  }
+  if (!color) return control + "void main() { emitGrayscale(normalized()); }";
+  const [r, g, b] = color;
+  return control + `void main() { emitRGB(vec3(${r}, ${g}, ${b}) * normalized()); }`;
 }
 
 /**
@@ -28,12 +57,35 @@ export default function App() {
   // one and only place viewer state is set; the future control panel will write
   // through the same `viewer` handle.
   React.useEffect(() => {
-    if (!viewer) return;
+    if (!viewer) return undefined;
     window.zmartViewer = viewer; // handy for inspection and the browser test
-    viewer.state.restoreState({
-      layers: [{ type: "image", name: "volume", source: demoSource() }],
-      layout: "4panel",
+    let cancelled = false;
+    fetchConfig().then((config) => {
+      if (cancelled) return;
+      const layers = config.layers.map((spec) => {
+        const layer = {
+          type: "image",
+          name: spec.name,
+          source: `${window.location.origin}${spec.source}`,
+        };
+        const shader = shaderFor(spec.window, spec.color, spec.volumetric);
+        if (shader) layer.shader = shader;
+        if (spec.volumetric) {
+          layer.volumeRendering = "on";
+          // Not cosmetic: this is what picks the pyramid level in 3-D. Zooming
+          // does not sharpen a volume — neuroglancer chooses the level a ray
+          // crosses in about this many samples, so 64 (its default) stays
+          // coarse however far you zoom in.
+          layer.volumeRenderingDepthSamples = spec.depthSamples;
+        }
+        return layer;
+      });
+      viewer.state.restoreState({ layers, layout: "4panel" });
+      window.zmartConfig = config; // what the page was told to open
     });
+    return () => {
+      cancelled = true;
+    };
   }, [viewer]);
 
   return (
