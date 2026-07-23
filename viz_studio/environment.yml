@@ -22,18 +22,29 @@ dependencies:
   # Writes the image volume in OME-Zarr. zarr-python 3.x writes the widely-read
   # version-2 on-disk layout that the viewer engine reads most reliably.
   - zarr>=3
-  # Opens the viewer in a native desktop window using the operating system's own
-  # web engine (WebView2/Chromium on Windows) — lightweight, no bundled browser.
-  - pywebview
-  # The .NET bridge pywebview's Windows (WebView2) backend needs. conda-forge
-  # usually pulls it in with pywebview on Windows, but we list it so a fresh
-  # Windows box is guaranteed to get it.
+  # The .NET bridge pywebview's Windows (WebView2) backend needs. This one is
+  # genuinely on conda-forge, so it is pinned here rather than left to pip.
   - pythonnet
-  # Note: the optional playwright check also needs a one-time browser download,
-  # `playwright install chromium`, after the environment is created.
   # Build-time only: compiles the viewer web page. Not needed by an end user who
   # receives a pre-built page.
   - nodejs>=20
-  # Optional: drives a real browser for the automated rendering check
-  # (backend/browsercheck.py). Handy for developers, not required to run.
-  - playwright
+  - pip
+  - pip:
+      # Opens the viewer in a native desktop window using the operating system's
+      # own web engine (WebView2/Chromium on Windows) — lightweight, no bundled
+      # browser. It comes from pip because conda-forge does not package
+      # pywebview at all; listing it as a conda dependency makes the documented
+      # `conda env create` fail outright with PackagesNotFoundError.
+      - pywebview
+      # Optional: drives a real browser for the automated rendering check
+      # (backend/browsercheck.py). Handy for developers, not required to run.
+      # Also pip, for a subtler reason: conda-forge *does* have a `playwright`,
+      # but it is the Node.js package (it installs
+      # Library/share/playwright/node_modules and no Python module at all), so
+      # installing it leaves `import playwright` failing and the check skipping.
+      - playwright
+# After creating the environment, the optional render check needs a one-time
+# browser download: `playwright install chromium`. On a machine whose policy
+# blocks executables under the user profile (AppLocker/SRP), point that download
+# somewhere allowed first by setting PLAYWRIGHT_BROWSERS_PATH — otherwise
+# Chromium downloads successfully and then dies with "spawn UNKNOWN".
