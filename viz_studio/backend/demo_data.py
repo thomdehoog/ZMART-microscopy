@@ -194,7 +194,7 @@ def _omero_metadata() -> dict:
     sensible instead of flat grey.
     """
     channels = []
-    for name, color in zip(CHANNEL_NAMES, CHANNEL_COLORS):
+    for name, color in zip(CHANNEL_NAMES, CHANNEL_COLORS, strict=True):
         channels.append(
             {
                 "label": name,
