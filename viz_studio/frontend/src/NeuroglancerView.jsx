@@ -13,38 +13,33 @@ import "neuroglancer/unstable/kvstore/enabled_frontend_modules.js";
 import { makeMinimalViewer } from "neuroglancer/unstable/ui/minimal_viewer.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
 
-// The address of the image volume, written in neuroglancer's data-source
-// syntax: the folder to read from, followed by "|zarr2:" to say "interpret it
-// as version-2 Zarr". In development Vite serves the folder from the app's own
-// origin; in the shipped app the Python server does. Either way the path is the
-// same, so we build it from wherever the page is loaded.
-function demoSource() {
-  return `${window.location.origin}/data/demo.zarr/|zarr2:`;
-}
-
 /**
- * Mounts the neuroglancer engine into a plain <div> and hands the live viewer
- * object back to the parent through `onReady`.
+ * Mounts the neuroglancer engine and hands the live `viewer` back through
+ * `onViewer`. That is all it does.
  *
- * neuroglancer is not a React component — it draws into a DOM node directly. So
- * the React-friendly way to use it is to give it an empty div (via a ref),
- * create the viewer once when that div appears, and tear it down when the
- * component goes away. Everything after that (adding layers, changing
- * brightness, switching to 3-D) happens by talking to the viewer object, which
- * is exactly the "your UI, their engine" arrangement: React owns the controls,
- * neuroglancer owns the pixels.
+ * Deliberately, this component owns the engine's *lifetime* (create it when the
+ * div appears, dispose it when the component goes away) but NOT what the engine
+ * *shows*. Which layers, which layout, the brightness, the z-position — all of
+ * that is driven by the parent talking to the `viewer` object. Keeping that
+ * split means the control panel can grow without ever touching this file.
+ *
+ * neuroglancer is not a React component; it draws into a DOM node directly, so
+ * we give it an empty div via a ref. The effect is written to survive React
+ * StrictMode's deliberate mount → dispose → mount in development, so do not be
+ * surprised to see the engine built twice under `vite dev`.
  */
-export default function NeuroglancerView({ onReady }) {
+export default function NeuroglancerView({ onViewer }) {
   const containerRef = React.useRef(null);
-  const viewerRef = React.useRef(null);
 
   React.useEffect(() => {
     const target = containerRef.current;
     if (!target) return undefined;
 
     // Create the viewer with all of neuroglancer's own buttons and panels
-    // turned off — we are supplying our own controls, so the engine should show
-    // nothing but the image itself.
+    // turned off — we supply our own controls, so the engine shows nothing but
+    // the image. `showLayerDialog`/`resetStateWhenEmpty` are off so the engine
+    // does not pop its own "add a layer" dialog or wipe state before the parent
+    // loads a volume.
     const viewer = makeMinimalViewer({
       target,
       showUIControls: false,
@@ -52,35 +47,13 @@ export default function NeuroglancerView({ onReady }) {
       showLayerPanel: false,
       showLocation: false,
       showPanelBorders: false,
-      // Do not pop neuroglancer's own "add a layer" dialog, and do not wipe the
-      // state when it briefly has no layers — we load our volume ourselves.
       showLayerDialog: false,
       resetStateWhenEmpty: false,
     });
-    viewerRef.current = viewer;
 
-    // Load the demo volume. `restoreState` accepts the same description
-    // neuroglancer uses everywhere: a list of layers (here one image layer
-    // reading our OME-Zarr) and a starting layout. From here on, the React
-    // controls will drive this same state object.
-    viewer.state.restoreState({
-      layers: [
-        {
-          type: "image",
-          name: "volume",
-          source: demoSource(),
-        },
-      ],
-      layout: "4panel",
-    });
-
-    if (onReady) onReady(viewer);
-
-    return () => {
-      viewer.dispose();
-      viewerRef.current = null;
-    };
-  }, [onReady]);
+    onViewer?.(viewer);
+    return () => viewer.dispose();
+  }, [onViewer]);
 
   // Size the mount with width/height rather than absolute insets: neuroglancer
   // sets `position: relative` on this element itself, which would cancel any

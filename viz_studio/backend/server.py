@@ -43,8 +43,9 @@ class _Handler(SimpleHTTPRequestHandler):
 
     Requests under ``/data`` are image chunks and come from the demo store;
     requests under ``/api`` are JSON commands answered here; everything else is
-    a file from the built viewer page (with a fallback to ``index.html`` so the
-    single-page app loads however it is addressed).
+    a file from the built viewer page. The app is loaded at ``/`` (which serves
+    ``index.html``); there is no deep-link fallback because the app never needs
+    one.
     """
 
     # Keep connections alive between requests. The viewer fetches hundreds of
