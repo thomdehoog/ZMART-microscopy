@@ -20,8 +20,9 @@ Open `zmart_microscopy_v4.ipynb`. The notebook is the operator UI; implementatio
 The same run also exists as a plain browser page — no Jupyter, no code on
 screen: `python run_webapp.py --demo` starts it against a simulated
 microscope (see `workflow/webapp/README.md`), and on the microscope PC
-`python run_webapp.py --analysis-repo ...` drives the real one. The
-server is Python standard library only.
+`python run_webapp.py --analysis-repo ...` drives the real one. Add
+`--window` to open it as a desktop application window instead of a browser
+tab. The server is Python standard library only.
 
 The exact production microscope-PC command, browser address, and safe shutdown
 sequence are recorded in [MEMORY.md](MEMORY.md) and the

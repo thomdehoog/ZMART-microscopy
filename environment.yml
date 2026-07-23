@@ -66,3 +66,12 @@ dependencies:
   # and the notebooks go unchecked.
   - nbformat>=5.9
   - nbclient>=0.9
+
+  # --- website in its own desktop window ---
+  # `run_webapp.py --window` shows the operator page as an application window
+  # instead of a browser tab. pywebview is the only dependency here that
+  # conda-forge does not package at all (checked win-64), so it comes from pip;
+  # the website still serves to a browser when it is missing, which is why the
+  # flag is safe on any machine.
+  - pip:
+      - pywebview>=5

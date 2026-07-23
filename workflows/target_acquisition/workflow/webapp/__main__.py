@@ -50,6 +50,14 @@ def main() -> None:
         default="target-acquisition",
         help="experiment folder name (default: target-acquisition)",
     )
+    parser.add_argument(
+        "--window",
+        action="store_true",
+        help=(
+            "open the page in its own native desktop window instead of a browser "
+            "(needs the 'pywebview' package; falls back to a browser if missing)"
+        ),
+    )
     parser.add_argument("--port", type=int, default=8765, help="port to listen on")
     parser.add_argument(
         "--host",
@@ -72,6 +80,7 @@ def main() -> None:
         demo_root=args.demo_root,
         af_job=args.af_job,
         experiment=args.experiment,
+        open_window=args.window,
     )
 
 

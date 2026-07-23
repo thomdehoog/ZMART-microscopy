@@ -743,8 +743,115 @@ def test_demo_cli_stays_driver_free(monkeypatch):
             "demo_root": None,
             "af_job": None,
             "experiment": "target-acquisition",
+            "open_window": False,
         }
     ]
+
+
+class _StubServer:
+    """A server that records the lifecycle calls ``serve`` makes on it.
+
+    The window tests are about which path ``serve`` takes, not about HTTP, so
+    they run against this instead of binding a socket.
+    """
+
+    def __init__(self, address=("127.0.0.1", 8765)):
+        self.server_address = address
+        self.served = False
+        self.shut_down = False
+        self.closed = False
+
+    def serve_forever(self):
+        self.served = True
+
+    def shutdown(self):
+        self.shut_down = True
+
+    def server_close(self):
+        self.closed = True
+
+
+class _StubWebview:
+    """A pywebview stand-in; ``fail_with`` makes ``create_window`` raise."""
+
+    def __init__(self, fail_with=None):
+        self.fail_with = fail_with
+        self.window = None
+        self.started = False
+
+    def create_window(self, title, url, **kwargs):
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.window = (title, url, kwargs)
+
+    def start(self):
+        self.started = True
+
+
+def test_window_flag_asks_serve_for_a_native_window(monkeypatch):
+    import sys
+
+    from workflow.webapp import __main__ as cli
+
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["workflow.webapp", "--demo", "--window"])
+    monkeypatch.setattr(cli, "serve", lambda **kwargs: calls.append(kwargs))
+    cli.main()
+    assert calls[0]["open_window"] is True
+
+
+def test_a_native_window_shows_the_page_and_closes_the_server_on_exit(monkeypatch):
+    from workflow import webapp
+
+    server, webview = _StubServer(), _StubWebview()
+    monkeypatch.setattr(webapp, "make_server", lambda **kwargs: (server, None, None))
+    monkeypatch.setattr(webapp, "_load_webview", lambda: webview)
+    webapp.serve(open_window=True, demo=True)
+    title, url, _kwargs = webview.window
+    assert title == "ZMART target acquisition"
+    assert url == "http://127.0.0.1:8765"
+    assert webview.started
+    assert server.served, "the page must be served while the window is open"
+    assert server.shut_down and server.closed
+
+
+def test_a_window_bound_to_all_interfaces_dials_loopback(monkeypatch):
+    from workflow import webapp
+
+    server, webview = _StubServer(address=("0.0.0.0", 9100)), _StubWebview()
+    monkeypatch.setattr(webapp, "make_server", lambda **kwargs: (server, None, None))
+    monkeypatch.setattr(webapp, "_load_webview", lambda: webview)
+    webapp.serve(open_window=True, demo=True)
+    assert webview.window[1] == "http://127.0.0.1:9100"
+
+
+def test_a_missing_pywebview_still_serves_the_page(monkeypatch, capsys):
+    from workflow import webapp
+
+    server = _StubServer()
+    monkeypatch.setattr(webapp, "make_server", lambda **kwargs: (server, None, None))
+    monkeypatch.setattr(webapp.importlib, "import_module", _raise_import_error)
+    webapp.serve(open_window=True, demo=True)
+    assert server.served and server.closed
+    assert "pywebview" in capsys.readouterr().out
+
+
+def test_a_window_engine_failure_keeps_serving_and_closes_the_server(monkeypatch, capsys):
+    from workflow import webapp
+
+    server = _StubServer()
+    webview = _StubWebview(fail_with=RuntimeError("WebView2 runtime is missing"))
+    monkeypatch.setattr(webapp, "make_server", lambda **kwargs: (server, None, None))
+    monkeypatch.setattr(webapp, "_load_webview", lambda: webview)
+    monkeypatch.setattr(webapp, "_wait_for_interrupt", lambda: None)
+    webapp.serve(open_window=True, demo=True)
+    assert server.served, "a failed window must not take the page down with it"
+    assert server.shut_down and server.closed
+    assert "WebView2 runtime is missing" in capsys.readouterr().out
+
+
+def _raise_import_error(name):
+    raise ImportError(f"no module named {name}")
 
 
 def test_buffer_store_stays_bounded_under_a_flood(demo_server):
