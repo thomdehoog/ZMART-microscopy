@@ -55,6 +55,14 @@ def main() -> None:
         action="store_true",
         help="open the page in the default browser once the server is running",
     )
+    parser.add_argument(
+        "--window",
+        action="store_true",
+        help=(
+            "open the page in its own native desktop window instead of a browser "
+            "(needs the 'pywebview' package; falls back to a browser if missing)"
+        ),
+    )
     parser.add_argument("--port", type=int, default=8765, help="port to listen on")
     parser.add_argument(
         "--host",
@@ -70,6 +78,7 @@ def main() -> None:
         _register_live_instrument()
     serve(
         open_browser=args.open,
+        open_window=args.window,
         host=args.host,
         port=args.port,
         demo=args.demo,

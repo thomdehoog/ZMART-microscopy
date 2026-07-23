@@ -860,6 +860,7 @@ def test_demo_cli_stays_driver_free(monkeypatch):
     assert calls == [
         {
             "open_browser": False,
+            "open_window": False,
             "host": "127.0.0.1",
             "port": 8765,
             "demo": True,
@@ -870,6 +871,56 @@ def test_demo_cli_stays_driver_free(monkeypatch):
             "experiment": "target-acquisition",
         }
     ]
+
+
+def test_window_flag_requests_a_native_window(monkeypatch):
+    """``--window`` asks :func:`serve` to open the page in a desktop window."""
+    import sys
+
+    from workflow.webapp import __main__ as cli
+
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["workflow.webapp", "--demo", "--window"])
+    monkeypatch.setattr(cli, "serve", lambda **kwargs: calls.append(kwargs))
+    cli.main()
+    assert calls[0]["open_window"] is True
+
+
+def test_window_release_hardware_even_when_the_window_fails(monkeypatch):
+    """If the native window cannot open, the microscope is still released.
+
+    A dropped hardware session is the dangerous failure, so releasing it must
+    happen on every path out — including "the window engine was missing".
+    """
+    from workflow import webapp
+
+    released = []
+
+    class _FakeServer:
+        def serve_forever(self):
+            pass  # the background thread returns immediately in the test
+
+        def shutdown(self):
+            released.append("shutdown")
+
+        def server_close(self):
+            released.append("close")
+
+    class _FakeFlow:
+        def release_on_shutdown(self):
+            released.append("release")
+
+    class _FakeWebview:
+        def create_window(self, *args, **kwargs):
+            raise RuntimeError("no window engine")
+
+        def start(self):  # pragma: no cover - never reached
+            pass
+
+    # Do not actually block waiting for Ctrl+C in the fallback.
+    monkeypatch.setattr(webapp, "_wait_for_interrupt", lambda: None)
+    webapp._run_in_window(_FakeServer(), _FakeFlow(), "http://127.0.0.1:0", _FakeWebview())
+    assert "release" in released and "close" in released
 
 
 def test_buffer_store_stays_bounded_under_a_flood(demo_server):
