@@ -24,8 +24,8 @@ posture is what keeps it from being reachable across the network.
 
 from __future__ import annotations
 
-import json
 import functools
+import json
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -52,10 +52,9 @@ class _Handler(SimpleHTTPRequestHandler):
     # small chunks; without this each one would open a fresh connection.
     protocol_version = "HTTP/1.1"
 
-    # Directory the base class serves from; set per-instance in __init__.
     def __init__(self, *args, data_dir: Path, site_dir: Path, **kwargs):
-        self._data_dir = data_dir
-        self._site_dir = site_dir
+        self._data_dir = data_dir  # the OME-Zarr store, served under /data
+        self._site_dir = site_dir  # the built page, served as the base directory
         super().__init__(*args, directory=str(site_dir), **kwargs)
 
     def handle_one_request(self) -> None:
