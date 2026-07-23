@@ -125,7 +125,7 @@ so we can be generous here.
 | napari control | verdict | reasoning |
 |---|---|---|
 | 2-D / 3-D toggle | **v1** | Already built. The one real choice a person makes: a working plane, or a rotatable volume for reading shape. |
-| Scroll through the stack (z) | **v1** | The core gesture of the flat view. |
+| Scroll through the stack (z) | **v1** | The core gesture of the flat view. See "Dimensions" below for the slider. |
 | Pan, zoom, and a "reset to frame everything" | **v1** | Table stakes. Reset matters because people get lost and need one button that brings them home. |
 | Rotate and zoom the volume in 3-D | **v1** | Reading three-dimensional shape is the whole reason the volume view exists. |
 | Scale bar with real units (µm) | **v1** | Already on, and always visible, so every view can be measured by eye. |
@@ -134,7 +134,7 @@ so we can be generous here.
 | Saved or bookmarked viewpoints | v2 | "Take me back to that region." Pleasant, not essential. |
 | Perspective vs. flat (orthographic) view | default | Pick the flat one, so sizes and distances stay honest, and hide the choice. |
 | Roll / transpose the axes | skip | Axis gymnastics that confuse far more than they help. |
-| Animate through the stack | skip | A movie-making nicety, not a decision tool. |
+| Automatic playback through time | v2 | A movie-making nicety. A *manual* time slider is a v1 requirement — see "Dimensions" below. |
 | napari's / neuroglancer's multi-panel grid of cross-sections | skip | This *is* the busy interface we are deliberately switching off. |
 
 ### Marking things on the image (annotation)
@@ -177,6 +177,73 @@ Two things that live elsewhere in ZMART also stay where they are, as noted in
 gallery of matched pairs (small and simple, where this engine would be
 overkill).
 
+## One viewer for all of smart microscopy — the five axes
+
+The ambition behind this viewer is a single one: **one strong, general-purpose
+image viewer, in a web page, that opens everything smart microscopy produces** —
+not a special tool for mesoSPIM and separate tools for everything else. The
+reasoning holds up. mesoSPIM data is the hardest case on the axes that usually
+defeat a viewer: it is large, it is three-dimensional, it has several channels,
+and it arrives in many tiles. A viewer that streams *that* comfortably finds a
+confocal stack, a widefield snapshot, or a plain two-dimensional image easy by
+comparison, because each is a smaller, gentler version of the same problem.
+
+What you end up with, said plainly, is a **five-dimensional viewer** — the five
+axes a microscopist already lives in: **X, Y, Z, C, T** (width, height, depth,
+channel, and time). These are the same five that Fiji and the OME/Bio-Formats
+world are built on, so "cover all five well" is a concrete, finite target that
+amounts to "open essentially any raster image microscopy produces." And it comes
+with **strong three-dimensional rendering that respects the resolution pyramid**:
+the volume is drawn from a coarse level when you frame the whole thing and from
+full resolution only where you zoom in, so a huge volume renders at interactive
+speed instead of forcing the blurry, shrunk-to-fit compromise napari must make in
+three dimensions. That pyramid-aware volume rendering is the single capability
+the workflow's current viewers cannot follow the data into, and it is the reason
+the engine underneath is neuroglancer.
+
+There is one honest gap in "solve mesoSPIM and the rest follows," and it is
+**time**. mesoSPIM volumes are captured at a single moment, so they never
+exercise a time axis — which means mesoSPIM alone cannot tell you whether the
+time controls work. The remedy is small and worth stating: keep one genuine
+time-lapse dataset on hand as a test, so the time path is *proven* on real data
+rather than assumed, the same way every other part of this work is.
+
+Here is how each of the non-picture axes should behave.
+
+**Channel (C) — coloured layers, not a slider.** Channels belong in the layer
+list, each drawn in its own solid colour and added together the way real light
+adds. This is Fiji's "composite" view and the natural way to read fluorescence,
+and it is reinforced by how the data is stored: a real acquisition keeps each
+channel in its own file, so a channel is a layer by nature, not a position to
+scroll through.
+
+**Depth (Z) — a slider, and the wheel.** Moving through the stack is the core
+gesture of the flat view and already works by scrolling the mouse wheel. A
+visible slider along the bottom edge, where Fiji and napari have trained everyone
+to look for it, is the friendly handle on top of that.
+
+**Time (T) — a slider, and it must work in three dimensions too.** This is a firm
+requirement, and neuroglancer supports it directly. Time is simply another named
+axis alongside the three spatial ones. In the volume view the three spatial axes
+are what gets ray-cast into a block, and time rides alongside as a position: you
+can hold a rotated three-dimensional view, move the time slider, and the engine
+fetches and redraws that moment's volume in place — still streaming only what the
+screen needs, still choosing the right pyramid level. Two honest notes come with
+it. First, stepping through time is heavier than scrolling through depth:
+scrolling depth stays inside one volume whose pieces are largely already loaded,
+while stepping time crosses to an entirely new volume that must be fetched, so
+time will feel more like "step and settle" than the instant depth-wheel. That is
+a property of the data, not a flaw to engineer away. Second, it depends on the
+workflow writing its images *with* a time axis (the standard `t, c, z, y, x`
+layout) — a task on the data-writing side, the same OME-Zarr seam the roadmap
+already commits to, not something the viewer can conjure on its own.
+
+One distinction keeps the time controls honest. A **manual time slider** — you
+drag it, the volume follows — is the requirement and lives in the viewer.
+**Automatic playback** — a button that animates through time on its own, useful
+mainly for making a movie — is a separate, later nicety, not part of the working
+viewer.
+
 ## Two decisions to hold
 
 **Colour, not colour maps.** napari's colour menu is built around single-channel
@@ -203,7 +270,9 @@ Putting the *v1* marks together, the first real viewer is small and coherent:
 - a layer list in napari's shape — one row per channel, an eye to hide it, a
   swatch to colour it;
 - four display controls per channel — visibility, contrast, colour, opacity;
-- a 2-D / 3-D toggle, scroll-through-z, pan/zoom, and a reset button;
+- a 2-D / 3-D toggle, a depth (z) slider alongside the scroll-wheel, pan/zoom,
+  and a reset button — with a time (t) slider on the same footing, working in
+  three dimensions too, as soon as time-lapse data is being written;
 - point and box tools whose marks carry a label and travel back to Python;
 - an always-on scale bar, with true physical units read from the file.
 
