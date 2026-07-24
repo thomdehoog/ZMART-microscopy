@@ -53,13 +53,18 @@ def _build_frontend() -> None:
     """Build the viewer page once, so the browser render tests can run."""
     if (HERE / "frontend" / "dist" / "index.html").exists():
         return
-    if not shutil.which("npm"):
+    # On Windows npm is a command shim.  Passing bare ``npm`` to
+    # subprocess.run() can resolve the extensionless POSIX shim from a Conda
+    # environment, which CreateProcess cannot execute.  Select npm.cmd
+    # explicitly there while retaining the normal executable on other hosts.
+    npm = shutil.which("npm.cmd" if sys.platform == "win32" else "npm")
+    if not npm:
         print("Node/npm not found — the browser render tests will skip. "
               "Install Node.js to include them.", flush=True)
         return
     print("Building the viewer page (one time) …", flush=True)
-    subprocess.run(["npm", "--prefix", "frontend", "install"], cwd=HERE, check=True)
-    subprocess.run(["npm", "--prefix", "frontend", "run", "build"], cwd=HERE, check=True)
+    subprocess.run([npm, "--prefix", "frontend", "install"], cwd=HERE, check=True)
+    subprocess.run([npm, "--prefix", "frontend", "run", "build"], cwd=HERE, check=True)
 
 
 def main(extra_args: list[str]) -> int:

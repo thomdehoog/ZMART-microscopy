@@ -79,6 +79,44 @@ graphics card the same tests, and the viewer itself, run far faster. The test
 *results* (correct channels, safe serving, pixels reaching the renderer) hold on
 any machine; only the *timings* change.
 
+## Windows lab-PC setup (validated 2026-07-24)
+
+On a managed Windows PC, AppLocker may block native tools downloaded beneath a
+user profile or a temporary directory. Keep the Conda environment, Node build
+tools, Playwright browser, and test checkout beneath an approved installation
+directory. The setup validated on the ZMART workstation used:
+
+```bat
+conda activate ZMART-viewer
+conda install -c conda-forge nodejs esbuild
+npm install --global vite@7.0.0 esbuild@0.25.12
+set PLAYWRIGHT_BROWSERS_PATH=C:\ProgramData\MinicondaZMB\envs\ZMART-viewer\ms-playwright
+playwright install chromium
+```
+
+The checkout used for browser tests was placed below the same environment:
+
+```text
+C:\ProgramData\MinicondaZMB\envs\ZMART-viewer\src\ZMART-microscopy
+```
+
+This matters because both Vite/esbuild and Playwright launch native
+executables. A checkout under `C:\tmp`, a mapped network drive, or a browser
+download under `%LOCALAPPDATA%` may install successfully but then fail with
+`spawn UNKNOWN`.
+
+Validation recorded on **2026-07-24 at 11:29 Europe/Zurich** against commit
+`4ce2711`:
+
+```text
+140 passed, 2 skipped in 568.93s
+```
+
+The hardware-accelerated WebGL, interaction, layer-panel, render-acceptance,
+synthetic OME-Zarr, network-share mesoSPIM, server, and path-safety tests all
+passed. The only skipped tests required an explicit real acquisition through
+`ZMART_TEST_STORE`.
+
 ## Seeing it for real
 
 Testing aside, to actually look at a real acquisition through the viewer:
