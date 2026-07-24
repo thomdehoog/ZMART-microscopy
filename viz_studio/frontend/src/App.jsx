@@ -97,6 +97,68 @@ function ModeToggle({ mode, onChange }) {
   );
 }
 
+function zAxis(viewer) {
+  const position = viewer?.navigationState.position;
+  const space = position?.coordinateSpace.value;
+  if (!space?.valid) return null;
+  const index = space.names.indexOf("z");
+  if (index < 0) return null;
+  const integerCentres = space.bounds.voxelCenterAtIntegerCoordinates[index];
+  const lower = space.bounds.lowerBounds[index];
+  const upper = space.bounds.upperBounds[index];
+  const min = integerCentres ? Math.ceil(lower) : Math.ceil(lower - 0.5) + 0.5;
+  const max = integerCentres ? Math.floor(upper - 1) : Math.floor(upper - 0.5) + 0.5;
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return null;
+  return { index, min, max, value: position.value[index] };
+}
+
+function ZSlider({ viewer }) {
+  const [axis, setAxis] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!viewer) return undefined;
+    const update = () => setAxis(zAxis(viewer));
+    const removePositionListener = viewer.navigationState.position.changed.add(update);
+    const removeSpaceListener =
+      viewer.navigationState.position.coordinateSpace.changed.add(update);
+    update();
+    return () => {
+      removePositionListener();
+      removeSpaceListener();
+    };
+  }, [viewer]);
+
+  if (!axis) return null;
+  const value = Math.max(axis.min, Math.min(axis.max, axis.value));
+  const plane = Math.round(value - axis.min + 1);
+  const count = Math.round(axis.max - axis.min + 1);
+  const setZ = (next) => {
+    const current = viewer.navigationState.position.value;
+    const moved = Float32Array.from(current);
+    moved[axis.index] = next;
+    viewer.navigationState.position.value = moved;
+  };
+
+  return (
+    <label style={styles.zControl}>
+      <span style={styles.zLabel}>Z</span>
+      <input
+        type="range"
+        min={axis.min}
+        max={axis.max}
+        step="1"
+        value={value}
+        onChange={(event) => setZ(Number(event.target.value))}
+        aria-label="z position"
+        style={styles.zRange}
+      />
+      <output aria-label="z position value" style={styles.zValue}>
+        {plane} / {count}
+      </output>
+    </label>
+  );
+}
+
 /**
  * The application shell, and the single owner of what the viewer shows.
  *
@@ -173,6 +235,7 @@ export default function App() {
       <main style={styles.stage}>
         <NeuroglancerView onViewer={setViewer} />
         <ModeToggle mode={mode} onChange={setMode} />
+        {mode === "flat" && <ZSlider viewer={viewer} />}
       </main>
     </div>
   );
@@ -201,4 +264,25 @@ const styles = {
     cursor: "pointer",
   },
   buttonActive: { background: "#2f6feb", color: "#fff" },
+  zControl: {
+    position: "absolute",
+    left: "50%",
+    bottom: 16,
+    transform: "translateX(-50%)",
+    zIndex: 10,
+    display: "grid",
+    gridTemplateColumns: "18px minmax(220px, 34vw) 70px",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 12px",
+    border: "1px solid #2c333d",
+    borderRadius: 7,
+    background: "rgba(18, 22, 28, .94)",
+    boxShadow: "0 2px 8px rgba(0,0,0,.55)",
+    color: "#c9d1d9",
+    font: "600 11px/1 system-ui, sans-serif",
+  },
+  zLabel: { color: "#7f8a98" },
+  zRange: { width: "100%", accentColor: "#2f81f7", cursor: "pointer" },
+  zValue: { textAlign: "right", color: "#aab4c0", fontVariantNumeric: "tabular-nums" },
 };
