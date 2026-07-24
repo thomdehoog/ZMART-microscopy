@@ -68,26 +68,53 @@ def live_server(built_dist: Path, demo_store: Path):
 
 
 @pytest.fixture(scope="session")
-def browser():
+def _playwright():
+    """One Playwright instance for the whole session.
+
+    Playwright's sync API allows only one live context per thread, so every
+    browser the tests launch must come from this single instance rather than
+    each opening its own — otherwise a second launch fails with an asyncio-loop
+    error. Skips (rather than errors) where playwright is not installed.
+    """
+    pw_api = pytest.importorskip("playwright.sync_api", reason="playwright is not installed")
+    with pw_api.sync_playwright() as pw:
+        yield pw
+
+
+@pytest.fixture(scope="session")
+def browser(_playwright):
     """A headless Chromium with software GL, or skip if none is usable.
 
     Software GL is required because neuroglancer needs WebGL2 and CI machines
     have no GPU. A machine whose policy blocks the downloaded browser fails at
     launch rather than at import, so both are treated as "cannot run here".
     """
-    playwright = pytest.importorskip(
-        "playwright.sync_api", reason="playwright is not installed"
-    )
     gl_args = ["--use-gl=angle", "--use-angle=swiftshader", "--ignore-gpu-blocklist"]
-    with playwright.sync_playwright() as pw:
-        try:
-            launched = pw.chromium.launch(args=gl_args)
-        except Exception as exc:
-            pytest.skip(f"no usable Chromium: {exc}")
-        try:
-            yield launched
-        finally:
-            launched.close()
+    try:
+        launched = _playwright.chromium.launch(args=gl_args)
+    except Exception as exc:
+        pytest.skip(f"no usable Chromium: {exc}")
+    try:
+        yield launched
+    finally:
+        launched.close()
+
+
+@pytest.fixture(scope="session")
+def gpu_browser(_playwright):
+    """A Chromium left to use the machine's real graphics stack, not forced to
+    software — so a test can tell whether a GPU is actually present. Shares the
+    one session Playwright instance with ``browser`` to avoid a second context.
+    """
+    args = ["--ignore-gpu-blocklist", "--enable-gpu"]
+    try:
+        launched = _playwright.chromium.launch(args=args)
+    except Exception as exc:
+        pytest.skip(f"no usable Chromium: {exc}")
+    try:
+        yield launched
+    finally:
+        launched.close()
 
 
 @pytest.fixture
