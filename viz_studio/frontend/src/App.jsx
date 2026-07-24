@@ -42,11 +42,11 @@ async function fetchConfig() {
 // explicit window they render black. In 3-D the intensity drives opacity as
 // well, or every background voxel along the ray adds haze and the specimen is
 // lost in fog.
-function shaderFor(window_, color, volumetric) {
+function shaderFor(window_, color, volumetric, opacity = 1) {
   if (!window_) return undefined;
   let source = `#uicontrol invlerp normalized(range=[${window_.low}, ${window_.high}])\n`;
   if (volumetric) {
-    source += "#uicontrol float opacity slider(min=0, max=1, default=1)\n";
+    source += `#uicontrol float opacity slider(min=0, max=1, default=${opacity})\n`;
     const [r, g, b] = color || [1, 1, 1];
     return source + `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized() * opacity)); }`;
   }
@@ -58,23 +58,23 @@ function shaderFor(window_, color, volumetric) {
 function layersFor(config, mode, layerState) {
   const volumetric = mode === "volume";
   return config.layers.map((spec, index) => {
-    const { visible, color } = layerState[index];
+    const { visible, color, opacity, window: windowOverride } = layerState[index];
+    const displayWindow =
+      windowOverride || (volumetric ? spec.volumeWindow || spec.window : spec.window);
     const layer = {
       type: "image",
       name: spec.name,
       source: `${window.location.origin}${spec.source}`,
     };
-    const shader = shaderFor(
-      volumetric ? spec.volumeWindow || spec.window : spec.window,
-      color,
-      volumetric,
-    );
+    const shader = shaderFor(displayWindow, color, volumetric, opacity);
     if (shader) layer.shader = shader;
     layer.visible = visible;
     if (volumetric) {
       layer.volumeRendering = "on";
       // This, not the zoom, chooses the pyramid level the volume is drawn from.
       layer.volumeRenderingDepthSamples = config.depthSamples;
+    } else {
+      layer.opacity = opacity;
     }
     return layer;
   });
@@ -118,7 +118,17 @@ export default function App() {
     fetchConfig().then((loaded) => {
       if (cancelled) return;
       setConfig(loaded);
-      setLayerState(loaded.layers.map((spec) => ({ visible: true, color: spec.color })));
+      setLayerState(
+        loaded.layers.map((spec) => ({
+          visible: true,
+          color: spec.color,
+          opacity: 1,
+          // Null means "use the mode-specific measured default". Once the
+          // operator moves either contrast handle, their chosen window becomes
+          // the source of truth in both 2-D and 3-D.
+          window: null,
+        })),
+      );
     });
     return () => {
       cancelled = true;
@@ -153,8 +163,11 @@ export default function App() {
         <LayerPanel
           layers={config.layers}
           state={layerState}
+          mode={mode}
           onToggle={(i) => setLayer(i, { visible: !layerState[i].visible })}
           onColor={(i, color) => setLayer(i, { color })}
+          onOpacity={(i, opacity) => setLayer(i, { opacity })}
+          onWindow={(i, window) => setLayer(i, { window })}
         />
       )}
       <main style={styles.stage}>
