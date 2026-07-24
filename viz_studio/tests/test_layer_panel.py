@@ -158,3 +158,22 @@ def test_opacity_survives_the_three_d_toggle(two_channel_page):
     shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
     assert "default=0.42" in shader
     assert "normalized() * opacity" in shader
+
+
+def test_each_layer_shows_its_measured_histogram(two_channel_page):
+    assert two_channel_page.locator("[aria-label='histogram Tile0_Ch488']").count() == 1
+    assert two_channel_page.locator("[aria-label='histogram Tile0_Ch647']").count() == 1
+
+
+def test_auto_contrast_restores_the_measured_window(two_channel_page):
+    _set_range(two_channel_page, "black Tile0_Ch488", 1200)
+    _set_range(two_channel_page, "white Tile0_Ch488", 9000)
+    two_channel_page.click("[aria-label='auto contrast Tile0_Ch488']")
+    two_channel_page.wait_for_timeout(800)
+    expected = two_channel_page.evaluate(
+        "() => window.zmartConfig.layers[0].histogram.autoWindow"
+    )
+    actual = two_channel_page.evaluate("() => window.zmartLayerState[0].window")
+    assert actual == expected
+    shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
+    assert f"range=[{expected['low']}, {expected['high']}]" in shader

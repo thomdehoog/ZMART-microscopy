@@ -31,9 +31,29 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from pathlib import Path
 
 import numpy as np
+
+
+def _remove_existing_store(path: Path, attempts: int = 5) -> None:
+    """Remove a store, tolerating a short-lived Windows directory race.
+
+    Zarr stores contain many small files. On managed Windows machines an
+    indexer or virus scanner can observe one between ``os.walk`` and
+    ``os.rmdir``, yielding WinError 145 ("directory not empty"). Retrying the
+    same bounded operation is safe: every attempt targets the same explicitly
+    supplied store, and a persistent permissions/path problem is still raised.
+    """
+    for attempt in range(attempts):
+        try:
+            shutil.rmtree(path)
+            return
+        except OSError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 # The three channels, in order, and the false colours the viewer will give
 # them by default — chosen to read clearly when overlaid (white anatomy, then
@@ -232,7 +252,7 @@ def write_demo_zarr(path: str | Path, *, seed: int = 7, overwrite: bool = True) 
 
     path = Path(path)
     if path.exists() and overwrite:
-        shutil.rmtree(path)
+        _remove_existing_store(path)
     path.mkdir(parents=True, exist_ok=True)
 
     rng = np.random.default_rng(seed)

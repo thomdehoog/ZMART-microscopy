@@ -12,7 +12,7 @@ import json
 import numpy as np
 import pytest
 import zarr
-from contrast import display_window, shader_for_window
+from contrast import HISTOGRAM_BINS, display_window, intensity_histogram, shader_for_window
 from demo_data import write_demo_zarr
 
 
@@ -73,6 +73,37 @@ def test_uniform_data_still_yields_a_usable_window(tmp_path):
 
 def test_an_unreadable_store_falls_back_to_the_full_range(tmp_path):
     assert display_window(tmp_path / "missing.zarr") == (0.0, 65535.0)
+
+
+def test_histogram_covers_every_sample_in_compact_bins(tmp_path):
+    data = np.arange(8 * 16 * 16, dtype=np.uint16).reshape(8, 16, 16)
+    histogram = intensity_histogram(write_store(tmp_path / "hist.zarr", data))
+    assert histogram is not None
+    assert len(histogram["counts"]) == HISTOGRAM_BINS
+    assert sum(histogram["counts"]) == data.size
+    assert histogram["high"] > histogram["low"]
+    assert histogram["autoWindow"]["high"] > histogram["autoWindow"]["low"]
+
+
+def test_histogram_range_resists_a_single_hot_pixel(tmp_path):
+    data = np.full((8, 32, 32), 200, dtype=np.uint16)
+    data[0, 0, 0] = 60000
+    histogram = intensity_histogram(write_store(tmp_path / "hot.zarr", data))
+    assert histogram is not None
+    assert histogram["high"] < 1000
+    assert sum(histogram["counts"]) == data.size
+
+
+def test_uniform_histogram_still_has_a_usable_auto_window(tmp_path):
+    data = np.full((4, 8, 8), 42, dtype=np.uint16)
+    histogram = intensity_histogram(write_store(tmp_path / "uniform.zarr", data))
+    assert histogram is not None
+    assert histogram["high"] > histogram["low"]
+    assert histogram["autoWindow"] == {"low": 42.0, "high": 43.0}
+
+
+def test_unreadable_store_has_no_invented_histogram(tmp_path):
+    assert intensity_histogram(tmp_path / "missing.zarr") is None
 
 
 def test_volume_window_starts_far_above_the_background(tmp_path):

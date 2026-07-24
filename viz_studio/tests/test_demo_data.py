@@ -112,9 +112,26 @@ def test_display_hints_name_and_colour_every_channel(attrs):
         assert channel["window"]["end"] == float(_PEAK)
 
 
-def test_rewriting_replaces_the_previous_store(tmp_path):
+def test_rewriting_replaces_the_previous_store(tmp_path, monkeypatch):
     path = tmp_path / "demo.zarr"
     write_demo_zarr(path, seed=7)
     (path / "stale-file.txt").write_text("left over", encoding="utf-8")
+    # A managed Windows PC can transiently report a Zarr directory as non-empty
+    # while an indexer/scanner observes its many small files. The writer must
+    # retry rather than making a second demo launch fail at random.
+    import demo_data
+
+    real_rmtree = demo_data.shutil.rmtree
+    calls = 0
+
+    def transiently_busy(target):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("simulated transient directory race")
+        return real_rmtree(target)
+
+    monkeypatch.setattr(demo_data.shutil, "rmtree", transiently_busy)
     write_demo_zarr(path, seed=7)
     assert not (path / "stale-file.txt").exists()
+    assert calls >= 2

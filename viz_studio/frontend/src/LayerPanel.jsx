@@ -15,6 +15,35 @@ export const PALETTE = [
 const css = (rgb) =>
   rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
 
+function Histogram({ layer }) {
+  const counts = layer.histogram?.counts;
+  if (!counts?.length) return null;
+  const peak = Math.max(...counts, 1);
+  return (
+    <svg
+      viewBox={`0 0 ${counts.length} 24`}
+      preserveAspectRatio="none"
+      style={styles.histogram}
+      role="img"
+      aria-label={`histogram ${layer.name}`}
+    >
+      {counts.map((count, index) => {
+        const height = (Math.log1p(count) / Math.log1p(peak)) * 22;
+        return (
+          <rect
+            key={index}
+            x={index}
+            y={24 - height}
+            width="1"
+            height={height}
+            fill="currentColor"
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 /**
  * The layer list, in napari's shape: one row per layer, an eye to hide it, a
  * swatch to recolour it.
@@ -83,6 +112,20 @@ export default function LayerPanel({
                   ))}
                 </div>
               )}
+            </div>
+            <div style={styles.histogramRow}>
+              <Histogram layer={layer} />
+              <button
+                type="button"
+                onClick={() =>
+                  onWindow(index, layer.histogram?.autoWindow || layer.window)
+                }
+                disabled={!layer.histogram?.autoWindow && !layer.window}
+                aria-label={`auto contrast ${layer.name}`}
+                style={styles.autoButton}
+              >
+                Auto
+              </button>
             </div>
             <label style={styles.control}>
               <span style={styles.controlLabel}>black</span>
@@ -170,6 +213,31 @@ const styles = {
     boxShadow: "0 2px 8px rgba(0,0,0,.6)",
   },
   paletteDot: { width: 15, height: 15, borderRadius: 3, border: "1px solid #39424e", cursor: "pointer", padding: 0 },
+  histogramRow: {
+    display: "grid",
+    gridTemplateColumns: "1fr 42px",
+    alignItems: "end",
+    gap: 7,
+    padding: "1px 12px 4px 60px",
+  },
+  histogram: {
+    display: "block",
+    width: "100%",
+    height: 28,
+    color: "#53657a",
+    background: "#0d1015",
+    border: "1px solid #202731",
+    borderRadius: 3,
+  },
+  autoButton: {
+    padding: "4px 5px",
+    border: "1px solid #303a46",
+    borderRadius: 4,
+    background: "#1b222b",
+    color: "#aab4c0",
+    font: "600 10px/1 system-ui, sans-serif",
+    cursor: "pointer",
+  },
   control: {
     display: "grid",
     gridTemplateColumns: "42px 1fr 42px",
