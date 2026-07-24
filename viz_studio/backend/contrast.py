@@ -43,6 +43,9 @@ HIGH_PERCENTILE = 99.9
 # leaves the background fully transparent and lets only real structure show.
 VOLUME_LOW_PERCENTILE = 99.0
 VOLUME_HIGH_PERCENTILE = 99.99
+HISTOGRAM_BINS = 64
+HISTOGRAM_LOW_PERCENTILE = 0.1
+HISTOGRAM_HIGH_PERCENTILE = 99.9
 
 
 def _omero_window(attrs: dict) -> tuple[float, float] | None:
@@ -108,6 +111,55 @@ def display_window(store: str | Path, *, volumetric: bool = False) -> tuple[floa
         # one count wide instead leaves the image bright rather than blank.
         return low, low + 1.0
     return low, high
+
+
+def intensity_histogram(store: str | Path, *, bins: int = HISTOGRAM_BINS) -> dict | None:
+    """Return a compact histogram measured from the coarsest pyramid level.
+
+    The plotted range is percentile-clipped so one defective hot pixel cannot
+    compress the useful distribution into the first bar. Counts still include
+    every finite sample: values outside that robust range are clipped into the
+    edge bins. ``autoWindow`` is the same percentile window used for an
+    undeclared 2-D display and is what the panel's Auto button restores.
+
+    ``None`` means the store could not be read. The viewer can still render it
+    with its fallback window; it simply omits the histogram rather than
+    inventing one.
+    """
+    import numpy as np
+    import zarr
+
+    if bins < 2:
+        raise ValueError("a histogram needs at least two bins")
+    store = Path(store)
+    try:
+        attrs = json.loads((store / ".zattrs").read_text(encoding="utf-8"))
+        level = _coarsest_level_path(attrs)
+        if level is None:
+            return None
+        data = np.asarray(zarr.open_group(str(store), mode="r")[level][:])
+    except (OSError, KeyError, ValueError, json.JSONDecodeError):
+        return None
+
+    finite = np.asarray(data, dtype=np.float64).ravel()
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return None
+    plot_low = float(np.percentile(finite, HISTOGRAM_LOW_PERCENTILE))
+    plot_high = float(np.percentile(finite, HISTOGRAM_HIGH_PERCENTILE))
+    auto_low = float(np.percentile(finite, LOW_PERCENTILE))
+    auto_high = float(np.percentile(finite, HIGH_PERCENTILE))
+    if plot_high <= plot_low:
+        plot_high = plot_low + 1.0
+    if auto_high <= auto_low:
+        auto_high = auto_low + 1.0
+    counts, _ = np.histogram(np.clip(finite, plot_low, plot_high), bins=bins, range=(plot_low, plot_high))
+    return {
+        "low": plot_low,
+        "high": plot_high,
+        "counts": [int(value) for value in counts],
+        "autoWindow": {"low": auto_low, "high": auto_high},
+    }
 
 
 def shader_for_window(

@@ -13,7 +13,9 @@ import http.client
 import json
 import threading
 
+import numpy as np
 import pytest
+import zarr
 from server import make_server
 
 
@@ -106,6 +108,9 @@ def test_config_tells_the_page_what_to_open(serving):
     assert layers[0]["window"]["high"] > layers[0]["window"]["low"]
     # Both windows travel up front so the 2-D/3-D toggle needs no round trip.
     assert layers[0]["volumeWindow"]["high"] > layers[0]["volumeWindow"]["low"]
+    # This fixture has metadata but no readable array, so the server is honest:
+    # display can fall back, while a histogram is not invented.
+    assert layers[0]["histogram"] is None
     assert config["chrome"] is False, "the engine's own furniture stays hidden"
 
 
@@ -118,6 +123,24 @@ def test_config_reports_the_store_it_was_given(tmp_path):
     )
     assert config["layers"][0]["source"] == "/data/acquisition.zarr/|zarr2:"
     assert config["layers"][0]["window"] == {"low": 5.0, "high": 50.0}
+
+
+def test_config_includes_a_histogram_for_a_readable_store(tmp_path):
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "index.html").write_text("x", encoding="utf-8")
+    data = np.arange(4 * 8 * 8, dtype=np.uint16).reshape(4, 8, 8)
+    store = tmp_path / "sample.zarr"
+    group = zarr.open_group(str(store), mode="w", zarr_format=2)
+    group.create_array("0", data=data, chunks=data.shape)
+    (store / ".zattrs").write_text(
+        json.dumps({"multiscales": [{"datasets": [{"path": "0"}]}]}),
+        encoding="utf-8",
+    )
+    config = config_from(data_dir=tmp_path, site_dir=site, store="sample.zarr")
+    histogram = config["layers"][0]["histogram"]
+    assert len(histogram["counts"]) == 64
+    assert sum(histogram["counts"]) == data.size
 
 
 def test_several_stores_become_several_layers(tmp_path):

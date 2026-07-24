@@ -198,7 +198,7 @@ def make_server(
     that bites — ``Z:\\...`` resolves to ``\\\\server\\share\\...``, which
     shares no prefix with what the caller passed.
     """
-    from contrast import display_window
+    from contrast import display_window, intensity_histogram
     from stores import channel_color, layer_names
 
     data_dir = Path(data_dir).resolve()
@@ -223,6 +223,7 @@ def make_server(
                 "window": {"low": flat[0], "high": flat[1]},
                 "volumeWindow": {"low": volume[0], "high": volume[1]},
                 "color": list(color) if color else None,
+                "histogram": intensity_histogram(data_dir / name),
             }
         )
     config = {"layers": layers, "depthSamples": depth_samples, "chrome": chrome}
