@@ -238,17 +238,98 @@ const rgbToCss = (rgb) => `rgb(${rgb.map(v => Math.round(v * 255)).join(",")})`;
 
 /* ---------------------------------------------------------------------------
    2. DATASET + GEOMETRY
-   The sample descriptor stands in for OME-Zarr metadata. Two channels for now;
-   add a third entry, or change the dimensions, and the whole UI adapts.
+   The sample descriptor stands in for OME-Zarr metadata. The default is a
+   two-channel timelapse, but you can ask for a different sample from the URL,
+   without editing this file — see resolveDataset() below.
    ------------------------------------------------------------------------- */
 
-const DATASET = {
+// The default sample: a two-channel, multi-timepoint lightsheet volume.
+const DEFAULT_DATASET = {
   nx: 200, ny: 200, nz: 60, nt: 8, voxelUm: 1.1,
   channels: [
     { name: "Ch488", tag: "GFP",     color: [0.10, 1.00, 0.42], gen: { count: 380, rMin: 1.6, rMax: 3.4, shell: 0.90 } },
     { name: "Ch647", tag: "far-red", color: [1.00, 0.22, 1.00], gen: { count: 135, rMin: 2.6, rMax: 5.6, shell: 0.16 } },
   ],
 };
+
+// Sensible display colours by excitation wavelength, so a channel named for its
+// laser line comes up in the colour a microscopist expects.
+const WAVELENGTH_COLORS = {
+  405: [0.36, 0.50, 1.00], 488: [0.10, 1.00, 0.42], 561: [1.00, 0.78, 0.16],
+  594: [1.00, 0.55, 0.20], 647: [1.00, 0.22, 1.00], 730: [1.00, 0.32, 0.30],
+};
+const FALLBACK_COLORS = [[0.10,1,0.42],[1,0.22,1],[0.25,0.82,1],[1,0.78,0.16],[0.36,0.5,1],[1,0.32,0.30],[0.85,0.88,0.92]];
+
+// Build a channel descriptor. Later channels get a distinct look (fewer, larger,
+// more interior cells) so a multi-channel sample does not render as one blob.
+function makeChannel(name, color, i){
+  return { name, tag: "ch" + i, color,
+    gen: { count: Math.max(40, 380 - 80*i), rMin: 1.6 + 0.3*i, rMax: 3.4 + 0.5*i, shell: Math.max(0.12, 0.9 - 0.2*i) } };
+}
+
+// Resolve the dataset to open. With no URL parameters this is the default
+// sample. Parameters let you show a different synthetic sample for a demo
+// without touching the code:
+//   ?channels=488,561,647   one channel per laser line (coloured by wavelength)
+//   ?channels=4             four channels from the fallback palette
+//   ?nt=12  ?nz=100  ?nx=256&ny=256  ?vox=0.9
+//   ?dataset=<url-encoded JSON>   a full descriptor, for complete control
+// Anything out of sensible bounds is clamped, so a bad URL can never wedge the
+// viewer or ask for a volume too large to build.
+function resolveDataset(){
+  const p = new URLSearchParams(location.search);
+  if (p.has("dataset")){
+    try {
+      const d = JSON.parse(p.get("dataset"));
+      if (Array.isArray(d.channels) && d.channels.length) return sanitizeDataset(d);
+    } catch (e){ console.warn("Ignoring malformed ?dataset= JSON:", e); }
+  }
+  const d = structuredClone(DEFAULT_DATASET);
+  for (const key of ["nx", "ny", "nz", "nt"]) if (p.has(key)) d[key] = parseInt(p.get(key));
+  if (p.has("vox")) d.voxelUm = parseFloat(p.get("vox"));
+  if (p.has("channels")){
+    const spec = p.get("channels");
+    if (/^\d+$/.test(spec)){
+      const n = parseInt(spec);
+      d.channels = Array.from({ length: n }, (_, i) => makeChannel("Ch" + (i + 1), FALLBACK_COLORS[i % FALLBACK_COLORS.length], i));
+    } else {
+      d.channels = spec.split(",").map((s, i) => {
+        const wl = s.trim();
+        return makeChannel("Ch" + wl, WAVELENGTH_COLORS[wl] || FALLBACK_COLORS[i % FALLBACK_COLORS.length], i);
+      });
+    }
+  }
+  return sanitizeDataset(d);
+}
+
+// Clamp a descriptor to buildable bounds and drop anything malformed.
+function sanitizeDataset(d){
+  const int = (v, lo, hi, dflt) => Number.isFinite(+v) ? clamp(Math.round(+v), lo, hi) : dflt;
+  d.nx = int(d.nx, 1, 1024, 200); d.ny = int(d.ny, 1, 1024, 200);
+  d.nz = int(d.nz, 1, 512, 60);   d.nt = int(d.nt, 1, 64, 1);
+  d.voxelUm = Number.isFinite(+d.voxelUm) && +d.voxelUm > 0 ? +d.voxelUm : 1.1;
+  d.channels = (d.channels || []).slice(0, 16).map((c, i) => ({
+    name: c.name || ("Ch" + (i + 1)), tag: c.tag || ("ch" + i),
+    color: Array.isArray(c.color) && c.color.length === 3 ? c.color : FALLBACK_COLORS[i % FALLBACK_COLORS.length],
+    gen: c.gen || makeChannel("", [0,0,0], i).gen,
+  }));
+  if (!d.channels.length) d.channels = DEFAULT_DATASET.channels.map(c => ({ ...c }));
+  // Keep the whole synthetic store within a safe memory budget (it is held as
+  // one byte per voxel across every timepoint and channel). Drop timepoints
+  // first, then shrink the in-plane resolution, so even an extreme URL yields a
+  // small but valid sample instead of running the machine out of memory.
+  const BUDGET = 120e6;
+  const total = () => d.nx * d.ny * d.nz * d.nt * d.channels.length;
+  while (total() > BUDGET && d.nt > 1) d.nt--;
+  if (total() > BUDGET){
+    const scale = Math.sqrt(BUDGET / total());
+    d.nx = Math.max(16, Math.floor(d.nx * scale));
+    d.ny = Math.max(16, Math.floor(d.ny * scale));
+  }
+  return d;
+}
+
+const DATASET = resolveDataset();
 
 // Constants implied by the dataset. Everything downstream reads these, never
 // literal numbers, so a different dataset needs no other edits.

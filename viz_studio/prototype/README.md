@@ -21,6 +21,25 @@ from an OME-Zarr store, and the whole interface is derived from it — add a
 channel or change the dimensions and the panel, the layers, and the sliders
 follow.
 
+## Showing a different sample
+
+You do not have to edit the file to try a different shape. The page reads the
+sample it should build from the URL, so you can show, say, a three-colour
+timelapse just by adding parameters after `index.html`:
+
+- `?channels=488,561,647` — one channel per laser line, coloured by wavelength
+- `?channels=4` — four channels from the default palette
+- `?nt=12` — twelve timepoints; `?nz=100`, `?nx=256&ny=256`, `?vox=0.9`
+- `?dataset=<url-encoded JSON>` — a full descriptor, for complete control
+
+For example, `index.html?channels=405,488,561,647&nt=10` opens a four-channel,
+ten-timepoint sample. Values that are out of sensible bounds are clamped, and a
+request for a volume too large to hold is trimmed down, so a URL can never wedge
+the viewer. This is still **synthetic** data — it is for showing the interface
+with different shapes. Opening a *real* acquisition is the production step:
+writing it as OME-Zarr and letting the neuroglancer engine stream it (see the
+integration roadmap).
+
 ## What it demonstrates
 
 - **Data-driven layers** — one layer per channel, read from the dataset (two
