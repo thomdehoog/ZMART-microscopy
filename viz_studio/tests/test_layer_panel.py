@@ -17,6 +17,7 @@ from server import make_server
 _ENGINE_LAYERS = """() => window.zmartViewer.state.toJSON().layers.map(l => ({
   name: l.name,
   visible: l.visible !== false,
+  opacity: l.opacity ?? 1,
   shader: l.shader || '',
 }))"""
 
@@ -105,3 +106,55 @@ def test_visibility_survives_the_three_d_toggle(two_channel_page):
     two_channel_page.click("text=3D")
     two_channel_page.wait_for_timeout(1500)
     assert two_channel_page.evaluate(_ENGINE_LAYERS)[1]["visible"] is False
+
+
+def _set_range(page, label: str, value: float) -> None:
+    page.locator(f"[aria-label='{label}']").evaluate(
+        """(element, value) => {
+          // React tracks controlled input values by installing an own-property
+          // setter. Use the platform setter, as a real range-thumb movement
+          // does, so the subsequent input event is observed as a change.
+          const setter = Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype, 'value'
+          ).set;
+          setter.call(element, String(value));
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+        }""",
+        value,
+    )
+
+
+def test_contrast_handles_rewrite_the_engine_shader(two_channel_page):
+    _set_range(two_channel_page, "black Tile0_Ch488", 1200)
+    _set_range(two_channel_page, "white Tile0_Ch488", 9000)
+    two_channel_page.wait_for_timeout(800)
+    shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
+    assert "range=[1200, 9000]" in shader
+
+
+def test_contrast_survives_the_three_d_toggle(two_channel_page):
+    _set_range(two_channel_page, "black Tile0_Ch488", 1500)
+    _set_range(two_channel_page, "white Tile0_Ch488", 8000)
+    two_channel_page.wait_for_timeout(500)
+    two_channel_page.click("text=3D")
+    two_channel_page.wait_for_timeout(1500)
+    shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
+    assert "range=[1500, 8000]" in shader
+    assert "emitRGBA" in shader
+
+
+def test_opacity_reaches_the_plane_layer(two_channel_page):
+    _set_range(two_channel_page, "opacity Tile0_Ch488", 0.37)
+    two_channel_page.wait_for_timeout(800)
+    opacity = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["opacity"]
+    assert opacity == pytest.approx(0.37)
+
+
+def test_opacity_survives_the_three_d_toggle(two_channel_page):
+    _set_range(two_channel_page, "opacity Tile0_Ch488", 0.42)
+    two_channel_page.wait_for_timeout(500)
+    two_channel_page.click("text=3D")
+    two_channel_page.wait_for_timeout(1500)
+    shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
+    assert "default=0.42" in shader
+    assert "normalized() * opacity" in shader
