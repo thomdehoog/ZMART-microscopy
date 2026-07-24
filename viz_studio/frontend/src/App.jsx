@@ -1,6 +1,8 @@
 import React from "react";
 import NeuroglancerView from "./NeuroglancerView.jsx";
 import LayerPanel from "./LayerPanel.jsx";
+import TargetsPanel from "./TargetsPanel.jsx";
+import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/annotations.js";
 
 // The two ways of looking at a volume, and the only thing the operator has to
 // choose between. 2-D is the working view -- one plane, scroll through the
@@ -97,6 +99,29 @@ function ModeToggle({ mode, onChange }) {
   );
 }
 
+const TARGET_LAYER = "Targets";
+
+function annotationLayer(targets, color, visible) {
+  return {
+    type: "annotation",
+    name: TARGET_LAYER,
+    source: "local://annotations",
+    annotations: targets,
+    annotationColor: color,
+    visible,
+  };
+}
+
+async function loadTargets() {
+  try {
+    const response = await fetch("/api/annotations");
+    if (!response.ok) return [];
+    return (await response.json()).annotations || [];
+  } catch {
+    return [];
+  }
+}
+
 function zAxis(viewer) {
   const position = viewer?.navigationState.position;
   const space = position?.coordinateSpace.value;
@@ -117,14 +142,41 @@ function ZSlider({ viewer }) {
 
   React.useEffect(() => {
     if (!viewer) return undefined;
-    const update = () => setAxis(zAxis(viewer));
+    const update = () => {
+      const next = zAxis(viewer);
+      setAxis((current) =>
+        current?.index === next?.index &&
+        current?.min === next?.min &&
+        current?.max === next?.max &&
+        current?.value === next?.value
+          ? current
+          : next,
+      );
+    };
+    // NavigationState also fires when coordinate reconciliation replaces the
+    // Position object (for example when a writable annotation layer joins the
+    // image coordinate space). Listening only to the old Position would leave
+    // this slider frozen while Neuroglancer itself continued moving.
+    const removeNavigationListener = viewer.navigationState.changed.add(update);
     const removePositionListener = viewer.navigationState.position.changed.add(update);
     const removeSpaceListener =
       viewer.navigationState.position.coordinateSpace.changed.add(update);
+    // Neuroglancer may replace the Position while asynchronously reconciling
+    // layer coordinate spaces. Signals belong to each Position instance, so a
+    // small animation-frame observer ensures this external React control
+    // follows the current official navigation object after such a replacement.
+    let frame;
+    const observeCurrentPosition = () => {
+      update();
+      frame = requestAnimationFrame(observeCurrentPosition);
+    };
+    frame = requestAnimationFrame(observeCurrentPosition);
     update();
     return () => {
+      removeNavigationListener();
       removePositionListener();
       removeSpaceListener();
+      cancelAnimationFrame(frame);
     };
   }, [viewer]);
 
@@ -146,7 +198,7 @@ function ZSlider({ viewer }) {
         type="range"
         min={axis.min}
         max={axis.max}
-        step="1"
+        step="0.5"
         value={value}
         onChange={(event) => setZ(Number(event.target.value))}
         aria-label="z position"
@@ -174,10 +226,17 @@ export default function App() {
   // Per-layer interface state. Held here rather than in the engine because the
   // panel and the viewer must never disagree about what is showing.
   const [layerState, setLayerState] = React.useState([]);
+  const [targets, setTargets] = React.useState([]);
+  const [targetsLoaded, setTargetsLoaded] = React.useState(false);
+  const [targetColor, setTargetColor] = React.useState("#ffd34d");
+  const [targetsVisible, setTargetsVisible] = React.useState(true);
+  const [activeTool, setActiveTool] = React.useState(null);
+  const [annotationGeneration, setAnnotationGeneration] = React.useState(0);
+  const annotationSource = React.useRef(null);
 
   React.useEffect(() => {
     let cancelled = false;
-    fetchConfig().then((loaded) => {
+    Promise.all([fetchConfig(), loadTargets()]).then(([loaded, savedTargets]) => {
       if (cancelled) return;
       setConfig(loaded);
       setLayerState(
@@ -191,6 +250,8 @@ export default function App() {
           window: null,
         })),
       );
+      setTargets(savedTargets);
+      setTargetsLoaded(true);
     });
     return () => {
       cancelled = true;
@@ -203,8 +264,13 @@ export default function App() {
     window.zmartConfig = config;
     window.zmartMode = mode;
     window.zmartLayerState = layerState;
+    const oldSpace = viewer.navigationState.position.coordinateSpace.value;
+    const oldPosition = viewer.navigationState.position.value;
+    const namedPosition = oldSpace?.valid
+      ? Object.fromEntries(oldSpace.names.map((name, index) => [name, oldPosition[index]]))
+      : null;
     viewer.state.restoreState({
-      layers: layersFor(config, mode, layerState),
+      layers: [...layersFor(config, mode, layerState), annotationLayer(targets, targetColor, targetsVisible)],
       layout: mode === "volume" ? VOLUME_LAYOUT : SLICE_LAYOUT,
       // The engine's own furniture -- the yellow data-bounds box and the axis
       // lines -- is off unless asked for. We are supplying the interface.
@@ -212,12 +278,100 @@ export default function App() {
       showAxisLines: config.chrome ?? false,
       showScaleBar: true,
     });
-  }, [viewer, config, mode, layerState]);
+    const restorePosition = () => {
+      if (!namedPosition) return;
+      const position = viewer.navigationState.position;
+      const space = position.coordinateSpace.value;
+      if (!space?.valid) return;
+      const moved = Float32Array.from(position.value);
+      let changed = false;
+      space.names.forEach((name, index) => {
+        if (Number.isFinite(namedPosition[name]) && moved[index] !== namedPosition[name]) {
+          moved[index] = namedPosition[name];
+          changed = true;
+        }
+      });
+      if (changed) position.value = moved;
+    };
+    restorePosition();
+    const restoreTimer = setTimeout(restorePosition, 250);
+    const connect = () => {
+      const layer = viewer.layerManager.getLayerByName(TARGET_LAYER)?.layer;
+      const source = layer?.localAnnotations;
+      if (!source || source === annotationSource.current) return false;
+      annotationSource.current = source;
+      const update = () => setTargets(source.toJSON());
+      source.changed.add(update);
+      window.zmartAnnotationSource = source;
+      setAnnotationGeneration((value) => value + 1);
+      return true;
+    };
+    const connectTimer = connect() ? null : setInterval(() => {
+      if (connect()) clearInterval(connectTimer);
+    }, 50);
+    return () => {
+      clearTimeout(restoreTimer);
+      if (connectTimer) clearInterval(connectTimer);
+    };
+  }, [viewer, config, mode, layerState, targetsLoaded, targetColor, targetsVisible]);
+
+  React.useEffect(() => {
+    if (!targetsLoaded) return undefined;
+    const timer = setTimeout(() => {
+      fetch("/api/annotations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, annotations: targets }),
+      });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [targets, targetsLoaded]);
+
+  React.useEffect(() => {
+    if (!viewer) return;
+    const layer = viewer.layerManager.getLayerByName(TARGET_LAYER)?.layer;
+    if (!layer) return;
+    layer.tool.value =
+      activeTool === "point"
+        ? new PlacePointTool(layer, {})
+        : activeTool === "box"
+          ? new PlaceBoundingBoxTool(layer, {})
+          : undefined;
+  }, [viewer, activeTool, targetsLoaded]);
 
   const setLayer = (index, change) =>
     setLayerState((current) =>
       current.map((entry, i) => (i === index ? { ...entry, ...change } : entry)),
     );
+
+  const source = () => annotationSource.current;
+  const deleteTarget = (id) => {
+    const reference = source()?.getReference(id);
+    if (!reference) return;
+    source().delete(reference);
+    reference.dispose();
+  };
+  const selectTarget = (id) => {
+    const layer = viewer?.layerManager.getLayerByName(TARGET_LAYER)?.layer;
+    const state = layer?.annotationStates?.states?.find((entry) => !entry.source.readonly);
+    if (state) {
+      layer.selectAnnotation(state, id, true);
+      window.zmartSelectedTarget = id;
+    }
+  };
+  const gotoTarget = async (target) => {
+    const space = viewer.navigationState.position.coordinateSpace.value;
+    const physical = (point) =>
+      Object.fromEntries(point.map((value, index) => [
+        space.names[index] || `axis${index}`,
+        { value: value * space.scales[index], unit: space.units[index] || "" },
+      ]));
+    await fetch("/api/goto", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: target.id, pointA: physical(target.pointA), pointB: physical(target.pointB) }),
+    });
+  };
 
   return (
     <div style={styles.shell}>
@@ -235,8 +389,20 @@ export default function App() {
       <main style={styles.stage}>
         <NeuroglancerView onViewer={setViewer} />
         <ModeToggle mode={mode} onChange={setMode} />
-        {mode === "flat" && <ZSlider viewer={viewer} />}
+        {mode === "flat" && <ZSlider key={annotationGeneration} viewer={viewer} />}
       </main>
+      <TargetsPanel
+        targets={targets}
+        activeTool={activeTool}
+        color={targetColor}
+        visible={targetsVisible}
+        onTool={setActiveTool}
+        onColor={setTargetColor}
+        onVisible={() => setTargetsVisible((value) => !value)}
+        onSelect={selectTarget}
+        onDelete={deleteTarget}
+        onGoto={gotoTarget}
+      />
     </div>
   );
 }

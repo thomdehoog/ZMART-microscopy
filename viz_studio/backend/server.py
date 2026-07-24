@@ -26,6 +26,9 @@ from __future__ import annotations
 
 import functools
 import json
+import math
+import os
+import tempfile
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,6 +39,51 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 _FRONTEND_DIST = (_HERE.parent / "frontend" / "dist").resolve()
 _DEMO_STORE = (_HERE / "demo_store").resolve()
+_ANNOTATIONS_FILE = "zmart-annotations.json"
+_EMPTY_ANNOTATIONS = {"version": 1, "annotations": []}
+
+
+def _validate_annotations(payload: object) -> dict:
+    """Return a small, safe annotation document or raise ValueError."""
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        raise ValueError("expected annotation document version 1")
+    items = payload.get("annotations")
+    if not isinstance(items, list) or len(items) > 10_000:
+        raise ValueError("annotations must be a list of at most 10000 items")
+    clean = []
+    seen = set()
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("each annotation must be an object")
+        annotation_id = item.get("id")
+        kind = item.get("type")
+        if not isinstance(annotation_id, str) or not annotation_id or annotation_id in seen:
+            raise ValueError("annotation ids must be unique non-empty strings")
+        if kind not in {"point", "axis_aligned_bounding_box"}:
+            raise ValueError("unsupported annotation type")
+        coordinate_keys = ("point",) if kind == "point" else ("pointA", "pointB")
+        result = {"id": annotation_id, "type": kind}
+        for key in coordinate_keys:
+            value = item.get(key)
+            if (
+                not isinstance(value, list)
+                or not 1 <= len(value) <= 8
+                or any(
+                    isinstance(x, bool)
+                    or not isinstance(x, (int, float))
+                    or not math.isfinite(x)
+                    for x in value
+                )
+            ):
+                raise ValueError(f"{key} must contain finite coordinates")
+            result[key] = [float(x) for x in value]
+        description = item.get("description", "")
+        if not isinstance(description, str) or len(description) > 1000:
+            raise ValueError("description must be a string of at most 1000 characters")
+        result["description"] = description
+        clean.append(result)
+        seen.add(annotation_id)
+    return {"version": 1, "annotations": clean}
 
 
 class _Handler(SimpleHTTPRequestHandler):
@@ -131,6 +179,17 @@ class _Handler(SimpleHTTPRequestHandler):
         if self.path.rstrip("/") == "/api/config":
             self._serve_config()
             return
+        if self.path.rstrip("/") == "/api/annotations":
+            path = self._data_dir / _ANNOTATIONS_FILE
+            try:
+                payload = _validate_annotations(json.loads(path.read_text("utf-8")))
+            except FileNotFoundError:
+                payload = _EMPTY_ANNOTATIONS
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                self._send_json({"error": "invalid annotation sidecar"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json(payload)
+            return
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def _serve_config(self) -> None:
@@ -151,7 +210,8 @@ class _Handler(SimpleHTTPRequestHandler):
         — from a click in the browser, to Python, and (eventually) on to the
         hardware — without any hardware attached.
         """
-        if self.path.rstrip("/") != "/api/goto":
+        route = self.path.rstrip("/")
+        if route not in {"/api/goto", "/api/annotations"}:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         length = int(self.headers.get("Content-Length", 0))
@@ -160,12 +220,38 @@ class _Handler(SimpleHTTPRequestHandler):
         except json.JSONDecodeError:
             self.send_error(HTTPStatus.BAD_REQUEST)
             return
+        if route == "/api/annotations":
+            try:
+                document = _validate_annotations(payload)
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            path = self._data_dir / _ANNOTATIONS_FILE
+            try:
+                fd, temporary = tempfile.mkstemp(
+                    prefix=f".{_ANNOTATIONS_FILE}.", suffix=".tmp", dir=self._data_dir
+                )
+                with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                    json.dump(document, stream, indent=2)
+                    stream.write("\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, path)
+            except OSError:
+                try:
+                    os.unlink(temporary)
+                except (OSError, UnboundLocalError):
+                    pass
+                self._send_json({"error": "could not save annotations"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json(document)
+            return
         # A real driver call would go here. For the spike we acknowledge.
         self._send_json({"received": payload, "action": "goto (demo: no hardware)"})
 
-    def _send_json(self, obj: dict) -> None:
+    def _send_json(self, obj: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(obj).encode("utf-8")
-        self.send_response(HTTPStatus.OK)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

@@ -198,6 +198,63 @@ def test_malformed_goto_body_is_rejected(serving):
     assert status == 400
 
 
+def test_annotations_start_empty_and_round_trip_as_a_sidecar(serving):
+    status, _, body = request(serving, "/api/annotations")
+    assert status == 200
+    assert json.loads(body) == {"version": 1, "annotations": []}
+    document = {
+        "version": 1,
+        "annotations": [
+            {"id": "p1", "type": "point", "point": [1, 2, 3], "description": "cell"},
+            {
+                "id": "b1",
+                "type": "axis_aligned_bounding_box",
+                "pointA": [1, 2, 3],
+                "pointB": [4, 5, 6],
+                "description": "",
+            },
+        ],
+    }
+    status, _, body = request(
+        serving, "/api/annotations", method="POST", body=json.dumps(document).encode()
+    )
+    assert status == 200
+    assert json.loads(body) == {
+        **document,
+        "annotations": [
+            {**document["annotations"][0], "point": [1.0, 2.0, 3.0]},
+            {
+                **document["annotations"][1],
+                "pointA": [1.0, 2.0, 3.0],
+                "pointB": [4.0, 5.0, 6.0],
+            },
+        ],
+    }
+    assert json.loads(request(serving, "/api/annotations")[2]) == json.loads(body)
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {},
+        {"version": 1, "annotations": "not a list"},
+        {"version": 1, "annotations": [{"id": "x", "type": "line"}]},
+        {
+            "version": 1,
+            "annotations": [{"id": "x", "type": "point", "point": [float("inf")]}],
+        },
+    ],
+)
+def test_invalid_annotation_documents_are_rejected(serving, document):
+    status, _, _ = request(
+        serving,
+        "/api/annotations",
+        method="POST",
+        body=json.dumps(document).encode(),
+    )
+    assert status == 400
+
+
 def test_unknown_api_routes_are_404(serving):
     assert request(serving, "/api/nope")[0] == 404
     assert request(serving, "/api/nope", method="POST", body=b"{}")[0] == 404
