@@ -492,13 +492,6 @@ function applyZoom(factor){
 const planeToScreen = (x, y) => [fit.ox + x*fit.scale, fit.oy + y*fit.scale];
 const screenToPlane = (x, y) => [(x - fit.ox) / fit.scale, (y - fit.oy) / fit.scale];
 
-// Rotate a pre-centred point by the current camera and project to the screen.
-function project(cx, cy, cz){
-  const rx = cx*cam.cos + cz*cam.sin;
-  const rz = -cx*cam.sin + cz*cam.cos;
-  const ry = cy*cam.cosP - rz*cam.sinP;
-  return [cam.cx + rx*cam.scale, cam.cy + ry*cam.scale];
-}
 function updateCamera(){
   cam.cos = Math.cos(view.yaw); cam.sin = Math.sin(view.yaw);
   cam.cosP = Math.cos(view.pitch); cam.sinP = Math.sin(view.pitch);
@@ -569,38 +562,45 @@ function drawOverlay(){
   // Placed markers: only when the Targets layer is visible and holds something.
   // Checking first means an empty experiment allocates nothing here per frame.
   if (targetLayer.visible && targets.length){
-    // Batch every marker into a handful of paths, so hundreds of tracked cells
-    // still draw in a couple of canvas calls rather than one per target. Labels
-    // are text (expensive) and clutter in bulk, so they show only when few.
-    const showLabels = targets.length <= 40;
-    const dotsNear = new Path2D(), ringsNear = new Path2D();   // in-plane / facing markers
-    const dotsFar  = new Path2D(), ringsFar  = new Path2D();   // out-of-plane, drawn dimmer
-    const labels = [];
+    // Draw each marker on its own rather than batching them into one big filled
+    // path. Filling a single Path2D of many *overlapping* circles is fast only
+    // when they are spread out; in 3-D the volume projects to a compact cluster,
+    // where that fill's per-scanline cost grows with the number of overlapping
+    // edges and stalls. Per-marker drawing rasterises each independently and so
+    // stays cheap at any scale. Projection is inlined (as in draw3D) to keep the
+    // loop free of per-marker allocations and calls.
+    const twoD = view.mode === "2d";
+    const detailed = targets.length <= 40;   // few: circle + ring + label; many: fast square dots
+    ctx.fillStyle = targetLayer.color; ctx.strokeStyle = targetLayer.color; ctx.lineWidth = 1.6;
+    if (detailed) ctx.font = "600 11px system-ui";
+    else ctx.globalAlpha = twoD ? 0.9 : 0.85;   // one alpha for the whole cheap batch
 
     for (const a of targets){
       let sx, sy, far = false;
-      if (view.mode === "2d"){ [sx, sy] = planeToScreen(a.x, a.y); far = Math.abs(a.z - view.z) > 2; }
-      else { [sx, sy] = project(a.x - NX/2, a.y - NY/2, (a.z - NZ/2)*DEPTH_STRETCH); }
-      const rings = far ? ringsFar : ringsNear;
-      if (a.type === "point"){
-        const dots = far ? dotsFar : dotsNear;
-        dots.moveTo(sx + 4, sy); dots.arc(sx, sy, 4, 0, TWO_PI);   // moveTo first so subpaths don't join
-        rings.moveTo(sx + 9, sy); rings.arc(sx, sy, 9, 0, TWO_PI);
-      } else {
-        const [x2, y2] = view.mode === "2d" ? planeToScreen(a.x2, a.y2)
-                                            : project(a.x2 - NX/2, a.y2 - NY/2, (a.z - NZ/2)*DEPTH_STRETCH);
-        rings.rect(Math.min(sx, x2), Math.min(sy, y2), Math.abs(x2 - sx), Math.abs(y2 - sy));
+      if (twoD){ sx = fit.ox + a.x*fit.scale; sy = fit.oy + a.y*fit.scale; far = Math.abs(a.z - view.z) > 2; }
+      else {
+        const cx = a.x - NX/2, cy = a.y - NY/2, cz = (a.z - NZ/2)*DEPTH_STRETCH, rz = -cx*cam.sin + cz*cam.cos;
+        sx = cam.cx + (cx*cam.cos + cz*cam.sin)*cam.scale;
+        sy = cam.cy + (cy*cam.cosP - rz*cam.sinP)*cam.scale;
       }
-      if (showLabels) labels.push([a.label, sx + 11, sy - 7, far]);
-    }
-
-    ctx.strokeStyle = targetLayer.color; ctx.fillStyle = targetLayer.color; ctx.lineWidth = 1.6;
-    const baseAlpha = view.mode === "2d" ? 1 : 0.95;
-    ctx.globalAlpha = baseAlpha;        ctx.fill(dotsNear); ctx.stroke(ringsNear);
-    ctx.globalAlpha = baseAlpha * 0.3;  ctx.fill(dotsFar);  ctx.stroke(ringsFar);
-    if (showLabels){
-      ctx.font = "600 11px system-ui";
-      for (const [text, x, y, far] of labels){ ctx.globalAlpha = far ? 0.4 : 1; ctx.fillText(text, x, y); }
+      if (a.type === "box"){
+        let ex, ey;
+        if (twoD){ ex = fit.ox + a.x2*fit.scale; ey = fit.oy + a.y2*fit.scale; }
+        else {
+          const cx = a.x2 - NX/2, cy = a.y2 - NY/2, cz = (a.z - NZ/2)*DEPTH_STRETCH, rz = -cx*cam.sin + cz*cam.cos;
+          ex = cam.cx + (cx*cam.cos + cz*cam.sin)*cam.scale;
+          ey = cam.cy + (cy*cam.cosP - rz*cam.sinP)*cam.scale;
+        }
+        if (detailed) ctx.globalAlpha = far ? 0.3 : (twoD ? 1 : 0.95);
+        ctx.strokeRect(Math.min(sx, ex), Math.min(sy, ey), Math.abs(ex - sx), Math.abs(ey - sy));
+      } else if (detailed){
+        ctx.globalAlpha = far ? 0.3 : (twoD ? 1 : 0.95);
+        ctx.beginPath(); ctx.arc(sx, sy, 4, 0, TWO_PI); ctx.fill();     // dot
+        ctx.beginPath(); ctx.arc(sx, sy, 9, 0, TWO_PI); ctx.stroke();   // ring
+        ctx.fillText(a.label, sx + 11, sy - 7);
+      } else {
+        ctx.fillRect(sx - 2, sy - 2, 4, 4);   // compact dot; stays cheap into the tens of thousands
+      }
     }
     ctx.globalAlpha = 1;
   }
@@ -757,6 +757,34 @@ function buildLayerList(){
 }
 
 const targetListEl = document.getElementById("targets");
+const um = v => Math.round(v * VOX);
+
+// Build one target row. Shared by the full rebuild and the incremental append,
+// so adding a target is O(1) DOM work rather than re-creating the whole list.
+function makeTargetRow(a){
+  const row = document.createElement("div"); row.className = "trow";
+  const mark = document.createElement("span"); mark.className = "mk" + (a.type === "point" ? " pt" : ""); mark.style.background = targetLayer.color;
+  const text = document.createElement("div"); text.className = "tl";
+  text.innerHTML = `<b>${a.label}</b><small>${a.type} · x${um(a.x)} y${um(a.y)} z${Math.round(a.z*VOX)} µm · t${a.t+1}</small>`;
+  const go = document.createElement("button"); go.className = "go"; go.textContent = "→ scope"; go.onclick = () => sendToScope(a);
+  const remove = document.createElement("button"); remove.className = "rm"; remove.textContent = "✕"; remove.onclick = () => removeTarget(a, row);
+  row.append(mark, text, go, remove); return row;
+}
+function removeTarget(a, row){
+  targets.splice(targets.indexOf(a), 1);
+  row.remove();
+  if (targets.length === 0) buildTargetList();   // restore the "no targets yet" message
+  document.getElementById("tCount").textContent = targets.length || "";
+  document.getElementById("sendAll").disabled = targets.length === 0;
+  updateTargetTag(); drawScene();
+  if (view.selected === "targets") buildControls();
+}
+// Update just the "N pts" tag on the Targets layer row, without rebuilding the
+// whole layer list — cheap enough to call on every add or remove.
+function updateTargetTag(){
+  const tag = document.querySelector(".lrow.anno .tag");
+  if (tag) tag.textContent = targets.length ? targets.length + " pts" : "empty";
+}
 function buildTargetList(){
   document.getElementById("tCount").textContent = targets.length || "";
   document.getElementById("sendAll").disabled = targets.length === 0;
@@ -765,19 +793,7 @@ function buildTargetList(){
     empty.innerHTML = "No targets yet. Pick the <b>point</b> or <b>box</b> tool and click the image to mark cells or regions to image.";
     targetListEl.replaceChildren(empty); return;
   }
-  const um = v => Math.round(v * VOX);
-  const rows = targets.map(a => {
-    const row = document.createElement("div"); row.className = "trow";
-    const mark = document.createElement("span"); mark.className = "mk" + (a.type === "point" ? " pt" : ""); mark.style.background = targetLayer.color;
-    const text = document.createElement("div"); text.className = "tl";
-    text.innerHTML = `<b>${a.label}</b><small>${a.type} · x${um(a.x)} y${um(a.y)} z${Math.round(a.z*VOX)} µm · t${a.t+1}</small>`;
-    const go = document.createElement("button"); go.className = "go"; go.textContent = "→ scope"; go.onclick = () => sendToScope(a);
-    const remove = document.createElement("button"); remove.className = "rm"; remove.textContent = "✕";
-    remove.onclick = () => { targets.splice(targets.indexOf(a), 1); buildTargetList(); buildLayerList(); drawScene();
-      if (view.selected === "targets") buildControls(); };
-    row.append(mark, text, go, remove); return row;
-  });
-  targetListEl.replaceChildren(...rows);
+  targetListEl.replaceChildren(...targets.map(makeTargetRow));
 }
 
 /* ---------------------------------------------------------------------------
@@ -839,11 +855,33 @@ canvas.addEventListener("wheel", (e) => {
 
 function addTarget(a){
   a.label = (a.type === "point" ? "Target " : "Region ") + (++targetCount);
-  targetLayer.visible = true;   // drawing into a hidden layer reveals it, as in napari
+  const wasEmpty = targets.length === 0;
+  const revealed = !targetLayer.visible;   // drawing into a hidden layer reveals it, as in napari
+  targetLayer.visible = true;
   targets.push(a);
-  buildTargetList(); buildLayerList(); drawScene();
-  if (view.selected === "targets") buildControls();   // refresh the "N targets" note if that layer is showing
+  if (wasEmpty) buildTargetList();                        // clears the empty message, builds the first row
+  else targetListEl.appendChild(makeTargetRow(a));        // otherwise just append one row — O(1)
+  document.getElementById("tCount").textContent = targets.length;
+  document.getElementById("sendAll").disabled = false;
+  if (wasEmpty || revealed) buildLayerList(); else updateTargetTag();
+  if (view.selected === "targets") buildControls();       // refresh the "N targets" note if that layer is showing
+  drawScene();
   showToast(`Marked <b>${a.label}</b>`);
+}
+
+// Add many targets at once — the path a detection or tracking step would use to
+// hand hundreds of cells to the viewer. It rebuilds the list and redraws once
+// for the whole batch, rather than paying that cost per target as addTarget does.
+function addTargets(list){
+  if (!list.length) return;
+  targetLayer.visible = true;
+  for (const a of list){
+    a.label = a.label || (a.type === "point" ? "Target " : "Region ") + (++targetCount);
+    targets.push(a);
+  }
+  buildTargetList(); buildLayerList();
+  if (view.selected === "targets") buildControls();
+  drawScene();
 }
 
 // --- dimension sliders ----------------------------------------------------
@@ -946,6 +984,6 @@ layoutDock(); onResize();            // size the canvas before the first real dr
 setPlane(view.z); setTime(view.t);   // start in 2-D, so no animation loop runs yet
 
 // Exposed only so the automated stress tests can drive and measure the viewer.
-window.__viewer = { view, layers, targets, setPlane, setTime, setMode, drawScene, addTarget, autoContrast,
+window.__viewer = { view, layers, targets, setPlane, setTime, setMode, drawScene, addTarget, addTargets, autoContrast,
   stats: () => ({ NC, NT, NZ, targets: targets.length, points: MAX_POINTS }) };
 </script>
