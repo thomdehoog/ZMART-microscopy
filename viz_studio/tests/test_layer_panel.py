@@ -44,7 +44,9 @@ def two_channel_page(browser, built_dist, tmp_path_factory):
         page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
         page.wait_for_function(
-            "() => window.zmartViewer.layerManager.managedLayers.length === 2", timeout=30_000
+            """() => window.zmartViewer.layerManager.managedLayers
+              .filter((managed) => managed.name !== "Targets").length === 2""",
+            timeout=30_000,
         )
         yield page
     finally:
