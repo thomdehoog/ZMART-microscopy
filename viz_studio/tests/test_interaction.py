@@ -21,10 +21,15 @@ drag in 3-D mode     rotates
 
 from __future__ import annotations
 
+import pytest
+
 _STATE = """() => {
   const v = window.zmartViewer;
+  const zIndex = v.navigationState.position.coordinateSpace.value.names.indexOf('z');
   return {
     position: Array.from(v.navigationState.position.value),
+    zIndex,
+    zPosition: v.navigationState.position.value[zIndex],
     zoom: v.navigationState.zoomFactor.value,
     orientation: Array.from(v.perspectiveNavigationState.pose.orientation.orientation),
   };
@@ -49,6 +54,20 @@ def drag(page, x, y, dx, dy):
     page.wait_for_timeout(600)
 
 
+def set_range(page, label, value):
+    page.locator(f"[aria-label='{label}']").evaluate(
+        """(element, value) => {
+          const setter = Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype, 'value'
+          ).set;
+          setter.call(element, String(value));
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+        }""",
+        value,
+    )
+    page.wait_for_timeout(600)
+
+
 def test_the_viewer_opens_as_a_single_panel(viewer_page):
     assert viewer_page.evaluate("() => document.querySelectorAll('.neuroglancer-panel').length") == 1
 
@@ -63,13 +82,17 @@ def test_dragging_pans(viewer_page):
 
 def test_plain_wheel_steps_through_z_without_zooming(viewer_page):
     before = viewer_page.evaluate(_STATE)
+    slider_before = float(viewer_page.locator("[aria-label='z position']").input_value())
     point = centre(viewer_page)
     viewer_page.mouse.move(point["x"], point["y"])
     viewer_page.mouse.wheel(0, -300)
     viewer_page.wait_for_timeout(600)
     after = viewer_page.evaluate(_STATE)
-    assert after["position"][0] != before["position"][0], "the wheel must step z"
+    assert after["zPosition"] != before["zPosition"], "the wheel must step z"
     assert after["zoom"] == before["zoom"], "a plain wheel must scroll, not zoom"
+    slider_after = float(viewer_page.locator("[aria-label='z position']").input_value())
+    assert slider_after != slider_before, "wheel movement must update the Z slider"
+    assert slider_after == pytest.approx(after["zPosition"])
 
 
 def test_control_wheel_zooms(viewer_page):
@@ -101,3 +124,40 @@ def test_the_plane_does_not_rotate(viewer_page):
     drag(viewer_page, point["x"], point["y"], 100, -60)
     after = viewer_page.evaluate(_STATE)
     assert after["orientation"] == before["orientation"]
+
+
+def test_z_slider_uses_the_loaded_coordinate_bounds(viewer_page):
+    expected = viewer_page.evaluate(
+        """() => {
+          const space = window.zmartViewer.navigationState.position.coordinateSpace.value;
+          const z = space.names.indexOf('z');
+          return {
+            min: Math.ceil(space.bounds.lowerBounds[z]),
+            max: Math.floor(space.bounds.upperBounds[z] - 1),
+          };
+        }"""
+    )
+    slider = viewer_page.locator("[aria-label='z position']")
+    assert float(slider.get_attribute("min")) == expected["min"]
+    assert float(slider.get_attribute("max")) == expected["max"]
+
+
+def test_z_slider_moves_the_neuroglancer_position(viewer_page):
+    slider = viewer_page.locator("[aria-label='z position']")
+    target = float(slider.get_attribute("min")) + 3
+    set_range(viewer_page, "z position", target)
+    state = viewer_page.evaluate(_STATE)
+    assert state["zPosition"] == pytest.approx(target)
+
+
+def test_z_slider_hides_in_three_d_and_returns_with_position(viewer_page):
+    slider = viewer_page.locator("[aria-label='z position']")
+    target = float(slider.get_attribute("min")) + 4
+    set_range(viewer_page, "z position", target)
+    viewer_page.click("text=3D")
+    viewer_page.wait_for_timeout(1000)
+    assert viewer_page.locator("[aria-label='z position']").count() == 0
+    viewer_page.click("text=2D")
+    viewer_page.wait_for_timeout(1000)
+    restored = float(viewer_page.locator("[aria-label='z position']").input_value())
+    assert restored == pytest.approx(target)
