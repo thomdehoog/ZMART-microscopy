@@ -3,6 +3,12 @@
 A single self-contained HTML page that shows the ZMART viewer design working
 end to end. Open `index.html` in any browser — no build, no server, no install.
 
+To show it in its own desktop window instead of a browser tab (nicer on the
+microscope PC), run `python run.py`. That opens the page in a native window via
+pywebview (`pip install pywebview`), and simply falls back to your browser if
+pywebview is not installed. Because the page is self-contained, no server is
+needed either way.
+
 It is a **prototype of the interface**, not the production viewer: it generates a
 synthetic multi-channel, multi-timepoint lightsheet volume and draws it with a
 small built-in renderer. The production viewer keeps this exact interface and
