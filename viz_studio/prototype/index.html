@@ -50,6 +50,7 @@
   .crow span:first-child{color:var(--ink-dim);font-size:11px}
   .crow .val{font:500 11px/1 ui-monospace,Menlo,monospace;color:var(--ink-faint);text-align:right}
   .swatches{grid-column:1/-1;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  .swatch-label{color:var(--ink-dim);font-size:12px;margin-right:2px}
   .swatch{width:17px;height:17px;border-radius:4px;border:1px solid #39424e;cursor:pointer;padding:0;transition:transform .08s}
   .swatch:hover{transform:scale(1.12)}
   .swatch.on{box-shadow:0 0 0 2px var(--accent);border-color:var(--accent)}
@@ -175,7 +176,7 @@
       </div>
       <div class="hud" id="hud"></div>
       <div class="hint-pill" id="hintPill"></div>
-      <div class="scalebar" id="scalebar"><div class="ln" id="scaleLn"></div><div class="lb">50 µm</div></div>
+      <div class="scalebar" id="scalebar"><div class="ln" id="scaleLn"></div><div class="lb" id="scaleLb"></div></div>
       <div class="zdock" id="zdock">
         <div class="zrow z" id="rowZ"><span class="axis">Z</span><input type="range" id="zslider"><span class="rd" id="zread"></span></div>
         <div class="zrow t" id="rowT"><span class="axis">T</span><input type="range" id="tslider"><span class="rd" id="tread"></span></div>
@@ -257,6 +258,8 @@ const PLANE = NX * NY;                      // voxels in one z-plane
 const voxelIndex = (x, y, z) => (z * NY + y) * NX + x;
 const DEPTH_STRETCH = 2.0;                  // exaggerates z in 3-D so shape reads
 const CLOUD_CAP = 1400;                     // brightest voxels kept per channel for 3-D
+const TWO_PI = Math.PI * 2;                 // a full turn, in radians
+const SCALEBAR_UM = 50;                     // physical length the on-screen scale bar represents
 
 // Colours offered when recolouring an image layer, and when recolouring targets.
 const PALETTE = [
@@ -282,17 +285,23 @@ const vol = Array.from({ length: NT }, () => Array.from({ length: NC }, () => ne
 const cloud = Array.from({ length: NT }, () => new Array(NC));
 const histogram = new Array(NC);
 
-// Add one soft, round blob of signal into a volume (a cell body).
+// Add one soft, round blob of signal into a volume (a cell body). The intensity
+// falls off as a Gaussian from the centre, and we skip voxels too faint to see.
 function addBlob(volume, cx, cy, cz, radius, peak){
   const reach = Math.ceil(radius * 2.2), falloff = 1 / (2 * radius * radius);
-  for (let dz = -reach; dz <= reach; dz++){ const zz = cz + dz; if (zz < 0 || zz >= NZ) continue;
-    for (let dy = -reach; dy <= reach; dy++){ const yy = cy + dy; if (yy < 0 || yy >= NY) continue;
-      for (let dx = -reach; dx <= reach; dx++){ const xx = cx + dx; if (xx < 0 || xx >= NX) continue;
+  for (let dz = -reach; dz <= reach; dz++){
+    const zz = cz + dz; if (zz < 0 || zz >= NZ) continue;
+    for (let dy = -reach; dy <= reach; dy++){
+      const yy = cy + dy; if (yy < 0 || yy >= NY) continue;
+      for (let dx = -reach; dx <= reach; dx++){
+        const xx = cx + dx; if (xx < 0 || xx >= NX) continue;
         const g = peak * Math.exp(-(dx*dx + dy*dy + dz*dz) * falloff);
         if (g < 3) continue;
         const p = voxelIndex(xx, yy, zz), sum = volume[p] + g;
         volume[p] = sum > 255 ? 255 : sum;
-      }}}
+      }
+    }
+  }
 }
 
 // Seed a channel's worth of cells, each with a small drift velocity so the
@@ -303,7 +312,7 @@ function seedCells(channelIndex){
   const cx = NX/2, cy = NY/2, cz = NZ/2, ax = NX*0.36, ay = NY*0.28, az = NZ*0.37;
   const cells = [];
   for (let i = 0; i < g.count; i++){
-    const u = rand()*2 - 1, theta = rand()*Math.PI*2, ring = Math.sqrt(1 - u*u);
+    const u = rand()*2 - 1, theta = rand()*TWO_PI, ring = Math.sqrt(1 - u*u);
     // A fraction `shell` of cells sit near the surface, the rest fill the interior.
     const rf = rand() < g.shell ? 0.62 + rand()*0.42 : Math.pow(rand(), 0.6) * 0.92;
     cells.push({
@@ -311,7 +320,7 @@ function seedCells(channelIndex){
       y: cy + ay*rf*ring*Math.sin(theta) + (rand()-0.5)*7,
       z: cz + az*rf*u + (rand()-0.5)*4,
       radius: g.rMin + rand()*(g.rMax - g.rMin), peak: 110 + rand()*140,
-      vx: (rand()-0.5)*1.1, vy: (rand()-0.5)*1.1, vz: (rand()-0.5)*0.5, phase: rand()*6.28,
+      vx: (rand()-0.5)*1.1, vy: (rand()-0.5)*1.1, vz: (rand()-0.5)*0.5, phase: rand()*TWO_PI,
     });
   }
   return cells;
@@ -356,7 +365,9 @@ function buildClouds(){
 }
 
 // A coarse 64-bin intensity histogram per channel, used to draw the contrast
-// panel and to pick sensible auto-contrast limits.
+// panel and to pick sensible auto-contrast limits. Computed from the first
+// timepoint only: it is enough to set contrast, and keeping it fixed means
+// scrolling the time slider does not recompute a histogram each step.
 function buildHistograms(){
   for (let c = 0; c < NC; c++){
     const bins = new Float32Array(64), volume = vol[0][c];
@@ -444,41 +455,55 @@ function makeGlowSprite(rgb){
 // count, then reused every frame so rotation allocates nothing.
 const MAX_POINTS = CLOUD_CAP * NC;
 const scr = { sx: new Float32Array(MAX_POINTS), sy: new Float32Array(MAX_POINTS),
-              depth: new Float32Array(MAX_POINTS), alpha: new Float32Array(MAX_POINTS),
-              chan: new Uint8Array(MAX_POINTS), order: [] };
+              alpha: new Float32Array(MAX_POINTS), chan: new Uint8Array(MAX_POINTS) };
 
 // Canvas size and the transform mapping volume pixels to screen pixels.
-let cw = 0, ch = 0, dpr = 1;
-const box = { scale: 1, ox: 0, oy: 0 };                 // 2-D fit
+let viewW = 0, viewH = 0, dpr = 1;
+const fit = { scale: 1, ox: 0, oy: 0 };                 // 2-D fit: volume pixel -> screen pixel
 const cam = { cos: 1, sin: 0, cosP: 1, sinP: 0, scale: 1, cx: 0, cy: 0 };  // 3-D camera
+
+// Position the scale bar for the current fit and zoom. Kept in one place, using
+// the SCALEBAR_UM constant, so the bar's length and its label can never drift.
+function updateScaleBar(){
+  const s = view.mode === "2d" ? fit.scale : fit.scale * view.zoom;
+  document.getElementById("scaleLn").style.width = Math.round((SCALEBAR_UM / VOX) * s) + "px";
+}
 
 function onResize(){
   dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cw = stage.clientWidth; ch = stage.clientHeight;
-  canvas.width = cw * dpr; canvas.height = ch * dpr;
+  viewW = stage.clientWidth; viewH = stage.clientHeight;
+  canvas.width = viewW * dpr; canvas.height = viewH * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const s = Math.min(cw / NX, ch / NY) * 0.92;
-  box.scale = s; box.ox = (cw - NX*s) / 2; box.oy = (ch - NY*s) / 2;
-  const barPx = (50 / VOX) * (view.mode === "2d" ? s : s * view.zoom);
-  document.getElementById("scaleLn").style.width = Math.round(barPx) + "px";
+  const s = Math.min(viewW / NX, viewH / NY) * 0.92;
+  fit.scale = s; fit.ox = (viewW - NX*s) / 2; fit.oy = (viewH - NY*s) / 2;
+  updateScaleBar();
   refresh();
 }
-const planeToScreen = (x, y) => [box.ox + x*box.scale, box.oy + y*box.scale];
-const screenToPlane = (x, y) => [(x - box.ox) / box.scale, (y - box.oy) / box.scale];
+
+// Zoom the 3-D view without resizing the canvas: change the zoom, move the scale
+// bar, and redraw. Reallocating the drawing buffer on every wheel notch (which a
+// full resize would do) is needless work and can stutter a fast scroll.
+function applyZoom(factor){
+  view.zoom = clamp(view.zoom * factor, 0.5, 3);
+  updateScaleBar();
+  refresh();
+}
+
+const planeToScreen = (x, y) => [fit.ox + x*fit.scale, fit.oy + y*fit.scale];
+const screenToPlane = (x, y) => [(x - fit.ox) / fit.scale, (y - fit.oy) / fit.scale];
 
 // Rotate a pre-centred point by the current camera and project to the screen.
 function project(cx, cy, cz){
   const rx = cx*cam.cos + cz*cam.sin;
   const rz = -cx*cam.sin + cz*cam.cos;
   const ry = cy*cam.cosP - rz*cam.sinP;
-  const depth = cy*cam.sinP + rz*cam.cosP;
-  return [cam.cx + rx*cam.scale, cam.cy + ry*cam.scale, depth];
+  return [cam.cx + rx*cam.scale, cam.cy + ry*cam.scale];
 }
 function updateCamera(){
   cam.cos = Math.cos(view.yaw); cam.sin = Math.sin(view.yaw);
   cam.cosP = Math.cos(view.pitch); cam.sinP = Math.sin(view.pitch);
-  cam.scale = Math.min(cw / NX, ch / NY) * 0.92 * view.zoom;
-  cam.cx = cw / 2; cam.cy = ch / 2;
+  cam.scale = Math.min(viewW / NX, viewH / NY) * 0.92 * view.zoom;
+  cam.cx = viewW / 2; cam.cy = viewH / 2;
 }
 
 // --- 2-D: composite the current plane, additively over black --------------
@@ -501,17 +526,19 @@ function draw2D(){
     px[q] = r > 1 ? 255 : r*255; px[q+1] = g > 1 ? 255 : g*255; px[q+2] = b > 1 ? 255 : b*255; px[q+3] = 255;
   }
   planeCtx.putImageData(planePixels, 0, 0);
-  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cw, ch);
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, viewW, viewH);
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(plane, box.ox, box.oy, NX*box.scale, NY*box.scale);
+  ctx.drawImage(plane, fit.ox, fit.oy, NX*fit.scale, NY*fit.scale);
 }
 
-// --- 3-D: rotate the brightest voxels, depth-sort, draw as additive glow ---
+// --- 3-D: rotate the brightest voxels and draw them as additive glow -------
+// No depth sort is needed: additive blending ("lighter") sums the sprites, and
+// addition does not care about order, so the points can be drawn as they come.
 function draw3D(){
   updateCamera();
-  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cw, ch);
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, viewW, viewH);
 
-  // Fill the scratch buffers with every visible point for this timepoint.
+  // Rotate every visible point for this timepoint into the scratch buffers.
   let count = 0;
   for (const L of layers){
     if (!L.visible || L.opacity <= 0.01) continue;
@@ -524,19 +551,13 @@ function draw3D(){
       const ry = c.Y[i]*cam.cosP - rz*cam.sinP;
       scr.sx[count] = cam.cx + rx*cam.scale;
       scr.sy[count] = cam.cy + ry*cam.scale;
-      scr.depth[count] = c.Y[i]*cam.sinP + rz*cam.cosP;
       scr.alpha[count] = n * op; scr.chan[count] = L.ch; count++;
     }
   }
-  // Painter's order: draw far points first. Sort an index array, not the data.
-  const order = scr.order; order.length = count;
-  for (let i = 0; i < count; i++) order[i] = i;
-  order.sort((a, b) => scr.depth[a] - scr.depth[b]);
 
   ctx.globalCompositeOperation = "lighter";
   const size = Math.max(5, cam.scale * 3.0);
-  for (let k = 0; k < count; k++){
-    const i = order[k];
+  for (let i = 0; i < count; i++){
     ctx.globalAlpha = scr.alpha[i];
     ctx.drawImage(sprites[scr.chan[i]], scr.sx[i] - size/2, scr.sy[i] - size/2, size, size);
   }
@@ -545,43 +566,47 @@ function draw3D(){
 
 // --- annotation overlay (both modes) --------------------------------------
 function drawOverlay(){
-  if (!targetLayer.visible) return;
-  // Batch every marker into a handful of paths, so hundreds of tracked cells
-  // still draw in a couple of canvas calls rather than one per target. Labels
-  // are text (expensive) and clutter in bulk, so they show only when few.
-  const showLabels = targets.length <= 40;
-  const dotsNear = new Path2D(), ringsNear = new Path2D();   // in-plane / facing markers
-  const dotsFar  = new Path2D(), ringsFar  = new Path2D();   // out-of-plane, drawn dimmer
-  const labels = [];
+  // Placed markers: only when the Targets layer is visible and holds something.
+  // Checking first means an empty experiment allocates nothing here per frame.
+  if (targetLayer.visible && targets.length){
+    // Batch every marker into a handful of paths, so hundreds of tracked cells
+    // still draw in a couple of canvas calls rather than one per target. Labels
+    // are text (expensive) and clutter in bulk, so they show only when few.
+    const showLabels = targets.length <= 40;
+    const dotsNear = new Path2D(), ringsNear = new Path2D();   // in-plane / facing markers
+    const dotsFar  = new Path2D(), ringsFar  = new Path2D();   // out-of-plane, drawn dimmer
+    const labels = [];
 
-  for (const a of targets){
-    let sx, sy, far = false;
-    if (view.mode === "2d"){ [sx, sy] = planeToScreen(a.x, a.y); far = Math.abs(a.z - view.z) > 2; }
-    else { [sx, sy] = project(a.x - NX/2, a.y - NY/2, (a.z - NZ/2)*DEPTH_STRETCH); }
-    const rings = far ? ringsFar : ringsNear;
-    if (a.type === "point"){
-      const dots = far ? dotsFar : dotsNear;
-      dots.moveTo(sx + 4, sy); dots.arc(sx, sy, 4, 0, 7);      // moveTo first so subpaths don't join
-      rings.moveTo(sx + 9, sy); rings.arc(sx, sy, 9, 0, 7);
-    } else {
-      const [x2, y2] = view.mode === "2d" ? planeToScreen(a.x2, a.y2)
-                                          : project(a.x2 - NX/2, a.y2 - NY/2, (a.z - NZ/2)*DEPTH_STRETCH);
-      rings.rect(Math.min(sx, x2), Math.min(sy, y2), Math.abs(x2 - sx), Math.abs(y2 - sy));
+    for (const a of targets){
+      let sx, sy, far = false;
+      if (view.mode === "2d"){ [sx, sy] = planeToScreen(a.x, a.y); far = Math.abs(a.z - view.z) > 2; }
+      else { [sx, sy] = project(a.x - NX/2, a.y - NY/2, (a.z - NZ/2)*DEPTH_STRETCH); }
+      const rings = far ? ringsFar : ringsNear;
+      if (a.type === "point"){
+        const dots = far ? dotsFar : dotsNear;
+        dots.moveTo(sx + 4, sy); dots.arc(sx, sy, 4, 0, TWO_PI);   // moveTo first so subpaths don't join
+        rings.moveTo(sx + 9, sy); rings.arc(sx, sy, 9, 0, TWO_PI);
+      } else {
+        const [x2, y2] = view.mode === "2d" ? planeToScreen(a.x2, a.y2)
+                                            : project(a.x2 - NX/2, a.y2 - NY/2, (a.z - NZ/2)*DEPTH_STRETCH);
+        rings.rect(Math.min(sx, x2), Math.min(sy, y2), Math.abs(x2 - sx), Math.abs(y2 - sy));
+      }
+      if (showLabels) labels.push([a.label, sx + 11, sy - 7, far]);
     }
-    if (showLabels) labels.push([a.label, sx + 11, sy - 7, far]);
+
+    ctx.strokeStyle = targetLayer.color; ctx.fillStyle = targetLayer.color; ctx.lineWidth = 1.6;
+    const baseAlpha = view.mode === "2d" ? 1 : 0.95;
+    ctx.globalAlpha = baseAlpha;        ctx.fill(dotsNear); ctx.stroke(ringsNear);
+    ctx.globalAlpha = baseAlpha * 0.3;  ctx.fill(dotsFar);  ctx.stroke(ringsFar);
+    if (showLabels){
+      ctx.font = "600 11px system-ui";
+      for (const [text, x, y, far] of labels){ ctx.globalAlpha = far ? 0.4 : 1; ctx.fillText(text, x, y); }
+    }
+    ctx.globalAlpha = 1;
   }
 
-  ctx.strokeStyle = targetLayer.color; ctx.fillStyle = targetLayer.color; ctx.lineWidth = 1.6;
-  const baseAlpha = view.mode === "2d" ? 1 : 0.95;
-  ctx.globalAlpha = baseAlpha;        ctx.fill(dotsNear); ctx.stroke(ringsNear);
-  ctx.globalAlpha = baseAlpha * 0.3;  ctx.fill(dotsFar);  ctx.stroke(ringsFar);
-  if (showLabels){
-    ctx.font = "600 11px system-ui";
-    for (const [text, x, y, far] of labels){ ctx.globalAlpha = far ? 0.4 : 1; ctx.fillText(text, x, y); }
-  }
-  ctx.globalAlpha = 1;
-
-  // The rubber-band box while the user is dragging one out.
+  // The rubber-band box while a box is being dragged out — drawn even if the
+  // Targets layer is hidden, because it is a live preview of the tool, not a target.
   if (drag && drag.mode === "box" && view.mode === "2d"){
     const [x1, y1] = planeToScreen(drag.x, drag.y), [x2, y2] = planeToScreen(drag.cx, drag.cy);
     ctx.setLineDash([5, 4]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.4;
@@ -590,7 +615,10 @@ function drawOverlay(){
   }
 }
 
-function drawScene(){ view.mode === "2d" ? draw2D() : draw3D(); drawOverlay(); }
+function drawScene(){
+  if (view.mode === "2d") draw2D(); else draw3D();
+  drawOverlay();
+}
 function refresh(){ drawScene(); updateHud(); }
 
 function updateHud(){
@@ -622,13 +650,14 @@ function contrastRow(label, value, onInput){
   const input = document.createElement("input"); input.type = "range";
   input.min = 0; input.max = 255; input.step = 1; input.value = value;
   const read = document.createElement("span"); read.className = "val"; read.textContent = Math.round(value);
-  input.oninput = () => { const v = parseInt(input.value); read.textContent = v; onInput(v); };
+  // The callback clamps its input (black must stay below white) and returns the
+  // value it actually stored, so the thumb and the readout show what is rendered.
+  input.oninput = () => { const applied = onInput(parseInt(input.value)); input.value = applied; read.textContent = applied; };
   row.append(name, input, read); return row;
 }
 function swatchRow(colours, isSelected, onPick){
   const wrap = document.createElement("div"); wrap.className = "swatches";
-  const label = document.createElement("span");
-  label.style.cssText = "color:#8b95a3;font-size:12px;margin-right:2px"; label.textContent = "colour";
+  const label = document.createElement("span"); label.className = "swatch-label"; label.textContent = "colour";
   wrap.appendChild(label);
   for (const c of colours){
     const b = document.createElement("button"); b.className = "swatch" + (isSelected(c) ? " on" : "");
@@ -652,8 +681,8 @@ function buildControls(){
   controlsEl.appendChild(hist); drawHistogram(hist, L);
 
   const rows = document.createElement("div"); rows.className = "contrast-rows";
-  rows.appendChild(contrastRow("black", L.low,  v => { L.low  = Math.min(v, L.high - 4); drawHistogram(hist, L); drawScene(); }));
-  rows.appendChild(contrastRow("white", L.high, v => { L.high = Math.max(v, L.low  + 4); drawHistogram(hist, L); drawScene(); }));
+  rows.appendChild(contrastRow("black", L.low,  v => { L.low  = Math.min(v, L.high - 4); drawHistogram(hist, L); drawScene(); return L.low; }));
+  rows.appendChild(contrastRow("white", L.high, v => { L.high = Math.max(v, L.low  + 4); drawHistogram(hist, L); drawScene(); return L.high; }));
   const autoWrap = document.createElement("div"); autoWrap.className = "auto-row";
   const auto = document.createElement("button"); auto.className = "btn tiny"; auto.textContent = "auto contrast";
   auto.onclick = () => { autoContrast(L); buildControls(); drawScene(); showToast(`Auto-contrast · <b>${L.name}</b>`); };
@@ -744,7 +773,8 @@ function buildTargetList(){
     text.innerHTML = `<b>${a.label}</b><small>${a.type} · x${um(a.x)} y${um(a.y)} z${Math.round(a.z*VOX)} µm · t${a.t+1}</small>`;
     const go = document.createElement("button"); go.className = "go"; go.textContent = "→ scope"; go.onclick = () => sendToScope(a);
     const remove = document.createElement("button"); remove.className = "rm"; remove.textContent = "✕";
-    remove.onclick = () => { targets.splice(targets.indexOf(a), 1); buildTargetList(); buildLayerList(); drawScene(); };
+    remove.onclick = () => { targets.splice(targets.indexOf(a), 1); buildTargetList(); buildLayerList(); drawScene();
+      if (view.selected === "targets") buildControls(); };
     row.append(mark, text, go, remove); return row;
   });
   targetListEl.replaceChildren(...rows);
@@ -776,7 +806,11 @@ canvas.addEventListener("mousedown", (e) => {
     if (x < 0 || y < 0 || x >= NX || y >= NY) return;
     addTarget({ type: "point", x, y, z: view.z, t: view.t });
   } else if (view.tool === "box"){
-    const [x, y] = screenToPlane(sx, sy);
+    // Clamp to the volume so a box can't be started in the black margin (which
+    // would give negative or out-of-range coordinates). Same guard the point
+    // tool applies by rejecting out-of-bounds clicks.
+    const [px, py] = screenToPlane(sx, sy);
+    const x = clamp(px, 0, NX), y = clamp(py, 0, NY);
     drag = { mode: "box", x, y, cx: x, cy: y };
   }
 });
@@ -787,22 +821,20 @@ window.addEventListener("mousemove", (e) => {
     view.pitch = clamp(drag.pitch + (e.clientY - drag.y) * 0.008, -1.4, 1.4);
     drawScene();
   } else if (drag.mode === "box"){
-    const [sx, sy] = mousePos(e); [drag.cx, drag.cy] = screenToPlane(sx, sy); drawScene();
+    const [sx, sy] = mousePos(e); const [px, py] = screenToPlane(sx, sy);
+    drag.cx = clamp(px, 0, NX); drag.cy = clamp(py, 0, NY); drawScene();
   }
 });
 window.addEventListener("mouseup", () => {
   if (drag && drag.mode === "box" && Math.abs(drag.cx - drag.x) > 3 && Math.abs(drag.cy - drag.y) > 3)
     addTarget({ type: "box", x: drag.x, y: drag.y, x2: drag.cx, y2: drag.cy, z: view.z, t: view.t });
   drag = null; drawScene();
+  startSpin();   // resume the idle 3-D rotation now that the drag is over
 });
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
-  if (view.mode === "2d"){
-    setPlane(view.z + (e.deltaY > 0 ? 1 : -1));
-  } else {
-    view.zoom = clamp(view.zoom * (e.deltaY > 0 ? 0.92 : 1.08), 0.5, 3);
-    onResize();
-  }
+  if (view.mode === "2d") setPlane(view.z + (e.deltaY > 0 ? 1 : -1));   // scroll through z
+  else applyZoom(e.deltaY > 0 ? 0.92 : 1.08);                           // zoom the volume
 }, { passive: false });
 
 function addTarget(a){
@@ -810,6 +842,7 @@ function addTarget(a){
   targetLayer.visible = true;   // drawing into a hidden layer reveals it, as in napari
   targets.push(a);
   buildTargetList(); buildLayerList(); drawScene();
+  if (view.selected === "targets") buildControls();   // refresh the "N targets" note if that layer is showing
   showToast(`Marked <b>${a.label}</b>`);
 }
 
@@ -849,6 +882,7 @@ function setMode(mode){
   stage.classList.toggle("cross", view.tool !== "nav" && mode === "2d");
   if (mode === "3d" && view.tool !== "nav") showHint("Rotating volume — switch to 2-D to place targets"); else hideHint();
   layoutDock(); onResize();
+  if (mode === "3d") startSpin();   // begin the idle rotation; harmless (self-stops) in 2-D
 }
 document.getElementById("b2d").onclick = () => setMode("2d");
 document.getElementById("b3d").onclick = () => setMode("3d");
@@ -885,27 +919,31 @@ function hideHint(){ document.getElementById("hintPill").classList.remove("show"
 
 /* ---------------------------------------------------------------------------
    10. ANIMATION + BOOT
-   The volume view idles with a gentle rotation (unless the viewer prefers
-   reduced motion). Only the canvas is redrawn in the loop — never the HUD or
-   the panel — so idle animation costs one draw call and nothing else.
+   The volume view idles with a gentle rotation. The animation loop runs ONLY
+   while the 3-D view is actually spinning: it stops in 2-D, during a drag, or
+   under reduced-motion, and the view is redrawn on demand instead — so an idle
+   viewer costs nothing. Only the canvas is redrawn in the loop, never the HUD.
    ------------------------------------------------------------------------- */
 
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-function animate(){
-  if (view.mode === "3d" && !drag && !reduceMotion){ view.yaw += 0.0025; drawScene(); }
-  requestAnimationFrame(animate);
+let spinning = false;
+function spin(){
+  if (view.mode !== "3d" || drag || reduceMotion){ spinning = false; return; }   // nothing to animate → stop
+  view.yaw += 0.0025; drawScene();
+  requestAnimationFrame(spin);
 }
+function startSpin(){ if (!spinning){ spinning = true; requestAnimationFrame(spin); } }
 
 // Build the sample once, wire the derived UI to the dataset, and start.
 buildVolumes(); buildClouds(); buildHistograms();
 layers.forEach(autoContrast); rebuildSprites();
 document.getElementById("badge").textContent =
   `sample · ${NC} channel${NC === 1 ? "" : "s"} · ${NT} timepoint${NT === 1 ? "" : "s"}`;
+document.getElementById("scaleLb").textContent = SCALEBAR_UM + " µm";
 buildControls(); buildLayerList(); buildTargetList();
 window.addEventListener("resize", () => { layoutDock(); onResize(); });
 layoutDock(); onResize();            // size the canvas before the first real draw
-setPlane(view.z); setTime(view.t);
-requestAnimationFrame(animate);
+setPlane(view.z); setTime(view.t);   // start in 2-D, so no animation loop runs yet
 
 // Exposed only so the automated stress tests can drive and measure the viewer.
 window.__viewer = { view, layers, targets, setPlane, setTime, setMode, drawScene, addTarget, autoContrast,
