@@ -246,6 +246,34 @@ brightness window. The viewer honours all three, so an acquisition arrives looki
 sensible instead of flat grey. Without it, channels are named by number and the
 window is measured from the pixels, which costs a read.
 
+**One depth per image, and let it be the camera's own.** The kind of number a voxel
+is — 16-bit, 8-bit — is read from the store itself, so nothing has to be told and an
+8-bit acquisition from some other instrument opens and displays correctly. What matters
+is that **every level of one image shares it.**
+
+A pyramid is one picture at several sizes, so the format gives it a single data type,
+and the engine compiles a single small display program against that type. Levels of
+different depths are not a valid multiscale image and would fail to open rather than
+merely look odd.
+
+It is worth saying why this is tempting and why it does not pay, because the idea comes
+up. Storing the shrunk-down copies at 8-bit to save room saves almost nothing: every
+level above the first adds up to roughly a third of the full-resolution data, and it
+compresses better than the original because it is smoother, so halving the depth of the
+small copies is a few per cent of the store at most. Against that, the contrast window
+is a *range of numbers* — 800 to 9800 means nothing on a scale that stops at 255 — so
+the picture would jump in brightness every time zooming crossed a level boundary, and
+the Auto button would set a window correct for one level and wrong for the rest.
+
+If a smaller, cheaper picture is genuinely wanted, make it a **separate image** with its
+own consistent depth, viewed as its own layer. That is honest: it is a different
+picture, not a different level of the same one. Though an experiment that already
+acquires an overview has this covered.
+
+To make the pyramid cheaper without any of that: use **fewer levels** — a 256-pixel tile
+does not need four — and lean on compression, which does unusually well on smooth
+downsampled data.
+
 **Write each piece complete, or not at all.** The viewer tells the browser it may
 keep a piece it has fetched, because a piece is written once and never rewritten. A
 half-written piece that is readable would be kept in that state. Writing to a
