@@ -70,6 +70,32 @@ The one thing that is **not** allowed is extending *backwards* past the origin.
 That would shift every index by one and invalidate every chunk already written. So
 the origin goes at a corner of the region and growth only ever goes outward.
 
+### How big to make the canvas
+
+Since declared space is free and the shape can be raised later, the temptation is to
+declare something enormous and never think about it again. That is nearly right, and
+there is one bound worth respecting: **declare the stage travel the experiment can
+actually use, not the largest number that will fit.** A stage has a real range, and
+it is generous next to a specimen without being absurd.
+
+Two things scale with the declared size rather than with the data, and both go wrong
+quietly if the canvas is wildly over-declared.
+
+**The brightness measurement.** The window an image first appears with is measured
+from the smallest copy in the pyramid, and how big that copy is follows from the
+canvas. On a canvas a hundred times larger than the specimen, that copy is almost
+entirely empty, so the measurement is taken mostly from nothing and the window comes
+out wrong — the specimen then appears black, or washed out. It reads as a broken
+viewer rather than as a metadata choice.
+
+**The opening view.** The viewer opens showing the whole declared extent. Over-declare
+by a large factor and the specimen is a few pixels in the corner of an empty field,
+which again looks like a fault rather than a choice.
+
+A canvas a little larger than the stage can reach avoids both, and leaves growth as
+the rare answer to a genuine surprise rather than something relied upon — which suits
+it, since growth is the one operation with a restriction attached.
+
 ### What this buys
 
 The viewer receives one multiscale image per acquisition type and lets Neuroglancer
