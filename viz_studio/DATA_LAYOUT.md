@@ -23,7 +23,7 @@ is no container folder per acquisition type, because the engine cannot see one a
 something of ours would have to list its contents anyway.
 
 **How things grow.** A new position is a new store. A new frame is written into the
-store that already exists, whose length in time was declared generously up front. A new
+store that already exists, whose length in time grows by one as the frame lands. A new
 mask is a folder under `labels/`. Nothing that is already being read ever changes shape.
 
 **On screen.** Rows are gathered under their acquisition type, one row per channel — and
@@ -492,35 +492,67 @@ must not be cached. Static mode should keep caching them, since nothing can chan
 
 ---
 
-## Decision 2: declare time generously, and never resize
+## Decision 2: a timelapse grows its own length
 
-Time is a dimension *inside* the store's array, not a set of separate stores. Each
-new timepoint is written into the next slot along `t`.
+Time is a dimension *inside* the store's array, not a set of separate stores. When a
+frame is written, the array's shape is raised by one and the frame goes into the new
+slot.
 
-How many timepoints a smart-microscopy run will produce **cannot be predicted** —
-that is the point of it being smart; the experiment decides as it goes. So declare
-`t` with a generous ceiling you will not reach, and write into slots as
-acquisitions happen.
+So the store always says what it actually holds. That is what makes the time slider
+honest: it ends where the data ends, and nothing has to hide frames that do not exist.
 
-The reason is what happens to the viewer when the array's shape changes. An
-array's shape lives in one small text file (`.zarray`). Growing the array rewrites
-that file — and Neuroglancer read it once, when it opened the image, and cached
-what it said. To notice a new shape it has to open the image afresh, which throws
-away every piece of image it had already loaded. On a large volume that is a
-visible reload, and it would happen on *every* timepoint.
+### Why not declare a generous ceiling instead
 
-Writing into a slot that was declared up front does not touch `.zarray` at all.
-Measured: declaring ten thousand timepoints cost 6.1 MiB with three of them
-written, and writing a fourth left `.zarray` byte-for-byte identical. Calling
-`resize()` instead changed it.
+The other way round was built first, and rejected: declare `t` as some large number you
+will not reach, write into the slots as they arrive, and never change the shape. It
+works, and it has one real merit — the description never changes, so a browser could
+keep it indefinitely.
 
-So: **generous ceiling, write into slots, never `resize()`.** Unwritten timepoints
-are free, exactly as unwritten canvas is.
+But the store then claims frames it does not have, and something has to stop the
+operator reaching them. That is not optional politeness: **the engine remembers "there
+is nothing here" for a frame it looked at too early, and will not look again.** A frame
+glanced at before it existed stays blank for the rest of the session, even once the
+microscope has written it — a frame on disk that refuses to appear, with nothing on
+screen to explain it. Guarding against that means the interface has to know how many
+frames are real anyway, which is most of the work the ceiling was meant to avoid.
 
-The one consequence for the viewer is ours to handle rather than the engine's: a
-store declaring ten thousand timepoints would offer a slider with ten thousand
-frames when four exist. The panel is our own code, so the server reports how many
-frames have really been written and the slider stops there.
+So it is a workaround with an untruth in it, and the untruth has to be papered over.
+Growing the array removes both.
+
+### Growing is cheap, which is what makes the tidier choice practical
+
+Two measurements, both reproducible:
+
+- **Raising the shape keeps the data.** An array declared with two frames, grown to
+  five, kept both original frames intact, accepted a write at frame five, and read the
+  frames never written as empty. Safe because a piece of image is addressed by its
+  index, and extending the *first* axis moves nothing.
+- **The description does not grow with the data.** It is a few hundred bytes whether the
+  array holds one frame or ten thousand — only a number in it changes. Re-reading it
+  touches no voxels at all.
+
+So the cost of a new frame is: the frame, plus a few hundred bytes rewritten. Not a
+re-read of a twenty-gigabyte timepoint.
+
+### What follows for keeping copies
+
+This decision is the whole reason the two kinds of file are cached oppositely:
+
+- **Pieces of image — kept for a year, marked as never changing.** Written once, never
+  rewritten. An acquisition can run for many hours, so a shorter window would have a
+  piece expire mid-run, and returning to somewhere already visited would fetch it again.
+- **The files describing a store — never kept.** They are exactly what changes when a
+  timelapse grows. A stale copy, even seconds old, leaves the engine believing the old
+  length, so a frame sitting on disk does not appear and nothing explains why. Always
+  asking costs a round trip rather than a read: a few hundred bytes, answered from
+  memory.
+
+### What the viewer still needs for this
+
+Growing the array only helps if the viewer re-reads the description. Nothing tells the
+page anything today, so this needs the same channel from server to page that announcing
+a new position needs — server-sent events, or similar. One mechanism serves both, and
+it is not built yet.
 
 ## Decision 3: what the layer list looks like
 
@@ -590,32 +622,61 @@ During a run, two things happen and only two:
 
 Both are cheap under the decisions above, which is the point of them.
 
-A new store is a new group in the panel. Nothing already loaded is disturbed,
-because it is new data in a new place.
+A new store is a new group, or a new row in an existing group. Nothing already on
+screen is disturbed, because it is new data in a new place — and the engine is given
+one more address rather than a fresh description of the whole scene, which is what
+made an earlier version throw everything away and rebuild it.
 
-A new timepoint is just new chunk files. Because `t` was declared up front,
-`.zarray` does not change, so Neuroglancer does not have to re-open anything and
-keeps everything it has already loaded.
+A new timepoint raises the store's declared length by one. The pieces themselves need
+no announcing at all: the engine already holds that store's address and fetches the new
+chunks when you go and look. What it does need is to re-read the description, so that it
+knows the length has moved.
 
-What the viewer still needs, and does not yet have, is a reason to look again:
+**Both therefore come down to one missing mechanism: something has to tell the page.**
 
-- `/api/config` is currently built **once**, when the server starts, so a store
-  that appears later is never noticed.
-- Image chunks are served with an hour-long cache instruction, which is wrong for
-  a folder that is still being written to.
-- The page fetches its configuration once and never asks again.
+The viewer used to find out by asking — reading the modification times of everything
+open, several times a second. That is gone, and it should stay gone. It inferred
+"finished" from timestamps, which is not something a timestamp can say, and it was wrong
+twice: a store is created before it is readable, so a new acquisition was noticed at the
+one moment it could not be opened and then never looked at again.
 
-None of those are hard, and all three are honest bugs for live data rather than
-design problems. They are listed here so the work is not rediscovered later.
+The control application knows. It called for the acquisition and waited for the write to
+finish, so at that moment it holds the fact we were trying to guess. It should say so:
+
+- **"this position is ready"** → the viewer hands the engine one more address.
+- **"this position now has *n* frames"** → the viewer re-reads that store's description
+  so the time slider reaches the new frame.
+
+`POST /api/stores/open` already accepts the first, and is tested. What does not exist is
+the path back to an already-open page: the announcement reaches the server and stops
+there. That needs a held-open connection — server-sent events are the natural fit — and
+it is the one piece of plumbing still missing. Note the order: the channel first, then
+the asking can be deleted. Removing the asking first leaves the viewer unable to hear
+anything, which was tried and does not work.
+
+Announcements arrive at the rate acquisitions finish — a handful a minute at most, since
+an exposure takes seconds. So this is a small, quiet mechanism, and it does no work at
+all when nothing is happening.
 
 ## Status
 
-Decided and measured: where the split goes, why time is pre-declared, how the
-layer list is organised, and what live updating will cost.
+**Decided, and written above:** one store per position with its place in its own
+metadata; a stitched image as a separate later artefact; a timelapse that grows its own
+length; one data type per image; how the layer list is organised; and what caching
+follows from all of it.
 
-Built so far: reading acquisition types, positions and channels from what is on
-disk (`backend/stores.py`), with tests.
+**Built and tested:** reading acquisition types, positions and channels from what is on
+disk; the panel with grouped rows, one shared set of display settings, colour maps and
+masks; Z and T sliders that appear only when the axis exists; targets saved beside the
+data; and applying changes to the engine by adjusting layers rather than rebuilding
+them.
 
-Not built yet: the grouped panel itself, one layer per channel, and the three
-live-refresh items above. The measurements that show the approach will work are in
-`measure_canvas.py`; the interface work is still ahead.
+**Not built:** the channel from server to page described under Decision 4, and a writer.
+The mesoSPIM writes its own OME-Zarr today and our driver copies frame files rather than
+writing zarr, so where the writer belongs — a conversion step, or a change to what the
+driver writes — is still open.
+
+**One open question of fact:** whether the specimen appears on screen. The slice view has
+been observed drawing only its own background, which means image data reaches the
+graphics card and nothing is drawn from it. That is the first thing to settle, and it is
+not a storage question.
