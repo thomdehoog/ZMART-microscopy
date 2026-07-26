@@ -31,7 +31,7 @@ def two_channel_page(browser, built_dist, tmp_path_factory):
     # One channel per store, and no channel axis inside them: this is the shape a
     # mesoSPIM transfer writes, where the channel is identified by the file's name.
     # It matters that these are genuinely single-channel — a three-channel volume
-    # under a name like Tile0_Ch488 would now correctly show three rows, which is
+    # under a name like Ch488 would now correctly show three rows, which is
     # not the arrangement these tests are about.
     for name in ("Tile0_Ch488_FltEmpty.ome.zarr", "Tile0_Ch647_FltEmpty.ome.zarr"):
         write_demo_zarr(data / name, single_channel=True)
@@ -61,8 +61,8 @@ def two_channel_page(browser, built_dist, tmp_path_factory):
 
 
 def test_the_panel_lists_every_layer(two_channel_page):
-    assert two_channel_page.locator("text=Tile0_Ch488").count() == 1
-    assert two_channel_page.locator("text=Tile0_Ch647").count() == 1
+    assert two_channel_page.locator("text=Ch488").count() == 1
+    assert two_channel_page.locator("text=Ch647").count() == 1
 
 
 def test_channels_arrive_green_and_magenta(two_channel_page):
@@ -72,7 +72,7 @@ def test_channels_arrive_green_and_magenta(two_channel_page):
 
 
 def test_hiding_a_layer_hides_it_in_the_engine(two_channel_page):
-    two_channel_page.click("[aria-label='toggle Tile0_Ch488']")
+    two_channel_page.click("[aria-label='toggle Ch488']")
     two_channel_page.wait_for_timeout(800)
     layers = two_channel_page.evaluate(_ENGINE_LAYERS)
     assert layers[0]["visible"] is False
@@ -80,16 +80,16 @@ def test_hiding_a_layer_hides_it_in_the_engine(two_channel_page):
 
 
 def test_showing_it_again_restores_it(two_channel_page):
-    two_channel_page.click("[aria-label='toggle Tile0_Ch488']")
+    two_channel_page.click("[aria-label='toggle Ch488']")
     two_channel_page.wait_for_timeout(500)
-    two_channel_page.click("[aria-label='toggle Tile0_Ch488']")
+    two_channel_page.click("[aria-label='toggle Ch488']")
     two_channel_page.wait_for_timeout(800)
     assert two_channel_page.evaluate(_ENGINE_LAYERS)[0]["visible"] is True
 
 
 def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
-    two_channel_page.click("[aria-label='colour Tile0_Ch488']")
-    two_channel_page.click("[aria-label='cyan for Tile0_Ch488']")
+    two_channel_page.click("[aria-label='colour Ch488']")
+    two_channel_page.click("[aria-label='cyan for Ch488']")
     two_channel_page.wait_for_timeout(800)
     shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
     assert "vec3(0.2, 0.8, 1)" in shader
@@ -97,8 +97,8 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
 
 def test_colour_survives_the_three_d_toggle(two_channel_page):
     """Mode switching rebuilds the shaders; a chosen colour must not be lost."""
-    two_channel_page.click("[aria-label='colour Tile0_Ch488']")
-    two_channel_page.click("[aria-label='cyan for Tile0_Ch488']")
+    two_channel_page.click("[aria-label='colour Ch488']")
+    two_channel_page.click("[aria-label='cyan for Ch488']")
     two_channel_page.wait_for_timeout(500)
     two_channel_page.click("text=3D")
     two_channel_page.wait_for_timeout(1500)
@@ -108,7 +108,7 @@ def test_colour_survives_the_three_d_toggle(two_channel_page):
 
 
 def test_visibility_survives_the_three_d_toggle(two_channel_page):
-    two_channel_page.click("[aria-label='toggle Tile0_Ch647']")
+    two_channel_page.click("[aria-label='toggle Ch647']")
     two_channel_page.wait_for_timeout(500)
     two_channel_page.click("text=3D")
     two_channel_page.wait_for_timeout(1500)
@@ -132,16 +132,16 @@ def _set_range(page, label: str, value: float) -> None:
 
 
 def test_contrast_handles_rewrite_the_engine_shader(two_channel_page):
-    _set_range(two_channel_page, "black Tile0_Ch488", 1200)
-    _set_range(two_channel_page, "white Tile0_Ch488", 9000)
+    _set_range(two_channel_page, "black Ch488", 1200)
+    _set_range(two_channel_page, "white Ch488", 9000)
     two_channel_page.wait_for_timeout(800)
     shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
     assert "range=[1200, 9000]" in shader
 
 
 def test_contrast_survives_the_three_d_toggle(two_channel_page):
-    _set_range(two_channel_page, "black Tile0_Ch488", 1500)
-    _set_range(two_channel_page, "white Tile0_Ch488", 8000)
+    _set_range(two_channel_page, "black Ch488", 1500)
+    _set_range(two_channel_page, "white Ch488", 8000)
     two_channel_page.wait_for_timeout(500)
     two_channel_page.click("text=3D")
     two_channel_page.wait_for_timeout(1500)
@@ -151,14 +151,14 @@ def test_contrast_survives_the_three_d_toggle(two_channel_page):
 
 
 def test_opacity_reaches_the_plane_layer(two_channel_page):
-    _set_range(two_channel_page, "opacity Tile0_Ch488", 0.37)
+    _set_range(two_channel_page, "opacity Ch488", 0.37)
     two_channel_page.wait_for_timeout(800)
     opacity = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["opacity"]
     assert opacity == pytest.approx(0.37)
 
 
 def test_opacity_survives_the_three_d_toggle(two_channel_page):
-    _set_range(two_channel_page, "opacity Tile0_Ch488", 0.42)
+    _set_range(two_channel_page, "opacity Ch488", 0.42)
     two_channel_page.wait_for_timeout(500)
     two_channel_page.click("text=3D")
     two_channel_page.wait_for_timeout(1500)
@@ -168,14 +168,14 @@ def test_opacity_survives_the_three_d_toggle(two_channel_page):
 
 
 def test_each_layer_shows_its_measured_histogram(two_channel_page):
-    assert two_channel_page.locator("[aria-label='histogram Tile0_Ch488']").count() == 1
-    assert two_channel_page.locator("[aria-label='histogram Tile0_Ch647']").count() == 1
+    assert two_channel_page.locator("[aria-label='histogram Ch488']").count() == 1
+    assert two_channel_page.locator("[aria-label='histogram Ch647']").count() == 1
 
 
 def test_auto_contrast_restores_the_measured_window(two_channel_page):
-    _set_range(two_channel_page, "black Tile0_Ch488", 1200)
-    _set_range(two_channel_page, "white Tile0_Ch488", 9000)
-    two_channel_page.click("[aria-label='auto contrast Tile0_Ch488']")
+    _set_range(two_channel_page, "black Ch488", 1200)
+    _set_range(two_channel_page, "white Ch488", 9000)
+    two_channel_page.click("[aria-label='auto contrast Ch488']")
     two_channel_page.wait_for_timeout(800)
     expected = two_channel_page.evaluate(
         "() => window.zmartConfig.layers[0].histogram.autoWindow"

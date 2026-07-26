@@ -106,6 +106,17 @@ class _Handler(SimpleHTTPRequestHandler):
     # small chunks; without this each one would open a fresh connection.
     protocol_version = "HTTP/1.1"
 
+    # Build each reply in memory and send it as one piece. The standard library
+    # writes unbuffered by default, which sends every header line as its own
+    # little network packet — barely noticeable for one request, and a real cost
+    # when opening an acquisition of two hundred tiles, where the viewer asks
+    # well over a thousand small questions before it can draw anything.
+    wbufsize = 64 * 1024
+    # Do not wait to see whether more data is coming before sending what we have.
+    # That waiting is worth it on a real network; on this machine talking to
+    # itself it only adds delay to every single answer.
+    disable_nagle_algorithm = True
+
     def __init__(
         self,
         *args,
@@ -180,11 +191,38 @@ class _Handler(SimpleHTTPRequestHandler):
             return
         self._send_file(target)
 
+    # An OME-Zarr describes itself in small files named like this: what the axes
+    # are, how big each resolution level is, and how the pieces are named. The
+    # viewer reads one of them per level per store before it can draw anything, so
+    # an acquisition of two hundred tiles means over a thousand of these before a
+    # single pixel appears. They are the same every time — the shape of a store
+    # only changes if it is resized, which the storage layout deliberately avoids —
+    # so they are worth remembering rather than re-reading, and worth letting the
+    # browser keep rather than asking for again.
+    _DESCRIBING_FILES = (".zattrs", ".zarray", ".zgroup", "zarr.json")
+    _described: dict[str, bytes] = {}
+
     def _send_file(self, target: Path) -> None:
-        data = target.read_bytes()
+        describing = target.name in self._DESCRIBING_FILES
+        if describing:
+            key = str(target)
+            data = self._described.get(key)
+            if data is None:
+                data = target.read_bytes()
+                self._described[key] = data
+        else:
+            data = target.read_bytes()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(len(data)))
+        if describing:
+            # Let the browser keep these for the session rather than asking again
+            # every few seconds. This is the single biggest saving when opening a
+            # tiled acquisition.
+            self.send_header("Cache-Control", "max-age=3600")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         # Let the browser reuse pieces of image it has already fetched, but only
         # briefly. A piece of a finished acquisition never changes, so caching it
         # for an hour would be harmless — but during a live run the folder is
@@ -393,7 +431,14 @@ def make_server(
     """
     from contrast import display_window, intensity_histogram
     from library import Library
-    from stores import axis_names, channel_color, channels, layer_names, split_name
+    from stores import (
+        axis_names,
+        channel_color,
+        channel_of,
+        channels,
+        layer_names,
+        split_name,
+    )
 
     data_dir = Path(data_dir).resolve()
     names = [store] if isinstance(store, str) else list(store)
@@ -455,24 +500,47 @@ def make_server(
         entries = library.entries()
         present = [name for _, _, name in entries]
         labels = layer_names(present)
-        rows = []
+        # One row per acquisition type and channel. Several *positions* of the same
+        # acquisition and channel are not separate rows: they are one picture of one
+        # specimen, taken in pieces, so they become one row that reads from all of
+        # them. The engine takes the list and places each piece using the stage
+        # position recorded inside it.
+        #
+        # This is worth doing for more than tidiness. Asking the engine for one
+        # layer with two hundred sources is far less work than two hundred layers,
+        # each needing its own setup and its own shader compiled.
+        merged: dict[tuple, dict] = {}
         for (root_number, root, name), label in zip(entries, labels, strict=True):
             kind, _ = split_name(name)
             store_path = root / name
             base = describe(root_number, root, name, label, coloured=len(present) > 1)
             if "c" in axis_names(store_path):
-                for index, channel in enumerate(channels(store_path)):
-                    rows.append(
-                        {
-                            **base,
-                            "name": channel["name"],
-                            "group": kind,
-                            "channelIndex": index,
-                            "color": list(channel["color"]) if channel["color"] else None,
-                        }
-                    )
+                found = [
+                    (index, channel["name"], channel["color"])
+                    for index, channel in enumerate(channels(store_path))
+                ]
             else:
-                rows.append({**base, "group": kind, "channelIndex": None})
+                # The channel lives in the file's name rather than inside it. Group
+                # by the wavelength so the same channel of different tiles merges,
+                # falling back to the label where there is no wavelength to read.
+                wavelength = channel_of(name)
+                found = [(None, f"Ch{wavelength}" if wavelength else label, base.get("color"))]
+
+            for index, channel_name, color in found:
+                key = (kind, index, channel_name)
+                row = merged.get(key)
+                if row is None:
+                    merged[key] = {
+                        **base,
+                        "name": channel_name,
+                        "group": kind,
+                        "channelIndex": index,
+                        "color": list(color) if color else None,
+                    }
+                else:
+                    # Another position of the same picture: add where to read it.
+                    row["sources"] = [*row["sources"], *base["sources"]]
+        rows = list(merged.values())
         # Group order follows first appearance, which follows the sorted store
         # names, so the panel does not reshuffle itself between runs.
         groups = list(dict.fromkeys(row["group"] for row in rows))
