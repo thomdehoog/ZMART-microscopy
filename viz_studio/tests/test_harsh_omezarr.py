@@ -329,28 +329,29 @@ def test_path_traversal_cannot_escape_the_data_directory(serving, attack):
     assert b"SECRET" not in body                         # ...and the file never leaks
 
 
-def test_goto_survives_valid_and_garbage_payloads(serving):
+def test_saving_targets_survives_valid_and_garbage_payloads(serving):
+    """The only thing the viewer posts is its target list; it must never crash.
+
+    A malformed body is the client's mistake and should be answered as such. A
+    500 would mean the viewer could take the server down by sending nonsense.
+    """
     port, _ = serving
-    # A box as the viewer sends it: two corners, each axis carrying its own value
-    # and the unit the image declared it in.
-    corner = lambda v: {axis: {"value": v, "unit": "um"} for axis in ("x", "y", "z")}  # noqa: E731
-    ok = json.dumps({"pointA": corner(0.0), "pointB": corner(10.0)}).encode()
-    status, _ = request(port, "/api/goto", method="POST", body=ok)
+    ok = json.dumps({"version": 1, "annotations": []}).encode()
+    status, _ = request(port, "/api/annotations", method="POST", body=ok)
     assert status == 200
     for junk in (b"", b"not json at all", b"[1,2,3]", b"{" + b"x" * 100000):
-        status, _ = request(port, "/api/goto", method="POST", body=junk)
+        status, _ = request(port, "/api/annotations", method="POST", body=junk)
         assert status < 500                              # a bad body is a client error, never a crash
 
 
-def test_goto_refuses_a_target_it_cannot_convert_safely(serving):
-    """A coordinate whose unit is unknown must be refused, not guessed at.
+def test_the_viewer_cannot_reach_the_microscope_at_all(serving):
+    """The studio is a viewer: it has no endpoint that could move an instrument.
 
-    Guessing is the dangerous option here: reading a store written in metres as
-    though it were micrometres would turn a small hop into a command a million
-    times too far.
+    Acting on a target belongs to the control application, which reads the saved
+    target file. This test exists so that separation cannot be undone by
+    accident.
     """
     port, _ = serving
-    corner = lambda v: {"x": {"value": v, "unit": "furlong"}}  # noqa: E731
-    body = json.dumps({"pointA": corner(0.0), "pointB": corner(1.0)}).encode()
-    status, _ = request(port, "/api/goto", method="POST", body=body)
-    assert status == 400
+    for route in ("/api/goto", "/api/move", "/api/stage"):
+        status, _ = request(port, route, method="POST", body=b"{}")
+        assert status == 404

@@ -129,14 +129,6 @@ class TestSaveStatus:
         details_page.get_by_text("Saved beside the image.").wait_for(timeout=10_000)
         details_page.get_by_label("delete target 1").click()
 
-    def test_the_goto_outcome_is_reported(self, details_page):
-        """With no microscope attached, the panel says so rather than nothing."""
-        add_box(details_page, "goto-status")
-        details_page.get_by_role("button", name="Go to").click()
-        # The demo server answers "not moving, no microscope is connected".
-        details_page.get_by_text("Not moving:").wait_for(timeout=10_000)
-        details_page.get_by_label("delete target 1").click()
-
 
 @pytest.fixture(scope="module")
 def unsavable_page(browser, built_dist, tmp_path_factory):

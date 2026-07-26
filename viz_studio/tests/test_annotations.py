@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 
 def add_box(page, annotation_id="browser-box"):
     page.evaluate(
@@ -74,23 +72,3 @@ def test_color_and_visibility_reach_the_annotation_layer(viewer_page):
     assert not viewer_page.evaluate(
         "() => window.zmartViewer.layerManager.getLayerByName('Targets').visible"
     )
-
-
-def test_box_goto_sends_named_physical_coordinates(viewer_page):
-    captured = []
-    viewer_page.on(
-        "request",
-        lambda request: captured.append(request.post_data)
-        if request.url.endswith("/api/goto")
-        else None,
-    )
-    add_box(viewer_page, "goto-box")
-    viewer_page.get_by_role("button", name="Go to").click()
-    viewer_page.wait_for_timeout(300)
-    payload = json.loads(captured[-1])
-    assert payload["id"] == "goto-box"
-    assert set(payload["pointA"]) >= {"z", "y", "x"}
-    for corner in ("pointA", "pointB"):
-        for coordinate in payload[corner].values():
-            assert isinstance(coordinate["value"], (int, float))
-            assert "unit" in coordinate
