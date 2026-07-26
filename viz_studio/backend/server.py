@@ -282,6 +282,7 @@ class _Handler(SimpleHTTPRequestHandler):
     _described_lock = threading.Lock()
 
     def _send_file(self, target: Path) -> None:
+        describing = target.name in self._DESCRIBING_FILES
         data = self._read(target)
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/octet-stream")
@@ -305,7 +306,27 @@ class _Handler(SimpleHTTPRequestHandler):
         # letting a half-written one be read. `DATA_LAYOUT.md` asks for that, and
         # it is the same discipline that keeps a reader from seeing a torn image
         # during a live run.
-        self.send_header("Cache-Control", "max-age=3600")
+        # These are cached differently, and the difference matters during a run.
+        #
+        # A piece of image is written once and never rewritten, so it can be kept for
+        # a year and marked "immutable", which tells the browser not even to ask
+        # whether its copy is still good. An hour was the previous figure for both,
+        # and it was simply wrong: an acquisition can run for many hours, so a piece
+        # fetched early had its copy expire while the run was still going, and coming
+        # back to a region looked at ninety minutes earlier fetched it all again.
+        #
+        # The small files describing a store are a different matter. They are the one
+        # thing that would change if an image ever grew -- another frame of a
+        # timelapse, a wider canvas. We declare time generously rather than resizing,
+        # so today they do not change; but keeping them for a year would quietly make
+        # that decision unbreakable, and a store that did grow would go unnoticed for
+        # the rest of the session with nothing to explain it. They are kept briefly
+        # instead, which costs almost nothing because the server answers them from
+        # memory, and leaves the door open.
+        if describing:
+            self.send_header("Cache-Control", "max-age=60")
+        else:
+            self.send_header("Cache-Control", "max-age=31536000, immutable")
         self.end_headers()
         self.wfile.write(data)
 

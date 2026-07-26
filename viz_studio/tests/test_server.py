@@ -340,5 +340,10 @@ def test_image_chunks_may_be_kept_by_the_browser(serving):
     """
     _, headers, _ = request(serving, "/data/0/demo.zarr/chunk")
     cache = headers.get("Cache-Control", "")
-    assert cache.startswith("max-age=")
-    assert int(cache.split("=")[1]) >= 600
+    # Kept for a year and marked immutable: a piece of image is written once and never
+    # rewritten. An acquisition can run for many hours, so anything shorter would have
+    # a piece expire mid-run and be fetched again on returning to somewhere already
+    # visited. The small files describing a store are deliberately not treated this
+    # way -- see the handler.
+    assert "immutable" in cache, cache
+    assert int(cache.split("max-age=")[1].split(",")[0]) > 86_400, cache
