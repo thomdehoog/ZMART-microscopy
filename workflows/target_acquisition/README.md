@@ -23,7 +23,9 @@ screen. On Windows, double-click `start_website.bat` (live microscope) or
 opens the page by itself. From a terminal, `python run_webapp.py --demo
 --open` does the same against the simulated scope (see
 `workflow/webapp/README.md`), and `python run_webapp.py --analysis-repo ...
---open` drives the real one. The server is Python standard library only.
+--open` drives the real one. Add `--window` instead of `--open` to show the
+page in its own desktop application window rather than a browser tab. The
+server is Python standard library only.
 
 Each microscope PC keeps its machine-specific choices (Python environment,
 analysis-repo path) in `start_website.local.bat` next to the launcher; the
