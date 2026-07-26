@@ -118,8 +118,18 @@ def gpu_browser(_playwright):
 
 
 @pytest.fixture
-def viewer_page(browser, live_server: str):
-    """A page with the viewer booted and the demo volume fully rendered."""
+def viewer_page(browser, live_server: str, demo_store: Path):
+    """A page with the viewer booted and the demo volume fully rendered.
+
+    The saved targets are cleared first. Every test here shares one demo volume,
+    and targets are saved to a file beside it a moment after they change — so a
+    target drawn at the end of one test can be written after its page has closed
+    and still be sitting there when the next one opens. Starting from a known
+    empty list keeps each test honest about what it drew itself.
+    """
+    sidecar = demo_store / "zmart-annotations.json"
+    if sidecar.exists():
+        sidecar.unlink()
     page = browser.new_page(viewport={"width": 1200, "height": 900})
     page.goto(live_server, wait_until="domcontentloaded")
     page.wait_for_function("() => window.zmartViewer !== undefined", timeout=30_000)
