@@ -606,8 +606,10 @@ def make_server(
         needs and never comes back to ask.
         """
         if window is not None:
-            # An operator-supplied window overrides measurement for both views,
-            # so there is no need to read any pixels at all.
+            # A window given on the command line is used for both views rather than
+            # measured. The histogram is still measured, because it is what the
+            # panel draws and what the Auto button restores -- so this reads pixels
+            # once, not three times.
             found = {
                 "window": window,
                 "volumeWindow": window,

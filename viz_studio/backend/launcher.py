@@ -66,6 +66,9 @@ def open_window(
     depth_samples: int = 256,
     chrome: bool = False,
     watch: bool = True,
+    allow_open: bool = True,
+    allow_selection: bool = False,
+    panel_side: str = "right",
 ) -> None:
     """Start the server and open the studio in a native window.
 
@@ -96,6 +99,13 @@ def open_window(
         "chrome": chrome,
         "browse": browse,
         "watch": watch,
+        # Which parts of the panel exist, and which edge it sits on. These are
+        # passed straight through so that whoever opens the window decides them --
+        # a smart-microscopy run and someone looking at last week's data want
+        # different answers, and the server explains each one.
+        "allow_open": allow_open,
+        "allow_selection": allow_selection,
+        "panel_side": panel_side,
     }
     if data_dir is not None:
         kwargs["data_dir"] = data_dir
