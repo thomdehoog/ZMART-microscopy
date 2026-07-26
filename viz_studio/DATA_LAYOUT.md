@@ -11,6 +11,49 @@ script `measure_canvas.py` next to this file reproduces the measurements, so if
 the data grows or the engine changes you can check whether the reasoning still
 holds instead of trusting a document written in July 2026.
 
+## The decisions, in short
+
+Everything below is the reasoning. This is the conclusion, for anyone who needs it
+without the argument.
+
+**On disk.** One store per position. Each holds one image as `t, c, z, y, x`, its
+shrunk-down copies, and its place on the stage as a `translation` in its own metadata.
+Masks live inside the store they describe, under `labels/`. Folders stay flat — there
+is no container folder per acquisition type, because the engine cannot see one and
+something of ours would have to list its contents anyway.
+
+**How things grow.** A new position is a new store. A new frame is written into the
+store that already exists, whose length in time was declared generously up front. A new
+mask is a folder under `labels/`. Nothing that is already being read ever changes shape.
+
+**On screen.** Rows are gathered under their acquisition type, one row per channel — and
+a mask is simply another row, drawn with its own controls. Every position of one
+acquisition type feeds the same row, and they become one picture because the engine
+places each by its translation. What the panel shows is therefore acquisition types and
+channels; the fact that a position is a separate folder never surfaces.
+
+**Getting data in, two ways.** While a run is producing data, the control application
+says "this position is ready" and the viewer hands the engine one more address. For data
+that is finished, point the viewer at a folder: it finds what is there, shows it, and
+then stops asking, because nothing can change. New *frames* need no announcing at all —
+the engine fetches them when you go and look, since it already has the address.
+
+**The rule behind all of it.** *Add alongside; do not reshape.* And a position's place in
+the world lives in its metadata — not in a grid, not in a filename, not in the shape of
+the folders.
+
+### What is deliberately still open
+
+**Who writes the OME-Zarr.** The mesoSPIM writes its own, and our driver copies the
+frame files it produced rather than writing zarr itself. So a writer is either a
+conversion step after acquisition or a change to what the driver writes. That has not
+been decided, and it changes what gets built.
+
+**Where measurements go.** A table of intensities per object, or a classification per
+target, is neither pixels nor geometry, so neither a store nor the annotation file beside
+it is the right home. This will come up the first time somebody classifies pixels, and it
+deserves its own decision rather than being squeezed into one of the above.
+
 ## What the viewer is, and what it is not
 
 The viz-studio is a **viewer**. Its job is to show large, three-dimensional,
