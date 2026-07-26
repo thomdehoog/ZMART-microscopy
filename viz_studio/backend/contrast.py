@@ -65,6 +65,74 @@ def _coarsest_level_path(attrs: dict) -> str | None:
     return datasets[-1].get("path") if datasets else None
 
 
+# How much of an image to look at when measuring how bright it is. The smallest
+# copy in the pyramid is usually tiny and can simply be read whole — but that is
+# only true if the image *has* a pyramid. An acquisition written without one, or
+# with only a couple of levels, leaves the smallest copy as big as the image, and
+# on a four-hundred-gigabyte acquisition reading it whole does not merely take a
+# while: it asks for more memory than the machine has and brings the viewer down
+# before it has shown anything.
+#
+# So a bounded sample is taken instead: a few planes, each cropped to a square
+# around the middle. That is plenty to judge brightness by — the measurement is a
+# percentile, not an inventory — and it costs the same whether the image is a
+# megabyte or a terabyte.
+_SAMPLE_PLANES = 4
+_SAMPLE_SIDE = 1024
+
+
+def _sample(array) -> object:
+    """Read at most a few million voxels from anywhere in ``array``.
+
+    Small images are read whole. Large ones are sampled: the last two axes are
+    cropped to a square about the middle, and every axis before them is reduced to
+    a handful of positions spread through it, so the sample is drawn from the depth
+    of the image rather than from one face of it.
+    """
+    import numpy as np
+
+    shape = tuple(int(n) for n in array.shape)
+    if not shape:
+        return np.asarray(array[...])
+
+    budget = _SAMPLE_PLANES * _SAMPLE_SIDE * _SAMPLE_SIDE
+    total = 1
+    for extent in shape:
+        total *= max(int(extent), 1)
+    if total <= budget:
+        return np.asarray(array[...])
+
+    # Crop the image plane (the last two axes) to a square about the middle.
+    plane: list[slice] = []
+    for extent in shape[-2:]:
+        if extent <= _SAMPLE_SIDE:
+            plane.append(slice(None))
+        else:
+            start = (extent - _SAMPLE_SIDE) // 2
+            plane.append(slice(start, start + _SAMPLE_SIDE))
+
+    leading = shape[: len(shape) - len(plane)]
+    if not leading:
+        return np.asarray(array[tuple(plane)])
+
+    # Spread a few samples through whatever comes before the plane -- depth,
+    # channels, time -- taking one position at a time so nothing large is ever
+    # asked for at once.
+    depth = leading[-1]
+    positions = sorted({int(i * (depth - 1) / max(_SAMPLE_PLANES - 1, 1)) for i in range(_SAMPLE_PLANES)})
+    middles = [max(0, extent // 2) for extent in leading[:-1]]
+    pieces = []
+    for position in positions:
+        index = tuple([*middles, position, *plane])
+        try:
+            pieces.append(np.asarray(array[index]).ravel())
+        except (OSError, ValueError, IndexError):
+            continue
+    if not pieces:
+        return np.asarray([])
+    return np.concatenate(pieces)
+
+
 def display_window(store: str | Path, *, volumetric: bool = False) -> tuple[float, float]:
     """Return the ``(low, high)`` intensity window to display ``store`` with.
 
@@ -96,8 +164,10 @@ def display_window(store: str | Path, *, volumetric: bool = False) -> tuple[floa
         return 0.0, 65535.0
 
     try:
-        data = np.asarray(zarr.open_group(str(store), mode="r")[level][:])
-    except (OSError, KeyError, ValueError):
+        data = _sample(zarr.open_group(str(store), mode="r")[level])
+    except (OSError, KeyError, ValueError, MemoryError):
+        return 0.0, 65535.0
+    if data.size == 0:
         return 0.0, 65535.0
 
     low_pct = VOLUME_LOW_PERCENTILE if volumetric else LOW_PERCENTILE
@@ -137,7 +207,7 @@ def intensity_histogram(store: str | Path, *, bins: int = HISTOGRAM_BINS) -> dic
         level = _coarsest_level_path(attrs)
         if level is None:
             return None
-        data = np.asarray(zarr.open_group(str(store), mode="r")[level][:])
+        data = _sample(zarr.open_group(str(store), mode="r")[level])
     except (OSError, KeyError, ValueError, json.JSONDecodeError):
         return None
 
