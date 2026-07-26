@@ -211,5 +211,9 @@ export function syncView(viewer, { layout, chrome }) {
   if (viewer.layout.toJSON() !== layout) viewer.layout.restoreState(layout);
   viewer.showDefaultAnnotations.value = chrome;
   viewer.showAxisLines.value = chrome;
-  viewer.showScaleBar.value = true;
+  // Neuroglancer's own scale bars are off. It draws one per axis along the bottom
+  // left, including one for time -- which looks like a distance and is not one. A
+  // single bar for distance is drawn in the corner of the image instead, and it is
+  // ours so it can be put somewhere out of the way. See ScaleBar.jsx.
+  viewer.showScaleBar.value = false;
 }

@@ -229,3 +229,84 @@ def test_the_load_data_box_can_be_switched_off(browser, built_dist, demo_store):
         page.close()
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_the_selection_list_is_absent_unless_asked_for(browser, built_dist, demo_store):
+    """Marking places is not what most viewing is, so it is opt-in.
+
+    Someone opening the viewer to look through yesterday's run wants the image and
+    nothing else beside it. A workflow that cares about targets switches the
+    selection list on when it starts the viewer.
+    """
+    import threading
+
+    from server import make_server
+
+    server = make_server(port=0, data_dir=demo_store, site_dir=built_dist)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page()
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
+        assert page.get_by_label("selection panel").count() == 0
+        assert page.get_by_role("button", name="Point", exact=True).count() == 0
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_the_bar_of_controls_can_be_put_on_the_left(browser, built_dist, demo_store):
+    """Which edge the controls sit on is decided when the viewer is started.
+
+    At a microscope the screen is often beside the instrument and one edge is
+    easier to reach than the other, so this is worth being able to choose.
+    """
+    import threading
+
+    from server import make_server
+
+    server = make_server(
+        port=0, data_dir=demo_store, site_dir=built_dist, panel_side="left"
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1200, "height": 900})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
+        page.wait_for_timeout(600)
+        bar = page.get_by_label("controls", exact=True).bounding_box()
+        image = page.locator("main").bounding_box()
+        assert bar["x"] < image["x"], "the controls should be to the left of the image"
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_the_controls_fold_away(browser, built_dist, demo_store):
+    """The bar folds to the edge, so the whole screen can show the specimen."""
+    import threading
+
+    from server import make_server
+
+    server = make_server(port=0, data_dir=demo_store, site_dir=built_dist)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1200, "height": 900})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
+        assert page.get_by_label("controls", exact=True).count() == 1
+        page.get_by_label("hide the controls").click()
+        page.wait_for_timeout(400)
+        assert page.get_by_label("controls", exact=True).count() == 0
+        page.get_by_label("show the controls").click()
+        page.wait_for_timeout(400)
+        assert page.get_by_label("controls", exact=True).count() == 1
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)

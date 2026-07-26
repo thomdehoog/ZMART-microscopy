@@ -524,6 +524,8 @@ def make_server(
     browse=None,
     watch: bool = True,
     allow_open: bool = True,
+    allow_selection: bool = False,
+    panel_side: str = "right",
 ) -> ThreadingHTTPServer:
     """Create (but do not start) the viewer's web server.
 
@@ -553,6 +555,17 @@ def make_server(
     ``POST /api/stores/open`` as the run goes on. Those routes stay open on
     purpose, so that what is shown is decided by the experiment rather than by
     whoever happens to be watching it.
+
+    ``panel_side`` puts the bar of controls on the ``"right"`` or the ``"left"``.
+    Which side is better depends on the room: at a microscope the screen is often
+    beside the instrument and one edge is easier to reach than the other. It folds
+    away towards whichever edge it is on.
+
+    ``allow_selection`` decides whether the panel offers the selection list at all
+    — the places marked on the image, whether drawn by hand or found by the
+    workflow. It is off unless asked for, because marking places is not what most
+    viewing is: someone looking through yesterday's run wants the image and nothing
+    else on screen. A workflow that cares about targets switches it on.
     """
     data_dir = Path(data_dir).resolve()
     names = [store] if isinstance(store, str) else list(store)
@@ -731,6 +744,10 @@ def make_server(
             # is shown, and offering a "load data" button would invite someone to
             # add something the experiment knows nothing about.
             "canOpen": allow_open,
+            # Whether the selection list is offered. See ``allow_selection``.
+            "canSelect": allow_selection,
+            # Which edge the bar of controls sits on. See ``panel_side``.
+            "panelSide": "left" if str(panel_side).lower() == "left" else "right",
         }
 
     class _Server(ThreadingHTTPServer):

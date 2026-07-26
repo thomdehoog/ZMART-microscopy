@@ -39,8 +39,8 @@ export default function TargetsPanel({
   const save = saveMessage(saveState);
 
   return (
-    <section style={styles.panel} aria-label="targets panel">
-      <div style={styles.heading}>target selection</div>
+    <section style={styles.panel} aria-label="selection panel">
+      <div style={styles.heading}>selection</div>
       <div style={styles.tools}>
         {[
           ["point", "Point"],
@@ -69,6 +69,17 @@ export default function TargetsPanel({
       <div style={styles.list}>
         {targets.length === 0 && (
           <div style={styles.empty}>Choose Point or Box, then click in the image.</div>
+        )}
+        {/* Gathered under a heading, the same shape the image data above uses: a
+            group, then the individual places under it. There is one group today —
+            the places marked by hand. Places the workflow finds for itself become a
+            second group beside it, which is why the shape is here now rather than a
+            flat list that would have to be rebuilt. */}
+        {targets.length > 0 && (
+          <div style={styles.groupHead}>
+            <span style={styles.groupName}>marked by hand</span>
+            <span style={styles.groupCount}>{targets.length}</span>
+          </div>
         )}
         {targets.map((target, index) => (
           <div key={target.id} style={styles.target}>
@@ -116,14 +127,14 @@ const styles = {
   // Sits below the layer list inside the single right-hand bar, so it takes the
   // bar's width and is capped in height: the layer list is what grows.
   panel: {
-    padding: "10px 12px 12px",
+    padding: "14px 12px 12px",
     // A fixed share of the bar rather than however tall the list happens to be, so
     // the images above never get pushed off the top as targets are added.
     height: "34%",
     minHeight: 120,
     background: "#11151a",
     color: "#c9d1d9",
-    borderTop: "1px solid #252b33",
+    borderTop: "1px solid #2b3440",
     font: "12px system-ui, sans-serif",
     overflow: "auto",
     display: "flex",
@@ -147,10 +158,24 @@ const styles = {
   // Scrolls inside its own fixed share of the bar, so a long list of targets stays
   // where it is instead of pushing everything above it off the top.
   list: { marginTop: 10, display: "grid", gap: 5, overflowY: "auto", minHeight: 0 },
+  groupHead: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    padding: "2px 0 4px",
+    color: "#c9d1d9",
+    font: "600 11px/1 system-ui, sans-serif",
+  },
+  groupName: { letterSpacing: ".02em" },
+  groupCount: { color: "#5c6673", fontSize: 10, fontVariantNumeric: "tabular-nums" },
   empty: { color: "#747f8d", lineHeight: 1.4, padding: "8px 2px" },
   // Three controls on the first row, then the name field spanning the full width
   // underneath, so a long note has room to be read.
-  target: { display: "grid", gridTemplateColumns: "1fr auto", gap: 5, alignItems: "center", borderBottom: "1px solid #252b33", paddingBottom: 6 },
+  target: {
+    marginLeft: 10,
+    borderLeft: "2px solid #1f2630",
+    paddingLeft: 6, display: "grid", gridTemplateColumns: "1fr auto", gap: 5, alignItems: "center", borderBottom: "1px solid #252b33", paddingBottom: 6 },
   name: { textAlign: "left", border: 0, background: "none", color: "#c9d1d9", cursor: "pointer", padding: 4 },
   delete: { border: 0, background: "none", color: "#f07178", fontSize: 18, cursor: "pointer" },
   description: { gridColumn: "1 / -1", border: "1px solid #262d36", borderRadius: 3, background: "#0e1216", color: "#aab4c0", padding: "4px 6px", font: "11px system-ui, sans-serif" },

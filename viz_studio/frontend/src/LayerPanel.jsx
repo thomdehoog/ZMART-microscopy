@@ -510,6 +510,14 @@ export default function LayerPanel({
   );
 }
 
+// What separates one block of the bar from the next: a rule, and enough room on
+// either side of it that the eye reads two sections rather than one long list.
+const BLOCK = {
+  borderBottom: "1px solid #2b3440",
+  paddingBottom: 8,
+  marginBottom: 12,
+};
+
 const styles = {
   empty: {
     margin: "0 12px 12px",
@@ -538,13 +546,14 @@ const styles = {
     fontVariantNumeric: "tabular-nums",
   },
   eyeGlyph: { width: 14, height: 14, display: "block" },
-  loadBox: { borderBottom: "1px solid #2b3440", paddingBottom: 2, flexShrink: 0 },
+  loadBox: { ...BLOCK, flexShrink: 0 },
   headingRow: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
-    padding: "10px 12px 8px",
+    padding: "0 12px 8px",
+    minHeight: 22,
   },
   openButton: {
     border: "1px solid #303a46",
@@ -626,7 +635,7 @@ const styles = {
     // shares the height with the targets list below it.
     flex: 1,
     background: "#12161c",
-    padding: "10px 0 0",
+    padding: "12px 0 0",
     font: "13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif",
     color: "#c9d1d9",
   },
@@ -651,12 +660,7 @@ const styles = {
   // things that belong together -- the name of the channel being adjusted and the
   // controls adjusting it -- end up next to each other rather than at opposite
   // ends of the bar.
-  controls: {
-    padding: "0 0 10px",
-    borderBottom: "1px solid #2b3440",
-    background: "#141922",
-    flexShrink: 0,
-  },
+  controls: { ...BLOCK, paddingBottom: 12, background: "#141922", flexShrink: 0 },
   controlsHead: {
     display: "flex",
     alignItems: "baseline",

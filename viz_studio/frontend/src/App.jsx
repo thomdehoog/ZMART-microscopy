@@ -4,6 +4,7 @@ import LayerPanel from "./LayerPanel.jsx";
 import TargetsPanel from "./TargetsPanel.jsx";
 import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/annotations.js";
 import { syncLayers, syncView } from "./engine.js";
+import ScaleBar from "./ScaleBar.jsx";
 
 // The two ways of looking at a volume, and the only thing the operator has to
 // choose between. 2-D is the working view -- one plane, scroll through the
@@ -504,6 +505,8 @@ export default function App() {
   // controls is showing at all.
   const [selected, setSelected] = React.useState(0);
   const [barOpen, setBarOpen] = React.useState(true);
+  // Which edge the bar of controls sits on, decided when the viewer is started.
+  const onLeft = config?.panelSide === "left";
   const annotationSource = React.useRef(null);
   // How to stop listening to the annotation source we are currently following.
   const stopListening = React.useRef(null);
@@ -878,10 +881,20 @@ export default function App() {
   };
 
   return (
-    <div style={styles.shell}>
+    <div
+      style={{
+        ...styles.shell,
+        // Putting the bar on the left is done by reversing the row rather than by
+        // moving anything: the image and the bar keep the same order in the page,
+        // so the fold strip stays between them and still folds towards the edge the
+        // bar is on, whichever edge that is.
+        flexDirection: onLeft ? "row-reverse" : "row",
+      }}
+    >
       <main style={styles.stage}>
         <NeuroglancerView onViewer={setViewer} />
         <ModeToggle mode={mode} onChange={setMode} />
+        <ScaleBar viewer={viewer} />
         <div style={styles.axisControls}>
           {/* Z steps through the planes of the stack, so it belongs to the 2-D
               working view; in 3-D the whole depth is already on screen. Time is
@@ -902,7 +915,7 @@ export default function App() {
           />
         </div>
       </main>
-      {/* One bar, on the right, holding everything: the images and the targets.
+      {/* One bar holding everything: the images and the targets.
           It folds away to the edge because at the microscope the screen is often
           a laptop's, and a third of it permanently given to controls is a third
           of the specimen not being looked at. */}
@@ -914,7 +927,7 @@ export default function App() {
         aria-expanded={barOpen}
         title={barOpen ? "Fold the controls away" : "Show the controls"}
       >
-        {barOpen ? "›" : "‹"}
+        {barOpen === onLeft ? "›" : "‹"}
       </button>
       {barOpen && (
         <aside style={styles.bar} aria-label="controls">
@@ -957,6 +970,7 @@ export default function App() {
               lookupTables={LOOKUP_TABLE_NAMES}
             />
           )}
+          {config?.canSelect && (
           <TargetsPanel
             targets={targets}
             activeTool={activeTool}
@@ -970,6 +984,7 @@ export default function App() {
             onDelete={deleteTarget}
             onDescribe={describeTarget}
           />
+          )}
         </aside>
       )}
     </div>
@@ -984,7 +999,9 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     minHeight: 0,
-    borderLeft: "1px solid #232a33",
+    border: "1px solid #232a33",
+    borderTop: "none",
+    borderBottom: "none",
     background: "#12161c",
   },
   fold: {
@@ -1023,9 +1040,9 @@ const styles = {
   // showing both Z and T never has them overlapping.
   axisControls: {
     position: "absolute",
-    left: "50%",
-    bottom: 16,
-    transform: "translateX(-50%)",
+    left: 14,
+    right: 14,
+    bottom: 14,
     zIndex: 10,
     display: "grid",
     gap: 6,
@@ -1033,7 +1050,7 @@ const styles = {
   },
   axisControl: {
     display: "grid",
-    gridTemplateColumns: "22px 16px minmax(220px, 34vw) 74px",
+    gridTemplateColumns: "22px 16px 1fr 74px",
     alignItems: "center",
     gap: 8,
     padding: "8px 12px",

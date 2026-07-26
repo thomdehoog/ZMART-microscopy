@@ -57,7 +57,11 @@ def demo_store(tmp_path_factory) -> Path:
 @pytest.fixture(scope="session")
 def live_server(built_dist: Path, demo_store: Path):
     """The real server, on a free port, serving the built page and the volume."""
-    server = make_server(port=0, data_dir=demo_store, site_dir=built_dist)
+    # The selection list is off unless asked for, so the shared test server asks
+    # for it: most of these tests are about marking places on the image.
+    server = make_server(
+        port=0, data_dir=demo_store, site_dir=built_dist, allow_selection=True
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
