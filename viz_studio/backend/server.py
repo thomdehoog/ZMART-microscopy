@@ -35,9 +35,28 @@ import json
 import math
 import os
 import tempfile
+import threading
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+# These are the viewer's own modules, and none of them pulls in anything heavy
+# when imported -- numpy and zarr are only reached for inside the functions that
+# actually read pixels. So they are imported here in the ordinary way rather than
+# inside the function that uses them, which keeps import errors surfacing at
+# startup instead of on the first request an operator makes.
+from contrast import intensity_histogram, measure
+from library import Library
+from stores import (
+    axis_names,
+    channel_color,
+    channel_of,
+    channels,
+    label_images,
+    layer_names,
+    split_name,
+    written_timepoints,
+)
 
 # Where the two kinds of content live on disk. Both are resolved to absolute
 # paths so the server behaves the same regardless of the working directory it
@@ -90,6 +109,32 @@ def _validate_annotations(payload: object) -> dict:
         clean.append(result)
         seen.add(annotation_id)
     return {"version": 1, "annotations": clean}
+
+
+def group_labels(entries: list[tuple[int, Path, str]]) -> dict[tuple[int, str], str]:
+    """What to call each acquisition type in the panel, per open folder.
+
+    Normally an acquisition type is simply called what it is — "overview",
+    "targetscan" — because only one run is open and there is nothing to confuse
+    it with. But the viewer is meant to be opened on a second run alongside the
+    first: last week's experiment for comparison, or a colleague's data. Both
+    runs will have an "overview", and two headings reading "overview" would leave
+    the operator with no way to tell which is which — and, worse, the two would be
+    drawn into the same layer and silently overlaid on top of one another.
+
+    So when the same acquisition type is found in more than one open folder, each
+    one is named after the folder it came from. Nothing changes in the ordinary
+    single-run case.
+    """
+    where: dict[str, set[tuple[int, str]]] = {}
+    for number, root, name in entries:
+        kind, _ = split_name(name)
+        where.setdefault(kind, set()).add((number, root.name))
+    labels: dict[tuple[int, str], str] = {}
+    for kind, folders in where.items():
+        for number, folder in folders:
+            labels[(number, kind)] = kind if len(folders) == 1 else f"{folder} · {kind}"
+    return labels
 
 
 class _Handler(SimpleHTTPRequestHandler):
@@ -164,7 +209,21 @@ class _Handler(SimpleHTTPRequestHandler):
         if self.path.startswith("/api/"):
             self._serve_api_post()
             return
-        self.send_error(HTTPStatus.NOT_FOUND)
+        self._send_empty(HTTPStatus.NOT_FOUND)
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        """Answer a "does this exist?" question the same way as a full request.
+
+        Without this, a HEAD for a piece of image would fall through to the
+        machinery that serves the page's own files and be looked for in the wrong
+        place entirely — so an existing piece would be reported missing. Nothing
+        in the viewer asks this today; it is here so that nothing quietly gets a
+        wrong answer if something ever does.
+        """
+        if self.path.startswith("/data/") or self.path.startswith("/api/"):
+            self.do_GET()
+            return
+        super().do_HEAD()
 
     # -- image data ------------------------------------------------------
 
@@ -182,14 +241,27 @@ class _Handler(SimpleHTTPRequestHandler):
         rel = self.path[len("/data/") :].split("?", 1)[0].split("#", 1)[0]
         target = self._library.resolve(rel)
         if target is None:
-            self.send_error(HTTPStatus.FORBIDDEN)
+            self._send_empty(HTTPStatus.FORBIDDEN)
             return
         if not target.is_file():
-            # A missing chunk is normal in zarr (it means "all background
-            # here"), so answer 404 quietly rather than as an error.
-            self.send_error(HTTPStatus.NOT_FOUND)
+            # A piece that was never imaged is the *ordinary* case, not an error:
+            # most of a live acquisition has not been written yet, and the engine
+            # asks about those regions constantly.
+            #
+            # It matters that this is answered plainly rather than through the
+            # standard library's error reply, which closes the connection and
+            # sends a page of HTML explaining itself. Closing would mean every
+            # probe of unimaged ground costs a new connection and a new thread —
+            # which, on a sparse acquisition, is most of them.
+            self._send_empty(HTTPStatus.NOT_FOUND)
             return
         self._send_file(target)
+
+    def _send_empty(self, status: HTTPStatus) -> None:
+        """Answer with a bare status, keeping the connection open for the next ask."""
+        self.send_response(status)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     # An OME-Zarr describes itself in small files named like this: what the axes
     # are, how big each resolution level is, and how the pieces are named. The
@@ -200,38 +272,34 @@ class _Handler(SimpleHTTPRequestHandler):
     # so they are worth remembering rather than re-reading, and worth letting the
     # browser keep rather than asking for again.
     _DESCRIBING_FILES = (".zattrs", ".zarray", ".zgroup", "zarr.json")
-    _described: dict[str, bytes] = {}
+    # Remembered by path *and* by when the file was last written. Keying on the
+    # path alone would be faster still and quietly wrong: a store whose
+    # description is rewritten during a run — a timelapse being given more room,
+    # say — would go on being described by what it used to be for the rest of the
+    # session, and the viewer would look at the wrong shape of data without
+    # anything appearing to be amiss.
+    _described: dict[str, tuple[int, bytes]] = {}
+    _described_lock = threading.Lock()
 
     def _send_file(self, target: Path) -> None:
-        describing = target.name in self._DESCRIBING_FILES
-        if describing:
-            key = str(target)
-            data = self._described.get(key)
-            if data is None:
-                data = target.read_bytes()
-                self._described[key] = data
-        else:
-            data = target.read_bytes()
+        data = self._read(target)
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(len(data)))
-        if describing:
-            # Let the browser keep these for the session rather than asking again
-            # every few seconds. This is the single biggest saving when opening a
-            # tiled acquisition.
-            self.send_header("Cache-Control", "max-age=3600")
-            self.end_headers()
-            self.wfile.write(data)
-            return
-        # Let the browser keep pieces of image it has already fetched. A piece is
-        # written once and never rewritten — the storage layout has each
-        # acquisition write its own store, and nothing is resized — so a piece that
-        # exists will not change under us. Keeping them matters at this scale:
-        # panning back over somewhere you have already been should cost nothing,
-        # and on a 400 GB acquisition it otherwise costs a great deal.
+        # Let the browser keep what it has already fetched, both the small files
+        # describing a store and the pieces of image themselves.
         #
-        # A piece not yet written answers "nothing here", and that answer is not
-        # kept, so data arriving later is still found when you next go looking.
+        # For the descriptions this is the single biggest saving when opening a
+        # tiled acquisition: the viewer reads one per resolution level per store
+        # before it can draw anything, so two hundred tiles means over a thousand
+        # of them before a single pixel appears.
+        #
+        # For the image it matters at scale: a piece is written once and never
+        # rewritten — each acquisition writes its own store and nothing is resized
+        # — so a piece that exists will not change under us, and panning back over
+        # somewhere you have already been should cost nothing. A piece not yet
+        # written answers "nothing here", and *that* answer is not kept, so data
+        # arriving later is still found when you next go looking.
         #
         # This does assume the writer puts a piece in place complete, rather than
         # letting a half-written one be read. `DATA_LAYOUT.md` asks for that, and
@@ -240,6 +308,21 @@ class _Handler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "max-age=3600")
         self.end_headers()
         self.wfile.write(data)
+
+    def _read(self, target: Path) -> bytes:
+        """The file's contents, remembering the small ones that describe a store."""
+        if target.name not in self._DESCRIBING_FILES:
+            return target.read_bytes()
+        key = str(target)
+        written = target.stat().st_mtime_ns
+        with self._described_lock:
+            remembered = self._described.get(key)
+        if remembered is not None and remembered[0] == written:
+            return remembered[1]
+        data = target.read_bytes()
+        with self._described_lock:
+            self._described[key] = (written, data)
+        return data
 
     # -- JSON endpoints --------------------------------------------------
 
@@ -266,7 +349,7 @@ class _Handler(SimpleHTTPRequestHandler):
                 return
             self._send_json(payload)
             return
-        self.send_error(HTTPStatus.NOT_FOUND)
+        self._send_empty(HTTPStatus.NOT_FOUND)
 
     def _serve_config(self) -> None:
         """Tell the page which stores to open and how to display them.
@@ -293,21 +376,28 @@ class _Handler(SimpleHTTPRequestHandler):
         microscope — the studio is a viewer.
         """
         route = self.path.rstrip("/")
-        if route in {"/api/browse", "/api/stores/open", "/api/stores/close"}:
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length) or b"{}")
-            except json.JSONDecodeError:
-                self.send_error(HTTPStatus.BAD_REQUEST)
-                return
-            if route == "/api/browse":
-                self._serve_browse()
-            elif route == "/api/stores/open":
-                self._serve_open(payload)
-            else:
-                self._serve_close(payload)
+        if route not in {
+            "/api/browse",
+            "/api/stores/open",
+            "/api/stores/close",
+            "/api/annotations",
+        }:
+            self._send_empty(HTTPStatus.NOT_FOUND)
             return
-        self._save_annotations()
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            payload = json.loads(self.rfile.read(length) or b"{}")
+        except json.JSONDecodeError:
+            self._send_json({"error": "that was not readable JSON"}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/browse":
+            self._serve_browse()
+        elif route == "/api/stores/open":
+            self._serve_open(payload)
+        elif route == "/api/stores/close":
+            self._serve_close(payload)
+        else:
+            self._save_annotations(payload)
 
     def _serve_browse(self) -> None:
         """Ask the operating system to show a folder chooser, and say what was picked.
@@ -359,10 +449,20 @@ class _Handler(SimpleHTTPRequestHandler):
         if not isinstance(group, str) or not group:
             self._send_json({"error": "which acquisition to close is needed"}, HTTPStatus.BAD_REQUEST)
             return
-        self._library.close_group(group)
+        # The panel closes by the heading it shows, which with two runs open names
+        # the folder as well as the acquisition type. Working back from the heading
+        # to the folder it belongs to is what keeps "close the overview I was
+        # comparing against" from also closing the overview being worked on.
+        named = group_labels(self._library.entries())
+        chosen = [where for where, label in named.items() if label == group]
+        if chosen:
+            for number, kind in chosen:
+                self._library.close_group(kind, folder=number)
+        else:
+            self._library.close_group(group)
         self._send_json(self._config())
 
-    def _save_annotations(self) -> None:
+    def _save_annotations(self, payload: object) -> None:
         """Save the targets the operator has drawn.
 
         This is the only thing the viewer sends back, and it goes to a file, not
@@ -370,21 +470,13 @@ class _Handler(SimpleHTTPRequestHandler):
         moved into place in a single step, so a save interrupted half-way leaves
         the previous targets intact rather than a truncated file.
         """
-        if self.path.rstrip("/") != "/api/annotations":
-            self.send_error(HTTPStatus.NOT_FOUND)
-            return
-        length = int(self.headers.get("Content-Length", 0))
-        try:
-            payload = json.loads(self.rfile.read(length) or b"{}")
-        except json.JSONDecodeError:
-            self.send_error(HTTPStatus.BAD_REQUEST)
-            return
         try:
             document = _validate_annotations(payload)
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         path = self._data_dir / _ANNOTATIONS_FILE
+        temporary = None
         try:
             fd, temporary = tempfile.mkstemp(
                 prefix=f".{_ANNOTATIONS_FILE}.", suffix=".tmp", dir=self._data_dir
@@ -396,10 +488,13 @@ class _Handler(SimpleHTTPRequestHandler):
                 os.fsync(stream.fileno())
             os.replace(temporary, path)
         except OSError:
-            try:
-                os.unlink(temporary)
-            except (OSError, UnboundLocalError):
-                pass
+            # The half-written file is cleared away so a failed save does not
+            # leave litter beside the operator's data.
+            if temporary is not None:
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
             self._send_json({"error": "could not save annotations"}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
         self._send_json(document)
@@ -441,19 +536,6 @@ def make_server(
     that bites — ``Z:\\...`` resolves to ``\\\\server\\share\\...``, which
     shares no prefix with what the caller passed.
     """
-    from contrast import display_window, intensity_histogram
-    from library import Library
-    from stores import (
-        axis_names,
-        channel_color,
-        channel_of,
-        channels,
-        label_images,
-        layer_names,
-        split_name,
-        written_timepoints,
-    )
-
     data_dir = Path(data_dir).resolve()
     names = [store] if isinstance(store, str) else list(store)
     library = Library()
@@ -466,23 +548,45 @@ def make_server(
     # re-read on every request (see _serve_config); only this expensive part is
     # remembered.
     measured: dict[str, dict] = {}
+    # Measuring a store means reading pixels. Two requests arriving together --
+    # the page loading while the refresh poll fires, or a second window opening --
+    # would otherwise both do that work for the same store.
+    measuring = threading.Lock()
 
     def describe(root_number: int, root: Path, name: str, label: str, coloured: bool) -> dict:
         key = f"{root_number}/{name}"
         if key in measured:
             return {**measured[key], "name": label}
-        # Both windows travel with the layer so switching between the plane and
-        # the volume is instant: the client already has what each mode needs
-        # and never goes back to the server for it.
-        flat = window if window is not None else display_window(root / name)
-        volume = (
-            window
-            if window is not None
-            else display_window(root / name, volumetric=True)
-        )
+        with measuring:
+            if key in measured:
+                return {**measured[key], "name": label}
+            return _measure(key, root_number, root, name, label, coloured)
+
+    def _measure(key, root_number, root, name, label, coloured) -> dict:
+        """Read one store's pixels and work out how it should first be shown.
+
+        This is the expensive part of answering "what is open" — everything else
+        only reads the small files that describe a store, while this reads image
+        data. It is therefore done once per store and the answer kept, which is
+        what the ``measured`` record above is for.
+
+        Both windows are worked out here and travel together, so switching between
+        the plane and the volume is instant: the page already holds what each view
+        needs and never comes back to ask.
+        """
+        if window is not None:
+            # An operator-supplied window overrides measurement for both views,
+            # so there is no need to read any pixels at all.
+            found = {
+                "window": window,
+                "volumeWindow": window,
+                "histogram": intensity_histogram(root / name),
+            }
+        else:
+            found = measure(root / name)
+        flat, volume = found["window"], found["volumeWindow"]
         color = channel_color(name) if coloured else None
         measured[key] = {
-            "source": f"/data/{root_number}/{name}/|zarr2:",
             # A row may be drawn from more than one store: several positions of the
             # same acquisition type, each carrying its own place on the stage. The
             # engine takes a list and places them itself, so a row that happens to
@@ -491,7 +595,7 @@ def make_server(
             "window": {"low": flat[0], "high": flat[1]},
             "volumeWindow": {"low": volume[0], "high": volume[1]},
             "color": list(color) if color else None,
-            "histogram": intensity_histogram(root / name),
+            "histogram": found["histogram"],
         }
         return {**measured[key], "name": label}
 
@@ -514,6 +618,10 @@ def make_server(
         entries = library.entries()
         present = [name for _, _, name in entries]
         labels = layer_names(present)
+        # What each acquisition type is called in the panel. With one run open this
+        # is simply its own name; with two, each is named after the folder it came
+        # from so they can be told apart -- see ``group_labels``.
+        groups_named = group_labels(entries)
         # One row per acquisition type and channel. Several *positions* of the same
         # acquisition and channel are not separate rows: they are one picture of one
         # specimen, taken in pieces, so they become one row that reads from all of
@@ -526,6 +634,7 @@ def make_server(
         merged: dict[tuple, dict] = {}
         for (root_number, root, name), label in zip(entries, labels, strict=True):
             kind, _ = split_name(name)
+            group = groups_named[(root_number, kind)]
             store_path = root / name
             base = describe(root_number, root, name, label, coloured=len(present) > 1)
             if "c" in axis_names(store_path):
@@ -542,13 +651,17 @@ def make_server(
 
             frames = written_timepoints(store_path)
             for index, channel_name, color in found:
-                key = (kind, index, channel_name)
+                # The folder is part of what makes a row a row. Without it, two
+                # runs open side by side would each contribute their "overview" to
+                # the *same* row, and one experiment would be drawn on top of the
+                # other with nothing to say it had happened.
+                key = (root_number, kind, index, channel_name)
                 row = merged.get(key)
                 if row is None:
                     merged[key] = {
                         **base,
                         "name": channel_name,
-                        "group": kind,
+                        "group": group,
                         "channelIndex": index,
                         "color": list(color) if color else None,
                         # How many frames exist so far, so the time slider stops
@@ -568,20 +681,19 @@ def make_server(
             # of a different kind: the engine draws a mask by giving every object
             # its own colour, which is not something a picture layer can do.
             for mask in label_images(store_path):
-                key = (kind, "mask", mask)
+                key = (root_number, kind, "mask", mask)
                 row = merged.get(key)
                 source = f"/data/{root_number}/{name}/labels/{mask}/|zarr2:"
                 if row is None:
                     merged[key] = {
                         "name": mask,
-                        "group": kind,
+                        "group": group,
                         "kind": "segmentation",
                         "channelIndex": None,
                         "color": None,
                         "window": None,
                         "volumeWindow": None,
                         "histogram": None,
-                        "source": source,
                         "sources": [source],
                         "frames": frames,
                     }
@@ -598,6 +710,13 @@ def make_server(
             "chrome": chrome,
         }
 
+    class _Server(ThreadingHTTPServer):
+        # The engine opens several connections at once and asks for pieces in
+        # parallel. The standard library lets only five wait to be accepted, and
+        # anything beyond that is dropped and retried a second later.
+        request_queue_size = 128
+        daemon_threads = True
+
     handler = functools.partial(
         _Handler,
         data_dir=data_dir,
@@ -606,7 +725,7 @@ def make_server(
         library=library,
         browse=browse,
     )
-    return ThreadingHTTPServer(("127.0.0.1", port), handler)
+    return _Server(("127.0.0.1", port), handler)
 
 
 def serve(port: int = 8848) -> None:

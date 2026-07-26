@@ -89,11 +89,7 @@ def channel_color(name: str) -> tuple[float, float, float] | None:
 
 def is_store(path: Path) -> bool:
     """True if ``path`` is an OME-Zarr image store (has multiscales metadata)."""
-    try:
-        attrs = json.loads((path / ".zattrs").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    return bool(attrs.get("multiscales"))
+    return bool(_read_attrs_at(path).get("multiscales"))
 
 
 # --- what a smart-microscopy run leaves on disk -----------------------------
@@ -145,11 +141,35 @@ def group_by_type(names: list[str]) -> list[tuple[str, list[str]]]:
     return sorted(families.items())
 
 
-def _read_attrs(store: Path) -> dict:
+# A store's description is read many times over while the panel is being built --
+# once for the axes, again for the channels, again for the frame count, and so on.
+# It is a small file and it rarely changes, so it is remembered against its own
+# modification time: unchanged means the remembered copy is used, and a store that
+# has been rewritten is read afresh. At four hundred stores this is the difference
+# between three thousand file reads per refresh and a few hundred quick glances.
+_attrs_cache: dict[str, tuple[int, dict]] = {}
+
+
+def _read_attrs_at(path: Path) -> dict:
+    """The OME-Zarr description at ``path``, or an empty one if unreadable."""
+    key = str(path)
+    described = path / ".zattrs"
     try:
-        return json.loads((store / ".zattrs").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        stamp = described.stat().st_mtime_ns
+    except OSError:
+        _attrs_cache.pop(key, None)
         return {}
+    remembered = _attrs_cache.get(key)
+    if remembered is not None and remembered[0] == stamp:
+        return remembered[1]
+    try:
+        attrs = json.loads(described.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        attrs = {}
+    if not isinstance(attrs, dict):
+        attrs = {}
+    _attrs_cache[key] = (stamp, attrs)
+    return attrs
 
 
 def axis_names(store: Path) -> list[str]:
@@ -159,7 +179,7 @@ def axis_names(store: Path) -> list[str]:
     volume has no ``t``; a flat overview has no ``z``. The viewer offers a slider
     only for an axis that is really there, so this is what it asks.
     """
-    axes = (_read_attrs(store).get("multiscales") or [{}])[0].get("axes") or []
+    axes = (_read_attrs_at(store).get("multiscales") or [{}])[0].get("axes") or []
     return [axis.get("name", "") for axis in axes if isinstance(axis, dict)]
 
 
@@ -181,7 +201,7 @@ def channels(store: Path) -> list[dict]:
     Returns one entry per channel, each with ``name`` and ``color`` (an ``r, g, b``
     triple of fractions, or ``None`` to draw it greyscale).
     """
-    attrs = _read_attrs(store)
+    attrs = _read_attrs_at(store)
     names = axis_names(store)
     described = attrs.get("omero", {}).get("channels")
     described = described if isinstance(described, list) else []
@@ -209,7 +229,7 @@ def _channel_count(store: Path, names: list[str], described: int) -> int | None:
     """
     if "c" not in names:
         return None
-    datasets = (_read_attrs(store).get("multiscales") or [{}])[0].get("datasets") or []
+    datasets = (_read_attrs_at(store).get("multiscales") or [{}])[0].get("datasets") or []
     if not datasets:
         return described or None
     level = datasets[0].get("path")
@@ -288,7 +308,7 @@ def written_timepoints(store: Path) -> int | None:
     names = axis_names(store)
     if "t" not in names or names.index("t") != 0:
         return None
-    datasets = (_read_attrs(store).get("multiscales") or [{}])[0].get("datasets") or []
+    datasets = (_read_attrs_at(store).get("multiscales") or [{}])[0].get("datasets") or []
     if not datasets:
         return None
     level = store / str(datasets[0].get("path"))
@@ -298,7 +318,11 @@ def written_timepoints(store: Path) -> int | None:
     except OSError:
         return None
     remembered = _frame_counts.get(str(level))
-    if remembered is not None and remembered[0] == stamp:
+    if remembered is not None and (remembered[0] == stamp or remembered[1] is None):
+        # A folder holding too many pieces to look through will not hold fewer
+        # later, so that verdict stands whatever is written next. Without this the
+        # look would be repeated on every refresh -- and a piece is written every
+        # few seconds during a run, so the modification time is always moving.
         return remembered[1]
 
     answer = _count_frames(level)
@@ -307,7 +331,19 @@ def written_timepoints(store: Path) -> int | None:
 
 
 def _count_frames(level: Path) -> int | None:
-    """The highest frame with anything written, or ``None`` if not worth finding."""
+    """How many frames of a timelapse have been written so far.
+
+    Counting means looking at the names of the pieces on disk, which is cheap when
+    each frame has its own folder and very much not cheap when a store keeps
+    millions of pieces side by side in one directory. So the look is given a
+    limit, and ``None`` means "there are more pieces here than it is sensible to
+    count through".
+
+    A caller that gets ``None`` should simply not offer a limit on the time
+    slider: the operator can then reach every frame the store declares, and a
+    frame not yet written shows as empty rather than as missing. That is a better
+    outcome than making them wait while the viewer counts files.
+    """
     nested = _reads_from_folders(level)
     highest = -1
     seen = 0
@@ -342,13 +378,6 @@ def _reads_from_folders(level: Path) -> bool:
     except (OSError, json.JSONDecodeError):
         return False
     return described.get("dimension_separator") == "/"
-
-
-def _read_attrs_at(path: Path) -> dict:
-    try:
-        return json.loads((path / ".zattrs").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
 
 
 def _hex_to_rgb(value: object) -> tuple[float, float, float] | None:

@@ -12,7 +12,7 @@ import json
 import numpy as np
 import pytest
 import zarr
-from contrast import HISTOGRAM_BINS, display_window, intensity_histogram, shader_for_window
+from contrast import HISTOGRAM_BINS, display_window, intensity_histogram, measure
 from demo_data import write_demo_zarr
 
 
@@ -127,28 +127,38 @@ def test_volume_window_ignores_a_declared_omero_window(tmp_path):
     assert display_window(store, volumetric=True) != (0.0, 65535.0)
 
 
-def test_volumetric_shader_makes_intensity_drive_opacity(tmp_path):
-    shader = shader_for_window(100.0, 500.0, (0.0, 1.0, 0.4), volumetric=True)
-    assert "emitRGBA" in shader
-    assert "float v = normalized();" in shader
-    assert "v * opacity" in shader, "alpha must come from the intensity"
-    assert "#uicontrol float opacity" in shader
+def test_one_measurement_answers_all_three_questions(tmp_path):
+    """The server asks once and gets a plane window, a volume window and a histogram.
+
+    Reading pixels is the most expensive thing the viewer does when an
+    acquisition is first opened, so the three answers come from a single look at
+    the data rather than from three separate ones. This checks that the shared
+    path agrees with asking each question on its own.
+    """
+    rng = np.random.default_rng(4)
+    data = (500 + rng.integers(0, 4000, size=(8, 64, 64))).astype(np.uint16)
+    store = write_store(tmp_path / "measured.zarr", data)
+
+    together = measure(store)
+
+    assert together["window"] == display_window(store)
+    assert together["volumeWindow"] == display_window(store, volumetric=True)
+    assert together["histogram"] == intensity_histogram(store)
 
 
-def test_flat_shader_stays_opaque(tmp_path):
-    shader = shader_for_window(100.0, 500.0, (0.0, 1.0, 0.4))
-    assert "emitRGB(" in shader
-    assert "emitRGBA" not in shader
+def test_measuring_an_unreadable_store_still_gives_a_usable_window(tmp_path):
+    """A store that cannot be read must not stop the viewer from opening.
 
+    A broken or half-written acquisition sitting in the folder should cost that
+    one row its histogram, not bring down the whole panel — so the fallback is a
+    window covering the full range of the data type, which shows *something*.
+    """
+    broken = tmp_path / "not-really.zarr"
+    broken.mkdir()
+    (broken / ".zattrs").write_text("{ this is not json", encoding="utf-8")
 
-def test_shader_stretches_the_given_window(tmp_path):
-    shader = shader_for_window(198.0, 214.0)
-    assert "range=[198, 214]" in shader
-    assert "emitGrayscale(normalized())" in shader
+    together = measure(broken)
 
-
-@pytest.mark.parametrize("low,high", [(0.0, 1.0), (198.0, 214.0), (800.0, 20800.0)])
-def test_shader_is_valid_glsl_shape_for_any_window(low, high):
-    shader = shader_for_window(low, high)
-    assert shader.startswith("#uicontrol invlerp normalized(range=[")
-    assert shader.rstrip().endswith("}")
+    assert together["window"] == (0.0, 65535.0)
+    assert together["volumeWindow"] == (0.0, 65535.0)
+    assert together["histogram"] is None

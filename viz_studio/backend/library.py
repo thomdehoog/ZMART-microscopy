@@ -23,6 +23,9 @@ operator closed something cannot land on whatever was opened next.
 
 from __future__ import annotations
 
+import hashlib
+import os
+import threading
 from pathlib import Path
 
 from stores import discover, split_name
@@ -40,6 +43,12 @@ class Library:
         # Counts up forever rather than filling gaps, so a number never refers to
         # two different folders over the life of a session.
         self._next = 0
+        # The web server answers many requests at once, each on its own thread, so
+        # a folder can be closed at the very moment another request is reading the
+        # list. Without this, that request would fail with an error the operator
+        # has no way to understand. Everything guarded here is short and reads no
+        # image data, so waiting for it costs nothing worth measuring.
+        self._lock = threading.RLock()
 
     # -- opening and closing ---------------------------------------------
 
@@ -79,40 +88,50 @@ class Library:
                 f"no OME-Zarr image was found in {path} — if the images are one "
                 "level down, choose the folder that contains them"
             )
-        number = self._next
-        self._next += 1
-        self._roots[number] = parent.resolve()
-        self._stores[number] = list(chosen)
-        self._watch[number] = watch if watch is not None else (names is None)
+        with self._lock:
+            number = self._next
+            self._next += 1
+            self._roots[number] = parent.resolve()
+            self._stores[number] = list(chosen)
+            self._watch[number] = watch if watch is not None else (names is None)
         return number
 
     def close(self, number: int) -> bool:
         """Stop serving a folder. Returns whether it was open at all."""
+        with self._lock:
+            return self._close(number)
+
+    def _close(self, number: int) -> bool:
+        """Stop serving a folder, with the lock already held."""
         self._stores.pop(number, None)
         self._watch.pop(number, None)
         return self._roots.pop(number, None) is not None
 
-    def close_group(self, group: str) -> list[int]:
+    def close_group(self, group: str, *, folder: int | None = None) -> None:
         """Close every image belonging to one acquisition type.
 
         The panel offers closing by acquisition type rather than by folder,
         because that is the unit an operator thinks in. A folder that has nothing
         left in it afterwards is closed with them.
+
+        ``folder`` narrows this to one open folder. That matters when two runs are
+        open side by side: both will have an "overview", and closing the one being
+        compared against must not also close the one being worked on.
         """
-        emptied = []
-        for number, names in list(self._stores.items()):
-            kept = [name for name in names if split_name(name)[0] != group]
-            if kept == names:
-                continue
-            if kept:
-                self._stores[number] = kept
-                # Stop watching, or the closed images would be found again on the
-                # next look and reappear moments after being dismissed.
-                self._watch[number] = False
-            else:
-                self.close(number)
-                emptied.append(number)
-        return emptied
+        with self._lock:
+            for number, names in list(self._stores.items()):
+                if folder is not None and number != folder:
+                    continue
+                kept = [name for name in names if split_name(name)[0] != group]
+                if kept == names:
+                    continue
+                if kept:
+                    self._stores[number] = kept
+                    # Stop watching, or the closed images would be found again on
+                    # the next look and reappear moments after being dismissed.
+                    self._watch[number] = False
+                else:
+                    self._close(number)
 
     # -- reading -----------------------------------------------------------
 
@@ -125,13 +144,19 @@ class Library:
         rearrange itself as new ones arrive; anything that has since been removed
         from disk quietly drops out.
         """
+        with self._lock:
+            open_now = [(number, self._roots[number], self._stores[number],
+                         self._watch.get(number)) for number in sorted(self._stores)]
         out = []
-        for number in sorted(self._stores):
-            root = self._roots[number]
-            names = self._stores[number]
-            if self._watch.get(number):
+        for number, root, names, watched in open_now:
+            if watched:
+                # Looking in the folder is the one slow thing here, so it is done
+                # without the lock held: a folder on a network share can take a
+                # moment to answer, and no other request should wait on that.
                 names = self._present(root, names)
-                self._stores[number] = names
+                with self._lock:
+                    if number in self._stores:
+                        self._stores[number] = names
             out.extend((number, root, name) for name in names)
         return out
 
@@ -158,42 +183,70 @@ class Library:
 
         The viewer needs to know when a new acquisition has appeared, and asking
         the full question — what is here, what channels, how bright — means reading
-        every store's description, which is far too heavy to repeat often. A
-        folder's own modification time changes whenever something is added to or
-        removed from it, and reading that is a single, very cheap question. So the
-        viewer can ask this many times a second and only ask the expensive question
-        when the answer has moved.
+        every store's description, which is far too heavy to repeat often. So the
+        viewer asks this instead. It only looks at *when* things were last touched,
+        which the operating system already knows and can answer without reading
+        anything, and so it can be asked several times a second even with hundreds
+        of acquisitions open. The expensive question is then asked only when the
+        answer here has moved.
 
-        It notices new acquisitions, which is exactly what needs noticing. It does
-        not notice pieces of image written inside a store that is already open, and
-        does not need to: the engine fetches those when you navigate to them.
+        The care in what follows is all about one thing: an acquisition is not
+        written in an instant. The microscope makes the folder, fills it with
+        image, and writes the small description file last — that description is
+        what makes the folder recognisable as an image at all. So there is a window,
+        which on a real acquisition is seconds or minutes long, in which the folder
+        exists and is not yet readable.
+
+        That window is a trap. If this answer moves the moment the folder appears,
+        the viewer looks, finds nothing it can read, and settles down again — and
+        because nothing about the enclosing folder changes afterwards, it would
+        never look a second time. The acquisition would stay invisible for the rest
+        of the session, and nothing anywhere would report a problem.
+
+        So the mark taken here is the modification time of *every* folder sitting
+        alongside the images, whether or not the viewer has recognised it yet. That
+        time moves again when the description file lands inside it, which is exactly
+        the moment the acquisition becomes readable, and the viewer takes its second
+        look then.
         """
+        with self._lock:
+            open_now = [(number, self._roots[number], list(self._stores.get(number, ())))
+                        for number in sorted(self._roots)]
         marks = []
-        for number in sorted(self._roots):
-            root = self._roots[number]
+        for number, root, names in open_now:
             try:
-                marks.append(f"{number}:{root.stat().st_mtime_ns}")
+                with os.scandir(root) as listing:
+                    beside = sorted(
+                        (entry.name, entry.stat().st_mtime_ns)
+                        for entry in listing
+                        if entry.is_dir()
+                    )
             except OSError:
                 # A folder that cannot be read right now (a share hiccuping) should
                 # not read as "everything changed" and trigger a needless rebuild.
                 marks.append(f"{number}:?")
-            marks.append(f"n{len(self._stores.get(number, ()))}")
-        return "|".join(marks)
+                continue
+            marks.append(f"{number}:" + ",".join(f"{name}@{when}" for name, when in beside))
+            # An acquisition already open gains frames as the run goes on, and that
+            # happens inside it -- so its own folder does not change and the marks
+            # above would miss it. The folder holding the full-resolution image is
+            # the one that moves when a frame is written, so that gets a look too.
+            for name in names:
+                try:
+                    marks.append(str((root / name / "0").stat().st_mtime_ns))
+                except OSError:
+                    marks.append("?")
+        # What is returned is a short fingerprint of all that rather than the marks
+        # themselves. The viewer only ever compares this answer with the previous
+        # one, so it does not need to be readable -- and with several hundred
+        # acquisitions open the marks run to tens of thousands of characters, which
+        # would then be sent across several times a second for no reason at all.
+        return hashlib.blake2b("|".join(marks).encode("utf-8"), digest_size=16).hexdigest()
 
     def is_empty(self) -> bool:
-        return not any(self._stores.values())
-
-    def primary_root(self) -> Path | None:
-        """The first folder opened, which is where drawn targets are saved.
-
-        Targets belong beside the images they refer to. With several folders open
-        there is no single obviously-right place, so the one the viewer was started
-        on is used — it is the run being worked on, and the others were added to
-        look at.
-        """
-        for number in sorted(self._roots):
-            return self._roots[number]
-        return None
+        """Whether nothing at all is open, which the server reports as an empty viewer."""
+        with self._lock:
+            return not any(self._stores.values())
 
     def resolve(self, relative: str) -> Path | None:
         """Turn ``<number>/<store>/<chunk…>`` into a file, or ``None`` if not allowed.
@@ -206,7 +259,8 @@ class Library:
         number, _, rest = relative.partition("/")
         if not number.isdigit() or not rest:
             return None
-        root = self._roots.get(int(number))
+        with self._lock:
+            root = self._roots.get(int(number))
         if root is None:
             return None
         target = (root / rest).resolve()

@@ -104,7 +104,7 @@ def test_config_tells_the_page_what_to_open(serving):
     config = json.loads(body)
     layers = config["layers"]
     assert len(layers) == 1
-    assert layers[0]["source"] == "/data/0/demo.zarr/|zarr2:"
+    assert layers[0]["sources"] == ["/data/0/demo.zarr/|zarr2:"]
     assert layers[0]["window"]["high"] > layers[0]["window"]["low"]
     # Both windows travel up front so the 2-D/3-D toggle needs no round trip.
     assert layers[0]["volumeWindow"]["high"] > layers[0]["volumeWindow"]["low"]
@@ -121,7 +121,7 @@ def test_config_reports_the_store_it_was_given(tmp_path):
     config = config_from(
         data_dir=tmp_path, site_dir=site, store="acquisition.zarr", window=(5.0, 50.0)
     )
-    assert config["layers"][0]["source"] == "/data/0/acquisition.zarr/|zarr2:"
+    assert config["layers"][0]["sources"] == ["/data/0/acquisition.zarr/|zarr2:"]
     assert config["layers"][0]["window"] == {"low": 5.0, "high": 50.0}
 
 

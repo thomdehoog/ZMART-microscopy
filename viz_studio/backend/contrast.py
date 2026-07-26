@@ -133,6 +133,122 @@ def _sample(array) -> object:
     return np.concatenate(pieces)
 
 
+def _samples(store: Path):
+    """Read a store's description and take one bounded look at its pixels.
+
+    Everything below needs the same two things — what the store says about
+    itself, and a modest handful of its values — so they are gathered here once
+    and shared. Reading pixels is far and away the most expensive thing this
+    viewer does when an acquisition is first opened, and doing it once per store
+    rather than once per question is the difference between a folder of several
+    hundred acquisitions opening in about a minute and taking three.
+
+    Returns ``(attrs, values)`` where ``values`` is a flat array of the finite
+    samples, or ``None`` if the store could not be read at all. Values that are
+    not finite are dropped here rather than in each caller: a stray "not a
+    number" left in would otherwise make every percentile come out as "not a
+    number" too, and the window would silently be nonsense.
+    """
+    import numpy as np
+    import zarr
+
+    try:
+        attrs = json.loads((store / ".zattrs").read_text(encoding="utf-8"))
+        level = _coarsest_level_path(attrs)
+        if level is None:
+            return None
+        data = _sample(zarr.open_group(str(store), mode="r")[level])
+    except (OSError, KeyError, ValueError, MemoryError, json.JSONDecodeError):
+        return None
+    values = np.asarray(data, dtype=np.float64).ravel()
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return None
+    return attrs, values
+
+
+def measure(store: str | Path, *, bins: int = HISTOGRAM_BINS) -> dict:
+    """Everything the panel needs to know about one store's brightness.
+
+    This is what the server calls when it meets a store for the first time. It
+    answers all three questions at once — how to display a plane, how to display
+    a volume, and what the spread of brightness looks like — from a single look at
+    the pixels, because asking them separately means reading the same data three
+    times over.
+
+    The two windows differ on purpose. A plane wants a window sitting just above
+    the background so faint detail is visible; a volume wants one much higher up,
+    or every dim background voxel along the line of sight adds a little haze and
+    the specimen disappears into fog.
+    """
+    store = Path(store)
+    read = _samples(store)
+    if read is None:
+        return {
+            "window": (0.0, 65535.0),
+            "volumeWindow": (0.0, 65535.0),
+            "histogram": None,
+        }
+    attrs, values = read
+    declared = _omero_window(attrs)
+    return {
+        # A window the store itself declares is honoured for the plane view: the
+        # microscope software that wrote it knew what it was showing.
+        "window": declared if declared is not None else _window(values, volumetric=False),
+        "volumeWindow": _window(values, volumetric=True),
+        "histogram": _histogram(values, bins=bins),
+    }
+
+
+def _window(values, *, volumetric: bool) -> tuple[float, float]:
+    """The intensity window for one view, from samples already in hand."""
+    import numpy as np
+
+    low_pct = VOLUME_LOW_PERCENTILE if volumetric else LOW_PERCENTILE
+    high_pct = VOLUME_HIGH_PERCENTILE if volumetric else HIGH_PERCENTILE
+    low, high = (float(v) for v in np.percentile(values, [low_pct, high_pct]))
+    if high <= low:
+        # Deliberately *not* min/max here. Falling back to the extremes would
+        # let one hot pixel set the top of the ramp and crush everything else
+        # to black — the very failure the percentile is here to avoid. A window
+        # one count wide instead leaves the image bright rather than blank.
+        return low, low + 1.0
+    return low, high
+
+
+def _histogram(values, *, bins: int) -> dict:
+    """The shape of the brightness distribution, from samples already in hand."""
+    import numpy as np
+
+    # All four percentiles in one call. Each one otherwise re-sorts the whole
+    # sample, so asking separately does the same expensive work four times.
+    plot_low, plot_high, auto_low, auto_high = (
+        float(v)
+        for v in np.percentile(
+            values,
+            [
+                HISTOGRAM_LOW_PERCENTILE,
+                HISTOGRAM_HIGH_PERCENTILE,
+                LOW_PERCENTILE,
+                HIGH_PERCENTILE,
+            ],
+        )
+    )
+    if plot_high <= plot_low:
+        plot_high = plot_low + 1.0
+    if auto_high <= auto_low:
+        auto_high = auto_low + 1.0
+    counts, _ = np.histogram(
+        np.clip(values, plot_low, plot_high), bins=bins, range=(plot_low, plot_high)
+    )
+    return {
+        "low": plot_low,
+        "high": plot_high,
+        "counts": [int(value) for value in counts],
+        "autoWindow": {"low": auto_low, "high": auto_high},
+    }
+
+
 def display_window(store: str | Path, *, volumetric: bool = False) -> tuple[float, float]:
     """Return the ``(low, high)`` intensity window to display ``store`` with.
 
@@ -144,43 +260,25 @@ def display_window(store: str | Path, *, volumetric: bool = False) -> tuple[floa
     Falls back to the data type's own range only when the store is unreadable
     or uniform, which keeps the caller free of error handling — a poor window
     still shows an image, whereas an exception shows nothing.
+
+    This asks one store one question. When the server meets a store for the first
+    time it wants all three answers at once, and calls :func:`measure` instead so
+    the pixels are only read through once.
     """
-    import numpy as np
-    import zarr
-
     store = Path(store)
-    try:
-        attrs = json.loads((store / ".zattrs").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return 0.0, 65535.0
-
     if not volumetric:
+        try:
+            attrs = json.loads((store / ".zattrs").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return 0.0, 65535.0
         declared = _omero_window(attrs)
         if declared is not None:
             return declared
 
-    level = _coarsest_level_path(attrs)
-    if level is None:
+    read = _samples(store)
+    if read is None:
         return 0.0, 65535.0
-
-    try:
-        data = _sample(zarr.open_group(str(store), mode="r")[level])
-    except (OSError, KeyError, ValueError, MemoryError):
-        return 0.0, 65535.0
-    if data.size == 0:
-        return 0.0, 65535.0
-
-    low_pct = VOLUME_LOW_PERCENTILE if volumetric else LOW_PERCENTILE
-    high_pct = VOLUME_HIGH_PERCENTILE if volumetric else HIGH_PERCENTILE
-    low = float(np.percentile(data, low_pct))
-    high = float(np.percentile(data, high_pct))
-    if high <= low:
-        # Deliberately *not* min/max here. Falling back to the extremes would
-        # let one hot pixel set the top of the ramp and crush everything else
-        # to black — the very failure the percentile is here to avoid. A window
-        # one count wide instead leaves the image bright rather than blank.
-        return low, low + 1.0
-    return low, high
+    return _window(read[1], volumetric=volumetric)
 
 
 def intensity_histogram(store: str | Path, *, bins: int = HISTOGRAM_BINS) -> dict | None:
@@ -196,74 +294,9 @@ def intensity_histogram(store: str | Path, *, bins: int = HISTOGRAM_BINS) -> dic
     with its fallback window; it simply omits the histogram rather than
     inventing one.
     """
-    import numpy as np
-    import zarr
-
     if bins < 2:
         raise ValueError("a histogram needs at least two bins")
-    store = Path(store)
-    try:
-        attrs = json.loads((store / ".zattrs").read_text(encoding="utf-8"))
-        level = _coarsest_level_path(attrs)
-        if level is None:
-            return None
-        data = _sample(zarr.open_group(str(store), mode="r")[level])
-    except (OSError, KeyError, ValueError, json.JSONDecodeError):
+    read = _samples(Path(store))
+    if read is None:
         return None
-
-    finite = np.asarray(data, dtype=np.float64).ravel()
-    finite = finite[np.isfinite(finite)]
-    if finite.size == 0:
-        return None
-    plot_low = float(np.percentile(finite, HISTOGRAM_LOW_PERCENTILE))
-    plot_high = float(np.percentile(finite, HISTOGRAM_HIGH_PERCENTILE))
-    auto_low = float(np.percentile(finite, LOW_PERCENTILE))
-    auto_high = float(np.percentile(finite, HIGH_PERCENTILE))
-    if plot_high <= plot_low:
-        plot_high = plot_low + 1.0
-    if auto_high <= auto_low:
-        auto_high = auto_low + 1.0
-    counts, _ = np.histogram(np.clip(finite, plot_low, plot_high), bins=bins, range=(plot_low, plot_high))
-    return {
-        "low": plot_low,
-        "high": plot_high,
-        "counts": [int(value) for value in counts],
-        "autoWindow": {"low": auto_low, "high": auto_high},
-    }
-
-
-def shader_for_window(
-    low: float,
-    high: float,
-    color: tuple[float, float, float] | None = None,
-    *,
-    volumetric: bool = False,
-) -> str:
-    """The neuroglancer shader that stretches ``low..high`` across the ramp.
-
-    With a colour, the channel is emitted in it so several channels overlay
-    legibly; without one, greyscale — which is the right default for a single
-    channel, where a colour would imply a distinction that is not there.
-
-    Volumetric shading emits an alpha as well: intensity becomes opacity, so a
-    voxel at the bottom of the window contributes nothing and the specimen is
-    seen through empty space rather than through haze. The ``opacity`` slider is
-    left in the shader so the balance can be tuned live, which is the one
-    control this really needs before there is a control panel.
-    """
-    control = f"#uicontrol invlerp normalized(range=[{low:g}, {high:g}])\n"
-    if volumetric:
-        control += "#uicontrol float opacity slider(min=0, max=1, default=1)\n"
-        r, g, b = color if color is not None else (1.0, 1.0, 1.0)
-        return control + (
-            "void main() {\n"
-            "  float v = normalized();\n"
-            f"  emitRGBA(vec4({r:g}, {g:g}, {b:g}, v * opacity));\n"
-            "}"
-        )
-    if color is None:
-        return control + "void main() { emitGrayscale(normalized()); }"
-    r, g, b = color
-    return control + (
-        f"void main() {{ emitRGB(vec3({r:g}, {g:g}, {b:g}) * normalized()); }}"
-    )
+    return _histogram(read[1], bins=bins)

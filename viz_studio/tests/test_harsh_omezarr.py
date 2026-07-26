@@ -292,7 +292,7 @@ def test_config_has_one_coloured_layer_per_channel(serving):
     assert status == 200
     config = json.loads(body)
     assert len(config["layers"]) == len(names)          # exactly the channels on disk
-    by_source = {layer["source"]: layer for layer in config["layers"]}
+    by_source = {layer["sources"][0]: layer for layer in config["layers"]}
     assert f"/data/0/{names[0]}/|zarr2:" in by_source
     for layer in config["layers"]:
         assert layer["color"] is not None               # multi-channel: each is coloured

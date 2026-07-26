@@ -58,14 +58,22 @@ missing.
 
 - Webapp: mature; next real milestone is hardware-in-the-loop Leica validation.
 - Viz-studio: the control panel is **built**. The viewer renders the demo volume
-  end to end (acceptance test PASS, 270/270 chunks) and now offers per-channel
-  visibility and colour, contrast with a histogram and an auto button, opacity, a
-  synchronized Z control, a 2-D/3-D toggle, and a writable annotation layer with
-  a targets list that saves beside the data. What remains is the T slider (it
-  needs a genuine timelapse OME-Zarr to prove), connecting `/api/goto` to the
-  microscope control layer, and then moving the workflow's overview onto
-  OME-Zarr/neuroglancer (see the roadmap). Still demo/manual data only: not yet
-  wired to the acquisition workflow.
+  end to end (acceptance test PASS, 270/270 chunks) and offers per-channel
+  visibility, colour and colour maps, contrast with a histogram and an auto
+  button, opacity per channel and per acquisition type, synchronized Z and T
+  controls, a 2-D/3-D toggle, segmentation masks, and a writable annotation layer
+  with a targets list that saves beside the data. Acquisitions written while it is
+  open are picked up on their own.
+
+  The viewer deliberately does **not** talk to the microscope, and there is no
+  `/api/goto`: targets are saved to a file and the control application acts on
+  them. That separation is what lets the viewer be opened on any data, anywhere,
+  including beside a running experiment. A test asserts that no
+  stage-moving endpoint exists, so this cannot drift back.
+
+  What remains is moving the workflow's overview onto OME-Zarr/neuroglancer (see
+  the roadmap). Still demo/manual data only: not yet wired to the acquisition
+  workflow.
 - The native window has now been opened on Windows (2026-07-23) and works. That
   first run found the interaction bug described in `SPIKE_RESULTS.md`: the
   volume rendered but nothing responded to the mouse, because the default input

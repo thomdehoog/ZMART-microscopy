@@ -54,9 +54,16 @@ def test_the_plane_scrolls_through_z(viewer_page):
     Its "yz" panel is the one whose wheel steps z -- verified here, because the
     intuitive choice ("xy") steps x instead and looks correct while being wrong.
     """
-    before = viewer_page.evaluate("() => Array.from(window.zmartViewer.navigationState.position.value)")
     viewer_page.mouse.move(600, 450)
-    for _ in range(4):
+    # One click first, and its result deliberately ignored. A view opens centred,
+    # which for an even number of planes is halfway between two of them, and the
+    # first move settles onto the nearer one -- so that first step also shifts the
+    # other axes by half a voxel. That is the engine tidying up, not panning, and
+    # measuring across it would fail the test for something that is quite correct.
+    viewer_page.mouse.wheel(0, -120)
+    viewer_page.wait_for_timeout(600)
+    before = viewer_page.evaluate("() => Array.from(window.zmartViewer.navigationState.position.value)")
+    for _ in range(3):
         viewer_page.mouse.wheel(0, -120)
     viewer_page.wait_for_timeout(1200)
     after = viewer_page.evaluate("() => Array.from(window.zmartViewer.navigationState.position.value)")

@@ -1,5 +1,17 @@
 # From prototype to the real viewer — the integration plan
 
+> **This plan has been carried out, and one part of it was deliberately dropped.**
+> It is kept as a record of how the viewer came to be built. Read it as history,
+> not as a description of what exists now.
+>
+> The part that was dropped is sending targets to the microscope. Anything below
+> about a `POST /api/goto` endpoint, or about the viewer moving the stage, no
+> longer describes the design: the viewer saves targets to a file beside the
+> images and the control application acts on them, and there is a test asserting
+> that no stage-moving endpoint exists. The reason for the change is in
+> `DATA_LAYOUT.md` — a viewer that cannot reach an instrument can be opened on
+> anyone's data, anywhere, including next to a running experiment.
+
 A step-by-step plan for putting the prototype's control surface
 (`prototype/index.html`) onto the spike's neuroglancer engine reading real
 OME-Zarr. It is the detailed, file-level companion to
@@ -21,9 +33,9 @@ the task is to join them.
   colour, and — in 3-D — an opacity uniform; `layout` switches the plane and the
   volume; layers come from `/api/config`.
 - `backend/server.py` already serves the image as OME-Zarr under `/data`,
-  answers `/api/config` with one layer per channel (window, colour), and has a
-  `POST /api/goto` endpoint stubbed (it receives a box's corners and, on real
-  hardware, would move the stage).
+  answers `/api/config` with one layer per channel (window, colour). (An earlier
+  version of this plan also had a stubbed endpoint for moving the stage; that was
+  dropped — see the note at the top.)
 - `run_demo.py --data <store.ome.zarr>` already opens a **real** OME-Zarr store,
   not just the demo. So real data can be viewed *today*, with the spike's
   current (simpler) panel.
@@ -53,7 +65,7 @@ means real new work.
 | T slider | position along a `t` dimension in the store's coordinate space | build | medium |
 | Annotations layer (points, boxes) | a neuroglancer annotation layer + an input tool to place them | build | medium |
 | Targets list + recolour + hide | read back the annotation layer's annotations; layer colour/visibility | build | medium |
-| Send target → microscope | box corners → existing `POST /api/goto` | wire | high |
+| Send target → microscope | *dropped* — targets are saved to a file and the control application acts on them | — | — |
 | Choose sample (channels/dims/time) | already answered by `/api/config` from the store's metadata | **exists** | high |
 
 The histogram deserves a note: the prototype computes it in the browser from the
@@ -69,7 +81,7 @@ Real data flows exactly as it does in the spike today:
 ```
 acquisition ──write──▶ OME-Zarr on disk ──HTTP chunks──▶ neuroglancer engine
                        /api/config ──what to open───────▶ React app (panel)
-                       /api/goto  ◀──a box to image──────  annotations
+            zmart-annotations.json  ◀──a box to image──────  annotations
 ```
 
 Nothing is copied into the viewer; the engine streams the chunks the current
@@ -94,7 +106,8 @@ the prototype stays as the design reference.
   `viewer.state`). Own the annotation-layer state alongside the image layers.
 - **New `frontend/src/annotations.js` (or a component)** — create the neuroglancer
   annotation layer, bind a "place point / drag box" tool, read annotations back
-  out for the targets list, and post a box to `/api/goto`.
+  out for the targets list. (Posting a box to the microscope was dropped; the
+  targets file is the hand-off.)
 - **`backend/server.py`** — add `GET/POST /api/annotations` to persist what was
   drawn beside the store, and have `/api/config` include a coarse per-channel
   histogram and (when present) the time axis length.
@@ -112,7 +125,7 @@ existing engine, before the genuinely new pieces:
 2. **Z slider** — connect a slider to the cross-section position the wheel
    already moves.
 3. **Histogram in `/api/config`** — so contrast has a real distribution to show.
-4. **Annotation points + the `/api/goto` box** — the step that makes it a ZMART
+4. **Annotation points, saved beside the data** — the step that makes it a ZMART
    tool; the endpoint already exists.
 5. **T slider** — once a timelapse OME-Zarr is available to prove it.
 

@@ -19,6 +19,9 @@ import { makeMinimalViewer } from "neuroglancer/unstable/ui/minimal_viewer.js";
 // creating the viewer; makeMinimalViewer does not, so we must.
 import { setDefaultInputEventBindings } from "neuroglancer/unstable/ui/default_input_event_bindings.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
+// Loaded after the engine's own stylesheet so it wins: this hides the handful of
+// controls the engine draws inside the image itself. See the file for why.
+import "./engine-chrome.css";
 
 /**
  * Mounts the neuroglancer engine and hands the live `viewer` back through

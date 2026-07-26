@@ -166,6 +166,11 @@ class TestSegmentationMasks:
 
     def test_it_shows_no_contrast_handles(self, masked_page):
         """Brightness and contrast mean nothing on an object's identity number."""
+        # Select the mask, so the shared controls are the mask's own. Without
+        # selecting it, this would only be checking that some *other* channel's
+        # handles are not labelled "nuclei", which proves nothing.
+        masked_page.get_by_label("toggle nuclei").locator("xpath=../..").click()
+        masked_page.wait_for_timeout(300)
         assert masked_page.get_by_label("black nuclei").count() == 0
         assert masked_page.get_by_label("white nuclei").count() == 0
         # It can still be hidden and faded like anything else.
