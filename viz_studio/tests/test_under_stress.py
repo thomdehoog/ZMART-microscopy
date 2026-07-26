@@ -323,7 +323,12 @@ class TestManyAtOnce:
             conn.request("GET", f"/data/0/{store.name}/0/0.0.0.0")
             response = conn.getresponse()
             response.read()
-            assert int(response.getheader("Cache-Control").split("=")[1]) >= 600
+            # A piece of image is kept for a year and marked immutable, because it is
+            # written once and never rewritten. Parsed loosely so the exact spelling of
+            # the header is not what this test is about.
+            cache = response.getheader("Cache-Control")
+            assert "immutable" in cache, cache
+            assert int(cache.split("max-age=")[1].split(",")[0]) > 86_400, cache
         finally:
             conn.close()
 
