@@ -1,0 +1,431 @@
+"""What the viewer does when the data is large, awkward, or being written to.
+
+A mesoSPIM acquisition can be three or four hundred gigabytes, and the reason for
+building on this engine at all is to see that in three dimensions while it is
+still arriving. So the cases that matter are not the tidy ones. They are: an image
+far too large to read through, a store caught half-written, a folder that
+disappears, a request for something that was never imaged, and a great many
+questions asked at once.
+
+The rule for every test here is that the viewer must **answer** — correctly if it
+can, honestly if it cannot — and never sit there. Each one is bounded in time, so
+a stall shows up as a failure rather than as a test run that never ends.
+"""
+
+from __future__ import annotations
+
+import concurrent.futures
+import http.client
+import json
+import threading
+import time
+from pathlib import Path
+
+import numpy as np
+import pytest
+import zarr
+from library import Library
+from server import make_server
+from stores import axis_names, channels, is_store, written_timepoints
+
+# Nothing here may take longer than this. The point of these tests is to catch
+# something that stalls, so a generous ceiling is still a ceiling.
+PATIENCE = 10.0
+
+
+def write_store(path: Path, *, shape, chunks, axes, nested=False, fill=None, omero=None):
+    """A real OME-Zarr, written exactly as asked — including badly."""
+    path.mkdir(parents=True, exist_ok=True)
+    group = zarr.open_group(str(path), mode="w", zarr_format=2)
+    extra = {"chunk_key_encoding": {"name": "v2", "separator": "/"}} if nested else {}
+    array = group.create_array("0", shape=shape, chunks=chunks, dtype="uint16", **extra)
+    if fill is not None:
+        array[fill] = 1234
+    attrs = {
+        "multiscales": [
+            {
+                "version": "0.4",
+                "axes": [{"name": a} for a in axes],
+                "datasets": [{"path": "0"}],
+            }
+        ]
+    }
+    if omero:
+        attrs["omero"] = omero
+    (path / ".zattrs").write_text(json.dumps(attrs), encoding="utf-8")
+    return path
+
+
+def request(port, path, method="GET", body=None, timeout=PATIENCE):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+    try:
+        headers = {"Content-Length": str(len(body))} if body is not None else {}
+        conn.request(method, path, body=body, headers=headers)
+        response = conn.getresponse()
+        return response.status, response.read()
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def serving(tmp_path):
+    """A running server over ``tmp_path``, with a helper to (re)start it."""
+    running = []
+
+    def start(store, **kwargs):
+        site = tmp_path / "site"
+        site.mkdir(exist_ok=True)
+        (site / "index.html").write_text("x", encoding="utf-8")
+        server = make_server(port=0, data_dir=tmp_path, site_dir=site, store=store, **kwargs)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        running.append((server, thread))
+        return server.server_address[1]
+
+    try:
+        yield start
+    finally:
+        for server, thread in running:
+            server.shutdown()
+            thread.join(timeout=5)
+
+
+# --------------------------------------------------------------------------
+# Size: an image too large to read through
+# --------------------------------------------------------------------------
+
+
+class TestVeryLargeImages:
+    """The cost of answering must not grow with the size of the acquisition."""
+
+    def test_a_declared_but_barely_written_image_is_described_quickly(self, tmp_path, serving):
+        """Declaring 400 GB and writing a corner of it must still answer at once."""
+        # 200_000 x 200_000 x 64 x 2ch of 16-bit is far past 400 GB, declared.
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(2, 64, 200_000, 200_000),
+            chunks=(1, 1, 256, 256),
+            axes=("c", "z", "y", "x"),
+            fill=(slice(None), slice(0, 1), slice(0, 256), slice(0, 256)),
+        )
+        started = time.monotonic()
+        port = serving(store.name)
+        status, body = request(port, "/api/config")
+        elapsed = time.monotonic() - started
+        assert status == 200
+        assert len(json.loads(body)["layers"]) == 2
+        assert elapsed < PATIENCE, f"describing a huge image took {elapsed:.1f}s"
+
+    def test_counting_frames_is_one_glance_when_pieces_are_filed_in_folders(self, tmp_path):
+        """The layout `DATA_LAYOUT.md` asks for makes this independent of size."""
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(6, 1, 2, 512, 512),
+            chunks=(1, 1, 1, 256, 256),
+            axes=("t", "c", "z", "y", "x"),
+            nested=True,
+            fill=(slice(0, 3),),
+        )
+        started = time.monotonic()
+        assert written_timepoints(store) == 3
+        assert time.monotonic() - started < 1.0
+
+    def test_an_unreasonable_flat_folder_is_abandoned_rather_than_endured(self, tmp_path):
+        """Millions of files in one folder cannot be counted; say so and move on.
+
+        Answering "I do not know" lets the viewer fall back to the length the file
+        claims. Sitting there reading three million names would freeze the panel.
+        """
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(4, 1, 1, 256, 256),
+            chunks=(1, 1, 1, 256, 256),
+            axes=("t", "c", "z", "y", "x"),
+            fill=(slice(0, 2),),
+        )
+        level = store / "0"
+        # Stand in for a very large flat acquisition.
+        for i in range(21_000):
+            (level / f"0.0.0.{i}.0").write_bytes(b"")
+        started = time.monotonic()
+        answer = written_timepoints(store)
+        elapsed = time.monotonic() - started
+        assert answer is None, "expected the count to be abandoned, not guessed"
+        assert elapsed < PATIENCE, f"gave up only after {elapsed:.1f}s"
+
+    def test_asking_twice_costs_nothing_the_second_time(self, tmp_path):
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(4, 1, 1, 512, 512),
+            chunks=(1, 1, 1, 256, 256),
+            axes=("t", "c", "z", "y", "x"),
+            nested=True,
+            fill=(slice(0, 2),),
+        )
+        written_timepoints(store)
+        started = time.monotonic()
+        for _ in range(200):
+            written_timepoints(store)
+        assert time.monotonic() - started < 1.0
+
+
+# --------------------------------------------------------------------------
+# Damage: stores caught half-written, or malformed
+# --------------------------------------------------------------------------
+
+
+class TestHalfWrittenAndBroken:
+    """During a live run the viewer will meet stores that are not finished."""
+
+    def test_a_store_with_no_description_yet_is_not_mistaken_for_an_image(self, tmp_path):
+        half = tmp_path / "overview_pos001.ome.zarr"
+        half.mkdir()
+        assert is_store(half) is False
+
+    def test_a_truncated_description_does_not_raise(self, tmp_path):
+        half = tmp_path / "overview_pos001.ome.zarr"
+        half.mkdir()
+        # A file caught mid-write: valid JSON up to the point it stops.
+        (half / ".zattrs").write_text('{"multiscales": [{"axes": [{"na', encoding="utf-8")
+        assert is_store(half) is False
+        assert axis_names(half) == []
+        assert len(channels(half)) == 1
+        assert written_timepoints(half) is None
+
+    @pytest.mark.parametrize(
+        "attrs",
+        [
+            '{"multiscales": null}',
+            '{"multiscales": [{"axes": null, "datasets": null}]}',
+            '{"multiscales": [{"axes": [1, 2, 3]}]}',
+            '{"multiscales": [{}], "omero": {"channels": "not a list"}}',
+            '{"multiscales": [{"axes": [{"name": "c"}], "datasets": [{"path": null}]}]}',
+        ],
+    )
+    def test_nonsense_metadata_is_survived(self, tmp_path, attrs):
+        """Whatever is in the file, reading it must not take the viewer down."""
+        store = tmp_path / "overview_pos001.ome.zarr"
+        store.mkdir(exist_ok=True)
+        (store / ".zattrs").write_text(attrs, encoding="utf-8")
+        axis_names(store)
+        channels(store)
+        written_timepoints(store)
+
+    def test_the_config_survives_a_folder_of_rubbish(self, tmp_path, serving):
+        good = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(1, 2, 64, 64), chunks=(1, 1, 64, 64), axes=("c", "z", "y", "x"),
+            fill=(slice(None),),
+        )
+        broken = tmp_path / "overview_pos002.ome.zarr"
+        broken.mkdir()
+        (broken / ".zattrs").write_text("{ not json at all", encoding="utf-8")
+        (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
+
+        port = serving([good.name, broken.name])
+        status, body = request(port, "/api/config")
+        assert status == 200
+        # The good store is still described; the broken one does not stop it.
+        assert any(row["group"] == "overview" for row in json.loads(body)["layers"])
+
+
+# --------------------------------------------------------------------------
+# Absence: asking for what was never imaged
+# --------------------------------------------------------------------------
+
+
+class TestSparseAndMissing:
+    """Most of a live acquisition has not been imaged yet. That is normal."""
+
+    def test_a_piece_that_was_never_imaged_answers_at_once(self, tmp_path, serving):
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(1, 1, 4096, 4096), chunks=(1, 1, 256, 256), axes=("c", "z", "y", "x"),
+            fill=(slice(None), slice(None), slice(0, 256), slice(0, 256)),
+        )
+        port = serving(store.name)
+        started = time.monotonic()
+        for index in range(60):
+            status, _ = request(port, f"/data/0/{store.name}/0/0.0.{index}.15")
+            assert status == 404, "an unimaged piece must read as empty, not as an error"
+        elapsed = time.monotonic() - started
+        assert elapsed < PATIENCE, f"60 misses took {elapsed:.1f}s"
+
+    def test_a_folder_that_vanishes_does_not_take_the_viewer_with_it(self, tmp_path, serving):
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(1, 2, 64, 64), chunks=(1, 1, 64, 64), axes=("c", "z", "y", "x"),
+            fill=(slice(None),),
+        )
+        port = serving(store.name)
+        assert request(port, "/api/config")[0] == 200
+        import shutil
+
+        shutil.rmtree(store)
+        status, body = request(port, "/api/config")
+        assert status == 200, "the viewer must still answer once the data has gone"
+        assert request(port, "/api/revision")[0] == 200
+
+
+# --------------------------------------------------------------------------
+# Pressure: many questions at once
+# --------------------------------------------------------------------------
+
+
+class TestManyAtOnce:
+    """The engine asks for a great many pieces in parallel. So do these."""
+
+    def test_a_hundred_pieces_asked_for_together(self, tmp_path, serving):
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(1, 1, 2048, 2048), chunks=(1, 1, 256, 256), axes=("c", "z", "y", "x"),
+            fill=(slice(None),),
+        )
+        port = serving(store.name)
+        started = time.monotonic()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool:
+            answers = list(
+                pool.map(
+                    lambda i: request(port, f"/data/0/{store.name}/0/0.0.{i % 8}.{i // 8 % 8}")[0],
+                    range(100),
+                )
+            )
+        elapsed = time.monotonic() - started
+        assert all(status == 200 for status in answers)
+        assert elapsed < PATIENCE, f"100 parallel reads took {elapsed:.1f}s"
+
+    def test_the_cheap_question_stays_cheap_under_repetition(self, tmp_path, serving):
+        """The viewer asks this many times a second; it must cost almost nothing."""
+        for i in range(20):
+            write_store(
+                tmp_path / f"overview_pos{i:03d}.ome.zarr",
+                shape=(1, 1, 64, 64), chunks=(1, 1, 64, 64), axes=("c", "z", "y", "x"),
+                fill=(slice(None),),
+            )
+        port = serving(sorted(p.name for p in tmp_path.glob("*.ome.zarr")))
+        request(port, "/api/revision")
+        started = time.monotonic()
+        for _ in range(100):
+            assert request(port, "/api/revision")[0] == 200
+        elapsed = time.monotonic() - started
+        assert elapsed < 5.0, f"100 cheap questions took {elapsed:.1f}s"
+
+    def test_pieces_are_kept_by_the_browser_but_absences_are_not(self, tmp_path, serving):
+        """Panning back must be free; data arriving later must still be found."""
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(1, 1, 512, 512), chunks=(1, 1, 256, 256), axes=("c", "z", "y", "x"),
+            fill=(slice(None),),
+        )
+        port = serving(store.name)
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=PATIENCE)
+        try:
+            conn.request("GET", f"/data/0/{store.name}/0/0.0.0.0")
+            response = conn.getresponse()
+            response.read()
+            assert int(response.getheader("Cache-Control").split("=")[1]) >= 600
+        finally:
+            conn.close()
+
+
+# --------------------------------------------------------------------------
+# The guard, pushed harder
+# --------------------------------------------------------------------------
+
+
+class TestTheGuardUnderAttack:
+    """Whatever is asked for, only files inside an open folder may be read."""
+
+    @pytest.mark.parametrize(
+        "attack",
+        [
+            "0/../../../../etc/passwd",
+            "0/%2e%2e/%2e%2e/etc/passwd",
+            "0/....//....//etc/passwd",
+            "0//etc/passwd",
+            "../0/x",
+            "999999999999999999999/x",
+            "-1/x",
+            "0/" + "a/" * 200 + "x",
+        ],
+    )
+    def test_nothing_outside_an_open_folder_is_reachable(self, tmp_path, attack):
+        write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(1, 1, 8, 8), chunks=(1, 1, 8, 8), axes=("c", "z", "y", "x"),
+            fill=(slice(None),),
+        )
+        library = Library()
+        library.open(tmp_path)
+        target = library.resolve(attack)
+        assert target is None or tmp_path.resolve() in target.parents
+
+    def test_a_symbolic_link_out_of_the_folder_is_refused(self, tmp_path):
+        secret = tmp_path / "secret.txt"
+        secret.write_text("not yours", encoding="utf-8")
+        folder = tmp_path / "run"
+        folder.mkdir()
+        write_store(
+            folder / "overview_pos001.ome.zarr",
+            shape=(1, 1, 8, 8), chunks=(1, 1, 8, 8), axes=("c", "z", "y", "x"),
+            fill=(slice(None),),
+        )
+        try:
+            (folder / "escape").symlink_to(secret)
+        except (OSError, NotImplementedError):
+            pytest.skip("symbolic links are not available here")
+        library = Library()
+        library.open(folder)
+        assert library.resolve("0/escape") is None
+
+
+# --------------------------------------------------------------------------
+# Saved targets, pushed harder
+# --------------------------------------------------------------------------
+
+
+class TestSavingUnderStress:
+    def test_a_very_large_target_list_is_refused_rather_than_swallowed(self, tmp_path, serving):
+        write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(1, 1, 8, 8), chunks=(1, 1, 8, 8), axes=("c", "z", "y", "x"),
+            fill=(slice(None),),
+        )
+        port = serving("overview_pos001.ome.zarr")
+        document = {
+            "version": 1,
+            "annotations": [
+                {"id": f"t{i}", "type": "point", "point": [1.0, 2.0, 3.0], "description": ""}
+                for i in range(10_001)
+            ],
+        }
+        status, _ = request(port, "/api/annotations", "POST", json.dumps(document).encode())
+        assert status == 400
+
+    def test_saving_from_several_places_at_once_leaves_a_readable_file(self, tmp_path, serving):
+        """Two saves racing must not leave a half-written file behind."""
+        write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(1, 1, 8, 8), chunks=(1, 1, 8, 8), axes=("c", "z", "y", "x"),
+            fill=(slice(None),),
+        )
+        port = serving("overview_pos001.ome.zarr")
+
+        def save(n):
+            document = {
+                "version": 1,
+                "annotations": [
+                    {"id": f"t{n}-{i}", "type": "point", "point": [float(i), 0.0, 0.0],
+                     "description": "x" * 200}
+                    for i in range(200)
+                ],
+            }
+            return request(port, "/api/annotations", "POST", json.dumps(document).encode())[0]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            assert all(status == 200 for status in pool.map(save, range(16)))
+
+        status, body = request(port, "/api/annotations")
+        assert status == 200
+        # Whichever save landed last, the file is complete and readable.
+        assert len(json.loads(body)["annotations"]) == 200

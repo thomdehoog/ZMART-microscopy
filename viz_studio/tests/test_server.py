@@ -329,9 +329,16 @@ def test_config_is_worked_out_fresh_on_every_request(tmp_path):
         thread.join(timeout=5)
 
 
-def test_image_chunks_are_not_cached_for_long(serving):
-    """A live run rewrites regions, so a long cache would hide new data."""
+def test_image_chunks_may_be_kept_by_the_browser(serving):
+    """Panning back over somewhere already seen must cost nothing.
+
+    A piece of an image is written once and never rewritten, so keeping it is
+    safe — and on a four-hundred-gigabyte acquisition it is the difference between
+    a viewer that feels light and one that re-fetches constantly. A piece not yet
+    written answers "nothing here", and *that* answer is not kept, so data arriving
+    later is still found.
+    """
     _, headers, _ = request(serving, "/data/0/demo.zarr/chunk")
     cache = headers.get("Cache-Control", "")
     assert cache.startswith("max-age=")
-    assert int(cache.split("=")[1]) <= 60, "a live store must be re-checked promptly"
+    assert int(cache.split("=")[1]) >= 600

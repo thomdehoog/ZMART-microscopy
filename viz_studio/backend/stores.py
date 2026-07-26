@@ -14,6 +14,7 @@ stores? — so nothing upstream needs to care which it was given.
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -245,6 +246,19 @@ def label_images(store: Path) -> list[str]:
     return [name for name in names if is_store(folder / name)]
 
 
+# Counting frames means looking in the folder that holds the image's pieces, and
+# on a large acquisition that folder is enormous. This is the most that will be
+# looked at before giving up: past it the answer is not worth the time it costs,
+# and the viewer falls back to the length the file claims. A store written the way
+# `DATA_LAYOUT.md` asks never reaches this, because its pieces are filed in
+# folders and the answer takes one glance.
+_SCAN_LIMIT = 20_000
+
+# Remembering the answer alongside the folder's own modification time, so asking
+# again costs one cheap look unless something has actually been written since.
+_frame_counts: dict[str, tuple[int, int | None]] = {}
+
+
 def written_timepoints(store: Path) -> int | None:
     """How many frames of a timelapse have actually been written so far.
 
@@ -255,11 +269,21 @@ def written_timepoints(store: Path) -> int | None:
     it looked at too early and will not look again, so that frame would stay blank
     for the rest of the session even once it had been imaged.
 
-    So this counts what is really on disk. Each piece of the image is a file named
-    for its position, the first number being the frame, so the highest frame with
-    any piece written tells us how far the run has got. Returns ``None`` when the
-    store has no time axis, or when the question cannot be answered — in which case
-    the viewer falls back to what the file claims.
+    Returns ``None`` when the store has no time axis, or when the answer cannot be
+    had cheaply — in which case the viewer falls back to what the file claims.
+
+    **How the image is filed decides whether this is instant or ruinous.** A piece
+    of the image is stored under a name built from its position. Those names can be
+    laid out two ways, and OME-Zarr allows both:
+
+    - **Filed in folders** (the pieces of one frame together, then one channel,
+      then one plane). Counting frames is then a single glance at one small folder,
+      however large the image. This is what large acquisitions should use.
+    - **All in one folder**, every piece a separate file with its position in the
+      name. A 400 GB image has some three million of them in that one folder,
+      which is slow to look through and hard on the file system besides. Here the
+      look is capped and, past the cap, abandoned rather than allowed to stall the
+      viewer.
     """
     names = axis_names(store)
     if "t" not in names or names.index("t") != 0:
@@ -268,15 +292,56 @@ def written_timepoints(store: Path) -> int | None:
     if not datasets:
         return None
     level = store / str(datasets[0].get("path"))
-    highest = -1
+
     try:
-        for child in level.iterdir():
-            head, _, rest = child.name.partition(".")
-            if rest and head.isdigit():
-                highest = max(highest, int(head))
+        stamp = level.stat().st_mtime_ns
+    except OSError:
+        return None
+    remembered = _frame_counts.get(str(level))
+    if remembered is not None and remembered[0] == stamp:
+        return remembered[1]
+
+    answer = _count_frames(level)
+    _frame_counts[str(level)] = (stamp, answer)
+    return answer
+
+
+def _count_frames(level: Path) -> int | None:
+    """The highest frame with anything written, or ``None`` if not worth finding."""
+    nested = _reads_from_folders(level)
+    highest = -1
+    seen = 0
+    try:
+        with os.scandir(level) as entries:
+            for entry in entries:
+                name = entry.name
+                if name.startswith("."):
+                    continue
+                if nested:
+                    # The entry *is* the frame number.
+                    if name.isdigit():
+                        highest = max(highest, int(name))
+                    continue
+                head, _, rest = name.partition(".")
+                if rest and head.isdigit():
+                    highest = max(highest, int(head))
+                seen += 1
+                if seen > _SCAN_LIMIT:
+                    # Too many to look through. Better to let the store speak for
+                    # itself than to keep the operator waiting on a count.
+                    return None
     except OSError:
         return None
     return highest + 1 if highest >= 0 else None
+
+
+def _reads_from_folders(level: Path) -> bool:
+    """Whether this image files its pieces in folders rather than one flat heap."""
+    try:
+        described = json.loads((level / ".zarray").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return described.get("dimension_separator") == "/"
 
 
 def _read_attrs_at(path: Path) -> dict:

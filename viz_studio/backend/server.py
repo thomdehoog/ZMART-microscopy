@@ -223,14 +223,21 @@ class _Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
-        # Let the browser reuse pieces of image it has already fetched, but only
-        # briefly. A piece of a finished acquisition never changes, so caching it
-        # for an hour would be harmless — but during a live run the folder is
-        # still being written to, and a region can be filled in or restitched
-        # after the viewer first looked at it. A short window keeps most of the
-        # benefit (panning back and forth costs nothing) while making sure the
-        # viewer notices new data within seconds rather than after an hour.
-        self.send_header("Cache-Control", "max-age=5")
+        # Let the browser keep pieces of image it has already fetched. A piece is
+        # written once and never rewritten — the storage layout has each
+        # acquisition write its own store, and nothing is resized — so a piece that
+        # exists will not change under us. Keeping them matters at this scale:
+        # panning back over somewhere you have already been should cost nothing,
+        # and on a 400 GB acquisition it otherwise costs a great deal.
+        #
+        # A piece not yet written answers "nothing here", and that answer is not
+        # kept, so data arriving later is still found when you next go looking.
+        #
+        # This does assume the writer puts a piece in place complete, rather than
+        # letting a half-written one be read. `DATA_LAYOUT.md` asks for that, and
+        # it is the same discipline that keeps a reader from seeing a torn image
+        # during a live run.
+        self.send_header("Cache-Control", "max-age=3600")
         self.end_headers()
         self.wfile.write(data)
 
