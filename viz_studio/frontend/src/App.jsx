@@ -263,6 +263,15 @@ export default function App() {
   // the expensive one only when the answer moves. That makes the refresh feel
   // immediate while costing less than the slow poll it replaces.
   React.useEffect(() => {
+    // On finished data there is nothing to notice, so nothing is asked. This is
+    // the whole of static mode on this side, and it removes a question asked
+    // several times a second for the life of the window -- along with the
+    // directory reading it causes on the server for every acquisition open.
+    //
+    // Written so that the *first* answer still gets fetched: until something has
+    // been loaded there is a viewer with nothing in it, and that is worth one
+    // question whichever mode we are in.
+    if (applied.current && config?.live === false) return undefined;
     let stop = false;
     let last = null;
     // One failed question is not worth mentioning -- a moment's hiccup on a
@@ -313,7 +322,7 @@ export default function App() {
     // if it only began once something had been loaded, a viewer that started while
     // the server was still coming up would sit there saying so for ever, and
     // during a run there is no button to try again with.
-  }, [applyConfig]);
+  }, [applyConfig, config]);
 
   // Everything the engine should be showing, in the order it should be drawn.
   //

@@ -283,6 +283,10 @@ _SCAN_LIMIT = 20_000
 # again costs one cheap look unless something has actually been written since.
 _frame_counts: dict[str, tuple[int, int | None]] = {}
 
+# The highest frame number seen in each store that files its pieces in folders, so
+# a growing timelapse can be followed by asking only about the frames that are new.
+_frame_highest: dict[str, int] = {}
+
 
 def written_timepoints(store: Path) -> int | None:
     """How many frames of a timelapse have actually been written so far.
@@ -350,6 +354,29 @@ def _count_frames(level: Path) -> int | None:
     outcome than making them wait while the viewer counts files.
     """
     nested = _reads_from_folders(level)
+    # When each frame has its own folder, a growing timelapse can be followed
+    # without looking at the whole thing again. The highest frame seen last time is
+    # remembered, and the only question asked now is whether the next one along has
+    # appeared — one cheap look per new frame, rather than a fresh reading of every
+    # frame ever written. On a run of four hundred acquisitions that is the
+    # difference between two and a half seconds of counting per refresh and almost
+    # none, and it is a refresh that happens every time a frame lands.
+    if nested:
+        known = _frame_highest.get(str(level), 0)
+        highest = known - 1
+        while (level / str(highest + 1)).exists():
+            highest += 1
+            if highest - known > _SCAN_LIMIT:
+                # Far more frames than expected have appeared at once, which means
+                # the remembered figure is not to be trusted. Fall back to reading
+                # the folder properly below.
+                highest = -1
+                break
+        if highest >= 0:
+            _frame_highest[str(level)] = highest + 1
+            return highest + 1
+        _frame_highest.pop(str(level), None)
+
     highest = -1
     seen = 0
     try:
@@ -373,7 +400,11 @@ def _count_frames(level: Path) -> int | None:
                     return None
     except OSError:
         return None
-    return highest + 1 if highest >= 0 else None
+    if highest < 0:
+        return None
+    if nested:
+        _frame_highest[str(level)] = highest + 1
+    return highest + 1
 
 
 def _reads_from_folders(level: Path) -> bool:

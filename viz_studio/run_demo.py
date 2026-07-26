@@ -76,6 +76,14 @@ def main(argv: list[str] | None = None) -> int:
         "change. Default 1, a single moment with no time slider.",
     )
     parser.add_argument(
+        "--static",
+        action="store_true",
+        help="the data is finished, not still being written. The viewer then stops "
+        "looking for new acquisitions and new frames, which is the largest thing it "
+        "does on a big folder. Use this for a run that has ended; leave it off while "
+        "an experiment is producing data.",
+    )
+    parser.add_argument(
         "--select",
         action="store_true",
         help="show the selection list, where places you mark on the image are "
@@ -136,7 +144,10 @@ def main(argv: list[str] | None = None) -> int:
             window=window,
             depth_samples=args.depth_samples,
             chrome=args.chrome,
-            watch=not narrowed,
+            # A narrowed selection must stay narrowed, so watching is off: were the
+            # folder still being looked at, the tiles and filters deliberately left
+            # out would reappear.
+            live=not narrowed and not args.static,
             allow_selection=args.select,
             panel_side=args.panel_side,
             allow_open=not args.no_open_button,
@@ -170,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
         allow_selection=args.select,
         panel_side=args.panel_side,
         allow_open=not args.no_open_button,
+        live=not args.static,
     )
     return 0
 
