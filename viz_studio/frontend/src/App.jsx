@@ -132,6 +132,13 @@ function shaderControlsFor(window_, volumetric, opacity) {
 // easily hold a channel of the same name -- both an overview and a target scan
 // have a "marker-a" -- so the name handed to the engine carries the type with it.
 // The panel still shows the short name; this is only what the engine is told.
+// How a channel is identified across a change in what is open. The same pair the
+// panel uses to carry colour and contrast across, for the same reason: positions in
+// the list move, names do not.
+function layerKey(spec) {
+  return `${spec.group}/${spec.name}`;
+}
+
 function engineName(spec) {
   return spec.group ? `${spec.group} · ${spec.name}` : spec.name;
 }
@@ -501,9 +508,12 @@ export default function App() {
   // happens and anything that went wrong is shown rather than swallowed.
   const [storeBusy, setStoreBusy] = React.useState(false);
   const [storeNotice, setStoreNotice] = React.useState(null);
-  // Which channel the block of controls is acting on, and whether the bar of
-  // controls is showing at all.
-  const [selected, setSelected] = React.useState(0);
+  // Which channel the block of controls is acting on. Held by name rather than by
+  // position in the list, because the list is rebuilt whenever something is opened
+  // or closed: a position would still be a valid number afterwards and would
+  // quietly refer to a different channel, so the sliders would go on working while
+  // adjusting something the operator was not looking at.
+  const [selectedKey, setSelectedKey] = React.useState(null);
   const [barOpen, setBarOpen] = React.useState(true);
   // Which edge the bar of controls sits on, decided when the viewer is started.
   const onLeft = config?.panelSide === "left";
@@ -601,7 +611,6 @@ export default function App() {
   // the expensive one only when the answer moves. That makes the refresh feel
   // immediate while costing less than the slow poll it replaces.
   React.useEffect(() => {
-    if (!config) return undefined;
     let stop = false;
     let last = null;
     // One failed question is not worth mentioning -- a moment's hiccup on a
@@ -615,7 +624,7 @@ export default function App() {
         const response = await fetch("/api/revision");
         const answer = await response.json();
         if (stop) return;
-        if (last !== null && answer.revision !== last) {
+        if (last !== answer.revision || !applied.current) {
           const loaded = await fetchConfig();
           if (stop) return;
           if (loaded) applyConfig(loaded);
@@ -637,7 +646,12 @@ export default function App() {
       stop = true;
       clearInterval(timer);
     };
-  }, [config, applyConfig]);
+    // Deliberately not waiting for a first answer before starting. This asking is
+    // also what recovers a viewer that could not reach the server when it opened:
+    // if it only began once something had been loaded, a viewer that started while
+    // the server was still coming up would sit there saying so for ever, and
+    // during a run there is no button to try again with.
+  }, [applyConfig]);
 
   // Everything the engine should be showing, in the order it should be drawn.
   //
@@ -807,6 +821,15 @@ export default function App() {
     return counts.length ? Math.max(...counts) : null;
   }, [config]);
 
+  // Where the chosen channel now sits in the list. Falling back to the first row
+  // means closing the channel that was being adjusted leaves the controls on
+  // something real rather than on nothing.
+  const selected = React.useMemo(() => {
+    const rows = config?.layers || [];
+    const at = rows.findIndex((spec) => layerKey(spec) === selectedKey);
+    return at >= 0 ? at : 0;
+  }, [config, selectedKey]);
+
   const setGroup = (name, change) =>
     setGroupState((current) => ({ ...current, [name]: { ...current[name], ...change } }));
 
@@ -939,7 +962,7 @@ export default function App() {
               groupOrder={groupOrder}
               groupState={groupState}
               selected={selected}
-              onSelect={setSelected}
+              onSelect={(index) => setSelectedKey(layerKey(config.layers[index]))}
               canOpen={config.canOpen !== false}
               onGroupToggle={(name) => setGroup(name, { visible: !groupState[name]?.visible })}
               onGroupOpacity={(name, opacity) => setGroup(name, { opacity })}

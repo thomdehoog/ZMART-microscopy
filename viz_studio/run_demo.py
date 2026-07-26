@@ -75,6 +75,28 @@ def main(argv: list[str] | None = None) -> int:
         "one marker brightens while the other fades, so you can see the frames "
         "change. Default 1, a single moment with no time slider.",
     )
+    parser.add_argument(
+        "--select",
+        action="store_true",
+        help="show the selection list, where places you mark on the image are "
+        "gathered. It is off by default: marking places is not what most looking "
+        "at data is, and during a smart-microscopy run the workflow is what "
+        "decides which places matter.",
+    )
+    parser.add_argument(
+        "--panel-side",
+        choices=("right", "left"),
+        default="right",
+        help="which edge the bar of controls sits on, and which way it folds away. "
+        "At a microscope one side is often easier to reach than the other.",
+    )
+    parser.add_argument(
+        "--no-open-button",
+        action="store_true",
+        help="leave out the way of choosing folders by hand. Use this when a "
+        "workflow decides what is shown, so nobody can add an image the "
+        "experiment knows nothing about.",
+    )
     args = parser.parse_args(argv)
 
     dist = _HERE / "frontend" / "dist"
@@ -115,6 +137,9 @@ def main(argv: list[str] | None = None) -> int:
             depth_samples=args.depth_samples,
             chrome=args.chrome,
             watch=not narrowed,
+            allow_selection=args.select,
+            panel_side=args.panel_side,
+            allow_open=not args.no_open_button,
         )
         return 0
 
@@ -142,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
         window=window,
         depth_samples=args.depth_samples,
         chrome=args.chrome,
+        allow_selection=args.select,
+        panel_side=args.panel_side,
+        allow_open=not args.no_open_button,
     )
     return 0
 

@@ -9,16 +9,59 @@ Under the hood it uses [neuroglancer](https://github.com/google/neuroglancer)
 as the image engine (it streams only the pieces of a huge volume you are
 looking at, so even very large data feels light, and it does true 3-D), wrapped
 in a [React](https://react.dev) interface that is entirely ours to shape. The
-analysis and the microscope control stay in Python; this tool is the *view* and
-the *controls*, talking to Python over a small local connection.
+analysis stays in Python; this tool is the view and the controls.
 
-> **Status: working spike.** The engine, the app shell, the OME-Zarr data path,
-> and image rendering all work end to end — the demo volume fetches, decodes,
-> and displays (verified in an automated headless-browser check). What is *not*
-> built yet is the control panel (layers, contrast, z-scroll, 2D/3D, the movable
-> box) — that is the next step. See `SPIKE_RESULTS.md` for exactly what was
-> proven (including a worker-bundling bug that was found and fixed), and
-> `PLAN.md` for the design.
+It does not talk to the microscope, and cannot. Places you mark on an image are
+saved to a file beside the data, and the control application reads them from
+there. That separation is deliberate: it means the viewer can be opened on
+anybody's data, on any machine, including one sitting next to a running
+experiment, with no possibility of it disturbing the instrument.
+
+## What is on screen
+
+The image fills the window. Along the bottom are sliders for moving through the
+planes of a stack (Z) and the frames of a timelapse (T); each appears only if the
+image actually has that axis, and each has a play button that steps through on its
+own. A scale bar sits in the top-right corner and follows the zoom.
+
+Everything else is one bar of controls down one edge, which folds away when you
+want the whole screen for the specimen. It has up to four parts:
+
+- **load data** — choose a folder to show. Left out when a workflow is deciding
+  what to show (see `--no-open-button`).
+- **display settings** — the histogram, black and white points, opacity and colour
+  for whichever channel is picked out below. There is one set of these rather than
+  one per channel: you adjust one channel at a time, and with sliders on every row
+  only two or three channels fitted on a screen.
+- **image data** — every acquisition type open, with its channels under it. Click a
+  channel to adjust it, use the eye to hide it, drag an acquisition type by its grip
+  to change which is drawn on top.
+- **selection** — the places you have marked. Off unless asked for (`--select`).
+
+## Opening your own data
+
+Point the viewer at a folder of OME-Zarr stores:
+
+```
+python run_demo.py --data /path/to/your/run
+```
+
+That may be a single `.ome.zarr` store or a folder holding many of them — both
+work, so you do not have to know which you have. If nothing is found, the viewer
+says so and suggests the folder above or below.
+
+A few things worth knowing:
+
+- **A folder being written to is fine.** Acquisitions that appear while you are
+  watching are picked up on their own, usually within a second, and a timelapse
+  growing in time extends its own slider as frames arrive.
+- **Names carry meaning.** A store called `overview_pos001.ome.zarr` is read as
+  the "overview" acquisition type at position 1, and every position of one
+  acquisition type is gathered under one heading. `DATA_LAYOUT.md` explains the
+  naming and why it was chosen.
+- **Put the controls on the left** with `--panel-side left`, if that side is easier
+  to reach at your microscope.
+- **Show the selection list** with `--select` if you want to mark places.
 
 ## Try the demo (no microscope needed)
 
