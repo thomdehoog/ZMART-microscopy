@@ -65,7 +65,7 @@ def open_window(
     window: tuple[float, float] | None = None,
     depth_samples: int = 256,
     chrome: bool = False,
-    watch: bool = True,
+    live: bool = True,
     allow_open: bool = True,
     allow_selection: bool = False,
     panel_side: str = "right",
@@ -98,7 +98,7 @@ def open_window(
         "depth_samples": depth_samples,
         "chrome": chrome,
         "browse": browse,
-        "watch": watch,
+        "live": live,
         # Which parts of the panel exist, and which edge it sits on. These are
         # passed straight through so that whoever opens the window decides them --
         # a smart-microscopy run and someone looking at last week's data want

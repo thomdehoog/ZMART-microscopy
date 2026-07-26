@@ -310,3 +310,58 @@ def test_the_controls_fold_away(browser, built_dist, demo_store):
         page.close()
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_static_data_is_not_polled(browser, built_dist, demo_store):
+    """A viewer on finished data stops asking whether anything has changed.
+
+    Nothing about a run that has ended can change, so every question about it is
+    wasted — and on a folder of several hundred acquisitions that asking is the
+    largest thing the server does. The first question is still asked, because until
+    something has been loaded there is a viewer with nothing in it.
+    """
+    import threading
+
+    from server import make_server
+
+    server = make_server(port=0, data_dir=demo_store, site_dir=built_dist, live=False)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page()
+    asked = []
+    page.on("request", lambda r: asked.append(r.url) if "/api/revision" in r.url else None)
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
+        page.wait_for_timeout(3000)
+        # Live mode would have asked four or five times over three seconds.
+        assert len(asked) <= 1, f"a static viewer kept asking: {len(asked)} times"
+        # And it is genuinely showing the data, not merely quiet.
+        assert page.evaluate("() => window.zmartConfig.layers.length") == 3
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_live_data_is_polled(browser, built_dist, demo_store):
+    """The counterpart: while a run is producing data, the viewer keeps looking."""
+    import threading
+
+    from server import make_server
+
+    server = make_server(port=0, data_dir=demo_store, site_dir=built_dist)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page()
+    asked = []
+    page.on("request", lambda r: asked.append(r.url) if "/api/revision" in r.url else None)
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
+        page.wait_for_timeout(3000)
+        assert len(asked) >= 3, f"a live viewer stopped looking: {len(asked)} times"
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)

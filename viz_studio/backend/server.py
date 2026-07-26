@@ -522,7 +522,7 @@ def make_server(
     depth_samples: int = 256,
     chrome: bool = False,
     browse=None,
-    watch: bool = True,
+    live: bool = True,
     allow_open: bool = True,
     allow_selection: bool = False,
     panel_side: str = "right",
@@ -556,6 +556,23 @@ def make_server(
     purpose, so that what is shown is decided by the experiment rather than by
     whoever happens to be watching it.
 
+    ``live`` says whether the data is still being written.
+
+    A smart-microscopy run writes as it goes: acquisitions appear, timelapses gain
+    frames, and the viewer has to keep looking so that what is on screen follows
+    what the instrument is doing. That is live mode, and it is the default.
+
+    Static mode is for data that is finished — yesterday's run, a colleague's
+    folder, anything being read rather than made. Nothing about it can change, so
+    the viewer stops asking: no looking in the folder for new acquisitions, no
+    counting frames again, and the page stops its several-times-a-second question
+    about whether anything has moved. On a folder of several hundred acquisitions
+    that asking is the largest thing the server does, and in static mode the honest
+    answer is that it is all wasted work.
+
+    Getting this wrong is not dangerous, only disappointing: a live run opened as
+    static simply will not notice new data until it is reopened.
+
     ``panel_side`` puts the bar of controls on the ``"right"`` or the ``"left"``.
     Which side is better depends on the room: at a microscope the screen is often
     beside the instrument and one edge is easier to reach than the other. It folds
@@ -572,7 +589,7 @@ def make_server(
     library = Library()
     # The folder the viewer was started on is the run being worked on, so it is
     # watched: an acquisition written while it is open appears on its own.
-    library.open(data_dir, names=names, watch=watch)
+    library.open(data_dir, names=names, watch=live)
 
     # Measuring a store's display window and histogram means reading pixels, so
     # each store is measured once and the answer kept. The list of stores is
@@ -789,6 +806,9 @@ def make_server(
             "canSelect": allow_selection,
             # Which edge the bar of controls sits on. See ``panel_side``.
             "panelSide": "left" if str(panel_side).lower() == "left" else "right",
+            # Whether the page should keep asking if anything has changed. See
+            # ``live`` above: on finished data there is nothing to notice.
+            "live": live,
         }
 
     class _Server(ThreadingHTTPServer):
