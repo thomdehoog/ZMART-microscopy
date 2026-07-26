@@ -43,6 +43,52 @@ WebView2 engine (Chromium), so the 3-D rendering runs on your graphics card. If
 a native window cannot open, the address is printed so you can open it in a
 browser instead.
 
+## Try the time slider
+
+If your data is a timelapse — the same specimen imaged repeatedly — the viewer
+offers a **T** slider under the image to step through the frames, in exactly the
+same way the **Z** slider steps through the planes of a stack. Each slider
+appears only when the image actually has that axis, so a single-moment volume
+shows just Z, and a flat overview shows neither. Nothing to configure.
+
+To see it on the demo, ask for a few frames:
+
+```bash
+python run_demo.py --timepoints 5
+```
+
+That writes a second demo store beside the ordinary one (your single-volume demo
+is left alone) in which the cells drift a little and one marker brightens while
+the other fades, so moving the slider visibly does something.
+
+## Sending a target to the microscope
+
+Draw a box around something interesting, give it a name, and press **Go to**. The
+viewer works out the middle of that box in micrometres and asks Python to drive
+the stage there.
+
+By default nothing moves. Two separate things must both be true first: a
+connected microscope has to be handed to the server, and stage movement has to be
+switched on explicitly. Until then, **Go to** reports the position it *would*
+have driven to and touches no hardware — which is what makes the demo safe to run
+next to a real instrument.
+
+To let it move the stage, pass the same `zmart_controller` session the
+acquisition workflow uses:
+
+```python
+from zmart_controller import set_instrument
+from launcher import open_window
+
+session = set_instrument(chosen_instrument)   # your connected microscope
+open_window(data_dir=..., store=..., session=session, allow_stage_moves=True)
+```
+
+The travel limits are not re-checked here. Every driver already knows its own
+safe range and refuses a move outside it, and this goes through that same check —
+so if the destination is out of range, the microscope's own refusal is what you
+see, with its reason.
+
 ## Check that it really renders
 
 The acceptance test drives a real headless browser and asserts that pixels

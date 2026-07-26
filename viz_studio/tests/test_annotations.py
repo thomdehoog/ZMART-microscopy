@@ -35,11 +35,17 @@ def test_targets_panel_and_native_annotation_source_are_present(viewer_page):
 
 
 def test_point_and_box_buttons_install_neuroglancer_tools(viewer_page):
-    viewer_page.get_by_role("button", name="Point").click()
+    """The two drawing buttons hand Neuroglancer its own placement tools.
+
+    The names are matched exactly: a saved target in the list below is labelled
+    "Box 1", which a loose match would also select, and the test would then be
+    clicking a list row instead of the tool button.
+    """
+    viewer_page.get_by_role("button", name="Point", exact=True).click()
     assert viewer_page.evaluate(
         "() => window.zmartViewer.layerManager.getLayerByName('Targets').layer.tool.value.toJSON()"
     ) == "annotatePoint"
-    viewer_page.get_by_role("button", name="Box").click()
+    viewer_page.get_by_role("button", name="Box", exact=True).click()
     assert viewer_page.evaluate(
         "() => window.zmartViewer.layerManager.getLayerByName('Targets').layer.tool.value.toJSON()"
     ) == "annotateBoundingBox"
