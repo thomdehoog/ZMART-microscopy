@@ -96,6 +96,37 @@ A canvas a little larger than the stage can reach avoids both, and leaves growth
 the rare answer to a genuine surprise rather than something relied upon — which suits
 it, since growth is the one operation with a restriction attached.
 
+### If the experiment does not say: use the stage limits
+
+An experiment should state the region it means to cover, because it usually knows —
+that is the same decision as choosing where to image and at what magnification. But
+it will not always say, and a viewer that refuses to open until someone fills in a
+number is no use at the microscope.
+
+**So where no canvas is given, the canvas is the stage's own travel limits.**
+
+This is a good default rather than a resigned one, for three reasons.
+
+It is already known. The travel limits are established during setup, before any
+imaging, because the instrument needs them to keep from driving into its own end
+stops. Nothing has to be guessed or asked for.
+
+It cannot be too small. The stage physically cannot reach outside its limits, so no
+tile can ever land beyond the canvas — which means growth is not merely rare, it is
+impossible, and the one operation with a restriction attached never has to happen.
+The origin sits at the low end of travel in each spatial axis, so there is nothing
+behind it either.
+
+And it is not wildly too large. A stage's range is a few centimetres, which is
+generous next to a specimen but nowhere near the hundred-fold over-declaration that
+would spoil the brightness measurement or open the view on an empty field. It sits
+comfortably inside the bound described above.
+
+The cost is honest and small: an experiment covering one corner of the stage gets a
+canvas larger than it needed, so it opens zoomed further out than ideal and its
+first brightness measurement is taken from a sparser picture. An experiment that
+cares can say so and get something tighter. One that does not care still works.
+
 ### What this buys
 
 The viewer receives one multiscale image per acquisition type and lets Neuroglancer
