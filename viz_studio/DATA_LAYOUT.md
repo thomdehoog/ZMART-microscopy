@@ -127,6 +127,58 @@ canvas larger than it needed, so it opens zoomed further out than ideal and its
 first brightness measurement is taken from a sparser picture. An experiment that
 cares can say so and get something tighter. One that does not care still works.
 
+### What a writer has to get right
+
+Everything the viewer needs from a store, in one place, so a writer can be built
+against it. Each item is either measured or read out of the engine's own source.
+
+**The format.** Zarr version 2, inside an OME-NGFF 0.4 image. The viewer asks the
+engine for `zarr2` explicitly, so a version 3 store will not open.
+
+**The axes.** `t, c, z, y, x`, in that order, each named in the `multiscales` block.
+Fewer is fine — a store with no time axis simply gets no time slider — but the order
+of those present must be that one. Spatial axes must declare a length unit
+(`micrometer` is what we use); the scale bar looks for a length and ignores anything
+else, which is why a time axis never produces one.
+
+**The pieces must be filed in folders**, which in zarr terms is
+`dimension_separator: "/"`, so a piece lands at `0/3/1/8/0` rather than being named
+`0/3.1.8.0`. The engine reads both. Two things make the folders necessary anyway: a
+long timelapse otherwise puts millions of files in one directory, which most
+filesystems handle badly; and it lets the viewer see how far a run has got by asking
+about one folder rather than reading every piece ever written.
+
+**Chunk size in y and x: a few hundred pixels, and not more than about a thousand.**
+256 is a good choice. This is not only about transfer size. When the viewer measures
+how bright a new image is, it reads a bounded sample — but the smallest thing that
+can be read from a store is one whole chunk, so very large chunks force it to read
+far more than it uses. Measured on a store chunked 8192 x 8192: **537 MB read to
+obtain 4 million voxels**, a sixty-fold waste, two thirds of a second per store.
+
+**One plane per chunk in z, c and t.** A chunk spanning several planes means fetching
+all of them to show one, which is most of what makes scrolling through a stack feel
+slow.
+
+**A pyramid, and let it reach a small top.** The coarsest level is what the viewer
+measures brightness from and what the engine draws when zoomed out, so it should be
+small enough to read quickly — a few megabytes at most. A store with no pyramid still
+opens, but it will be slow to open and coarse views will fetch full-resolution data.
+
+**An `omero` block** naming each channel, giving it a colour, and giving a starting
+brightness window. The viewer honours all three, so an acquisition arrives looking
+sensible instead of flat grey. Without it, channels are named by number and the
+window is measured from the pixels, which costs a read.
+
+**Write each piece complete, or not at all.** The viewer tells the browser it may
+keep a piece it has fetched, because a piece is written once and never rewritten. A
+half-written piece that is readable would be kept in that state. Writing to a
+temporary name and moving it into place gives this for nothing on every filesystem
+we care about.
+
+**Never rewrite or resize a piece that already exists.** Growing the declared shape
+is fine and is described above; changing what a chunk contains is not, because a
+reader may already be holding it.
+
 ### What this buys
 
 The viewer receives one multiscale image per acquisition type and lets Neuroglancer
