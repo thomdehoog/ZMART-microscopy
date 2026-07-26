@@ -152,6 +152,43 @@ function annotationLayer(targets, color, visible) {
   };
 }
 
+// Ask Python to show a folder chooser, then open whatever was picked. The chooser
+// has to be opened by Python because a page in a browser cannot be handed a path on
+// the machine; in a plain browser tab there is nothing to open, so the operator is
+// asked to type the path instead of being left with a button that does nothing.
+async function chooseAndOpen() {
+  let path = null;
+  try {
+    const response = await fetch("/api/browse", { method: "POST" });
+    const answer = await response.json().catch(() => null);
+    if (answer?.cancelled) return { cancelled: true };
+    if (response.ok && answer?.path) path = answer.path;
+    else if (answer?.reason) path = window.prompt(`${answer.reason}\n\nFolder:`);
+  } catch {
+    path = window.prompt("Folder holding the images:");
+  }
+  if (!path) return { cancelled: true };
+  const response = await fetch("/api/stores/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  const answer = await response.json().catch(() => null);
+  if (!response.ok) return { error: answer?.error || `could not open ${path}` };
+  return { config: answer };
+}
+
+async function closeGroup(group) {
+  const response = await fetch("/api/stores/close", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ group }),
+  });
+  const answer = await response.json().catch(() => null);
+  if (!response.ok) return { error: answer?.error || `could not close ${group}` };
+  return { config: answer };
+}
+
 async function loadTargets() {
   try {
     const response = await fetch("/api/annotations");
@@ -313,36 +350,80 @@ export default function App() {
   // What happened the last time the targets were saved, shown in the panel so a
   // failed save cannot pass unnoticed.
   const [saveState, setSaveState] = React.useState({ status: "idle" });
+  // Opening or closing images talks to Python, so the button is held while that
+  // happens and anything that went wrong is shown rather than swallowed.
+  const [storeBusy, setStoreBusy] = React.useState(false);
+  const [storeNotice, setStoreNotice] = React.useState(null);
   const annotationSource = React.useRef(null);
+
+  // Take on a new set of images -- at startup, and again whenever something is
+  // opened or closed. Anything still open keeps the colour, contrast and opacity
+  // the operator gave it: having those quietly reset because a second run was
+  // opened alongside would be its own small betrayal.
+  const applyConfig = React.useCallback((loaded) => {
+    setConfig((previous) => {
+      const kept = new Map();
+      (previous?.layers || []).forEach((spec, index) => {
+        kept.set(`${spec.group}/${spec.name}`, index);
+      });
+      setLayerState((current) =>
+        loaded.layers.map((spec) => {
+          const previousIndex = kept.get(`${spec.group}/${spec.name}`);
+          if (previousIndex != null && current[previousIndex]) return current[previousIndex];
+          return {
+            visible: true,
+            color: spec.color,
+            opacity: 1,
+            // Null means "use the mode-specific measured default". Once the
+            // operator moves either contrast handle, their chosen window becomes
+            // the source of truth in both 2-D and 3-D.
+            window: null,
+          };
+        }),
+      );
+      return loaded;
+    });
+    const groups = loaded.groups || [...new Set(loaded.layers.map((l) => l.group || ""))];
+    // Keep the order the operator dragged things into, with anything new appended
+    // rather than dropped in the middle of what they arranged.
+    setGroupOrder((current) => [
+      ...current.filter((name) => groups.includes(name)),
+      ...groups.filter((name) => !current.includes(name)),
+    ]);
+    setGroupState((current) =>
+      Object.fromEntries(
+        groups.map((name) => [name, current[name] || { visible: true, opacity: 1 }]),
+      ),
+    );
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
     Promise.all([fetchConfig(), loadTargets()]).then(([loaded, savedTargets]) => {
       if (cancelled) return;
-      setConfig(loaded);
-      setLayerState(
-        loaded.layers.map((spec) => ({
-          visible: true,
-          color: spec.color,
-          opacity: 1,
-          // Null means "use the mode-specific measured default". Once the
-          // operator moves either contrast handle, their chosen window becomes
-          // the source of truth in both 2-D and 3-D.
-          window: null,
-        })),
-      );
-      const groups = loaded.groups || [...new Set(loaded.layers.map((l) => l.group || ""))];
-      setGroupOrder(groups);
-      setGroupState(
-        Object.fromEntries(groups.map((name) => [name, { visible: true, opacity: 1 }])),
-      );
+      applyConfig(loaded);
       setTargets(savedTargets);
       setTargetsLoaded(true);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyConfig]);
+
+  // Look again every few seconds for acquisitions that have appeared since. During
+  // a run the folder is still being written to, so a new acquisition type can turn
+  // up long after the viewer was opened. Only a genuine change is applied:
+  // re-applying an unchanged list would interrupt whatever the operator is doing.
+  React.useEffect(() => {
+    if (!config) return undefined;
+    const signature = (c) =>
+      JSON.stringify((c.layers || []).map((l) => `${l.group}/${l.name}/${l.channelIndex}`));
+    const timer = setInterval(async () => {
+      const loaded = await fetchConfig();
+      if (signature(loaded) !== signature(config)) applyConfig(loaded);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [config, applyConfig]);
 
   React.useEffect(() => {
     if (!viewer || !config || layerState.length !== config.layers.length) return;
@@ -510,6 +591,24 @@ export default function App() {
           onGroupToggle={(name) => setGroup(name, { visible: !groupState[name]?.visible })}
           onGroupOpacity={(name, opacity) => setGroup(name, { opacity })}
           onGroupMove={moveGroup}
+          busy={storeBusy}
+          notice={storeNotice}
+          onOpenStore={async () => {
+            setStoreBusy(true);
+            setStoreNotice(null);
+            const result = await chooseAndOpen();
+            if (result.config) applyConfig(result.config);
+            if (result.error) setStoreNotice(result.error);
+            setStoreBusy(false);
+          }}
+          onCloseGroup={async (group) => {
+            setStoreBusy(true);
+            setStoreNotice(null);
+            const result = await closeGroup(group);
+            if (result.config) applyConfig(result.config);
+            if (result.error) setStoreNotice(result.error);
+            setStoreBusy(false);
+          }}
           onToggle={(i) => setLayer(i, { visible: !layerState[i].visible })}
           onColor={(i, color) => setLayer(i, { color })}
           onOpacity={(i, opacity) => setLayer(i, { opacity })}

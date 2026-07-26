@@ -65,6 +65,10 @@ export default function LayerPanel({
   onGroupToggle,
   onGroupOpacity,
   onGroupMove,
+  onOpenStore,
+  onCloseGroup,
+  busy = false,
+  notice = null,
 }) {
   const [openSwatch, setOpenSwatch] = React.useState(null);
   const [collapsed, setCollapsed] = React.useState({});
@@ -186,7 +190,26 @@ export default function LayerPanel({
 
   return (
     <aside style={styles.panel} aria-label="layer panel">
-      <div style={styles.heading}>layers</div>
+      <div style={styles.headingRow}>
+        <span style={styles.heading}>layers</span>
+        {onOpenStore && (
+          <button
+            type="button"
+            onClick={onOpenStore}
+            disabled={busy}
+            style={styles.openButton}
+            aria-label="open images"
+            title="Open a folder of images and add it to what is shown"
+          >
+            {busy ? "…" : "+ open"}
+          </button>
+        )}
+      </div>
+      {notice && (
+        <div style={styles.notice} role="alert">
+          {notice}
+        </div>
+      )}
       {groups.map((group, position) => {
         const members = rows.filter(({ layer }) => (layer.group || "") === group);
         if (!members.length) return null;
@@ -239,6 +262,18 @@ export default function LayerPanel({
                 {group}
               </span>
               <span style={styles.groupCount}>{members.length}</span>
+              {onCloseGroup && (
+                <button
+                  type="button"
+                  onClick={() => onCloseGroup(group)}
+                  disabled={busy}
+                  style={styles.close}
+                  aria-label={`close ${group}`}
+                  title="Stop showing this acquisition (the files are not touched)"
+                >
+                  ×
+                </button>
+              )}
             </div>
             <label style={styles.control}>
               <span style={styles.controlLabel}>all</span>
@@ -263,6 +298,42 @@ export default function LayerPanel({
 }
 
 const styles = {
+  headingRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    padding: "0 12px 8px",
+  },
+  openButton: {
+    border: "1px solid #303a46",
+    borderRadius: 4,
+    background: "#1b222b",
+    color: "#9ecbff",
+    font: "600 10px/1 system-ui, sans-serif",
+    padding: "4px 7px",
+    cursor: "pointer",
+  },
+  notice: {
+    margin: "0 12px 8px",
+    padding: "6px 8px",
+    border: "1px solid #4a2b30",
+    borderRadius: 4,
+    background: "#251a1d",
+    color: "#f0888f",
+    font: "11px/1.4 system-ui, sans-serif",
+  },
+  // Deliberately quiet: closing is easy to reach but should not invite a stray
+  // click, since it clears the settings the operator gave those channels.
+  close: {
+    border: "none",
+    background: "none",
+    color: "#5f6a78",
+    fontSize: 15,
+    lineHeight: 1,
+    cursor: "pointer",
+    padding: "0 2px",
+  },
   group: { borderBottom: "1px solid #1d232b" },
   groupDragging: { opacity: 0.5, background: "#1a2029" },
   groupHead: {
@@ -304,7 +375,6 @@ const styles = {
     color: "#c9d1d9",
   },
   heading: {
-    padding: "0 12px 8px",
     font: "600 11px/1 system-ui, sans-serif",
     letterSpacing: ".08em",
     textTransform: "uppercase",

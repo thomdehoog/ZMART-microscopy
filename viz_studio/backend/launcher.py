@@ -65,18 +65,37 @@ def open_window(
     window: tuple[float, float] | None = None,
     depth_samples: int = 256,
     chrome: bool = False,
+    watch: bool = True,
 ) -> None:
     """Start the server and open the studio in a native window.
 
     Blocks until the window is closed. Falls back to printing the address if a
     native window cannot be opened. ``data_dir``/``store`` point the viewer at
     any OME-Zarr store; leaving them unset opens the demo volume.
+
+    ``watch`` keeps looking in that folder for images written after it was opened,
+    which is what makes an acquisition appear during a run. Turn it off when a
+    particular selection of images was asked for, or the ones left out would come
+    back on the next look.
     """
+    # The viewer's "open" button needs a folder chooser, and only Python can show
+    # one: a page in a browser cannot be handed a path on the machine. This hands
+    # the server a way to ask for one. It is filled in below once the window
+    # exists, and stays empty in the browser fallback, where the interface asks
+    # the operator to type a path instead.
+    chooser: dict = {}
+
+    def browse():
+        show = chooser.get("show")
+        return show() if show else None
+
     kwargs = {
         "store": store,
         "window": window,
         "depth_samples": depth_samples,
         "chrome": chrome,
+        "browse": browse,
+        "watch": watch,
     }
     if data_dir is not None:
         kwargs["data_dir"] = data_dir
@@ -108,7 +127,22 @@ def open_window(
         _serve_until_interrupt(server, url)
         return
 
-    webview.create_window("ZMART Viz Studio", url, width=width, height=height)
+    native = webview.create_window("ZMART Viz Studio", url, width=width, height=height)
+
+    def show_folder_dialog():
+        """Show the operating system's own folder chooser and return what was picked.
+
+        Returns ``None`` when the operator cancels, which is an ordinary outcome and
+        not an error. The dialog is asked for from the web server's thread rather
+        than the window's, which pywebview allows; it returns a list of paths (or
+        nothing at all) so the first is taken.
+        """
+        chosen = native.create_file_dialog(webview.FOLDER_DIALOG)
+        if not chosen:
+            return None
+        return chosen[0] if isinstance(chosen, (list, tuple)) else str(chosen)
+
+    chooser["show"] = show_folder_dialog
     webview.start()
     server.shutdown()
 
