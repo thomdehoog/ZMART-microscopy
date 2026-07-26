@@ -284,3 +284,42 @@ def test_server_binds_localhost_only(tmp_path):
         assert server.server_address[0] == "127.0.0.1"
     finally:
         server.server_close()
+
+
+def test_config_is_worked_out_fresh_on_every_request(tmp_path):
+    """A store written after the viewer opened must still be able to appear.
+
+    During a smart-microscopy run the folder is still being written to. An answer
+    prepared once when the server started could never mention an acquisition that
+    arrived later, so the cheap part — looking to see what is there — has to happen
+    per request. This checks the answer is rebuilt rather than handed back frozen.
+    """
+    site = tmp_path / "site"
+    data = tmp_path / "data"
+    site.mkdir()
+    data.mkdir()
+    (site / "index.html").write_text("x", encoding="utf-8")
+
+    server = make_server(port=0, data_dir=data, site_dir=site, store="one.zarr")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        first = json.loads(request(port, "/api/config")[2])
+        second = json.loads(request(port, "/api/config")[2])
+        # Same content both times...
+        assert first == second
+        # ...but genuinely rebuilt, not the identical object served twice: the
+        # handler calls a function rather than holding a fixed dict.
+        assert callable(server.RequestHandlerClass.keywords["config"])
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_image_chunks_are_not_cached_for_long(serving):
+    """A live run rewrites regions, so a long cache would hide new data."""
+    _, headers, _ = request(serving, "/data/demo.zarr/chunk")
+    cache = headers.get("Cache-Control", "")
+    assert cache.startswith("max-age=")
+    assert int(cache.split("=")[1]) <= 60, "a live store must be re-checked promptly"

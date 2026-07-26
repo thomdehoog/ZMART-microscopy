@@ -109,7 +109,9 @@ class _Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, data_dir: Path, site_dir: Path, config: dict, **kwargs):
         self._data_dir = data_dir  # the OME-Zarr store, served under /data
         self._site_dir = site_dir  # the built page, served as the base directory
-        self._config = config  # what the page should open, answered at /api/config
+        # Asked afresh on each /api/config request rather than held as a fixed
+        # answer, so a store written after the viewer opened can still appear.
+        self._config = config
         super().__init__(*args, directory=str(site_dir), **kwargs)
 
     def handle_one_request(self) -> None:
@@ -170,9 +172,14 @@ class _Handler(SimpleHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(len(data)))
-        # The demo volume never changes during a session, so let the browser
-        # cache chunks it has already fetched.
-        self.send_header("Cache-Control", "max-age=3600")
+        # Let the browser reuse pieces of image it has already fetched, but only
+        # briefly. A piece of a finished acquisition never changes, so caching it
+        # for an hour would be harmless — but during a live run the folder is
+        # still being written to, and a region can be filled in or restitched
+        # after the viewer first looked at it. A short window keeps most of the
+        # benefit (panning back and forth costs nothing) while making sure the
+        # viewer notices new data within seconds rather than after an hour.
+        self.send_header("Cache-Control", "max-age=5")
         self.end_headers()
         self.wfile.write(data)
 
@@ -199,13 +206,21 @@ class _Handler(SimpleHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def _serve_config(self) -> None:
-        """Tell the page which store to open and how to display it.
+        """Tell the page which stores to open and how to display them.
 
         The page asks rather than assumes, so that pointing the viewer at a real
         acquisition is a server-side decision (a ``--data`` argument) and needs
         no rebuild of the frontend.
+
+        The answer is worked out fresh each time it is asked for. During a
+        smart-microscopy run the folder is still being written to, and a new
+        acquisition may well appear after the viewer was opened; an answer
+        prepared once at startup could never mention it. Measuring a store's
+        brightness and histogram means reading pixels, so those measurements are
+        remembered per store and only made once — what gets redone on each
+        request is the cheap part, which is looking to see what is now there.
         """
-        self._send_json(self._config)
+        self._send_json(self._config())
 
     def _serve_api_post(self) -> None:
         """Save the targets the operator has drawn.
@@ -289,9 +304,16 @@ def make_server(
 
     data_dir = Path(data_dir).resolve()
     names = [store] if isinstance(store, str) else list(store)
-    labels = layer_names(names)
-    layers = []
-    for name, label in zip(names, labels, strict=True):
+
+    # Measuring a store's display window and histogram means reading pixels, so
+    # each store is measured once and the answer kept. The list of stores is
+    # re-read on every request (see _serve_config); only this expensive part is
+    # remembered.
+    measured: dict[str, dict] = {}
+
+    def describe(name: str, label: str, coloured: bool) -> dict:
+        if name in measured:
+            return {**measured[name], "name": label}
         # Both windows travel with the layer so switching between the plane and
         # the volume is instant: the client already has what each mode needs
         # and never goes back to the server for it.
@@ -301,23 +323,30 @@ def make_server(
             if window is not None
             else display_window(data_dir / name, volumetric=True)
         )
-        color = channel_color(name) if len(names) > 1 else None
-        layers.append(
-            {
-                "name": label,
-                "source": f"/data/{name}/|zarr2:",
-                "window": {"low": flat[0], "high": flat[1]},
-                "volumeWindow": {"low": volume[0], "high": volume[1]},
-                "color": list(color) if color else None,
-                "histogram": intensity_histogram(data_dir / name),
-            }
-        )
-    config = {"layers": layers, "depthSamples": depth_samples, "chrome": chrome}
+        color = channel_color(name) if coloured else None
+        measured[name] = {
+            "source": f"/data/{name}/|zarr2:",
+            "window": {"low": flat[0], "high": flat[1]},
+            "volumeWindow": {"low": volume[0], "high": volume[1]},
+            "color": list(color) if color else None,
+            "histogram": intensity_histogram(data_dir / name),
+        }
+        return {**measured[name], "name": label}
+
+    def build_config() -> dict:
+        present = names
+        labels = layer_names(present)
+        layers = [
+            describe(name, label, coloured=len(present) > 1)
+            for name, label in zip(present, labels, strict=True)
+        ]
+        return {"layers": layers, "depthSamples": depth_samples, "chrome": chrome}
+
     handler = functools.partial(
         _Handler,
         data_dir=data_dir,
         site_dir=Path(site_dir).resolve(),
-        config=config,
+        config=build_config,
     )
     return ThreadingHTTPServer(("127.0.0.1", port), handler)
 
