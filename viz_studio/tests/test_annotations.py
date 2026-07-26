@@ -23,7 +23,7 @@ def add_box(page, annotation_id="browser-box"):
 
 def test_targets_panel_and_native_annotation_source_are_present(viewer_page):
     viewer_page.wait_for_function("() => window.zmartAnnotationSource !== undefined")
-    assert viewer_page.get_by_label("targets panel").is_visible()
+    assert viewer_page.get_by_label("selection panel").is_visible()
     assert viewer_page.evaluate(
         """() => {
           const layer = window.zmartViewer.layerManager.getLayerByName("Targets").layer;
