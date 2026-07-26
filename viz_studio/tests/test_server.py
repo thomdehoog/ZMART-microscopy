@@ -347,3 +347,18 @@ def test_image_chunks_may_be_kept_by_the_browser(serving):
     # way -- see the handler.
     assert "immutable" in cache, cache
     assert int(cache.split("max-age=")[1].split(",")[0]) > 86_400, cache
+
+
+def test_a_store_description_is_never_kept_by_the_browser(serving):
+    """The files describing a store must be re-asked for every time.
+
+    A timelapse growing a frame rewrites its shape, and that shape is what tells the
+    engine how far the data goes. A stale copy — even a few seconds old — would leave
+    the engine believing the old length, so a frame sitting on disk would simply not
+    appear, with nothing on screen to explain why. The pieces of image are the
+    opposite case: written once, never rewritten, so they are kept for a year.
+    """
+    _, describing, _ = request(serving, "/data/0/demo.zarr/.zattrs")
+    _, image, _ = request(serving, "/data/0/demo.zarr/chunk")
+    assert describing.get("Cache-Control") == "no-cache"
+    assert "immutable" in image.get("Cache-Control", "")

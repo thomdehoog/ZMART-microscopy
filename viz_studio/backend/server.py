@@ -315,16 +315,18 @@ class _Handler(SimpleHTTPRequestHandler):
         # fetched early had its copy expire while the run was still going, and coming
         # back to a region looked at ninety minutes earlier fetched it all again.
         #
-        # The small files describing a store are a different matter. They are the one
-        # thing that would change if an image ever grew -- another frame of a
-        # timelapse, a wider canvas. We declare time generously rather than resizing,
-        # so today they do not change; but keeping them for a year would quietly make
-        # that decision unbreakable, and a store that did grow would go unnoticed for
-        # the rest of the session with nothing to explain it. They are kept briefly
-        # instead, which costs almost nothing because the server answers them from
-        # memory, and leaves the door open.
+        # The small files describing a store are never kept, and that is deliberate.
+        # They are the one thing that changes when an image grows: a timelapse gaining
+        # a frame rewrites its shape. If a stale copy were served -- even for a few
+        # seconds -- the engine would go on believing the old length, and a frame that
+        # exists on disk would simply not be there, with nothing on screen to explain
+        # why. That is a miserable thing to debug, so it is designed out.
+        #
+        # The cost of not keeping them is a round trip, not a read: they are a few
+        # hundred bytes and the server answers from memory, holding each against its
+        # own modification time.
         if describing:
-            self.send_header("Cache-Control", "max-age=60")
+            self.send_header("Cache-Control", "no-cache")
         else:
             self.send_header("Cache-Control", "max-age=31536000, immutable")
         self.end_headers()
