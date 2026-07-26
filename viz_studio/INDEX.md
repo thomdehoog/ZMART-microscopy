@@ -40,9 +40,9 @@ workflow. Both run with no microscope (demo mode).
 |---|---|---|
 | Where | `workflows/target_acquisition/` | `viz_studio/` |
 | What | full acquisition flow (steps, gates, gallery, report) | image/volume viewer (neuroglancer), 3-D capable |
-| Maturity | mature, 42 tests, demo-complete | proven spike: renders, tested; no control panel yet |
+| Maturity | mature, 42 tests, demo-complete | working viewer: renders, full control panel, annotations; not yet wired to the workflow |
 | Run (demo, no scope) | `python workflows/target_acquisition/run_webapp.py --demo --window` | `python viz_studio/run_demo.py` (after building the frontend once) |
-| Test | `pytest workflows/target_acquisition/tests/test_webapp*.py` | `pytest viz_studio/tests` (32 tests, incl. the navigation gestures) |
+| Test | `pytest workflows/target_acquisition/tests/test_webapp*.py` | `pytest viz_studio/tests` (166 tests; the browser ones skip unless the frontend is built) |
 
 Both open in a native desktop window via `pywebview` (`pip install pywebview` —
 conda-forge does not package it), and both fall back to a browser if it is
@@ -51,10 +51,15 @@ missing.
 ## Current status
 
 - Webapp: mature; next real milestone is hardware-in-the-loop Leica validation.
-- Viz-studio: renders the demo volume end to end (acceptance test PASS, 270/270
-  chunks), clean and tested; **not yet** a product — no control panel, demo data
-  only, not wired to the workflow. Next step is the control panel, then moving
-  the workflow's overview onto OME-Zarr/neuroglancer (see the roadmap).
+- Viz-studio: the control panel is **built**. The viewer renders the demo volume
+  end to end (acceptance test PASS, 270/270 chunks) and now offers per-channel
+  visibility and colour, contrast with a histogram and an auto button, opacity, a
+  synchronized Z control, a 2-D/3-D toggle, and a writable annotation layer with
+  a targets list that saves beside the data. What remains is the T slider (it
+  needs a genuine timelapse OME-Zarr to prove), connecting `/api/goto` to the
+  microscope control layer, and then moving the workflow's overview onto
+  OME-Zarr/neuroglancer (see the roadmap). Still demo/manual data only: not yet
+  wired to the acquisition workflow.
 - The native window has now been opened on Windows (2026-07-23) and works. That
   first run found the interaction bug described in `SPIKE_RESULTS.md`: the
   volume rendered but nothing responded to the mouse, because the default input
@@ -63,9 +68,17 @@ missing.
 
 ## Branches
 
-- `claude/viz-studio-spike` — the complete, coherent branch: the webapp **and**
-  the fixed viz-studio, both native windows, and all these docs. Point an agent
-  here.
-- `claude/workflow-safety-features` — the webapp's home branch.
-- Nothing has been merged to `main` yet; consolidation is a deliberate later
-  step.
+There is **one** branch to work from:
+
+- **`claude/napaly-neuroglancer-progress-jo0b8h`** — everything: the webapp, the
+  viewer with its full control panel and annotations, all these docs, and `main`
+  merged in. Point an agent here.
+
+Several earlier branch names still exist on the remote
+(`claude/viz-studio-spike`, `claude/neuroglancer-napari-version-e2707l`, and the
+five `codex/zmart-viewer-*` branches). They are not separate pieces of work —
+the viewer was built as one straight line of commits, and each of those names is
+just a bookmark left at an intermediate step along it. The branch above contains
+all of them, so nothing is lost by ignoring or deleting them.
+
+Nothing has been merged to `main` yet; consolidation is a deliberate later step.
