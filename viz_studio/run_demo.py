@@ -66,6 +66,15 @@ def main(argv: list[str] | None = None) -> int:
         help="when a tile and channel were acquired through several filters, "
         "keep the one whose name contains this, e.g. Empty",
     )
+    parser.add_argument(
+        "--timepoints",
+        type=int,
+        default=1,
+        help="make the demo volume a timelapse of this many frames, so the time "
+        "(T) slider has something to move through. The cells drift a little and "
+        "one marker brightens while the other fades, so you can see the frames "
+        "change. Default 1, a single moment with no time slider.",
+    )
     args = parser.parse_args(argv)
 
     dist = _HERE / "frontend" / "dist"
@@ -105,15 +114,31 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    store = _HERE / "backend" / "demo_store" / "demo.zarr"
+    if args.timepoints < 1:
+        print("--timepoints must be at least 1")
+        return 1
+
+    # A timelapse is written beside the ordinary demo rather than replacing it, so
+    # asking for one does not throw away the single-volume store (and asking for
+    # the plain demo afterwards does not throw away the timelapse).
+    store_name = "demo.zarr" if args.timepoints == 1 else f"demo_t{args.timepoints}.zarr"
+    store = _HERE / "backend" / "demo_store" / store_name
     # Check for the metadata file, not just the folder: a run interrupted
     # mid-write can leave a folder behind with no usable volume in it, and we
     # want the next launch to simply rebuild it rather than fail.
     if not (store / ".zattrs").exists():
-        print("Making the demo volume (first run only)...")
-        write_demo_zarr(store)
+        if args.timepoints > 1:
+            print(f"Making the demo timelapse ({args.timepoints} frames, first run only)...")
+        else:
+            print("Making the demo volume (first run only)...")
+        write_demo_zarr(store, timepoints=args.timepoints)
     print("Opening the visualization studio (demo mode)...")
-    open_window(window=window, depth_samples=args.depth_samples, chrome=args.chrome)
+    open_window(
+        store=store_name,
+        window=window,
+        depth_samples=args.depth_samples,
+        chrome=args.chrome,
+    )
     return 0
 
 
