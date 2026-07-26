@@ -182,12 +182,20 @@ class TestTheTimeSlider:
         assert readout.strip().endswith(f"/ {FRAMES}")
 
     def test_moving_it_moves_the_engine_to_that_frame(self, timelapse_page):
+        """Dragging the slider must put the engine on exactly that frame.
+
+        The target frame is chosen relative to where the slider already sits. The
+        engine opens a view in the middle of the time axis, which the slider snaps
+        to the nearest real frame, so asking for the frame it is already showing
+        would be a no-op and would prove nothing.
+        """
         names = _axis_names(timelapse_page)
         index = names.index("t")
         slider = timelapse_page.locator("[aria-label='t position']")
-        before = timelapse_page.evaluate(
-            f"() => window.zmartViewer.navigationState.position.value[{index}]"
-        )
+        current = float(slider.input_value())
+        low, high = float(slider.get_attribute("min")), float(slider.get_attribute("max"))
+        target = low if current != low else high
+
         # Drive the slider the way a browser does, so React's handler runs.
         timelapse_page.evaluate(
             """([selector, value]) => {
@@ -198,17 +206,13 @@ class TestTheTimeSlider:
               el.dispatchEvent(new Event('input', { bubbles: true }));
               el.dispatchEvent(new Event('change', { bubbles: true }));
             }""",
-            ["[aria-label='t position']", 2],
+            ["[aria-label='t position']", target],
         )
         timelapse_page.wait_for_function(
-            f"() => window.zmartViewer.navigationState.position.value[{index}] !== {before}",
+            f"() => window.zmartViewer.navigationState.position.value[{index}] === {target}",
             timeout=10_000,
         )
-        after = timelapse_page.evaluate(
-            f"() => window.zmartViewer.navigationState.position.value[{index}]"
-        )
-        assert after != before
-        assert slider.input_value() != ""
+        assert float(slider.input_value()) == target
 
     def test_the_time_slider_survives_the_switch_to_3d(self, timelapse_page):
         """Time means something in the volume view too, so it must stay."""

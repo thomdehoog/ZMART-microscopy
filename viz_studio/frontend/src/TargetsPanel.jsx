@@ -11,17 +11,6 @@ function saveMessage(saveState) {
   return { text: `Not saved: ${saveState.message}`, tone: "bad" };
 }
 
-// What to say about the last "Go to". There are three good outcomes to tell
-// apart: the stage moved, the request was understood but nothing moved (no
-// microscope attached, or moves switched off), and the microscope refused.
-function gotoMessage(gotoState) {
-  if (!gotoState) return null;
-  if (gotoState.status === "sending") return { text: "Sending to the microscope…", tone: "quiet" };
-  if (gotoState.status === "moved") return { text: gotoState.message || "Stage moved.", tone: "good" };
-  if (gotoState.status === "reported") return { text: gotoState.message, tone: "quiet" };
-  return { text: gotoState.message, tone: "bad" };
-}
-
 /**
  * The list of places the operator has marked, and what can be done with them.
  *
@@ -36,17 +25,14 @@ export default function TargetsPanel({
   color,
   visible,
   saveState,
-  gotoState,
   onTool,
   onColor,
   onVisible,
   onSelect,
   onDelete,
-  onGoto,
   onDescribe,
 }) {
   const save = saveMessage(saveState);
-  const sent = gotoMessage(gotoState);
 
   return (
     <aside style={styles.panel} aria-label="targets panel">
@@ -87,9 +73,6 @@ export default function TargetsPanel({
             >
               {target.type === "point" ? "Point" : "Box"} {index + 1}
             </button>
-            <button style={styles.small} onClick={() => onGoto(target)}>
-              Go to
-            </button>
             <button
               aria-label={`delete target ${index + 1}`}
               style={styles.delete}
@@ -109,10 +92,9 @@ export default function TargetsPanel({
           </div>
         ))}
       </div>
-      {(save || sent) && (
+      {save && (
         <div style={styles.status} aria-live="polite">
-          {save && <div style={{ ...styles.statusLine, ...styles[save.tone] }}>{save.text}</div>}
-          {sent && <div style={{ ...styles.statusLine, ...styles[sent.tone] }}>{sent.text}</div>}
+          <div style={{ ...styles.statusLine, ...styles[save.tone] }}>{save.text}</div>
         </div>
       )}
     </aside>
@@ -131,9 +113,8 @@ const styles = {
   empty: { color: "#747f8d", lineHeight: 1.4, padding: "8px 2px" },
   // Three controls on the first row, then the name field spanning the full width
   // underneath, so a long note has room to be read.
-  target: { display: "grid", gridTemplateColumns: "1fr auto auto", gap: 5, alignItems: "center", borderBottom: "1px solid #252b33", paddingBottom: 6 },
+  target: { display: "grid", gridTemplateColumns: "1fr auto", gap: 5, alignItems: "center", borderBottom: "1px solid #252b33", paddingBottom: 6 },
   name: { textAlign: "left", border: 0, background: "none", color: "#c9d1d9", cursor: "pointer", padding: 4 },
-  small: { border: "1px solid #303844", borderRadius: 3, background: "#1b2027", color: "#9ecbff", padding: "3px 6px", cursor: "pointer" },
   delete: { border: 0, background: "none", color: "#f07178", fontSize: 18, cursor: "pointer" },
   description: { gridColumn: "1 / -1", border: "1px solid #262d36", borderRadius: 3, background: "#0e1216", color: "#aab4c0", padding: "4px 6px", font: "11px system-ui, sans-serif" },
   status: { marginTop: "auto", paddingTop: 10, display: "grid", gap: 3, lineHeight: 1.4 },

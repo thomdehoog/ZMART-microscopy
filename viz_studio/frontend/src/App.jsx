@@ -160,7 +160,7 @@ function axisInfo(viewer, name) {
  * number in the engine's position -- so they are the same control, and a store
  * that has no such axis simply gets no slider.
  */
-function AxisSlider({ viewer, axis: axisName, label, step = 0.5, unit = "" }) {
+function AxisSlider({ viewer, axis: axisName, label, unit = "" }) {
   const [axis, setAxis] = React.useState(null);
 
   React.useEffect(() => {
@@ -204,6 +204,15 @@ function AxisSlider({ viewer, axis: axisName, label, step = 0.5, unit = "" }) {
   }, [viewer, axisName]);
 
   if (!axis) return null;
+  // The slider steps in halves rather than whole planes, and that is deliberate.
+  // The engine opens a view in the *middle* of an axis, which for an even number
+  // of planes lands halfway between two of them: a four-frame timelapse starts at
+  // 1.5. A control that could only hold whole numbers would be unable to show
+  // that, and the browser would quietly round the thumb to 2 while our code still
+  // believed 1.5 -- after which dragging it to 2 would change nothing, because as
+  // far as the browser was concerned it was already there. The slider would look
+  // correct and do nothing at all. Halves can represent every position the engine
+  // actually takes, so what is shown and what is meant never come apart.
   const value = Math.max(axis.min, Math.min(axis.max, axis.value));
   const stepNumber = Math.round(value - axis.min + 1);
   const count = Math.round(axis.max - axis.min + 1);
@@ -221,7 +230,7 @@ function AxisSlider({ viewer, axis: axisName, label, step = 0.5, unit = "" }) {
         type="range"
         min={axis.min}
         max={axis.max}
-        step={step}
+        step={0.5}
         value={value}
         onChange={(event) => moveTo(Number(event.target.value))}
         aria-label={`${axisName} position`}
@@ -256,11 +265,9 @@ export default function App() {
   const [targetsVisible, setTargetsVisible] = React.useState(true);
   const [activeTool, setActiveTool] = React.useState(null);
   const [annotationGeneration, setAnnotationGeneration] = React.useState(0);
-  // What happened the last time the targets were saved, and the last time a
-  // target was sent to the microscope. Both are shown in the panel so neither
-  // can fail quietly.
+  // What happened the last time the targets were saved, shown in the panel so a
+  // failed save cannot pass unnoticed.
   const [saveState, setSaveState] = React.useState({ status: "idle" });
-  const [gotoState, setGotoState] = React.useState(null);
   const annotationSource = React.useRef(null);
 
   React.useEffect(() => {
@@ -423,50 +430,6 @@ export default function App() {
     reference.dispose();
   };
 
-  const gotoTarget = async (target) => {
-    const space = viewer.navigationState.position.coordinateSpace.value;
-    const physical = (point) =>
-      Object.fromEntries(point.map((value, index) => [
-        space.names[index] || `axis${index}`,
-        { value: value * space.scales[index], unit: space.units[index] || "" },
-      ]));
-    const body = { id: target.id };
-    // A box goes to its middle; a point goes to itself. Which keys are sent is
-    // what tells Python which of those two it is.
-    if (target.type === "point") {
-      body.point = physical(target.point);
-    } else {
-      body.pointA = physical(target.pointA);
-      body.pointB = physical(target.pointB);
-    }
-    setGotoState({ status: "sending", id: target.id });
-    try {
-      const response = await fetch("/api/goto", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const answer = await response.json().catch(() => null);
-      if (!response.ok) {
-        // A refusal from the microscope's own travel limits arrives here. It is
-        // the guard doing its job, so the reason is shown rather than hidden.
-        setGotoState({
-          status: "error",
-          id: target.id,
-          message: answer?.error || `the microscope refused (${response.status})`,
-        });
-        return;
-      }
-      setGotoState({
-        status: answer?.moved ? "moved" : "reported",
-        id: target.id,
-        message: answer?.action || "",
-      });
-    } catch {
-      setGotoState({ status: "error", id: target.id, message: "could not reach the server" });
-    }
-  };
-
   return (
     <div style={styles.shell}>
       {config && (
@@ -495,7 +458,6 @@ export default function App() {
             viewer={viewer}
             axis="t"
             label="T"
-            step={1}
           />
         </div>
       </main>
@@ -505,13 +467,11 @@ export default function App() {
         color={targetColor}
         visible={targetsVisible}
         saveState={saveState}
-        gotoState={gotoState}
         onTool={setActiveTool}
         onColor={setTargetColor}
         onVisible={() => setTargetsVisible((value) => !value)}
         onSelect={selectTarget}
         onDelete={deleteTarget}
-        onGoto={gotoTarget}
         onDescribe={describeTarget}
       />
     </div>

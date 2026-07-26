@@ -65,27 +65,18 @@ def open_window(
     window: tuple[float, float] | None = None,
     depth_samples: int = 256,
     chrome: bool = False,
-    session: object | None = None,
-    allow_stage_moves: bool = False,
 ) -> None:
     """Start the server and open the studio in a native window.
 
     Blocks until the window is closed. Falls back to printing the address if a
     native window cannot be opened. ``data_dir``/``store`` point the viewer at
     any OME-Zarr store; leaving them unset opens the demo volume.
-
-    ``session`` is a connected microscope and ``allow_stage_moves`` is the
-    explicit permission to drive it. Both are needed before the viewer's **Go
-    to** button moves the stage; by default neither is set, so the window is
-    always safe to open next to an instrument.
     """
     kwargs = {
         "store": store,
         "window": window,
         "depth_samples": depth_samples,
         "chrome": chrome,
-        "session": session,
-        "allow_stage_moves": allow_stage_moves,
     }
     if data_dir is not None:
         kwargs["data_dir"] = data_dir
