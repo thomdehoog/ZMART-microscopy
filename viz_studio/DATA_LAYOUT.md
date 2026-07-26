@@ -43,6 +43,38 @@ In the standard OME-Zarr ordering that image is `t, c, z, y, x`.
 > that an acquisition type is now *one* OME-Zarr image, and each position is a
 > region written into it — rather than one image per position, assembled on screen.
 
+### The limit of this: overlap cannot survive it
+
+One image holds **one value per voxel**. So where two tiles overlap, the second one
+written replaces the first in the shared region — the two versions of that region
+cannot both be kept, because there is only one place to put them.
+
+That matters because overlap is usually there on purpose. Tiles are acquired with a
+few per cent of overlap precisely so that stitching can afterwards compare the two
+views of the same specimen and work out the true alignment, correcting for whatever
+the stage got slightly wrong. Flattening the tiles into one image at acquisition time
+throws that comparison away before it can be made, and no later step can recover it.
+
+So the honest position is that these are two different artefacts, at two different
+stages, and a run that intends to stitch needs both:
+
+**The raw tiles, one store per position, overlap intact.** This is what stitching
+reads. It is also what the viewer shows while a run is in progress, because it is what
+exists at that moment. The original Decision 1 below describes this layout, and it is
+not superseded for this purpose — it is the correct shape for data coming off an
+instrument.
+
+**One stitched image, written afterwards.** This is what the one-image-per-acquisition
+-type layout above is for: an image assembled once the alignment is known, whether by
+a stitcher or simply by trusting the stage coordinates. It is the right thing to keep,
+to hand to a colleague, and to view for the rest of the data's life.
+
+A run that never intends to stitch — one that trusts the stage — can skip the first
+and write the second directly, and then everything above applies with no caveat.
+
+This is why the viewer has to handle both, and why the work on opening many stores
+quickly is not wasted: during acquisition, many stores is what there is.
+
 ### Why the original reason no longer holds
 
 The original decision avoided one big image for one reason: an OME-Zarr image has a
