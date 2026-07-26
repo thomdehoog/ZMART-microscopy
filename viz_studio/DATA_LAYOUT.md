@@ -36,7 +36,99 @@ whatever else an experiment invents. Each type is acquired at one or more
 
 In the standard OME-Zarr ordering that image is `t, c, z, y, x`.
 
-## Decision 1: one store per acquisition, per position
+## Decision 1 revisited: one store per acquisition type, tiles written into it
+
+> **This supersedes the original Decision 1, which follows below and is kept
+> because the reasoning that led away from it is worth keeping.** The change is
+> that an acquisition type is now *one* OME-Zarr image, and each position is a
+> region written into it — rather than one image per position, assembled on screen.
+
+### Why the original reason no longer holds
+
+The original decision avoided one big image for one reason: an OME-Zarr image has a
+declared shape, so a single image covering the whole stage means saying how large
+the stage region is before the first tile has been taken. That could not be
+answered — it changes with every experiment.
+
+Two measurements dissolve that.
+
+**Declared size is not occupied size.** An image is stored as many small chunk
+files, and a chunk file only comes into existence when something writes to it. The
+declared shape is a statement in a metadata file, not a reservation of disk. We
+measured a declared 4 TiB image occupying **59 MiB** on disk. So the canvas does not
+have to be known — only generously over-estimated, which is a much easier thing to
+do. Declare a metre of stage travel if you like; it costs nothing until imaged.
+
+**And the shape can be raised afterwards.** Chunks are addressed by their index, so
+extending an image outward leaves every existing chunk exactly where it was.
+Measured: an image declared with two timepoints, grown to five after the fact, kept
+both original frames intact, accepted a write at frame five, and read the frames
+never written as empty. Timepoints can therefore be added retrospectively, which is
+what a timelapse of unpredictable length needs.
+
+The one thing that is **not** allowed is extending *backwards* past the origin.
+That would shift every index by one and invalidate every chunk already written. So
+the origin goes at a corner of the region and growth only ever goes outward.
+
+### What this buys
+
+The viewer receives one multiscale image per acquisition type and lets Neuroglancer
+do what it is good at: choose a resolution level, fetch only the tiles under the
+current view, and keep what it has fetched. Assembling the specimen stops being the
+viewer's job — the pieces are already one image.
+
+It also removes a great deal of work that only existed to cope with many images:
+naming hundreds of stores distinctly, merging positions into one row per channel,
+measuring the brightness of each store separately, and reading every store's
+description each time the panel is refreshed.
+
+### The constraint that makes it safe: tiles must land on chunk boundaries
+
+This is the real cost of the change, and it falls on the writing side.
+
+Two tiles written at the same moment are safe only if they do not share a chunk
+file. Where they do share one, both processes read that chunk, each adds its own
+tile to its own copy, and each writes the whole chunk back — so whichever finishes
+second erases the other's contribution. This is not a theoretical worry. Measured,
+with four tiles written concurrently into one image:
+
+| how the tiles sat | result |
+|---|---|
+| each tile occupying whole chunks of its own | every tile intact |
+| tiles straddling chunk edges | **up to 75% of a tile's voxels lost** |
+
+With one image per position this could not happen, because no two writers ever
+touched the same file. With a shared image it happens silently — no error, no
+warning, just missing data in a picture that looks plausible.
+
+So, for the driver:
+
+- **Choose the chunk size and the tile step together**, so that a tile begins and
+  ends on a chunk boundary in y and x. A tile that is a whole multiple of the chunk
+  size, stepped by that same multiple, satisfies this.
+- **Overlap between tiles is the thing to watch.** Tiled acquisitions usually
+  overlap by a few per cent for stitching, and an overlap that is not a whole
+  number of chunks puts two tiles in one chunk. Either round the step to a chunk
+  multiple, or write overlapping tiles one at a time rather than concurrently.
+- **If neither is possible, serialise the writes** for tiles that share chunks. One
+  writer per chunk at any moment is all that is required.
+
+### One thing the viewer must do differently
+
+The small files describing an image are currently served with permission for the
+browser to keep them for an hour, which is right for finished data and wrong for an
+image still growing: a canvas that got larger, or a timelapse that gained frames,
+would not be noticed until that hour was up. In live mode those description files
+must not be cached. Static mode should keep caching them, since nothing can change.
+
+---
+
+## Decision 1 (original, now superseded): one store per acquisition, per position
+
+> Kept as the record of how we got here. The conclusion changed — see above — but
+> the measurements in this section are still sound, and the reason it was rejected
+> at the time (that the canvas had to be known up front) is exactly the assumption
+> that later turned out to be avoidable.
 
 A "store" is one OME-Zarr, which is a *folder* on disk rather than a single file.
 One store holds one image, its shrunk-down copies, and a little metadata.
