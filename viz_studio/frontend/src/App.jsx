@@ -3,6 +3,7 @@ import NeuroglancerView from "./NeuroglancerView.jsx";
 import LayerPanel from "./LayerPanel.jsx";
 import TargetsPanel from "./TargetsPanel.jsx";
 import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/annotations.js";
+import { syncLayers, syncView } from "./engine.js";
 
 // The two ways of looking at a volume, and the only thing the operator has to
 // choose between. 2-D is the working view -- one plane, scroll through the
@@ -16,27 +17,34 @@ const MODES = { flat: "2D", volume: "3D" };
 const SLICE_LAYOUT = "yz";
 const VOLUME_LAYOUT = "3d";
 
-const FALLBACK = {
-  layers: [
-    {
-      name: "volume",
-      source: "/data/demo.zarr/|zarr2:",
-      window: null,
-      volumeWindow: null,
-      color: null,
-    },
-  ],
-  depthSamples: 256,
-  chrome: false,
-};
+// How many unanswered questions in a row before the panel says the server has
+// gone quiet. At one question every 700 ms this is a little over three seconds,
+// which is long enough to ride out a brief hiccup and short enough to be useful.
+const UNANSWERED_BEFORE_SAYING_SO = 5;
 
+// How long each frame is held when an axis is played through. Fast enough to read
+// as movement, slow enough that the engine can usually fetch the next plane before
+// it is wanted.
+const PLAY_STEP_MS = 140;
+
+
+/**
+ * Ask the server what is open, or return null if it cannot be reached.
+ *
+ * Returning null rather than an invented set of images is the point. An earlier
+ * version answered a failure with a made-up volume that did not exist, so a
+ * server that had stopped answering looked exactly like data that had failed to
+ * load: a black screen and nothing to read. Saying plainly that the server could
+ * not be reached is far more use to someone at two in the morning wondering
+ * whether their experiment is still running.
+ */
 async function fetchConfig() {
   try {
     const response = await fetch("/api/config");
-    if (!response.ok) return FALLBACK;
+    if (!response.ok) return null;
     return await response.json();
   } catch {
-    return FALLBACK;
+    return null;
   }
 }
 
@@ -57,6 +65,11 @@ export const LOOKUP_TABLES = {
   ice:     [[0.000,0.000,0.100],[0.000,0.400,0.700],[0.400,0.800,1.000],[1.000,1.000,1.000]],
 };
 
+// The colour maps on offer, worked out once. Building this list inside the render
+// would hand the panel a brand-new array every time anything at all changed, and
+// the panel would have to assume the choices had changed with it.
+const LOOKUP_TABLE_NAMES = Object.keys(LOOKUP_TABLES);
+
 // Turn a table of colour stops into the few lines of shader that walk between
 // them. Straight-line blending between neighbouring stops is enough: the stops are
 // chosen so that is faithful, and it keeps the generated program small.
@@ -75,13 +88,22 @@ function lutShader(stops) {
 // explicit window they render black. In 3-D the intensity drives opacity as
 // well, or every background voxel along the ray adds haze and the specimen is
 // lost in fog.
-function shaderFor(window_, color, volumetric, opacity = 1, lut = null) {
-  if (!window_) return undefined;
-  let source = `#uicontrol invlerp normalized(range=[${window_.low}, ${window_.high}])\n`;
+//
+// Note what is *not* written into the text below: the contrast window itself, and
+// the 3-D opacity. Both are declared as controls with no particular value, and
+// the values are sent separately (see `shaderControlsFor`). The reason is worth
+// knowing. This little program runs on the graphics card, and the engine has to
+// compile it before it can draw. Writing the numbers into the text means a
+// different program every time a contrast handle moves — so dragging one would
+// recompile the program for every layer, several times a second. Declared as
+// controls, the numbers are sent to a program already compiled, which is what
+// makes dragging smooth however much data is open.
+function shaderFor(color, volumetric, lut = null) {
+  let source = "#uicontrol invlerp normalized\n";
   const stops = lut ? LOOKUP_TABLES[lut] : null;
   if (stops) source += lutShader(stops);
   if (volumetric) {
-    source += `#uicontrol float opacity slider(min=0, max=1, default=${opacity})\n`;
+    source += "#uicontrol float opacity slider(min=0, max=1, default=1)\n";
     if (stops) {
       return source + "void main() { float v = normalized();"
         + " emitRGBA(vec4(zmartLut(v), v * opacity)); }";
@@ -93,6 +115,15 @@ function shaderFor(window_, color, volumetric, opacity = 1, lut = null) {
   if (!color) return source + "void main() { emitGrayscale(normalized()); }";
   const [r, g, b] = color;
   return source + `void main() { emitRGB(vec3(${r}, ${g}, ${b}) * normalized()); }`;
+}
+
+// The values for the controls declared above. These reach the graphics card
+// without the program being touched, which is why contrast is smooth to drag.
+function shaderControlsFor(window_, volumetric, opacity) {
+  if (!window_) return undefined;
+  const controls = { normalized: { range: [window_.low, window_.high] } };
+  if (volumetric) controls.opacity = opacity;
+  return controls;
 }
 
 // The engine keeps one flat list of layers and requires their names to be unique,
@@ -157,8 +188,9 @@ function layersFor(config, mode, layerState, groupState, groupOrder) {
       layer.notSelectedAlpha = combinedOpacity;
       return layer;
     }
-    const shader = shaderFor(displayWindow, color, volumetric, combinedOpacity, lut);
-    if (shader) layer.shader = shader;
+    layer.shader = shaderFor(color, volumetric, lut);
+    const controls = shaderControlsFor(displayWindow, volumetric, combinedOpacity);
+    if (controls) layer.shaderControls = controls;
     if (volumetric) {
       layer.volumeRendering = "on";
       // This, not the zoom, chooses the pyramid level the volume is drawn from.
@@ -285,8 +317,9 @@ function axisInfo(viewer, name) {
  * number in the engine's position -- so they are the same control, and a store
  * that has no such axis simply gets no slider.
  */
-function AxisSlider({ viewer, axis: axisName, label, unit = "", limit = null }) {
+function AxisSlider({ viewer, axis: axisName, label, limit = null }) {
   const [axis, setAxis] = React.useState(null);
+  const [playing, onPlay] = usePlayback(viewer, axisName, limit);
 
   React.useEffect(() => {
     if (!viewer) return undefined;
@@ -301,30 +334,27 @@ function AxisSlider({ viewer, axis: axisName, label, unit = "", limit = null }) 
           : next,
       );
     };
-    // NavigationState also fires when coordinate reconciliation replaces the
-    // Position object (for example when a writable annotation layer joins the
-    // image coordinate space). Listening only to the old Position would leave
-    // this slider frozen while Neuroglancer itself continued moving.
-    const removeNavigationListener = viewer.navigationState.changed.add(update);
-    const removePositionListener = viewer.navigationState.position.changed.add(update);
-    const removeSpaceListener =
+    // Three things can move this slider, and it listens for all three: the view
+    // being moved (by the wheel, by dragging, or by this slider itself), the set
+    // of axes changing because an image was opened or closed, and the engine
+    // settling on where it is going to start. Between them the slider always
+    // shows where the view actually is.
+    //
+    // It is worth saying what is deliberately *not* here. An earlier version also
+    // re-read the position sixty times a second, as insurance against the engine
+    // swapping the object holding it. Reading Neuroglancer's own source settles
+    // that: it makes that object once, when the viewer is created, and never
+    // replaces it. So the insurance was paying for nothing, sixty times a second,
+    // on the same graphics card that is drawing the specimen.
+    const stopWatchingView = viewer.navigationState.changed.add(update);
+    const stopWatchingPosition = viewer.navigationState.position.changed.add(update);
+    const stopWatchingAxes =
       viewer.navigationState.position.coordinateSpace.changed.add(update);
-    // Neuroglancer may replace the Position while asynchronously reconciling
-    // layer coordinate spaces. Signals belong to each Position instance, so a
-    // small animation-frame observer ensures this external React control
-    // follows the current official navigation object after such a replacement.
-    let frame;
-    const observeCurrentPosition = () => {
-      update();
-      frame = requestAnimationFrame(observeCurrentPosition);
-    };
-    frame = requestAnimationFrame(observeCurrentPosition);
     update();
     return () => {
-      removeNavigationListener();
-      removePositionListener();
-      removeSpaceListener();
-      cancelAnimationFrame(frame);
+      stopWatchingView();
+      stopWatchingPosition();
+      stopWatchingAxes();
     };
   }, [viewer, axisName]);
 
@@ -356,8 +386,26 @@ function AxisSlider({ viewer, axis: axisName, label, unit = "", limit = null }) 
     viewer.navigationState.position.value = moved;
   };
 
+  // Only one plane or frame to look at is not a choice, so no control is offered.
+  // This is how a still image ends up with no time slider and a single plane with
+  // no Z slider, without anything having to know which is which.
+  if (count < 2) return null;
+
   return (
     <label style={styles.axisControl}>
+      <button
+        type="button"
+        onClick={onPlay}
+        style={{ ...styles.play, ...(playing ? styles.playOn : null) }}
+        aria-label={`play ${axisName}`}
+        title={
+          playing
+            ? "Stop"
+            : `Step through ${axisName === "t" ? "the frames" : "the planes"} one after another`
+        }
+      >
+        {playing ? "❙❙" : "▶"}
+      </button>
       <span style={styles.axisLabel}>{label}</span>
       <input
         type="range"
@@ -371,10 +419,53 @@ function AxisSlider({ viewer, axis: axisName, label, unit = "", limit = null }) 
       />
       <output aria-label={`${axisName} position value`} style={styles.axisValue}>
         {stepNumber} / {count}
-        {unit}
       </output>
     </label>
   );
+}
+
+/**
+ * Step an axis along on its own, the way a film is played.
+ *
+ * Looking through a stack or a timelapse by hand is a poor way to see movement,
+ * and movement is often the whole point — a specimen drifting, a marker
+ * brightening. This walks one step at a time and wraps round at the end, so it
+ * loops rather than stopping at the last frame.
+ *
+ * It moves the engine's position and nothing else, so everything already
+ * following the position — the slider, the image — comes along without being
+ * told. The step rate is a compromise: fast enough to read as motion, slow
+ * enough that the engine has a chance to fetch each plane as it arrives.
+ */
+function usePlayback(viewer, axisName, limit) {
+  const [playing, setPlaying] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!playing || !viewer) return undefined;
+    const step = () => {
+      const axis = axisInfo(viewer, axisName);
+      if (!axis) return;
+      const top =
+        limit != null && Number.isFinite(limit)
+          ? Math.min(axis.max, axis.min + limit - 1)
+          : axis.max;
+      const next = axis.value + 1 > top ? axis.min : axis.value + 1;
+      const position = viewer.navigationState.position;
+      const moved = Float32Array.from(position.value);
+      moved[axis.index] = next;
+      position.value = moved;
+    };
+    const timer = setInterval(step, PLAY_STEP_MS);
+    return () => clearInterval(timer);
+  }, [playing, viewer, axisName, limit]);
+
+  // Playing an axis the image no longer has would be a control quietly doing
+  // nothing, so it stops itself if the axis goes away with the image.
+  React.useEffect(() => {
+    if (playing && viewer && !axisInfo(viewer, axisName)) setPlaying(false);
+  }, [playing, viewer, axisName]);
+
+  return [playing, () => setPlaying((on) => !on)];
 }
 
 /**
@@ -402,7 +493,6 @@ export default function App() {
   const [targetColor, setTargetColor] = React.useState("#ffd34d");
   const [targetsVisible, setTargetsVisible] = React.useState(true);
   const [activeTool, setActiveTool] = React.useState(null);
-  const [annotationGeneration, setAnnotationGeneration] = React.useState(0);
   // What happened the last time the targets were saved, shown in the panel so a
   // failed save cannot pass unnoticed.
   const [saveState, setSaveState] = React.useState({ status: "idle" });
@@ -410,38 +500,67 @@ export default function App() {
   // happens and anything that went wrong is shown rather than swallowed.
   const [storeBusy, setStoreBusy] = React.useState(false);
   const [storeNotice, setStoreNotice] = React.useState(null);
+  // Which channel the block of controls is acting on, and whether the bar of
+  // controls is showing at all.
+  const [selected, setSelected] = React.useState(0);
+  const [barOpen, setBarOpen] = React.useState(true);
   const annotationSource = React.useRef(null);
+  // How to stop listening to the annotation source we are currently following.
+  const stopListening = React.useRef(null);
+  // The targets read back from the previous session. These are handed to the
+  // engine once, when the layer that holds them is built. Kept aside from the
+  // living list of targets on purpose: that list changes with every scribble, and
+  // if the description of the scene depended on it, drawing would rebuild the very
+  // layer being drawn into.
+  const targetsFromDisk = React.useRef([]);
+  // The set of images last taken on, used to spot an answer that says nothing new.
+  const applied = React.useRef(null);
 
   // Take on a new set of images -- at startup, and again whenever something is
   // opened or closed. Anything still open keeps the colour, contrast and opacity
   // the operator gave it: having those quietly reset because a second run was
   // opened alongside would be its own small betrayal.
   const applyConfig = React.useCallback((loaded) => {
-    setConfig((previous) => {
-      const kept = new Map();
-      (previous?.layers || []).forEach((spec, index) => {
-        kept.set(`${spec.group}/${spec.name}`, index);
-      });
-      setLayerState((current) =>
-        loaded.layers.map((spec) => {
-          const previousIndex = kept.get(`${spec.group}/${spec.name}`);
-          if (previousIndex != null && current[previousIndex]) return current[previousIndex];
-          return {
-            visible: true,
-            color: spec.color,
-            // No colour map to begin with: a channel opens in the flat colour the
-            // store asked for, and a lookup table is something you choose.
-            lut: null,
-            opacity: 1,
-            // Null means "use the mode-specific measured default". Once the
-            // operator moves either contrast handle, their chosen window becomes
-            // the source of truth in both 2-D and 3-D.
-            window: null,
-          };
-        }),
-      );
-      return loaded;
-    });
+    // What was taken on last time. Kept here rather than read back out of the
+    // displayed state because it is needed *while* deciding the new state, and a
+    // piece of state cannot be read and written in the same breath.
+    // Nothing came back: the server could not be reached. Whatever is on screen
+    // stays there — an experiment half-watched is better than a blank panel — and
+    // the poll below is what says so out loud.
+    if (!loaded) return;
+    const previous = applied.current;
+    // Nothing actually different, so leave everything alone. This matters more
+    // than it looks: the viewer asks whether anything has changed several times a
+    // second, and without this check an identical answer would still count as new
+    // and send the whole picture round again.
+    if (previous && JSON.stringify(previous) === JSON.stringify(loaded)) return;
+    applied.current = loaded;
+
+    // Match each channel now open to the same channel before, so the colour,
+    // contrast and opacity the operator chose follow it across the change.
+    const before = new Map(
+      (previous?.layers || []).map((spec, index) => [`${spec.group}/${spec.name}`, index]),
+    );
+    setLayerState((current) =>
+      loaded.layers.map((spec) => {
+        const was = before.get(`${spec.group}/${spec.name}`);
+        if (was != null && current[was]) return current[was];
+        return {
+          visible: true,
+          color: spec.color,
+          // No colour map to begin with: a channel opens in the flat colour the
+          // store asked for, and a lookup table is something you choose.
+          lut: null,
+          opacity: 1,
+          // Null means "use the mode-specific measured default". Once the
+          // operator moves either contrast handle, their chosen window becomes
+          // the source of truth in both 2-D and 3-D.
+          window: null,
+        };
+      }),
+    );
+    setConfig(loaded);
+
     const groups = loaded.groups || [...new Set(loaded.layers.map((l) => l.group || ""))];
     // Keep the order the operator dragged things into, with anything new appended
     // rather than dropped in the middle of what they arranged.
@@ -460,7 +579,9 @@ export default function App() {
     let cancelled = false;
     Promise.all([fetchConfig(), loadTargets()]).then(([loaded, savedTargets]) => {
       if (cancelled) return;
-      applyConfig(loaded);
+      if (loaded) applyConfig(loaded);
+      else setStoreNotice("Could not reach the server. Is it still running?");
+      targetsFromDisk.current = savedTargets;
       setTargets(savedTargets);
       setTargetsLoaded(true);
     });
@@ -480,18 +601,31 @@ export default function App() {
     if (!config) return undefined;
     let stop = false;
     let last = null;
+    // One failed question is not worth mentioning -- a moment's hiccup on a
+    // network share does that. Several in a row is worth saying out loud, because
+    // a viewer that has quietly lost its server looks exactly like an experiment
+    // that has stopped producing data, and the two call for very different
+    // reactions in the middle of the night.
+    let silence = 0;
     const tick = async () => {
       try {
         const response = await fetch("/api/revision");
         const answer = await response.json();
         if (stop) return;
         if (last !== null && answer.revision !== last) {
-          applyConfig(await fetchConfig());
+          const loaded = await fetchConfig();
+          if (stop) return;
+          if (loaded) applyConfig(loaded);
         }
         last = answer.revision;
+        if (silence >= UNANSWERED_BEFORE_SAYING_SO) setStoreNotice(null);
+        silence = 0;
       } catch {
-        // The server going away briefly is not worth reporting here; the next
-        // tick will pick things up again.
+        if (stop) return;
+        silence += 1;
+        if (silence === UNANSWERED_BEFORE_SAYING_SO) {
+          setStoreNotice("Not hearing from the server — what is shown may be out of date.");
+        }
       }
     };
     const timer = setInterval(tick, 700);
@@ -502,65 +636,116 @@ export default function App() {
     };
   }, [config, applyConfig]);
 
+  // Everything the engine should be showing, in the order it should be drawn.
+  //
+  // This is worked out here, on its own, so that it is recomputed only when
+  // something about the picture has genuinely changed. Note what it does *not*
+  // depend on: the list of drawn targets. Those live in the engine once their
+  // layer exists, and the list beside the image is a reflection of them — so
+  // drawing one must not send the whole scene back through here.
+  const scene = React.useMemo(() => {
+    if (!config || layerState.length !== config.layers.length) return null;
+    const layers = layersFor(config, mode, layerState, groupState, groupOrder);
+    // The layer holding drawn targets is added once the saved ones have been read
+    // back, so whatever was saved is present from the moment the layer exists.
+    if (targetsLoaded) {
+      layers.push(annotationLayer(targetsFromDisk.current, targetColor, targetsVisible));
+    }
+    return layers;
+  }, [
+    config,
+    mode,
+    layerState,
+    groupState,
+    groupOrder,
+    targetsLoaded,
+    targetColor,
+    targetsVisible,
+  ]);
+
   React.useEffect(() => {
-    if (!viewer || !config || layerState.length !== config.layers.length) return;
+    if (!viewer || !scene) return undefined;
     window.zmartViewer = viewer; // handy for inspection and the browser tests
     window.zmartConfig = config;
     window.zmartMode = mode;
     window.zmartLayerState = layerState;
-    const oldSpace = viewer.navigationState.position.coordinateSpace.value;
-    const oldPosition = viewer.navigationState.position.value;
-    const namedPosition = oldSpace?.valid
-      ? Object.fromEntries(oldSpace.names.map((name, index) => [name, oldPosition[index]]))
+    // Where the operator is looking, remembered by axis name rather than by
+    // position in the list. Adding an acquisition can introduce an axis the view
+    // did not have before, which shifts every axis after it along one place; going
+    // by name means the view still comes back to the same plane rather than to
+    // whatever now happens to sit in that slot.
+    const space = viewer.navigationState.position.coordinateSpace.value;
+    const looking = space?.valid
+      ? Object.fromEntries(
+          space.names.map((name, index) => [
+            name,
+            viewer.navigationState.position.value[index],
+          ]),
+        )
       : null;
-    viewer.state.restoreState({
-      layers: [
-        ...layersFor(config, mode, layerState, groupState, groupOrder),
-        annotationLayer(targets, targetColor, targetsVisible),
-      ],
+
+    syncView(viewer, {
       layout: mode === "volume" ? VOLUME_LAYOUT : SLICE_LAYOUT,
       // The engine's own furniture -- the yellow data-bounds box and the axis
       // lines -- is off unless asked for. We are supplying the interface.
-      showDefaultAnnotations: config.chrome ?? false,
-      showAxisLines: config.chrome ?? false,
-      showScaleBar: true,
+      chrome: config.chrome ?? false,
     });
-    const restorePosition = () => {
-      if (!namedPosition) return;
+    const reshaped = syncLayers(viewer, scene);
+    window.zmartLayersReshaped = reshaped; // what the browser tests count
+
+    // Only a change in the shape of the scene can move the view: adding or
+    // removing an image makes the engine work out the coordinate space afresh,
+    // and it lands somewhere sensible rather than where the operator was. Turning
+    // a knob cannot, so in that far more common case nothing here runs at all.
+    if (!reshaped || !looking) return undefined;
+    const lookAgain = () => {
       const position = viewer.navigationState.position;
-      const space = position.coordinateSpace.value;
-      if (!space?.valid) return;
+      const now = position.coordinateSpace.value;
+      if (!now?.valid) return;
       const moved = Float32Array.from(position.value);
       let changed = false;
-      space.names.forEach((name, index) => {
-        if (Number.isFinite(namedPosition[name]) && moved[index] !== namedPosition[name]) {
-          moved[index] = namedPosition[name];
+      now.names.forEach((name, index) => {
+        if (Number.isFinite(looking[name]) && moved[index] !== looking[name]) {
+          moved[index] = looking[name];
           changed = true;
         }
       });
       if (changed) position.value = moved;
     };
-    restorePosition();
-    const restoreTimer = setTimeout(restorePosition, 250);
+    lookAgain();
+    // The coordinate space settles a moment after the images are attached, so it
+    // is worth looking once more shortly afterwards.
+    const settled = setTimeout(lookAgain, 250);
+    return () => clearTimeout(settled);
+  }, [viewer, scene, config, mode, layerState]);
+
+  // Start listening to the layer that holds drawn targets, so the list beside the
+  // image follows what is actually in the engine. The layer's store of annotations
+  // is created a moment after the layer itself, which is why this waits for it
+  // rather than assuming it is there.
+  React.useEffect(() => {
+    if (!viewer || !targetsLoaded) return undefined;
     const connect = () => {
       const layer = viewer.layerManager.getLayerByName(TARGET_LAYER)?.layer;
       const source = layer?.localAnnotations;
-      if (!source || source === annotationSource.current) return false;
+      if (!source) return false; // not built yet; look again shortly
+      if (source === annotationSource.current) return true; // already listening
+      // Let go of the previous one first. This only happens if the layer really
+      // was rebuilt, which is rare now, but leaving the old listener attached
+      // would mean two of them writing to the same list.
+      if (stopListening.current) stopListening.current();
       annotationSource.current = source;
-      const update = () => setTargets(source.toJSON());
-      source.changed.add(update);
+      stopListening.current = source.changed.add(() => setTargets(source.toJSON()));
       window.zmartAnnotationSource = source;
-      setAnnotationGeneration((value) => value + 1);
+      setTargets(source.toJSON());
       return true;
     };
-    const connectTimer = connect() ? null : setInterval(() => {
-      if (connect()) clearInterval(connectTimer);
+    if (connect()) return undefined;
+    const waiting = setInterval(() => {
+      if (connect()) clearInterval(waiting);
     }, 50);
-    return () => {
-      clearTimeout(restoreTimer);
-      if (connectTimer) clearInterval(connectTimer);
-    };
-  }, [viewer, config, mode, layerState, groupState, groupOrder, targetsLoaded, targetColor, targetsVisible]);
+    return () => clearInterval(waiting);
+  }, [viewer, targetsLoaded, scene]);
 
   // Saving happens on its own, shortly after any change, so the operator never
   // has to remember to. That makes it all the more important to *show* whether it
@@ -646,13 +831,39 @@ export default function App() {
     source().delete(reference);
     reference.dispose();
   };
+  /**
+   * Show a target: pick it out, and move the view to where it is.
+   *
+   * Both halves are needed. Picking it out on its own leaves the view exactly
+   * where it was, and a target is usually on some other plane of the stack — so
+   * clicking it in the list looked, from the operator's side, like the button
+   * simply did nothing. Moving the view is what makes it a way of getting back to
+   * a place you marked earlier, which is the whole point of marking it.
+   */
   const selectTarget = (id) => {
     const layer = viewer?.layerManager.getLayerByName(TARGET_LAYER)?.layer;
     const state = layer?.annotationStates?.states?.find((entry) => !entry.source.readonly);
-    if (state) {
-      layer.selectAnnotation(state, id, true);
-      window.zmartSelectedTarget = id;
-    }
+    if (!state) return;
+    layer.selectAnnotation(state, id, true);
+    window.zmartSelectedTarget = id;
+
+    const target = targets.find((entry) => entry.id === id);
+    // A point sits at one place; a box is a corner and its opposite, so the
+    // middle of the two is the place to go.
+    const where =
+      target?.point ||
+      (target?.pointA && target?.pointB
+        ? target.pointA.map((value, axis) => (value + target.pointB[axis]) / 2)
+        : null);
+    if (!where) return;
+    const position = viewer.navigationState.position;
+    const moved = Float32Array.from(position.value);
+    // A target is recorded against the same axes the view uses, in the same
+    // order, so this is a straight copy of as much of it as there is room for.
+    where.slice(0, moved.length).forEach((value, axis) => {
+      if (Number.isFinite(value)) moved[axis] = value;
+    });
+    position.value = moved;
   };
   // Give a target a name. Neuroglancer owns the annotation itself, so the new
   // description is written back through the annotation source rather than kept
@@ -668,54 +879,17 @@ export default function App() {
 
   return (
     <div style={styles.shell}>
-      {config && (
-        <LayerPanel
-          layers={config.layers}
-          state={layerState}
-          mode={mode}
-          groupOrder={groupOrder}
-          groupState={groupState}
-          onGroupToggle={(name) => setGroup(name, { visible: !groupState[name]?.visible })}
-          onGroupOpacity={(name, opacity) => setGroup(name, { opacity })}
-          onGroupMove={moveGroup}
-          busy={storeBusy}
-          notice={storeNotice}
-          onOpenStore={async () => {
-            setStoreBusy(true);
-            setStoreNotice(null);
-            const result = await chooseAndOpen();
-            if (result.config) applyConfig(result.config);
-            if (result.error) setStoreNotice(result.error);
-            setStoreBusy(false);
-          }}
-          onCloseGroup={async (group) => {
-            setStoreBusy(true);
-            setStoreNotice(null);
-            const result = await closeGroup(group);
-            if (result.config) applyConfig(result.config);
-            if (result.error) setStoreNotice(result.error);
-            setStoreBusy(false);
-          }}
-          onToggle={(i) => setLayer(i, { visible: !layerState[i].visible })}
-          onColor={(i, color) => setLayer(i, { color })}
-          onOpacity={(i, opacity) => setLayer(i, { opacity })}
-          onWindow={(i, window) => setLayer(i, { window })}
-          onLut={(i, lut) => setLayer(i, { lut })}
-          lookupTables={Object.keys(LOOKUP_TABLES)}
-        />
-      )}
       <main style={styles.stage}>
         <NeuroglancerView onViewer={setViewer} />
         <ModeToggle mode={mode} onChange={setMode} />
         <div style={styles.axisControls}>
           {/* Z steps through the planes of the stack, so it belongs to the 2-D
               working view; in 3-D the whole depth is already on screen. Time is
-              meaningful in both, and appears only for a timelapse store. */}
-          {mode === "flat" && (
-            <AxisSlider key={`z-${annotationGeneration}`} viewer={viewer} axis="z" label="Z" />
-          )}
+              meaningful in both. Neither appears unless the image actually has
+              that axis with more than one step along it -- a still image gets no
+              time slider, and a single plane gets no Z slider. */}
+          {mode === "flat" && <AxisSlider viewer={viewer} axis="z" label="Z" />}
           <AxisSlider
-            key={`t-${annotationGeneration}`}
             viewer={viewer}
             axis="t"
             label="T"
@@ -728,25 +902,101 @@ export default function App() {
           />
         </div>
       </main>
-      <TargetsPanel
-        targets={targets}
-        activeTool={activeTool}
-        color={targetColor}
-        visible={targetsVisible}
-        saveState={saveState}
-        onTool={setActiveTool}
-        onColor={setTargetColor}
-        onVisible={() => setTargetsVisible((value) => !value)}
-        onSelect={selectTarget}
-        onDelete={deleteTarget}
-        onDescribe={describeTarget}
-      />
+      {/* One bar, on the right, holding everything: the images and the targets.
+          It folds away to the edge because at the microscope the screen is often
+          a laptop's, and a third of it permanently given to controls is a third
+          of the specimen not being looked at. */}
+      <button
+        type="button"
+        onClick={() => setBarOpen((open) => !open)}
+        style={styles.fold}
+        aria-label={barOpen ? "hide the controls" : "show the controls"}
+        aria-expanded={barOpen}
+        title={barOpen ? "Fold the controls away" : "Show the controls"}
+      >
+        {barOpen ? "›" : "‹"}
+      </button>
+      {barOpen && (
+        <aside style={styles.bar} aria-label="controls">
+          {config && (
+            <LayerPanel
+              layers={config.layers}
+              state={layerState}
+              mode={mode}
+              groupOrder={groupOrder}
+              groupState={groupState}
+              selected={selected}
+              onSelect={setSelected}
+              onGroupToggle={(name) => setGroup(name, { visible: !groupState[name]?.visible })}
+              onGroupOpacity={(name, opacity) => setGroup(name, { opacity })}
+              onGroupMove={moveGroup}
+              busy={storeBusy}
+              notice={storeNotice}
+              onOpenStore={async () => {
+                setStoreBusy(true);
+                setStoreNotice(null);
+                const result = await chooseAndOpen();
+                if (result.config) applyConfig(result.config);
+                if (result.error) setStoreNotice(result.error);
+                setStoreBusy(false);
+              }}
+              onCloseGroup={async (group) => {
+                setStoreBusy(true);
+                setStoreNotice(null);
+                const result = await closeGroup(group);
+                if (result.config) applyConfig(result.config);
+                if (result.error) setStoreNotice(result.error);
+                setStoreBusy(false);
+              }}
+              onToggle={(i) => setLayer(i, { visible: !layerState[i].visible })}
+              onColor={(i, color) => setLayer(i, { color })}
+              onOpacity={(i, opacity) => setLayer(i, { opacity })}
+              onWindow={(i, window) => setLayer(i, { window })}
+              onLut={(i, lut) => setLayer(i, { lut })}
+              lookupTables={LOOKUP_TABLE_NAMES}
+            />
+          )}
+          <TargetsPanel
+            targets={targets}
+            activeTool={activeTool}
+            color={targetColor}
+            visible={targetsVisible}
+            saveState={saveState}
+            onTool={setActiveTool}
+            onColor={setTargetColor}
+            onVisible={() => setTargetsVisible((value) => !value)}
+            onSelect={selectTarget}
+            onDelete={deleteTarget}
+            onDescribe={describeTarget}
+          />
+        </aside>
+      )}
     </div>
   );
 }
 
 const styles = {
   shell: { position: "absolute", inset: 0, display: "flex", background: "#0b0d10" },
+  bar: {
+    width: 264,
+    flexShrink: 0,
+    display: "flex",
+    flexDirection: "column",
+    minHeight: 0,
+    borderLeft: "1px solid #232a33",
+    background: "#12161c",
+  },
+  fold: {
+    alignSelf: "stretch",
+    width: 14,
+    border: "none",
+    borderLeft: "1px solid #232a33",
+    background: "#12161c",
+    color: "#8b95a3",
+    font: "12px/1 system-ui, sans-serif",
+    cursor: "pointer",
+    padding: 0,
+  },
   stage: { flex: 1, position: "relative" },
   toggle: {
     position: "absolute",
@@ -782,18 +1032,32 @@ const styles = {
   },
   axisControl: {
     display: "grid",
-    gridTemplateColumns: "18px minmax(220px, 34vw) 70px",
+    gridTemplateColumns: "22px 16px minmax(220px, 34vw) 74px",
     alignItems: "center",
     gap: 8,
     padding: "8px 12px",
     border: "1px solid #2c333d",
     borderRadius: 7,
-    background: "rgba(18, 22, 28, .94)",
-    boxShadow: "0 2px 8px rgba(0,0,0,.55)",
-    color: "#c9d1d9",
+    background: "rgba(12, 15, 19, .82)",
+    boxShadow: "0 2px 10px rgba(0,0,0,.6)",
+    color: "#f2f5f8",
     font: "600 11px/1 system-ui, sans-serif",
   },
-  axisLabel: { color: "#7f8a98" },
+  axisLabel: { color: "#f2f5f8" },
   axisRange: { width: "100%", accentColor: "#2f81f7", cursor: "pointer" },
-  axisValue: { textAlign: "right", color: "#aab4c0", fontVariantNumeric: "tabular-nums" },
+  axisValue: {
+    textAlign: "right",
+    color: "#e6edf3",
+    fontVariantNumeric: "tabular-nums",
+  },
+  play: {
+    border: "1px solid #3a444f",
+    borderRadius: 4,
+    background: "rgba(255,255,255,.06)",
+    color: "#e6edf3",
+    font: "9px/1 system-ui, sans-serif",
+    padding: "3px 0",
+    cursor: "pointer",
+  },
+  playOn: { background: "#2f81f7", color: "#fff", borderColor: "#2f81f7" },
 };

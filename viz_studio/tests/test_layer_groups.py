@@ -187,6 +187,14 @@ class TestChannelControlsStillWork:
         grouped_page.get_by_label("toggle marker-b").first.click()
 
     def test_each_channel_still_has_its_own_contrast_and_opacity(self, grouped_page):
+        """Selecting a channel brings up its own contrast and opacity.
+
+        The controls are shared rather than repeated per row, so what this checks
+        is that they follow the selection: pick a channel and the handles on screen
+        are that channel's.
+        """
+        grouped_page.get_by_label("toggle structure").first.locator("xpath=../..").click()
+        grouped_page.wait_for_timeout(300)
         assert grouped_page.get_by_label("black structure").first.is_visible()
         assert grouped_page.get_by_label("white structure").first.is_visible()
         assert grouped_page.get_by_label("opacity structure").first.is_visible()

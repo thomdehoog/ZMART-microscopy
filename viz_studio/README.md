@@ -61,33 +61,18 @@ That writes a second demo store beside the ordinary one (your single-volume demo
 is left alone) in which the cells drift a little and one marker brightens while
 the other fades, so moving the slider visibly does something.
 
-## Sending a target to the microscope
+## Marking targets for the control application
 
-Draw a box around something interesting, give it a name, and press **Go to**. The
-viewer works out the middle of that box in micrometres and asks Python to drive
-the stage there.
+Draw a point or a box around something interesting and give it a name. The marks
+are saved to `zmart-annotations.json`, in the same folder as the images, a moment
+after you make them — there is no save button to remember.
 
-By default nothing moves. Two separate things must both be true first: a
-connected microscope has to be handed to the server, and stage movement has to be
-switched on explicitly. Until then, **Go to** reports the position it *would*
-have driven to and touches no hardware — which is what makes the demo safe to run
-next to a real instrument.
-
-To let it move the stage, pass the same `zmart_controller` session the
-acquisition workflow uses:
-
-```python
-from zmart_controller import set_instrument
-from launcher import open_window
-
-session = set_instrument(chosen_instrument)   # your connected microscope
-open_window(data_dir=..., store=..., session=session, allow_stage_moves=True)
-```
-
-The travel limits are not re-checked here. Every driver already knows its own
-safe range and refuses a move outside it, and this goes through that same check —
-so if the destination is out of range, the microscope's own refusal is what you
-see, with its reason.
+The viewer does not move the microscope, and cannot. It has no connection to an
+instrument at all. Acting on a target — driving the stage there, starting an
+acquisition — belongs to the control application, which reads that same file. The
+separation is deliberate rather than unfinished: it means this viewer can be
+opened on anyone's data, on any machine, including one sitting next to a running
+experiment, with no possibility of it disturbing anything.
 
 ## Check that it really renders
 

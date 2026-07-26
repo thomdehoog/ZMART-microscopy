@@ -1,0 +1,26 @@
+/*
+ * Hide the controls the engine draws for itself in the corners of the image.
+ *
+ * Neuroglancer is a complete application in its own right, and a few of its own
+ * controls are drawn inside the image rather than in the bars we switched off when
+ * the viewer was created: a cluster of layout buttons in the top-right corner, and
+ * a panel of axis names and field-of-view figures in the top-left.
+ *
+ * They are hidden because they can take the interface somewhere it cannot come
+ * back from. The top-right buttons split and rearrange the drawing area, which the
+ * panel knows nothing about — press one and the operator is left with a layout our
+ * controls cannot undo. The top-left panel edits the coordinate space directly,
+ * which can leave the sliders describing axes that are no longer on screen.
+ *
+ * This is done in a stylesheet rather than by asking the engine to leave them out,
+ * because the engine has no setting for them: the switches it does offer cover its
+ * top bar and side panels, and these two are drawn by the image panel itself.
+ * Hiding them takes nothing away — everything they do that an operator needs is in
+ * our own panel — and it cannot affect how the image is drawn.
+ */
+
+.neuroglancer-data-panel-layout-controls,
+.neuroglancer-display-dimensions-widget,
+.maximize-button {
+  display: none !important;
+}

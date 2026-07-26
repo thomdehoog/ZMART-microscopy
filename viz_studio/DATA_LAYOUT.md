@@ -114,7 +114,7 @@ advantage applies in full to a finished dataset that will be looked at many time
 The viewer reads both shapes already, so this costs no viewer work — only a
 conversion when you decide a particular run deserves it.
 
-### Two things to get right when writing
+### Three things to get right when writing
 
 - **Give every store its stage position** in the metadata (a `translation`). That
   is what lets the viewer lay the pieces out; without it they all pile up at the
@@ -122,6 +122,17 @@ conversion when you decide a particular run deserves it.
 - **Keep the pyramid shallow for small tiles.** Each resolution level is another
   small file the viewer must read before drawing. A 256-pixel tile does not need
   four levels; one or two is plenty, and it cuts the reading proportionally.
+- **File the pieces in folders, not side by side in one directory.** In zarr terms
+  that means `dimension_separator: "/"`, so a piece lands at `0/3/1/8/0/0` rather
+  than being named `0/3.1.8.0.0`. Neuroglancer reads both, and this was checked
+  rather than assumed. Two things make the folders worth insisting on. A long
+  timelapse otherwise ends up with millions of files in a single directory, which
+  most filesystems handle badly and some tools refuse outright. And the viewer can
+  then tell how far a run has got simply by counting the folders at the top level
+  — one per timepoint — instead of walking through every piece ever written. That
+  is the difference between the time slider knowing where the live edge is
+  instantly and the viewer giving up on the question, which is what it does when
+  a directory turns out to hold more pieces than it is sensible to count.
 
 ## Decision 2: declare time generously, and never resize
 
