@@ -288,6 +288,7 @@ export default function LayerPanel({
   onLut,
   selected = 0,
   onSelect,
+  canOpen = true,
   lookupTables = [],
   onGroupToggle,
   onGroupOpacity,
@@ -365,6 +366,26 @@ export default function LayerPanel({
 
   return (
     <section style={styles.panel} aria-label="layer panel">
+      {/* Choosing folders by hand is for using the viewer on its own. During a
+          run the workflow decides what is shown, so this whole box is absent —
+          see `allow_open` in the server. */}
+      {canOpen && onOpenStore && (
+        <div style={styles.loadBox}>
+          <div style={styles.headingRow}>
+            <span style={styles.heading}>load data</span>
+            <button
+              type="button"
+              onClick={onOpenStore}
+              disabled={busy}
+              style={styles.openButton}
+              aria-label="open images"
+              title="Choose a folder of images to show"
+            >
+              {busy ? "…" : "choose folder"}
+            </button>
+          </div>
+        </div>
+      )}
       {layers[selected] && state[selected] && (
         <ChannelControls
           layer={layers[selected]}
@@ -379,18 +400,6 @@ export default function LayerPanel({
       )}
       <div style={styles.headingRow}>
         <span style={styles.heading}>image data</span>
-        {onOpenStore && (
-          <button
-            type="button"
-            onClick={onOpenStore}
-            disabled={busy}
-            style={styles.openButton}
-            aria-label="open images"
-            title="Open a folder of images and add it to what is shown"
-          >
-            {busy ? "…" : "+ open"}
-          </button>
-        )}
       </div>
       {notice && (
         <div style={styles.notice} role="alert">
@@ -529,6 +538,7 @@ const styles = {
     fontVariantNumeric: "tabular-nums",
   },
   eyeGlyph: { width: 14, height: 14, display: "block" },
+  loadBox: { borderBottom: "1px solid #2b3440", paddingBottom: 2, flexShrink: 0 },
   headingRow: {
     display: "flex",
     alignItems: "center",

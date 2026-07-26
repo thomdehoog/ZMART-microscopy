@@ -523,6 +523,7 @@ def make_server(
     chrome: bool = False,
     browse=None,
     watch: bool = True,
+    allow_open: bool = True,
 ) -> ThreadingHTTPServer:
     """Create (but do not start) the viewer's web server.
 
@@ -535,6 +536,23 @@ def make_server(
     contain it and every file is refused. A mapped network drive is the case
     that bites — ``Z:\\...`` resolves to ``\\\\server\\share\\...``, which
     shares no prefix with what the caller passed.
+
+    ``allow_open`` decides whether the page offers the operator a way to choose
+    folders for themselves.
+
+    It is on by default, because someone opening the viewer on its own — to look
+    at yesterday's run, or at a colleague's data — needs some way to say which
+    folder. During a smart-microscopy experiment it should be off. There the
+    workflow decides what is worth looking at, and a "load data" button would
+    invite someone to add an image the experiment knows nothing about, sitting on
+    screen beside the images the experiment chose, with nothing to tell them apart.
+
+    Switching it off hides that part of the panel and nothing else. Images can
+    still be put on screen from outside the page, and that is how a workflow does
+    it: either by naming them here when the viewer is started, or by asking
+    ``POST /api/stores/open`` as the run goes on. Those routes stay open on
+    purpose, so that what is shown is decided by the experiment rather than by
+    whoever happens to be watching it.
     """
     data_dir = Path(data_dir).resolve()
     names = [store] if isinstance(store, str) else list(store)
@@ -708,6 +726,11 @@ def make_server(
             "groups": groups,
             "depthSamples": depth_samples,
             "chrome": chrome,
+            # Whether the operator may choose folders themselves. See the note on
+            # ``allow_open`` in make_server: during a run the workflow decides what
+            # is shown, and offering a "load data" button would invite someone to
+            # add something the experiment knows nothing about.
+            "canOpen": allow_open,
         }
 
     class _Server(ThreadingHTTPServer):

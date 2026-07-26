@@ -927,6 +927,7 @@ export default function App() {
               groupState={groupState}
               selected={selected}
               onSelect={setSelected}
+              canOpen={config.canOpen !== false}
               onGroupToggle={(name) => setGroup(name, { visible: !groupState[name]?.visible })}
               onGroupOpacity={(name, opacity) => setGroup(name, { opacity })}
               onGroupMove={moveGroup}
