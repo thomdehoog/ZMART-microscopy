@@ -634,11 +634,16 @@ knows the length has moved.
 
 **Both therefore come down to one missing mechanism: something has to tell the page.**
 
-The viewer used to find out by asking — reading the modification times of everything
-open, several times a second. That is gone, and it should stay gone. It inferred
-"finished" from timestamps, which is not something a timestamp can say, and it was wrong
+The viewer currently finds out by asking — reading the modification times of everything
+open, several times a second — and that is what should be replaced. It infers "finished"
+from a timestamp, which is not something a timestamp can say, and it has been wrong
 twice: a store is created before it is readable, so a new acquisition was noticed at the
-one moment it could not be opened and then never looked at again.
+one moment it could not be opened, and then never looked at again.
+
+It is still there on purpose. Removing it before the channel below exists was tried, and
+it leaves the viewer unable to hear anything at all: the announcement reaches the server
+and stops, because nothing can tell an already-open page. So the asking stays until there
+is something better, and then it goes.
 
 The control application knows. It called for the acquisition and waited for the write to
 finish, so at that moment it holds the fact we were trying to guess. It should say so:
