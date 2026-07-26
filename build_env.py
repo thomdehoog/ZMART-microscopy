@@ -50,6 +50,10 @@ VERIFY = {
     "anywidget": "import anywidget",
     "traitlets": "import traitlets",
     "playwright-python": "import playwright.sync_api",
+    # The website's own desktop window (`run_webapp.py --window`). Importing it
+    # loads no GUI toolkit — pywebview picks one only when the window opens —
+    # so this check is safe on a headless CI machine.
+    "pywebview": "import webview",
     "pytest": "import pytest",
     "pytest-cov": "import pytest_cov",
     "ruff": "import ruff",
