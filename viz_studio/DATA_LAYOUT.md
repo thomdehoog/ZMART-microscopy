@@ -246,6 +246,36 @@ brightness window. The viewer honours all three, so an acquisition arrives looki
 sensible instead of flat grey. Without it, channels are named by number and the
 window is measured from the pixels, which costs a read.
 
+**A timelapse grows its own length; it is not declared in advance.** When a frame is
+written, the array's shape is raised by one. The store then always says what it actually
+contains, which is the honest arrangement: the time slider ends where the data ends,
+with nothing having to hide frames that do not exist yet.
+
+The alternative — declaring a generous length up front and never changing it — was
+considered and rejected as untidy. It works, and it has one merit: the description never
+changes, so it could be kept by the browser indefinitely. But it means the store claims
+frames it does not have, and something then has to stop the operator reaching them,
+because the engine remembers "there is nothing here" for a frame looked at too early and
+will not look again.
+
+Growing it is affordable, which is what makes the tidier choice the practical one too. A
+store's description is a few hundred bytes whether the array holds one frame or ten
+thousand — only a number in it changes — and re-reading it does not touch a single voxel,
+because a piece of image keeps its address when the array grows.
+
+**What that means for keeping copies.** The two kinds of file are treated oppositely, and
+the reason is exactly this decision:
+
+- **Pieces of image: kept for a year, and marked as never changing.** Written once,
+  never rewritten. An acquisition can run for many hours, so anything shorter would have
+  a piece expire mid-run, and returning to somewhere already visited would fetch it all
+  again.
+- **The files describing a store: never kept at all.** They are what changes when a
+  timelapse grows. A stale copy, even a few seconds old, would leave the engine believing
+  the old length — so a frame sitting on disk would simply not appear, with nothing to
+  explain why. The cost of always asking is a round trip, not a read: a few hundred bytes,
+  answered from memory.
+
 **One depth per image, and let it be the camera's own.** The kind of number a voxel
 is — 16-bit, 8-bit — is read from the store itself, so nothing has to be told and an
 8-bit acquisition from some other instrument opens and displays correctly. What matters
