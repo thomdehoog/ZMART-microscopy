@@ -122,28 +122,51 @@ async function loadTargets() {
   }
 }
 
-function zAxis(viewer) {
+// Read one named axis out of the engine's current coordinate space: where it can
+// travel, and where it is now. Returns null when the image has no such axis --
+// which is the normal answer for `t` on anything that is not a timelapse, and is
+// exactly how the interface decides whether to offer a time slider at all.
+function axisInfo(viewer, name) {
   const position = viewer?.navigationState.position;
   const space = position?.coordinateSpace.value;
   if (!space?.valid) return null;
-  const index = space.names.indexOf("z");
+  const index = space.names.indexOf(name);
   if (index < 0) return null;
+  // Neuroglancer describes an axis by the real-valued extent the data covers, and
+  // separately says whether a whole plane (or frame) sits *on* an integer
+  // coordinate or halfway between two. Both conventions occur, and the slider has
+  // to land exactly on the planes that exist -- one step too few and the last
+  // plane of every stack is unreachable, one too many and the slider runs off the
+  // end of the data.
+  //
+  // When centres are on integers the engine reports the extent shifted by half a
+  // voxel (a 48-plane stack comes back as -0.5 to 47.5), so the planes are simply
+  // the integers inside that range. When centres fall between integers the extent
+  // is unshifted, so the reachable positions are the half-integers inside it.
   const integerCentres = space.bounds.voxelCenterAtIntegerCoordinates[index];
   const lower = space.bounds.lowerBounds[index];
   const upper = space.bounds.upperBounds[index];
   const min = integerCentres ? Math.ceil(lower) : Math.ceil(lower - 0.5) + 0.5;
-  const max = integerCentres ? Math.floor(upper - 1) : Math.floor(upper - 0.5) + 0.5;
+  const max = integerCentres ? Math.floor(upper) : Math.floor(upper - 0.5) + 0.5;
   if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return null;
   return { index, min, max, value: position.value[index] };
 }
 
-function ZSlider({ viewer }) {
+/**
+ * One slider that steps the view along a single axis of the image.
+ *
+ * Used twice: for `z`, to move through the planes of a stack, and for `t`, to
+ * move through the frames of a timelapse. Both are the same job -- change one
+ * number in the engine's position -- so they are the same control, and a store
+ * that has no such axis simply gets no slider.
+ */
+function AxisSlider({ viewer, axis: axisName, label, step = 0.5, unit = "" }) {
   const [axis, setAxis] = React.useState(null);
 
   React.useEffect(() => {
     if (!viewer) return undefined;
     const update = () => {
-      const next = zAxis(viewer);
+      const next = axisInfo(viewer, axisName);
       setAxis((current) =>
         current?.index === next?.index &&
         current?.min === next?.min &&
@@ -178,13 +201,13 @@ function ZSlider({ viewer }) {
       removeSpaceListener();
       cancelAnimationFrame(frame);
     };
-  }, [viewer]);
+  }, [viewer, axisName]);
 
   if (!axis) return null;
   const value = Math.max(axis.min, Math.min(axis.max, axis.value));
-  const plane = Math.round(value - axis.min + 1);
+  const stepNumber = Math.round(value - axis.min + 1);
   const count = Math.round(axis.max - axis.min + 1);
-  const setZ = (next) => {
+  const moveTo = (next) => {
     const current = viewer.navigationState.position.value;
     const moved = Float32Array.from(current);
     moved[axis.index] = next;
@@ -192,20 +215,21 @@ function ZSlider({ viewer }) {
   };
 
   return (
-    <label style={styles.zControl}>
-      <span style={styles.zLabel}>Z</span>
+    <label style={styles.axisControl}>
+      <span style={styles.axisLabel}>{label}</span>
       <input
         type="range"
         min={axis.min}
         max={axis.max}
-        step="0.5"
+        step={step}
         value={value}
-        onChange={(event) => setZ(Number(event.target.value))}
-        aria-label="z position"
-        style={styles.zRange}
+        onChange={(event) => moveTo(Number(event.target.value))}
+        aria-label={`${axisName} position`}
+        style={styles.axisRange}
       />
-      <output aria-label="z position value" style={styles.zValue}>
-        {plane} / {count}
+      <output aria-label={`${axisName} position value`} style={styles.axisValue}>
+        {stepNumber} / {count}
+        {unit}
       </output>
     </label>
   );
@@ -232,6 +256,11 @@ export default function App() {
   const [targetsVisible, setTargetsVisible] = React.useState(true);
   const [activeTool, setActiveTool] = React.useState(null);
   const [annotationGeneration, setAnnotationGeneration] = React.useState(0);
+  // What happened the last time the targets were saved, and the last time a
+  // target was sent to the microscope. Both are shown in the panel so neither
+  // can fail quietly.
+  const [saveState, setSaveState] = React.useState({ status: "idle" });
+  const [gotoState, setGotoState] = React.useState(null);
   const annotationSource = React.useRef(null);
 
   React.useEffect(() => {
@@ -315,16 +344,39 @@ export default function App() {
     };
   }, [viewer, config, mode, layerState, targetsLoaded, targetColor, targetsVisible]);
 
+  // Saving happens on its own, shortly after any change, so the operator never
+  // has to remember to. That makes it all the more important to *show* whether it
+  // worked: a target list that silently failed to save looks exactly like one
+  // that saved, right up until the acquisition is reopened and the targets are
+  // gone.
   React.useEffect(() => {
     if (!targetsLoaded) return undefined;
-    const timer = setTimeout(() => {
-      fetch("/api/annotations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: 1, annotations: targets }),
-      });
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSaveState({ status: "saving" });
+      try {
+        const response = await fetch("/api/annotations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, annotations: targets }),
+        });
+        if (cancelled) return;
+        if (response.ok) {
+          setSaveState({ status: "saved" });
+          return;
+        }
+        const detail = await response.json().catch(() => null);
+        setSaveState({ status: "error", message: detail?.error || `save failed (${response.status})` });
+      } catch (error) {
+        // Almost always the server having gone away -- worth saying plainly
+        // rather than leaving the panel looking as though all is well.
+        if (!cancelled) setSaveState({ status: "error", message: "could not reach the server" });
+      }
     }, 150);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [targets, targetsLoaded]);
 
   React.useEffect(() => {
@@ -359,6 +411,18 @@ export default function App() {
       window.zmartSelectedTarget = id;
     }
   };
+  // Give a target a name. Neuroglancer owns the annotation itself, so the new
+  // description is written back through the annotation source rather than kept
+  // beside it -- that way the engine, the list, and the saved file cannot drift
+  // apart, and the change reaches the sidecar by the same route as everything
+  // else the operator draws.
+  const describeTarget = (id, description) => {
+    const reference = source()?.getReference(id);
+    if (!reference?.value) return;
+    source().update(reference, { ...reference.value, description });
+    reference.dispose();
+  };
+
   const gotoTarget = async (target) => {
     const space = viewer.navigationState.position.coordinateSpace.value;
     const physical = (point) =>
@@ -366,11 +430,41 @@ export default function App() {
         space.names[index] || `axis${index}`,
         { value: value * space.scales[index], unit: space.units[index] || "" },
       ]));
-    await fetch("/api/goto", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: target.id, pointA: physical(target.pointA), pointB: physical(target.pointB) }),
-    });
+    const body = { id: target.id };
+    // A box goes to its middle; a point goes to itself. Which keys are sent is
+    // what tells Python which of those two it is.
+    if (target.type === "point") {
+      body.point = physical(target.point);
+    } else {
+      body.pointA = physical(target.pointA);
+      body.pointB = physical(target.pointB);
+    }
+    setGotoState({ status: "sending", id: target.id });
+    try {
+      const response = await fetch("/api/goto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const answer = await response.json().catch(() => null);
+      if (!response.ok) {
+        // A refusal from the microscope's own travel limits arrives here. It is
+        // the guard doing its job, so the reason is shown rather than hidden.
+        setGotoState({
+          status: "error",
+          id: target.id,
+          message: answer?.error || `the microscope refused (${response.status})`,
+        });
+        return;
+      }
+      setGotoState({
+        status: answer?.moved ? "moved" : "reported",
+        id: target.id,
+        message: answer?.action || "",
+      });
+    } catch {
+      setGotoState({ status: "error", id: target.id, message: "could not reach the server" });
+    }
   };
 
   return (
@@ -389,19 +483,36 @@ export default function App() {
       <main style={styles.stage}>
         <NeuroglancerView onViewer={setViewer} />
         <ModeToggle mode={mode} onChange={setMode} />
-        {mode === "flat" && <ZSlider key={annotationGeneration} viewer={viewer} />}
+        <div style={styles.axisControls}>
+          {/* Z steps through the planes of the stack, so it belongs to the 2-D
+              working view; in 3-D the whole depth is already on screen. Time is
+              meaningful in both, and appears only for a timelapse store. */}
+          {mode === "flat" && (
+            <AxisSlider key={`z-${annotationGeneration}`} viewer={viewer} axis="z" label="Z" />
+          )}
+          <AxisSlider
+            key={`t-${annotationGeneration}`}
+            viewer={viewer}
+            axis="t"
+            label="T"
+            step={1}
+          />
+        </div>
       </main>
       <TargetsPanel
         targets={targets}
         activeTool={activeTool}
         color={targetColor}
         visible={targetsVisible}
+        saveState={saveState}
+        gotoState={gotoState}
         onTool={setActiveTool}
         onColor={setTargetColor}
         onVisible={() => setTargetsVisible((value) => !value)}
         onSelect={selectTarget}
         onDelete={deleteTarget}
         onGoto={gotoTarget}
+        onDescribe={describeTarget}
       />
     </div>
   );
@@ -430,12 +541,19 @@ const styles = {
     cursor: "pointer",
   },
   buttonActive: { background: "#2f6feb", color: "#fff" },
-  zControl: {
+  // The sliders stack in one column at the bottom of the stage, so a timelapse
+  // showing both Z and T never has them overlapping.
+  axisControls: {
     position: "absolute",
     left: "50%",
     bottom: 16,
     transform: "translateX(-50%)",
     zIndex: 10,
+    display: "grid",
+    gap: 6,
+    justifyItems: "stretch",
+  },
+  axisControl: {
     display: "grid",
     gridTemplateColumns: "18px minmax(220px, 34vw) 70px",
     alignItems: "center",
@@ -448,7 +566,7 @@ const styles = {
     color: "#c9d1d9",
     font: "600 11px/1 system-ui, sans-serif",
   },
-  zLabel: { color: "#7f8a98" },
-  zRange: { width: "100%", accentColor: "#2f81f7", cursor: "pointer" },
-  zValue: { textAlign: "right", color: "#aab4c0", fontVariantNumeric: "tabular-nums" },
+  axisLabel: { color: "#7f8a98" },
+  axisRange: { width: "100%", accentColor: "#2f81f7", cursor: "pointer" },
+  axisValue: { textAlign: "right", color: "#aab4c0", fontVariantNumeric: "tabular-nums" },
 };
