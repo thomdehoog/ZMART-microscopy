@@ -36,240 +36,34 @@ whatever else an experiment invents. Each type is acquired at one or more
 
 In the standard OME-Zarr ordering that image is `t, c, z, y, x`.
 
-## Decision 1 revisited: one store per acquisition type, tiles written into it
+## Decision 1: one store per position, carrying its own place in space
 
-> **This supersedes the original Decision 1, which follows below and is kept
-> because the reasoning that led away from it is worth keeping.** The change is
-> that an acquisition type is now *one* OME-Zarr image, and each position is a
-> region written into it — rather than one image per position, assembled on screen.
+An OME-Zarr image can state where it sits in physical space: a `translation`
+alongside the voxel size in its own metadata. A viewer reads that and puts the image
+where it belongs, and so does any other tool that understands the format.
 
-### The limit of this: overlap cannot survive it
+That one field is what makes this decision simple. **A position does not need to be
+stored in any shared grid — it needs to carry its own x, y, z.** Everything else
+follows:
 
-One image holds **one value per voxel**. So where two tiles overlap, the second one
-written replaces the first in the shared region — the two versions of that region
-cannot both be kept, because there is only one place to put them.
+- **No canvas has to be declared**, because nothing shares an array. An experiment
+  need not know the region it will cover, which was the objection that started this
+  whole question.
+- **No alignment rule.** Since no two acquisitions ever write to the same file, the
+  concurrent-write hazard described further down cannot arise at all.
+- **Overlap is preserved**, so stitching still has both views of a shared region to
+  compare. This is the one that rules out the alternative for raw data.
+- **A position discovered mid-run just appears.** A target scan the workflow decided
+  on a minute ago writes its own store with its own translation, and nothing already
+  written has to change.
 
-That matters because overlap is usually there on purpose. Tiles are acquired with a
-few per cent of overlap precisely so that stitching can afterwards compare the two
-views of the same specimen and work out the true alignment, correcting for whatever
-the stage got slightly wrong. Flattening the tiles into one image at acquisition time
-throws that comparison away before it can be made, and no later step can recover it.
-
-So the honest position is that these are two different artefacts, at two different
-stages, and a run that intends to stitch needs both:
-
-**The raw tiles, one store per position, overlap intact.** This is what stitching
-reads. It is also what the viewer shows while a run is in progress, because it is what
-exists at that moment. The original Decision 1 below describes this layout, and it is
-not superseded for this purpose — it is the correct shape for data coming off an
-instrument.
-
-**One stitched image, written afterwards.** This is what the one-image-per-acquisition
--type layout above is for: an image assembled once the alignment is known, whether by
-a stitcher or simply by trusting the stage coordinates. It is the right thing to keep,
-to hand to a colleague, and to view for the rest of the data's life.
-
-A run that never intends to stitch — one that trusts the stage — can skip the first
-and write the second directly, and then everything above applies with no caveat.
-
-This is why the viewer has to handle both, and why the work on opening many stores
-quickly is not wasted: during acquisition, many stores is what there is.
-
-### Why the original reason no longer holds
-
-The original decision avoided one big image for one reason: an OME-Zarr image has a
-declared shape, so a single image covering the whole stage means saying how large
-the stage region is before the first tile has been taken. That could not be
-answered — it changes with every experiment.
-
-Two measurements dissolve that.
-
-**Declared size is not occupied size.** An image is stored as many small chunk
-files, and a chunk file only comes into existence when something writes to it. The
-declared shape is a statement in a metadata file, not a reservation of disk. We
-measured a declared 4 TiB image occupying **59 MiB** on disk. So the canvas does not
-have to be known — only generously over-estimated, which is a much easier thing to
-do. Declare a metre of stage travel if you like; it costs nothing until imaged.
-
-**And the shape can be raised afterwards.** Chunks are addressed by their index, so
-extending an image outward leaves every existing chunk exactly where it was.
-Measured: an image declared with two timepoints, grown to five after the fact, kept
-both original frames intact, accepted a write at frame five, and read the frames
-never written as empty. Timepoints can therefore be added retrospectively, which is
-what a timelapse of unpredictable length needs.
-
-The one thing that is **not** allowed is extending *backwards* past the origin.
-That would shift every index by one and invalidate every chunk already written. So
-the origin goes at a corner of the region and growth only ever goes outward.
-
-### How big to make the canvas
-
-Since declared space is free and the shape can be raised later, the temptation is to
-declare something enormous and never think about it again. That is nearly right, and
-there is one bound worth respecting: **declare the stage travel the experiment can
-actually use, not the largest number that will fit.** A stage has a real range, and
-it is generous next to a specimen without being absurd.
-
-Two things scale with the declared size rather than with the data, and both go wrong
-quietly if the canvas is wildly over-declared.
-
-**The brightness measurement.** The window an image first appears with is measured
-from the smallest copy in the pyramid, and how big that copy is follows from the
-canvas. On a canvas a hundred times larger than the specimen, that copy is almost
-entirely empty, so the measurement is taken mostly from nothing and the window comes
-out wrong — the specimen then appears black, or washed out. It reads as a broken
-viewer rather than as a metadata choice.
-
-**The opening view.** The viewer opens showing the whole declared extent. Over-declare
-by a large factor and the specimen is a few pixels in the corner of an empty field,
-which again looks like a fault rather than a choice.
-
-A canvas a little larger than the stage can reach avoids both, and leaves growth as
-the rare answer to a genuine surprise rather than something relied upon — which suits
-it, since growth is the one operation with a restriction attached.
-
-### If the experiment does not say: use the stage limits
-
-An experiment should state the region it means to cover, because it usually knows —
-that is the same decision as choosing where to image and at what magnification. But
-it will not always say, and a viewer that refuses to open until someone fills in a
-number is no use at the microscope.
-
-**So where no canvas is given, the canvas is the stage's own travel limits.**
-
-This is a good default rather than a resigned one, for three reasons.
-
-It is already known. The travel limits are established during setup, before any
-imaging, because the instrument needs them to keep from driving into its own end
-stops. Nothing has to be guessed or asked for.
-
-It cannot be too small. The stage physically cannot reach outside its limits, so no
-tile can ever land beyond the canvas — which means growth is not merely rare, it is
-impossible, and the one operation with a restriction attached never has to happen.
-The origin sits at the low end of travel in each spatial axis, so there is nothing
-behind it either.
-
-And it is not wildly too large. A stage's range is a few centimetres, which is
-generous next to a specimen but nowhere near the hundred-fold over-declaration that
-would spoil the brightness measurement or open the view on an empty field. It sits
-comfortably inside the bound described above.
-
-The cost is honest and small: an experiment covering one corner of the stage gets a
-canvas larger than it needed, so it opens zoomed further out than ideal and its
-first brightness measurement is taken from a sparser picture. An experiment that
-cares can say so and get something tighter. One that does not care still works.
-
-### What a writer has to get right
-
-Everything the viewer needs from a store, in one place, so a writer can be built
-against it. Each item is either measured or read out of the engine's own source.
-
-**The format.** Zarr version 2, inside an OME-NGFF 0.4 image. The viewer asks the
-engine for `zarr2` explicitly, so a version 3 store will not open.
-
-**The axes.** `t, c, z, y, x`, in that order, each named in the `multiscales` block.
-Fewer is fine — a store with no time axis simply gets no time slider — but the order
-of those present must be that one. Spatial axes must declare a length unit
-(`micrometer` is what we use); the scale bar looks for a length and ignores anything
-else, which is why a time axis never produces one.
-
-**The pieces must be filed in folders**, which in zarr terms is
-`dimension_separator: "/"`, so a piece lands at `0/3/1/8/0` rather than being named
-`0/3.1.8.0`. The engine reads both. Two things make the folders necessary anyway: a
-long timelapse otherwise puts millions of files in one directory, which most
-filesystems handle badly; and it lets the viewer see how far a run has got by asking
-about one folder rather than reading every piece ever written.
-
-**Chunk size in y and x: a few hundred pixels, and not more than about a thousand.**
-256 is a good choice. This is not only about transfer size. When the viewer measures
-how bright a new image is, it reads a bounded sample — but the smallest thing that
-can be read from a store is one whole chunk, so very large chunks force it to read
-far more than it uses. Measured on a store chunked 8192 x 8192: **537 MB read to
-obtain 4 million voxels**, a sixty-fold waste, two thirds of a second per store.
-
-**One plane per chunk in z, c and t.** A chunk spanning several planes means fetching
-all of them to show one, which is most of what makes scrolling through a stack feel
-slow.
-
-**A pyramid, and let it reach a small top.** The coarsest level is what the viewer
-measures brightness from and what the engine draws when zoomed out, so it should be
-small enough to read quickly — a few megabytes at most. A store with no pyramid still
-opens, but it will be slow to open and coarse views will fetch full-resolution data.
-
-**An `omero` block** naming each channel, giving it a colour, and giving a starting
-brightness window. The viewer honours all three, so an acquisition arrives looking
-sensible instead of flat grey. Without it, channels are named by number and the
-window is measured from the pixels, which costs a read.
-
-**Write each piece complete, or not at all.** The viewer tells the browser it may
-keep a piece it has fetched, because a piece is written once and never rewritten. A
-half-written piece that is readable would be kept in that state. Writing to a
-temporary name and moving it into place gives this for nothing on every filesystem
-we care about.
-
-**Never rewrite or resize a piece that already exists.** Growing the declared shape
-is fine and is described above; changing what a chunk contains is not, because a
-reader may already be holding it.
-
-### What this buys
-
-The viewer receives one multiscale image per acquisition type and lets Neuroglancer
-do what it is good at: choose a resolution level, fetch only the tiles under the
-current view, and keep what it has fetched. Assembling the specimen stops being the
-viewer's job — the pieces are already one image.
-
-It also removes a great deal of work that only existed to cope with many images:
-naming hundreds of stores distinctly, merging positions into one row per channel,
-measuring the brightness of each store separately, and reading every store's
-description each time the panel is refreshed.
-
-### The constraint that makes it safe: tiles must land on chunk boundaries
-
-This is the real cost of the change, and it falls on the writing side.
-
-Two tiles written at the same moment are safe only if they do not share a chunk
-file. Where they do share one, both processes read that chunk, each adds its own
-tile to its own copy, and each writes the whole chunk back — so whichever finishes
-second erases the other's contribution. This is not a theoretical worry. Measured,
-with four tiles written concurrently into one image:
-
-| how the tiles sat | result |
-|---|---|
-| each tile occupying whole chunks of its own | every tile intact |
-| tiles straddling chunk edges | **up to 75% of a tile's voxels lost** |
-
-With one image per position this could not happen, because no two writers ever
-touched the same file. With a shared image it happens silently — no error, no
-warning, just missing data in a picture that looks plausible.
-
-So, for the driver:
-
-- **Choose the chunk size and the tile step together**, so that a tile begins and
-  ends on a chunk boundary in y and x. A tile that is a whole multiple of the chunk
-  size, stepped by that same multiple, satisfies this.
-- **Overlap between tiles is the thing to watch.** Tiled acquisitions usually
-  overlap by a few per cent for stitching, and an overlap that is not a whole
-  number of chunks puts two tiles in one chunk. Either round the step to a chunk
-  multiple, or write overlapping tiles one at a time rather than concurrently.
-- **If neither is possible, serialise the writes** for tiles that share chunks. One
-  writer per chunk at any moment is all that is required.
-
-### One thing the viewer must do differently
-
-The small files describing an image are currently served with permission for the
-browser to keep them for an hour, which is right for finished data and wrong for an
-image still growing: a canvas that got larger, or a timelapse that gained frames,
-would not be noticed until that hour was up. In live mode those description files
-must not be cached. Static mode should keep caching them, since nothing can change.
-
----
-
-## Decision 1 (original, now superseded): one store per acquisition, per position
-
-> Kept as the record of how we got here. The conclusion changed — see above — but
-> the measurements in this section are still sound, and the reason it was rejected
-> at the time (that the canvas had to be known up front) is exactly the assumption
-> that later turned out to be avoidable.
+The cost is that assembling the specimen happens when it is displayed rather than
+when it is written, so the viewer opens many stores instead of one. That is a
+question of speed, and it has been dealt with where it was slow: counting a
+timelapse's frames is now incremental, the answer to "what is open" is kept against
+a cheap fingerprint rather than rebuilt, and the paths that grew with the square of
+the number of stores are linear. Finished data can be opened in static mode, which
+stops the looking altogether.
 
 A "store" is one OME-Zarr, which is a *folder* on disk rather than a single file.
 One store holds one image, its shrunk-down copies, and a little metadata.
@@ -366,6 +160,236 @@ conversion when you decide a particular run deserves it.
   is the difference between the time slider knowing where the live edge is
   instantly and the viewer giving up on the question, which is what it does when
   a directory turns out to hold more pieces than it is sensible to count.
+
+### What a writer has to get right
+
+Everything the viewer needs from a store, in one place, so a writer can be built
+against it. Each item is either measured or read out of the engine's own source.
+
+**The format.** Zarr version 2, inside an OME-NGFF 0.4 image. The viewer asks the
+engine for `zarr2` explicitly, so a version 3 store will not open.
+
+**The axes.** `t, c, z, y, x`, in that order, each named in the `multiscales` block.
+Fewer is fine — a store with no time axis simply gets no time slider — but the order
+of those present must be that one. Spatial axes must declare a length unit
+(`micrometer` is what we use); the scale bar looks for a length and ignores anything
+else, which is why a time axis never produces one.
+
+**The pieces must be filed in folders**, which in zarr terms is
+`dimension_separator: "/"`, so a piece lands at `0/3/1/8/0` rather than being named
+`0/3.1.8.0`. The engine reads both. Two things make the folders necessary anyway: a
+long timelapse otherwise puts millions of files in one directory, which most
+filesystems handle badly; and it lets the viewer see how far a run has got by asking
+about one folder rather than reading every piece ever written.
+
+**Chunk size in y and x: a few hundred pixels, and not more than about a thousand.**
+256 is a good choice. This is not only about transfer size. When the viewer measures
+how bright a new image is, it reads a bounded sample — but the smallest thing that
+can be read from a store is one whole chunk, so very large chunks force it to read
+far more than it uses. Measured on a store chunked 8192 x 8192: **537 MB read to
+obtain 4 million voxels**, a sixty-fold waste, two thirds of a second per store.
+
+**One plane per chunk in z, c and t.** A chunk spanning several planes means fetching
+all of them to show one, which is most of what makes scrolling through a stack feel
+slow.
+
+**A pyramid, and let it reach a small top.** The coarsest level is what the viewer
+measures brightness from and what the engine draws when zoomed out, so it should be
+small enough to read quickly — a few megabytes at most. A store with no pyramid still
+opens, but it will be slow to open and coarse views will fetch full-resolution data.
+
+**An `omero` block** naming each channel, giving it a colour, and giving a starting
+brightness window. The viewer honours all three, so an acquisition arrives looking
+sensible instead of flat grey. Without it, channels are named by number and the
+window is measured from the pixels, which costs a read.
+
+**Write each piece complete, or not at all.** The viewer tells the browser it may
+keep a piece it has fetched, because a piece is written once and never rewritten. A
+half-written piece that is readable would be kept in that state. Writing to a
+temporary name and moving it into place gives this for nothing on every filesystem
+we care about.
+
+**Never rewrite or resize a piece that already exists.** Growing the declared shape
+is fine and is described above; changing what a chunk contains is not, because a
+reader may already be holding it.
+
+## Decision 1b: one stitched image, afterwards, if it is wanted
+
+Everything above describes data as it comes off an instrument. There is a second,
+optional artefact worth having once a run is finished and the alignment is known:
+**a single OME-Zarr image with the positions written into their places.**
+
+One image is the better thing to keep, hand to a colleague, or archive. It is a
+picture rather than a set of pieces plus instructions for arranging them, so any
+tool can open it without understanding how the acquisition was organised, and the
+viewer has one source to work from instead of hundreds.
+
+It is deliberately *not* how acquisition writes, for the reason immediately below.
+
+### Why this is not how acquisition writes: overlap cannot survive it
+
+One image holds **one value per voxel**. So where two tiles overlap, the second one
+written replaces the first in the shared region — the two versions of that region
+cannot both be kept, because there is only one place to put them.
+
+That matters because overlap is usually there on purpose. Tiles are acquired with a
+few per cent of overlap precisely so that stitching can afterwards compare the two
+views of the same specimen and work out the true alignment, correcting for whatever
+the stage got slightly wrong. Flattening the tiles into one image at acquisition time
+throws that comparison away before it can be made, and no later step can recover it.
+
+So the honest position is that these are two different artefacts, at two different
+stages, and a run that intends to stitch needs both:
+
+**The raw tiles, one store per position, overlap intact.** This is what stitching
+reads, and what the viewer shows while a run is in progress, because it is what exists
+at that moment. That is Decision 1 above.
+
+**One stitched image, written afterwards.** An image assembled once the alignment is
+known, whether by a stitcher or simply by trusting the stage coordinates. It is the right thing to keep,
+to hand to a colleague, and to view for the rest of the data's life.
+
+A run that never intends to stitch — one that trusts the stage — can skip the first
+and write the second directly, and then everything above applies with no caveat.
+
+This is why the viewer has to handle both, and why the work on opening many stores
+quickly matters: during acquisition, many stores is what there is.
+
+### Why a canvas can be declared at all
+
+Writing one image looks impossible at first, for one reason: an OME-Zarr image has a
+declared shape, so a single image covering the whole stage means saying how large
+the stage region is before the first tile has been taken. That could not be
+answered — it changes with every experiment.
+
+Two measurements dissolve that.
+
+**Declared size is not occupied size.** An image is stored as many small chunk
+files, and a chunk file only comes into existence when something writes to it. The
+declared shape is a statement in a metadata file, not a reservation of disk. We
+measured a declared 4 TiB image occupying **59 MiB** on disk. So the canvas does not
+have to be known — only generously over-estimated, which is a much easier thing to
+do. Declare a metre of stage travel if you like; it costs nothing until imaged.
+
+**And the shape can be raised afterwards.** Chunks are addressed by their index, so
+extending an image outward leaves every existing chunk exactly where it was.
+Measured: an image declared with two timepoints, grown to five after the fact, kept
+both original frames intact, accepted a write at frame five, and read the frames
+never written as empty. Timepoints can therefore be added retrospectively, which is
+what a timelapse of unpredictable length needs.
+
+The one thing that is **not** allowed is extending *backwards* past the origin.
+That would shift every index by one and invalidate every chunk already written. So
+the origin goes at a corner of the region and growth only ever goes outward.
+
+### How big to make the canvas
+
+Since declared space is free and the shape can be raised later, the temptation is to
+declare something enormous and never think about it again. That is nearly right, and
+there is one bound worth respecting: **declare the stage travel the experiment can
+actually use, not the largest number that will fit.** A stage has a real range, and
+it is generous next to a specimen without being absurd.
+
+Two things scale with the declared size rather than with the data, and both go wrong
+quietly if the canvas is wildly over-declared.
+
+**The brightness measurement.** The window an image first appears with is measured
+from the smallest copy in the pyramid, and how big that copy is follows from the
+canvas. On a canvas a hundred times larger than the specimen, that copy is almost
+entirely empty, so the measurement is taken mostly from nothing and the window comes
+out wrong — the specimen then appears black, or washed out. It reads as a broken
+viewer rather than as a metadata choice.
+
+**The opening view.** The viewer opens showing the whole declared extent. Over-declare
+by a large factor and the specimen is a few pixels in the corner of an empty field,
+which again looks like a fault rather than a choice.
+
+A canvas a little larger than the stage can reach avoids both, and leaves growth as
+the rare answer to a genuine surprise rather than something relied upon — which suits
+it, since growth is the one operation with a restriction attached.
+
+### If the experiment does not say: use the stage limits
+
+An experiment should state the region it means to cover, because it usually knows —
+that is the same decision as choosing where to image and at what magnification. But
+it will not always say, and a viewer that refuses to open until someone fills in a
+number is no use at the microscope.
+
+**So where no canvas is given, the canvas is the stage's own travel limits.**
+
+This is a good default rather than a resigned one, for three reasons.
+
+It is already known. The travel limits are established during setup, before any
+imaging, because the instrument needs them to keep from driving into its own end
+stops. Nothing has to be guessed or asked for.
+
+It cannot be too small. The stage physically cannot reach outside its limits, so no
+tile can ever land beyond the canvas — which means growth is not merely rare, it is
+impossible, and the one operation with a restriction attached never has to happen.
+The origin sits at the low end of travel in each spatial axis, so there is nothing
+behind it either.
+
+And it is not wildly too large. A stage's range is a few centimetres, which is
+generous next to a specimen but nowhere near the hundred-fold over-declaration that
+would spoil the brightness measurement or open the view on an empty field. It sits
+comfortably inside the bound described above.
+
+The cost is honest and small: an experiment covering one corner of the stage gets a
+canvas larger than it needed, so it opens zoomed further out than ideal and its
+first brightness measurement is taken from a sparser picture. An experiment that
+cares can say so and get something tighter. One that does not care still works.
+### What this buys
+
+The viewer receives one multiscale image per acquisition type and lets Neuroglancer
+do what it is good at: choose a resolution level, fetch only the tiles under the
+current view, and keep what it has fetched. Assembling the specimen stops being the
+viewer's job — the pieces are already one image.
+
+It also removes a great deal of work that only existed to cope with many images:
+naming hundreds of stores distinctly, merging positions into one row per channel,
+measuring the brightness of each store separately, and reading every store's
+description each time the panel is refreshed.
+
+### The constraint that makes it safe: tiles must land on chunk boundaries
+
+This is the real cost of the change, and it falls on the writing side.
+
+Two tiles written at the same moment are safe only if they do not share a chunk
+file. Where they do share one, both processes read that chunk, each adds its own
+tile to its own copy, and each writes the whole chunk back — so whichever finishes
+second erases the other's contribution. This is not a theoretical worry. Measured,
+with four tiles written concurrently into one image:
+
+| how the tiles sat | result |
+|---|---|
+| each tile occupying whole chunks of its own | every tile intact |
+| tiles straddling chunk edges | **up to 75% of a tile's voxels lost** |
+
+With one image per position this could not happen, because no two writers ever
+touched the same file. With a shared image it happens silently — no error, no
+warning, just missing data in a picture that looks plausible.
+
+So, for the driver:
+
+- **Choose the chunk size and the tile step together**, so that a tile begins and
+  ends on a chunk boundary in y and x. A tile that is a whole multiple of the chunk
+  size, stepped by that same multiple, satisfies this.
+- **Overlap between tiles is the thing to watch.** Tiled acquisitions usually
+  overlap by a few per cent for stitching, and an overlap that is not a whole
+  number of chunks puts two tiles in one chunk. Either round the step to a chunk
+  multiple, or write overlapping tiles one at a time rather than concurrently.
+- **If neither is possible, serialise the writes** for tiles that share chunks. One
+  writer per chunk at any moment is all that is required.
+
+### One thing the viewer must do differently
+
+The small files describing an image are currently served with permission for the
+browser to keep them for an hour, which is right for finished data and wrong for an
+image still growing: a canvas that got larger, or a timelapse that gained frames,
+would not be noticed until that hour was up. In live mode those description files
+must not be cached. Static mode should keep caching them, since nothing can change.
+
+---
 
 ## Decision 2: declare time generously, and never resize
 
