@@ -6,9 +6,9 @@ address:
 1. the built viewer web page (the ``frontend/dist`` folder), and
 2. the image volume as OME-Zarr (a folder of many small files under ``/data``),
 
-plus a couple of tiny JSON endpoints under ``/api`` for talking back to Python
-(for the spike, just one: an echo of a "go to this box" command, standing in
-for a future "move the stage there").
+plus a few tiny JSON endpoints under ``/api`` for talking back to Python: what
+to open, the targets the operator has drawn, and "go to this box", which drives
+the microscope stage when one is connected.
 
 We use Python's built-in threading HTTP server rather than a web framework.
 The task is serving static files and answering two short questions, which the
@@ -100,10 +100,21 @@ class _Handler(SimpleHTTPRequestHandler):
     # small chunks; without this each one would open a fresh connection.
     protocol_version = "HTTP/1.1"
 
-    def __init__(self, *args, data_dir: Path, site_dir: Path, config: dict, **kwargs):
+    def __init__(
+        self,
+        *args,
+        data_dir: Path,
+        site_dir: Path,
+        config: dict,
+        session: object | None = None,
+        allow_stage_moves: bool = False,
+        **kwargs,
+    ):
         self._data_dir = data_dir  # the OME-Zarr store, served under /data
         self._site_dir = site_dir  # the built page, served as the base directory
         self._config = config  # what the page should open, answered at /api/config
+        self._session = session  # the connected microscope, or None in the demo
+        self._allow_stage_moves = allow_stage_moves  # off unless explicitly asked for
         super().__init__(*args, directory=str(site_dir), **kwargs)
 
     def handle_one_request(self) -> None:
@@ -202,13 +213,15 @@ class _Handler(SimpleHTTPRequestHandler):
         self._send_json(self._config)
 
     def _serve_api_post(self) -> None:
-        """Handle the one control command the spike understands.
+        """Handle the two things the viewer sends back to Python.
 
-        ``POST /api/goto`` receives the corner coordinates of a box the operator
-        placed in the viewer and, for now, simply echoes them back. This proves
-        the path a real "move the microscope to this region" command will travel
-        — from a click in the browser, to Python, and (eventually) on to the
-        hardware — without any hardware attached.
+        ``POST /api/annotations`` saves the targets the operator has drawn.
+
+        ``POST /api/goto`` receives the corners of a box (or a single point) and
+        drives the stage to the middle of it — but only when a microscope was
+        handed to :func:`make_server` *and* stage moves were switched on. With
+        either missing it answers with the position it would have gone to and
+        touches nothing, so the whole path can be demonstrated safely.
         """
         route = self.path.rstrip("/")
         if route not in {"/api/goto", "/api/annotations"}:
@@ -246,8 +259,35 @@ class _Handler(SimpleHTTPRequestHandler):
                 return
             self._send_json(document)
             return
-        # A real driver call would go here. For the spike we acknowledge.
-        self._send_json({"received": payload, "action": "goto (demo: no hardware)"})
+        self._serve_goto(payload)
+
+    def _serve_goto(self, payload: object) -> None:
+        """Drive the stage to a target, or explain why nothing moved.
+
+        The three outcomes are answered with three different statuses so the
+        viewer can tell them apart: a request that made no sense is a bad
+        request, a microscope that refused the move is a conflict (the
+        instrument is fine, the destination is not), and anything else
+        succeeded.
+        """
+        from stage import StageRefused, goto
+
+        try:
+            report = goto(
+                payload,
+                session=self._session,
+                allow_moves=self._allow_stage_moves,
+            )
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        except StageRefused as exc:
+            # The driver's travel limits declining a move lands here. That is the
+            # guard working, so the operator sees the reason rather than a
+            # generic failure.
+            self._send_json({"error": str(exc), "moved": False}, HTTPStatus.CONFLICT)
+            return
+        self._send_json(report)
 
     def _send_json(self, obj: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(obj).encode("utf-8")
@@ -271,11 +311,23 @@ def make_server(
     window: tuple[float, float] | None = None,
     depth_samples: int = 256,
     chrome: bool = False,
+    session: object | None = None,
+    allow_stage_moves: bool = False,
 ) -> ThreadingHTTPServer:
     """Create (but do not start) the viewer's web server.
 
     Bound to localhost only. Call ``serve_forever`` on the returned server to
     run it, or use :func:`serve`.
+
+    ``session`` is a connected microscope from ``zmart_controller`` — the same
+    object the acquisition workflow drives. Supplying it is what lets **Go to**
+    move the stage. It stays ``None`` for the demo and for any viewing-only use,
+    and then Go to reports where it would have gone without touching anything.
+
+    ``allow_stage_moves`` is the second half of that permission, and it is off
+    by default on purpose. Both a session *and* this flag are needed before the
+    stage will move, so a viewer that happens to have a microscope attached
+    cannot drive it by accident — asking for movement has to be deliberate.
 
     Both directories are resolved here, and that is load-bearing rather than
     tidiness: the traversal check in the handler resolves each request target,
@@ -318,6 +370,8 @@ def make_server(
         data_dir=data_dir,
         site_dir=Path(site_dir).resolve(),
         config=config,
+        session=session,
+        allow_stage_moves=allow_stage_moves,
     )
     return ThreadingHTTPServer(("127.0.0.1", port), handler)
 
