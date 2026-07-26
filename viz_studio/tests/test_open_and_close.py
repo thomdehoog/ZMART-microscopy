@@ -186,3 +186,46 @@ def test_an_acquisition_appearing_on_disk_is_noticed_on_its_own(live):
         "() => window.zmartConfig.groups.includes('prescan')", timeout=30_000
     )
     assert "prescan" in _groups(page)
+
+
+def test_the_load_data_box_can_be_switched_off(browser, built_dist, demo_store):
+    """A workflow-driven viewer offers no way to add images by hand.
+
+    During an experiment the workflow decides what is worth looking at, so a
+    button inviting someone to add an image the experiment knows nothing about
+    should not be on screen. Switching it off must hide it — and must *not* close
+    the door on the workflow itself, which puts images on screen through the same
+    server from outside the page.
+    """
+    import threading
+
+    from server import make_server
+
+    server = make_server(port=0, data_dir=demo_store, site_dir=built_dist, allow_open=False)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page()
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
+        assert page.get_by_label("open images").count() == 0
+        assert page.get_by_text("load data").count() == 0
+        # The way in from outside the page is still there: this is what a
+        # smart-microscopy workflow uses to say what should be shown.
+        answer = page.evaluate(
+            """async (folder) => {
+                 const r = await fetch('/api/stores/open', {
+                   method: 'POST',
+                   headers: {'Content-Type': 'application/json'},
+                   body: JSON.stringify({path: folder}),
+                 });
+                 return {ok: r.ok, layers: (await r.json()).layers?.length ?? 0};
+               }""",
+            str(demo_store),
+        )
+        assert answer["ok"], "a workflow must still be able to open images"
+        assert answer["layers"] > 0
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
