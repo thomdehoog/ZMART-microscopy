@@ -143,8 +143,15 @@ def test_config_includes_a_histogram_for_a_readable_store(tmp_path):
     assert sum(histogram["counts"]) == data.size
 
 
-def test_several_stores_become_several_layers(tmp_path):
-    """A tiled acquisition is many stores; they must arrive as many layers."""
+def test_tiles_of_one_channel_merge_into_a_single_layer(tmp_path):
+    """A tiled acquisition is many stores, but not many layers.
+
+    Several tiles of the same channel are one picture of one specimen taken in
+    pieces, so they become one row that reads from all of them — the engine places
+    each piece using the stage position recorded inside it. Asking the engine for
+    one layer with many sources is also far less work than many layers, each
+    needing its own setup and shader.
+    """
     site = tmp_path / "site"
     site.mkdir()
     (site / "index.html").write_text("x", encoding="utf-8")
@@ -157,8 +164,13 @@ def test_several_stores_become_several_layers(tmp_path):
         data_dir=tmp_path, site_dir=site, store=names, window=(0.0, 100.0)
     )
     layers = config["layers"]
-    assert [layer["name"] for layer in layers] == ["Tile0_Ch488", "Tile0_Ch647", "Tile1_Ch488"]
-    assert [layer["source"] for layer in layers] == [f"/data/0/{n}/|zarr2:" for n in names]
+    # Two channels across three stores, so two rows.
+    assert [layer["name"] for layer in layers] == ["Ch488", "Ch647"]
+    # The 488 row reads from both of its tiles; the 647 row from its one.
+    by_name = {layer["name"]: layer for layer in layers}
+    assert len(by_name["Ch488"]["sources"]) == 2
+    assert len(by_name["Ch647"]["sources"]) == 1
+    assert all(source.startswith("/data/0/") for source in by_name["Ch488"]["sources"])
 
 
 def test_channels_are_coloured_only_when_overlaid(tmp_path):

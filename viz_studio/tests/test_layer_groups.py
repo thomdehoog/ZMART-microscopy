@@ -242,7 +242,10 @@ def test_a_store_with_one_channel_still_shows_as_one_row(browser, built_dist, tm
         config = page.evaluate("() => window.zmartConfig")
         # No channel axis inside, so one row each, named and coloured as before.
         assert len(config["layers"]) == 2
-        assert [row["name"] for row in config["layers"]] == ["Tile0_Ch488", "Tile0_Ch647"]
+        # Rows are named by the channel, not by the individual store: several tiles
+        # of one channel merge into a single row, so the tile number has no place
+        # in the name.
+        assert [row["name"] for row in config["layers"]] == ["Ch488", "Ch647"]
         assert all(row["channelIndex"] is None for row in config["layers"])
         # Both share one acquisition type, so they gather under one group.
         assert config["groups"] == ["Mag5"]
