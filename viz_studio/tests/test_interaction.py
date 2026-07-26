@@ -127,13 +127,21 @@ def test_the_plane_does_not_rotate(viewer_page):
 
 
 def test_z_slider_uses_the_loaded_coordinate_bounds(viewer_page):
+    """The slider must span exactly the planes the loaded image actually has.
+
+    The engine reports a stack whose plane centres sit on integer coordinates as
+    an extent shifted by half a voxel — a 48-plane volume comes back as -0.5 to
+    47.5 — so the reachable planes are the integers inside that range, 0 to 47.
+    Taking a further one off the top end (which this test previously did, matching
+    a bug in the slider) quietly put the last plane of every stack out of reach.
+    """
     expected = viewer_page.evaluate(
         """() => {
           const space = window.zmartViewer.navigationState.position.coordinateSpace.value;
           const z = space.names.indexOf('z');
           return {
             min: Math.ceil(space.bounds.lowerBounds[z]),
-            max: Math.floor(space.bounds.upperBounds[z] - 1),
+            max: Math.floor(space.bounds.upperBounds[z]),
           };
         }"""
     )
