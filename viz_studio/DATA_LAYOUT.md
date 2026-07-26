@@ -36,90 +36,92 @@ whatever else an experiment invents. Each type is acquired at one or more
 
 In the standard OME-Zarr ordering that image is `t, c, z, y, x`.
 
-## Decision 1: one store per acquisition type
+## Decision 1: one store per acquisition, per position
 
 A "store" is one OME-Zarr, which is a *folder* on disk rather than a single file.
 One store holds one image, its shrunk-down copies, and a little metadata.
 
-**Write one store per acquisition type**, with all of that type's positions pasted
-into a single canvas inside it:
+**Write one store per acquisition**, named the way the driver already names things
+— the acquisition type, then the position:
 
 ```
 run_2026-07-26/
-  prescan.ome.zarr        each one t,c,z,y,x, with every position of that
-  overview.ome.zarr       type written into one canvas at its stage offset
-  targetscan.ome.zarr
+  overview_pos001.ome.zarr        each one t,c,z,y,x, carrying its own
+  overview_pos002.ome.zarr        place on the stage in its metadata
+  targetscan_cell042.ome.zarr
 ```
 
-**Not** one store per position (`overview_pos001.ome.zarr`,
-`overview_pos002.ome.zarr`, …).
+This is what `canonical_stem()` in the driver already produces, so nothing about
+the writing side has to change.
 
-### Why the split lands on acquisition type
+### Why not gather each acquisition type into one big image
 
-Acquisition types have **different pixel sizes** — an overview is coarse, a target
-scan is fine — and an OME-Zarr image has exactly one pixel size. A coarse overview
-and a fine target scan therefore cannot share a store. That makes the acquisition
-type the natural boundary, and it is not a matter of taste.
+There is a real alternative, and it was seriously considered: give each acquisition
+type a single image the size of the whole stage area — a "canvas" — and write each
+position into its proper place inside it. It has one genuine advantage, and it was
+measured.
 
-### Why it should not split further, down to positions
+Alongside the full-resolution image, an OME-Zarr keeps progressively smaller copies
+— half size, quarter size, and so on. That is what lets a huge image feel light:
+zoomed out, the viewer reads a small coarse copy instead of hauling every pixel
+across. With one canvas those copies cover the **whole mosaic**, so seeing
+everything at once costs almost nothing:
 
-Because of the **pyramid**, and this is the whole argument.
-
-Alongside the full-resolution image, an OME-Zarr keeps progressively smaller
-copies — half size, quarter size, and so on. That is what lets a huge image feel
-light: zoomed out, the viewer reads a small coarse copy instead of hauling every
-pixel across.
-
-If every position is its own store, every position has its own separate pyramid.
-There is then no coarse copy *of the mosaic* — only coarse copies of its pieces —
-so seeing the whole specimen means opening every store at once and streaming from
-all of them.
-
-If the positions share one canvas, the pyramid is **global**. Zoomed out, the
-viewer reads a handful of chunks from one coarse copy that covers the entire
-mosaic, however many positions went into it.
-
-Measured on an 8192 × 8192 canvas holding nine tiles:
-
-| What is on screen | Chunk files fetched |
+| On an 8192 × 8192 canvas holding nine tiles | Chunk files fetched |
 |---|---|
 | The whole mosaic, zoomed out | **12** |
 | A single tile at full resolution | **6** |
 
-Looking at the entire mosaic costs about the same as looking at one tile. The size
-of the canvas does not enter into it, because the cost tracks *how many pixels are
-on the screen*, not how much data exists. That is the property the whole design
-rests on, and per-position stores give it up.
+Looking at the entire mosaic cost about the same as looking at one tile, whatever
+the canvas size. And it was affordable, because **a piece of image nobody wrote
+does not exist on disk**: that canvas declared 1.00 GiB and occupied 50 MiB, 4.9%
+of itself, with the nine tiles written.
 
-### The obvious objection, and why it does not hold
+**So why not do it?** Because it has to be declared before anything is imaged, and
+that is a promise a smart-microscopy run cannot make. A tracking workflow does not
+know where it will end up. The canvas could be sized to the stage's travel range —
+that bound is known, and sparsity makes it free — but growing one afterwards is a
+poor escape: it changes the file's shape, which forces the viewer to re-read the
+image and throw away everything it had already loaded, and an array can only grow
+at its far edge, never backwards. Both were measured.
 
-A canvas covering the whole stage at target-scan resolution sounds enormous. It is
-enormous — as an address space — and that turns out not to matter, because **a
-chunk nobody wrote does not exist on disk**. An OME-Zarr is a folder of small
-files, one per piece of image actually written; unwritten regions are simply
-absent, and a reader treats them as empty background.
+Per-position stores ask for no promise at all. A new position is simply a new
+store, which is the cheapest thing that can happen: the viewer adds it and nothing
+already on screen is disturbed.
 
-Measured on the same canvas:
+### What that costs, measured
 
-| | |
+Seeing the whole mosaic means opening every store rather than reading a few files
+from one. On this machine, after the server was made to answer more efficiently:
+
+| Positions | Whole mosaic ready |
 |---|---|
-| Canvas declared, at full resolution | **1.00 GiB** |
-| Pixels actually imaged (nine tiles) | 36 MiB |
-| On disk, including all six pyramid levels | **50 MiB** |
-| Fraction of the declared canvas | **4.9%** |
+| 25 | **2.1 s** |
+| 100 | **4.1 s** |
+| 225 | **10.5 s** |
 
-So the file weighs what you imaged plus about 39% for the pyramid, which is the
-expected overhead for halving in y and x. Sizing the canvas to the stage's travel
-range costs nothing.
+Roughly 45 milliseconds a position. Unnoticeable for a few dozen; a real wait for
+a few hundred. Note what that time is made of: at 225 positions the viewer asked
+about eighteen hundred questions to receive eighteen chunks of actual picture.
+Almost all of it is each store being asked to describe itself, which is why making
+those answers cheap helped so much and why a graphics card would not help at all.
 
-### Two things this asks of the writing side
+### If a run ever turns out big enough to mind
 
-- **Keep tiles aligned to chunk boundaries.** A tile that straddles a chunk forces
-  the writer to read that chunk, modify it and write it back, which is slower and
-  unsafe if two tiles are written at the same moment. Aligned tiles are
-  independent writes.
-- **Resolve overlap when writing**, since there is only one canvas. That is
-  usually what you want anyway: a stitched mosaic rather than doubly-bright seams.
+Stitch it into one canvas **after the run has finished**, as a separate step. By
+then every position is known, so nothing has to be predicted, and the canvas's
+advantage applies in full to a finished dataset that will be looked at many times.
+The viewer reads both shapes already, so this costs no viewer work — only a
+conversion when you decide a particular run deserves it.
+
+### Two things to get right when writing
+
+- **Give every store its stage position** in the metadata (a `translation`). That
+  is what lets the viewer lay the pieces out; without it they all pile up at the
+  origin.
+- **Keep the pyramid shallow for small tiles.** Each resolution level is another
+  small file the viewer must read before drawing. A 256-pixel tile does not need
+  four levels; one or two is plenty, and it cuts the reading proportionally.
 
 ## Decision 2: declare time generously, and never resize
 

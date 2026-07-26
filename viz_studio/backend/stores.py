@@ -220,6 +220,72 @@ def _channel_count(store: Path, names: list[str], described: int) -> int | None:
     return int(shape[index]) if index < len(shape) else (described or None)
 
 
+def label_images(store: Path) -> list[str]:
+    """The segmentation masks stored alongside this image, if any.
+
+    A mask is not dim picture data: its pixel values are the identity numbers of
+    the objects somebody (or something) found — cell 1, cell 2, cell 3. Drawing it
+    like an image would be close to useless, so the viewer shows it differently,
+    giving every object its own colour and letting you pick one out.
+
+    OME-Zarr has a standard place for these: a ``labels`` folder inside the image,
+    listing the masks it holds. Reading it from there means nothing has to be
+    guessed from file names.
+    """
+    folder = store / "labels"
+    listed = _read_attrs_at(folder).get("labels")
+    names = [name for name in listed if isinstance(name, str)] if isinstance(listed, list) else []
+    if not names:
+        # A labels folder with no list in it is still worth looking inside, since
+        # the list is optional and a mask that is present should be shown.
+        try:
+            names = sorted(child.name for child in folder.iterdir() if is_store(child))
+        except OSError:
+            return []
+    return [name for name in names if is_store(folder / name)]
+
+
+def written_timepoints(store: Path) -> int | None:
+    """How many frames of a timelapse have actually been written so far.
+
+    A store is given its full length in time when it is created, long before the
+    run has produced that many frames — that is what keeps an unpredictable
+    timelapse cheap. But the viewer must not offer a slider running out to frames
+    that do not exist yet: the engine remembers "there is nothing here" for a frame
+    it looked at too early and will not look again, so that frame would stay blank
+    for the rest of the session even once it had been imaged.
+
+    So this counts what is really on disk. Each piece of the image is a file named
+    for its position, the first number being the frame, so the highest frame with
+    any piece written tells us how far the run has got. Returns ``None`` when the
+    store has no time axis, or when the question cannot be answered — in which case
+    the viewer falls back to what the file claims.
+    """
+    names = axis_names(store)
+    if "t" not in names or names.index("t") != 0:
+        return None
+    datasets = (_read_attrs(store).get("multiscales") or [{}])[0].get("datasets") or []
+    if not datasets:
+        return None
+    level = store / str(datasets[0].get("path"))
+    highest = -1
+    try:
+        for child in level.iterdir():
+            head, _, rest = child.name.partition(".")
+            if rest and head.isdigit():
+                highest = max(highest, int(head))
+    except OSError:
+        return None
+    return highest + 1 if highest >= 0 else None
+
+
+def _read_attrs_at(path: Path) -> dict:
+    try:
+        return json.loads((path / ".zattrs").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
 def _hex_to_rgb(value: object) -> tuple[float, float, float] | None:
     """Turn an ``omero`` colour like ``"00FF66"`` into fractions of red/green/blue."""
     if not isinstance(value, str):

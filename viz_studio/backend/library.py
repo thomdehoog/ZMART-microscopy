@@ -153,6 +153,33 @@ class Library:
             return known
         return known + [name for name in found if name not in known]
 
+    def revision(self) -> str:
+        """A short summary of the open folders that changes when their contents do.
+
+        The viewer needs to know when a new acquisition has appeared, and asking
+        the full question — what is here, what channels, how bright — means reading
+        every store's description, which is far too heavy to repeat often. A
+        folder's own modification time changes whenever something is added to or
+        removed from it, and reading that is a single, very cheap question. So the
+        viewer can ask this many times a second and only ask the expensive question
+        when the answer has moved.
+
+        It notices new acquisitions, which is exactly what needs noticing. It does
+        not notice pieces of image written inside a store that is already open, and
+        does not need to: the engine fetches those when you navigate to them.
+        """
+        marks = []
+        for number in sorted(self._roots):
+            root = self._roots[number]
+            try:
+                marks.append(f"{number}:{root.stat().st_mtime_ns}")
+            except OSError:
+                # A folder that cannot be read right now (a share hiccuping) should
+                # not read as "everything changed" and trigger a needless rebuild.
+                marks.append(f"{number}:?")
+            marks.append(f"n{len(self._stores.get(number, ()))}")
+        return "|".join(marks)
+
     def is_empty(self) -> bool:
         return not any(self._stores.values())
 

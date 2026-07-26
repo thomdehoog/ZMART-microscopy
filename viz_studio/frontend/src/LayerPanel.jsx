@@ -62,6 +62,8 @@ export default function LayerPanel({
   onColor,
   onOpacity,
   onWindow,
+  onLut,
+  lookupTables = [],
   onGroupToggle,
   onGroupOpacity,
   onGroupMove,
@@ -128,6 +130,12 @@ export default function LayerPanel({
                 </div>
               )}
             </div>
+            {layer.kind === "segmentation" ? (
+              <div style={styles.maskNote}>
+                objects, each drawn in its own colour
+              </div>
+            ) : (
+            <>
             <div style={styles.histogramRow}>
               <Histogram layer={layer} />
               <button
@@ -170,6 +178,25 @@ export default function LayerPanel({
               />
               <output style={styles.value}>{Math.round(window_.high)}</output>
             </label>
+            {lookupTables.length > 0 && (
+              <label style={styles.control}>
+                <span style={styles.controlLabel}>colour</span>
+                <select
+                  value={state[index].lut || ""}
+                  onChange={(event) => onLut?.(index, event.target.value || null)}
+                  aria-label={`colour map ${layer.name}`}
+                  style={styles.select}
+                >
+                  <option value="">flat colour</option>
+                  {lookupTables.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+                <output style={styles.value} />
+              </label>
+            )}
+            </>
+            )}
             <label style={styles.control}>
               <span style={styles.controlLabel}>opacity</span>
               <input
@@ -360,6 +387,16 @@ const styles = {
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+  },
+  maskNote: { padding: "2px 12px 4px 60px", color: "#6b7684", fontSize: 10 },
+  select: {
+    width: "100%",
+    background: "#1b222b",
+    color: "#aab4c0",
+    border: "1px solid #303a46",
+    borderRadius: 3,
+    font: "10px system-ui, sans-serif",
+    padding: "3px 4px",
   },
   groupCount: { color: "#5c6673", fontSize: 10, fontVariantNumeric: "tabular-nums" },
   // Channels are indented so it reads as "these belong to that acquisition".

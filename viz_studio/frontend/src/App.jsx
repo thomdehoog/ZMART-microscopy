@@ -40,18 +40,56 @@ async function fetchConfig() {
   }
 }
 
+// A lookup table paints a single channel in a run of colours rather than one flat
+// colour: dim values one shade, bright values another, with a smooth path between.
+// On a single channel that reads far more detail than a plain brightness ramp,
+// which is why it is a staple of microscopy display.
+//
+// These are written as the small shader program the engine already compiles for
+// every layer, so nothing new runs anywhere -- the colour is decided on the
+// graphics card exactly as a flat colour is. The stops are the well-known
+// perceptually-even maps: evenly spaced in apparent brightness, so equal steps in
+// the data look like equal steps on screen, and none of them is red-green.
+export const LOOKUP_TABLES = {
+  viridis: [[0.267,0.005,0.329],[0.190,0.407,0.556],[0.208,0.718,0.473],[0.993,0.906,0.144]],
+  magma:   [[0.001,0.000,0.014],[0.443,0.122,0.507],[0.925,0.412,0.372],[0.987,0.991,0.750]],
+  fire:    [[0.000,0.000,0.000],[0.600,0.100,0.000],[1.000,0.650,0.000],[1.000,1.000,0.900]],
+  ice:     [[0.000,0.000,0.100],[0.000,0.400,0.700],[0.400,0.800,1.000],[1.000,1.000,1.000]],
+};
+
+// Turn a table of colour stops into the few lines of shader that walk between
+// them. Straight-line blending between neighbouring stops is enough: the stops are
+// chosen so that is faithful, and it keeps the generated program small.
+function lutShader(stops) {
+  const literal = (c) => `vec3(${c.map((v) => v.toFixed(4)).join(",")})`;
+  let body = `  vec3 c = ${literal(stops[0])};\n`;
+  const step = 1.0 / (stops.length - 1);
+  for (let i = 1; i < stops.length; i++) {
+    const lo = ((i - 1) * step).toFixed(4);
+    body += `  c = mix(c, ${literal(stops[i])}, clamp((v - ${lo}) / ${step.toFixed(4)}, 0.0, 1.0));\n`;
+  }
+  return `vec3 zmartLut(float v) {\n${body}  return c;\n}\n`;
+}
+
 // Real acquisitions occupy a narrow band of the 16-bit range, so without an
 // explicit window they render black. In 3-D the intensity drives opacity as
 // well, or every background voxel along the ray adds haze and the specimen is
 // lost in fog.
-function shaderFor(window_, color, volumetric, opacity = 1) {
+function shaderFor(window_, color, volumetric, opacity = 1, lut = null) {
   if (!window_) return undefined;
   let source = `#uicontrol invlerp normalized(range=[${window_.low}, ${window_.high}])\n`;
+  const stops = lut ? LOOKUP_TABLES[lut] : null;
+  if (stops) source += lutShader(stops);
   if (volumetric) {
     source += `#uicontrol float opacity slider(min=0, max=1, default=${opacity})\n`;
+    if (stops) {
+      return source + "void main() { float v = normalized();"
+        + " emitRGBA(vec4(zmartLut(v), v * opacity)); }";
+    }
     const [r, g, b] = color || [1, 1, 1];
     return source + `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized() * opacity)); }`;
   }
+  if (stops) return source + "void main() { emitRGB(zmartLut(normalized())); }";
   if (!color) return source + "void main() { emitGrayscale(normalized()); }";
   const [r, g, b] = color;
   return source + `void main() { emitRGB(vec3(${r}, ${g}, ${b}) * normalized()); }`;
@@ -89,13 +127,18 @@ function layersFor(config, mode, layerState, groupState, groupOrder) {
   const all = [...ordered, ...rows.filter(({ index }) => !seen.has(index))];
 
   return all.map(({ spec, index }) => {
-    const { visible, color, opacity, window: windowOverride } = layerState[index];
+    const { visible, color, opacity, lut, window: windowOverride } = layerState[index];
     const group = groupState[spec.group || ""] || { visible: true, opacity: 1 };
     const combinedOpacity = opacity * group.opacity;
     const displayWindow =
       windowOverride || (volumetric ? spec.volumeWindow || spec.window : spec.window);
+    // A segmentation mask is drawn by a different kind of layer: the engine gives
+    // every object its own colour and lets one be picked out, which is what a mask
+    // is for. Brightness and contrast mean nothing on an identity number, so none
+    // of that is sent.
+    const isMask = spec.kind === "segmentation";
     const layer = {
-      type: "image",
+      type: isMask ? "segmentation" : "image",
       name: engineName(spec),
       // A row may be drawn from several stores -- several positions of the same
       // acquisition type. The engine takes the list and places each one using the
@@ -108,9 +151,14 @@ function layersFor(config, mode, layerState, groupState, groupOrder) {
     // channel: the engine exposes it as a per-layer dimension, and each row pins
     // it to its own index. Nothing splits the data; one store feeds every row.
     if (spec.channelIndex != null) layer.localPosition = [spec.channelIndex];
-    const shader = shaderFor(displayWindow, color, volumetric, combinedOpacity);
-    if (shader) layer.shader = shader;
     layer.visible = visible && group.visible;
+    if (isMask) {
+      layer.selectedAlpha = combinedOpacity;
+      layer.notSelectedAlpha = combinedOpacity;
+      return layer;
+    }
+    const shader = shaderFor(displayWindow, color, volumetric, combinedOpacity, lut);
+    if (shader) layer.shader = shader;
     if (volumetric) {
       layer.volumeRendering = "on";
       // This, not the zoom, chooses the pyramid level the volume is drawn from.
@@ -237,7 +285,7 @@ function axisInfo(viewer, name) {
  * number in the engine's position -- so they are the same control, and a store
  * that has no such axis simply gets no slider.
  */
-function AxisSlider({ viewer, axis: axisName, label, unit = "" }) {
+function AxisSlider({ viewer, axis: axisName, label, unit = "", limit = null }) {
   const [axis, setAxis] = React.useState(null);
 
   React.useEffect(() => {
@@ -281,6 +329,14 @@ function AxisSlider({ viewer, axis: axisName, label, unit = "" }) {
   }, [viewer, axisName]);
 
   if (!axis) return null;
+  // Never offer more steps than there is data for. A store is given its full
+  // length in time when it is created, long before the run has produced that many
+  // frames, so what the file claims and what exists are not the same thing.
+  const reachable =
+    limit != null && Number.isFinite(limit)
+      ? { ...axis, max: Math.min(axis.max, axis.min + limit - 1) }
+      : axis;
+  if (reachable.max < reachable.min) return null;
   // The slider steps in halves rather than whole planes, and that is deliberate.
   // The engine opens a view in the *middle* of an axis, which for an even number
   // of planes lands halfway between two of them: a four-frame timelapse starts at
@@ -290,13 +346,13 @@ function AxisSlider({ viewer, axis: axisName, label, unit = "" }) {
   // far as the browser was concerned it was already there. The slider would look
   // correct and do nothing at all. Halves can represent every position the engine
   // actually takes, so what is shown and what is meant never come apart.
-  const value = Math.max(axis.min, Math.min(axis.max, axis.value));
-  const stepNumber = Math.round(value - axis.min + 1);
-  const count = Math.round(axis.max - axis.min + 1);
+  const value = Math.max(reachable.min, Math.min(reachable.max, reachable.value));
+  const stepNumber = Math.round(value - reachable.min + 1);
+  const count = Math.round(reachable.max - reachable.min + 1);
   const moveTo = (next) => {
     const current = viewer.navigationState.position.value;
     const moved = Float32Array.from(current);
-    moved[axis.index] = next;
+    moved[reachable.index] = next;
     viewer.navigationState.position.value = moved;
   };
 
@@ -305,8 +361,8 @@ function AxisSlider({ viewer, axis: axisName, label, unit = "" }) {
       <span style={styles.axisLabel}>{label}</span>
       <input
         type="range"
-        min={axis.min}
-        max={axis.max}
+        min={reachable.min}
+        max={reachable.max}
         step={0.5}
         value={value}
         onChange={(event) => moveTo(Number(event.target.value))}
@@ -373,6 +429,9 @@ export default function App() {
           return {
             visible: true,
             color: spec.color,
+            // No colour map to begin with: a channel opens in the flat colour the
+            // store asked for, and a lookup table is something you choose.
+            lut: null,
             opacity: 1,
             // Null means "use the mode-specific measured default". Once the
             // operator moves either contrast handle, their chosen window becomes
@@ -410,19 +469,37 @@ export default function App() {
     };
   }, [applyConfig]);
 
-  // Look again every few seconds for acquisitions that have appeared since. During
-  // a run the folder is still being written to, so a new acquisition type can turn
-  // up long after the viewer was opened. Only a genuine change is applied:
-  // re-applying an unchanged list would interrupt whatever the operator is doing.
+  // Notice new acquisitions quickly without asking an expensive question often.
+  //
+  // Asking what is open means reading every store's description, which is far too
+  // heavy to repeat several times a second. So the viewer asks a much smaller
+  // question instead -- one that only says whether anything has changed -- and asks
+  // the expensive one only when the answer moves. That makes the refresh feel
+  // immediate while costing less than the slow poll it replaces.
   React.useEffect(() => {
     if (!config) return undefined;
-    const signature = (c) =>
-      JSON.stringify((c.layers || []).map((l) => `${l.group}/${l.name}/${l.channelIndex}`));
-    const timer = setInterval(async () => {
-      const loaded = await fetchConfig();
-      if (signature(loaded) !== signature(config)) applyConfig(loaded);
-    }, 4000);
-    return () => clearInterval(timer);
+    let stop = false;
+    let last = null;
+    const tick = async () => {
+      try {
+        const response = await fetch("/api/revision");
+        const answer = await response.json();
+        if (stop) return;
+        if (last !== null && answer.revision !== last) {
+          applyConfig(await fetchConfig());
+        }
+        last = answer.revision;
+      } catch {
+        // The server going away briefly is not worth reporting here; the next
+        // tick will pick things up again.
+      }
+    };
+    const timer = setInterval(tick, 700);
+    tick();
+    return () => {
+      stop = true;
+      clearInterval(timer);
+    };
   }, [config, applyConfig]);
 
   React.useEffect(() => {
@@ -532,6 +609,16 @@ export default function App() {
           : undefined;
   }, [viewer, activeTool, targetsLoaded]);
 
+  // The furthest any open acquisition has got in time. Several may be running at
+  // once and one can be a frame ahead of another, so the slider follows the
+  // longest -- a frame that exists somewhere is worth being able to reach.
+  const framesAvailable = React.useMemo(() => {
+    const counts = (config?.layers || [])
+      .map((spec) => spec.frames)
+      .filter((n) => typeof n === "number" && n > 0);
+    return counts.length ? Math.max(...counts) : null;
+  }, [config]);
+
   const setGroup = (name, change) =>
     setGroupState((current) => ({ ...current, [name]: { ...current[name], ...change } }));
 
@@ -613,6 +700,8 @@ export default function App() {
           onColor={(i, color) => setLayer(i, { color })}
           onOpacity={(i, opacity) => setLayer(i, { opacity })}
           onWindow={(i, window) => setLayer(i, { window })}
+          onLut={(i, lut) => setLayer(i, { lut })}
+          lookupTables={Object.keys(LOOKUP_TABLES)}
         />
       )}
       <main style={styles.stage}>
@@ -630,6 +719,12 @@ export default function App() {
             viewer={viewer}
             axis="t"
             label="T"
+            // A timelapse is given its full length in time when it is created,
+            // long before the run has produced that many frames. The slider stops
+            // at what has actually been written, because the engine remembers
+            // "nothing here" for a frame looked at too early and will not look
+            // again -- so that frame would stay blank for the rest of the session.
+            limit={framesAvailable}
           />
         </div>
       </main>

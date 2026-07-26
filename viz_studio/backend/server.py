@@ -240,6 +240,11 @@ class _Handler(SimpleHTTPRequestHandler):
         if self.path.rstrip("/") == "/api/health":
             self._send_json({"ok": True})
             return
+        if self.path.rstrip("/") == "/api/revision":
+            # Deliberately tiny: the viewer asks this often, and asks the expensive
+            # question only when the answer here has changed.
+            self._send_json({"revision": self._library.revision()})
+            return
         if self.path.rstrip("/") == "/api/config":
             self._serve_config()
             return
@@ -436,8 +441,10 @@ def make_server(
         channel_color,
         channel_of,
         channels,
+        label_images,
         layer_names,
         split_name,
+        written_timepoints,
     )
 
     data_dir = Path(data_dir).resolve()
@@ -526,6 +533,7 @@ def make_server(
                 wavelength = channel_of(name)
                 found = [(None, f"Ch{wavelength}" if wavelength else label, base.get("color"))]
 
+            frames = written_timepoints(store_path)
             for index, channel_name, color in found:
                 key = (kind, index, channel_name)
                 row = merged.get(key)
@@ -536,11 +544,43 @@ def make_server(
                         "group": kind,
                         "channelIndex": index,
                         "color": list(color) if color else None,
+                        # How many frames exist so far, so the time slider stops
+                        # there rather than running out over frames not yet imaged.
+                        "frames": frames,
                     }
                 else:
                     # Another position of the same picture: add where to read it.
                     row["sources"] = [*row["sources"], *base["sources"]]
-        rows = list(merged.values())
+                    # Positions of one acquisition are imaged together, but one may
+                    # be a frame ahead of another at the moment of looking. The
+                    # slider follows the one furthest along.
+                    if frames and (row.get("frames") or 0) < frames:
+                        row["frames"] = frames
+
+            # Segmentation masks saved beside the image become rows of their own,
+            # of a different kind: the engine draws a mask by giving every object
+            # its own colour, which is not something a picture layer can do.
+            for mask in label_images(store_path):
+                key = (kind, "mask", mask)
+                row = merged.get(key)
+                source = f"/data/{root_number}/{name}/labels/{mask}/|zarr2:"
+                if row is None:
+                    merged[key] = {
+                        "name": mask,
+                        "group": kind,
+                        "kind": "segmentation",
+                        "channelIndex": None,
+                        "color": None,
+                        "window": None,
+                        "volumeWindow": None,
+                        "histogram": None,
+                        "source": source,
+                        "sources": [source],
+                        "frames": frames,
+                    }
+                else:
+                    row["sources"] = [*row["sources"], source]
+        rows = [{"kind": "image", **row} for row in merged.values()]
         # Group order follows first appearance, which follows the sorted store
         # names, so the panel does not reshuffle itself between runs.
         groups = list(dict.fromkeys(row["group"] for row in rows))
