@@ -105,12 +105,16 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         what = names[0] if len(names) == 1 else f"{len(names)} stores from {parent.name}"
         print(f"Opening {what}...")
+        # A narrowed selection must stay narrowed: if the folder were still being
+        # watched, the tiles and filters deliberately left out would reappear.
+        narrowed = bool(args.tiles or args.filter_name)
         open_window(
             data_dir=parent,
             store=names,
             window=window,
             depth_samples=args.depth_samples,
             chrome=args.chrome,
+            watch=not narrowed,
         )
         return 0
 

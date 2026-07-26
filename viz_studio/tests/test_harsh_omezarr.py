@@ -293,7 +293,7 @@ def test_config_has_one_coloured_layer_per_channel(serving):
     config = json.loads(body)
     assert len(config["layers"]) == len(names)          # exactly the channels on disk
     by_source = {layer["source"]: layer for layer in config["layers"]}
-    assert f"/data/{names[0]}/|zarr2:" in by_source
+    assert f"/data/0/{names[0]}/|zarr2:" in by_source
     for layer in config["layers"]:
         assert layer["color"] is not None               # multi-channel: each is coloured
         assert layer["window"]["low"] < layer["window"]["high"]
@@ -308,7 +308,7 @@ def test_health_is_ok(serving):
 def test_missing_chunk_is_404_not_an_error(serving):
     # zarr reads a missing chunk as "empty here"; a 500 would break sparse data.
     port, names = serving
-    status, _ = request(port, f"/data/{names[0]}/0/9.9.9")
+    status, _ = request(port, f"/data/0/{names[0]}/0/9.9.9")
     assert status == 404
 
 

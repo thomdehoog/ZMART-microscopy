@@ -106,8 +106,19 @@ class _Handler(SimpleHTTPRequestHandler):
     # small chunks; without this each one would open a fresh connection.
     protocol_version = "HTTP/1.1"
 
-    def __init__(self, *args, data_dir: Path, site_dir: Path, config: dict, **kwargs):
-        self._data_dir = data_dir  # the OME-Zarr store, served under /data
+    def __init__(
+        self,
+        *args,
+        data_dir: Path,
+        site_dir: Path,
+        config: dict,
+        library=None,
+        browse=None,
+        **kwargs,
+    ):
+        self._data_dir = data_dir  # where drawn targets are saved
+        self._library = library  # which folders may be read from, and what is in them
+        self._browse = browse  # opens a native folder chooser, when one is available
         self._site_dir = site_dir  # the built page, served as the base directory
         # Asked afresh on each /api/config request rather than held as a fixed
         # answer, so a store written after the viewer opened can still appear.
@@ -147,17 +158,19 @@ class _Handler(SimpleHTTPRequestHandler):
     # -- image data ------------------------------------------------------
 
     def _serve_from_data(self) -> None:
-        """Serve one file from the OME-Zarr store under ``/data``.
+        """Serve one file from an open OME-Zarr store under ``/data``.
 
-        The browser requests image chunks by path, e.g.
-        ``/data/demo.zarr/0/0.24.0.0`` (the numbers are the chunk's position;
-        the volume's metadata tells the viewer to join them with dots). We
-        translate that to a file inside the demo store, refusing any path that
-        tries to climb out of it.
+        The browser asks for image chunks by path, for example
+        ``/data/0/demo.zarr/0/0.24.0.0``: the first number says which opened
+        folder, then the store inside it, then the chunk's position (the volume's
+        metadata tells the viewer to join those with dots).
+
+        Which folders may be read from is the library's decision, and a request
+        that does not land inside one of them is refused rather than corrected.
         """
         rel = self.path[len("/data/") :].split("?", 1)[0].split("#", 1)[0]
-        target = (self._data_dir / rel).resolve()
-        if self._data_dir not in target.parents and target != self._data_dir:
+        target = self._library.resolve(rel)
+        if target is None:
             self.send_error(HTTPStatus.FORBIDDEN)
             return
         if not target.is_file():
@@ -223,6 +236,83 @@ class _Handler(SimpleHTTPRequestHandler):
         self._send_json(self._config())
 
     def _serve_api_post(self) -> None:
+        """Handle the things the viewer asks Python to do.
+
+        Saving drawn targets, and changing which images are open: choosing a
+        folder, opening one, and closing one again. None of it touches a
+        microscope — the studio is a viewer.
+        """
+        route = self.path.rstrip("/")
+        if route in {"/api/browse", "/api/stores/open", "/api/stores/close"}:
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length) or b"{}")
+            except json.JSONDecodeError:
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
+            if route == "/api/browse":
+                self._serve_browse()
+            elif route == "/api/stores/open":
+                self._serve_open(payload)
+            else:
+                self._serve_close(payload)
+            return
+        self._save_annotations()
+
+    def _serve_browse(self) -> None:
+        """Ask the operating system to show a folder chooser, and say what was picked.
+
+        A page in a browser cannot be given a path on the machine — for good
+        reason — so the chooser has to be opened by Python, which is running the
+        window. In the desktop window that works; in a plain browser tab there is
+        nothing to open, and the answer says so plainly so the interface can fall
+        back to asking for a typed path instead of failing mysteriously.
+        """
+        if self._browse is None:
+            self._send_json(
+                {
+                    "error": "no folder chooser is available here",
+                    "reason": "The chooser is opened by the desktop window. In a "
+                    "browser tab, type or paste the folder's path instead.",
+                },
+                HTTPStatus.NOT_IMPLEMENTED,
+            )
+            return
+        try:
+            chosen = self._browse()
+        except Exception as exc:  # noqa: BLE001 -- reported, never swallowed
+            self._send_json({"error": f"the folder chooser failed: {exc}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        # Nothing chosen is a perfectly ordinary outcome: the operator changed
+        # their mind and pressed cancel.
+        self._send_json({"path": chosen} if chosen else {"cancelled": True})
+
+    def _serve_open(self, payload: object) -> None:
+        """Open a folder of images and answer with the viewer's new contents."""
+        path = payload.get("path") if isinstance(payload, dict) else None
+        if not isinstance(path, str) or not path.strip():
+            self._send_json({"error": "a folder path is needed"}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            self._library.open(path.strip())
+        except FileNotFoundError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+            return
+        except (ValueError, OSError) as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(self._config())
+
+    def _serve_close(self, payload: object) -> None:
+        """Close an acquisition type, and answer with what is left."""
+        group = payload.get("group") if isinstance(payload, dict) else None
+        if not isinstance(group, str) or not group:
+            self._send_json({"error": "which acquisition to close is needed"}, HTTPStatus.BAD_REQUEST)
+            return
+        self._library.close_group(group)
+        self._send_json(self._config())
+
+    def _save_annotations(self) -> None:
         """Save the targets the operator has drawn.
 
         This is the only thing the viewer sends back, and it goes to a file, not
@@ -286,6 +376,8 @@ def make_server(
     window: tuple[float, float] | None = None,
     depth_samples: int = 256,
     chrome: bool = False,
+    browse=None,
+    watch: bool = True,
 ) -> ThreadingHTTPServer:
     """Create (but do not start) the viewer's web server.
 
@@ -300,10 +392,15 @@ def make_server(
     shares no prefix with what the caller passed.
     """
     from contrast import display_window, intensity_histogram
+    from library import Library
     from stores import axis_names, channel_color, channels, layer_names, split_name
 
     data_dir = Path(data_dir).resolve()
     names = [store] if isinstance(store, str) else list(store)
+    library = Library()
+    # The folder the viewer was started on is the run being worked on, so it is
+    # watched: an acquisition written while it is open appears on its own.
+    library.open(data_dir, names=names, watch=watch)
 
     # Measuring a store's display window and histogram means reading pixels, so
     # each store is measured once and the answer kept. The list of stores is
@@ -311,32 +408,33 @@ def make_server(
     # remembered.
     measured: dict[str, dict] = {}
 
-    def describe(name: str, label: str, coloured: bool) -> dict:
-        if name in measured:
-            return {**measured[name], "name": label}
+    def describe(root_number: int, root: Path, name: str, label: str, coloured: bool) -> dict:
+        key = f"{root_number}/{name}"
+        if key in measured:
+            return {**measured[key], "name": label}
         # Both windows travel with the layer so switching between the plane and
         # the volume is instant: the client already has what each mode needs
         # and never goes back to the server for it.
-        flat = window if window is not None else display_window(data_dir / name)
+        flat = window if window is not None else display_window(root / name)
         volume = (
             window
             if window is not None
-            else display_window(data_dir / name, volumetric=True)
+            else display_window(root / name, volumetric=True)
         )
         color = channel_color(name) if coloured else None
-        measured[name] = {
-            "source": f"/data/{name}/|zarr2:",
+        measured[key] = {
+            "source": f"/data/{root_number}/{name}/|zarr2:",
             # A row may be drawn from more than one store: several positions of the
             # same acquisition type, each carrying its own place on the stage. The
             # engine takes a list and places them itself, so a row that happens to
             # come from one store is simply a list of one.
-            "sources": [f"/data/{name}/|zarr2:"],
+            "sources": [f"/data/{root_number}/{name}/|zarr2:"],
             "window": {"low": flat[0], "high": flat[1]},
             "volumeWindow": {"low": volume[0], "high": volume[1]},
             "color": list(color) if color else None,
-            "histogram": intensity_histogram(data_dir / name),
+            "histogram": intensity_histogram(root / name),
         }
-        return {**measured[name], "name": label}
+        return {**measured[key], "name": label}
 
     def build_config() -> dict:
         """Describe every row the layer panel should show, and its group.
@@ -354,13 +452,14 @@ def make_server(
         Both then carry the acquisition type they belong to, so the panel can show
         them gathered under it rather than as a flat list.
         """
-        present = names
+        entries = library.entries()
+        present = [name for _, _, name in entries]
         labels = layer_names(present)
         rows = []
-        for name, label in zip(present, labels, strict=True):
+        for (root_number, root, name), label in zip(entries, labels, strict=True):
             kind, _ = split_name(name)
-            store_path = data_dir / name
-            base = describe(name, label, coloured=len(present) > 1)
+            store_path = root / name
+            base = describe(root_number, root, name, label, coloured=len(present) > 1)
             if "c" in axis_names(store_path):
                 for index, channel in enumerate(channels(store_path)):
                     rows.append(
@@ -389,6 +488,8 @@ def make_server(
         data_dir=data_dir,
         site_dir=Path(site_dir).resolve(),
         config=build_config,
+        library=library,
+        browse=browse,
     )
     return ThreadingHTTPServer(("127.0.0.1", port), handler)
 

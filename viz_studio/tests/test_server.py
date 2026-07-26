@@ -60,7 +60,7 @@ def test_root_serves_the_built_page(serving):
 
 
 def test_chunk_is_served_byte_exact_with_a_length(serving):
-    status, headers, body = request(serving, "/data/demo.zarr/chunk")
+    status, headers, body = request(serving, "/data/0/demo.zarr/chunk")
     assert status == 200
     assert body == b"\x01\x02\x03\x04"
     assert headers["Content-Length"] == "4"
@@ -69,12 +69,12 @@ def test_chunk_is_served_byte_exact_with_a_length(serving):
 
 def test_missing_chunk_is_a_plain_404(serving):
     """Sparse volumes rely on this: absent chunk means background, not error."""
-    status, _, _ = request(serving, "/data/demo.zarr/0/9.9.9.9")
+    status, _, _ = request(serving, "/data/0/demo.zarr/0/9.9.9.9")
     assert status == 404
 
 
 def test_path_traversal_out_of_the_data_directory_is_refused(serving):
-    status, _, _ = request(serving, "/data/../outside.txt")
+    status, _, _ = request(serving, "/data/0/../outside.txt")
     assert status == 403
 
 
@@ -104,7 +104,7 @@ def test_config_tells_the_page_what_to_open(serving):
     config = json.loads(body)
     layers = config["layers"]
     assert len(layers) == 1
-    assert layers[0]["source"] == "/data/demo.zarr/|zarr2:"
+    assert layers[0]["source"] == "/data/0/demo.zarr/|zarr2:"
     assert layers[0]["window"]["high"] > layers[0]["window"]["low"]
     # Both windows travel up front so the 2-D/3-D toggle needs no round trip.
     assert layers[0]["volumeWindow"]["high"] > layers[0]["volumeWindow"]["low"]
@@ -121,7 +121,7 @@ def test_config_reports_the_store_it_was_given(tmp_path):
     config = config_from(
         data_dir=tmp_path, site_dir=site, store="acquisition.zarr", window=(5.0, 50.0)
     )
-    assert config["layers"][0]["source"] == "/data/acquisition.zarr/|zarr2:"
+    assert config["layers"][0]["source"] == "/data/0/acquisition.zarr/|zarr2:"
     assert config["layers"][0]["window"] == {"low": 5.0, "high": 50.0}
 
 
@@ -158,7 +158,7 @@ def test_several_stores_become_several_layers(tmp_path):
     )
     layers = config["layers"]
     assert [layer["name"] for layer in layers] == ["Tile0_Ch488", "Tile0_Ch647", "Tile1_Ch488"]
-    assert [layer["source"] for layer in layers] == [f"/data/{n}/|zarr2:" for n in names]
+    assert [layer["source"] for layer in layers] == [f"/data/0/{n}/|zarr2:" for n in names]
 
 
 def test_channels_are_coloured_only_when_overlaid(tmp_path):
@@ -266,7 +266,7 @@ def test_serves_data_from_an_unresolved_directory(tmp_path):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        status, _, body = request(server.server_address[1], "/data/chunk")
+        status, _, body = request(server.server_address[1], "/data/0/chunk")
     finally:
         server.shutdown()
         thread.join(timeout=5)
@@ -319,7 +319,7 @@ def test_config_is_worked_out_fresh_on_every_request(tmp_path):
 
 def test_image_chunks_are_not_cached_for_long(serving):
     """A live run rewrites regions, so a long cache would hide new data."""
-    _, headers, _ = request(serving, "/data/demo.zarr/chunk")
+    _, headers, _ = request(serving, "/data/0/demo.zarr/chunk")
     cache = headers.get("Cache-Control", "")
     assert cache.startswith("max-age=")
     assert int(cache.split("=")[1]) <= 60, "a live store must be re-checked promptly"
