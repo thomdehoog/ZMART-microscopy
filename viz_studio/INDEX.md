@@ -33,6 +33,12 @@ workflow. Both run with no microscope (demo mode).
 6. **`viz_studio/INTEGRATION_ROADMAP.md`** — the plan to make the viewer the main
    image viewer for the whole workflow: what it replaces, what stays, and the
    incremental path via OME-Zarr. Read this to know where it's going.
+7. **`viz_studio/DATA_LAYOUT.md`** — how a smart-microscopy run should be written
+   to disk, and why: one OME-Zarr per acquisition type, positions sharing one
+   canvas, time declared generously up front. Every cost claim in it was measured,
+   and `viz_studio/measure_canvas.py` reproduces those measurements. Read this
+   **before changing how acquisitions are saved**, and before adding live
+   updating — the decisions there are what make both cheap.
 
 ## The two interfaces at a glance
 
