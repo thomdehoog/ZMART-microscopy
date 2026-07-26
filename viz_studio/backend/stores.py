@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import Counter
 from pathlib import Path
 
 # Excitation wavelength -> the false colour to draw that channel in. These are
@@ -48,13 +49,17 @@ def layer_names(names: list[str]) -> list[str]:
     needed to keep every label distinct.
     """
     short = [_short_name(name) for name in names]
-    labels = []
-    for name, label in zip(short, names, strict=True):
-        if short.count(name) > 1:
-            labels.append(_with_filter(name, label))
-        else:
-            labels.append(name)
-    return labels
+    # How many stores want each short name, counted once. Asking "how many others
+    # share this name?" inside the loop instead would re-read the whole list for
+    # every store, which is unnoticeable for a handful and becomes the slowest thing
+    # here for a run of several thousand -- measured at nearly half a second for
+    # five thousand acquisitions, on a question asked every time the viewer is told
+    # what is open.
+    wanted = Counter(short)
+    return [
+        _with_filter(name, label) if wanted[name] > 1 else name
+        for name, label in zip(short, names, strict=True)
+    ]
 
 
 def _short_name(store_name: str) -> str:
