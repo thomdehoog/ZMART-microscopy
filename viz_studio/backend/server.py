@@ -300,7 +300,7 @@ def make_server(
     shares no prefix with what the caller passed.
     """
     from contrast import display_window, intensity_histogram
-    from stores import channel_color, layer_names
+    from stores import axis_names, channel_color, channels, layer_names, split_name
 
     data_dir = Path(data_dir).resolve()
     names = [store] if isinstance(store, str) else list(store)
@@ -326,6 +326,11 @@ def make_server(
         color = channel_color(name) if coloured else None
         measured[name] = {
             "source": f"/data/{name}/|zarr2:",
+            # A row may be drawn from more than one store: several positions of the
+            # same acquisition type, each carrying its own place on the stage. The
+            # engine takes a list and places them itself, so a row that happens to
+            # come from one store is simply a list of one.
+            "sources": [f"/data/{name}/|zarr2:"],
             "window": {"low": flat[0], "high": flat[1]},
             "volumeWindow": {"low": volume[0], "high": volume[1]},
             "color": list(color) if color else None,
@@ -334,13 +339,50 @@ def make_server(
         return {**measured[name], "name": label}
 
     def build_config() -> dict:
+        """Describe every row the layer panel should show, and its group.
+
+        A row is one channel of one acquisition type. Which stores contribute to a
+        row depends on how the data was written, and both shapes occur:
+
+        - A store holding several channels inside it (the ``c`` axis of a
+          ``t,c,z,y,x`` image) becomes one row per channel, each naming the channel
+          and the colour from the store's own description.
+        - A store holding a single channel — the shape a mesoSPIM transfer writes,
+          one file per tile and channel — becomes one row, named and coloured the
+          way it always was.
+
+        Both then carry the acquisition type they belong to, so the panel can show
+        them gathered under it rather than as a flat list.
+        """
         present = names
         labels = layer_names(present)
-        layers = [
-            describe(name, label, coloured=len(present) > 1)
-            for name, label in zip(present, labels, strict=True)
-        ]
-        return {"layers": layers, "depthSamples": depth_samples, "chrome": chrome}
+        rows = []
+        for name, label in zip(present, labels, strict=True):
+            kind, _ = split_name(name)
+            store_path = data_dir / name
+            base = describe(name, label, coloured=len(present) > 1)
+            if "c" in axis_names(store_path):
+                for index, channel in enumerate(channels(store_path)):
+                    rows.append(
+                        {
+                            **base,
+                            "name": channel["name"],
+                            "group": kind,
+                            "channelIndex": index,
+                            "color": list(channel["color"]) if channel["color"] else None,
+                        }
+                    )
+            else:
+                rows.append({**base, "group": kind, "channelIndex": None})
+        # Group order follows first appearance, which follows the sorted store
+        # names, so the panel does not reshuffle itself between runs.
+        groups = list(dict.fromkeys(row["group"] for row in rows))
+        return {
+            "layers": rows,
+            "groups": groups,
+            "depthSamples": depth_samples,
+            "chrome": chrome,
+        }
 
     handler = functools.partial(
         _Handler,

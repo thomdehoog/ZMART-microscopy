@@ -57,26 +57,66 @@ function shaderFor(window_, color, volumetric, opacity = 1) {
   return source + `void main() { emitRGB(vec3(${r}, ${g}, ${b}) * normalized()); }`;
 }
 
-function layersFor(config, mode, layerState) {
+// The engine keeps one flat list of layers and requires their names to be unique,
+// while the panel shows them gathered under their acquisition type. Two types can
+// easily hold a channel of the same name -- both an overview and a target scan
+// have a "marker-a" -- so the name handed to the engine carries the type with it.
+// The panel still shows the short name; this is only what the engine is told.
+function engineName(spec) {
+  return spec.group ? `${spec.group} · ${spec.name}` : spec.name;
+}
+
+/**
+ * Turn the panel's state into the layer list the engine should draw.
+ *
+ * Three things are decided here. The **order** follows the panel, because the
+ * engine composites in list order and so the order is what decides which
+ * acquisition type sits on top of which. **Opacity** multiplies the group's
+ * setting by the channel's, so pulling a whole acquisition type back to a third
+ * dims everything in it while each channel keeps its relative weight. And
+ * **visibility** needs both: hiding a group hides its channels without forgetting
+ * which of them were individually switched off.
+ */
+function layersFor(config, mode, layerState, groupState, groupOrder) {
   const volumetric = mode === "volume";
-  return config.layers.map((spec, index) => {
+  const rows = config.layers.map((spec, index) => ({ spec, index }));
+  const ordered = groupOrder.flatMap((group) =>
+    rows.filter(({ spec }) => (spec.group || "") === group),
+  );
+  // Anything whose group is somehow not in the order still gets drawn: a layer
+  // silently missing is far worse than one in an unexpected place.
+  const seen = new Set(ordered.map(({ index }) => index));
+  const all = [...ordered, ...rows.filter(({ index }) => !seen.has(index))];
+
+  return all.map(({ spec, index }) => {
     const { visible, color, opacity, window: windowOverride } = layerState[index];
+    const group = groupState[spec.group || ""] || { visible: true, opacity: 1 };
+    const combinedOpacity = opacity * group.opacity;
     const displayWindow =
       windowOverride || (volumetric ? spec.volumeWindow || spec.window : spec.window);
     const layer = {
       type: "image",
-      name: spec.name,
-      source: `${window.location.origin}${spec.source}`,
+      name: engineName(spec),
+      // A row may be drawn from several stores -- several positions of the same
+      // acquisition type. The engine takes the list and places each one using the
+      // stage position recorded inside it.
+      source: (spec.sources || [spec.source]).map(
+        (source) => `${window.location.origin}${source}`,
+      ),
     };
-    const shader = shaderFor(displayWindow, color, volumetric, opacity);
+    // Where a store holds its channels inside one array, this is what picks the
+    // channel: the engine exposes it as a per-layer dimension, and each row pins
+    // it to its own index. Nothing splits the data; one store feeds every row.
+    if (spec.channelIndex != null) layer.localPosition = [spec.channelIndex];
+    const shader = shaderFor(displayWindow, color, volumetric, combinedOpacity);
     if (shader) layer.shader = shader;
-    layer.visible = visible;
+    layer.visible = visible && group.visible;
     if (volumetric) {
       layer.volumeRendering = "on";
       // This, not the zoom, chooses the pyramid level the volume is drawn from.
       layer.volumeRenderingDepthSamples = config.depthSamples;
     } else {
-      layer.opacity = opacity;
+      layer.opacity = combinedOpacity;
     }
     return layer;
   });
@@ -259,6 +299,11 @@ export default function App() {
   // Per-layer interface state. Held here rather than in the engine because the
   // panel and the viewer must never disagree about what is showing.
   const [layerState, setLayerState] = React.useState([]);
+  // One entry per acquisition type, plus the order they are drawn in. Held here
+  // rather than in the engine for the same reason as the rows: the panel and the
+  // view must never disagree about what is showing.
+  const [groupState, setGroupState] = React.useState({});
+  const [groupOrder, setGroupOrder] = React.useState([]);
   const [targets, setTargets] = React.useState([]);
   const [targetsLoaded, setTargetsLoaded] = React.useState(false);
   const [targetColor, setTargetColor] = React.useState("#ffd34d");
@@ -286,6 +331,11 @@ export default function App() {
           window: null,
         })),
       );
+      const groups = loaded.groups || [...new Set(loaded.layers.map((l) => l.group || ""))];
+      setGroupOrder(groups);
+      setGroupState(
+        Object.fromEntries(groups.map((name) => [name, { visible: true, opacity: 1 }])),
+      );
       setTargets(savedTargets);
       setTargetsLoaded(true);
     });
@@ -306,7 +356,10 @@ export default function App() {
       ? Object.fromEntries(oldSpace.names.map((name, index) => [name, oldPosition[index]]))
       : null;
     viewer.state.restoreState({
-      layers: [...layersFor(config, mode, layerState), annotationLayer(targets, targetColor, targetsVisible)],
+      layers: [
+        ...layersFor(config, mode, layerState, groupState, groupOrder),
+        annotationLayer(targets, targetColor, targetsVisible),
+      ],
       layout: mode === "volume" ? VOLUME_LAYOUT : SLICE_LAYOUT,
       // The engine's own furniture -- the yellow data-bounds box and the axis
       // lines -- is off unless asked for. We are supplying the interface.
@@ -349,7 +402,7 @@ export default function App() {
       clearTimeout(restoreTimer);
       if (connectTimer) clearInterval(connectTimer);
     };
-  }, [viewer, config, mode, layerState, targetsLoaded, targetColor, targetsVisible]);
+  }, [viewer, config, mode, layerState, groupState, groupOrder, targetsLoaded, targetColor, targetsVisible]);
 
   // Saving happens on its own, shortly after any change, so the operator never
   // has to remember to. That makes it all the more important to *show* whether it
@@ -398,6 +451,21 @@ export default function App() {
           : undefined;
   }, [viewer, activeTool, targetsLoaded]);
 
+  const setGroup = (name, change) =>
+    setGroupState((current) => ({ ...current, [name]: { ...current[name], ...change } }));
+
+  // Dragging an acquisition type up or down changes which one is drawn on top,
+  // so this is a real control rather than tidying: the engine composites in the
+  // order it is given, and this is that order.
+  const moveGroup = (from, to) =>
+    setGroupOrder((current) => {
+      if (from === to || from == null || to == null) return current;
+      const next = [...current];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+
   const setLayer = (index, change) =>
     setLayerState((current) =>
       current.map((entry, i) => (i === index ? { ...entry, ...change } : entry)),
@@ -437,6 +505,11 @@ export default function App() {
           layers={config.layers}
           state={layerState}
           mode={mode}
+          groupOrder={groupOrder}
+          groupState={groupState}
+          onGroupToggle={(name) => setGroup(name, { visible: !groupState[name]?.visible })}
+          onGroupOpacity={(name, opacity) => setGroup(name, { opacity })}
+          onGroupMove={moveGroup}
           onToggle={(i) => setLayer(i, { visible: !layerState[i].visible })}
           onColor={(i, color) => setLayer(i, { color })}
           onOpacity={(i, opacity) => setLayer(i, { opacity })}

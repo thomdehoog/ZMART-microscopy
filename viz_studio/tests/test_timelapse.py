@@ -113,13 +113,16 @@ class TestServingATimelapse:
             server.shutdown()
             thread.join(timeout=5)
 
-        assert len(config["layers"]) == 1
-        layer = config["layers"][0]
-        # The contrast window and histogram are measured from the store, so a
-        # five-dimensional array must not have broken that measurement.
-        assert layer["window"]["high"] > layer["window"]["low"]
-        assert layer["histogram"] is not None
-        assert len(layer["histogram"]["counts"]) > 0
+        # Three channels live inside this store, so it becomes three rows -- one
+        # per channel -- rather than a single row hiding two of them.
+        assert len(config["layers"]) == 3
+        assert [row["channelIndex"] for row in config["layers"]] == [0, 1, 2]
+        for layer in config["layers"]:
+            # The contrast window and histogram are measured from the store, so a
+            # five-dimensional array must not have broken that measurement.
+            assert layer["window"]["high"] > layer["window"]["low"]
+            assert layer["histogram"] is not None
+            assert len(layer["histogram"]["counts"]) > 0
 
 
 # --- the slider in a real browser ------------------------------------------

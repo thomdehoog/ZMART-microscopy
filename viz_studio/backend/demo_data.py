@@ -204,7 +204,9 @@ def _downsample(volume: np.ndarray) -> np.ndarray:
     return blocks.mean(axis=(-5, -3, -1)).astype(np.uint16)
 
 
-def _multiscales_metadata(n_levels: int, *, timelapse: bool = False) -> dict:
+def _multiscales_metadata(
+    n_levels: int, *, timelapse: bool = False, channel_axis: bool = True
+) -> dict:
     """Build the OME-Zarr ``multiscales`` description of the pyramid.
 
     This is the little manifest the viewer reads to understand the volume: what
@@ -219,11 +221,12 @@ def _multiscales_metadata(n_levels: int, *, timelapse: bool = False) -> dict:
     metadata is what makes the slider appear.
     """
     axes = [
-        {"name": "c", "type": "channel"},
         {"name": "z", "type": "space", "unit": "micrometer"},
         {"name": "y", "type": "space", "unit": "micrometer"},
         {"name": "x", "type": "space", "unit": "micrometer"},
     ]
+    if channel_axis:
+        axes.insert(0, {"name": "c", "type": "channel"})
     if timelapse:
         axes.insert(0, {"name": "t", "type": "time", "unit": "second"})
     datasets = []
@@ -232,7 +235,9 @@ def _multiscales_metadata(n_levels: int, *, timelapse: bool = False) -> dict:
         vz, vy, vx = _VOXEL_UM
         # No scaling on the channel axis, nor on time (one step is one frame);
         # the spatial axes grow by the level's downsample factor.
-        scale = [1.0, vz * factor, vy * factor, vx * factor]
+        scale = [vz * factor, vy * factor, vx * factor]
+        if channel_axis:
+            scale.insert(0, 1.0)
         if timelapse:
             scale.insert(0, _SECONDS_PER_FRAME)
         datasets.append(
@@ -249,7 +254,7 @@ def _multiscales_metadata(n_levels: int, *, timelapse: bool = False) -> dict:
     }
 
 
-def _omero_metadata() -> dict:
+def _omero_metadata(*, single: bool = False) -> dict:
     """Per-channel display hints (names, colours, starting brightness window).
 
     OME-Zarr carries an optional ``omero`` block describing how each channel
@@ -257,8 +262,11 @@ def _omero_metadata() -> dict:
     stretch across. The viewer uses these so the demo opens already looking
     sensible instead of flat grey.
     """
+    pairs = list(zip(CHANNEL_NAMES, CHANNEL_COLORS, strict=True))
+    if single:
+        pairs = pairs[:1]
     channels = []
-    for name, color in zip(CHANNEL_NAMES, CHANNEL_COLORS, strict=True):
+    for name, color in pairs:
         channels.append(
             {
                 "label": name,
@@ -281,6 +289,7 @@ def write_demo_zarr(
     seed: int = 7,
     overwrite: bool = True,
     timepoints: int = 1,
+    single_channel: bool = False,
 ) -> Path:
     """Generate the demo volume and save it as an OME-Zarr store at ``path``.
 
@@ -305,6 +314,12 @@ def write_demo_zarr(
         needs in order to have anything to slide through, so it is the store to
         make when you want to try that control. Each extra frame is a full copy
         of the volume, so keep the number small — a handful is plenty.
+    single_channel:
+        Write just one channel, with no channel axis at all — a plain
+        ``(z, y, x)`` volume. This is the shape a mesoSPIM transfer produces,
+        where each channel is saved as its own separate store rather than living
+        inside one. Use it when you want to try that arrangement; the default
+        writes the three-channel volume, where the channels share one store.
     """
     import zarr
 
@@ -317,7 +332,14 @@ def write_demo_zarr(
     path.mkdir(parents=True, exist_ok=True)
 
     timelapse = timepoints > 1
-    if timelapse:
+    if single_channel:
+        if timelapse:
+            raise ValueError("a single-channel demo store has no time axis")
+        # Keep only the anatomical channel, and drop the channel axis with it: a
+        # store holding one channel should not pretend to have a dimension for
+        # choosing between channels.
+        full = _build_volume(np.random.default_rng(seed))[0]
+    elif timelapse:
         frames = []
         for frame in range(timepoints):
             # A fresh generator per frame, seeded the same way, so every frame
@@ -365,8 +387,12 @@ def write_demo_zarr(
     # The OME-Zarr metadata lives in the group's ``.zattrs``. zarr-python does
     # not know about OME-Zarr, so we attach the standard blocks ourselves.
     attrs = {
-        "multiscales": [_multiscales_metadata(len(levels), timelapse=timelapse)],
-        "omero": _omero_metadata(),
+        "multiscales": [
+            _multiscales_metadata(
+                len(levels), timelapse=timelapse, channel_axis=not single_channel
+            )
+        ],
+        "omero": _omero_metadata(single=single_channel),
     }
     (path / ".zattrs").write_text(json.dumps(attrs, indent=1), encoding="utf-8")
 
