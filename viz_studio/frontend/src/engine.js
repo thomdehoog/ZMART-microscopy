@@ -72,8 +72,13 @@ function sourceList(spec) {
  */
 function syncSources(layer, spec) {
   const wanted = sourceList(spec);
-  const already = sourcesApplied.get(layer) || [];
-  const fresh = wanted.filter((url) => !already.includes(url));
+  // Held as a set rather than a list. A row can be drawn from as many stores as
+  // the run has positions, and asking a list "do you already contain this?" for
+  // each of them means walking the whole list every time -- which for a few
+  // thousand positions is most of a second, spent on every single step of a
+  // contrast drag, on the same thread the engine draws with.
+  const already = sourcesApplied.get(layer) || new Set();
+  const fresh = wanted.filter((url) => !already.has(url));
   for (const url of fresh) {
     // Neuroglancer's own reader turns the address into whatever it needs, so the
     // format the panel writes and the format the engine wants cannot drift apart.
@@ -84,7 +89,7 @@ function syncSources(layer, spec) {
       layer.addDataSource(source);
     }
   }
-  if (fresh.length) sourcesApplied.set(layer, wanted);
+  if (fresh.length) sourcesApplied.set(layer, new Set(wanted));
   return fresh.length;
 }
 
@@ -140,9 +145,17 @@ function applySettings(managed, spec) {
  * bottom to top, so the order decides which acquisition type covers which.
  */
 function applyOrder(manager, names) {
+  // Where each layer currently sits, looked up once. Searching the list for every
+  // name instead costs the square of the number of layers, which at a few thousand
+  // is tens of milliseconds -- again on every step of a slider drag.
+  const at = new Map(manager.managedLayers.map((managed, index) => [managed.name, index]));
   names.forEach((name, wanted) => {
-    const here = manager.managedLayers.findIndex((managed) => managed.name === name);
-    if (here >= 0 && here !== wanted) manager.reorderManagedLayer(here, wanted);
+    const here = at.get(name);
+    if (here === undefined || here === wanted) return;
+    manager.reorderManagedLayer(here, wanted);
+    // Moving one layer shifts the others, so the map is rebuilt rather than
+    // trusted. This happens only when the order has genuinely changed.
+    manager.managedLayers.forEach((managed, index) => at.set(managed.name, index));
   });
 }
 
@@ -190,7 +203,7 @@ export function syncLayers(viewer, specs) {
     managed = makeLayer(viewer.layerSpecification, spec.name, spec);
     // Building from the description already applied everything in it, including
     // the images; record them so the next pass does not add them a second time.
-    sourcesApplied.set(managed.layer, sourceList(spec));
+    sourcesApplied.set(managed.layer, new Set(sourceList(spec)));
     viewer.layerSpecification.add(managed, index);
     reshaped += 1;
   });

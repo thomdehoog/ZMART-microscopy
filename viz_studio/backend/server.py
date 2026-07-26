@@ -619,7 +619,7 @@ def make_server(
             found = measure(root / name)
         flat, volume = found["window"], found["volumeWindow"]
         color = channel_color(name) if coloured else None
-        measured[key] = {
+        described = {
             # A row may be drawn from more than one store: several positions of the
             # same acquisition type, each carrying its own place on the stage. The
             # engine takes a list and places them itself, so a row that happens to
@@ -630,7 +630,46 @@ def make_server(
             "color": list(color) if color else None,
             "histogram": found["histogram"],
         }
-        return {**measured[key], "name": label}
+        # A store can be met before any of its image has been written -- the viewer
+        # is built to notice one the instant its description lands, which is the
+        # earliest possible moment. Measuring then gives a window covering the whole
+        # range of the data type (the layer draws black) or a window one count wide
+        # (it draws saturated white), and either would be remembered for the rest of
+        # the session. So a measurement with nothing behind it is used once and not
+        # kept, and the next look measures again.
+        if found["histogram"] is not None:
+            measured[key] = described
+        return {**described, "name": label}
+
+    # The answer to "what is open", kept against the revision it was built for.
+    #
+    # The viewer asks whether anything has changed several times a second, and during
+    # a run the answer moves whenever a frame is written -- which is constantly. Each
+    # move made the page ask this expensive question again, and rebuilding it reads
+    # every store's description and counts every timelapse's frames: measured at 50
+    # milliseconds for four hundred acquisitions and over a second for five thousand,
+    # at which point the server never finishes one answer before the next is asked.
+    #
+    # So the built answer is kept, and rebuilt only when the revision has actually
+    # moved since it was made. During a timelapse that still means a rebuild per
+    # frame, which is the honest cost of noticing new frames -- but a page reloading,
+    # a second window, or several polls arriving together now share one.
+    last_built: dict = {"revision": None, "config": None}
+    building = threading.Lock()
+
+    def config_now() -> dict:
+        revision = library.revision()
+        if last_built["revision"] == revision:
+            return last_built["config"]
+        with building:
+            # Asked again with the lock held: while waiting, another thread may have
+            # built exactly what this one was about to build.
+            if last_built["revision"] == revision:
+                return last_built["config"]
+            built = build_config()
+            last_built["revision"] = revision
+            last_built["config"] = built
+            return built
 
     def build_config() -> dict:
         """Describe every row the layer panel should show, and its group.
@@ -763,7 +802,7 @@ def make_server(
         _Handler,
         data_dir=data_dir,
         site_dir=Path(site_dir).resolve(),
-        config=build_config,
+        config=config_now,
         library=library,
         browse=browse,
     )
