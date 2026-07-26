@@ -28,8 +28,13 @@ def two_channel_page(browser, built_dist, tmp_path_factory):
     data = tmp_path_factory.mktemp("channels")
     from demo_data import write_demo_zarr
 
+    # One channel per store, and no channel axis inside them: this is the shape a
+    # mesoSPIM transfer writes, where the channel is identified by the file's name.
+    # It matters that these are genuinely single-channel — a three-channel volume
+    # under a name like Tile0_Ch488 would now correctly show three rows, which is
+    # not the arrangement these tests are about.
     for name in ("Tile0_Ch488_FltEmpty.ome.zarr", "Tile0_Ch647_FltEmpty.ome.zarr"):
-        write_demo_zarr(data / name)
+        write_demo_zarr(data / name, single_channel=True)
 
     server = make_server(
         port=0,

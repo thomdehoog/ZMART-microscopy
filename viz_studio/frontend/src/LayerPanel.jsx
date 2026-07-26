@@ -56,17 +56,28 @@ export default function LayerPanel({
   layers,
   state,
   mode,
+  groupOrder = [],
+  groupState = {},
   onToggle,
   onColor,
   onOpacity,
   onWindow,
+  onGroupToggle,
+  onGroupOpacity,
+  onGroupMove,
 }) {
   const [openSwatch, setOpenSwatch] = React.useState(null);
+  const [collapsed, setCollapsed] = React.useState({});
+  const [dragging, setDragging] = React.useState(null);
 
-  return (
-    <aside style={styles.panel}>
-      <div style={styles.heading}>layers</div>
-      {layers.map((layer, index) => {
+  // Every row, paired with the position it holds in the panel's own state, so a
+  // row can still be controlled after being gathered under its group.
+  const rows = layers.map((layer, index) => ({ layer, index }));
+  const groups = groupOrder.length
+    ? groupOrder
+    : [...new Set(layers.map((layer) => layer.group || ""))];
+
+  const renderRow = ({ layer, index }) => {
         const { visible, color, opacity, window: windowOverride } = state[index];
         const measuredWindow =
           mode === "volume" ? layer.volumeWindow || layer.window : layer.window;
@@ -171,12 +182,117 @@ export default function LayerPanel({
             </label>
           </div>
         );
+  };
+
+  return (
+    <aside style={styles.panel} aria-label="layer panel">
+      <div style={styles.heading}>layers</div>
+      {groups.map((group, position) => {
+        const members = rows.filter(({ layer }) => (layer.group || "") === group);
+        if (!members.length) return null;
+        const settings = groupState[group] || { visible: true, opacity: 1 };
+        const isCollapsed = collapsed[group];
+        // A group with no name is a store that carried no acquisition type in its
+        // filename. It still needs to appear, so its rows are shown plainly with
+        // no header rather than hidden under an empty heading.
+        if (!group) return <div key="ungrouped">{members.map(renderRow)}</div>;
+        return (
+          <div
+            key={group}
+            style={{
+              ...styles.group,
+              ...(dragging === position ? styles.groupDragging : null),
+            }}
+            draggable
+            onDragStart={() => setDragging(position)}
+            onDragEnd={() => setDragging(null)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              onGroupMove?.(dragging, position);
+              setDragging(null);
+            }}
+          >
+            <div style={styles.groupHead}>
+              {/* Dragging a group up or down changes which acquisition type is
+                  drawn on top of which, so this is a real control. */}
+              <span style={styles.grip} title="Drag to change what is drawn on top">
+                ⠿
+              </span>
+              <button
+                onClick={() => setCollapsed((c) => ({ ...c, [group]: !c[group] }))}
+                style={styles.disclose}
+                aria-label={`${isCollapsed ? "expand" : "collapse"} ${group}`}
+                aria-expanded={!isCollapsed}
+              >
+                {isCollapsed ? "▸" : "▾"}
+              </button>
+              <button
+                onClick={() => onGroupToggle?.(group)}
+                style={{ ...styles.eye, opacity: settings.visible ? 1 : 0.35 }}
+                aria-label={`toggle group ${group}`}
+                title={settings.visible ? "Hide this acquisition" : "Show this acquisition"}
+              >
+                {settings.visible ? "◉" : "◎"}
+              </button>
+              <span style={styles.groupName} title={group}>
+                {group}
+              </span>
+              <span style={styles.groupCount}>{members.length}</span>
+            </div>
+            <label style={styles.control}>
+              <span style={styles.controlLabel}>all</span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={settings.opacity}
+                onChange={(event) => onGroupOpacity?.(group, Number(event.target.value))}
+                aria-label={`opacity group ${group}`}
+                style={styles.range}
+              />
+              <output style={styles.value}>{Math.round(settings.opacity * 100)}%</output>
+            </label>
+            {!isCollapsed && <div style={styles.members}>{members.map(renderRow)}</div>}
+          </div>
+        );
       })}
     </aside>
   );
 }
 
 const styles = {
+  group: { borderBottom: "1px solid #1d232b" },
+  groupDragging: { opacity: 0.5, background: "#1a2029" },
+  groupHead: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "7px 12px 3px",
+    cursor: "grab",
+  },
+  grip: { color: "#4c5764", cursor: "grab", fontSize: 12, userSelect: "none" },
+  disclose: {
+    background: "none",
+    border: "none",
+    color: "#7f8a98",
+    cursor: "pointer",
+    fontSize: 10,
+    padding: 0,
+    width: 10,
+  },
+  groupName: {
+    flex: 1,
+    font: "600 12px/1 system-ui, sans-serif",
+    letterSpacing: ".02em",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  groupCount: { color: "#5c6673", fontSize: 10, fontVariantNumeric: "tabular-nums" },
+  // Channels are indented so it reads as "these belong to that acquisition".
+  members: { paddingLeft: 8, borderLeft: "2px solid #1f2630", marginLeft: 14 },
   panel: {
     width: 260,
     flexShrink: 0,
@@ -194,7 +310,7 @@ const styles = {
     textTransform: "uppercase",
     color: "#6b7684",
   },
-  layer: { position: "relative", padding: "4px 0 10px", borderBottom: "1px solid #1d232b" },
+  layer: { position: "relative", padding: "4px 0 8px" },
   row: { position: "relative", display: "flex", alignItems: "center", gap: 8, padding: "5px 12px" },
   eye: { background: "none", border: "none", color: "#c9d1d9", cursor: "pointer", fontSize: 13, padding: 0 },
   swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid #39424e", cursor: "pointer", padding: 0 },
