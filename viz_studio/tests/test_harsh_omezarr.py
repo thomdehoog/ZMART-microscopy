@@ -331,9 +331,26 @@ def test_path_traversal_cannot_escape_the_data_directory(serving, attack):
 
 def test_goto_survives_valid_and_garbage_payloads(serving):
     port, _ = serving
-    ok = json.dumps({"box": {"low": [0, 0, 0], "high": [10, 10, 10]}}).encode()
+    # A box as the viewer sends it: two corners, each axis carrying its own value
+    # and the unit the image declared it in.
+    corner = lambda v: {axis: {"value": v, "unit": "um"} for axis in ("x", "y", "z")}  # noqa: E731
+    ok = json.dumps({"pointA": corner(0.0), "pointB": corner(10.0)}).encode()
     status, _ = request(port, "/api/goto", method="POST", body=ok)
     assert status == 200
     for junk in (b"", b"not json at all", b"[1,2,3]", b"{" + b"x" * 100000):
         status, _ = request(port, "/api/goto", method="POST", body=junk)
         assert status < 500                              # a bad body is a client error, never a crash
+
+
+def test_goto_refuses_a_target_it_cannot_convert_safely(serving):
+    """A coordinate whose unit is unknown must be refused, not guessed at.
+
+    Guessing is the dangerous option here: reading a store written in metres as
+    though it were micrometres would turn a small hop into a command a million
+    times too far.
+    """
+    port, _ = serving
+    corner = lambda v: {"x": {"value": v, "unit": "furlong"}}  # noqa: E731
+    body = json.dumps({"pointA": corner(0.0), "pointB": corner(1.0)}).encode()
+    status, _ = request(port, "/api/goto", method="POST", body=body)
+    assert status == 400
