@@ -68,7 +68,21 @@ stops the silent loss, and it is measured: in batches of two hundred, a
 thousand-position folder loaded a thousand of a thousand, and a two-thousand-position
 folder two thousand of two thousand, with no failures at all.
 
-But be clear about what it is. **Batching is a stopgap, not the answer.** It still
+**Build it as one path, with the batch size adapting.** It is tempting to treat
+batching as something needed only when a finished folder is opened, and therefore as
+a special case that might be skipped. It is better understood as simply *how sources
+are fed*: hand it however many positions there are, and let it feed them in groups.
+During a run that is one position, which is a single group and costs nothing extra.
+Opening a folder of forty thousand is many groups. Same code, no branch on whether
+the data is live, and the live path stays exactly as cheap as it is today.
+
+It also composes with the viewing window rather than competing with it. The window
+decides *which* positions; the batching decides *how fast* they go in. A window that
+suddenly takes in two hundred positions because the operator zoomed out is a burst
+too, so the pacing is wanted there regardless of how the folder was opened.
+
+But be clear about what batching does and does not buy. **On its own it is a stopgap,
+not the answer.** It still
 resolves every one of forty thousand positions, merely spread over time — still some
 hundred and sixty thousand requests, still minutes before the first pixel, for a
 specimen of which only a small part can be on screen at once. It makes unnecessary
