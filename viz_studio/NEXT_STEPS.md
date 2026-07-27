@@ -476,7 +476,11 @@ audits at that scale have run and their findings are folded into the items below
 covered the backend and the frontend only broadly. Put an agent on each of these briefs,
 because everything found so far was in a place nobody was looking.
 
-**The first of the six has now been run, and it is worth saying what that cost.** One
+**Three of the six have now been run** — the cold open (1), the live path (2) and the
+engine boundary (3). What is left is memory (4), the per-chunk path (5) and the interface
+under load (6).
+
+**It is worth saying what running one costs.** One
 auditor, working alone on a quiet machine, took about twenty minutes and found the largest
 single saving in the project so far. Running all six at once was tried and abandoned: this
 machine has four processors, and six agents each driving their own browser and their own
@@ -504,9 +508,41 @@ The briefs, chosen so they do not overlap:
    answers, and removing that took the server's part of the cold open from roughly
    fifty-seven minutes to about twelve seconds at forty thousand positions. The four
    findings that came with it and were left undone are listed above.
-2. **The live path** — from a position being written to it appearing. Every cost paid per
-   announcement, and whether any of it scales with how much is already open rather than with
-   what actually changed.
+2. ~~**The live path**~~ — **done, and it favours one store.** `measure_the_live_path.py`
+   times one announcement in both layouts, with varying amounts already open. The question
+   was whether the cost of noticing one new thing grows with how much is already there,
+   because a cost of that shape is invisible in a short test and painful by the end of a
+   real acquisition.
+
+   | already open | a position arriving | | a tile landing in one store | |
+   |---|---|---|---|---|
+   | | requests | seconds | requests | seconds |
+   | 10 | 7 | 0.02 s | 23 | 0.54 s |
+   | 100 | 7 | 0.05 s | 22 | 0.30 s |
+   | 400 | 7 | **0.26 s** | 22 | **0.31 s** |
+
+   **Requests are level in both**, which is the half that is already right: neither layout
+   pays more round trips as the run goes on. The per-store re-read that used to cost six
+   thousand requests at a thousand positions is gone and stays gone.
+
+   **The seconds are not level for one store per position.** A position arriving costs
+   0.02 s when ten are open and 0.26 s when four hundred are — thirteen times as much for
+   forty times the positions. That is the same growth that makes a cold open superlinear,
+   appearing in the live path: each position added makes the engine rework where everything
+   sits in space. Extrapolating is unwise, but the direction is not in doubt, and a run of
+   tens of thousands of positions would feel it.
+
+   **One store is flat**, at about three tenths of a second whatever has already been
+   written, which is the property that lets a viewer be left running for a whole
+   experiment.
+
+   Two things to know about the twenty-two requests. They are what letting go costs: the
+   pieces on screen are fetched again, and that number follows the size of the window
+   rather than the size of the specimen — which is why it does not move between rows. But
+   they are paid on **every** announcement, so a run announcing several times a second
+   would be refetching the view several times a second. It is bounded and it is small, but
+   if a run announces very often it is worth announcing less often rather than making this
+   cheaper.
 3. ~~**The engine boundary**~~ — **done, and the answer is that the wall is the engine's.**
    Item 1 below is therefore **compulsory, not optional.** The audit confirmed it the
    strongest way available: with our own code taken out of the path entirely and positions
