@@ -10,6 +10,74 @@ into line with the code and should be trusted.
 
 ## Done since the last hand-over
 
+**The cold open was ninety minutes because we measured every position and used
+almost none of it.** This was the worst number in the system and the first of the
+six audits below has now been run against it. The diagnosis in the previous
+hand-over was half right and the correction is what mattered.
+
+Judging one store's brightness costs about 86 milliseconds for a store shaped the
+way `DATA_LAYOUT.md` asks for. Of that, reading the pixels off the disk is 17
+milliseconds and the arithmetic afterwards is 74 — so the expensive part was never
+the reading. But the real fault was larger and simpler than either. Several
+positions of the same acquisition type merge into a **single row** in the panel,
+and a row carries one brightness window and one histogram. The server measured
+every store it met and then, for all but the first of each row, threw the answer
+away: the merge wanted only the store's address and how many frames it had, and
+both of those follow from the store's name without touching a pixel.
+
+On a folder of a thousand positions that was a thousand measurements to fill in
+one row. Measured here on three hundred positions, before and after, over the same
+data: **126.3 seconds to 1.31 seconds**, with three stores measured instead of
+three hundred. The description the panel receives is byte-for-byte identical — not
+similar, identical — because the discarded measurements were never reaching the
+screen in the first place. At forty thousand positions this is roughly fifty-seven
+minutes down to about twelve seconds.
+
+The change is small: the call that reads pixels moved inside the branch that
+creates a row. The measuring script is kept as `measure_cold_open.py`, and it
+reports how many stores were read as well as how long it took — so if the saving
+is ever lost again, running it says so in as many words rather than leaving
+somebody to notice a folder is slow. What is left of the server's cold open is linear and modest, about
+0.35 milliseconds a position, so on the order of fourteen seconds at forty
+thousand — at which point the wall becomes the engine's own fan-out rather than
+anything of ours, which is exactly the question audit 3 below was written to
+settle.
+
+**Four things the same audit turned up that were deliberately not acted on**, each
+because it is a decision for the operator rather than a defect to fix:
+
+- **The brightness arithmetic does far more work than it needs to.** It converts
+  the camera's 16-bit whole numbers into 64-bit decimals, checks each one for being
+  a real number, and then puts millions of them in order three separate times. A
+  16-bit camera can only produce 65 536 different values, so counting how many of
+  each there are gives the same percentiles by a much shorter route — verified
+  identical on forty stores, not merely close. It is about twelve times cheaper.
+  After the fix above this applies to only a handful of stores per folder, so the
+  saving is now small; what it would buy is removing the worst case, which is a
+  store with a large coarsest pyramid level at around 211 milliseconds.
+- **`DATA_LAYOUT.md` promises something the code does not do.** The guidance at
+  the `omero` section tells whoever writes a store that supplying a display window
+  saves the viewer a read of the pixels. It does not: the window is honoured for
+  the flat view, but the volume window and the histogram are still worked out from
+  pixels regardless. Either make it true — which would give a well-written
+  acquisition an instant cold open, and is worth having — or correct the document.
+  This is the same drift the closing caution of this file warns about.
+- **A row's brightness comes from whichever of its positions sorts first by name.**
+  That was already so and nothing has changed, but the fix makes it plain instead
+  of hiding it behind forty thousand measurements that were discarded. For a mosaic
+  the first position is a corner of the specimen, which may be dim and unrepresentative.
+  Sampling a handful of positions spread through the run and combining them would
+  cost about seven tenths of a second **however large the folder** — a fixed price,
+  because it is a fixed number of stores. Worth an hour on real data first, to see
+  whether the window that comes out today is actually wrong.
+- **Parallelising the brightness pass is not worth building.** Measured on this
+  machine: threads flatten at about 1.4× however many are used, because the work is
+  arithmetic and Python lets only one thread do arithmetic at a time; four separate
+  processes give 3.3× on four cores. So the ceiling is the processor, not the
+  opening of files — a useful thing to know. But three minutes is worse than twelve
+  seconds for a great deal more machinery, so this belongs in the drawer rather than
+  in the code.
+
 **The scale of the target, measured at last.** Two audits ran against synthetic folders of
 up to forty thousand positions. The per-chunk path is flat — 0.21 ms median at forty
 thousand, unchanged from a thousand — which is the part that belongs to Neuroglancer and
@@ -104,8 +172,23 @@ files on one worker.
 
 The target is real and it is not met: **forty thousand positions, forty terabytes.** Two
 audits at that scale have run and their findings are folded into the items below, but they
-covered the backend and the frontend only broadly. Put **six agents** on it at once, each
-with a narrow brief, because everything found so far was in a place nobody was looking.
+covered the backend and the frontend only broadly. Put an agent on each of these briefs,
+because everything found so far was in a place nobody was looking.
+
+**The first of the six has now been run, and it is worth saying what that cost.** One
+auditor, working alone on a quiet machine, took about twenty minutes and found the largest
+single saving in the project so far. Running all six at once was tried and abandoned: this
+machine has four processors, and six agents each driving their own browser and their own
+server spend most of their time measuring each other rather than the viewer. If you want
+them in parallel, give them a bigger machine or accept that every timing they report is
+worthless; otherwise run them one at a time, which is what produced the result above.
+Findings expressed as counts — of requests, of measurements, of renders — survive
+contention and are worth asking for either way.
+
+Of the five left, **the engine boundary (3) is the one to do next**, because the cold open
+is now short enough that the engine's own fan-out is what stands between the viewer and a
+large finished folder, and its answer decides whether item 1 further down is optional or
+compulsory.
 
 Give each of them the figures already measured, tell them not to re-litigate the decisions
 in `DATA_LAYOUT.md`, and require that every finding be **measured rather than reasoned** —
@@ -115,11 +198,11 @@ concrete fix, and a plain statement of which findings are theoretical rather tha
 
 The briefs, chosen so they do not overlap:
 
-1. **The cold open** — from pointing the viewer at a finished folder to the first pixel.
-   This is the worst measured number in the system: roughly ninety minutes at forty thousand
-   positions, nearly all of it reading pixels to judge brightness, one store at a time.
-   Anything that removes, defers, bounds or parallelises that is the highest-value change
-   available anywhere in the project.
+1. ~~**The cold open**~~ — **done; see "Done since the last hand-over" above.** It was not
+   what it looked like: the cost was measuring every position and using almost none of the
+   answers, and removing that took the server's part of the cold open from roughly
+   fifty-seven minutes to about twelve seconds at forty thousand positions. The four
+   findings that came with it and were left undone are listed above.
 2. **The live path** — from a position being written to it appearing. Every cost paid per
    announcement, and whether any of it scales with how much is already open rather than with
    what actually changed.
@@ -148,6 +231,14 @@ not to be the better answer for finished data.
 ## 1. Hand the engine only the sources it needs
 
 **Start here, and it is a measurement before it is a change.**
+
+**What has changed since this was written:** the server's own share of opening a large
+finished folder is no longer the problem — see the cold-open work above, which took it from
+roughly fifty-seven minutes to about twelve seconds at forty thousand positions. That does
+not answer this item; it isolates it. What remains before the first pixel is the engine
+resolving thousands of sources, and that is now the whole of the delay rather than a
+fraction of it. So the measurement asked for below is still the right next step, and it has
+become the only thing standing in the way.
 
 A row currently takes every position of its acquisition type at once. Each source is
 resolved when it is added — roughly four small metadata requests — through a browser that

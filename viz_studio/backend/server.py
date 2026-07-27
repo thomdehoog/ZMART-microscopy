@@ -718,6 +718,10 @@ def make_server(
     # each store is measured once and the answer kept. The list of stores is
     # re-read on every request (see _serve_config); only this expensive part is
     # remembered.
+    #
+    # Note that build_config only ever asks this of the one store that decides
+    # how a row is shown, not of every position on the row -- so on a large run
+    # there are a handful of entries here rather than tens of thousands.
     measured: dict[str, dict] = {}
     # Measuring a store means reading pixels. Two requests arriving together --
     # the page loading while the refresh poll fires, or a second window opening --
@@ -848,7 +852,13 @@ def make_server(
             kind, _ = split_name(name)
             group = groups_named[(root_number, kind)]
             store_path = root / name
-            base = describe(root_number, root, name, label, coloured=len(present) > 1)
+            # Where this store is read from. It follows from the store's name, so
+            # working it out costs nothing -- no pixel is touched. That matters
+            # here: a row is drawn from every position of its acquisition type,
+            # and all but the first of them need only this address. Judging a
+            # store's brightness, by contrast, means reading its image data, so
+            # it is left until we know a row actually needs it (see below).
+            address = f"/data/{root_number}/{name}/|zarr2:"
             if "c" in axis_names(store_path):
                 found = [
                     (index, channel["name"], channel["color"])
@@ -859,7 +869,8 @@ def make_server(
                 # by the wavelength so the same channel of different tiles merges,
                 # falling back to the label where there is no wavelength to read.
                 wavelength = channel_of(name)
-                found = [(None, f"Ch{wavelength}" if wavelength else label, base.get("color"))]
+                colour = channel_color(name) if len(present) > 1 else None
+                found = [(None, f"Ch{wavelength}" if wavelength else label, colour)]
 
             frames = written_timepoints(store_path)
             for index, channel_name, color in found:
@@ -870,13 +881,30 @@ def make_server(
                 key = (root_number, kind, index, channel_name)
                 row = merged.get(key)
                 if row is None:
+                    # The first position of a row decides how the whole row is
+                    # shown, so this is the only store on the row whose pixels
+                    # have to be read. Every later position adds its address to
+                    # the list below and nothing else.
+                    #
+                    # This is worth knowing, because the alternative is expensive
+                    # in a way that is easy to miss. Measuring every position and
+                    # then merging looks harmless -- the merge simply keeps the
+                    # first answer -- but it reads the image data of every store
+                    # in the run to produce a number that is immediately thrown
+                    # away. On a folder of a thousand positions that was a
+                    # thousand measurements to fill in one row. It is the reason
+                    # a large finished folder took the best part of an hour to
+                    # open; see NEXT_STEPS.md for the figures.
+                    base = describe(root_number, root, name, label, coloured=len(present) > 1)
                     merged[key] = {
                         **base,
-                        # A list of this row's own. `base` comes from the remembered
-                        # measurement of one store, and its list of addresses belongs
-                        # to that memory -- extending it below would grow the
-                        # remembered copy too, a little more on every answer.
-                        "sources": list(base["sources"]),
+                        # A list of this row's own, so that extending it below
+                        # cannot reach back into anything shared. `base` carries
+                        # a list of addresses too, belonging to the remembered
+                        # measurement of this store; growing *that* by accident
+                        # would add a little to the remembered copy on every
+                        # answer, so the row is given its own from the start.
+                        "sources": [address],
                         "name": channel_name,
                         "group": group,
                         "channelIndex": index,
@@ -899,7 +927,7 @@ def make_server(
                         # Keeping the counts separately costs nothing to produce: it
                         # is the same number, already worked out for each store just
                         # above, that used to be thrown away in the merge.
-                        "frameCounts": [frames] * len(base["sources"]),
+                        "frameCounts": [frames],
                         "color": list(color) if color else None,
                     }
                 else:
@@ -909,8 +937,8 @@ def make_server(
                     # adding one position cost more the more were already
                     # there -- measured at seven seconds for a single row of
                     # forty thousand, on every answer.
-                    row["sources"].extend(base["sources"])
-                    row["frameCounts"].extend([frames] * len(base["sources"]))
+                    row["sources"].append(address)
+                    row["frameCounts"].append(frames)
                     # Positions of one acquisition are imaged together, but one may
                     # be a frame ahead of another at the moment of looking. The
                     # slider follows the one furthest along.
