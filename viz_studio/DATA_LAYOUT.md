@@ -544,6 +544,32 @@ Two measurements, both reproducible:
 So the cost of a new frame is: the frame, plus a few hundred bytes rewritten. Not a
 re-read of a twenty-gigabyte timepoint.
 
+### One cost this underestimated, found later and measured
+
+The paragraph above is about what it costs to *write* a frame, and it is right. What
+it did not account for is what it costs the viewer to notice one, and that turned out
+not to be free.
+
+The engine files each piece of decoded image under a key that includes the array's
+shape. So when the shape genuinely changes — which is the whole point of this decision
+— the pieces currently on screen are suddenly filed under a key nobody is looking for,
+and the frame being viewed is fetched again. It is bounded: the frame on screen, not
+the whole timelapse, and once per growth rather than continuously. But a viewer left
+watching a timelapse that gains a frame every few seconds will pay it every few
+seconds, and during a live run nothing is kept by the browser, so each one is a real
+request rather than a read from memory.
+
+This does not overturn the decision. The alternative still has an untruth in it, and
+the untruth still has to be papered over. But it is worth knowing before anyone points
+a viewer at a very fast timelapse and wonders why it is busier than expected, and it is
+the measurement to take first if that ever becomes a complaint.
+
+The happier half of the same fact: when a store's description comes back *unchanged*,
+the key is unchanged too and nothing at all is re-fetched. An acquisition that declares
+its length up front and fills in frames it already promised costs the viewer nothing to
+follow. That is pinned by
+`test_engine_is_not_disturbed.py::TestDataArrivingWhileYouWatch::test_frames_arriving_do_not_disturb_what_is_shown`.
+
 ### What follows for keeping copies
 
 This decision is the whole reason the files describing a store are never kept by the
@@ -558,12 +584,44 @@ writing, because nothing on disk is settled; once the run is done, a piece may b
 kept for a year and marked as never changing, since it is written once and never
 rewritten.
 
+### The browser's copy is not the only copy
+
+The paragraph above is about the browser's own store of things it has fetched, which
+the server controls through the headers it sends. That much was right and is still
+right. But it is not the only place an answer can be kept, and assuming it was cost us
+a session.
+
+The engine keeps its own memory, inside the page, of everything it has worked out about
+a store: how long it is, how big a voxel is, where the pyramid levels are. Nothing in an
+HTTP header can reach that memory. It has no time limit and no size limit, and the engine
+never lets go of an entry once it has made one, so it lasts exactly as long as the page
+is open. Telling the browser not to keep a copy of a description therefore achieves
+nothing on its own — the engine simply never asks the browser in the first place, because
+it already believes it knows.
+
+That was measured rather than reasoned about: after an announcement, a page that had been
+asked in every available way to read the store again fetched no description files at all.
+
+So the viewer drops what the engine remembers about that one store first, and only then
+asks it to resolve the store again. What is dropped is only what was *read*; the decoded
+image is remembered separately and is deliberately left alone. See
+`forgetWhatWasReadAbout` in `frontend/src/engine.js`.
+
+Two things follow that are worth keeping in mind. This memory dies with the page, so
+closing the viewer clears it and there is nothing to tidy up on the way out. And because
+dropping it makes the next question genuinely reach the disk, it is done only for a row
+whose frame count has actually moved — a row can hold a store for every place the
+microscope visited, and asking all of them on every announcement would be thousands of
+small requests to no purpose. That guard is pinned by
+`test_a_run_arriving.py::test_a_store_is_only_read_again_when_it_has_actually_grown`.
+
 ### What the viewer needs for this
 
 Growing the array only helps if the viewer re-reads the description, so something has to
 tell the page that it has grown. That is the same channel from server to page that
 announcing a new position needs, and one mechanism serves both. It is built: see
-"Telling the page" below.
+"Telling the page" below. Being told is necessary but not sufficient — see the section
+just above for the second half.
 
 ## Decision 3: what the layer list looks like
 

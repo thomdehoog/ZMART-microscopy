@@ -40,6 +40,28 @@ writing; finished data is kept for a year. Worth knowing, because it surprised u
 returning to somewhere you have been costs no fetch *either way* — what makes it free is
 the engine's own memory of decoded pieces, not the browser's HTTP cache.
 
+**A growing timelapse now reaches the engine.** This was item 1 of the last hand-over
+and the only thing standing in the way of a run being watched properly. The cause was
+not where the last session was looking. Handing a data source its own address back does
+make the engine resolve the store again — that part was right — but the engine keeps its
+own memory, inside the page, of everything it has ever worked out about a store, and the
+resolving was answered out of that memory. Nothing reached the disk. That memory has no
+time limit and no size limit, the engine never releases an entry once made, and no
+instruction the server can send in a header can reach it. So the viewer now drops what is
+remembered about that one store first, and only then asks. What is dropped is only what
+was *read*; the decoded image is kept under a separate arrangement and is left strictly
+alone.
+
+Two things came out of it that are worth carrying forward. Dropping that memory makes the
+next question genuinely reach the disk, so doing it on every announcement would mean four
+small requests per position per announcement — thousands, on a row holding a store for
+every place the microscope visited. It is therefore done only for a row whose frame count
+has actually moved, and there is a test with a positive control on both halves. And there
+is a real cost that Decision 2 in `DATA_LAYOUT.md` had not accounted for: the engine files
+decoded image under a key that includes the array's shape, so when the shape genuinely
+changes the frame on screen is fetched again. It is bounded and it is once per growth, but
+it is not free. `DATA_LAYOUT.md` now says so.
+
 **The channel from server to page** — built, as server-sent events. See below for what
 was deliberately not done with it.
 
@@ -49,76 +71,24 @@ files on one worker.
 
 ---
 
-## 1. Make a growing timelapse reach the engine
+## 1. Hand the engine only the sources it needs
 
-**Start here.** It is the only thing in the way of a run being watched properly, and it
-is half built — there is a test waiting for it that will turn green when it works.
-
-### What the problem is
-
-A timelapse grows: the array's length in time is raised by one and the new frame is
-written into it (`DATA_LAYOUT.md`, Decision 2). Nothing about the *scene* changes when
-that happens — same store, same channels, same everything the panel can show — so the
-only way the viewer can find out is to read the store's description again.
-
-The engine will not do that on its own. It read the description when it first resolved
-the store, learnt "this image has twelve timepoints", and is holding that answer. Until
-something makes it look again, the time slider cannot reach frame thirteen even though
-the frame is on disk.
-
-### What is already done
-
-- **The server side is right.** The files describing a store are served `no-cache`
-  precisely so a re-read returns the truth, while the image itself is kept for a year
-  and marked immutable. A test pins both halves so they cannot drift together.
-- **`syncLayers` takes a `reread` option** (`frontend/src/engine.js`). When set, it hands
-  every open data source its own address back — `source.spec = { ...source.spec }` —
-  which, confirmed by reading `layer_data_source.js`, makes Neuroglancer dispose what it
-  worked out and resolve the store again.
-- **`App.jsx` sets it** on the pass that follows an announcement, and only then.
-- **The pieces of image are not disturbed.** A chunk keeps its own address when an array
-  grows, so everything already fetched stays put. That is asserted.
-
-### What is missing
-
-Re-resolving happens, but the coordinate space the time slider reads from still reports
-the old length afterwards. So the store is correctly *not* opened a second time, the
-layers are correctly left alone — and the new frame is still out of reach.
-
-`tests/test_a_run_arriving.py::test_a_timelapse_that_grows_is_noticed_without_being_added_twice`
-is marked `xfail(strict=True)` with that reason. Remove the marker when it passes; strict
-means it will fail loudly if it starts passing by accident, which is what you want.
-
-### Where to look
-
-The question is what makes a layer adopt a new extent after its source is re-resolved.
-Worth checking, roughly in this order: whether `layer.dataSourcesChanged` needs
-dispatching after the spec assignment; whether the layer's own coordinate space is
-derived once and cached; and whether `viewer.navigationState.position.coordinateSpace`
-recombines only when the *set* of layers changes rather than when one of them changes
-shape. `CoordinateSpaceCombiner` is the thing doing the combining.
-
-### One trap, already fallen into
-
-The re-read must happen **as well as** adding new sources, not instead of. An earlier
-version treated them as alternatives, and new positions silently stopped appearing —
-because one announcement can mean both things at once (a position finished *and* another
-gained a frame). `tests/test_a_run_arriving.py::test_a_run_arrives_one_position_at_a_time`
-catches that; it failed exactly this way and now passes.
-
----
-
-## 2. Hand the engine only the sources it needs
-
-**This is now the first item, and it is a measurement before it is a change.**
+**Start here, and it is a measurement before it is a change.**
 
 A row currently takes every position of its acquisition type at once. Each source is
 resolved when it is added — roughly four small metadata requests — through a browser that
 allows six connections at a time. At a few hundred positions that is fine. At several
 thousand it is thousands of round trips before the first pixel.
 
-It is cached afterwards, and during a live run the positions arrive one at a time, so the
-cost is spread and invisible. The case that hurts is opening a large finished folder cold.
+The engine remembers each answer afterwards, and during a live run the positions arrive
+one at a time, so the cost is spread and invisible. The case that hurts is opening a large
+finished folder cold.
+
+That remembering is the same memory described under the growing-timelapse work above, so
+the two items meet here. Anything that makes a store be read again pays this cost afresh
+for that store, which is why the re-read is confined to a row whose frame count has
+actually moved. If you change how sources are added, keep that confinement — widening it
+is the easiest way to turn a few hundred requests into a few thousand without noticing.
 
 Two answers, and they are complementary: add sources for what is in view and extend as
 the operator navigates; and prefer a stitched image for finished data, which is one
@@ -135,7 +105,7 @@ chunk, which is the number that actually matters here.
 
 ---
 
-## 3. Move `build_config` out of `server.py`
+## 2. Move `build_config` out of `server.py`
 
 About 120 lines of domain reasoning — how stores become rows, how positions merge, how
 masks become their own kind — inside a closure in the HTTP module, reachable only over
@@ -149,7 +119,7 @@ server traced from the inside because neither piece could be questioned on its o
 
 ---
 
-## 4. The rest of the assertions that cannot fail
+## 3. The rest of the assertions that cannot fail
 
 A review found roughly twenty. Three of the worst were fixed along the way; these remain:
 
@@ -168,7 +138,7 @@ the revision tests, and the cache tests) if you want the shape.
 
 ---
 
-## 5. Smaller things worth doing
+## 4. Smaller things worth doing
 
 - **Consider revalidation instead of no-store for live data.** During a run the browser
   is told to keep nothing, which is simple and certainly correct. A middle course exists:
@@ -207,8 +177,9 @@ else depends on it.
 
 ## Where things stand
 
-Branch `claude/napaly-neuroglancer-progress-jo0b8h`. The suite passes in about five
-minutes with `-n 3`, with one deliberate `xfail` — item 1 above. Nothing uncommitted.
+Branch `claude/napaly-neuroglancer-progress-jo0b8h`. The whole suite passes in about five
+minutes with `-n 3` — 327 tests, 8 skipped where there is no GPU or no mesoSPIM data, and
+no `xfail` left. Nothing uncommitted.
 
 **How the viewer learns about new data, as it now stands.** There is no browser polling:
 `/api/revision` is gone and answers 404, and a test asserts an idle viewer asks for
