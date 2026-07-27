@@ -33,12 +33,28 @@ HERE = Path(__file__).resolve().parent
 def _install_missing() -> None:
     """Install any test tools that are not already present.
 
-    numpy and zarr run the data-reading tests; pytest runs everything; and
-    playwright drives the browser tests (which skip on their own if it is not
-    there). We install whatever is missing so a fresh checkout just works.
+    numpy and zarr run the data-reading tests; pytest runs everything; playwright
+    drives the browser tests (which skip on their own if it is not there); and
+    pillow opens the screenshots those tests take, which is how we check that a
+    picture was actually drawn rather than trusting the engine's own account of
+    itself. We install whatever is missing so a fresh checkout just works.
     """
-    needed = ["pytest", "numpy", "zarr", "playwright"]
-    missing = [m for m in needed if importlib.util.find_spec(m) is None]
+    # What to import to see whether it is there, and what to ask pip for if it is
+    # not. Those are usually the same word, but not always: the imaging library is
+    # imported as ``PIL`` and installed as ``pillow``, for historical reasons that
+    # do not matter here beyond getting the name right.
+    needed = {
+        "pytest": "pytest",
+        "numpy": "numpy",
+        "zarr": "zarr",
+        "playwright": "playwright",
+        "PIL": "pillow",
+    }
+    missing = [
+        package
+        for module, package in needed.items()
+        if importlib.util.find_spec(module) is None
+    ]
     if missing:
         print(f"Installing test tools: {', '.join(missing)} …", flush=True)
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", *missing], check=True)
@@ -67,11 +83,33 @@ def _build_frontend() -> None:
     subprocess.run([npm, "--prefix", "frontend", "run", "build"], cwd=HERE, check=True)
 
 
+def _split_whole_files(extra_args: list[str]) -> list[str]:
+    """Ask for whole files to be kept together when the tests run in parallel.
+
+    Running with ``-n 3`` shares the tests out over three copies of Python at
+    once, which is a large saving. By default it shares out one *test* at a time,
+    and that undoes some of the saving here: several of these files set something
+    up once for the whole file — a browser, a served volume — and a file split
+    across three copies builds that setup three times. Keeping each file on one
+    copy builds it once. It is worth tens of seconds.
+
+    Only added when parallel running was actually asked for, and only when it has
+    not been asked for already, so that ``python run_tests.py`` on a machine
+    without the parallel-running plugin is unaffected.
+    """
+    asked_for_parallel = any(arg == "-n" or arg.startswith("-n") for arg in extra_args)
+    already_chosen = any(arg.startswith("--dist") for arg in extra_args)
+    if asked_for_parallel and not already_chosen:
+        return [*extra_args, "--dist", "loadfile"]
+    return extra_args
+
+
 def main(extra_args: list[str]) -> int:
     _install_missing()
     _build_frontend()
     return subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/", "-q", *extra_args], cwd=HERE
+        [sys.executable, "-m", "pytest", "tests/", "-q", *_split_whole_files(extra_args)],
+        cwd=HERE,
     ).returncode
 
 
