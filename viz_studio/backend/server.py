@@ -910,10 +910,7 @@ def make_server(
                     # there -- measured at seven seconds for a single row of
                     # forty thousand, on every answer.
                     row["sources"].extend(base["sources"])
-                    row["frameCounts"] = [
-                        *row["frameCounts"],
-                        *[frames] * len(base["sources"]),
-                    ]
+                    row["frameCounts"].extend([frames] * len(base["sources"]))
                     # Positions of one acquisition are imaged together, but one may
                     # be a frame ahead of another at the moment of looking. The
                     # slider follows the one furthest along.
@@ -946,7 +943,7 @@ def make_server(
                     }
                 else:
                     row["sources"].append(source)
-                    row["frameCounts"] = [*row["frameCounts"], frames]
+                    row["frameCounts"].append(frames)
         rows = [{"kind": "image", **row} for row in merged.values()]
         # Group order follows first appearance, which follows the sorted store
         # names, so the panel does not reshuffle itself between runs.

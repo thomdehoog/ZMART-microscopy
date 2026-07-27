@@ -200,7 +200,14 @@ class Library:
             # A folder that has become unreadable mid-run is not a reason to lose
             # what is already on screen.
             return known
-        return known + [name for name in found if name not in known]
+        # Asked of a set rather than of the list. "Is this name already known?" is a
+        # question asked once per image found, and answering it by walking the list of
+        # images already known costs a little more each time the folder grows -- which,
+        # in a folder of tens of thousands of positions, becomes the slowest thing the
+        # viewer does: measured at fifteen seconds a look, and it is looked at whenever
+        # anything is announced.
+        already = set(known)
+        return known + [name for name in found if name not in already]
 
     def revision(self) -> str:
         """A short summary of the open folders that changes when their contents do.
