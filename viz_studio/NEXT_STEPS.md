@@ -81,8 +81,22 @@ decides *which* positions; the batching decides *how fast* they go in. A window 
 suddenly takes in two hundred positions because the operator zoomed out is a burst
 too, so the pacing is wanted there regardless of how the folder was opened.
 
-But be clear about what batching does and does not buy. **On its own it is a stopgap,
-not the answer.** It still
+**Where it is the right answer rather than a workaround: loading a finished folder on
+purpose.** Offline you genuinely do want every position, and you mean it — the whole
+specimen, ready to scroll through. There is nothing to trim and no view to narrow to.
+The only question is the rate they go in at, and pacing them is what turns "the browser
+refuses and thirty-nine thousand of them silently vanish" into "they all arrive, in
+order, and you can watch it happen". That is the mechanism the case requires.
+
+**The batch size must adapt, so that one path serves both ways of working.** A
+smart-microscopy run hands it a single position, which is a batch of one and costs
+nothing beyond what happens today. A finished folder hands it forty thousand, which
+becomes many batches. Neither is a special case and there is no branch on whether the
+data is live — the number of positions waiting is simply the size of the batch, and
+during a run that number is usually one.
+
+What batching does *not* do is make a large folder quick, and it should not be
+expected to. It still
 resolves every one of forty thousand positions, merely spread over time — still some
 hundred and sixty thousand requests, still minutes before the first pixel, for a
 specimen of which only a small part can be on screen at once. It makes unnecessary
@@ -122,8 +136,11 @@ Worth adding what is *not* a problem: a single very large store. There is nothin
 batch — one source, and its pyramid does the work. That is the case Neuroglancer was
 built for and it is already fine.
 
-The answer for navigation is item 1 below: **hand the engine only the positions in
-view, and extend as the operator moves.** Then forty thousand positions cost whatever is being looked
+So there are three cases with three answers, and none substitutes for another. Loading
+a finished folder deliberately: batching. Navigating a very large run: **hand the engine
+only the positions in view, and extend as the operator moves**, which is item 1 below.
+Looking at the whole specimen at once: one object that stands for all of it — the
+overview, or a stitched image. Then forty thousand positions cost whatever is being looked
 at, and the browser's queue is never near its limit — so batching stops being needed
 rather than being made to work. Do not build batching as a thing of its own; the place
 it has to go is the same place the viewing window goes, and building it twice would be
