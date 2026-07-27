@@ -843,8 +843,14 @@ else depends on it.
 ## Where things stand
 
 Branch `claude/napaly-neuroglancer-progress-jo0b8h`. The whole suite passes in about five
-minutes with `-n 3` — 327 tests, 8 skipped where there is no GPU or no mesoSPIM data, and
-no `xfail` left. Nothing uncommitted.
+and a half minutes with `-n 3` — 328 tests, 8 skipped where there is no GPU or no mesoSPIM
+data, and no `xfail` left. Nothing uncommitted.
+
+**The order the next session should read this in.** Item 0 is new and may change what is
+worth building: if a run writes into a single OME-Zarr, most of the difficulty above
+disappears rather than being solved. Item 1, the viewing window, is still the right answer
+for folders that are already laid out as one store per position, and there will be plenty
+of those. Nothing else has changed.
 
 **How the viewer learns about new data, as it now stands.** There is no browser polling:
 `/api/revision` is gone and answers 404, and a test asserts an idle viewer asks for
