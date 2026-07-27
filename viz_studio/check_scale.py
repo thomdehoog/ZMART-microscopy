@@ -4,12 +4,21 @@ Run this on the machine you use at the microscope. It answers one question that
 matters a great deal and cannot be answered by reading code: **when you open a
 folder holding many positions, do all of them actually appear?**
 
-The honest answer today is no, and that is why this exists. Above roughly six
-hundred and eighty positions the viewer draws only some of your specimen and says
-nothing about the rest. It is not that the missing positions are slow to arrive —
-they never arrive at all, and the picture looks complete. The exact number where
-this starts depends on your browser and your machine, which is precisely why it is
-worth measuring on yours rather than trusting a figure measured on ours.
+There was a time when the answer was no, and that is why this exists. Above roughly
+six hundred and eighty positions the viewer drew only some of the specimen and said
+nothing about the rest — the missing positions were not slow to arrive, they never
+arrived at all, and the picture looked complete. That is fixed: the stores are now
+handed to the drawing engine in groups rather than all at once, and nine hundred
+positions arrive nine hundred of nine hundred where six hundred and eighty-one did
+before.
+
+It is still worth running, for two reasons. The first is that the old ceiling depended
+on the browser and the machine, so the only way to be sure your own setup is sound is
+to ask it — and if a future change ever brings the loss back, this is what says so
+plainly instead of leaving you to notice that a folder looks thin. The second is that
+not losing positions is not the same as being pleasant to use: a folder of nine hundred
+still takes half a minute to open and then draws slowly, and the table below tells you
+that too.
 
 What it does
 ------------
@@ -58,13 +67,16 @@ the same as the tests. If you have run the test suite once, you have both.
 What to do with the answer
 --------------------------
 
-If ``lost`` is zero at every size you care about, this is not a problem for the
-runs you actually do, and you can stop worrying about it.
+If ``lost`` is zero at every size you care about, every position of your specimen is
+reaching the screen, which is what this is chiefly here to confirm. Read the
+``frames in 5 s`` and ``contrast step`` columns next: those say whether a folder that
+size is comfortable to work with, which is a separate question and currently the
+weaker one.
 
-If ``lost`` is not zero, then a folder that size is currently being drawn wrong on
-your machine, and the size where it starts is worth writing down — it is the
-practical limit of the viewer as it stands. ``NEXT_STEPS.md`` explains why it
-happens and what the fix is.
+If ``lost`` is not zero, something has gone wrong — a folder that size is being drawn
+wrong on your machine, and the size where it starts is worth writing down and
+reporting. ``NEXT_STEPS.md`` explains the shape of the problem and what was done about
+it.
 """
 
 from __future__ import annotations
@@ -338,9 +350,10 @@ def report(rows: list[dict]) -> None:
         print(
             f"From about {first['positions']} positions upward, this machine does not show\n"
             f"the whole specimen: {first['lost']} of {first['positions']} positions did not arrive, and\n"
-            "nothing on screen would have told you. The data on disk is fine -- the\n"
-            "viewer asks about every position at once and the browser refuses to\n"
-            "queue that many requests."
+            "nothing on screen would have told you. The data on disk is fine. This is\n"
+            "the fault the group-by-group feeding in engine.js was built to prevent, so\n"
+            "seeing it again means either that feeding has been undone or that your\n"
+            "browser gives up sooner than the ones it was measured against."
         )
         if first["refusals"]:
             reason, times = first["refusals"][0]
