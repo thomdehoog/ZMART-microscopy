@@ -5,6 +5,8 @@ import TargetsPanel from "./TargetsPanel.jsx";
 import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/annotations.js";
 import {
   chooseScaleWhenTheImagesAreMeasured,
+  letGoOfDecodedPieces,
+  lettingGo,
   sourcesStillWaiting,
   syncLayers,
   syncView,
@@ -137,6 +139,10 @@ async function loadTargets() {
  */
 export default function App() {
   const [viewer, setViewer] = React.useState(null);
+  // The same engine, reachable without waiting for a re-render. applyConfig below
+  // runs while answering the server and needs it there and then; a piece of state
+  // would only reach it on the next pass, which is too late to be any use.
+  const engine = React.useRef(null);
   const [config, setConfig] = React.useState(null);
   const [mode, setMode] = React.useState("flat");
   // Per-layer interface state. Held here rather than in the engine because the
@@ -318,8 +324,28 @@ export default function App() {
     // Any message at all means "ask again", so both the named event and anything
     // else that arrives are treated the same. Being generous here means a future
     // kind of announcement cannot be silently ignored by an older page.
-    listener.addEventListener("changed", askAgain);
-    listener.onmessage = askAgain;
+    // An announcement can carry one piece of detail, and only one: that what was
+    // written went into a store the viewer may already have open, rather than into a
+    // new store of its own. That is what a run does when it fills in one large
+    // OME-Zarr tile by tile, and it is the one change the page cannot see for itself —
+    // no description moves, so reading the disk again reveals nothing. The engine has
+    // to be told to let go of the image it has already decoded, or it will go on
+    // showing the emptiness it settled on earlier and never look again.
+    //
+    // Anything else, including a message with no detail at all, just means "ask again".
+    const heard = (event) => {
+      let said = null;
+      try {
+        said = event.data ? JSON.parse(event.data) : null;
+      } catch {
+        said = null; // not readable, so treat it as a plain "something changed"
+      }
+      if (said?.imageWrittenInPlace && engine.current) letGoOfDecodedPieces(engine.current);
+      askAgain();
+    };
+
+    listener.addEventListener("changed", heard);
+    listener.onmessage = heard;
     // Opening the connection is also what fetches the images for the first time,
     // and this is deliberate rather than convenient. It means "we are connected"
     // and "we are up to date" are established together, so there is no separate
@@ -403,6 +429,7 @@ export default function App() {
 
   React.useEffect(() => {
     if (!viewer || !scene) return undefined;
+    engine.current = viewer;
     window.zmartViewer = viewer; // handy for inspection and the browser tests
     window.zmartConfig = config;
     window.zmartMode = mode;
@@ -440,6 +467,10 @@ export default function App() {
     // loading and nothing re-runs this to keep a number up to date. Zero means every
     // position the panel knows about has reached the engine.
     window.zmartSourcesWaiting = () => sourcesStillWaiting(viewer);
+    // How many times the viewer has asked the engine to let go of decoded image, and
+    // how many sources it asked the last time. The browser tests read this to tell an
+    // announcement that did nothing from one that did something that did not help.
+    window.zmartLetGo = lettingGo;
 
     // Only a change in the shape of the scene can move the view: adding or
     // removing an image makes the engine work out the coordinate space afresh,

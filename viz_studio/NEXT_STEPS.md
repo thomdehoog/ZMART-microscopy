@@ -592,14 +592,30 @@ store as it goes.** The tile is written once instead of twice, and the viewer ho
 single source from the very first moment. This is the operator's suggestion and it is the
 better answer.
 
-**The one condition, measured.** The engine remembers every piece of image it has
-decoded, including the pieces it found empty, with no time limit. A tile written into a
-place the viewer has already looked at is therefore not noticed at all — the picture stays
-empty and **not one request is made**. `check_writing_into_one_store.py` demonstrates it
-and then demonstrates the cure: asking the chunk sources to let go of what they have
-decoded (`invalidateCache`, which is a supported call rather than a patch) makes the tile
-appear, on nine requests. Nine, not nine thousand — only the pieces actually on screen are
-fetched again, so the cost does not grow with the specimen.
+**The one condition — measured, and now built.** The engine remembers every piece of
+image it has decoded, including the pieces it found empty, with no time limit. A tile
+written into a place the viewer has already looked at is therefore not noticed at all —
+the picture stays empty and **not one request is made**.
+`check_writing_into_one_store.py` demonstrates it, and the viewer now handles it: an
+announcement may carry `{"wrote_image_in_place": true}`, and on hearing it the viewer asks
+the sources to let go of what they have decoded. The tile then appears, on nine requests.
+Nine, not nine thousand — only the pieces actually on screen are fetched again, so the
+cost does not grow with the specimen. Pinned by `tests/test_writing_into_one_store.py`.
+
+**What a run has to do, which is one line.** Announce as it already does, and add that
+flag when the image went into a store the viewer may already have open:
+
+```
+POST /api/announce   {"reason": "a tile was written", "wrote_image_in_place": true}
+```
+
+**The flag is off by default, and that matters as much as the feature.** For the ordinary
+layout — one store per position — it is not true, and a viewer that let go on every
+announcement would spend a long run refetching image it already had, which is exactly the
+waste all of this exists to avoid. Nothing on disk distinguishes the two cases: same
+store, same name, same size. So the writer, which is the only one that knows, says which
+it did. An earlier attempt worked it out from the scene instead of being told, and the
+second test in that file caught it throwing the view away every time a neighbour arrived.
 
 That is the same lesson as the growing timelapse, one level down. The engine's memory is
 the right thing almost always and has to be released deliberately in the one case where

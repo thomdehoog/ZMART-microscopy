@@ -27,18 +27,23 @@ not noticed: it keeps showing the emptiness it decided on earlier and never goes
 the disk. This script demonstrates exactly that — nothing appears, and not one request is
 made.
 
-**The condition.** The engine offers a way to be told to let go of the pieces it has
-decoded (`invalidateCache` on a chunk source, which asks the worker holding them to drop
-them). Once asked, it fetches again and the tile appears. That is a supported call rather
-than a patch, and the cost is small and — importantly — does not grow with the specimen:
-only the pieces actually on screen are fetched again, which in this script is nine
-requests whether the store describes a gigabyte or a terabyte.
+**The condition, which the viewer now handles.** The engine offers a way to be told to
+let go of the pieces it has decoded, and the viewer uses it: when a run announces with
+``{"wrote_image_in_place": true}``, the viewer drops what it has decoded and fetches
+again, and the tile appears. The cost is small and — importantly — does not grow with the
+specimen: only the pieces actually on screen are fetched again, which in this script is
+nine requests whether the store describes a gigabyte or a terabyte.
 
-So the shape of a future implementation is: on an announcement, ask the sources to let go
-of what they have decoded, exactly as the viewer already drops what it has *read* about a
-timelapse that has grown. Both are the same lesson — the engine's memory is the right
-thing almost always, and has to be released deliberately in the one case where the disk
-has changed underneath it.
+**The run has to say so, and only the run can.** That flag is off by default and it has
+to be, because for the ordinary layout of one store per position it is not true — a
+viewer letting go on every announcement would spend a long run refetching image it
+already had, which is exactly the waste all of this exists to avoid. Nothing on disk
+distinguishes the two cases: the store is the same store, the same size, with the same
+name. So the writer, which is the only one that knows, says which it did.
+
+This script runs the experiment the other way round — it announces *without* the flag
+first, to show what happens when nothing is said, and then asks the sources to let go
+directly to show that the mechanism is what makes the difference.
 
 Run it with::
 

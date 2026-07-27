@@ -41,11 +41,33 @@ QUIET_HEARTBEAT_S = 15.0
 # it keeps the connection honest without the page having to know about it.
 HEARTBEAT = b": still here\n\n"
 
-# What is sent when something has actually changed. The page does not read the
-# text -- any message at all means "ask again" -- but naming it makes a recording
-# of the traffic readable to a person, which matters when working out why a
-# viewer did or did not notice something.
+# What is sent when something has actually changed. Any message at all means "ask
+# again", and naming it makes a recording of the traffic readable to a person, which
+# matters when working out why a viewer did or did not notice something.
 SOMETHING_CHANGED = b"event: changed\ndata: {}\n\n"
+
+# The same, for the one kind of change the page cannot work out for itself.
+#
+# Almost everything a run does shows up in what the disk says: a new acquisition
+# appears, a timelapse gets longer, a store's description changes. The page hears
+# "something changed", reads the disk, and sees for itself -- which is why the message
+# above carries no detail, and that is a deliberate choice worth keeping.
+#
+# There is one exception, and it is not a matter of taste. If a run writes image into a
+# store the viewer already has open -- a tile landing in its place inside one large
+# OME-Zarr, rather than a new store appearing beside the others -- then nothing about
+# any description changes. The store is the same store, the same size, with the same
+# name. The drawing engine, meanwhile, remembers every piece of image it has decoded,
+# including the pieces it found to be empty, so it goes on showing the emptiness it
+# settled on earlier and never asks the disk again. Measured, that is not "slow to
+# appear": it is no request at all, ever.
+#
+# So the writer has to say so, because the writer is the only one who knows. This is not
+# a second description of the world to keep in step with the first -- it says nothing
+# about what the data is, only that image was written where the viewer has already
+# looked. If it is wrong the worst that happens is that the viewer fetches what is on
+# screen once more than it needed to.
+IMAGE_WRITTEN_IN_PLACE = b'event: changed\ndata: {"imageWrittenInPlace": true}\n\n'
 
 
 class Announcements:
@@ -76,17 +98,26 @@ class Announcements:
         with self._lock:
             self._listeners.discard(waiting)
 
-    def say_something_changed(self) -> int:
+    def say_something_changed(self, *, image_written_in_place: bool = False) -> int:
         """Tell every open page to ask again. Returns how many were told.
 
         The count is worth returning: an acquisition script that announces a
         position and is told nobody was listening has learnt something useful,
         namely that the viewer is not open.
+
+        Pass ``image_written_in_place`` when what was written went *into* a store the
+        viewer may already have open, rather than into a new store of its own. That is
+        what a run does when it fills in one large OME-Zarr tile by tile. It is off by
+        default, because for the ordinary layout — one store per position — it is not
+        true and asking for it would make the viewer fetch the current view again for
+        nothing. See ``IMAGE_WRITTEN_IN_PLACE`` above for why the viewer cannot work
+        this out on its own.
         """
+        message = IMAGE_WRITTEN_IN_PLACE if image_written_in_place else SOMETHING_CHANGED
         with self._lock:
             listeners = list(self._listeners)
         for waiting in listeners:
-            waiting.put(SOMETHING_CHANGED)
+            waiting.put(message)
         return len(listeners)
 
     def close(self) -> None:
