@@ -180,6 +180,8 @@ export default function App() {
   const targetsFromDisk = React.useRef([]);
   // The set of images last taken on, used to spot an answer that says nothing new.
   const applied = React.useRef(null);
+  // Whether the (expensive) question of what is open is already outstanding.
+  const asking = React.useRef(false);
 
   // Take on a new set of images -- at startup, and again whenever something is
   // opened or closed. Anything still open keeps the colour, contrast and opacity
@@ -240,12 +242,33 @@ export default function App() {
     );
   }, []);
 
+  // Ask the server what is open, and take it on.
+  //
+  // This is the only place the question is asked, which matters more than it
+  // sounds: on a folder of several thousand positions the answer is genuinely
+  // expensive, and two of them racing at startup was measurably slower for no
+  // benefit at all.
+  const catchUp = React.useCallback(async () => {
+    // Not while one is already outstanding. Several announcements can arrive
+    // close together at the start of a run, and a browser allows only six
+    // connections to one address -- a queue of expensive questions would leave
+    // the engine unable to fetch a single piece of image until they finished.
+    if (asking.current) return;
+    asking.current = true;
+    const loaded = await fetchConfig().finally(() => {
+      asking.current = false;
+    });
+    if (loaded) applyConfig(loaded);
+    else setStoreNotice("Could not reach the server. Is it still running?");
+  }, [applyConfig]);
+
+  // The targets drawn in a previous session, read once. The images are not read
+  // here: they arrive when the connection below opens, which is the moment we
+  // know the server is actually answering.
   React.useEffect(() => {
     let cancelled = false;
-    Promise.all([fetchConfig(), loadTargets()]).then(([loaded, savedTargets]) => {
+    loadTargets().then((savedTargets) => {
       if (cancelled) return;
-      if (loaded) applyConfig(loaded);
-      else setStoreNotice("Could not reach the server. Is it still running?");
       targetsFromDisk.current = savedTargets;
       setTargets(savedTargets);
       setTargetsLoaded(true);
@@ -253,7 +276,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [applyConfig]);
+  }, []);
 
   // Whether there is anything to listen for. Finished data cannot change, so a
   // viewer on it holds no connection open. Until the first answer arrives we do
@@ -281,31 +304,27 @@ export default function App() {
     // we do not yet know which mode we are in.
     if (!shouldListen) return undefined;
     let stop = false;
-    // Whether an answer is already outstanding. Several announcements can arrive
-    // close together at the start of a run, and the first answer is slow because
-    // it reads pixels from every store. A browser allows only six connections to
-    // one address, so a queue of those would leave the engine unable to fetch a
-    // single piece of image until they finished.
-    let asking = false;
-    const catchUp = async () => {
-      if (asking || stop) return;
-      asking = true;
-      const loaded = await fetchConfig().finally(() => {
-        asking = false;
-      });
-      if (stop) return;
-      if (loaded) applyConfig(loaded);
-      else setStoreNotice("Could not reach the server. Is it still running?");
+    const askAgain = () => {
+      if (!stop) catchUp();
     };
 
     const listener = new EventSource("/api/events");
     // Any message at all means "ask again", so both the named event and anything
     // else that arrives are treated the same. Being generous here means a future
     // kind of announcement cannot be silently ignored by an older page.
-    listener.addEventListener("changed", catchUp);
-    listener.onmessage = catchUp;
+    listener.addEventListener("changed", askAgain);
+    listener.onmessage = askAgain;
+    // Opening the connection is also what fetches the images for the first time,
+    // and this is deliberate rather than convenient. It means "we are connected"
+    // and "we are up to date" are established together, so there is no separate
+    // path to get wrong -- and a viewer that opened while the server was still
+    // starting simply catches up when the browser reconnects, which it does on
+    // its own. During a run there is no button to try again with, so recovering
+    // without one matters.
     listener.onopen = () => {
-      if (!stop) setStoreNotice(null);
+      if (stop) return;
+      setStoreNotice(null);
+      catchUp();
     };
     // The browser reconnects on its own when a connection drops, so this is not a
     // place to retry from -- it is a place to say something. A viewer that has
@@ -320,11 +339,6 @@ export default function App() {
         setStoreNotice("Not hearing from the server — what is shown may be out of date.");
       }
     };
-
-    // Ask once now as well. This is what puts something on screen at startup, and
-    // it is also what recovers a viewer that opened while the server was still
-    // coming up -- during a run there is no button to try again with.
-    catchUp();
 
     return () => {
       stop = true;
@@ -343,7 +357,7 @@ export default function App() {
     // "not known yet" to "live" would count as a change and reconnect once for
     // nothing. Both of those states mean "listen", so as one boolean they are the
     // same value and nothing happens.
-  }, [applyConfig, shouldListen]);
+  }, [catchUp, shouldListen]);
 
   // Everything the engine should be showing, in the order it should be drawn.
   //
