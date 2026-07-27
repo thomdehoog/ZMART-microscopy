@@ -312,13 +312,13 @@ def test_the_controls_fold_away(browser, built_dist, demo_store):
         thread.join(timeout=5)
 
 
-def test_static_data_is_not_polled(browser, built_dist, demo_store):
-    """A viewer on finished data stops asking whether anything has changed.
+def test_finished_data_opens_no_listening_connection(browser, built_dist, demo_store):
+    """A viewer on finished data does not wait to be told about changes.
 
-    Nothing about a run that has ended can change, so every question about it is
-    wasted — and on a folder of several hundred acquisitions that asking is the
-    largest thing the server does. The first question is still asked, because until
-    something has been loaded there is a viewer with nothing in it.
+    Nothing about a run that has ended can change, so there is nothing to be told
+    and no reason to hold a connection open waiting for it. The data is still
+    fetched once, because until something has been loaded there is a viewer with
+    nothing in it.
     """
     import threading
 
@@ -329,13 +329,14 @@ def test_static_data_is_not_polled(browser, built_dist, demo_store):
     thread.start()
     page = browser.new_page()
     asked = []
-    page.on("request", lambda r: asked.append(r.url) if "/api/revision" in r.url else None)
+    page.on("request", lambda r: asked.append(r.url) if "/api/events" in r.url else None)
     try:
         page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
         page.wait_for_timeout(3000)
-        # Live mode would have asked four or five times over three seconds.
-        assert len(asked) <= 1, f"a static viewer kept asking: {len(asked)} times"
+        # It may open one before the first answer says the data is finished; what
+        # it must not do is keep one.
+        assert page.evaluate("() => window.zmartConfig.live") is False
         # And it is genuinely showing the data, not merely quiet.
         assert page.evaluate("() => window.zmartConfig.layers.length") == 3
     finally:
@@ -344,8 +345,13 @@ def test_static_data_is_not_polled(browser, built_dist, demo_store):
         thread.join(timeout=5)
 
 
-def test_live_data_is_polled(browser, built_dist, demo_store):
-    """The counterpart: while a run is producing data, the viewer keeps looking."""
+def test_a_live_viewer_waits_to_be_told(browser, built_dist, demo_store):
+    """The counterpart: while a run is producing data, the viewer listens.
+
+    One connection, opened once and then held. The old arrangement asked a
+    question four or five times over these same three seconds; the point of this
+    test is that there is now exactly one request and it never comes back.
+    """
     import threading
 
     from server import make_server
@@ -355,12 +361,21 @@ def test_live_data_is_polled(browser, built_dist, demo_store):
     thread.start()
     page = browser.new_page()
     asked = []
-    page.on("request", lambda r: asked.append(r.url) if "/api/revision" in r.url else None)
+    page.on("request", lambda r: asked.append(r.url) if "/api/events" in r.url else None)
     try:
         page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
         page.wait_for_timeout(3000)
-        assert len(asked) >= 3, f"a live viewer stopped looking: {len(asked)} times"
+        assert len(asked) == 1, f"expected one held connection, saw {len(asked)}"
+        # The server agrees that someone is listening -- which is what makes an
+        # announcement reach anybody.
+        told = page.evaluate(
+            """async () => {
+                 const r = await fetch('/api/announce', {method: 'POST'});
+                 return (await r.json()).told;
+               }"""
+        )
+        assert told == 1, f"the server thought {told} pages were listening"
     finally:
         page.close()
         server.shutdown()

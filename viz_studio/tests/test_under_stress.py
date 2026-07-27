@@ -264,7 +264,7 @@ class TestSparseAndMissing:
         shutil.rmtree(store)
         status, body = request(port, "/api/config")
         assert status == 200, "the viewer must still answer once the data has gone"
-        assert request(port, "/api/revision")[0] == 200
+        assert request(port, "/api/announce", method="POST", body=b"{}")[0] == 200
 
 
 # --------------------------------------------------------------------------
@@ -294,8 +294,14 @@ class TestManyAtOnce:
         assert all(status == 200 for status in answers)
         assert elapsed < PATIENCE, f"100 parallel reads took {elapsed:.1f}s"
 
-    def test_the_cheap_question_stays_cheap_under_repetition(self, tmp_path, serving):
-        """The viewer asks this many times a second; it must cost almost nothing."""
+    def test_announcing_stays_cheap_under_repetition(self, tmp_path, serving):
+        """A run announcing steadily must cost the server almost nothing.
+
+        Announcements arrive at the rate acquisitions finish, so a hundred of them
+        is already far more than a real run produces in a minute. They must not
+        become the expensive part: an announcement only nudges whoever is
+        listening, and does no reading of its own.
+        """
         for i in range(20):
             write_store(
                 tmp_path / f"overview_pos{i:03d}.ome.zarr",
@@ -303,12 +309,12 @@ class TestManyAtOnce:
                 fill=(slice(None),),
             )
         port = serving(sorted(p.name for p in tmp_path.glob("*.ome.zarr")))
-        request(port, "/api/revision")
+        request(port, "/api/announce", method="POST", body=b"{}")
         started = time.monotonic()
         for _ in range(100):
-            assert request(port, "/api/revision")[0] == 200
+            assert request(port, "/api/announce", method="POST", body=b"{}")[0] == 200
         elapsed = time.monotonic() - started
-        assert elapsed < 5.0, f"100 cheap questions took {elapsed:.1f}s"
+        assert elapsed < 5.0, f"100 announcements took {elapsed:.1f}s"
 
     def _cache_header(self, port, path: str) -> str | None:
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=PATIENCE)

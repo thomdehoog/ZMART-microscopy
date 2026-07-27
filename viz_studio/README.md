@@ -117,6 +117,41 @@ separation is deliberate rather than unfinished: it means this viewer can be
 opened on anyone's data, on any machine, including one sitting next to a running
 experiment, with no possibility of it disturbing anything.
 
+## Telling an open viewer that new data has arrived
+
+If you are writing the script that runs the experiment, this is the part that
+concerns you. When an acquisition has finished writing, say so:
+
+```python
+import json, urllib.request
+
+def announce(port=8848):
+    """Tell an open viewer to look again. Returns how many windows were told."""
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/announce",
+        data=json.dumps({}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=5) as answer:
+        return json.load(answer)["told"]
+```
+
+Every open window then re-reads what is on disk, so a new position appears and a
+timelapse that has gained a frame gets a longer time slider. You do not have to
+say *what* changed — the viewer reads that from the files, which keeps the data on
+disk the single description of the experiment that has to be right.
+
+The answer tells you how many windows heard you. Nought is not an error; it means
+nobody has the viewer open, and your script should carry on regardless.
+
+Announcing is not compulsory. The server also watches the folder and notices
+changes on its own, which is what makes the viewer work with a microscope that
+writes its own files and has never heard of ZMART. But announcing is better: the
+watching can only ever *infer* that a write has finished, and your script knows.
+
+To put a whole new folder on screen — rather than nudge the viewer about one it is
+already showing — post the path to `/api/stores/open` instead.
+
 ## Check that it really renders
 
 The acceptance test drives a real headless browser and asserts that pixels

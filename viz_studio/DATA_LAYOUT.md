@@ -558,12 +558,12 @@ writing, because nothing on disk is settled; once the run is done, a piece may b
 kept for a year and marked as never changing, since it is written once and never
 rewritten.
 
-### What the viewer still needs for this
+### What the viewer needs for this
 
-Growing the array only helps if the viewer re-reads the description. Nothing tells the
-page anything today, so this needs the same channel from server to page that announcing
-a new position needs — server-sent events, or similar. One mechanism serves both, and
-it is not built yet.
+Growing the array only helps if the viewer re-reads the description, so something has to
+tell the page that it has grown. That is the same channel from server to page that
+announcing a new position needs, and one mechanism serves both. It is built: see
+"Telling the page" below.
 
 ## Decision 3: what the layer list looks like
 
@@ -643,36 +643,56 @@ no announcing at all: the engine already holds that store's address and fetches 
 chunks when you go and look. What it does need is to re-read the description, so that it
 knows the length has moved.
 
-**Both therefore come down to one missing mechanism: something has to tell the page.**
+**Both therefore come down to one thing: something has to tell the page.**
 
-The viewer currently finds out by asking — reading the modification times of everything
-open, several times a second — and that is what should be replaced. It infers "finished"
-from a timestamp, which is not something a timestamp can say, and it has been wrong
-twice: a store is created before it is readable, so a new acquisition was noticed at the
-one moment it could not be opened, and then never looked at again.
+### Telling the page
 
-It is still there on purpose. Removing it before the channel below exists was tried, and
-it leaves the viewer unable to hear anything at all: the announcement reaches the server
-and stops, because nothing can tell an already-open page. So the asking stays until there
-is something better, and then it goes.
+The viewer used to find out by asking — reading the modification times of everything
+open, several times a second, for as long as the window was open. That works, but it can
+only ever *infer* that a write has finished, which is not something a timestamp can say,
+and it has been wrong more than once. The worst of them: a store is created before it is
+readable, so a new acquisition was noticed at the one moment it could not be opened, and
+then never looked at again. It stayed invisible for the whole session with nothing
+anywhere reporting a problem.
 
-The control application knows. It called for the acquisition and waited for the write to
-finish, so at that moment it holds the fact we were trying to guess. It should say so:
+The control application does not have to infer anything. It called for the acquisition
+and waited for the write to finish, so at that moment it holds the fact we were trying to
+guess. It says so with `POST /api/announce`, and every open page is told at once.
 
-- **"this position is ready"** → the viewer hands the engine one more address.
-- **"this position now has *n* frames"** → the viewer re-reads that store's description
-  so the time slider reaches the new frame.
+An open page hears about it over a connection it holds open, at `GET /api/events`. This
+is the browser's own server-sent-events mechanism: the page opens it once, the server
+writes a line when there is something to say, and nothing at all is sent the rest of the
+time. No library is involved on either side.
 
-`POST /api/stores/open` already accepts the first, and is tested. What does not exist is
-the path back to an already-open page: the announcement reaches the server and stops
-there. That needs a held-open connection — server-sent events are the natural fit — and
-it is the one piece of plumbing still missing. Note the order: the channel first, then
-the asking can be deleted. Removing the asking first leaves the viewer unable to hear
-anything, which was tried and does not work.
+The message carries no detail, and that is deliberate. Hearing one means "ask again", and
+the answer is read from disk — so there is only ever one description of the world and it
+is the true one. Sending the detail instead would mean keeping a second description in
+step with the first, which is a way to be subtly wrong.
+
+Both of the announcements above go through it:
+
+- **"this position is ready"** → the page asks again, and hands the engine one more
+  address. (`POST /api/stores/open` also does this directly, and announces.)
+- **"this position now has *n* frames"** → the page asks again, re-reads the store's
+  description, and the time slider reaches the new frame.
 
 Announcements arrive at the rate acquisitions finish — a handful a minute at most, since
 an exposure takes seconds. So this is a small, quiet mechanism, and it does no work at
 all when nothing is happening.
+
+### The disk is still watched, as a safety net
+
+Watching the folder has not gone away, but it has moved. Not everything that writes will
+announce: a mesoSPIM writes its own OME-Zarr, and an operator may open the viewer on a
+folder being filled by something that has never heard of us. In those cases nothing is
+going to say "this position is ready" and the only way to notice is to look.
+
+What changed is *where* the looking happens. The page no longer asks; the server looks
+once on its own behalf, however many pages are open, and announces through the same
+channel when something moves. On finished data it does not run at all.
+
+It remains the weaker of the two mechanisms, for the reason above, and an announcement
+should be preferred wherever there is one.
 
 ## Status
 
@@ -684,15 +704,20 @@ follows from all of it.
 **Built and tested:** reading acquisition types, positions and channels from what is on
 disk; the panel with grouped rows, one shared set of display settings, colour maps and
 masks; Z and T sliders that appear only when the axis exists; targets saved beside the
-data; and applying changes to the engine by adjusting layers rather than rebuilding
-them.
+data; applying changes to the engine by adjusting layers rather than rebuilding them;
+and the channel from server to page described under Decision 4, so an open page is told
+when something changes instead of asking.
 
-**Not built:** the channel from server to page described under Decision 4, and a writer.
-The mesoSPIM writes its own OME-Zarr today and our driver copies frame files rather than
-writing zarr, so where the writer belongs — a conversion step, or a change to what the
-driver writes — is still open.
+There is also a test that looks at the picture and fails if the panel is a flat colour.
+That sounds obvious and was not there: the viewer spent weeks opening on an empty grey
+rectangle with three hundred tests passing, because every one of them asked the engine
+about itself and an engine can hold all its data and still draw nothing.
 
-**One open question of fact:** whether the specimen appears on screen. The slice view has
-been observed drawing only its own background, which means image data reaches the
-graphics card and nothing is drawn from it. That is the first thing to settle, and it is
-not a storage question.
+**Not built:** a writer. The mesoSPIM writes its own OME-Zarr today and our driver copies
+frame files rather than writing zarr, so where the writer belongs — a conversion step, or
+a change to what the driver writes — is still open.
+
+**Settled since this was written:** the specimen does appear on screen. The slice view
+was drawing only its own background because the magnification had been fixed before the
+images said how big a voxel was, so the specimen was drawn about a ten-thousandth of a
+pixel wide. It was never a storage question. See the commit for the full account.
