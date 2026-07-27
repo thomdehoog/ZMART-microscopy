@@ -310,27 +310,62 @@ class TestManyAtOnce:
         elapsed = time.monotonic() - started
         assert elapsed < 5.0, f"100 cheap questions took {elapsed:.1f}s"
 
-    def test_pieces_are_kept_by_the_browser_but_absences_are_not(self, tmp_path, serving):
-        """Panning back must be free; data arriving later must still be found."""
-        store = write_store(
+    def _cache_header(self, port, path: str) -> str | None:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=PATIENCE)
+        try:
+            conn.request("GET", path)
+            response = conn.getresponse()
+            response.read()
+            return response.getheader("Cache-Control")
+        finally:
+            conn.close()
+
+    def _one_written_piece(self, tmp_path):
+        return write_store(
             tmp_path / "overview_pos001.ome.zarr",
             shape=(1, 1, 512, 512), chunks=(1, 1, 256, 256), axes=("c", "z", "y", "x"),
             fill=(slice(None),),
         )
+
+    def test_nothing_is_kept_while_the_instrument_is_still_writing(self, tmp_path, serving):
+        """During a run the browser must hold no copy of the image.
+
+        Nothing on disk is settled while an acquisition is in progress, and a copy
+        held in the browser would go on showing an old version of a region with
+        nothing on screen to say so. Live is the default, so this is what an
+        experiment gets without anyone having to ask for it.
+        """
+        store = self._one_written_piece(tmp_path)
         port = serving(store.name)
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=PATIENCE)
-        try:
-            conn.request("GET", f"/data/0/{store.name}/0/0.0.0.0")
-            response = conn.getresponse()
-            response.read()
-            # A piece of image is kept for a year and marked immutable, because it is
-            # written once and never rewritten. Parsed loosely so the exact spelling of
-            # the header is not what this test is about.
-            cache = response.getheader("Cache-Control")
-            assert "immutable" in cache, cache
-            assert int(cache.split("max-age=")[1].split(",")[0]) > 86_400, cache
-        finally:
-            conn.close()
+        assert self._cache_header(port, f"/data/0/{store.name}/0/0.0.0.0") == "no-store"
+
+    def test_pieces_are_kept_once_the_run_is_finished(self, tmp_path, serving):
+        """Moving back over an old run must be free.
+
+        Nothing is writing, so nothing can change, and there is no reason to fetch
+        a region twice. Parsed loosely, so the exact spelling of the header is not
+        what this test is about.
+        """
+        store = self._one_written_piece(tmp_path)
+        port = serving(store.name, live=False)
+        cache = self._cache_header(port, f"/data/0/{store.name}/0/0.0.0.0")
+        assert "immutable" in cache, cache
+        assert int(cache.split("max-age=")[1].split(",")[0]) > 86_400, cache
+
+    def test_a_piece_not_yet_written_is_never_kept(self, tmp_path, serving):
+        """Data arriving later must still be found.
+
+        Most of a sparse or half-finished acquisition answers "nothing here", and
+        that answer must not be kept by anyone — otherwise a region imaged five
+        minutes from now would go on reading as empty. Checked in the finished
+        mode, which is the one that keeps anything at all, so the absence is being
+        distinguished from a piece that *would* be kept rather than from a mode
+        that keeps nothing either way.
+        """
+        store = self._one_written_piece(tmp_path)
+        port = serving(store.name, live=False)
+        missing = self._cache_header(port, f"/data/0/{store.name}/0/9.9.9.9")
+        assert missing is None or "no-store" in missing or "no-cache" in missing, missing
 
 
 # --------------------------------------------------------------------------
