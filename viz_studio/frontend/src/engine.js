@@ -100,10 +100,18 @@ function sourceList(spec) {
  * `NEXT_STEPS.md` explain why the two belong together rather than being at odds.
  */
 
-// How many stores are offered at a time. Two hundred is the size that was measured to
-// work: large enough that a folder of a few thousand positions is not made needlessly
-// slow by waiting, and far enough below the browser's limit that a group of them can
-// be in flight together without any risk of one being refused.
+// How many stores are offered at a time, **across the whole scene**. Two hundred is the
+// size that was measured to work: large enough that a folder of a few thousand positions
+// is not made needlessly slow by waiting, and far enough below the browser's limit that a
+// group of them can be in flight together without any risk of one being refused.
+//
+// That it is shared between rows rather than allowed to each of them separately is the
+// point, and it is easy to get wrong. A store holding four channels in separate files
+// feeds four rows, and if each row were free to offer two hundred stores the browser
+// would see eight hundred at once and be back at the limit this exists to stay under.
+// The browser's queue of outstanding requests is one shared thing, so the budget for it
+// has to be one shared thing too. When several rows are waiting they share the two
+// hundred between them.
 const AT_A_TIME = 200;
 
 // How long to wait for one group before going on regardless. A store that cannot be
@@ -123,21 +131,39 @@ function howManyAtATime() {
   return Number.isFinite(asked) && asked > 0 ? asked : AT_A_TIME;
 }
 
-// What each layer is still waiting to be handed. A WeakMap is used so that a layer
-// being thrown away takes its entry with it, the same as the two maps above.
+// What each layer is still waiting to be handed. The queue is per layer, because each
+// row has its own list of stores; the *rate* is not, for the reason given above.
+// A WeakMap is used so that a layer being thrown away takes its entry with it, the same
+// as the two maps above.
 const feeding = new WeakMap();
+
+// The layers with something still to hand over. Held by ordinary reference rather than
+// weakly, which is safe because a layer is taken out the moment its queue empties or it
+// is discarded — nothing lingers here long enough to keep a dead layer alive.
+const hungry = new Set();
+
+// The group handed over most recently, across the whole scene, and whether the loop
+// below is already running. Both are shared rather than per layer: one budget, one loop.
+let inFlight = [];
+let handingOver = false;
+
+// Ways to stop waiting early, so that a layer going away does not leave the loop
+// listening for stores that will never answer. See stopFeeding.
+const giveUpWaiting = new Set();
 
 function feedFor(layer) {
   let feed = feeding.get(layer);
   if (!feed) {
-    // ``waiting`` are the addresses not yet offered to the engine; ``inFlight`` are the
-    // data sources from the group offered most recently, which is what the next group
-    // waits on. ``busy`` says whether the loop below is already running, so that a
-    // position arriving mid-feed joins the queue rather than starting a second loop.
-    feed = { waiting: [], inFlight: [], busy: false, stopped: false, wake: new Set() };
+    feed = { waiting: [], stopped: false };
     feeding.set(layer, feed);
   }
   return feed;
+}
+
+// A layer that has been discarded while its stores were still being read. Offering more
+// to it would raise an error in the middle of nothing, so the loop simply drops it.
+function goneAway(layer) {
+  return Boolean(layer.wasDisposed || layer.managedLayer?.wasDisposed);
 }
 
 /**
@@ -148,11 +174,13 @@ function feedFor(layer) {
  * never end, because a discarded layer's data sources have nothing left to announce.
  */
 function stopFeeding(layer) {
+  hungry.delete(layer);
   const feed = feeding.get(layer);
   if (!feed) return;
   feed.stopped = true;
   feed.waiting.length = 0;
-  for (const rouse of [...feed.wake]) rouse();
+  // Wake the loop so it notices, rather than leaving it waiting on this layer's stores.
+  for (const stopWaiting of [...giveUpWaiting]) stopWaiting();
 }
 
 /**
@@ -163,7 +191,7 @@ function stopFeeding(layer) {
  * waiting longer would not improve it. The engine says so by giving the data source a
  * load state, which is empty while the reading is still under way.
  */
-function whenTheseHaveBeenRead(sources, feed) {
+function whenTheseHaveBeenRead(sources) {
   return new Promise((done) => {
     const stopListening = [];
     let patience;
@@ -172,15 +200,15 @@ function whenTheseHaveBeenRead(sources, feed) {
       if (finished) return;
       finished = true;
       for (const stop of stopListening) stop();
-      feed.wake.delete(finish);
+      giveUpWaiting.delete(finish);
       clearTimeout(patience);
       done();
     };
     const look = () => {
-      if (!feed.stopped && sources.some((source) => source.loadState === undefined)) return;
+      if (sources.some((source) => source.loadState === undefined)) return;
       finish();
     };
-    feed.wake.add(finish);
+    giveUpWaiting.add(finish);
     patience = setTimeout(finish, PATIENCE_MS);
     for (const source of sources) stopListening.push(source.changed.add(look));
     // In case they are all read already, which is the ordinary case while the
@@ -191,45 +219,63 @@ function whenTheseHaveBeenRead(sources, feed) {
 }
 
 /**
- * Offer the waiting stores to one layer, a group at a time.
+ * Offer the waiting stores, a group at a time, until every queue is empty.
  *
- * Runs until the queue is empty. Anything added to the queue while it is running is
- * picked up by the same loop, so a position arriving during a cold open simply joins
- * the end rather than starting a burst of its own.
+ * One loop for the whole scene rather than one per row, so that the two hundred is a
+ * budget shared between the rows waiting rather than an allowance given to each of them.
+ * Anything queued while it is running is picked up by the same loop, so a position
+ * arriving during a cold open simply joins the end rather than starting a burst of its
+ * own.
  */
-async function handOverWhatIsWaiting(layer) {
-  const feed = feedFor(layer);
-  if (feed.busy) return;
-  feed.busy = true;
+async function keepHandingOver() {
+  if (handingOver) return;
+  handingOver = true;
   try {
-    while (feed.waiting.length && !feed.stopped) {
-      // Let the group offered last time finish before offering another. On the first
-      // turn that is whatever the layer was built with; after that it is the previous
-      // group. Either way it is at most one group's worth, so this never costs
-      // anything that grows with the size of the folder.
-      await whenTheseHaveBeenRead(feed.inFlight, feed);
-      // A layer can go away while its stores are still being read — the operator
-      // closes the folder, or the page is taken down — and offering more stores to a
-      // layer that has been discarded would raise an error in the middle of nothing.
-      // Checked here as well as on the way in, because the waiting above is where the
-      // time passes and so is where the layer is most likely to disappear.
-      if (feed.stopped || layer.wasDisposed || layer.managedLayer?.wasDisposed) break;
-      const group = feed.waiting.splice(0, howManyAtATime());
-      const offered = [];
-      for (const url of group) {
-        // Neuroglancer's own reader turns the address into whatever it needs, so the
-        // format the panel writes and the format the engine wants cannot drift apart.
-        // It is handed a list of one rather than a bare address on purpose: that is
-        // the same path a layer takes when it is first built, so a store added later
-        // is set up in exactly the same way as one that was there from the start.
-        for (const source of layer.getDataSourceSpecifications({ source: [url] })) {
-          offered.push(layer.addDataSource(source));
+    for (;;) {
+      for (const layer of [...hungry]) {
+        const feed = feeding.get(layer);
+        if (!feed || feed.stopped || !feed.waiting.length || goneAway(layer)) {
+          hungry.delete(layer);
         }
       }
-      feed.inFlight = offered;
+      if (!hungry.size) break;
+      // Let the group offered last time finish before offering another. On the first
+      // turn that is whatever the new layers were built with; after that it is the
+      // previous group. Either way it is at most one group's worth, so this never costs
+      // anything that grows with the size of the folder.
+      await whenTheseHaveBeenRead(inFlight);
+      const offered = [];
+      let room = howManyAtATime();
+      // Shared out evenly, so that a row holding forty thousand positions does not keep
+      // another row's handful waiting behind it.
+      const share = Math.max(1, Math.floor(room / hungry.size));
+      for (const layer of [...hungry]) {
+        if (room <= 0) break;
+        const feed = feeding.get(layer);
+        // Checked again here as well as at the top: the waiting above is where the time
+        // passes, and so is where a layer is most likely to disappear.
+        if (!feed || feed.stopped || goneAway(layer)) {
+          hungry.delete(layer);
+          continue;
+        }
+        const group = feed.waiting.splice(0, Math.min(share, room));
+        room -= group.length;
+        for (const url of group) {
+          // Neuroglancer's own reader turns the address into whatever it needs, so the
+          // format the panel writes and the format the engine wants cannot drift apart.
+          // It is handed a list of one rather than a bare address on purpose: that is
+          // the same path a layer takes when it is first built, so a store added later
+          // is set up in exactly the same way as one that was there from the start.
+          for (const source of layer.getDataSourceSpecifications({ source: [url] })) {
+            offered.push(layer.addDataSource(source));
+          }
+        }
+        if (!feed.waiting.length) hungry.delete(layer);
+      }
+      inFlight = offered;
     }
   } finally {
-    feed.busy = false;
+    handingOver = false;
   }
 }
 
@@ -413,7 +459,7 @@ function syncSources(layer, spec, reread = false, chunkManager = undefined, forg
     // Queued rather than handed straight over, so that a great many arriving at once
     // are offered to the engine in groups. While the microscope is running this is a
     // single position, which becomes a group of one and reaches the engine
-    // immediately; see the notes above handOverWhatIsWaiting for why there is
+    // immediately; see the notes above keepHandingOver for why there is
     // deliberately no separate path for that case.
     //
     // Pushed one at a time rather than spread into the call, because a spread of forty
@@ -421,11 +467,11 @@ function syncSources(layer, spec, reread = false, chunkManager = undefined, forg
     // large.
     const feed = feedFor(layer);
     for (const url of fresh) feed.waiting.push(url);
+    hungry.add(layer);
     // Recorded as applied as soon as they are queued. From here on they belong to the
     // feeding above, and a later pass over the same scene must not offer them a second
     // time while the first offer is still working its way through the queue.
     sourcesApplied.set(layer, new Set(wanted));
-    handOverWhatIsWaiting(layer);
   }
   return fresh.length;
 }
@@ -533,6 +579,16 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
     reshaped += 1;
   }
 
+  // How many layers this pass will build. The stores they are built with have to add up
+  // to one group between them rather than one group each, for the same reason the
+  // feeding budget is shared: four rows each starting with two hundred stores is eight
+  // hundred at once, which is the burst all of this exists to avoid.
+  const building = specs.filter((spec) => {
+    const already = manager.getLayerByName(spec.name);
+    return !already || already.layer?.type !== spec.type;
+  }).length;
+  const firstShare = Math.max(1, Math.floor(howManyAtATime() / Math.max(1, building)));
+
   specs.forEach((spec, index) => {
     let managed = manager.getLayerByName(spec.name);
     // A layer that has changed kind — an image where there was a mask — cannot be
@@ -556,22 +612,24 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
     // constructor, in one burst, before this module has any say in it. Pacing only the
     // stores added later would have left a cold open exactly as broken as it was.
     const stores = sourceList(spec);
-    const rest = stores.slice(howManyAtATime());
+    const rest = stores.slice(firstShare);
     managed = makeLayer(
       viewer.layerSpecification,
       spec.name,
-      rest.length ? { ...spec, source: stores.slice(0, howManyAtATime()) } : spec,
+      rest.length ? { ...spec, source: stores.slice(0, firstShare) } : spec,
     );
     // Building from the description already applied everything in it, including
     // the images; record them so the next pass does not add them a second time.
     sourcesApplied.set(managed.layer, new Set(stores));
-    const feed = feedFor(managed.layer);
-    // What the constructor has just started reading is what the first fed group waits
-    // for. Without this the second group would be offered immediately and the burst
-    // would simply be twice as large.
-    feed.inFlight = [...managed.layer.dataSources];
-    for (const url of rest) feed.waiting.push(url);
-    if (rest.length) handOverWhatIsWaiting(managed.layer);
+    if (rest.length) {
+      const feed = feedFor(managed.layer);
+      for (const url of rest) feed.waiting.push(url);
+      hungry.add(managed.layer);
+      // What the constructor has just started reading counts against the shared budget
+      // like any other group, so the next group waits for it. Without this the second
+      // group would be offered immediately and the burst would simply be twice as large.
+      inFlight = inFlight.concat(managed.layer.dataSources);
+    }
     // Likewise how far along each of its stores was when it was built, so that the
     // first announcement after it appears does not mistake "I have never asked" for
     // "this has grown" and re-read every store on the row for nothing.
@@ -586,6 +644,13 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
   });
 
   applyOrder(manager, specs.map((spec) => spec.name));
+  // Start handing over only once the whole pass is done. Started earlier — from inside
+  // the loop above — the first row would begin feeding before the other rows had even
+  // been built, so it would take the whole budget for itself and the rows built a moment
+  // later would have their first stores read outside it. Doing it here means every row
+  // that wants stores this pass is known before any of them are offered. Costs nothing
+  // when there is nothing waiting, which is the ordinary case.
+  keepHandingOver();
   return reshaped;
 }
 
