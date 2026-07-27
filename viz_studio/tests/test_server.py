@@ -19,9 +19,15 @@ import zarr
 from server import make_server
 
 
-@pytest.fixture
-def serving(tmp_path):
-    """A server over throwaway site/data directories, on a free port."""
+def _serve_tree(tmp_path, *, live: bool = True):
+    """Start a server over a small throwaway site/data tree on a free port.
+
+    Returns the port and a function that stops it again. This exists as a plain
+    function rather than only a fixture because a couple of tests need to choose
+    whether the run counts as still being written — which changes what the browser
+    is allowed to keep — and a fixture cannot easily be asked for twice with
+    different answers.
+    """
     site = tmp_path / "site"
     data = tmp_path / "data"
     (site / "assets").mkdir(parents=True)
@@ -32,14 +38,25 @@ def serving(tmp_path):
     (data / "demo.zarr" / "chunk").write_bytes(b"\x01\x02\x03\x04")
     (tmp_path / "outside.txt").write_text("secret", encoding="utf-8")
 
-    server = make_server(port=0, data_dir=data, site_dir=site)
+    server = make_server(port=0, data_dir=data, site_dir=site, live=live)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    try:
-        yield server.server_address[1]
-    finally:
+
+    def stop() -> None:
         server.shutdown()
         thread.join(timeout=5)
+
+    return server.server_address[1], stop
+
+
+@pytest.fixture
+def serving(tmp_path):
+    """A server over throwaway site/data directories, on a free port."""
+    port, stop = _serve_tree(tmp_path)
+    try:
+        yield port
+    finally:
+        stop()
 
 
 def request(port: int, path: str, method: str = "GET", body: bytes | None = None):
@@ -329,36 +346,57 @@ def test_config_is_worked_out_fresh_on_every_request(tmp_path):
         thread.join(timeout=5)
 
 
-def test_image_chunks_may_be_kept_by_the_browser(serving):
-    """Panning back over somewhere already seen must cost nothing.
+def test_image_is_not_kept_by_the_browser_during_a_run(serving):
+    """While the instrument is still writing, the browser must hold nothing.
 
-    A piece of an image is written once and never rewritten, so keeping it is
-    safe — and on a four-hundred-gigabyte acquisition it is the difference between
-    a viewer that feels light and one that re-fetches constantly. A piece not yet
-    written answers "nothing here", and *that* answer is not kept, so data arriving
-    later is still found.
+    This is the half that matters for a smart-microscopy experiment. Nothing on
+    disk is settled while a run is in progress, so a copy kept in the browser can
+    quietly go on showing an old version of a region — and there would be nothing
+    on screen to say it was old. Someone watching a live experiment would then be
+    making decisions from a stale picture, which is the one failure this viewer
+    exists to prevent. Live is the default, which is why this fixture gets it
+    without asking.
     """
     _, headers, _ = request(serving, "/data/0/demo.zarr/chunk")
+    assert headers.get("Cache-Control") == "no-store"
+
+
+def test_image_may_be_kept_by_the_browser_once_the_data_is_finished(tmp_path):
+    """Moving back over somewhere already seen in an old run must cost nothing.
+
+    Nothing is writing to finished data, so nothing can change under us, and there
+    is no reason to fetch a region twice. ``immutable`` tells the browser not even
+    to check — no request at all — which is what makes an old acquisition feel
+    light to move around in.
+    """
+    port, stop = _serve_tree(tmp_path, live=False)
+    try:
+        _, headers, _ = request(port, "/data/0/demo.zarr/chunk")
+    finally:
+        stop()
     cache = headers.get("Cache-Control", "")
-    # Kept for a year and marked immutable: a piece of image is written once and never
-    # rewritten. An acquisition can run for many hours, so anything shorter would have
-    # a piece expire mid-run and be fetched again on returning to somewhere already
-    # visited. The small files describing a store are deliberately not treated this
-    # way -- see the handler.
     assert "immutable" in cache, cache
+    # A year, not an hour. An operator may look through a finished run all day,
+    # and anything shorter would start re-fetching partway through for no reason.
     assert int(cache.split("max-age=")[1].split(",")[0]) > 86_400, cache
 
 
-def test_a_store_description_is_never_kept_by_the_browser(serving):
-    """The files describing a store must be re-asked for every time.
+@pytest.mark.parametrize("live", [True, False])
+def test_a_store_description_is_never_kept_by_the_browser(tmp_path, live):
+    """The files describing a store must be re-asked for every time, in both modes.
 
     A timelapse growing a frame rewrites its shape, and that shape is what tells the
     engine how far the data goes. A stale copy — even a few seconds old — would leave
     the engine believing the old length, so a frame sitting on disk would simply not
-    appear, with nothing on screen to explain why. The pieces of image are the
-    opposite case: written once, never rewritten, so they are kept for a year.
+    appear, with nothing on screen to explain why.
+
+    This holds even for finished data, where the pieces of image themselves may be
+    kept for a year: the cost is one small round trip answered from memory, and it
+    removes a whole class of confusing behaviour for very little.
     """
-    _, describing, _ = request(serving, "/data/0/demo.zarr/.zattrs")
-    _, image, _ = request(serving, "/data/0/demo.zarr/chunk")
+    port, stop = _serve_tree(tmp_path, live=live)
+    try:
+        _, describing, _ = request(port, "/data/0/demo.zarr/.zattrs")
+    finally:
+        stop()
     assert describing.get("Cache-Control") == "no-cache"
-    assert "immutable" in image.get("Cache-Control", "")

@@ -21,6 +21,7 @@ that is worth knowing long before anyone points it at real data.
 
 from __future__ import annotations
 
+import functools
 import json
 import threading
 import time
@@ -96,6 +97,32 @@ def _store(path, *, seed=0, channels=CHANNELS, side=SIDE):
     return path
 
 
+def _counting_server(**kwargs):
+    """A server that also keeps a note of every request it actually answered.
+
+    The page-side watcher below sees what the *engine asked for*, which includes
+    anything the browser then quietly answered from its own copy. For most of
+    these tests that is the right thing to count. For the one about reusing what
+    has already been fetched it is not: a piece the browser hands back from its
+    own copy costs nothing at all, and failing the test for it would be measuring
+    the wrong thing entirely.
+
+    So that test counts here instead — what genuinely came back to us — which is
+    the cost the operator actually feels.
+    """
+    served: list[str] = []
+    server = make_server(**kwargs)
+    built = server.RequestHandlerClass  # functools.partial(_Handler, ...)
+
+    class Counting(built.func):
+        def do_GET(self):  # noqa: N802 (name fixed by the base class)
+            served.append(self.path)
+            super().do_GET()
+
+    server.RequestHandlerClass = functools.partial(Counting, **built.keywords)
+    return server, served
+
+
 class Watcher:
     """Counts the pieces of image asked for over the network."""
 
@@ -114,12 +141,15 @@ class Watcher:
         return len(self.urls) - mark
 
     def repeats(self) -> set[str]:
-        """Pieces that were asked for more than once — that is, fetched again.
+        """Pieces the engine asked for more than once.
 
-        Once a piece of image has been fetched the engine holds on to it, so
-        asking for the same one twice means it was let go of and had to be
-        collected again. On a large acquisition that is the difference between
-        exploring comfortably and waiting on the disk at every move.
+        Note this counts what was *asked for*, which is not the same as what it
+        cost. The engine holds a limited amount in memory and lets go of the
+        least recently wanted when it fills, so asking twice is not by itself a
+        fault — on finished data the browser answers the second ask from its own
+        copy and nothing leaves the machine.
+
+        Use :meth:`fetched_twice` for the question that matters to an operator.
         """
         seen: set[str] = set()
         twice: set[str] = set()
@@ -127,22 +157,60 @@ class Watcher:
             (twice if url in seen else seen).add(url)
         return twice
 
+    def _served_chunks(self) -> list[str]:
+        return [
+            path
+            for path in getattr(self, "served", [])
+            if "/data/" in path and "/.z" not in path
+        ]
+
+    @property
+    def served_mark(self) -> int:
+        """A place to measure from: how many pieces the server has sent so far."""
+        return len(self._served_chunks())
+
+    def refetched_since(self, mark: int) -> set[str]:
+        """Pieces sent again after ``mark`` that had already been sent before it.
+
+        This is the cost an operator actually feels — a piece read off the disk a
+        second time — and it is deliberately measured from a mark rather than over
+        the whole session. Moving *while* data is arriving cancels requests the
+        engine no longer wants, and a cancelled request quite properly has to be
+        made again; counting those would fail the engine for behaving well. What
+        is measured instead is the thing that should never happen: arriving
+        somewhere you have already been and paying for it again.
+        """
+        chunks = self._served_chunks()
+        before = set(chunks[:mark])
+        return {path for path in chunks[mark:] if path in before}
+
     @property
     def mark(self) -> int:
         return len(self.urls)
 
 
-@pytest.fixture
-def quiet_page(browser, built_dist, tmp_path):
-    """The viewer, settled: everything the first view needs has been fetched."""
+def _settled_viewer(browser, built_dist, tmp_path, *, live: bool):
+    """The viewer, settled: everything the first view needs has been fetched.
+
+    ``live`` says whether the run counts as still being written, which decides
+    whether the browser is allowed to keep its own copy of the image. Most of
+    these tests do not care and take the ordinary live default; the ones about
+    reusing what has already been fetched have to ask for finished data, because
+    keeping copies is precisely what a run in progress gives up.
+    """
     _store(tmp_path / "overview_pos001.ome.zarr")
-    server = make_server(
-        port=0, data_dir=tmp_path, site_dir=built_dist, store="overview_pos001.ome.zarr"
+    server, served = _counting_server(
+        port=0,
+        data_dir=tmp_path,
+        site_dir=built_dist,
+        store="overview_pos001.ome.zarr",
+        live=live,
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     page = browser.new_page(viewport={"width": 1100, "height": 800})
     watcher = Watcher(page)
+    watcher.served = served
     try:
         page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined", timeout=60_000)
@@ -153,6 +221,18 @@ def quiet_page(browser, built_dist, tmp_path):
         page.close()
         server.shutdown()
         thread.join(timeout=5)
+
+
+@pytest.fixture
+def quiet_page(browser, built_dist, tmp_path):
+    """The viewer over a run that is still being written, which is the usual case."""
+    yield from _settled_viewer(browser, built_dist, tmp_path, live=True)
+
+
+@pytest.fixture
+def finished_page(browser, built_dist, tmp_path):
+    """The viewer over a run that is done, so the browser may keep what it fetches."""
+    yield from _settled_viewer(browser, built_dist, tmp_path, live=False)
 
 
 _SETTLED = """() => {
@@ -294,7 +374,7 @@ class TestTheInterfaceMindingItsOwnBusiness:
 class TestMovingAround:
     """Navigation should reuse what has been fetched already."""
 
-    def test_returning_to_where_you_were_costs_nothing_already_held(self, quiet_page):
+    def test_returning_to_where_you_were_costs_nothing_already_held(self, finished_page):
         """Scrolling away and back must not ask for any piece a second time.
 
         This is asked as "was anything fetched twice?" rather than "how much was
@@ -307,8 +387,14 @@ class TestMovingAround:
         What would be genuinely wrong is a piece already in hand being asked for
         again — that would mean nothing is being kept, and exploring a large image
         would be miserable. So that, exactly, is what is measured.
+
+        Run against a *finished* acquisition on purpose. While an instrument is
+        still writing, the viewer deliberately keeps nothing, because a held copy
+        could show an old version of a region with nothing on screen to say so —
+        so re-fetching is the accepted cost there, and this guarantee is one that
+        finished data gets and a live run knowingly gives up.
         """
-        page, watcher, _ = quiet_page
+        page, watcher, _ = finished_page
         home = page.evaluate(
             "() => Array.from(window.zmartViewer.navigationState.position.value)"
         )
@@ -316,15 +402,22 @@ class TestMovingAround:
         for _ in range(3):
             page.mouse.wheel(0, -120)
         page.wait_for_timeout(2500)
+
+        # Measured from here: everything above is the journey out, and the return
+        # is what has to be free.
+        went_away = watcher.served_mark
+        assert went_away > 0, "scrolling fetched nothing at all — is anything drawn?"
+
         page.evaluate(
             "(p) => { window.zmartViewer.navigationState.position.value = Float32Array.from(p); }",
             home,
         )
         page.wait_for_timeout(2500)
 
-        assert not watcher.repeats(), (
-            "the engine fetched pieces it had already: "
-            f"{sorted(watcher.repeats())[:5]} — it is not keeping what it fetched"
+        again = watcher.refetched_since(went_away)
+        assert not again, (
+            "coming back asked the server for pieces it had already sent: "
+            f"{sorted(again)[:5]} — nothing is keeping them"
         )
 
     def test_going_to_three_d_and_back_keeps_the_slice(self, quiet_page):

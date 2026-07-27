@@ -170,12 +170,14 @@ class _Handler(SimpleHTTPRequestHandler):
         config: dict,
         library=None,
         browse=None,
+        live: bool = True,
         **kwargs,
     ):
         self._data_dir = data_dir  # where drawn targets are saved
         self._library = library  # which folders may be read from, and what is in them
         self._browse = browse  # opens a native folder chooser, when one is available
         self._site_dir = site_dir  # the built page, served as the base directory
+        self._live = live  # is the data still being written? decides what may be kept
         # Asked afresh on each /api/config request rather than held as a fixed
         # answer, so a store written after the viewer opened can still appear.
         self._config = config
@@ -287,50 +289,49 @@ class _Handler(SimpleHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(len(data)))
-        # Let the browser keep what it has already fetched, both the small files
-        # describing a store and the pieces of image themselves.
-        #
-        # For the descriptions this is the single biggest saving when opening a
-        # tiled acquisition: the viewer reads one per resolution level per store
-        # before it can draw anything, so two hundred tiles means over a thousand
-        # of them before a single pixel appears.
-        #
-        # For the image it matters at scale: a piece is written once and never
-        # rewritten — each acquisition writes its own store and nothing is resized
-        # — so a piece that exists will not change under us, and panning back over
-        # somewhere you have already been should cost nothing. A piece not yet
-        # written answers "nothing here", and *that* answer is not kept, so data
-        # arriving later is still found when you next go looking.
-        #
-        # This does assume the writer puts a piece in place complete, rather than
-        # letting a half-written one be read. `DATA_LAYOUT.md` asks for that, and
-        # it is the same discipline that keeps a reader from seeing a torn image
-        # during a live run.
-        # These are cached differently, and the difference matters during a run.
-        #
-        # A piece of image is written once and never rewritten, so it can be kept for
-        # a year and marked "immutable", which tells the browser not even to ask
-        # whether its copy is still good. An hour was the previous figure for both,
-        # and it was simply wrong: an acquisition can run for many hours, so a piece
-        # fetched early had its copy expire while the run was still going, and coming
-        # back to a region looked at ninety minutes earlier fetched it all again.
-        #
-        # The small files describing a store are never kept, and that is deliberate.
-        # They are the one thing that changes when an image grows: a timelapse gaining
-        # a frame rewrites its shape. If a stale copy were served -- even for a few
-        # seconds -- the engine would go on believing the old length, and a frame that
-        # exists on disk would simply not be there, with nothing on screen to explain
-        # why. That is a miserable thing to debug, so it is designed out.
-        #
-        # The cost of not keeping them is a round trip, not a read: they are a few
-        # hundred bytes and the server answers from memory, holding each against its
-        # own modification time.
-        if describing:
-            self.send_header("Cache-Control", "no-cache")
-        else:
-            self.send_header("Cache-Control", "max-age=31536000, immutable")
+        self.send_header("Cache-Control", self._how_long_to_keep(describing))
         self.end_headers()
         self.wfile.write(data)
+
+    def _how_long_to_keep(self, describing: bool) -> str:
+        """How long the browser may keep a copy of what we are about to send.
+
+        Letting the browser keep things is the difference between panning back
+        over a region costing nothing and fetching it all again, and on a finished
+        folder of a few hundred tiles it is a large difference. But *keeping* and
+        *changing* are exactly the wrong pair, so what may be kept depends on
+        whether the data is still being written.
+
+        **A run in progress keeps nothing.** This is the important half. While the
+        instrument is writing, we cannot promise that what is on disk now is what
+        will be there in a minute: a piece may be rewritten, a plane filled in, a
+        timelapse extended. If the browser were holding its own copy it would go
+        on showing the old one, and — this is the part that hurts — there would be
+        nothing on screen to say so. The operator would be looking at a stale
+        picture of a live experiment and making decisions on it. A round trip to a
+        server on the same machine is a very cheap price for not doing that.
+
+        **Finished data may be kept for a year.** Nothing is writing, so nothing
+        can change, and there is no reason to ask twice. ``immutable`` goes
+        further and tells the browser not even to check — no request at all, not
+        even a quick "is my copy still good?". This is what makes opening
+        yesterday's run and moving around in it feel instant.
+
+        The small files that describe a store are never kept, in either mode. They
+        are the one thing that changes as an image grows: a timelapse gaining a
+        frame rewrites its shape. A stale copy of one — even for a few seconds —
+        leaves the engine believing the old length, so a frame that exists on disk
+        simply is not there, with nothing to explain why. Not keeping them costs a
+        round trip rather than a read, since the server answers them from memory
+        against each file's modification time.
+        """
+        if describing or self._live:
+            # "no-store" rather than "no-cache": no-cache still lets the browser
+            # keep a copy and ask whether it is current, which is fine for the
+            # small descriptions but not for image during a run -- there we would
+            # rather it simply did not hold one.
+            return "no-cache" if describing else "no-store"
+        return "max-age=31536000, immutable"
 
     def _read(self, target: Path) -> bytes:
         """The file's contents, remembering the small ones that describe a store."""
@@ -593,8 +594,18 @@ def make_server(
     that asking is the largest thing the server does, and in static mode the honest
     answer is that it is all wasted work.
 
-    Getting this wrong is not dangerous, only disappointing: a live run opened as
-    static simply will not notice new data until it is reopened.
+    The mode also decides whether the browser may keep its own copy of the image.
+    Finished data may be kept and re-read without asking, which is what makes
+    moving around an old run feel instant. A run in progress is kept by nobody:
+    while the instrument is still writing, a copy held in the browser could go on
+    showing an old version of a region with nothing on screen to say so, and
+    looking at a stale picture of a live experiment is exactly the situation this
+    viewer exists to avoid. See ``_how_long_to_keep``.
+
+    Getting this wrong is not dangerous, only disappointing in one direction and
+    slightly slow in the other: a live run opened as static will not notice new
+    data until it is reopened, and finished data opened as live is re-fetched more
+    often than it needs to be.
 
     ``panel_side`` puts the bar of controls on the ``"right"`` or the ``"left"``.
     Which side is better depends on the room: at a microscope the screen is often
@@ -848,6 +859,7 @@ def make_server(
         config=config_now,
         library=library,
         browse=browse,
+        live=live,
     )
     return _Server(("127.0.0.1", port), handler)
 

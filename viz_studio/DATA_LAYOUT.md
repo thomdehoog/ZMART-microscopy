@@ -482,13 +482,23 @@ So, for the driver:
 - **If neither is possible, serialise the writes** for tiles that share chunks. One
   writer per chunk at any moment is all that is required.
 
-### One thing the viewer must do differently
+### What the viewer does about copies while a run is going
 
-The small files describing an image are currently served with permission for the
-browser to keep them for an hour, which is right for finished data and wrong for an
-image still growing: a canvas that got larger, or a timelapse that gained frames,
-would not be noticed until that hour was up. In live mode those description files
-must not be cached. Static mode should keep caching them, since nothing can change.
+An image that is still being written cannot be copied and kept, so during a run the
+server tells the browser to hold nothing at all: neither the small files describing
+an image nor the pieces of image themselves. A copy held while the instrument is
+still writing can go on showing an old version of a region, and — this is the part
+that matters — there is nothing on screen to say that it is old. Someone watching a
+live experiment would be reading a stale picture. A round trip to a server on the
+same machine is a cheap price for not doing that.
+
+Finished data is the opposite case and is treated as such: the pieces of image may
+be kept for a year and marked as never changing, which is what makes moving around
+an old acquisition feel instant.
+
+The one thing never kept in either mode is the small files describing a store, for
+the reason set out under Decision 2 below: they are exactly what changes as an image
+grows, and they are cheap to ask for.
 
 ---
 
@@ -536,16 +546,17 @@ re-read of a twenty-gigabyte timepoint.
 
 ### What follows for keeping copies
 
-This decision is the whole reason the two kinds of file are cached oppositely:
+This decision is the whole reason the files describing a store are never kept by the
+browser, in either mode. They are exactly what changes when a timelapse grows. A
+stale copy, even seconds old, leaves the engine believing the old length, so a frame
+sitting on disk does not appear and nothing explains why. Always asking costs a round
+trip rather than a read: a few hundred bytes, answered from memory.
 
-- **Pieces of image — kept for a year, marked as never changing.** Written once, never
-  rewritten. An acquisition can run for many hours, so a shorter window would have a
-  piece expire mid-run, and returning to somewhere already visited would fetch it again.
-- **The files describing a store — never kept.** They are exactly what changes when a
-  timelapse grows. A stale copy, even seconds old, leaves the engine believing the old
-  length, so a frame sitting on disk does not appear and nothing explains why. Always
-  asking costs a round trip rather than a read: a few hundred bytes, answered from
-  memory.
+The pieces of image are kept or not according to whether the run is finished, which
+is set out under Decision 1 above. In short: nothing is kept while the instrument is
+writing, because nothing on disk is settled; once the run is done, a piece may be
+kept for a year and marked as never changing, since it is written once and never
+rewritten.
 
 ### What the viewer still needs for this
 
