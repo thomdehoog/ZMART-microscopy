@@ -8,6 +8,46 @@ into line with the code and should be trusted.
 
 ---
 
+## Read this first: a large folder is drawn wrong, and says nothing
+
+**Above about six hundred and eighty positions, the rest of the specimen never
+appears, and there is nothing on screen to say so.** A folder of nine hundred
+positions shows six hundred and eighty-one of them. A folder of two thousand shows
+six hundred and eighty-six. The ceiling does not rise with the size of the folder,
+so at forty thousand positions an operator would be looking at roughly **1.7% of
+their specimen**, with the viewer presenting it as though it were the whole thing.
+
+This is a correctness problem rather than a slow one, and it is the most serious
+thing in this document.
+
+**Why it happens.** Every position of a row is handed to the engine at the same
+moment, and each one means about four small requests. A browser will only hold six
+conversations at a time, and beyond a few thousand queued requests it refuses to
+start any more — it says so in its own words, `net::ERR_INSUFFICIENT_RESOURCES`.
+The engine records the positions whose requests were refused as unreadable and
+leaves them out. Nothing is wrong with the data: the stores it gave up on read back
+perfectly well afterwards, one at a time. Nothing is wrong with the server either —
+it was never answering more than seven requests at once during a thousand-position
+open, and was idle for two thirds of the wait.
+
+**Where the fix belongs, which is not where it first appears to belong.** The audit
+proposed pacing the loop in `syncSources` (`frontend/src/engine.js:224`). That loop
+is not the one that bursts. It handles positions arriving *one at a time* during a
+live run, which never overwhelms anything. When a folder is opened cold the layer
+does not exist yet, so it is built by `makeLayer` from a description that already
+carries **every** position in `source` (`frontend/src/scene.js:143`), and the engine
+resolves the lot inside the constructor. Pacing `syncSources` alone would leave the
+cold open exactly as it is. Any fix has to give the new layer a small first batch and
+then feed it the rest — which is most of the machinery a viewing window needs anyway,
+so the two pieces of work should be done as one rather than twice.
+
+**Pacing was measured to work**: fed in batches of two hundred, with each batch
+allowed to finish, a thousand-position folder loaded a thousand of a thousand and a
+two-thousand-position folder two thousand of two thousand, with no failures at all.
+It cures the silence. It does not make a large folder usable — see the next section.
+
+---
+
 ## Done since the last hand-over
 
 **The cold open was ninety minutes because we measured every position and used
@@ -206,11 +246,45 @@ The briefs, chosen so they do not overlap:
 2. **The live path** — from a position being written to it appearing. Every cost paid per
    announcement, and whether any of it scales with how much is already open rather than with
    what actually changed.
-3. **The engine boundary** — `frontend/src/engine.js` and what it does to Neuroglancer. How
-   many sources a layer holds before adding one more becomes slow, and how much of that is
-   ours versus the engine's. An earlier audit measured the engine's own fan-out as the wall;
-   confirm or refute it, because the answer decides whether item 1 below is optional or
-   compulsory.
+3. ~~**The engine boundary**~~ — **done, and the answer is that the wall is the engine's.**
+   Item 1 below is therefore **compulsory, not optional.** The audit confirmed it the
+   strongest way available: with our own code taken out of the path entirely and positions
+   added through Neuroglancer's own calls, the same ceiling and the same times appeared,
+   within noise. In a sampled profile of a thousand-position cold open, our whole
+   `syncLayers` pass came to 718 milliseconds out of twenty seconds — and 711 of those were
+   inside the engine's own `addDataSource`, which we merely call. Our own arithmetic was
+   about eight milliseconds. There is nothing cheap to fix on our side.
+
+   Three separate walls were measured, and they have to be beaten together:
+
+   - **Positions are silently lost above about 680.** See the section at the top of this
+     document.
+   - **Each extra position costs more than the last.** Adding two hundred positions takes
+     2.8 seconds to an empty row, 19.8 seconds when eight hundred are already open, and 323
+     seconds when eighteen hundred are. Loading a complete two-thousand-position mosaic
+     takes eight minutes and forty-nine seconds. So feeding positions in gently cures the
+     silence but not the slowness.
+   - **Even fully loaded, it will not draw.** With a thousand positions open the viewer
+     managed 24 frames in five seconds where a hundred positions managed 302, and a single
+     step of a contrast slider cost 191 milliseconds against 16. Three drawing layers are
+     created per position and every one of them takes part in every frame. This is the
+     finding that settles it: no arrangement of the *loading* helps, because the trouble
+     is still there once loading has finished. The engine has to be holding fewer
+     positions.
+
+   Two useful negatives came out of the same audit. **The size of the folder description is
+   not a problem** and that concern can be closed: two megabytes of text at forty thousand
+   positions, which a browser unpacks in six milliseconds. And **a figure recorded further
+   down this document should be distrusted** — the cold open of "8.7 s and 2 936 requests at
+   a thousand positions" was almost certainly measured on an incomplete mosaic, since a
+   thousand positions cannot be fully read in that many requests. Any harness used above a
+   few hundred positions must report how many positions actually arrived alongside how long
+   it took, or a folder that got faster by giving up sooner will read as an improvement.
+
+   One caveat carried honestly: the machine had no graphics card and rendered in software,
+   so the frame times are pessimistic. What better hardware cannot change is the shape —
+   three drawing layers per position, each recomputed whenever the shared coordinate space
+   moves, grows with the number of positions however fast the card is.
 4. **Memory** — what the server holds after a long run and what the browser tab holds. Four
    caches never evict, and one keys on a folder number that never repeats, so opening and
    reopening leaks outright. Find the real ceiling and say when a machine gives up.
@@ -232,13 +306,27 @@ not to be the better answer for finished data.
 
 **Start here, and it is a measurement before it is a change.**
 
-**What has changed since this was written:** the server's own share of opening a large
-finished folder is no longer the problem — see the cold-open work above, which took it from
-roughly fifty-seven minutes to about twelve seconds at forty thousand positions. That does
-not answer this item; it isolates it. What remains before the first pixel is the engine
-resolving thousands of sources, and that is now the whole of the delay rather than a
-fraction of it. So the measurement asked for below is still the right next step, and it has
-become the only thing standing in the way.
+**This is no longer optional, and it is no longer a measurement.** Audit 3 has been run and
+its findings are above: the wall is inside Neuroglancer, it is three walls rather than one,
+and the worst of them is that positions beyond about six hundred and eighty are silently
+dropped. The server's share of opening a large folder is now about twelve seconds at forty
+thousand positions, so everything left is on the engine's side.
+
+A viewing window answers all three walls at once, which is why it is the thing to build: the
+number of positions the engine holds stays bounded, so it never reaches the ceiling where
+positions are lost, never pays the cost that grows with the square of the number open, and
+never ends up with thousands of drawing layers in a single frame.
+
+**Stitching does not replace it.** For a finished folder, one stitched image is one source
+and the problem disappears — but during a live run the positions arrive one at a time and
+the count climbs past six hundred and eighty regardless, so the window is needed whatever is
+decided about finished data. Stitching is worth measuring as an optimisation for finished
+folders, not as a substitute.
+
+**Build the pacing described at the top of this document as part of this**, rather than
+separately. Feeding positions in bounded batches and extending as the operator navigates are
+the same mechanism, and a window that lets the operator jump across the specimen would burst
+past the browser's limit in exactly the same way if the feeding were not paced.
 
 A row currently takes every position of its acquisition type at once. Each source is
 resolved when it is added — roughly four small metadata requests — through a browser that
