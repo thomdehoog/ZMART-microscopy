@@ -8,3 +8,6 @@ backend/demo_store/
 # Python and test scratch.
 **/__pycache__/
 backend/_check/
+
+# What measure_cold_open.py writes out for comparing two runs.
+cold_open_*.json
