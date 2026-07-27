@@ -3,11 +3,18 @@
 This is the automated safety net for the whole tool. It stands in for opening
 the app on the microscope PC: it serves the built page and the demo volume,
 drives a real headless Chromium (the same engine the Windows window uses), and
-checks — strictly — that the volume is not just *loaded* but actually *rendered*:
-the image chunks are fetched, decoded, and available to the GPU. That last check
-is the important one: the viewer once looked fine (correct outline, scale bar)
-while showing flat grey because no pixels ever loaded, and this test exists to
-catch exactly that regression.
+checks that the volume is not just *loaded* but actually *drawn*.
+
+Those are two different things, and for a long time only the first was checked.
+The script asked the engine how many pieces of image it had fetched and decoded,
+which is worth knowing — but an engine can hold every piece it needs and still
+put nothing on screen. That is not a hypothetical: the viewer spent weeks opening
+on a flat grey rectangle, with all the data present, reporting ``RESULT: PASS``.
+A screenshot was even being written, and never looked at.
+
+So the last check now opens that screenshot and measures it. It cannot tell you
+the picture is *correct* — only that there is one rather than an empty panel —
+but that was the check that was missing.
 
 Run it after building the frontend::
 
@@ -84,6 +91,40 @@ def _render_progress(page) -> dict:
     )
 
 
+def _picture_was_drawn(path: Path) -> tuple[bool, str]:
+    """Look at the screenshot we just took and say whether it has a picture in it.
+
+    Writing a screenshot and never opening it is how this check used to work, and
+    it is why a viewer showing flat grey reported ``RESULT: PASS`` for weeks. The
+    engine can hold every piece of image it needs and still draw nothing, so the
+    only honest way to ask "did it render?" is to look.
+
+    Only the middle of the picture is measured, because the viewer's own buttons
+    and sliders sit in the corners on top of the image — counting those would let
+    an empty panel pass on the strength of a button being visible.
+
+    Returns whether it looks drawn, and a short line of numbers for the report.
+    Pillow is optional here: without it we cannot look, and say so rather than
+    pretending the check passed.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return True, "not checked (install pillow to check the picture itself)"
+
+    with Image.open(path) as opened:
+        picture = opened.convert("RGB")
+    width, height = picture.size
+    middle = picture.crop((width // 4, height // 4, width * 3 // 4, height * 3 // 4))
+    colours = middle.getcolors(maxcolors=width * height) or []
+    if not colours:
+        return False, "could not read the screenshot"
+    most_common = max(count for count, _ in colours)
+    share = most_common / (middle.size[0] * middle.size[1])
+    drawn = len(colours) > 2 and share < 0.99
+    return drawn, f"{len(colours)} colours, most common covers {share:.1%}"
+
+
 def run_check() -> int:
     # 1. The page must be built first — a fresh checkout has no dist/.
     if not (_FRONTEND_DIST / "index.html").exists():
@@ -143,10 +184,13 @@ def run_check() -> int:
                     break
                 time.sleep(0.5)
 
-            page.screenshot(path=str(_OUT / "render.png"))
+            shot = _OUT / "render.png"
+            page.screenshot(path=str(shot))
             browser.close()
     finally:
         server.shutdown()
+
+    drawn, picture_note = _picture_was_drawn(shot)
 
     # A missing zarr chunk is normal (sparse volume), so /data 404s are not real
     # failures; anything else failing to load is.
@@ -161,6 +205,9 @@ def run_check() -> int:
         "data source loaded": progress["loadError"] is None,
         "chunks rendered": progress["available"] > 0
         and progress["available"] >= progress["needed"],
+        # The one that looks at the picture rather than asking the engine about
+        # itself. Everything above this line can pass on an empty panel.
+        "picture drawn": drawn,
         "no page errors": not page_errors,
         "no failed requests": not real_failed,
     }
@@ -169,6 +216,7 @@ def run_check() -> int:
     for name, passed in checks.items():
         print(f"  [{'PASS' if passed else 'FAIL'}] {name}")
     print(f"  chunks needed/available: {progress['needed']}/{progress['available']}")
+    print(f"  picture: {picture_note}  (screenshot: {shot})")
     if progress["loadError"]:
         print(f"  data source error: {progress['loadError']}")
     if page_errors:
