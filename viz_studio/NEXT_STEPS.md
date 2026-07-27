@@ -48,7 +48,29 @@ It cures the silence. It does not make a large folder usable — see the next se
 
 ---
 
-### Two ways out, and why only one of them is the cure
+### How sources should be fed: the decisions
+
+Reached in conversation and settled. The reasoning follows; these are the
+conclusions, so that none of it has to be argued again.
+
+- **Three situations, three answers, none a substitute for another.** Loading a
+  finished folder deliberately → batching. Navigating a very large run → hand the
+  engine only the positions in view. Looking at the whole specimen at once → one
+  object that stands for all of it, which is the overview acquisition or a stitched
+  image.
+- **Batching is one adaptive path, not a special case for cold opens.** The number of
+  positions waiting *is* the batch size. During a run that is one, which costs nothing
+  beyond what happens today; opening a finished folder it is forty thousand, which
+  becomes many batches. Nothing branches on whether the data is live.
+- **Build the pacing where the layer is created**, not only where sources are added
+  later — the burst is in the constructor. That is most of the machinery the viewing
+  window needs, so build them as one piece of work rather than twice.
+- **Batching does not make a large folder quick.** It stops positions being lost. Speed
+  is the viewing window's job, and beyond that the stitched image's.
+- **HTTP was not a choice and is not the problem.** Measure HTTP/2 before adopting it,
+  and do not mistake it for a fix — see below.
+
+### The reasoning behind those, and the two ways out
 
 The ceiling is a **browser** limit, not a server or network one. During a
 thousand-position open the server was never answering more than seven requests at
