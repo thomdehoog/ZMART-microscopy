@@ -48,6 +48,60 @@ It cures the silence. It does not make a large folder usable — see the next se
 
 ---
 
+### Two ways out, and why only one of them is the cure
+
+The ceiling is a **browser** limit, not a server or network one. During a
+thousand-position open the server was never answering more than seven requests at
+once and was idle for two thirds of the wait. What runs out is the browser's own
+queue of outstanding fetches.
+
+That matters because it rules out the explanation people reach for first. Nobody
+chose HTTP here: Neuroglancer addresses data by URL and fetches it with the browser's
+own machinery, and a browser cannot read a folder off the disk in any case — that is
+a security boundary, not a preference. Even the desktop window is a browser engine.
+So something has to serve the bytes, and one useful thing falls out of it: the same
+viewer opens data on this disk, on a mapped share, or on a machine down the corridor,
+with nothing changed but the address.
+
+**Batching — feed the engine positions in groups, and let each group finish.** This
+is the cure, because it treats the cause: the engine is asked for less at once.
+Measured: in batches of two hundred, a thousand-position folder loaded a thousand of
+a thousand, and a two-thousand-position folder two thousand of two thousand, with no
+failures at all.
+
+The catch is *where* it has to go, which is not where it first appears. See above:
+the burst is not in `syncSources` but in the layer's construction, which is handed
+every position at once. A fix in `syncSources` alone would leave a cold open exactly
+as broken as it is now.
+
+**HTTP/2 — the same HTTP, many requests multiplexed down one connection.** Instead
+of six conversations at a time there are a hundred or more, so the queue drains far
+faster and probably never reaches the limit that is currently being hit.
+
+Worth knowing, and worth measuring before adopting, but it is **not** the cure and
+should not be mistaken for one:
+
+- It treats the symptom. Forty thousand sources would still be resolved before the
+  first pixel, for a specimen of which only a small part can be seen at once. The
+  work is unnecessary at any speed.
+- Python's standard library does not speak it, so it means a dependency — against a
+  deliberate decision recorded in `server.py` to stay installable from conda with
+  nothing exotic.
+- And the limit reached is on *outstanding fetches*, not only on connections. More
+  concurrency drains the queue faster but does not obviously raise that bound, so
+  the improvement is likely rather than certain. Measure before believing it.
+
+The sensible order is therefore: batch first, because it is the cure and it is
+measured; then, if a large folder is still slower than it should be, measure whether
+HTTP/2 buys enough to justify the dependency.
+
+**What is not worth doing:** reaching past HTTP with a reader of our own inside the
+engine. That is deep surgery on the one piece we chose specifically not to rewrite,
+and the whole reason this viewer exists is that Neuroglancer already handles data of
+this size well.
+
+---
+
 ## Done since the last hand-over
 
 **The cold open was ninety minutes because we measured every position and used
