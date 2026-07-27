@@ -213,6 +213,66 @@ export function syncLayers(viewer, specs) {
 }
 
 /**
+ * Wait for the images to say how big they are, then let the engine choose the
+ * starting magnification again.
+ *
+ * Without this the viewer opens on an empty grey rectangle, with the data
+ * present and correct but drawn far too small to see. It is worth explaining
+ * why, because the cause is nowhere near the symptom.
+ *
+ * The engine picks a starting magnification the first moment it believes it
+ * knows what space the picture lives in. It expresses that magnification in
+ * physical units — so many micrometres to a screen pixel — and it is careful
+ * afterwards: if the size of a voxel changes, it adjusts the number so that what
+ * is on screen stays the same real size. That is the right thing to do, and it
+ * is exactly what hurts us here.
+ *
+ * The trouble is timing. We hand the engine its layers immediately, while the
+ * images themselves are still being read over the network. For a moment there
+ * are layers but no axes yet, and in that moment the engine considers the space
+ * settled — an empty space, in which it has no voxel size to work from and falls
+ * back to treating one voxel as one metre. It picks its ordinary default of one
+ * voxel to a pixel, which now means *one metre* to a pixel. A little later the
+ * real axes arrive saying a voxel is a third of a micrometre, and the engine
+ * dutifully preserves the physical scale it was given. A specimen a tenth of a
+ * millimetre across is then drawn about a ten-thousandth of a pixel wide, which
+ * is to say invisibly, and the panel shows nothing but its own background.
+ *
+ * So we wait for the axes to actually arrive and then clear the magnification,
+ * which makes the engine choose it once more — this time knowing how big a voxel
+ * really is. This happens once, before anything is on screen, so it cannot
+ * disturb an operator who has started looking around. Afterwards the engine's
+ * careful adjustment is left alone, because from then on it is working from real
+ * sizes and is right.
+ *
+ * Returns a function that stops the waiting, for the caller to use when the
+ * viewer goes away.
+ */
+export function chooseScaleWhenTheImagesAreMeasured(viewer) {
+  const { position } = viewer.navigationState;
+  // Axes, not images: a space with no axes is the placeholder described above.
+  // The moment it has any, the engine knows how big a voxel is.
+  const measured = () => (position.coordinateSpace.value?.rank ?? 0) > 0;
+  let stop = () => {};
+  const check = () => {
+    if (!measured()) return;
+    // Clearing rather than setting a number of our own on purpose: the engine's
+    // own default is a sensible starting point, and it is the one an operator
+    // who has used neuroglancer elsewhere will expect. All that was ever wrong
+    // with it was when it got decided.
+    viewer.navigationState.zoomFactor.reset();
+    viewer.perspectiveNavigationState.zoomFactor.reset();
+    stop();
+    stop = () => {};
+  };
+  stop = position.coordinateSpace.changed.add(check);
+  // In case the axes are already known by the time we are asked -- reopening a
+  // folder, say, where the descriptions are still in hand.
+  check();
+  return () => stop();
+}
+
+/**
  * Set the parts of the view that are not layers: which panels are on screen, and
  * whether the engine draws its own furniture.
  *
@@ -229,4 +289,22 @@ export function syncView(viewer, { layout, chrome }) {
   // single bar for distance is drawn in the corner of the image instead, and it is
   // ours so it can be put somewhere out of the way. See ScaleBar.jsx.
   viewer.showScaleBar.value = false;
+  // Black behind the slice, rather than the engine's mid-grey.
+  //
+  // Fluorescence images are mostly dark, and a grey surround sitting right up
+  // against a dark specimen makes the specimen look brighter than it is -- the
+  // eye judges brightness by comparison, so the same image reads differently
+  // depending on what is next to it. Black is also simply what a microscopist
+  // expects to see around an image.
+  //
+  // Worth knowing if you are debugging: this grey used to be the only clue that
+  // nothing was being drawn at all, since an empty panel showed the engine's
+  // background and a drawn one did not. That clue is no longer needed, because a
+  // test now looks at the picture and fails if it is a flat colour -- see
+  // tests/pixels.py. It is the test that makes this line safe to have.
+  //
+  // Written through `restoreState` rather than assigned: it parses the colour and
+  // only writes when it differs from what is already there, and this function
+  // runs on every change to the view.
+  viewer.crossSectionBackgroundColor.restoreState("#000000");
 }
