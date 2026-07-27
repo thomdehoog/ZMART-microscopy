@@ -126,7 +126,7 @@ function forgetWhatWasReadAbout(chunkManager, url) {
  * Returns how many images were added, so the caller knows whether the shape of
  * the scene changed.
  */
-function syncSources(layer, spec, reread = false, chunkManager = undefined) {
+function syncSources(layer, spec, reread = false, chunkManager = undefined, forgotten = null) {
   const wanted = sourceList(spec);
   // Held as a set rather than a list. A row can be drawn from as many stores as
   // the run has positions, and asking a list "do you already contain this?" for
@@ -181,7 +181,21 @@ function syncSources(layer, spec, reread = false, chunkManager = undefined) {
     // frame -- and an earlier version that treated them as alternatives quietly
     // stopped new positions appearing at all.
     for (const source of layer.dataSources) {
-      forgetWhatWasReadAbout(chunkManager, source.spec.url);
+      // Once per store, not once per row. A store holding two channels feeds two
+      // rows, and each of them asks its own copy of the store to resolve again --
+      // but the store is one store, and the engine files what it reads under the
+      // store's address. Forgetting per row meant the second row throwing away the
+      // very files the first had just fetched, and fetching them a second time.
+      // Measured at a thousand positions: eight small requests each instead of
+      // four. Re-resolving still happens for every row, because each row's own
+      // sense of how long the image is has to be brought up to date -- it is only
+      // the forgetting that is shared. The second row then finds the first row's
+      // request already in flight and waits for it rather than making its own.
+      const store = source.spec.url;
+      if (!forgotten || !forgotten.has(store)) {
+        forgetWhatWasReadAbout(chunkManager, store);
+        if (forgotten) forgotten.add(store);
+      }
       source.spec = { ...source.spec };
     }
   }
@@ -290,6 +304,9 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
   const manager = viewer.layerManager;
   const wanted = new Set(specs.map((spec) => spec.name));
   let reshaped = 0;
+  // The stores already forgotten on this pass, so that a store feeding several
+  // rows is forgotten once rather than once per row. See syncSources.
+  const forgotten = new Set();
 
   // Anything the panel no longer lists has genuinely been closed, so let it go.
   // Doing this first also frees the name, in case something new is taking it.
@@ -309,7 +326,7 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
       reshaped += 1;
     }
     if (managed) {
-      reshaped += syncSources(managed.layer, spec, reread, viewer.chunkManager);
+      reshaped += syncSources(managed.layer, spec, reread, viewer.chunkManager, forgotten);
       applySettings(managed, spec);
       return;
     }
