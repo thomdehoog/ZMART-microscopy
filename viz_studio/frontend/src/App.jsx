@@ -3,7 +3,12 @@ import NeuroglancerView from "./NeuroglancerView.jsx";
 import LayerPanel from "./LayerPanel.jsx";
 import TargetsPanel from "./TargetsPanel.jsx";
 import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/annotations.js";
-import { chooseScaleWhenTheImagesAreMeasured, syncLayers, syncView } from "./engine.js";
+import {
+  chooseScaleWhenTheImagesAreMeasured,
+  sourcesStillWaiting,
+  syncLayers,
+  syncView,
+} from "./engine.js";
 import ScaleBar from "./ScaleBar.jsx";
 import AxisSlider from "./AxisSlider.jsx";
 import { LOOKUP_TABLE_NAMES, layerKey, layersFor } from "./scene.js";
@@ -430,6 +435,11 @@ export default function App() {
     rereadWanted.current = false;
     const reshaped = syncLayers(viewer, scene, { reread });
     window.zmartLayersReshaped = reshaped; // what the browser tests count
+    // How many stores are still queued to be handed to the engine. Asked as a question
+    // rather than left as a number, because the answer changes while a large folder is
+    // loading and nothing re-runs this to keep a number up to date. Zero means every
+    // position the panel knows about has reached the engine.
+    window.zmartSourcesWaiting = () => sourcesStillWaiting(viewer);
 
     // Only a change in the shape of the scene can move the view: adding or
     // removing an image makes the engine work out the coordinate space afresh,

@@ -19,9 +19,11 @@ What each part answers
 
 **How large a run can actually be shown** (`check_scale.py`). The most important
 one, and the only one that needs a graphics card. It opens folders of increasing
-size and asks whether every position actually appears. Above a certain number they
-silently stop arriving, and the picture still looks complete — so this finds *your*
-number rather than trusting one measured elsewhere.
+size and asks whether every position actually appears. There was a time when they
+silently stopped arriving above a few hundred, with the picture still looking
+complete; that is fixed, and this is what confirms it on *your* machine rather than
+asking you to trust a figure measured elsewhere. It also says how smoothly a folder
+that size then draws, which is a separate question and the weaker one.
 
 **How long a finished folder takes to open** (`measure_cold_open.py`). From
 pointing the viewer at a folder to the first pixel on screen.
@@ -87,7 +89,7 @@ MEASUREMENTS = [
         "how large a run can be shown",
         "check_scale.py",
         True,
-        "the number above which positions silently stop appearing",
+        "whether every position of a large folder actually appears",
     ),
 ]
 

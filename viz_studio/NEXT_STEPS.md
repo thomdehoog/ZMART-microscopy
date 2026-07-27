@@ -8,65 +8,86 @@ into line with the code and should be trusted.
 
 ---
 
-## Read this first: a large folder is drawn wrong, and says nothing
+## Read this first: a large folder no longer loses positions — but it is still slow
 
-**Above about six hundred and eighty positions, the rest of the specimen never
-appears, and there is nothing on screen to say so.** A folder of nine hundred
-positions shows six hundred and eighty-one of them. A folder of two thousand shows
-six hundred and eighty-six. The ceiling does not rise with the size of the folder,
-so at forty thousand positions an operator would be looking at roughly **1.7% of
-their specimen**, with the viewer presenting it as though it were the whole thing.
+**Fixed.** A large folder used to draw only part of the specimen and say nothing about
+the rest: above about six hundred and eighty positions the others never appeared at
+all. A folder of nine hundred positions showed six hundred and eighty-one of them, and
+a folder of two thousand showed six hundred and eighty-six. The ceiling did not rise
+with the size of the folder, so at forty thousand positions an operator would have been
+looking at roughly **1.7% of their specimen** while the viewer presented it as the whole
+thing. That was the most serious thing in this document, and it was a correctness
+problem rather than a slow one.
 
-This is a correctness problem rather than a slow one, and it is the most serious
-thing in this document.
+Stores are now handed to the engine in groups, and each group is allowed to finish being
+read before the next is offered. Measured on this machine with `check_scale.py`:
 
-**Why it happens.** Every position of a row is handed to the engine at the same
-moment, and each one means about four small requests. A browser will only hold six
-conversations at a time, and beyond a few thousand queued requests it refuses to
-start any more — it says so in its own words, `net::ERR_INSUFFICIENT_RESOURCES`.
-The engine records the positions whose requests were refused as unreadable and
-leaves them out. Nothing is wrong with the data: the stores it gave up on read back
-perfectly well afterwards, one at a time. Nothing is wrong with the server either —
-it was never answering more than seven requests at once during a thousand-position
-open, and was idle for two thirds of the wait.
+| positions | arrived before | arrived now | seconds now |
+| --------- | -------------- | ----------- | ----------- |
+| 900       | 681            | **900**     | 32.7        |
+| 2 000     | 686            | **2 000**   | see below   |
 
-**Where the fix belongs, which is not where it first appears to belong.** The audit
-proposed pacing the loop in `syncSources` (`frontend/src/engine.js:224`). That loop
-is not the one that bursts. It handles positions arriving *one at a time* during a
-live run, which never overwhelms anything. When a folder is opened cold the layer
-does not exist yet, so it is built by `makeLayer` from a description that already
-carries **every** position in `source` (`frontend/src/scene.js:143`), and the engine
-resolves the lot inside the constructor. Pacing `syncSources` alone would leave the
-cold open exactly as it is. Any fix has to give the new layer a small first batch and
-then feed it the rest — which is most of the machinery a viewing window needs anyway,
-so the two pieces of work should be done as one rather than twice.
+The code is in `frontend/src/engine.js` — `handOverWhatIsWaiting` and the two callers
+that queue rather than hand over directly — and it is pinned by
+`tests/test_many_positions_arrive.py`, which turns the group size right down so the
+pacing can be watched happening over forty positions in a few seconds.
 
-**Pacing was measured to work**: fed in batches of two hundred, with each batch
-allowed to finish, a thousand-position folder loaded a thousand of a thousand and a
-two-thousand-position folder two thousand of two thousand, with no failures at all.
-It cures the silence. It does not make a large folder usable — see the next section.
+Three things about it are worth carrying forward:
+
+- **The burst was in the layer's constructor, not in `syncSources`.** An earlier audit
+  proposed pacing the loop in `syncSources`, and that loop is not the one that bursts —
+  it handles positions arriving *one at a time* during a live run, which never
+  overwhelms anything. When a folder is opened cold the layer does not exist yet, so it
+  is built by `makeLayer` from a description that already carries **every** position in
+  `source`, and the engine reads the lot inside the constructor. So the layer is now
+  built with only a first group and fed the rest afterwards. Pacing `syncSources` alone
+  would have left a cold open exactly as broken as it was.
+- **There is no separate path for a cold open.** The number of positions waiting simply
+  *is* the size of the group: during a run that is one, which costs nothing beyond what
+  happened before; opening a finished folder it is forty thousand, which becomes many
+  groups. Nothing anywhere asks whether the data is live.
+- **Why it happened at all, since the explanation is not the obvious one.** Reading one
+  store means about four small requests, a browser will only hold six conversations with
+  one address at a time, and beyond a few thousand queued requests it refuses to start
+  any more — `net::ERR_INSUFFICIENT_RESOURCES`, in its own words. The engine records a
+  position whose requests were refused as unreadable and leaves it out. Nothing was
+  wrong with the data: every store it gave up on read back perfectly well afterwards,
+  one at a time. Nothing was wrong with the server either — it was never answering more
+  than seven requests at once during a thousand-position open, and was idle for two
+  thirds of the wait.
+
+**What this does not fix is speed, and it was never going to.** Nine hundred positions
+take half a minute to open and then draw at twelve frames in five seconds, with a nudge
+of a brightness slider costing about ten milliseconds. Every position is still read;
+they are merely read in an orderly fashion. The answer to speed is item 1 below — hand
+the engine only the positions the operator is actually looking at — and the reasoning
+for why the two belong together is in the next section.
 
 ---
 
 ### How sources should be fed: the decisions
 
 Reached in conversation and settled. The reasoning follows; these are the
-conclusions, so that none of it has to be argued again.
+conclusions, so that none of it has to be argued again. The first three are now built —
+they are kept here because the reasoning is what stops them being undone by accident.
 
 - **Three situations, three answers, none a substitute for another.** Loading a
   finished folder deliberately → batching. Navigating a very large run → hand the
   engine only the positions in view. Looking at the whole specimen at once → one
   object that stands for all of it, which is the overview acquisition or a stitched
-  image.
-- **Batching is one adaptive path, not a special case for cold opens.** The number of
-  positions waiting *is* the batch size. During a run that is one, which costs nothing
-  beyond what happens today; opening a finished folder it is forty thousand, which
-  becomes many batches. Nothing branches on whether the data is live.
-- **Build the pacing where the layer is created**, not only where sources are added
-  later — the burst is in the constructor. That is most of the machinery the viewing
-  window needs, so build them as one piece of work rather than twice.
-- **Batching does not make a large folder quick.** It stops positions being lost. Speed
-  is the viewing window's job, and beyond that the stitched image's.
+  image. **Only the first is built.**
+- ~~**Batching is one adaptive path, not a special case for cold opens.**~~ Built that
+  way. The number of positions waiting *is* the batch size. During a run that is one,
+  which costs nothing beyond what happened before; opening a finished folder it is forty
+  thousand, which becomes many batches. Nothing branches on whether the data is live.
+- ~~**Build the pacing where the layer is created**~~, not only where sources are added
+  later — the burst is in the constructor. Done, and it was the half that mattered:
+  pacing only the later additions would have left a cold open exactly as it was. The
+  viewing window still has to be built, and it goes in the same place.
+- **Batching does not make a large folder quick.** It stops positions being lost, and
+  that is all it does — nine hundred positions still take half a minute to open and
+  still draw at twelve frames in five seconds. Speed is the viewing window's job, and
+  beyond that the stitched image's.
 - **HTTP was not a choice and is not the problem.** Measure HTTP/2 before adopting it,
   and do not mistake it for a fix — see below.
 
@@ -88,7 +109,9 @@ with nothing changed but the address.
 **Batching — feed the engine positions in groups, and let each group finish.** This
 stops the silent loss, and it is measured: in batches of two hundred, a
 thousand-position folder loaded a thousand of a thousand, and a two-thousand-position
-folder two thousand of two thousand, with no failures at all.
+folder two thousand of two thousand, with no failures at all. **This is now built**;
+what follows is the reasoning it was built from, kept so that the shape of it is not
+lost.
 
 **Build it as one path, with the batch size adapting.** It is tempting to treat
 batching as something needed only when a finished folder is opened, and therefore as
@@ -163,15 +186,15 @@ a finished folder deliberately: batching. Navigating a very large run: **hand th
 only the positions in view, and extend as the operator moves**, which is item 1 below.
 Looking at the whole specimen at once: one object that stands for all of it — the
 overview, or a stitched image. Then forty thousand positions cost whatever is being looked
-at, and the browser's queue is never near its limit — so batching stops being needed
-rather than being made to work. Do not build batching as a thing of its own; the place
-it has to go is the same place the viewing window goes, and building it twice would be
-the waste.
+at, and the browser's queue is never near its limit — so batching stops being what keeps
+the viewer honest and goes back to being the ordinary way sources are handed over.
 
-The catch is *where* it has to go, which is not where it first appears. See above:
-the burst is not in `syncSources` but in the layer's construction, which is handed
-every position at once. A fix in `syncSources` alone would leave a cold open exactly
-as broken as it is now.
+The catch was *where* the batching had to go, which is not where it first appeared. The
+burst is not in `syncSources` but in the layer's construction, which was handed every
+position at once; a fix in `syncSources` alone would have left a cold open exactly as
+broken as it was. That is where it now lives, and it is where the viewing window goes
+too — `handOverWhatIsWaiting` in `engine.js` already decides *how fast* positions go in,
+so the window has only to decide *which*.
 
 **HTTP/2 — the same HTTP, many requests multiplexed down one connection.** Instead
 of six conversations at a time there are a hundred or more, so the queue drains far
@@ -190,9 +213,12 @@ should not be mistaken for one:
   concurrency drains the queue faster but does not obviously raise that bound, so
   the improvement is likely rather than certain. Measure before believing it.
 
-The sensible order is therefore: batch first, because it is the cure and it is
+The sensible order was therefore: batch first, because it is the cure and it is
 measured; then, if a large folder is still slower than it should be, measure whether
-HTTP/2 buys enough to justify the dependency.
+HTTP/2 buys enough to justify the dependency. The batching is done, so HTTP/2 is now a
+live question rather than a premature one — but read the third point above before
+spending a day on it, and read item 1 first, because a viewer holding only the positions
+in view has far fewer requests to multiplex in the first place.
 
 **What is not worth doing:** reaching past HTTP with a reader of our own inside the
 engine. That is deep surgery on the one piece we chose specifically not to rewrite,
@@ -202,6 +228,24 @@ this size well.
 ---
 
 ## Done since the last hand-over
+
+**Positions are no longer lost.** This is the first of audit 3's three walls, and the
+one that was a correctness problem rather than a slow one. Stores are handed to the
+engine in groups of two hundred, each group allowed to finish being read before the next
+is offered, and the burst that did the damage — the layer's constructor, handed every
+position at once — is paced along with everything else. Nine hundred positions now
+arrive nine hundred of nine hundred where six hundred and eighty-one arrived before. The
+section at the top of this document has the numbers and the reasoning; `engine.js` has
+the code and a long note above it saying why it is shaped the way it is.
+
+Two things worth knowing if you touch it. The pacing is **one path with no special
+case** — during a run the number of positions waiting is one, so a single position goes
+in immediately and the live path costs exactly what it cost before. And the test that
+pins it (`tests/test_many_positions_arrive.py`) turns the group size down to five so
+that pacing can be watched happening over forty positions in thirteen seconds rather
+than over a thousand in several minutes; it checks both that every position arrives
+*and* that they arrived in groups, the second being the positive control without which
+it would be testing nothing.
 
 **The cold open was ninety minutes because we measured every position and used
 almost none of it.** This was the worst number in the system and the first of the
@@ -408,10 +452,11 @@ The briefs, chosen so they do not overlap:
    inside the engine's own `addDataSource`, which we merely call. Our own arithmetic was
    about eight milliseconds. There is nothing cheap to fix on our side.
 
-   Three separate walls were measured, and they have to be beaten together:
+   Three separate walls were measured, and they have to be beaten together. **The first
+   of them is now down**; the other two are what item 1 is for.
 
-   - **Positions are silently lost above about 680.** See the section at the top of this
-     document.
+   - ~~**Positions are silently lost above about 680.**~~ **Fixed** — stores are handed
+     over in groups now. See the section at the top of this document.
    - **Each extra position costs more than the last.** Adding two hundred positions takes
      2.8 seconds to an empty row, 19.8 seconds when eight hundred are already open, and 323
      seconds when eighteen hundred are. Loading a complete two-thousand-position mosaic
@@ -460,15 +505,19 @@ not to be the better answer for finished data.
 **Start here, and it is a measurement before it is a change.**
 
 **This is no longer optional, and it is no longer a measurement.** Audit 3 has been run and
-its findings are above: the wall is inside Neuroglancer, it is three walls rather than one,
-and the worst of them is that positions beyond about six hundred and eighty are silently
-dropped. The server's share of opening a large folder is now about twelve seconds at forty
-thousand positions, so everything left is on the engine's side.
+its findings are above: the wall is inside Neuroglancer, and it is three walls rather than
+one. The first — positions beyond about six hundred and eighty being silently dropped — has
+been beaten by handing the stores over in groups. The other two are still there, and they
+are what makes this the next thing to build: each extra position costs more than the last,
+and even fully loaded a large folder will not draw at a usable rate. The server's share of
+opening a large folder is now about twelve seconds at forty thousand positions, so
+everything left is on the engine's side.
 
-A viewing window answers all three walls at once, which is why it is the thing to build: the
-number of positions the engine holds stays bounded, so it never reaches the ceiling where
-positions are lost, never pays the cost that grows with the square of the number open, and
-never ends up with thousands of drawing layers in a single frame.
+A viewing window answers both of the remaining walls, which is why it is the thing to build:
+the number of positions the engine holds stays bounded, so it never pays the cost that grows
+with the square of the number open, and never ends up with thousands of drawing layers in a
+single frame. It also keeps the first wall comfortably out of reach rather than merely
+survived.
 
 **Stitching does not replace it.** For a finished folder, one stitched image is one source
 and the problem disappears — but during a live run the positions arrive one at a time and
@@ -476,15 +525,18 @@ the count climbs past six hundred and eighty regardless, so the window is needed
 decided about finished data. Stitching is worth measuring as an optimisation for finished
 folders, not as a substitute.
 
-**Build the pacing described at the top of this document as part of this**, rather than
-separately. Feeding positions in bounded batches and extending as the operator navigates are
-the same mechanism, and a window that lets the operator jump across the specimen would burst
-past the browser's limit in exactly the same way if the feeding were not paced.
+**The pacing is already built, and the window goes in the same place.** Feeding positions in
+bounded groups and extending as the operator navigates are the same mechanism: the pacing
+decides *how fast* positions go in, the window decides *which*. `handOverWhatIsWaiting` in
+`engine.js` is the first half, and a window that lets the operator jump across the specimen
+will hand it a couple of hundred positions at a time — which is exactly the burst the pacing
+already handles.
 
-A row currently takes every position of its acquisition type at once. Each source is
-resolved when it is added — roughly four small metadata requests — through a browser that
-allows six connections at a time. At a few hundred positions that is fine. At several
-thousand it is thousands of round trips before the first pixel.
+A row still takes every position of its acquisition type. Each source is read when it is
+added — roughly four small metadata requests — through a browser that allows six connections
+at a time. At a few hundred positions that is fine. At several thousand it is thousands of
+round trips before the first pixel, and the pacing makes those orderly without making them
+fewer.
 
 The engine remembers each answer afterwards, and during a live run the positions arrive
 one at a time, so the cost is spread and invisible. The case that hurts is opening a large
@@ -500,11 +552,10 @@ Two answers, and they are complementary: add sources for what is in view and ext
 the operator navigates; and prefer a stitched image for finished data, which is one
 source instead of thousands.
 
-**Measure before building either.** Time to first pixel with a few thousand sources on
-one layer. Synthetic sparse stores cost almost nothing on disk, so this is cheap. Our own
-code paths were measured to five thousand and made linear; the engine side at that scale
-is still unmeasured, and it would be a shame to build the harder of the two answers and
-find the easy one was enough.
+**The measuring asked for here has been done**, and `check_scale.py` is the tool that does
+it: it writes a throwaway folder of whatever size you name, opens the viewer on it, and
+reports how many positions actually arrived alongside how long it took and how smoothly it
+then draws. Run it before and after any change to this, on the machine you actually use.
 
 Note that `tests/pixels.py` now gives you a way to time *first pixel* rather than first
 chunk, which is the number that actually matters here.
