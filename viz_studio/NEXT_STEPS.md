@@ -64,10 +64,22 @@ viewer opens data on this disk, on a mapped share, or on a machine down the corr
 with nothing changed but the address.
 
 **Batching — feed the engine positions in groups, and let each group finish.** This
-is the cure, because it treats the cause: the engine is asked for less at once.
-Measured: in batches of two hundred, a thousand-position folder loaded a thousand of
-a thousand, and a two-thousand-position folder two thousand of two thousand, with no
-failures at all.
+stops the silent loss, and it is measured: in batches of two hundred, a
+thousand-position folder loaded a thousand of a thousand, and a two-thousand-position
+folder two thousand of two thousand, with no failures at all.
+
+But be clear about what it is. **Batching is a stopgap, not the answer.** It still
+resolves every one of forty thousand positions, merely spread over time — still some
+hundred and sixty thousand requests, still minutes before the first pixel, for a
+specimen of which only a small part can be on screen at once. It makes unnecessary
+work orderly rather than removing it.
+
+The answer is item 1 below: **hand the engine only the positions in view, and extend
+as the operator moves.** Then forty thousand positions cost whatever is being looked
+at, and the browser's queue is never near its limit — so batching stops being needed
+rather than being made to work. Do not build batching as a thing of its own; the place
+it has to go is the same place the viewing window goes, and building it twice would be
+the waste.
 
 The catch is *where* it has to go, which is not where it first appears. See above:
 the burst is not in `syncSources` but in the layer's construction, which is handed
