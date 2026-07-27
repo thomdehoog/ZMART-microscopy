@@ -30,6 +30,30 @@ from pathlib import Path
 
 from stores import discover, split_name
 
+# The small files that say "this folder is an image, and here is its shape". A
+# store is only recognisable once one of these is readable, so these are the
+# files whose changing matters most to anyone watching a run. Both spellings are
+# listed because the two versions of the format name them differently, and a
+# folder is checked for either.
+_DESCRIPTION_FILES = (".zattrs", "zarr.json")
+
+
+def _described_at(folder: Path) -> str:
+    """When this folder's description was last written, as a short mark.
+
+    Used only for noticing change, never for reading anything, so the exact
+    number means nothing on its own — all that matters is that it moves when the
+    description does. A folder with no description yet answers ``-``, which is
+    itself worth knowing: that is an acquisition still being written, and the
+    answer changing from ``-`` to a number is the moment it becomes readable.
+    """
+    for name in _DESCRIPTION_FILES:
+        try:
+            return str((folder / name).stat().st_mtime_ns)
+        except OSError:
+            continue
+    return "-"
+
 
 class Library:
     """The folders the viewer has open, and the images found inside them."""
@@ -204,10 +228,24 @@ class Library:
         of the session, and nothing anywhere would report a problem.
 
         So the mark taken here is the modification time of *every* folder sitting
-        alongside the images, whether or not the viewer has recognised it yet. That
-        time moves again when the description file lands inside it, which is exactly
-        the moment the acquisition becomes readable, and the viewer takes its second
-        look then.
+        alongside the images, whether or not the viewer has recognised it yet.
+
+        A folder's own time is not enough on its own, and this is the part that
+        caught us out. A folder is marked as changed when something is *created*
+        inside it or removed from it — not when a file already in it is rewritten.
+        Writers routinely create the description file early, empty, and fill it in
+        once the image is safely on disk; that filling-in changes the file and
+        leaves the folder's own time exactly as it was. The viewer would look once
+        during the empty window, see nothing it could read, and never have any
+        reason to look again. The acquisition stayed invisible for the rest of the
+        session with nothing anywhere reporting a problem — which is precisely the
+        trap described above, arriving by a slightly different door.
+
+        So each candidate folder's description file is looked at as well. That is
+        one extra glance per folder, asking the operating system something it
+        already knows, and it is what makes "the description was rewritten" and
+        "the description was created" look the same from here — which is what the
+        viewer actually needs to know.
         """
         with self._lock:
             open_now = [(number, self._roots[number], list(self._stores.get(number, ())))
@@ -217,7 +255,7 @@ class Library:
             try:
                 with os.scandir(root) as listing:
                     beside = sorted(
-                        (entry.name, entry.stat().st_mtime_ns)
+                        (entry.name, entry.stat().st_mtime_ns, _described_at(Path(entry.path)))
                         for entry in listing
                         if entry.is_dir()
                     )
@@ -226,7 +264,10 @@ class Library:
                 # not read as "everything changed" and trigger a needless rebuild.
                 marks.append(f"{number}:?")
                 continue
-            marks.append(f"{number}:" + ",".join(f"{name}@{when}" for name, when in beside))
+            marks.append(
+                f"{number}:"
+                + ",".join(f"{name}@{when}/{described}" for name, when, described in beside)
+            )
             # An acquisition already open gains frames as the run goes on, and that
             # happens inside it -- so its own folder does not change and the marks
             # above would miss it. The folder holding the full-resolution image is

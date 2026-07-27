@@ -334,3 +334,95 @@ class TestChoosingAFolder:
             thread.join(timeout=5)
         assert status == 200
         assert answer["cancelled"] is True
+
+
+class TestNoticingThatSomethingChanged:
+    """The cheap question the viewer asks several times a second.
+
+    Reading every store's description is far too heavy to repeat that often, so
+    the viewer asks a much smaller question instead — one that only says whether
+    anything has moved — and asks the expensive one when the answer changes.
+
+    Everything below is about one failure mode, because it is the one that
+    actually happened and it is nasty: if the answer stops moving while an
+    acquisition is still becoming readable, the viewer settles down and never
+    looks again. The acquisition then stays invisible for the rest of the session
+    and nothing anywhere reports a problem.
+    """
+
+    def test_it_moves_when_a_new_acquisition_appears(self, tmp_path):
+        library = Library()
+        _tiny_store(tmp_path / "overview_pos001.ome.zarr")
+        library.open(tmp_path)
+        before = library.revision()
+        _tiny_store(tmp_path / "overview_pos002.ome.zarr")
+        assert library.revision() != before
+
+    def test_it_moves_when_a_description_is_rewritten_in_place(self, tmp_path):
+        """The one that was missed, and the reason a run could go unseen.
+
+        A folder is marked as changed when something is created inside it or
+        removed from it — not when a file already inside it is rewritten. Writers
+        routinely create the description file early and empty, then fill it in
+        once the image is safely on disk. To anyone watching, that folder appeared
+        (so the answer moved once, while there was still nothing readable there)
+        and then never changed again, so the viewer looked exactly once, at the
+        only moment when there was nothing to find.
+
+        This is written as a test of the *rewrite* specifically, because the
+        create-a-new-folder case above passed throughout and told us nothing.
+        """
+        library = Library()
+        _tiny_store(tmp_path / "overview_pos001.ome.zarr")
+        library.open(tmp_path)
+
+        # A folder that exists but is not yet readable as an image: this is what a
+        # microscope leaves on disk while it is still writing.
+        still_writing = tmp_path / "prescan_pos001.ome.zarr"
+        still_writing.mkdir()
+        (still_writing / ".zattrs").write_text("{}", encoding="utf-8")
+        while_writing = library.revision()
+        assert not library.entries() or "prescan_pos001.ome.zarr" not in [
+            name for _, _, name in library.entries()
+        ], "it should not be readable yet"
+
+        # Now the writer fills in the description it created earlier. Nothing is
+        # added to the folder, so the folder's own time does not move -- only the
+        # file's does.
+        (still_writing / ".zattrs").write_text(
+            json.dumps(
+                {
+                    "multiscales": [
+                        {
+                            "version": "0.4",
+                            "axes": [{"name": a} for a in ("z", "y", "x")],
+                            "datasets": [
+                                {
+                                    "path": "0",
+                                    "coordinateTransformations": [
+                                        {"type": "scale", "scale": [2.0, 0.35, 0.35]}
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert library.revision() != while_writing, (
+            "the acquisition became readable and nothing said so — a viewer would "
+            "never look again, and it would stay invisible for the whole session"
+        )
+
+    def test_it_stays_put_when_nothing_has_happened(self, tmp_path):
+        """The other half: asking twice with nothing going on must look the same.
+
+        Without this, the check above could be satisfied by an answer that simply
+        changed every time, which would send the viewer off to do the expensive
+        work several times a second for ever.
+        """
+        library = Library()
+        _tiny_store(tmp_path / "overview_pos001.ome.zarr")
+        library.open(tmp_path)
+        assert library.revision() == library.revision()
