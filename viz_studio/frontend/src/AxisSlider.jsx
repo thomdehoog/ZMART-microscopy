@@ -1,5 +1,9 @@
 import React from "react";
 
+// How long to rest on each plane while playing. Slow enough to see what is there,
+// fast enough to read movement across a stack.
+const PLAY_STEP_MS = 140;
+
 /**
  * The controls for moving through a stack and through time.
  *
