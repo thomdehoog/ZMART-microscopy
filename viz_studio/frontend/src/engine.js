@@ -49,9 +49,11 @@ import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
 // WeakMap is used so that a layer being thrown away takes its entry with it.
 const sourcesApplied = new WeakMap();
 
-// How many frames each layer was last known to hold. This is what decides whether a
-// store is worth reading again: see syncSources. Kept beside the addresses above and
-// for the same reason -- a layer being thrown away takes its entry with it.
+// For each layer, how many frames each of its stores was last known to hold: a map
+// from the store's address to its count. This is what decides which stores are worth
+// reading again, and it has to be per store rather than per layer -- see syncSources
+// for what asking the wrong question cost. Kept beside the addresses above and for the
+// same reason: a layer being thrown away takes its entry with it.
 const framesSeen = new WeakMap();
 
 function sourceList(spec) {
@@ -136,17 +138,30 @@ function syncSources(layer, spec, reread = false, chunkManager = undefined, forg
   const already = sourcesApplied.get(layer) || new Set();
   const fresh = wanted.filter((url) => !already.has(url));
 
-  // Whether this row has gained a frame since the last look. An announcement says
-  // only that *something* on disk has changed, not what, so without this every
-  // announcement would re-read every store on the row -- and a row can hold a
-  // position for every place the microscope visited. Re-reading is cheap for one
-  // store and expensive for a thousand, so it is done only when the frame count has
-  // actually moved. A row with no time axis has no frame count and so is never
-  // re-read, which is right: nothing about it can grow.
-  const grew = reread && spec.frames !== undefined && spec.frames !== framesSeen.get(layer);
-  if (spec.frames !== undefined) framesSeen.set(layer, spec.frames);
+  // Which of this row's stores have gained a frame since the last look.
+  //
+  // An announcement says only that *something* on disk has changed, never what, so
+  // the counts the server reports are the only way to tell. They are per store, and
+  // that matters: a row can hold a position for every place the microscope visited,
+  // and asking all of them whether they have grown -- when the answer for all but
+  // one of them is no -- was measured at a thousand positions as six thousand small
+  // requests and eighteen seconds for a single frame landing. Comparing per store
+  // makes that one store, however many there are.
+  //
+  // A row with no time axis reports no counts and so is never re-read at all, which
+  // is right: nothing about it can grow.
+  const counts = spec.frameCounts;
+  const lastCounts = framesSeen.get(layer);
+  const grown =
+    reread && Array.isArray(counts) && lastCounts
+      ? wanted.filter((url, at) => lastCounts.get(url) !== undefined
+                                   && lastCounts.get(url) !== counts[at])
+      : [];
+  if (Array.isArray(counts)) {
+    framesSeen.set(layer, new Map(wanted.map((url, at) => [url, counts[at]])));
+  }
 
-  if (grew) {
+  if (grown.length) {
     // Ask the stores that were already open what they say about themselves now.
     //
     // This is what happens when a timelapse gains a frame. The store is already
@@ -180,18 +195,24 @@ function syncSources(layer, spec, reread = false, chunkManager = undefined, forg
     // it. One announcement can mean both -- a position finished and another gained a
     // frame -- and an earlier version that treated them as alternatives quietly
     // stopped new positions appearing at all.
+    // Matched on the folder each address points at rather than on the address
+    // itself. Neuroglancer tidies up an address it has been handed, so what comes
+    // back out is not always character-for-character what went in -- and a
+    // comparison that got that wrong here would quietly re-read nothing at all.
+    const growing = new Set(grown.map((url) => url.split("|")[0]));
     for (const source of layer.dataSources) {
-      // Once per store, not once per row. A store holding two channels feeds two
-      // rows, and each of them asks its own copy of the store to resolve again --
-      // but the store is one store, and the engine files what it reads under the
-      // store's address. Forgetting per row meant the second row throwing away the
-      // very files the first had just fetched, and fetching them a second time.
-      // Measured at a thousand positions: eight small requests each instead of
-      // four. Re-resolving still happens for every row, because each row's own
-      // sense of how long the image is has to be brought up to date -- it is only
-      // the forgetting that is shared. The second row then finds the first row's
-      // request already in flight and waits for it rather than making its own.
-      const store = source.spec.url;
+      const store = source.spec.url.split("|")[0];
+      // The stores that did not grow are left completely alone. This is the line
+      // that turns a thousand positions from six thousand requests into six.
+      if (!growing.has(store)) continue;
+      // And a store that did grow is forgotten once, not once per row that reads
+      // from it. A store holding two channels feeds two rows, and forgetting per
+      // row meant the second row throwing away the very files the first had just
+      // fetched and asking for them again. Re-resolving still happens for every row
+      // that reads the store, because each row's own sense of how long the image is
+      // has to be brought up to date -- it is only the forgetting that is shared.
+      // The second row then finds the first row's request already in flight and
+      // waits for it rather than making one of its own.
       if (!forgotten || !forgotten.has(store)) {
         forgetWhatWasReadAbout(chunkManager, store);
         if (forgotten) forgotten.add(store);
@@ -334,10 +355,15 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
     // Building from the description already applied everything in it, including
     // the images; record them so the next pass does not add them a second time.
     sourcesApplied.set(managed.layer, new Set(sourceList(spec)));
-    // Likewise the frame count it was built with, so that the first announcement
-    // after it appears does not mistake "I have never asked" for "this has grown"
-    // and re-read every store on the row for nothing.
-    if (spec.frames !== undefined) framesSeen.set(managed.layer, spec.frames);
+    // Likewise how far along each of its stores was when it was built, so that the
+    // first announcement after it appears does not mistake "I have never asked" for
+    // "this has grown" and re-read every store on the row for nothing.
+    if (Array.isArray(spec.frameCounts)) {
+      framesSeen.set(
+        managed.layer,
+        new Map(sourceList(spec).map((url, at) => [url, spec.frameCounts[at]])),
+      );
+    }
     viewer.layerSpecification.add(managed, index);
     reshaped += 1;
   });

@@ -875,14 +875,36 @@ def make_server(
                         "name": channel_name,
                         "group": group,
                         "channelIndex": index,
-                        "color": list(color) if color else None,
                         # How many frames exist so far, so the time slider stops
                         # there rather than running out over frames not yet imaged.
                         "frames": frames,
+                        # The same count again, but kept per store rather than for
+                        # the row as a whole, in the same order as ``sources``.
+                        #
+                        # The row's figure above is the highest across its positions,
+                        # which is what the slider needs. It is no use at all for the
+                        # other question the viewer has to answer -- *which* position
+                        # gained a frame -- because one position advancing moves the
+                        # row's figure and says nothing about which one moved. The
+                        # viewer would then have to go back to every store on the row
+                        # and ask, and at a thousand positions that was measured at
+                        # six thousand small requests and eighteen seconds for a
+                        # single frame landing. See NEXT_STEPS.md for the figures.
+                        #
+                        # Keeping the counts separately costs nothing to produce: it
+                        # is the same number, already worked out for each store just
+                        # above, that used to be thrown away in the merge.
+                        "frameCounts": [frames] * len(base["sources"]),
+                        "color": list(color) if color else None,
                     }
                 else:
-                    # Another position of the same picture: add where to read it.
+                    # Another position of the same picture: add where to read it,
+                    # and how far along that position is, in step with each other.
                     row["sources"] = [*row["sources"], *base["sources"]]
+                    row["frameCounts"] = [
+                        *row["frameCounts"],
+                        *[frames] * len(base["sources"]),
+                    ]
                     # Positions of one acquisition are imaged together, but one may
                     # be a frame ahead of another at the moment of looking. The
                     # slider follows the one furthest along.
@@ -908,9 +930,14 @@ def make_server(
                         "histogram": None,
                         "sources": [source],
                         "frames": frames,
+                        # Kept in step with ``sources`` for the same reason as the
+                        # picture rows above: a mask sits inside the store it belongs
+                        # to, so it advances as that store does.
+                        "frameCounts": [frames],
                     }
                 else:
                     row["sources"] = [*row["sources"], source]
+                    row["frameCounts"] = [*row["frameCounts"], frames]
         rows = [{"kind": "image", **row} for row in merged.values()]
         # Group order follows first appearance, which follows the sorted store
         # names, so the panel does not reshuffle itself between runs.

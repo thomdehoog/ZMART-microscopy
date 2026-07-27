@@ -315,9 +315,12 @@ def test_a_store_is_only_read_again_when_it_has_actually_grown(
     be left alone. Only requests naming the first position are counted, so the
     newcomer's own perfectly proper fetches do not hide the fault.
 
-    The second half is the positive control: the same store then really does grow,
-    and must be read again. Without it this would pass just as happily against a
-    viewer that had stopped re-reading anything at all.
+    Then the first position really does grow, and two things are checked together:
+    that it *is* read again, which is the positive control — without it this would
+    pass just as happily against a viewer that had stopped re-reading anything at
+    all — and that its neighbour, which did not grow, is still left alone. That
+    second point is what keeps the cost of a frame landing the same whether the row
+    holds two positions or two thousand.
     """
     store = write_timelapse(tmp_path, "overview_pos001", frames=2)
     server = make_server(port=0, data_dir=tmp_path, site_dir=built_dist,
@@ -330,12 +333,20 @@ def test_a_store_is_only_read_again_when_it_has_actually_grown(
     # first position says whether it was read again, without having to ask the
     # viewer to confess to it.
     descriptions: list[str] = []
-    page.on(
-        "request",
-        lambda r: descriptions.append(r.url)
-        if "overview_pos001" in r.url and r.url.endswith((".zarray", ".zattrs"))
-        else None,
-    )
+    # The same, for the position that arrives later and never grows. Counted apart
+    # so the two questions -- "was the one that grew read again?" and "was its
+    # neighbour left alone?" -- can be asked of the same moment.
+    neighbour: list[str] = []
+
+    def note(request):
+        if not request.url.endswith((".zarray", ".zattrs")):
+            return
+        if "overview_pos001" in request.url:
+            descriptions.append(request.url)
+        elif "overview_pos002" in request.url:
+            neighbour.append(request.url)
+
+    page.on("request", note)
     try:
         page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined", timeout=60_000)
@@ -361,12 +372,23 @@ def test_a_store_is_only_read_again_when_it_has_actually_grown(
             f"{descriptions[settled:][:4]}"
         )
 
-        # And now the first position really does grow, which must send us back to it.
+        # And now the first position really does grow, which must send us back to it
+        # -- and to it alone.
+        neighbour_settled = len(neighbour)
         grow_timelapse(store, 3)
         assert page.evaluate(ANNOUNCE) >= 1
         page.wait_for_function(f"() => ({TIME_REACH})() === 3", timeout=30_000)
+        page.wait_for_timeout(2000)
         assert len(descriptions) > settled, (
             "a store that grew was never read again, so the guard is stuck shut"
+        )
+        # The neighbour shares the row and shares the row's frame count, so a viewer
+        # deciding what to re-read from that count alone would go back to this store
+        # too. It is the store that did not change, and it must not be touched: this
+        # is what stops a frame landing costing more the more positions there are.
+        assert len(neighbour) == neighbour_settled, (
+            "one position growing sent us back to a neighbour that had not: "
+            f"{neighbour[neighbour_settled:][:4]}"
         )
     finally:
         page.close()
