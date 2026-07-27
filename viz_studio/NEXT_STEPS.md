@@ -560,6 +560,64 @@ not to be the better answer for finished data.
 
 ---
 
+## 0. Consider writing the run into one OME-Zarr, not one per position
+
+**This may make items 1 and everything above it unnecessary, and it is now measured
+rather than hoped for.** Read it before starting the viewing window, because if this is
+the direction, the window is a much smaller piece of work or none at all.
+
+**What costs the viewer is the number of separate stores, not the amount of data behind
+them.** That sentence is the whole finding, and `measure_one_stitched_store.py` is the
+evidence:
+
+| | config | first pixel | requests | stores | drawing layers | frames in 5 s |
+|---|---|---|---|---|---|---|
+| one fused store, 4 096³ voxels (~137 GB) | 0.6 s | **1.4 s** | **38** | 1 | **5** | **255** |
+| 300 separate positions (a few megabytes) | 0.6 s | 2.4 s | 1 125 | 300 | 302 | 62 |
+
+The fused store describes a specimen thousands of times larger and opens faster, on a
+thirtieth of the requests, and then draws four times as smoothly. Every wall in audit 3
+is a cost per store, so one store has none of them.
+
+**Fusing a finished folder means copying everything**, which is the honest objection to
+it: reading every tile and writing several hundred gigabytes out again, with both copies
+on disk while it runs, plus the pyramid — which is cheaper than it sounds, adding about
+14% since each level is an eighth of the one below. If the tiles land on chunk boundaries
+and no blending of overlaps is wanted, the coarsest work can be avoided by hard-linking
+the tile files under the fused array's chunk names, so no bytes move; blending overlaps
+rules that out.
+
+**But a smart-microscopy run does not have to fuse anything — it can write into the one
+store as it goes.** The tile is written once instead of twice, and the viewer holds a
+single source from the very first moment. This is the operator's suggestion and it is the
+better answer.
+
+**The one condition, measured.** The engine remembers every piece of image it has
+decoded, including the pieces it found empty, with no time limit. A tile written into a
+place the viewer has already looked at is therefore not noticed at all — the picture stays
+empty and **not one request is made**. `check_writing_into_one_store.py` demonstrates it
+and then demonstrates the cure: asking the chunk sources to let go of what they have
+decoded (`invalidateCache`, which is a supported call rather than a patch) makes the tile
+appear, on nine requests. Nine, not nine thousand — only the pieces actually on screen are
+fetched again, so the cost does not grow with the specimen.
+
+That is the same lesson as the growing timelapse, one level down. The engine's memory is
+the right thing almost always and has to be released deliberately in the one case where
+the disk has changed underneath it. There the viewer drops what it had *read* about a
+store; here it would drop what it had *decoded* from one.
+
+**What still needs deciding before building it**, and neither is a viewer question:
+
+- **The shape has to be known when the store is created.** A mosaic over a known bounding
+  box is fine. A run that chooses its targets adaptively may not know how far it will
+  spread, and a zarr array can be grown but every level of the pyramid has to be grown
+  with it.
+- **The pyramid has to be kept up to date as tiles land**, which is real work during the
+  run rather than after it. It is bounded — a tile only affects the levels above its own
+  position — but somebody has to write it.
+
+---
+
 ## 1. Hand the engine only the sources it needs
 
 **Start here, and it is a measurement before it is a change.**
