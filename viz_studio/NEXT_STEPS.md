@@ -74,8 +74,42 @@ hundred and sixty thousand requests, still minutes before the first pixel, for a
 specimen of which only a small part can be on screen at once. It makes unnecessary
 work orderly rather than removing it.
 
-The answer is item 1 below: **hand the engine only the positions in view, and extend
-as the operator moves.** Then forty thousand positions cost whatever is being looked
+### And there is a case neither of them can help
+
+Both batching and a viewing window assume the view holds a few positions at a time.
+That is true while navigating, and false the moment the operator zooms out to see the
+whole specimen: the view then genuinely contains all forty thousand, and pacing or
+windowing cannot help, because all of them really are needed.
+
+Only one thing makes that view cheap, and it is not a change to how sources are fed:
+**a single object that represents the whole specimen.** There are two, and both
+already exist as decisions rather than as work to invent.
+
+The **overview acquisition** is the first, and it is why the shape of a
+smart-microscopy run matters here. An overview is a deliberately low-resolution scan
+of everything — one store, or a few — so the zoomed-out view is not forty thousand
+target scans composited, it is the overview. The resolution hierarchy is in the
+acquisition, not in the file.
+
+A **stitched image** is the second, for data that is finished: one global pyramid, so
+zooming out reads a handful of coarse pieces that already stand for the whole thing.
+That is Decision 1b in `DATA_LAYOUT.md`, and this is the argument for it that is about
+capability rather than tidiness.
+
+So, plainly:
+
+| what the operator is doing | what makes it affordable |
+|---|---|
+| navigating in detail | only the positions in view |
+| watching positions arrive | nothing — they come one at a time already |
+| looking at the whole specimen | one object that represents all of it |
+
+Worth adding what is *not* a problem: a single very large store. There is nothing to
+batch — one source, and its pyramid does the work. That is the case Neuroglancer was
+built for and it is already fine.
+
+The answer for navigation is item 1 below: **hand the engine only the positions in
+view, and extend as the operator moves.** Then forty thousand positions cost whatever is being looked
 at, and the browser's queue is never near its limit — so batching stops being needed
 rather than being made to work. Do not build batching as a thing of its own; the place
 it has to go is the same place the viewing window goes, and building it twice would be
