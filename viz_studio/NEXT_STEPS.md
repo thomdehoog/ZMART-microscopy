@@ -103,6 +103,39 @@ find the easy one was enough.
 Note that `tests/pixels.py` now gives you a way to time *first pixel* rather than first
 chunk, which is the number that actually matters here.
 
+### The same cost, arriving a second way: a timelapse across many positions
+
+Worth measuring in the same sitting, because it is the same problem seen from the other
+end and the same synthetic store will answer both.
+
+The frame count that decides whether a store is read again belongs to the *row*, and it
+is the highest count across all the positions merged into that row (`server.py`, where
+the rows are built). That is right for the time slider — it should reach as far as the
+position furthest along — but it means one position gaining a frame moves the whole row's
+count, and every store on the row is read again, not just the one that grew. At a
+thousand positions that is about four thousand small requests each time any single
+position advances by one frame.
+
+Nothing is wrong with what is on screen; this is a cost, not a fault. But it is worth
+knowing that the experiment it lands on is an ordinary one rather than an exotic one: tile
+a plate and image each well over time, and every well advancing sets the whole row reading
+itself again.
+
+**The fix, if the measurement says one is wanted.** The page currently has to guess which
+stores might have changed, because an announcement says only that *something* has, and the
+frame count is the best guess available to it. The server does not have to guess — it
+looks at the disk already, and it knows which store it was looking at when it decided to
+speak. So the announcement could name the stores that changed, and the page would forget
+exactly those. That removes the guess rather than tuning it, and it is the same change
+that would let a row hold thousands of positions without an announcement costing anything
+at all.
+
+**Do not reach for a time limit or a size limit on what the engine remembers.** That is
+the usual answer to a cache growing stale, and it is the wrong one here: a limit is what
+you use when you cannot tell whether something has changed, and we can tell. It would make
+the viewer slower and buy nothing. For the same reason there is nothing to tidy up when a
+viewer closes — that memory lives in the page and goes when the page goes.
+
 ---
 
 ## 2. Move `build_config` out of `server.py`
