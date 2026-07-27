@@ -182,6 +182,12 @@ export default function App() {
   const applied = React.useRef(null);
   // Whether the (expensive) question of what is open is already outstanding.
   const asking = React.useRef(false);
+  // Set when an announcement arrives, so the next pass through the engine reads each
+  // open store's description again rather than assuming it still says what it did.
+  // A timelapse gaining a frame changes nothing the panel can see -- same stores,
+  // same channels -- so without this the engine would go on believing the old length
+  // and the time slider would never reach the new frame.
+  const rereadWanted = React.useRef(false);
 
   // Take on a new set of images -- at startup, and again whenever something is
   // opened or closed. Anything still open keeps the colour, contrast and opacity
@@ -255,6 +261,7 @@ export default function App() {
     // the engine unable to fetch a single piece of image until they finished.
     if (asking.current) return;
     asking.current = true;
+    rereadWanted.current = true;
     const loaded = await fetchConfig().finally(() => {
       asking.current = false;
     });
@@ -422,7 +429,12 @@ export default function App() {
       // lines -- is off unless asked for. We are supplying the interface.
       chrome: config.chrome ?? false,
     });
-    const reshaped = syncLayers(viewer, scene);
+    // An announcement means something on disk has changed, and it may be something
+    // no description of the scene would show -- a frame added to a store already
+    // open. So the descriptions are read again on the pass that follows one.
+    const reread = rereadWanted.current;
+    rereadWanted.current = false;
+    const reshaped = syncLayers(viewer, scene, { reread });
     window.zmartLayersReshaped = reshaped; // what the browser tests count
 
     // Only a change in the shape of the scene can move the view: adding or

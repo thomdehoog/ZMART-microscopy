@@ -70,7 +70,7 @@ function sourceList(spec) {
  * Returns how many images were added, so the caller knows whether the shape of
  * the scene changed.
  */
-function syncSources(layer, spec) {
+function syncSources(layer, spec, reread = false) {
   const wanted = sourceList(spec);
   // Held as a set rather than a list. A row can be drawn from as many stores as
   // the run has positions, and asking a list "do you already contain this?" for
@@ -79,6 +79,31 @@ function syncSources(layer, spec) {
   // contrast drag, on the same thread the engine draws with.
   const already = sourcesApplied.get(layer) || new Set();
   const fresh = wanted.filter((url) => !already.has(url));
+
+  if (reread) {
+    // Ask the stores that were already open what they say about themselves now.
+    //
+    // This is what happens when a timelapse gains a frame. The store is already
+    // open and the engine already holds its address, so there is nothing to add --
+    // but the engine also still believes the length it read when it first looked,
+    // and the slider will not reach a frame it does not know about. Handing a data
+    // source its own address back makes the engine let go of what it worked out and
+    // ask again.
+    //
+    // It is deliberately cheap. Only the small description is re-read, and those are
+    // served with instructions never to keep a copy, so what comes back is the truth.
+    // The image itself is untouched: a piece keeps its own address when an array
+    // grows, so every frame already fetched stays exactly where it was.
+    //
+    // Note that this happens *as well as* adding anything new below, not instead of
+    // it. One announcement can mean both -- a position finished and another gained a
+    // frame -- and an earlier version that treated them as alternatives quietly
+    // stopped new positions appearing at all.
+    for (const source of layer.dataSources) {
+      source.spec = { ...source.spec };
+    }
+  }
+
   for (const url of fresh) {
     // Neuroglancer's own reader turns the address into whatever it needs, so the
     // format the panel writes and the format the engine wants cannot drift apart.
@@ -172,8 +197,13 @@ function applyOrder(manager, names) {
  * putting back where the operator had it. It is also what the browser tests
  * watch: for an ordinary change — a slider moved, a channel hidden — it must be
  * zero.
+ *
+ * Pass ``reread`` when a store already open has changed on disk — a timelapse that
+ * has gained a frame. Layers are left exactly as they are and their descriptions are
+ * read again, which is the one case where nothing is added and yet something must
+ * happen.
  */
-export function syncLayers(viewer, specs) {
+export function syncLayers(viewer, specs, { reread = false } = {}) {
   const manager = viewer.layerManager;
   const wanted = new Set(specs.map((spec) => spec.name));
   let reshaped = 0;
@@ -196,7 +226,7 @@ export function syncLayers(viewer, specs) {
       reshaped += 1;
     }
     if (managed) {
-      reshaped += syncSources(managed.layer, spec);
+      reshaped += syncSources(managed.layer, spec, reread);
       applySettings(managed, spec);
       return;
     }
