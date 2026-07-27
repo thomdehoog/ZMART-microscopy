@@ -10,6 +10,35 @@ into line with the code and should be trusted.
 
 ## Done since the last hand-over
 
+**The scale of the target, measured at last.** Two audits ran against synthetic folders of
+up to forty thousand positions. The per-chunk path is flat — 0.21 ms median at forty
+thousand, unchanged from a thousand — which is the part that belongs to Neuroglancer and
+the part that is fine. Everything expensive is ours. Three costs grew with the square of
+the number of positions open; two are fixed (see below), and the third is in `engine.js`
+and is not. The worst single figure is the cold open: about ninety minutes at forty
+thousand positions, spent reading pixels to judge brightness one store at a time.
+
+**Two quadratics removed.** Looking again at a watched folder checked each image found
+against a *list* of images already known, which walks the list — fifteen seconds a look at
+forty thousand positions, and it runs whenever anything is announced. Asked of a set now:
+four thousand positions take forty-one milliseconds. And the per-position frame counts were
+rebuilt into a new list for every position added, the same fault as the addresses beside
+them.
+
+**A caution worth carrying.** Fixing the addresses that way first introduced a worse bug:
+the row borrowed its list from the remembered measurement of a store rather than owning one,
+so extending in place grew the remembered copy a little on every answer. Two pre-existing
+tests caught it. The general shape: a shared structure is safe to copy from and unsafe to
+extend, and swapping one for the other is exactly where that stops being true.
+
+**The play button on the sliders threw and nobody noticed.** An earlier split moved the
+slider into a file of its own and left the constant it needed behind in the shell, so
+pressing play raised an error inside the handler and the view sat still. No test pressed it —
+they all drive the slider directly. Worth fixing properly: nothing in the suite fails when
+the page raises an uncaught error, and a listener for that in `tests/conftest.py` would have
+caught this and will catch the next one.
+
+
 Recorded here rather than deleted, because the *reasons* are worth keeping and because
 two of these were long-standing bugs whose shape is easy to reintroduce.
 
