@@ -25,7 +25,11 @@ read before the next is offered. Measured on this machine with `check_scale.py`:
 | positions | arrived before | arrived now | seconds now |
 | --------- | -------------- | ----------- | ----------- |
 | 900       | 681            | **900**     | 32.7        |
-| 2 000     | 686            | **2 000**   | see below   |
+| 2 000     | 686            | **2 000**   | 585.5       |
+
+Read the second row for what it says about *both* halves. Every position arrives, which
+is the fault being fixed. It takes nearly ten minutes, which is the fault that remains —
+and the ten minutes is not waiting for the disk, as the profile further down shows.
 
 The code is in `frontend/src/engine.js` — `handOverWhatIsWaiting` and the two callers
 that queue rather than hand over directly — and it is pinned by
