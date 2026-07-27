@@ -872,6 +872,11 @@ def make_server(
                 if row is None:
                     merged[key] = {
                         **base,
+                        # A list of this row's own. `base` comes from the remembered
+                        # measurement of one store, and its list of addresses belongs
+                        # to that memory -- extending it below would grow the
+                        # remembered copy too, a little more on every answer.
+                        "sources": list(base["sources"]),
                         "name": channel_name,
                         "group": group,
                         "channelIndex": index,
@@ -900,7 +905,11 @@ def make_server(
                 else:
                     # Another position of the same picture: add where to read it,
                     # and how far along that position is, in step with each other.
-                    row["sources"] = [*row["sources"], *base["sources"]]
+                    # Extended in place. Building a new list each time made
+                    # adding one position cost more the more were already
+                    # there -- measured at seven seconds for a single row of
+                    # forty thousand, on every answer.
+                    row["sources"].extend(base["sources"])
                     row["frameCounts"] = [
                         *row["frameCounts"],
                         *[frames] * len(base["sources"]),
@@ -936,7 +945,7 @@ def make_server(
                         "frameCounts": [frames],
                     }
                 else:
-                    row["sources"] = [*row["sources"], source]
+                    row["sources"].append(source)
                     row["frameCounts"] = [*row["frameCounts"], frames]
         rows = [{"kind": "image", **row} for row in merged.values()]
         # Group order follows first appearance, which follows the sorted store

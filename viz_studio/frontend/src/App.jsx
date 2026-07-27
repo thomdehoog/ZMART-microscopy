@@ -25,12 +25,6 @@ const VOLUME_LAYOUT = "3d";
 // which is long enough to ride out a brief hiccup and short enough to be useful.
 const UNANSWERED_BEFORE_SAYING_SO = 5;
 
-// How long each frame is held when an axis is played through. Fast enough to read
-// as movement, slow enough that the engine can usually fetch the next plane before
-// it is wanted.
-const PLAY_STEP_MS = 140;
-
-
 /**
  * Ask the server what is open, or return null if it cannot be reached.
  *
