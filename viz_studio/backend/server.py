@@ -442,19 +442,36 @@ class _Handler(SimpleHTTPRequestHandler):
         finish. This is where it says so, and every open page is told to look
         again.
 
-        The body is not read for content, and that is on purpose. What a page does
-        on hearing this is ask for the current state of things, which is read from
-        disk — so the disk stays the one description of the world that has to be
-        right. Anything sent here would only be a second description to keep in
-        step. Callers are welcome to send something readable for the sake of
-        anyone watching the traffic.
+        The body is almost never read for content, and that is on purpose. What a
+        page does on hearing this is ask for the current state of things, which is
+        read from disk — so the disk stays the one description of the world that has
+        to be right. Anything sent here would only be a second description to keep in
+        step. Callers are welcome to send something readable for the sake of anyone
+        watching the traffic.
+
+        There is exactly one thing read from the body, and it is read because the disk
+        genuinely cannot say it. Send ``{"wrote_image_in_place": true}`` when what was
+        written went *into* a store the viewer may already have open — a tile landing in
+        its place inside one large OME-Zarr — rather than into a new store of its own.
+        Nothing about any description changes in that case: same store, same name, same
+        size. The viewer would go on showing the emptiness it settled on earlier and
+        would never look again, so it has to be told. Leave it out for the ordinary
+        layout of one store per position, where the new store speaks for itself.
 
         Answers with how many pages were told, which is worth knowing: a script
         that announces a position and is told nobody was listening has learnt that
         the viewer is not open.
         """
-        del payload  # see above: the announcement itself is the whole message
-        self._send_json({"told": self._announcements.say_something_changed()})
+        in_place = bool(
+            isinstance(payload, dict) and payload.get("wrote_image_in_place")
+        )
+        self._send_json(
+            {
+                "told": self._announcements.say_something_changed(
+                    image_written_in_place=in_place
+                )
+            }
+        )
 
     def _serve_config(self) -> None:
         """Tell the page which stores to open and how to display them.

@@ -286,6 +286,68 @@ async function keepHandingOver() {
  * tests use it to tell "still arriving" apart from "this is all there is", which is
  * precisely the distinction that was missing when positions were being lost in silence.
  */
+/**
+ * Let go of the pieces of image the engine has already decoded, so that looking again
+ * really looks.
+ *
+ * This is what makes it possible to watch a run that writes into **one** store rather
+ * than one store per position — a single OME-Zarr, created empty at the start, with each
+ * tile written straight into its place. That layout is worth a great deal: what costs
+ * the viewer is the number of separate stores rather than the amount of data behind
+ * them, and one store opens in a second and a half where three hundred take longer on
+ * thirty times the requests.
+ *
+ * The difficulty is that the engine remembers every piece of image it has decoded, and
+ * that includes the pieces it found to be empty. There is no time limit on that memory.
+ * So a tile written into a place the viewer has already looked at is simply not noticed:
+ * the panel goes on showing the emptiness it decided on earlier and never goes back to
+ * the disk. Measured, that is not "slow to appear" — it is **no request at all**, ever.
+ *
+ * So the sources are asked to let go, which the engine offers a way to do: the pieces
+ * live in a separate worker, and this sends word to that worker to drop them. What comes
+ * back is fetched afresh.
+ *
+ * **What it costs, and why it is affordable.** Only the pieces actually on screen are
+ * fetched again — nine of them in the measurement — because the engine asks for what it
+ * needs to draw and nothing else. That number follows the size of the window rather than
+ * the size of the specimen, so it is the same on a folder of forty terabytes as on one of
+ * forty megabytes. Anything the operator had scrolled past is dropped and will be fetched
+ * again if they scroll back, which is the price, and it is a fair one.
+ *
+ * **When this is called matters as much as what it does**, and the rule is narrow on
+ * purpose: only when an announcement has arrived and the scene turned out to be
+ * completely unchanged — nothing added, nothing grown. That combination means something
+ * on disk moved that no description can show, which is precisely a tile landing inside a
+ * store already open. When a position arrives or a timelapse lengthens, the scene does
+ * change, this is not called, and nothing already fetched is thrown away.
+ *
+ * Returns how many sources were asked, so a test can tell "it was asked and nothing
+ * happened" from "it was never asked".
+ */
+// How many times the viewer has let go, and how many sources it asked the last time.
+// Kept so that a test can tell "it was asked and nothing came of it" from "it was never
+// asked at all" -- two failures that look identical on screen and have quite different
+// causes. Read through `window.zmartLetGo`; see App.jsx.
+export const lettingGo = { times: 0, asked: 0 };
+
+export function letGoOfDecodedPieces(viewer) {
+  // The pieces are held by objects shared with the worker that decodes them, and the
+  // engine keeps its side of that conversation as a plain map. Anything in it that knows
+  // how to let go is asked to; that is the sources holding image, and asking one that
+  // holds nothing costs nothing.
+  const shared = viewer.chunkManager?.rpc?.objects;
+  if (!shared) return 0;
+  let asked = 0;
+  for (const [, held] of shared) {
+    if (!held || typeof held.invalidateCache !== "function") continue;
+    held.invalidateCache();
+    asked += 1;
+  }
+  lettingGo.times += 1;
+  lettingGo.asked = asked;
+  return asked;
+}
+
 export function sourcesStillWaiting(viewer) {
   let total = 0;
   for (const managed of viewer.layerManager.managedLayers) {
@@ -394,7 +456,6 @@ function syncSources(layer, spec, reread = false, chunkManager = undefined, forg
   if (Array.isArray(counts)) {
     framesSeen.set(layer, new Map(wanted.map((url, at) => [url, counts[at]])));
   }
-
   if (grown.length) {
     // Ask the stores that were already open what they say about themselves now.
     //
@@ -651,6 +712,7 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
   // that wants stores this pass is known before any of them are offered. Costs nothing
   // when there is nothing waiting, which is the ordinary case.
   keepHandingOver();
+
   return reshaped;
 }
 
