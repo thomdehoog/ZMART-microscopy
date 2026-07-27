@@ -3,7 +3,7 @@ import NeuroglancerView from "./NeuroglancerView.jsx";
 import LayerPanel from "./LayerPanel.jsx";
 import TargetsPanel from "./TargetsPanel.jsx";
 import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/annotations.js";
-import { syncLayers, syncView } from "./engine.js";
+import { chooseScaleWhenTheImagesAreMeasured, syncLayers, syncView } from "./engine.js";
 import ScaleBar from "./ScaleBar.jsx";
 import AxisSlider from "./AxisSlider.jsx";
 import { LOOKUP_TABLE_NAMES, layerKey, layersFor } from "./scene.js";
@@ -350,6 +350,15 @@ export default function App() {
     targetColor,
     targetsVisible,
   ]);
+
+  // Let the engine settle on a starting magnification once the images have said
+  // how big they are. Declared ahead of the effect that adds the layers so the
+  // waiting is in place before there is anything to wait for; see engine.js for
+  // what goes wrong without it.
+  React.useEffect(() => {
+    if (!viewer) return undefined;
+    return chooseScaleWhenTheImagesAreMeasured(viewer);
+  }, [viewer]);
 
   React.useEffect(() => {
     if (!viewer || !scene) return undefined;
