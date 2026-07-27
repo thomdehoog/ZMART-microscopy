@@ -242,22 +242,42 @@ def test_the_time_slider_stops_at_frames_that_exist(browser, built_dist, tmp_pat
         thread.join(timeout=5)
 
 
-def test_a_new_acquisition_is_noticed_quickly(browser, built_dist, tmp_path):
-    """The cheap question is asked often; the expensive one only when it moves."""
+def test_a_new_acquisition_is_noticed_quickly_and_quietly(browser, built_dist, tmp_path):
+    """Nothing is asked while nothing happens, and a new acquisition still arrives.
+
+    Both halves matter, and they used to pull against each other. The viewer once
+    asked a small question several times a second so that it would notice new data
+    quickly; noticing quickly was the point, and the constant asking was the price.
+    Now the server says when something has changed, so the page can sit completely
+    quiet and still be told at once.
+
+    So this watches for three seconds of an ordinary run with nothing happening and
+    insists the page asked for nothing at all, then writes an acquisition and
+    insists it appears.
+    """
     _image(tmp_path / "overview_pos001.ome.zarr")
     page, server, thread = _serve(browser, built_dist, tmp_path, "overview_pos001.ome.zarr")
     try:
+        page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
         asked = []
         page.on(
             "request",
-            lambda r: asked.append(r.url.rsplit("/", 1)[-1])
-            if "/api/" in r.url
-            else None,
+            lambda r: asked.append(r.url.rsplit("/", 1)[-1]) if "/api/" in r.url else None,
         )
         page.wait_for_timeout(3000)
-        # Many cheap questions, and no repeated expensive ones while nothing changes.
-        assert asked.count("revision") >= 3, "expected the cheap question to be asked often"
-        assert asked.count("config") <= 1, "the expensive question must not be repeated"
+        # Two things are not counted, and neither is polling.
+        #
+        # "events" is the one connection the page holds open: it is opened once and
+        # then simply waits, which is the whole point of it. "annotations" is the
+        # target list being saved, which happens once shortly after the list is
+        # first read and then only when the operator draws something.
+        #
+        # Anything else appearing here means the page has gone back to asking
+        # repeatedly, which is exactly what the announcements replaced.
+        chatter = [name for name in asked if name not in {"events", "annotations"}]
+        assert not chatter, f"the page asked for things while nothing was happening: {chatter}"
+        assert asked.count("annotations") <= 1, "the target list is being saved over and over"
+        assert asked.count("events") <= 1, "the held connection is being remade"
 
         _image(tmp_path / "targetscan_cell007.ome.zarr")
         page.wait_for_function(

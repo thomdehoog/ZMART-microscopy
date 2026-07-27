@@ -34,6 +34,7 @@ import functools
 import json
 import math
 import os
+import queue
 import tempfile
 import threading
 from http import HTTPStatus
@@ -45,6 +46,8 @@ from pathlib import Path
 # actually read pixels. So they are imported here in the ordinary way rather than
 # inside the function that uses them, which keeps import errors surfacing at
 # startup instead of on the first request an operator makes.
+import announcements as announcements_mod
+from announcements import Announcements, FolderWatcher
 from contrast import intensity_histogram, measure
 from library import Library
 from stores import (
@@ -171,6 +174,7 @@ class _Handler(SimpleHTTPRequestHandler):
         library=None,
         browse=None,
         live: bool = True,
+        announcements=None,
         **kwargs,
     ):
         self._data_dir = data_dir  # where drawn targets are saved
@@ -178,6 +182,8 @@ class _Handler(SimpleHTTPRequestHandler):
         self._browse = browse  # opens a native folder chooser, when one is available
         self._site_dir = site_dir  # the built page, served as the base directory
         self._live = live  # is the data still being written? decides what may be kept
+        # How open pages are told that something has changed. See announcements.py.
+        self._announcements = announcements or announcements_mod.Announcements()
         # Asked afresh on each /api/config request rather than held as a fixed
         # answer, so a store written after the viewer opened can still appear.
         self._config = config
@@ -354,10 +360,8 @@ class _Handler(SimpleHTTPRequestHandler):
         if self.path.rstrip("/") == "/api/health":
             self._send_json({"ok": True})
             return
-        if self.path.rstrip("/") == "/api/revision":
-            # Deliberately tiny: the viewer asks this often, and asks the expensive
-            # question only when the answer here has changed.
-            self._send_json({"revision": self._library.revision()})
+        if self.path.rstrip("/") == "/api/events":
+            self._serve_events()
             return
         if self.path.rstrip("/") == "/api/config":
             self._serve_config()
@@ -374,6 +378,83 @@ class _Handler(SimpleHTTPRequestHandler):
             self._send_json(payload)
             return
         self._send_empty(HTTPStatus.NOT_FOUND)
+
+    def _serve_events(self) -> None:
+        """Hold a connection open and write a line whenever something changes.
+
+        This is how an open page finds out that a new acquisition has appeared or
+        a timelapse has gained a frame. The page opens this once and leaves it
+        open; the server writes to it when there is something to say and says
+        nothing the rest of the time. The alternative it replaces — the page
+        asking every seven hundred milliseconds for the life of the window — cost
+        a question and an answer several times a second, for ever, to be told
+        "nothing" almost every time.
+
+        The format is the browser's own ``EventSource``: a few lines of text per
+        message, with a blank line between them. No library is involved on either
+        side.
+
+        Two details are load-bearing. There is no ``Content-Length``, because the
+        length is not known — the reply ends when the connection does. And nothing
+        may keep a copy of this, since a recording of the announcements would be
+        worse than useless when replayed.
+
+        The thread serving this belongs to the page until the page goes away. That
+        is only discovered by trying to write, which is what the quiet heartbeat in
+        ``announcements.py`` is for.
+        """
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        # This reply is terminated by closing the connection, so it cannot be one
+        # of several on a kept-alive connection.
+        self.send_header("Connection", "close")
+        self.close_connection = True
+        self.end_headers()
+
+        waiting = self._announcements.listen()
+        try:
+            # Say hello straight away. This gets the headers out of any buffer
+            # between here and the page, so the browser reports the connection as
+            # open rather than sitting in "connecting" until the first real event.
+            self.wfile.write(b": listening\n\n")
+            self.wfile.flush()
+            while True:
+                try:
+                    message = waiting.get(timeout=announcements_mod.QUIET_HEARTBEAT_S)
+                except queue.Empty:
+                    message = announcements_mod.HEARTBEAT
+                if message is None:
+                    return  # the server is shutting down
+                self.wfile.write(message)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            # The page was closed or navigated away. Ordinary, not an error.
+            pass
+        finally:
+            self._announcements.stop_listening(waiting)
+
+    def _serve_announcement(self, payload: object) -> None:
+        """Take an announcement from whatever is driving the microscope.
+
+        The application running the experiment knows things the viewer can only
+        guess at: it asked for the acquisition and it waited for the write to
+        finish. This is where it says so, and every open page is told to look
+        again.
+
+        The body is not read for content, and that is on purpose. What a page does
+        on hearing this is ask for the current state of things, which is read from
+        disk — so the disk stays the one description of the world that has to be
+        right. Anything sent here would only be a second description to keep in
+        step. Callers are welcome to send something readable for the sake of
+        anyone watching the traffic.
+
+        Answers with how many pages were told, which is worth knowing: a script
+        that announces a position and is told nobody was listening has learnt that
+        the viewer is not open.
+        """
+        del payload  # see above: the announcement itself is the whole message
+        self._send_json({"told": self._announcements.say_something_changed()})
 
     def _serve_config(self) -> None:
         """Tell the page which stores to open and how to display them.
@@ -405,6 +486,7 @@ class _Handler(SimpleHTTPRequestHandler):
             "/api/stores/open",
             "/api/stores/close",
             "/api/annotations",
+            "/api/announce",
         }:
             self._send_empty(HTTPStatus.NOT_FOUND)
             return
@@ -420,6 +502,8 @@ class _Handler(SimpleHTTPRequestHandler):
             self._serve_open(payload)
         elif route == "/api/stores/close":
             self._serve_close(payload)
+        elif route == "/api/announce":
+            self._serve_announcement(payload)
         else:
             self._save_annotations(payload)
 
@@ -624,6 +708,11 @@ def make_server(
     # The folder the viewer was started on is the run being worked on, so it is
     # watched: an acquisition written while it is open appears on its own.
     library.open(data_dir, names=names, watch=live)
+
+    # How open pages are told that something has changed, and the two things that
+    # do the telling. See announcements.py for why there are two.
+    told = Announcements()
+    watcher = FolderWatcher(library, told) if live else None
 
     # Measuring a store's display window and histogram means reading pixels, so
     # each store is measured once and the answer kept. The list of stores is
@@ -852,6 +941,21 @@ def make_server(
         request_queue_size = 128
         daemon_threads = True
 
+        def serve_forever(self, *args, **kwargs):
+            # The disk is watched only while the server is actually running, and
+            # only for data that is still being written -- see FolderWatcher.
+            if watcher is not None:
+                watcher.start()
+            super().serve_forever(*args, **kwargs)
+
+        def shutdown(self):
+            # Let the listeners go before stopping, or each would sit through its
+            # own quiet heartbeat before noticing the server had gone.
+            told.close()
+            if watcher is not None:
+                watcher.stop()
+            super().shutdown()
+
     handler = functools.partial(
         _Handler,
         data_dir=data_dir,
@@ -860,6 +964,7 @@ def make_server(
         library=library,
         browse=browse,
         live=live,
+        announcements=told,
     )
     return _Server(("127.0.0.1", port), handler)
 

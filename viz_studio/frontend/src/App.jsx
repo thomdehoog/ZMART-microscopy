@@ -255,74 +255,95 @@ export default function App() {
     };
   }, [applyConfig]);
 
-  // Notice new acquisitions quickly without asking an expensive question often.
+  // Whether there is anything to listen for. Finished data cannot change, so a
+  // viewer on it holds no connection open. Until the first answer arrives we do
+  // not know which we have, and "listen" is the right assumption: a live run that
+  // heard nothing would sit there missing its own data.
+  const shouldListen = config === null || config.live !== false;
+
+  // Listen for the server saying that something has changed.
   //
-  // Asking what is open means reading every store's description, which is far too
-  // heavy to repeat several times a second. So the viewer asks a much smaller
-  // question instead -- one that only says whether anything has changed -- and asks
-  // the expensive one only when the answer moves. That makes the refresh feel
-  // immediate while costing less than the slow poll it replaces.
+  // The viewer used to find this out by asking, every seven hundred milliseconds
+  // for the life of the window, whether anything had moved -- and being told
+  // "nothing" almost every time. Now the server says so when it happens: the page
+  // holds one connection open and hears a line on it when there is something to
+  // hear. Between events nothing is sent and nothing is asked.
+  //
+  // A message carries no detail, and does not need to. Hearing one means "ask
+  // again", and the answer is read from disk, so there is only ever one
+  // description of the world and it is the true one.
   React.useEffect(() => {
-    // On finished data there is nothing to notice, so nothing is asked. This is
-    // the whole of static mode on this side, and it removes a question asked
-    // several times a second for the life of the window -- along with the
-    // directory reading it causes on the server for every acquisition open.
+    // On finished data there is nothing to hear, so no connection is held. This
+    // is the whole of static mode on this side.
     //
-    // Written so that the *first* answer still gets fetched: until something has
-    // been loaded there is a viewer with nothing in it, and that is worth one
-    // question whichever mode we are in.
-    if (applied.current && config?.live === false) return undefined;
+    // Written so the *first* answer is still fetched whichever mode we are in:
+    // until something has been loaded there is a viewer with nothing in it, and
+    // we do not yet know which mode we are in.
+    if (!shouldListen) return undefined;
     let stop = false;
-    let last = null;
-    // One failed question is not worth mentioning -- a moment's hiccup on a
-    // network share does that. Several in a row is worth saying out loud, because
-    // a viewer that has quietly lost its server looks exactly like an experiment
-    // that has stopped producing data, and the two call for very different
-    // reactions in the middle of the night.
-    let silence = 0;
-    // Whether an expensive question is already outstanding. Without this, a slow
-    // first answer -- and the first one is slow, because it reads pixels from every
-    // store -- would have another asked every 700 ms behind it. A browser allows
-    // only six connections to one address, so half a dozen of those queued up would
-    // leave the engine unable to fetch a single piece of image until they finished.
+    // Whether an answer is already outstanding. Several announcements can arrive
+    // close together at the start of a run, and the first answer is slow because
+    // it reads pixels from every store. A browser allows only six connections to
+    // one address, so a queue of those would leave the engine unable to fetch a
+    // single piece of image until they finished.
     let asking = false;
-    const tick = async () => {
-      if (asking) return;
-      try {
-        const response = await fetch("/api/revision");
-        const answer = await response.json();
-        if (stop) return;
-        if (last !== answer.revision || !applied.current) {
-          asking = true;
-          const loaded = await fetchConfig().finally(() => {
-            asking = false;
-          });
-          if (stop) return;
-          if (loaded) applyConfig(loaded);
-        }
-        last = answer.revision;
-        if (silence >= UNANSWERED_BEFORE_SAYING_SO) setStoreNotice(null);
-        silence = 0;
-      } catch {
-        if (stop) return;
-        silence += 1;
-        if (silence === UNANSWERED_BEFORE_SAYING_SO) {
-          setStoreNotice("Not hearing from the server — what is shown may be out of date.");
-        }
+    const catchUp = async () => {
+      if (asking || stop) return;
+      asking = true;
+      const loaded = await fetchConfig().finally(() => {
+        asking = false;
+      });
+      if (stop) return;
+      if (loaded) applyConfig(loaded);
+      else setStoreNotice("Could not reach the server. Is it still running?");
+    };
+
+    const listener = new EventSource("/api/events");
+    // Any message at all means "ask again", so both the named event and anything
+    // else that arrives are treated the same. Being generous here means a future
+    // kind of announcement cannot be silently ignored by an older page.
+    listener.addEventListener("changed", catchUp);
+    listener.onmessage = catchUp;
+    listener.onopen = () => {
+      if (!stop) setStoreNotice(null);
+    };
+    // The browser reconnects on its own when a connection drops, so this is not a
+    // place to retry from -- it is a place to say something. A viewer that has
+    // quietly lost its server looks exactly like an experiment that has stopped
+    // producing data, and at two in the morning those call for very different
+    // reactions.
+    let silence = 0;
+    listener.onerror = () => {
+      if (stop) return;
+      silence += 1;
+      if (silence === UNANSWERED_BEFORE_SAYING_SO) {
+        setStoreNotice("Not hearing from the server — what is shown may be out of date.");
       }
     };
-    const timer = setInterval(tick, 700);
-    tick();
+
+    // Ask once now as well. This is what puts something on screen at startup, and
+    // it is also what recovers a viewer that opened while the server was still
+    // coming up -- during a run there is no button to try again with.
+    catchUp();
+
     return () => {
       stop = true;
-      clearInterval(timer);
+      listener.close();
     };
-    // Deliberately not waiting for a first answer before starting. This asking is
-    // also what recovers a viewer that could not reach the server when it opened:
-    // if it only began once something had been loaded, a viewer that started while
-    // the server was still coming up would sit there saying so for ever, and
-    // during a run there is no button to try again with.
-  }, [applyConfig, config]);
+    // Depending on one true-or-false rather than on the whole of what is open, and
+    // the difference matters more than it looks.
+    //
+    // The set of open images changes every time an acquisition appears. If that
+    // tore this down, it would close and reopen the very connection the news
+    // arrived on -- so a run producing data steadily would spend it reconnecting,
+    // with a gap each time in which the next announcement would be missed.
+    //
+    // It is a plain true-or-false rather than the mode itself for a smaller
+    // reason: before the first answer we do not yet know the mode, and going from
+    // "not known yet" to "live" would count as a change and reconnect once for
+    // nothing. Both of those states mean "listen", so as one boolean they are the
+    // same value and nothing happens.
+  }, [applyConfig, shouldListen]);
 
   // Everything the engine should be showing, in the order it should be drawn.
   //
