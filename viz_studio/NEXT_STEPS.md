@@ -105,30 +105,62 @@ chunk, which is the number that actually matters here.
 
 ### The same cost, arriving a second way: a timelapse across many positions
 
-Worth measuring in the same sitting, because it is the same problem seen from the other
-end and the same synthetic store will answer both.
+This has now been measured, and it is the thing standing between the viewer and a run of
+the size it is meant for. **Read the numbers before deciding what to build.**
 
 The frame count that decides whether a store is read again belongs to the *row*, and it
 is the highest count across all the positions merged into that row (`server.py`, where
 the rows are built). That is right for the time slider — it should reach as far as the
 position furthest along — but it means one position gaining a frame moves the whole row's
-count, and every store on the row is read again, not just the one that grew. At a
-thousand positions that is about four thousand small requests each time any single
-position advances by one frame.
+count, and every store on the row is read again, not just the one that grew.
 
-Nothing is wrong with what is on screen; this is a cost, not a fault. But it is worth
-knowing that the experiment it lands on is an ordinary one rather than an exotic one: tile
-a plate and image each well over time, and every well advancing sets the whole row reading
-itself again.
+Measured on this machine, with two channels and two pyramid levels per position, on
+stores small enough to be sparse. The cost being counted is round trips for the small
+files describing each store, and that count follows the number of positions and channels,
+not the size of the image — so these figures stand for a 400 GB run just as well as for
+the few megabytes actually written.
 
-**The fix, if the measurement says one is wanted.** The page currently has to guess which
+| positions | opening the folder cold | one frame landing on one position |
+| --------- | ----------------------- | --------------------------------- |
+| 10        | 0.4 s, 40 requests      | 0.1 s, 60 requests                |
+| 50        | 0.7 s, 224 requests     | 0.4 s, 300 requests               |
+| 200       | 2.0 s, 572 requests     | 6.2 s, 1 200 requests             |
+| 1 000     | 8.7 s, 2 936 requests   | 18.5 s, 6 000 requests            |
+
+The frame-landing column is exact — six requests per position, every time. The cold-open
+column wobbles by a few per cent between runs, since what the engine asks for while it is
+still working out what it is looking at depends a little on what arrives first.
+
+Read the last row twice. At a thousand positions, **one frame arriving at one position
+costs more than opening the whole folder from cold** — and it does so every time any
+position advances. A run writing a frame every few seconds would never finish catching up
+with itself. This is on localhost, where a round trip is as cheap as it will ever be.
+
+The shape is linear in the number of positions, so a run twice the size costs twice as
+much; there is no cliff to be surprised by, and no threshold below which the problem
+disappears. At a hundred positions it is barely noticeable, which is why it was not
+noticed.
+
+**The fix, and the measurement says it is wanted.** The page currently has to guess which
 stores might have changed, because an announcement says only that *something* has, and the
 frame count is the best guess available to it. The server does not have to guess — it
 looks at the disk already, and it knows which store it was looking at when it decided to
-speak. So the announcement could name the stores that changed, and the page would forget
-exactly those. That removes the guess rather than tuning it, and it is the same change
-that would let a row hold thousands of positions without an announcement costing anything
-at all.
+speak. So the announcement should name the stores that changed, and the page would forget
+exactly those. That removes the guess rather than tuning it, and it turns the last row of
+the table from six thousand requests into six.
+
+The measuring script is worth keeping to hand rather than rebuilt: it writes sparse
+timelapse stores at a given number of positions, opens the viewer on them, grows one
+position by a frame and counts what that sets off. Both halves of the table come from one
+run of it.
+
+**One part of this is already done, and it is worth knowing why it was only a quarter of
+the answer.** A store holding two channels feeds two rows, and each row was forgetting and
+re-reading that store separately — so the second row threw away the files the first had
+just fetched. Forgetting is now shared across the whole pass. That took a thousand
+positions from 8 000 requests to 6 000 and from 21.4 s to 18.5 s: real, and nowhere near
+enough on its own. The remaining cost is not waste of that kind; it is simply asking a
+thousand stores a question when only one of them has an answer that has changed.
 
 **Do not reach for a time limit or a size limit on what the engine remembers.** That is
 the usual answer to a cache growing stale, and it is the wrong one here: a limit is what
