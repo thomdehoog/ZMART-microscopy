@@ -65,6 +65,66 @@ for why the two belong together is in the next section.
 
 ---
 
+### Where the half-minute actually goes, profiled
+
+The obvious guess is that a slow cold open means waiting for the disk or the network. It
+does not, and it is worth knowing that before anyone spends a day on faster transport.
+During a thousand-position open the server never answered more than seven requests at
+once and sat idle for two thirds of the wait. The time is spent on the browser's main
+thread, doing arithmetic.
+
+A sampled profile of an eight-hundred-position cold open, with the page built without
+minification so the names mean something (`npx vite build --minify false`), puts about a
+third of the whole thing in one cluster:
+
+| what | self time, of 16.5 s |
+| --- | --- |
+| `getRenderLayerTransform` | 1.83 s |
+| `homogeneousTransformSubmatrix` | 1.50 s |
+| the cached recompute driving them | 1.40 s |
+| matrix `multiply` | 0.84 s |
+| `CoordinateSpaceCombiner.update` | 0.74 s |
+
+**The mechanism, which is waste rather than work.** Every position that finishes loading
+registers its own coordinate space with a combiner shared by the whole scene, and the
+combined space is rebuilt on the spot — walking every space registered so far. The
+combined space genuinely changes each time, because the specimen's bounding box grows by
+one position. And every change makes **every render layer already present recompute where
+it sits in space**. Three render layers per position and eight hundred positions means
+those transforms are recomputed some hundreds of thousands of times to reach answers that
+differ by a hair.
+
+**What holding it still would be worth, measured rather than argued.** Suppressing the
+rebuild for the whole load and doing it once at the end — an upper bound, not a shippable
+arrangement:
+
+| positions | as it is | space held |
+| --------- | -------- | ---------- |
+| 400       | 3.2 s    | 2.9 s      |
+| 800       | 14.8 s   | **7.3 s**  |
+
+So roughly half at eight hundred, and more as the folder grows, since it is a square
+being cut down. What is left after that is close to linear at about nine milliseconds a
+position.
+
+**It was deliberately not built, and here is the reasoning.** Three things weigh against
+it. It does not change the shape: at nine milliseconds a position, forty thousand
+positions would still be several minutes, so it postpones the problem rather than solving
+it. It does nothing for the drawing rate — twelve frames in five seconds at nine hundred
+positions is untouched, because that is the cost of thousands of render layers taking part
+in every frame rather than the cost of loading them. And there is no supported way to ask
+Neuroglancer to hold its coordinate space still, so it means replacing a method on an
+internal object of theirs at run time: something that works today and can break silently
+on a version bump, in the one place we chose not to rewrite.
+
+The viewing window in item 1 answers all three at once, and it makes this finding
+irrelevant rather than merely redundant — a window that holds a couple of hundred
+positions never accumulates enough of them for the square to hurt. If the window turns out
+to be much further off than it looks, this is the fallback, and the measurements above are
+what you would start from.
+
+---
+
 ### How sources should be fed: the decisions
 
 Reached in conversation and settled. The reasoning follows; these are the
