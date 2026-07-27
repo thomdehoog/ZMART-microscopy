@@ -144,12 +144,18 @@ export function layersFor(config, mode, layerState, groupState, groupOrder) {
       source: (spec.sources || [spec.source]).map(
         (source) => `${window.location.origin}${source}`,
       ),
-      // How many frames the server has counted on disk for this row. It is carried
-      // through to the engine for one narrow purpose: it is the only thing that says
-      // whether a timelapse has actually grown since the last look, and re-reading a
-      // store is only worth doing when it has. A row with no time axis leaves this
-      // undefined and is never re-read at all. See syncSources in engine.js.
-      frames: spec.frames ?? undefined,
+      // How many frames the server has counted on disk for each store above, in the
+      // same order. It is carried through to the engine for one narrow purpose: it
+      // is what says which stores have actually grown since the last look, and
+      // re-reading a store is only worth doing when it has. A row with no time axis
+      // leaves this undefined and is never re-read at all.
+      //
+      // Per store rather than for the row as a whole, and that distinction is the
+      // whole point. A row's own frame count is the highest across its positions, so
+      // one position advancing moves it and says nothing about which one moved --
+      // which left the engine going back to every store on the row to ask. See
+      // syncSources in engine.js, and NEXT_STEPS.md for what that cost.
+      frameCounts: spec.frameCounts ?? undefined,
     };
     // Where a store holds its channels inside one array, this is what picks the
     // channel: the engine exposes it as a per-layer dimension, and each row pins

@@ -141,26 +141,51 @@ much; there is no cliff to be surprised by, and no threshold below which the pro
 disappears. At a hundred positions it is barely noticeable, which is why it was not
 noticed.
 
-**The fix, and the measurement says it is wanted.** The page currently has to guess which
-stores might have changed, because an announcement says only that *something* has, and the
-frame count is the best guess available to it. The server does not have to guess — it
-looks at the disk already, and it knows which store it was looking at when it decided to
-speak. So the announcement should name the stores that changed, and the page would forget
-exactly those. That removes the guess rather than tuning it, and it turns the last row of
-the table from six thousand requests into six.
+**This is now fixed, and the fix is worth understanding rather than just noting.** The
+figures above are what it used to cost. Here is the same table afterwards:
 
-The measuring script is worth keeping to hand rather than rebuilt: it writes sparse
-timelapse stores at a given number of positions, opens the viewer on them, grows one
-position by a frame and counts what that sets off. Both halves of the table come from one
-run of it.
+| positions | one frame landing, before | after            |
+| --------- | ------------------------- | ---------------- |
+| 10        | 0.1 s, 60 requests        | 0.1 s, 6 requests |
+| 50        | 0.4 s, 300 requests       | 0.1 s, 6 requests |
+| 200       | 6.2 s, 1 200 requests     | 2.4 s, 6 requests |
+| 1 000     | 18.5 s, 6 000 requests    | 6.6 s, 6 requests |
 
-**One part of this is already done, and it is worth knowing why it was only a quarter of
-the answer.** A store holding two channels feeds two rows, and each row was forgetting and
-re-reading that store separately — so the second row threw away the files the first had
-just fetched. Forgetting is now shared across the whole pass. That took a thousand
-positions from 8 000 requests to 6 000 and from 21.4 s to 18.5 s: real, and nowhere near
-enough on its own. The remaining cost is not waste of that kind; it is simply asking a
-thousand stores a question when only one of them has an answer that has changed.
+Six requests, whatever the size of the run. The cost of noticing a frame no longer has
+anything to do with how many positions are open, which is the property that matters — a
+run twice the size now costs the same rather than twice as much.
+
+**How, and why it is not the change the previous note proposed.** That note suggested
+having the announcement name the stores that had changed. That would have worked, but it
+cuts against a decision made deliberately in `announcements.py`: the message says only
+*something changed*, and the page then reads the disk, because the disk is what is true
+and two descriptions of the world would have to be kept in step. That reasoning is sound
+and was worth keeping.
+
+It turned out not to be necessary. The count of frames written is worked out **per store**
+already, in the course of building the answer to "what is open" — and was then thrown away,
+collapsed into a single figure for the whole row. The row's figure is the highest across
+its positions, which is exactly what the time slider needs and exactly no use for deciding
+which position moved. So the per-store counts are now kept as well, alongside the list of
+stores and in the same order, and the viewer compares each store against what it last saw.
+Nothing was added to the announcement; the page still learns everything from the same
+read of the disk it was already doing. The information had been there all along.
+
+**One earlier step, kept because the reasoning still applies.** A store holding two
+channels feeds two rows, and each row was forgetting and re-reading that store separately,
+so the second threw away the files the first had just fetched. Forgetting is now shared
+across the whole pass. On its own that took a thousand positions from 8 000 requests to
+6 000 — real, and nowhere near enough, which is what sent us looking for the per-store
+counts.
+
+**What is left in that 6.6 s**, since it is no longer requests for descriptions: it is the
+cost of building the answer to "what is open" for a thousand positions and handing the
+resulting scene back through the panel. That is the same cost as opening the folder cold,
+and it belongs to this item rather than to the timelapse — see the measurement above.
+
+The measuring script is kept as `measure_many_positions.py`: it writes sparse timelapse
+stores at a given number of positions, opens the viewer on them, grows one position by a
+frame and counts what that sets off. Every figure in both tables comes from running it.
 
 **Do not reach for a time limit or a size limit on what the engine remembers.** That is
 the usual answer to a cache growing stale, and it is the wrong one here: a limit is what
