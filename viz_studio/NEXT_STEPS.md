@@ -100,6 +100,51 @@ files on one worker.
 
 ---
 
+## Start here: six auditors, in parallel
+
+The target is real and it is not met: **forty thousand positions, forty terabytes.** Two
+audits at that scale have run and their findings are folded into the items below, but they
+covered the backend and the frontend only broadly. Put **six agents** on it at once, each
+with a narrow brief, because everything found so far was in a place nobody was looking.
+
+Give each of them the figures already measured, tell them not to re-litigate the decisions
+in `DATA_LAYOUT.md`, and require that every finding be **measured rather than reasoned** —
+synthetic sparse stores cost almost nothing to fabricate, so an unmeasured claim has no
+excuse. Ask for file:line, the growth law, the cost at 1 000 / 10 000 / 40 000 positions, a
+concrete fix, and a plain statement of which findings are theoretical rather than reachable.
+
+The briefs, chosen so they do not overlap:
+
+1. **The cold open** — from pointing the viewer at a finished folder to the first pixel.
+   This is the worst measured number in the system: roughly ninety minutes at forty thousand
+   positions, nearly all of it reading pixels to judge brightness, one store at a time.
+   Anything that removes, defers, bounds or parallelises that is the highest-value change
+   available anywhere in the project.
+2. **The live path** — from a position being written to it appearing. Every cost paid per
+   announcement, and whether any of it scales with how much is already open rather than with
+   what actually changed.
+3. **The engine boundary** — `frontend/src/engine.js` and what it does to Neuroglancer. How
+   many sources a layer holds before adding one more becomes slow, and how much of that is
+   ours versus the engine's. An earlier audit measured the engine's own fan-out as the wall;
+   confirm or refute it, because the answer decides whether item 1 below is optional or
+   compulsory.
+4. **Memory** — what the server holds after a long run and what the browser tab holds. Four
+   caches never evict, and one keys on a folder number that never repeats, so opening and
+   reopening leaks outright. Find the real ceiling and say when a machine gives up.
+5. **The per-chunk path** — everything between a chunk request arriving and bytes leaving.
+   It is the one path measured flat so far, which makes it the one worth defending: find what
+   would make it not flat, and what the ceiling is in requests per second.
+6. **The interface under load** — what a contrast drag, a group reorder and a mode switch
+   cost with forty thousand positions open, and what the panel does per render. An earlier
+   audit found sixty-one milliseconds of work per slider event at that scale, on the same
+   thread the engine draws with.
+
+A seventh, if there is room: **what a stitched image costs to make and to view**, measured
+rather than assumed. Several of the items above are only worth doing if stitching turns out
+not to be the better answer for finished data.
+
+---
+
 ## 1. Hand the engine only the sources it needs
 
 **Start here, and it is a measurement before it is a change.**
