@@ -49,9 +49,65 @@ import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
 // WeakMap is used so that a layer being thrown away takes its entry with it.
 const sourcesApplied = new WeakMap();
 
+// How many frames each layer was last known to hold. This is what decides whether a
+// store is worth reading again: see syncSources. Kept beside the addresses above and
+// for the same reason -- a layer being thrown away takes its entry with it.
+const framesSeen = new WeakMap();
+
 function sourceList(spec) {
   if (spec.source == null) return [];
   return Array.isArray(spec.source) ? spec.source : [spec.source];
+}
+
+/**
+ * Forget what the engine was told about one store, so that asking again really asks.
+ *
+ * Neuroglancer remembers the answer to every question it has asked about a store —
+ * the small files describing how many frames there are, how big a voxel is, where
+ * the pyramid levels live. That memory is the right thing almost always: opening
+ * the same acquisition in a second window, or coming back to it later, costs
+ * nothing. But it is held for as long as the page is open and there is no time
+ * limit on it, so when a timelapse grows the engine will keep answering "two
+ * frames" from memory and never look at the disk again. Handing a data source its
+ * own address back is not enough on its own: it does make the engine resolve the
+ * store afresh, but the resolving is answered out of the same memory, so nothing
+ * is re-read and nothing changes. That was measured — after an announcement the
+ * page asked for no description files at all.
+ *
+ * So the remembered answers about this one store are dropped first. What is dropped
+ * is only what was *read* about it. The pieces of image themselves are remembered
+ * separately, and those entries are left strictly alone — they are recognisable
+ * because they name the kind of object that holds decoded image rather than a file
+ * that was fetched. Dropping one of those would not free anything (the layer is
+ * still using it) but it would make the engine build a second one beside it and
+ * fetch every piece again, which is the exact cost this whole path exists to avoid.
+ *
+ * Two things are worth knowing if you are changing this:
+ *
+ * - Removing the entry does not throw anything away. It only means the next question
+ *   is answered by looking rather than by remembering. Anything still in use is held
+ *   by the layer using it and stays alive.
+ * - These entries are never removed on their own. Neuroglancer takes a reference each
+ *   time one is used and never gives it back, so they last as long as the page does.
+ *   That is why forgetting has to be done deliberately here, and also why doing so is
+ *   safe: there is no tidying-up already scheduled that this could collide with.
+ */
+function forgetWhatWasReadAbout(chunkManager, url) {
+  const remembered = chunkManager?.memoize?.map;
+  if (!remembered) return;
+  // The address the panel writes ends in the name of the reader to use --
+  // ".../pos001.ome.zarr/|zarr2:". The files themselves sit under the part before
+  // that, which ends in a slash, so it cannot accidentally match a differently
+  // named store that merely starts the same way (pos001 against pos0011).
+  const folder = url.split("|")[0];
+  if (!folder) return;
+  for (const question of [...remembered.keys()]) {
+    if (!question.includes(folder)) continue;
+    // Anything naming a class of object is a holder of decoded image, not a file
+    // that was read. Leave those exactly where they are; see above for why.
+    if (question.includes('"constructorId"')) continue;
+    remembered.delete(question);
+  }
 }
 
 /**
@@ -70,7 +126,7 @@ function sourceList(spec) {
  * Returns how many images were added, so the caller knows whether the shape of
  * the scene changed.
  */
-function syncSources(layer, spec, reread = false) {
+function syncSources(layer, spec, reread = false, chunkManager = undefined) {
   const wanted = sourceList(spec);
   // Held as a set rather than a list. A row can be drawn from as many stores as
   // the run has positions, and asking a list "do you already contain this?" for
@@ -80,7 +136,17 @@ function syncSources(layer, spec, reread = false) {
   const already = sourcesApplied.get(layer) || new Set();
   const fresh = wanted.filter((url) => !already.has(url));
 
-  if (reread) {
+  // Whether this row has gained a frame since the last look. An announcement says
+  // only that *something* on disk has changed, not what, so without this every
+  // announcement would re-read every store on the row -- and a row can hold a
+  // position for every place the microscope visited. Re-reading is cheap for one
+  // store and expensive for a thousand, so it is done only when the frame count has
+  // actually moved. A row with no time axis has no frame count and so is never
+  // re-read, which is right: nothing about it can grow.
+  const grew = reread && spec.frames !== undefined && spec.frames !== framesSeen.get(layer);
+  if (spec.frames !== undefined) framesSeen.set(layer, spec.frames);
+
+  if (grew) {
     // Ask the stores that were already open what they say about themselves now.
     //
     // This is what happens when a timelapse gains a frame. The store is already
@@ -90,16 +156,32 @@ function syncSources(layer, spec, reread = false) {
     // source its own address back makes the engine let go of what it worked out and
     // ask again.
     //
-    // It is deliberately cheap. Only the small description is re-read, and those are
-    // served with instructions never to keep a copy, so what comes back is the truth.
-    // The image itself is untouched: a piece keeps its own address when an array
-    // grows, so every frame already fetched stays exactly where it was.
+    // What this costs, measured rather than assumed, because it is more than it
+    // looks. Re-reading the descriptions themselves is genuinely cheap: a few
+    // hundred bytes per store, served with instructions never to keep a copy, so
+    // what comes back is the truth. But the engine files its decoded image under a
+    // key that includes the array's shape, so when the shape has genuinely changed
+    // the pieces on screen are filed under a new key and fetched again. It is
+    // bounded -- the frame being looked at, not the whole timelapse -- and it
+    // happens once per growth, but it is not free, and a viewer left on a fast
+    // timelapse will pay it repeatedly.
+    //
+    // The happier half of the same fact: when a store's description comes back
+    // unchanged -- an acquisition that declared its length up front and is filling
+    // in the frames it already promised -- the key is unchanged too and nothing at
+    // all is re-fetched. That case is pinned by
+    // test_frames_arriving_do_not_disturb_what_is_shown.
+    //
+    // The forgetting has to come first. Without it the engine resolves the store
+    // again but answers itself from what it already remembers, so the re-read never
+    // reaches the disk and the length never moves. See forgetWhatWasReadAbout above.
     //
     // Note that this happens *as well as* adding anything new below, not instead of
     // it. One announcement can mean both -- a position finished and another gained a
     // frame -- and an earlier version that treated them as alternatives quietly
     // stopped new positions appearing at all.
     for (const source of layer.dataSources) {
+      forgetWhatWasReadAbout(chunkManager, source.spec.url);
       source.spec = { ...source.spec };
     }
   }
@@ -198,10 +280,11 @@ function applyOrder(manager, names) {
  * watch: for an ordinary change — a slider moved, a channel hidden — it must be
  * zero.
  *
- * Pass ``reread`` when a store already open has changed on disk — a timelapse that
- * has gained a frame. Layers are left exactly as they are and their descriptions are
- * read again, which is the one case where nothing is added and yet something must
- * happen.
+ * Pass ``reread`` when something on disk has changed — that is, on the pass that
+ * follows an announcement. It means "check whether anything already open has grown",
+ * not "re-read everything": only a row whose frame count has actually moved is read
+ * again, and its layers are left exactly as they are while that happens. This is the
+ * one case where nothing is added to the scene and yet something must still happen.
  */
 export function syncLayers(viewer, specs, { reread = false } = {}) {
   const manager = viewer.layerManager;
@@ -226,7 +309,7 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
       reshaped += 1;
     }
     if (managed) {
-      reshaped += syncSources(managed.layer, spec, reread);
+      reshaped += syncSources(managed.layer, spec, reread, viewer.chunkManager);
       applySettings(managed, spec);
       return;
     }
@@ -234,6 +317,10 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
     // Building from the description already applied everything in it, including
     // the images; record them so the next pass does not add them a second time.
     sourcesApplied.set(managed.layer, new Set(sourceList(spec)));
+    // Likewise the frame count it was built with, so that the first announcement
+    // after it appears does not mistake "I have never asked" for "this has grown"
+    // and re-read every store on the row for nothing.
+    if (spec.frames !== undefined) framesSeen.set(managed.layer, spec.frames);
     viewer.layerSpecification.add(managed, index);
     reshaped += 1;
   });

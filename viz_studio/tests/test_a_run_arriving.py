@@ -249,17 +249,6 @@ TIME_REACH = """() => {
 }"""
 
 
-@pytest.mark.xfail(
-    reason="Re-reading a store's description does not yet reach the engine's idea of "
-    "how long the image is. Handing a data source its own address back does make "
-    "Neuroglancer resolve it again -- that much is confirmed in its source -- but the "
-    "coordinate space the time slider reads from still reports the old length "
-    "afterwards, so the new frame stays out of reach. The rest of the path is right "
-    "and is checked here: the store is not opened a second time on top of itself, and "
-    "the layers are left alone. What is missing is whatever makes the engine adopt the "
-    "new extent, and that is the next thing to find.",
-    strict=True,
-)
 def test_a_timelapse_that_grows_is_noticed_without_being_added_twice(
     browser, built_dist, tmp_path
 ):
@@ -298,6 +287,86 @@ def test_a_timelapse_that_grows_is_noticed_without_being_added_twice(
         # The layers themselves were left alone, so nothing already fetched was lost.
         assert page.evaluate(STILL_MARKED) == marked, (
             "re-reading a store's description destroyed the layers"
+        )
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_a_store_is_only_read_again_when_it_has_actually_grown(
+    browser, built_dist, tmp_path
+):
+    """A neighbour arriving must not send us back to the stores already open.
+
+    Re-reading a store is how a growing timelapse reaches the time slider, and it
+    is worth doing — but an announcement only says that *something* on disk has
+    changed, never what. A row can hold one store for every place the microscope
+    visited, so treating every announcement as "everything may have grown" would
+    mean four small requests per position per announcement, most of them asking a
+    store whether it is still the length it was a second ago. That is the cost
+    this guards against, and it is the same cost that makes opening a large folder
+    slow. The frame count the server reports is what says whether the question is
+    worth asking at all.
+
+    The case is a second position arriving beside the first. Something has genuinely
+    changed on disk, so the viewer does take the announcement seriously and does go
+    and fetch the newcomer — but the position already open has not grown, and must
+    be left alone. Only requests naming the first position are counted, so the
+    newcomer's own perfectly proper fetches do not hide the fault.
+
+    The second half is the positive control: the same store then really does grow,
+    and must be read again. Without it this would pass just as happily against a
+    viewer that had stopped re-reading anything at all.
+    """
+    store = write_timelapse(tmp_path, "overview_pos001", frames=2)
+    server = make_server(port=0, data_dir=tmp_path, site_dir=built_dist,
+                         store="overview_pos001.ome.zarr")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1000, "height": 800})
+    # The small files a store keeps about itself -- how long it is, how big a voxel
+    # is. These are what a re-read fetches, so counting the ones belonging to the
+    # first position says whether it was read again, without having to ask the
+    # viewer to confess to it.
+    descriptions: list[str] = []
+    page.on(
+        "request",
+        lambda r: descriptions.append(r.url)
+        if "overview_pos001" in r.url and r.url.endswith((".zarray", ".zattrs"))
+        else None,
+    )
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartViewer !== undefined", timeout=60_000)
+        page.wait_for_function(f"() => ({TIME_REACH})() === 2", timeout=60_000)
+        page.wait_for_timeout(1500)
+
+        # A second position lands. It has the same number of frames as the first, so
+        # nothing about the first has grown -- but the scene has genuinely changed,
+        # which is exactly when an over-eager re-read would happen.
+        settled = len(descriptions)
+        sources_before = page.evaluate(SOURCES)
+        write_timelapse(tmp_path, "overview_pos002", frames=2)
+        assert page.evaluate(ANNOUNCE) >= 1
+
+        # Wait for the newcomer to actually be taken on, so the check below is made
+        # after the pass that would have done the damage, not before it.
+        page.wait_for_function(
+            f"{SOURCES} === {sources_before + CHANNELS}", timeout=30_000
+        )
+        page.wait_for_timeout(2000)
+        assert len(descriptions) == settled, (
+            "a neighbour arriving sent us back to a position that had not changed: "
+            f"{descriptions[settled:][:4]}"
+        )
+
+        # And now the first position really does grow, which must send us back to it.
+        grow_timelapse(store, 3)
+        assert page.evaluate(ANNOUNCE) >= 1
+        page.wait_for_function(f"() => ({TIME_REACH})() === 3", timeout=30_000)
+        assert len(descriptions) > settled, (
+            "a store that grew was never read again, so the guard is stuck shut"
         )
     finally:
         page.close()

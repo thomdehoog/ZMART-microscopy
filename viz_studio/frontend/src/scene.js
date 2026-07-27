@@ -144,6 +144,12 @@ export function layersFor(config, mode, layerState, groupState, groupOrder) {
       source: (spec.sources || [spec.source]).map(
         (source) => `${window.location.origin}${source}`,
       ),
+      // How many frames the server has counted on disk for this row. It is carried
+      // through to the engine for one narrow purpose: it is the only thing that says
+      // whether a timelapse has actually grown since the last look, and re-reading a
+      // store is only worth doing when it has. A row with no time axis leaves this
+      // undefined and is never re-read at all. See syncSources in engine.js.
+      frames: spec.frames ?? undefined,
     };
     // Where a store holds its channels inside one array, this is what picks the
     // channel: the engine exposes it as a per-layer dimension, and each row pins
