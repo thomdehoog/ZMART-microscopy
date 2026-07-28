@@ -288,6 +288,33 @@ _frame_counts: dict[str, tuple[int, int | None]] = {}
 _frame_highest: dict[str, int] = {}
 
 
+def forget(store: Path) -> None:
+    """Let go of everything remembered about one store, because it has been closed.
+
+    Remembering what a store contains is what keeps the viewer quick: the small
+    files describing it are read once and then only glanced at. The other side of
+    that is that nothing is ever forgotten on its own, and a session in which an
+    operator opens a large folder, looks at it, closes it and opens the next one
+    would hold on to every folder they had visited for as long as the viewer was
+    running. Closing something should give the memory back — otherwise "close what
+    you are not using" is advice the viewer does not honour.
+
+    Everything remembered here is filed under the store's own path on disk, so one
+    call is enough for all of it. Forgetting is always safe: the worst it can cost
+    is reading a small file again.
+    """
+    under = str(store)
+    # The separator is the operating system's rather than a plain slash, because
+    # these keys are paths as this machine writes them and Windows writes them with
+    # a backslash. Matching the store's own name as well as things inside it, and
+    # insisting on the separator, keeps a store called "overview" from taking
+    # "overview-2" with it.
+    inside = under + os.sep
+    for remembered in (_attrs_cache, _frame_counts, _frame_highest):
+        for key in [key for key in remembered if key == under or key.startswith(inside)]:
+            del remembered[key]
+
+
 def written_timepoints(store: Path) -> int | None:
     """How many frames of a timelapse have actually been written so far.
 

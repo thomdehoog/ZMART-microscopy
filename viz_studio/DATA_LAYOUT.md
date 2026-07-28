@@ -805,7 +805,13 @@ before the loading starts:
   is worth showing, because it lets the operator decide rather than guess. A viewer that
   appears frozen and a viewer that is working through what it was asked for look identical,
   and only one of them is a problem.
-- **Closing what is not being used**, and having that genuinely give the memory back.
+- **Closing what is not being used**, and having that genuinely give the memory back. This
+  one is built: closing an acquisition drops everything the server had remembered about
+  those stores — their descriptions, their frame counts, the brightness measured from their
+  pixels, and the small files already handed to the page. Before that, memory only ever grew,
+  so somebody working through one folder after another kept every folder they had visited
+  until they quit the viewer, which made "close what you are not using" advice the viewer
+  did not honour.
 
 So the speed of a large folder is accepted rather than engineered around. The mechanisms
 that were proposed to engineer around it are both rejected — a window of only the positions

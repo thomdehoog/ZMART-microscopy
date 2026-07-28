@@ -400,3 +400,119 @@ def test_a_store_description_is_never_kept_by_the_browser(tmp_path, live):
     finally:
         stop()
     assert describing.get("Cache-Control") == "no-cache"
+
+
+class TestClosingGivesTheMemoryBack:
+    """Closing an acquisition should let go of what was remembered about it.
+
+    Remembering is what keeps the viewer quick — a store's description is read once
+    and thereafter only glanced at — but nothing is ever forgotten on its own. A
+    session in which somebody opens a large folder, looks at it, closes it and opens
+    the next one would otherwise hold on to every folder they had visited for as
+    long as the viewer ran. "Close what you are not using" has to be advice the
+    viewer actually honours, so these check that it does.
+    """
+
+    def _two_acquisitions(self, tmp_path):
+        """A folder holding two acquisition types, so one can be closed."""
+        site, data = tmp_path / "site", tmp_path / "data"
+        site.mkdir()
+        data.mkdir()
+        (site / "index.html").write_text("<!doctype html><title>page</title>", encoding="utf-8")
+        for name in ("overview_pos001.ome.zarr", "targetscan_cell001.ome.zarr"):
+            store = data / name
+            store.mkdir()
+            group = zarr.open_group(str(store), mode="w", zarr_format=2)
+            pixels = np.full((1, 2, 16, 16), 700, dtype=np.uint16)
+            group.create_array("0", shape=pixels.shape, chunks=(1, 1, 16, 16),
+                               dtype="uint16")[:] = pixels
+            (store / ".zattrs").write_text(
+                json.dumps({
+                    "multiscales": [{
+                        "version": "0.4",
+                        "axes": [{"name": "c", "type": "channel"},
+                                 {"name": "z", "type": "space", "unit": "micrometer"},
+                                 {"name": "y", "type": "space", "unit": "micrometer"},
+                                 {"name": "x", "type": "space", "unit": "micrometer"}],
+                        "datasets": [{"path": "0", "coordinateTransformations": [
+                            {"type": "scale", "scale": [1.0, 1.0, 0.5, 0.5]}]}],
+                    }],
+                }),
+                encoding="utf-8",
+            )
+        return site, data
+
+    @pytest.fixture
+    def two_open(self, tmp_path):
+        """A server with two acquisition types open, ready for one to be closed."""
+        site, data = self._two_acquisitions(tmp_path)
+        server = make_server(port=0, data_dir=data, site_dir=site)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        port = server.server_address[1]
+        try:
+            # Asking once is what makes the server read and remember these stores.
+            # Without it there would be nothing to forget and the tests would pass
+            # while proving nothing.
+            status, _, body = request(port, "/api/config")
+            assert status == 200
+            assert "targetscan" in json.loads(body)["groups"]
+            yield port, data
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+
+    def _close(self, port, group):
+        status, _, body = request(
+            port, "/api/stores/close", method="POST",
+            body=json.dumps({"group": group}).encode("utf-8"),
+        )
+        assert status == 200
+        return json.loads(body)
+
+    def test_the_description_is_forgotten(self, two_open):
+        """What a store contains, remembered while reading it, is dropped on close."""
+        import stores
+
+        port, data = two_open
+        closed = str(data / "targetscan_cell001.ome.zarr")
+        assert any(key.startswith(closed) for key in stores._attrs_cache), (
+            "the store should have been read and remembered before it was closed"
+        )
+        self._close(port, "targetscan")
+        assert not any(key.startswith(closed) for key in stores._attrs_cache)
+
+    def test_what_stays_open_is_still_remembered(self, two_open):
+        """Forgetting must be confined to what was closed.
+
+        Dropping too much would be quietly expensive rather than wrong: the
+        acquisition still on screen would be read from disk all over again.
+        """
+        import stores
+
+        port, data = two_open
+        kept = str(data / "overview_pos001.ome.zarr")
+        self._close(port, "targetscan")
+        assert any(key.startswith(kept) for key in stores._attrs_cache)
+
+    def test_the_files_served_to_the_browser_are_forgotten(self, two_open):
+        """The small files handed to the page are held in memory too."""
+        from server import _Handler
+
+        port, data = two_open
+        closed = str(data / "targetscan_cell001.ome.zarr")
+        request(port, "/data/0/targetscan_cell001.ome.zarr/.zattrs")
+        assert any(key.startswith(closed) for key in _Handler._described)
+        self._close(port, "targetscan")
+        assert not any(key.startswith(closed) for key in _Handler._described)
+
+    def test_closing_says_which_images_went(self, tmp_path):
+        """The server can only forget what the library tells it was closed."""
+        from library import Library
+
+        _, data = self._two_acquisitions(tmp_path)
+        library = Library()
+        number = library.open(data)
+        closed = library.close_group("targetscan", folder=number)
+        assert [name for _, _, name in closed] == ["targetscan_cell001.ome.zarr"]
+        assert [root for _, root, _ in closed] == [data.resolve()]

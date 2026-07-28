@@ -55,6 +55,7 @@ from stores import (
     channel_color,
     channel_of,
     channels,
+    forget,
     label_images,
     layer_names,
     split_name,
@@ -175,6 +176,7 @@ class _Handler(SimpleHTTPRequestHandler):
         browse=None,
         live: bool = True,
         announcements=None,
+        forget_measurements=None,
         **kwargs,
     ):
         self._data_dir = data_dir  # where drawn targets are saved
@@ -187,6 +189,12 @@ class _Handler(SimpleHTTPRequestHandler):
         # Asked afresh on each /api/config request rather than held as a fixed
         # answer, so a store written after the viewer opened can still appear.
         self._config = config
+        # Told when stores are closed, so the measurements taken from their pixels
+        # can be dropped along with everything else remembered about them. It is a
+        # function passed in because the measurements are kept beside the thing that
+        # builds the answer, not here. Absent in the few tests that construct a
+        # handler on their own, so it is allowed to be missing.
+        self._forget_measurements = forget_measurements or (lambda closed: None)
         super().__init__(*args, directory=str(site_dir), **kwargs)
 
     def handle_one_request(self) -> None:
@@ -288,6 +296,20 @@ class _Handler(SimpleHTTPRequestHandler):
     # anything appearing to be amiss.
     _described: dict[str, tuple[int, bytes]] = {}
     _described_lock = threading.Lock()
+
+    @classmethod
+    def forget_described(cls, store: Path) -> None:
+        """Let go of the description files remembered for one closed store.
+
+        These are small, but there are several per store per resolution level, so a
+        session that opens one large folder after another accumulates them by the
+        thousand. Closing an acquisition should hand that memory back rather than
+        keeping it until the viewer is quit.
+        """
+        inside = str(store) + os.sep
+        with cls._described_lock:
+            for key in [key for key in cls._described if key.startswith(inside)]:
+                del cls._described[key]
 
     def _send_file(self, target: Path) -> None:
         describing = target.name in self._DESCRIBING_FILES
@@ -580,11 +602,21 @@ class _Handler(SimpleHTTPRequestHandler):
         # comparing against" from also closing the overview being worked on.
         named = group_labels(self._library.entries())
         chosen = [where for where, label in named.items() if label == group]
+        closed = []
         if chosen:
             for number, kind in chosen:
-                self._library.close_group(kind, folder=number)
+                closed += self._library.close_group(kind, folder=number)
         else:
-            self._library.close_group(group)
+            closed += self._library.close_group(group)
+        # Give the memory back. An operator who closes an acquisition has said they
+        # are finished with it, and the viewer should take them at their word: what
+        # was remembered about those stores is dropped here rather than kept for the
+        # rest of the session. Nothing is lost by it — if the same folder is opened
+        # again, the small files describing it are simply read again.
+        for _, root, name in closed:
+            forget(root / name)
+            self.forget_described(root / name)
+        self._forget_measurements(closed)
         self._send_json(self._config())
 
     def _save_annotations(self, payload: object) -> None:
@@ -744,6 +776,20 @@ def make_server(
     # the page loading while the refresh poll fires, or a second window opening --
     # would otherwise both do that work for the same store.
     measuring = threading.Lock()
+
+    def forget_measurements(closed) -> None:
+        """Drop the measurements taken from stores that have just been closed.
+
+        Deliberately without waiting for ``measuring`` above. That lock is held for
+        as long as it takes to read a store's pixels, and closing an acquisition
+        should never sit waiting on that — the panel would appear to freeze. The
+        cost of not waiting is that a measurement already under way for a store
+        being closed can finish and put its answer back, leaving one entry behind.
+        That is a few hundred bytes, once, and the next close of the same
+        acquisition clears it.
+        """
+        for number, _, name in closed:
+            measured.pop(f"{number}/{name}", None)
 
     def describe(root_number: int, root: Path, name: str, label: str, coloured: bool) -> dict:
         key = f"{root_number}/{name}"
@@ -1043,6 +1089,7 @@ def make_server(
         browse=browse,
         live=live,
         announcements=told,
+        forget_measurements=forget_measurements,
     )
     return _Server(("127.0.0.1", port), handler)
 
