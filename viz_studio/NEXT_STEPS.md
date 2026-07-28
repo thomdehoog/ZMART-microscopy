@@ -771,7 +771,7 @@ store; here it would drop what it had *decoded* from one.
 
 ---
 
-## 0b. Moving a tile after it has been acquired — **the plan, and one dead end recorded**
+## 0b. Moving a tile after it has been acquired — **the plan, one route that works, one dead end**
 
 This is the operator's question, and it is a good one because it pulls in two directions at
 once. Tiles are acquired overlapping **on purpose**, so that somebody can afterwards compare
@@ -917,7 +917,50 @@ forty thousand positions would recompute the whole scene on every nudge. Adjusti
 sensible on a modest run and must be refused on a very large one, and the number that decides
 it is how much is already open.
 
-### The dead end: a canvas that is a second name for the tiles — **rejected, with reasons**
+### Carving a canvas back into movable tiles — **this direction works**
+
+There are two ways to have one store and movable tiles, they run in opposite directions, and
+only one of them fails. It is worth being careful here, because the first draft of this section
+condemned both and that was wrong.
+
+**The direction that fails** is taking tiles that have already been acquired and building a
+canvas out of them without copying — the next section, and it fails on where those tiles happen
+to sit.
+
+**The direction that works** is the reverse: **we** write the canvas, so we choose where the tile
+boundaries fall, and they fall on chunk boundaries because we put them there. The canvas is then
+the data, and each tile can be offered back to the viewer as an image in its own right — the
+same chunk files under a second set of names, with a small description saying "one tile, this
+shape, sitting here". We already serve the image ourselves, so this is a rule in the server
+rather than anything on disk: a request for the view's chunk `(0, 0, 0)` is answered with the
+canvas's chunk `(i, j, k)`. Nothing is read, decoded or copied. The engine sees an ordinary
+little OME-Zarr per tile and places each one separately, which is all it needs to let them move.
+
+**And the chunk boundaries only constrain the carving, not the moving.** Once a tile is an image
+of its own, where it sits is a number in its description, not a position in a grid — so it can be
+nudged by any amount at all, including a fraction of a voxel. The first draft ran these two
+together and concluded that a store could not have both. It can.
+
+There is a second route that is also not a fork, and is held in reserve: we compile the engine
+as a library rather than using the published application, so a reader of our own could be
+registered in our build that presents one array as many placeable pieces directly. It is more
+code for the same result, and Decision 6 in `DATA_LAYOUT.md` asks for a plain use of the engine
+over a clever one, so the server rule is the one to try first.
+
+**What no arrangement reaches, in either direction, is the overlap.** If the canvas kept one
+value per voxel where two tiles met, the second recording of that strip is not hidden or
+compressed away — it was never written. Moving tiles then aligns how things *look*: a seam can
+be made to sit right by eye, and a bare gap opens behind whichever tile was moved. What cannot be
+done is *computing* the correction, because that means comparing two recordings of the same
+ground and only one was kept. That is a fact about one value per voxel, not about the engine or
+the format, and no coordinate trick touches it.
+
+So the choice is not "one store or movable tiles". It is **whether the stitch is computed from
+the data or adjusted by hand.** Adjusted by hand: write the one canvas and carve views out of
+it. Computed: the overlap has to survive somewhere — separate tiles, or the margins kept beside
+the canvas.
+
+### The dead end: acquired tiles linked into a canvas — **rejected, with reasons**
 
 The idea was attractive enough to be worth recording. Keep the tiles as the data, and build the
 single navigable image not as a copy but as a second set of names for the same chunk files, by
@@ -933,8 +976,9 @@ rather than an opinion.
   is that divided by the voxel size, which is not a whole number of chunks. To link anything you
   would have to round each tile to the nearest chunk, deliberately misplacing it by up to half a
   chunk — around a hundred times *larger* than the sub-voxel error the whole exercise exists to
-  correct. "Aligned to the chunk grid by construction" and "movable by any amount" cannot both
-  be true of one image. **This alone is fatal.**
+  correct. **This alone is fatal, and note what it does and does not say:** it is about tiles
+  that arrived at positions nobody chose. When we write the canvas ourselves the boundaries are
+  ours to place, which is why the previous section stands while this one does not.
 - **The rule an earlier draft gave was also simply wrong.** It asked that each tile's
   non-overlapping middle be a whole number of chunks. Those middles do not fit together: between
   two of them there is a gap the width of the overlap, so a canvas built from them has a hole at
