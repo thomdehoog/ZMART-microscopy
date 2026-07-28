@@ -583,9 +583,13 @@ The briefs, chosen so they do not overlap:
    so the frame times are pessimistic. What better hardware cannot change is the shape —
    three drawing layers per position, each recomputed whenever the shared coordinate space
    moves, grows with the number of positions however fast the card is.
-4. **Memory** — what the server holds after a long run and what the browser tab holds. Four
-   caches never evict, and one keys on a folder number that never repeats, so opening and
-   reopening leaks outright. Find the real ceiling and say when a machine gives up.
+4. **Memory** — what the server holds after a long run, and what the browser tab holds.
+   Half of this is now dealt with: closing an acquisition drops everything remembered about
+   its stores, so opening one folder after another no longer keeps them all until the viewer
+   is quit. What is left is the harder half. Nothing is forgotten while a folder stays open,
+   which is right — it is what keeps the viewer quick — but it means a single folder of forty
+   thousand positions has a memory cost nobody has measured. Find that ceiling and say when a
+   machine gives up. The browser tab is untouched by any of this and is its own question.
 5. **The per-chunk path** — everything between a chunk request arriving and bytes leaving.
    It is the one path measured flat so far, which makes it the one worth defending: find what
    would make it not flat, and what the ceiling is in requests per second.

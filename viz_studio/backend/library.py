@@ -131,7 +131,7 @@ class Library:
         self._watch.pop(number, None)
         return self._roots.pop(number, None) is not None
 
-    def close_group(self, group: str, *, folder: int | None = None) -> None:
+    def close_group(self, group: str, *, folder: int | None = None) -> list[tuple[int, Path, str]]:
         """Close every image belonging to one acquisition type.
 
         The panel offers closing by acquisition type rather than by folder,
@@ -141,7 +141,13 @@ class Library:
         ``folder`` narrows this to one open folder. That matters when two runs are
         open side by side: both will have an "overview", and closing the one being
         compared against must not also close the one being worked on.
+
+        Returns the images that were closed, as ``(folder number, folder, store
+        name)``. The caller needs that in order to let go of what it remembered
+        about them: closing something is supposed to give the memory back, and only
+        this knows which images were actually affected.
         """
+        closed: list[tuple[int, Path, str]] = []
         with self._lock:
             for number, names in list(self._stores.items()):
                 if folder is not None and number != folder:
@@ -149,6 +155,8 @@ class Library:
                 kept = [name for name in names if split_name(name)[0] != group]
                 if kept == names:
                     continue
+                root = self._roots[number]
+                closed += [(number, root, name) for name in names if name not in kept]
                 if kept:
                     self._stores[number] = kept
                     # Stop watching, or the closed images would be found again on
@@ -156,6 +164,7 @@ class Library:
                     self._watch[number] = False
                 else:
                     self._close(number)
+        return closed
 
     # -- reading -----------------------------------------------------------
 
