@@ -1,5 +1,12 @@
 # Viz Studio spike — results
 
+> **This records what the early spike established, and is kept as history.** It is
+> still accurate about the spike itself, including the worker-bundling bug it found,
+> which is worth reading if you ever touch how the page is built. But the viewer has
+> grown a long way past it — the control panel, annotations, live updating and the
+> storage decisions all came later. For what the viewer does now, read `README.md`;
+> for what is still unfinished, `NEXT_STEPS.md`.
+
 This records what the spike actually established, honestly, so the next person
 (or the next session) does not have to rediscover it. It follows the plan in
 `PLAN.md`.

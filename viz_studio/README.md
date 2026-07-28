@@ -186,8 +186,10 @@ set PLAYWRIGHT_BROWSERS_PATH=C:\some\allowed\path\ms-playwright
 | `backend/launcher.py` | Opens the studio in a native desktop window (pywebview). |
 | `backend/browsercheck.py` | Automated rendering check in a real headless browser. |
 | `run_demo.py` | One command: make the demo volume and open the window. |
-| `PLAN.md` | The design and the reasoning behind every choice. |
-| `SPIKE_RESULTS.md` | What the spike proved, and the one open question. |
+| `DATA_LAYOUT.md` | How a run is written to disk and shown, and why. The design record. |
+| `NEXT_STEPS.md` | What is known to be unfinished or wrong, and what to pick up next. |
+| `TESTING.md` | How to run the tests, and what each group of them is for. |
+| `INDEX.md` | The map, if you are new: which document answers which question. |
 
 ## How the pieces talk
 

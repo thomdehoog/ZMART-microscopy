@@ -1,5 +1,11 @@
 # Making the viewer the main viewer — integration roadmap
 
+> **This is still the intent, and it has not been carried out yet.** It records why
+> we want one image engine underneath everything rather than several, which has not
+> changed. Treat the specific steps as a starting point rather than a current plan:
+> they were written before the storage decisions in `DATA_LAYOUT.md`, and those
+> decisions change some of the detail.
+
 A record of the decision to grow the viz-studio (neuroglancer) viewer from a
 spike into the single image/volume viewer for the whole ZMART workflow. Written
 so the intent, the honest scope, and the path are not lost between sessions.
