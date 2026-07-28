@@ -32,6 +32,11 @@ acquisition type feeds the same row, and they become one picture because the eng
 places each by its translation. What the panel shows is therefore acquisition types and
 channels; the fact that a position is a separate folder never surfaces.
 
+**How much to open.** Pointing the viewer at a folder shows its overview, not everything in
+it. Choosing what the engine is given is the viewer's responsibility, and the acquisition
+already says which image is the one to look at first. Target scans open when asked for. See
+Decision 5.
+
 **Getting data in, two ways.** While a run is producing data, the control application
 says "this position is ready" and the viewer hands the engine one more address. For data
 that is finished, point the viewer at a folder: it finds what is there, shows it, and
@@ -314,7 +319,26 @@ we care about.
 is fine and is described above; changing what a chunk contains is not, because a
 reader may already be holding it.
 
-## Decision 1b: one stitched image, afterwards, if it is wanted
+## Decision 1b: one stitched image — **considered and rejected**
+
+> **This is not going to be built.** It is kept because the reasoning below is sound on its
+> own terms and someone will propose it again, and because the measurements in it are real.
+> What changed is not the arithmetic but what the arithmetic was being asked to solve.
+>
+> Fusing the positions of an acquisition type into a single image was the answer to one
+> question: opening a folder of many thousands of positions is slow. It would have worked —
+> one source, one pyramid, and the engine handles every zoom unaided.
+>
+> But it is a second copy of the data, made by a step that has to run, kept somewhere, and
+> kept in step with the original. That is a large thing to take on, and the problem it
+> solves turns out not to need solving. **The viewer should not be opening forty thousand
+> positions in the first place.** See Decision 5.
+>
+> Stitching for *scientific* reasons — correcting where the stage actually put each tile —
+> is a separate matter and is not what this section was about. Nothing here argues against
+> it. It argues only against fusing in order to make the viewer quick.
+
+### The original reasoning, kept for the record
 
 Everything above describes data as it comes off an instrument. There is a second,
 optional artefact worth having once a run is finished and the alignment is known:
@@ -751,6 +775,55 @@ channel when something moves. On finished data it does not run at all.
 
 It remains the weaker of the two mechanisms, for the reason above, and an announcement
 should be preferred wherever there is one.
+
+## Decision 5: not loading too much is our responsibility
+
+Neuroglancer draws well whatever it is given. **Choosing what to give it is ours**, and that
+is a division of labour rather than a shortcoming — it is where the viewer's judgement
+belongs.
+
+Nearly every difficulty in this design came from ignoring that: hand the engine everything
+in a folder, then try to be clever about the consequences. A window of only the positions in
+view, a fused image, a batch size to tune — each was an attempt to repair a decision already
+made badly. State the responsibility plainly and none of them is needed.
+
+**So: pointing the viewer at a folder means showing its overview, not everything in it.**
+
+An acquisition already says which of its images is the one to look at first. A prescan or an
+overview is a handful of small stores covering the whole specimen; the target scans are many,
+and are looked at one region at a time. That hierarchy is in the *acquisition*, not in the
+file, and using it is what makes the viewer quick. Flattening it and then trying to recover
+the speed by other means was the mistake.
+
+Target scans open when asked for, by acquisition type, which the panel already does.
+
+### What this is not
+
+It is **not** a viewing window. We do not keep our own idea of what is on screen and feed
+the engine accordingly — the engine already knows where the view is and chooses pieces of
+image far better than we would. This is a coarser and much simpler thing: which *stores* are
+open at all, decided by the operator and by what the acquisition says is the overview.
+
+It does **not** replace feeding stores in groups. That stays exactly as it is, unchanged and
+untuned, as protection against a mistake rather than as the mechanism. Its job is only to
+stop several thousand requests being fired in one breath, after which the browser refuses
+them and the engine quietly writes those positions off.
+
+### What "as fast as possible" actually means here
+
+Three things, in this order, because they are not the same and only one of them is about
+loading:
+
+1. **First pixel before completeness.** Draw the overview, then let the rest arrive. Somebody
+   watching a run wants their specimen on screen now, not a complete picture in a minute and
+   a half.
+2. **Controls that never stall.** Turning a contrast handle must not stutter, whatever is
+   open. This is why layers are adjusted rather than rebuilt, and why costs that grew with the
+   number of positions mattered so much: they were paid on the same thread the engine draws
+   with. Keeping that at nothing is most of what makes the viewer *feel* fast, and it is
+   independent of how much data is open.
+3. **Completeness last** — and never silently. Whatever is not shown must be something the
+   operator chose not to open, not something the viewer failed to load and said nothing about.
 
 ## Status
 
