@@ -346,10 +346,10 @@ viewer half of that and is the place to start reading.
 
 One thing this section leaves out, and it is the operator's question rather than an oversight:
 a run that means to stitch later needs its tiles kept apart with their overlap intact, which a
-single canvas cannot do, since one image holds one value per voxel. Item 0b below works through
-how to have both — a single responsive image to navigate, and tiles that can still be moved and
-made to overlap in the view — what each way of arranging it costs, and which part of it is new
-work.
+single canvas cannot do, since one image holds one value per voxel. Item 0b below is about that
+case — letting an operator correct where a tile sits, on the layout that keeps the tiles. It
+also records, at length, an arrangement that would have given both at once and does not work,
+so that the next person does not spend a week rediscovering why.
 
 ### B. Measure what one open folder costs in memory
 
@@ -771,171 +771,202 @@ store; here it would drop what it had *decoded* from one.
 
 ---
 
-## 0b. Moving a tile without moving the data — **open, and the shape of it is known**
+## 0b. Moving a tile after it has been acquired — **the plan, and one dead end recorded**
 
 This is the operator's question, and it is a good one because it pulls in two directions at
-once. Writing the run into one big image is the only thing that scales: a folder of separate
-stores costs the viewer per *store*, so forty thousand positions take ten minutes to open and
-then draw at twelve frames in five seconds, however small each one is. But tiles are usually
-acquired with a few per cent of overlap **on purpose**, so that somebody can afterwards work
-out where the stage really put each one and nudge it into place. One image has one value per
-voxel, so it cannot hold both versions of an overlapping strip. The wish is to have the scale
-of the first and the adjustability of the second, with the adjusting done inside the viewer
-rather than by rewriting the data.
+once. Tiles are acquired overlapping **on purpose**, so that somebody can afterwards compare
+two recordings of the same strip of specimen and work out where the stage really put each one.
+Correcting that placement is stitching, and it is a scientific need rather than a convenience:
+where a tile actually sits is part of the measurement. But a single image holds one value per
+voxel, so a canvas cannot keep both recordings, and once tiles are written into one they are no
+longer things that can be moved.
 
-Take it in two halves, because they are separate problems and only one of them is hard.
+The section below says what to build, and then records at length an arrangement that looked
+elegant and does not work — because it took three reviews to find the reason, and somebody will
+otherwise think of it again.
 
-### Nudging a tile: possible, without a second copy and without forking Neuroglancer
+### What a tile being movable actually requires
 
-**What Neuroglancer will do.** A layer holds a *list* of data sources, and each source carries
-its own transform — where it sits in space, editable while the viewer is open. So a tile you
-can move is a tile that is its own source.
+**Neuroglancer places each data source separately, and a layer may hold many.** So a tile you
+can move is a tile that is its own source. A single array is one grid with one placement; there
+is no way to say "shift this corner of this array by thirty pixels". This is the whole
+constraint, and everything else follows from it.
 
-**What it will not do.** A single array is one grid with one transform. There is no way to say
-"shift this corner of this array by thirty pixels". Once tiles are written into one canvas they
-are not things any more, they are voxels, and nothing in the engine can pick them apart.
+That points at the layout we already have. Decision 1 keeps one store per position, each
+carrying in its own metadata the size of a voxel and where on the stage it begins — and that is
+already a set of separately placeable pieces. Nothing new has to be invented on disk for a tile
+to be movable. What is missing is only the moving.
 
-**The way through is that a source need not be a store on disk.** We serve the image ourselves:
-`server.py:291` turns a request like `/data/0/run.zarr/0/0.24.0.0` into a file. A per-tile
-*view* is the same files under a different name — a small description saying "one tile, this
-shape", and a rule that turns the view's chunk `(0, 0, 0)` into the big image's chunk
-`(i, j, k)`. Because tiles are already required to begin and end on chunk boundaries (the
-constraint in `DATA_LAYOUT.md` that makes concurrent writing safe at all), that rule is plain
-addition on chunk numbers. Nothing is read, decoded or copied; the same bytes are simply
-offered under a second set of names. The engine sees an ordinary little OME-Zarr per tile,
-gives each one its own place in space, and the operator moves it. **One image on disk, many
-movable pieces in the viewer, stock Neuroglancer.**
+**A nudge is a change of metadata, not of pixels.** Every OME-Zarr image says where it sits in
+its `coordinateTransformations`. Changing where a tile sits means changing numbers in a small
+text file: no image is rewritten and nothing is re-encoded. Four details matter, all four were
+got wrong in the first draft of this plan, and they were only found by reading the engine's own
+source — so they are written down here rather than rediscovered.
 
-**Why this does not quietly bring back the problem it solves.** Per-tile views cost exactly what
-real per-tile stores cost, because the cost was always per source. So they must be a *bounded*
-mode rather than how the specimen is viewed: you look at the whole run as one image, which is
-fast, and you ask for the pieces only in the neighbourhood you are actually aligning — tens of
-tiles, not forty thousand. Leave the mode and the pieces go away again. If it is ever built as
-"show every tile as its own source", it will be as slow as the layout it was meant to replace,
-and the measurements at the top of this document say by how much.
+- **The translation is stored per pyramid level, not once per image.** The mesoSPIM data we have
+  carries a scale and a translation on *every* level, so moving a tile is several consistent
+  edits rather than one. There is an optional whole-image transform that would make it a single
+  edit, but it is widely ignored by other readers, so it cannot be the interoperable answer.
+- **The numbers are in micrometres, and the order in the list is load-bearing.** The scale must
+  come first; a translation written before it is silently scaled by the voxel size.
+- **What the engine offers for editing is not where the tile is. It starts empty.** The zarr
+  reader folds the acquired position into how it addresses the image and hands the editable
+  placement over as *no movement at all*. So what an operator adjusts is a **correction on top
+  of** the acquired position, never the position itself. This is better than it sounds: keeping
+  the acquired position alongside the adjustment, which the plan wanted anyway, falls out for
+  free rather than having to be arranged.
+- **The conversion is simple, once the above is understood.** One unit of that correction is one
+  full-resolution voxel, so the new stored value is the acquired micrometres plus the correction
+  times the voxel size. Saving therefore means reading the tile's own metadata and adding to it,
+  not copying a number out of the engine. Getting this wrong gives a tile that moves by the
+  right-looking number and the wrong distance, which is a fault that survives a long time.
 
-**A nudge is a change of metadata, not of pixels — which is what makes this cheap.** Every
-OME-Zarr image already says where it sits: its `coordinateTransformations` carry a scale (how
-large a voxel is) and a translation (where the image begins in space). That translation is the
-same one Decision 1 relies on to put separate positions in their places on the stage, and it is
-what `stores.py` reads today. So moving a tile means changing three numbers in a small text
-file. No image is rewritten and nothing is re-encoded. It is also worth having for its own
-sake: because the placement lives in standard metadata rather than in a private file of ours,
-any other program that opens the data afterwards sees the corrected positions too.
+**Overlapping in the view mostly comes for free, with one correction to an earlier claim.** Two
+tiles that are separate sources may sit over the same ground and the engine draws both, blending
+the later over the earlier. An earlier draft said the operator could turn one tile's opacity
+down to compare them; that is **not** true, because brightness, contrast, colour and opacity all
+belong to the *row* rather than to each store in it, so turning one down turns them all down.
+What is available per tile is showing and hiding, which gives a clean flip between two
+alignments and is enough to judge one by eye. A true fade needs each tile to be its own row,
+which costs a row per tile in the panel and pushes every contrast change out to all of them —
+worth deciding before building, not during.
 
-**Overlapping in the view comes for free.** Two tiles that are separate sources may sit over
-the same ground — the engine simply draws both. So an operator can lower the opacity of one, or
-flip between them, and watch the structures come into line while nudging. That is how a stitch
-is checked by eye, and here it is a consequence of the arrangement rather than something to
-build.
+One small gift: the reader already draws an outline around each image it opens, so tiles come
+with their own boundaries marked. That is a genuinely useful thing to see while aligning, and
+nobody has to build it.
 
-Baking the offsets into the pixels — actually rewriting the fused image so the tiles land where
-they now belong — is a separate and deliberate step that somebody asks for, and should never
-happen as a side effect of looking.
+### The plan
 
-### The overlap is the hard half, and no amount of viewer work creates it
+**Stage 1 — one day, and it can kill the whole idea.** Before any of the rest, prove on screen
+that a tile can be moved and that a source can be taken away again. Two overlapping single-tile
+stores opened as one row; change one source's placement from the page and **photograph the
+result to show the picture moved**; confirm both are drawn where they overlap; then remove that
+source and confirm the picture changes back, that nothing is left waiting, and that a source
+added *afterwards* still arrives. The fixtures for all of it already exist —
+`test_writing_into_one_store.py` writes a store with a translation and `tests/pixels.py`
+photographs the screen.
 
-Moving a tile only helps if there is something to align *to*. Stitching works by comparing two
-recordings of the same strip of specimen and finding the shift that makes them agree. If the
-run wrote its tiles butted together into one canvas, that strip was stored once. Sliding a tile
-across then covers its neighbour and leaves bare ground behind it, and there is no second
-version of anything to compare — you can make a seam *look* right by eye, but you cannot compute
-it. Worse, writing overlapping tiles into one canvas is not merely lossy: overlap is exactly
-what puts two tiles in one chunk file, and two writers sharing a chunk file silently erase each
-other's work, measured at up to 75% of a tile's voxels.
+Three things make this the first stage rather than a formality.
 
-So the overlap has to be kept somewhere, and there are four ways. They are listed in the order
-we would recommend them, and the first is the one the next section works out in full.
+**Taking a source away has never been done here, and the engine offers no plain way to do it.**
+`engine.js` says in as many words that only additions are made. The engine itself has no
+"remove" call either; the only route is to hand a source an empty address, which it treats as an
+instruction to let go — and it declines to do so for the last source in a row, keeping an empty
+placeholder instead. That is workable, since the row will always hold something else, but it is
+a behaviour of a setter rather than a documented way in, so it should be pinned by a test that
+counts the sources rather than one that merely looks for tiles on screen.
 
-- **Keep the tiles, and let the canvas be a second name for their middles.** The tiles as
-  acquired are the data, overlap and all; the single navigable image is assembled from each
-  tile's non-overlapping middle without copying it, because those are already whole chunk files.
-  Nothing is duplicated, nothing is thrown away, the viewer still opens one image, and every
-  tile can still be moved. **This is the arrangement to build.** It rests on one sizing decision
-  made at the start — the tile step and the chunk size chosen together — and the section below
-  says why.
-- **Keep the margins on the side.** For a run that genuinely writes into the canvas as it goes,
-  and so has no separate tiles to keep: write the tile into its place as usual, and *also* save
-  the strips where it met its neighbours as small stores of their own. The canvas holds one
-  version of each shared strip and the margins hold the other, so a stitcher still has both
-  views to compare, at roughly a tenth of the data rather than a second copy of everything.
-- **Give the one store a tile axis.** A zarr array can have as many dimensions as you like, so
-  one array of shape (tile, channel, z, y, x) keeps every tile whole, overlap and all, in a
-  single store. What it does not give you is a picture: a stack of tiles is not a specimen you
-  can navigate, so a canvas is needed as well, and unless it is derived as in the first option
-  that is a second copy.
-- **Crop the overlap at write time.** Each tile contributes only its middle and nothing else is
-  kept. One clean image, nothing shares a chunk, and nothing can be stitched afterwards. This is
-  the right answer for a run that trusts the stage, which is most smart-microscopy runs — and it
-  is what Decision 1b already assumes.
+**And taking one away has a plausible way to wedge the whole viewer.** The loop that paces
+sources waits for everything it is holding to finish being read. A source removed while it is
+still loading may leave that wait with nothing left to announce, and because it is one shared
+loop for the whole scene, all further feeding would stall — silently, with no error anywhere.
+This is the single most likely bug in the plan, which is why it belongs on day one.
 
-### A layout that does all of this, assuming tiles overlap
+**An earlier draft proposed proving the transform by hand in the engine's own Source tab.** That
+panel does exist and does have a translation row, but this viewer is built with the engine's
+controls switched off, so it cannot be reached with the mouse. It can be opened from the page in
+two lines. Worth knowing before relying on it: opening that panel builds a full editing grid for
+*every* source in the row, so it must only ever be opened on a row holding the tiles being
+adjusted, never on one still holding a whole run.
 
-Assume what is normally true: **tiles are acquired overlapping.** That settles which of the two
-is the real data. The overlap cannot survive being written into a canvas, so the canvas cannot
-be the thing we keep — the tiles are. What we want from the canvas is only that the viewer has
-one responsive image to navigate, and *that* can be arranged without a second copy.
+If any of the three fails, stop and say so. Everything below assumes they work.
 
-The constraint to design around is the operator's own: **you can open one image if you want it
-to be responsive.** That stays true here. What changes is that a single store holds more than
-one way of addressing the same bytes, and only the fast one is opened by default.
+**Stage 2 — nudging, on the layout we already have.** One store per position, overlap intact,
+which is what the mesoSPIM writes today and what Decision 1 describes. Select a tile, move it
+with the arrow keys or by dragging, coarse and fine. Persist the new translation into that
+tile's own metadata, with two cautions. The write must be atomic — a new file moved into place,
+never an edit in place, so an interrupted save cannot leave a tile with no position at all. And
+the acquired position must be kept alongside the adjusted one, because a stitch that turns out
+wrong has to be undoable and because the position the stage reported is itself a measurement.
 
-```
-run.zarr/
-  zarr.json                 the store itself
-  tiles/0000/ 0001/ ...      the real data: each tile as acquired, overlap intact, carrying
-                            in its own metadata where on the stage it was taken.
-  fused/                    the specimen as one picture, with its resolution pyramid. This is
-                            what the viewer opens, and it is one source. Mostly not bytes of
-                            its own — see below.
-```
+Two pieces of plumbing come with it, and neither is free. The server has exactly one write today
+— the targets file, into its own directory — so writing inside an *open data folder* is a new
+kind of permission and needs the same guard the reads have, plus a list of which file may be
+written and nothing else. And a tile whose position changed on disk will not be noticed: the
+viewer re-reads a store only when its frame count moves, which a nudge does not touch. That is
+the third appearance of one fault — a growing timelapse, a tile written in place, and now a
+position edited in place — and the answer each time is the same: the writer says what it did.
 
-Four things about it are worth saying plainly.
+**Stage 3 — a stitched image, if and when it is wanted.** Once the placements are right, writing
+one image from them is the sanctioned answer that already exists in `DATA_LAYOUT.md`: an honest
+copy, made deliberately, that any tool can read and any backup can carry. It costs disk and a
+step that has to run. That is the price, and it is worth paying for data that will be looked at
+for years — but it is a separate piece of work and nothing above depends on it.
 
-**`fused/` is largely the same files as `tiles/`, under other names.** Where two tiles overlap,
-the canvas can show only one of them, so the canvas is built from each tile's non-overlapping
-middle. If the chunk size and the tile step are chosen together **so that a tile's middle is a
-whole number of chunks**, then those chunk files are already exactly the canvas's chunk files,
-and the canvas is a rule for renaming them rather than a copy. The overlapping margins simply
-stay in `tiles/`, unreferenced by the canvas and fully intact for the stitcher. This is the one
-sizing decision the whole arrangement rests on, and it is free if it is made at the start and
-expensive to retrofit.
+### What must not happen: this is not the rejected viewing window
 
-**The coarse end of the pyramid does cost real bytes, and not many.** A zoomed-out chunk covers
-ground from several tiles at once, so it cannot be any single tile's file and has to be
-computed. Only the levels coarse enough to straddle tiles are affected; everything finer is
-renaming as above. The whole pyramid above full resolution is about a seventh of the data even
-if all of it had to be written, since each level is an eighth of the one below — so the true
-cost here is a few per cent, not a second copy.
+Item 1 below rejects the viewer keeping its own idea of what is on screen and feeding the engine
+only those positions. If tiles are ever opened *because of where the camera is pointing*, this
+becomes that, and the reasoning there applies unchanged. So the rule is: **the tiles to be
+adjusted come from something the operator did — this tile, or align around here — and the set
+never changes as the view moves.** Whoever builds it will reach for the viewport, because that
+is the easy thing, and that is why the rule is written here.
 
-**A group of images in one store is ordinary OME-Zarr**, not an invention of ours: the format
-already allows a store to hold several images side by side, which is how a plate of wells or a
-multi-image file is written. So this stays readable by other tools, which matters for data
-somebody will still want to open in ten years.
+If there has to be a ceiling on how many tiles may be adjusted at once, it is refused **by name
+and by count**, the way `library.py` already refuses a folder holding more than one acquisition
+type. Decision 5's objection is to the viewer silently showing less than the operator asked for,
+not to a refusal that says what it is refusing.
 
-**The viewer opens `fused/` and nothing else, until asked.** That is the responsive path and it
-is one source. Asking to adjust a neighbourhood adds the handful of `tiles/` in it, each placed
-by the translation in its own metadata; the operator moves them and the new translations are
-written back there. Leaving the mode drops them again, so the ordinary path never gets slower.
+And the ceiling has to count **everything already in the scene, not the tiles being added** —
+which is the opposite of what an earlier draft said. The reason is the cost documented at the
+top of this file: every position registers its own place with a shared record of the scene's
+extent, and every change to that record makes every layer already present work out again where
+it sits. Adding a tile does that once. **So does every single press of an arrow key.** A
+handful of tiles beside one image is nothing; the same handful added to a row already holding
+forty thousand positions would recompute the whole scene on every nudge. Adjusting is therefore
+sensible on a modest run and must be refused on a very large one, and the number that decides
+it is how much is already open.
 
-**One honest consequence of nudging.** The canvas was assembled on the assumption that the
-tiles sit where they said they did. Move one by less than a whole chunk and the canvas is now
-slightly out of step with the tiles — it is a rendering of the old belief. That is not a fault
-to hide: the tiles are the data and remain correct, and the canvas is rebuilt when somebody
-asks for it, which is the deliberate "bake" step. Nudges that happen to be whole chunks need
-only the renaming rule updated, which is why a stitcher that reports its shifts in voxels
-should be allowed to round them if the operator is content with that.
+### The dead end: a canvas that is a second name for the tiles — **rejected, with reasons**
 
-### How you would know this was finished
+The idea was attractive enough to be worth recording. Keep the tiles as the data, and build the
+single navigable image not as a copy but as a second set of names for the same chunk files, by
+hard-linking them — a hard link being two directory entries pointing at one file on disk, so no
+bytes move. The specimen would then reach the viewer as one image, fast, while every tile
+remained a separately movable thing, and nothing would be duplicated.
 
-A run's image opens as one store and draws at the rate one store draws at. Asking to adjust a
-neighbourhood turns those tiles into separately placeable pieces without a byte being copied,
-and moving one moves only that tile. The offsets are written beside the data and are still
-there when the folder is opened again. And a test writes two overlapping tiles, keeps the
-margins, and asserts that both recordings of the shared strip can still be read back
-independently — because that assertion is the whole difference between a viewer that can help
-with stitching and one that cannot.
+It does not work, and the reasons are worth keeping because each one is a fact about the format
+rather than an opinion.
 
+- **A tile's corner does not land on a chunk boundary, and cannot be made to.** Where a tile sits
+  is a stage position in micrometres: a real number with real error. Its position in the canvas
+  is that divided by the voxel size, which is not a whole number of chunks. To link anything you
+  would have to round each tile to the nearest chunk, deliberately misplacing it by up to half a
+  chunk — around a hundred times *larger* than the sub-voxel error the whole exercise exists to
+  correct. "Aligned to the chunk grid by construction" and "movable by any amount" cannot both
+  be true of one image. **This alone is fatal.**
+- **The rule an earlier draft gave was also simply wrong.** It asked that each tile's
+  non-overlapping middle be a whole number of chunks. Those middles do not fit together: between
+  two of them there is a gap the width of the overlap, so a canvas built from them has a hole at
+  every seam. The condition that does the intended work is on the *step* from one tile to the
+  next, with each tile contributing its leading part and its far-side overlap discarded — and
+  even then the previous point stands.
+- **Almost none of the pyramid could be shared anyway.** A zoomed-out level can only be a
+  renaming if the step divides by the chunk size *and* by the zoom factor, so with a common chunk
+  size the second level already needs fifty per cent overlap and the third needs none at all. In
+  practice the coarse levels are all new bytes, not the few per cent claimed.
+- **The overlaps a chunk-aligned step allows are not the ones anybody uses.** With a 2048-pixel
+  camera and 256-pixel chunks the available overlaps are 12.5%, 25%, 50% and so on. The ordinary
+  10% is not among them.
+- **It fights our own writing rule, in a way that loses data.** `DATA_LAYOUT.md` requires each
+  piece to be written to a temporary name and moved into place. Moving a file into place replaces
+  the *name*, not the file — so the first time a tile chunk is rewritten the sanctioned way, the
+  tile points at the new file and the canvas quietly goes on showing the old one, with nothing
+  to say so. And in the other direction, writing into a canvas chunk that is still linked would
+  overwrite the acquired tile. A design in which the ordinary correct way of writing corrupts
+  the relationship is not one to build on.
+- **It fails on the storage this actually runs on.** The real mesoSPIM data is read from a mapped
+  network drive, and hard links across such shares are often refused outright. Portable drives
+  formatted for exchange do not have them at all. And an ordinary copy — most backup tools, most
+  archive formats — silently splits the two names apart, after which a nudge changes one and not
+  the other, with nothing on screen or on disk to reveal it.
+- **A store holding several images side by side is not as portable as it sounds.** OME-Zarr has
+  defined layouts for multiple images, and a group of tiles beside a fused image is not one of
+  them. A reader given the path to a particular image reads it perfectly well; no reader will
+  *discover* them from the top of the store.
+
+What survives from it is the honest version, which is Stage 3 above: if one navigable image is
+wanted, write it, once, deliberately, as a real copy.
 ---
 
 ## 1. Hand the engine only the sources it needs — **rejected; do not build this**
