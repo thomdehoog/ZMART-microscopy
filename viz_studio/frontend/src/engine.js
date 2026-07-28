@@ -95,9 +95,16 @@ function sourceList(spec) {
  *
  * **What this does not do is make a large folder quick**, and it should not be expected
  * to. Every one of forty thousand positions is still read, merely in an orderly fashion
- * rather than all at once. Speed is a separate problem with a separate answer — handing
- * the engine only the positions the operator is actually looking at — and the notes in
- * `NEXT_STEPS.md` explain why the two belong together rather than being at odds.
+ * rather than all at once.
+ *
+ * Speed is a separate problem, and the answer to it is deliberately *not* to hand the
+ * engine only the positions the operator is looking at. Neuroglancer already decides
+ * which pieces of image to fetch from where the view is, and it does that better than we
+ * would; keeping our own idea of what is in view means holding a second copy of knowledge
+ * the engine already has, which is how this project has got into trouble before. The
+ * answer instead is to have fewer stores: one stitched image per acquisition type, written
+ * once a run has finished, is a single source with a single pyramid, and the engine then
+ * handles every zoom unaided. See Decision 1b in `DATA_LAYOUT.md`.
  */
 
 // How many stores are offered at a time, **across the whole scene**. Two hundred is the
