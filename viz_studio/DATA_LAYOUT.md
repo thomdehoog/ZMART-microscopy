@@ -56,6 +56,13 @@ viewer shows them side by side. Both work; the first is what we are aiming for. 
 *rejected* is fusing finished positions into a copy afterwards just to make the viewer
 quick. See Decision 1b.
 
+**And a run can have both**, which was missed when the two above were first written down
+as a choice. The slowness comes from the number of images growing with the run, not from
+there being more than one — so a *small, fixed* number keeps the overlap and stays fast.
+Four images is enough for a run tiled in y and x. Measured, it opens in 0.6 seconds against
+0.5, draws just as smoothly, and keeps the fifth of the acquired data that a single image
+overwrites. See "Unless there is more than one image" under Decision 1b.
+
 **The rule behind all of it.** *Add alongside; do not reshape.* And a position's place in
 the world lives in its metadata — not in a grid, not in a filename, not in the shape of
 the folders.
@@ -415,6 +422,117 @@ where to look next rather than to assemble a publication mosaic, that is usually
 
 This is why the viewer has to handle both, and why the work on opening many stores
 quickly matters: for a run that does keep its tiles, many stores is what there is.
+
+### Unless there is more than one image: keeping the overlap without the slowness
+
+Everything above is true of **one** image, and the section was written as though one image
+and many were the only two arrangements. They are not, and the missing one turns out to be
+the good one.
+
+Go back to what actually made many stores slow. It was never that there was more than one
+image. It was that the number of images grew with the run, and the work of keeping track of
+them is paid *again every time a tile lands*, not once at the start. Measured on this
+repository's own rig: a tile arriving cost 0.1 seconds with 25 stores open, 0.3 seconds
+with 100, and 3.7 seconds with 225. A run of a few thousand tiles is far outside that.
+
+So the thing to avoid is the growth, not the plurality. **A small number of images, fixed
+before the run starts, is as cheap to follow as one and keeps every pixel.**
+
+#### How many images that takes, and why it is a small number
+
+Tiles overlap their immediate neighbours. But if the tiles are dealt out to several images
+in rotation, two tiles that end up in the same image are further apart than neighbours —
+and past a certain separation they stop touching at all.
+
+That separation is easy to work out. Tiles placed a step apart, each a tile-width across,
+are two steps apart when one is skipped, so they clear each other whenever two steps is at
+least one tile wide. That holds for any overlap up to half a tile. Since no tiled
+acquisition overlaps by more than half, **two images per axis is always enough**:
+
+| how the run is tiled | images needed |
+|---|---|
+| in y and x, which is the usual case | **4** |
+| in y, x and z as well | **8** |
+| not tiled at all | 1 |
+
+The number depends only on how much the tiles overlap. It does not depend on how many tiles
+the run acquires, which is the whole point — it is four whether the run visits fifty places
+or five thousand.
+
+#### What it costs, measured
+
+The same 9 × 9 raster of tiles overlapping by 12%, written both ways, with the viewer
+opened on each. Reproduced by `measure_canvas_vs_checkerboard.py` beside this file.
+
+| | one image | four images |
+|---|---|---|
+| writing one tile, median | 63.7 ms | 54.1 ms |
+| sources the viewer opens | 1 | 4 |
+| opening the run | 0.5 s | 0.6 s |
+| description files read to open | 8 | 32 |
+| draws per second, idle | 60 | 60 |
+| draws per second, while tiles land | 60 | 60 |
+| **acquired data overwritten** | **21.0%** | **0.0%** |
+
+Opening costs a tenth of a second more. The viewer holds a steady sixty draws a second in
+both, and — this is the number that matters for a live run — it stays at sixty while tiles
+are being written underneath it, so the page is no harder to steer during an acquisition.
+Writing is if anything slightly quicker, though that difference is small enough not to lean
+on.
+
+Against that, the single image destroys **a fifth of everything the camera recorded**. Note
+that this is larger than the 12% overlap, and it should be: a tile in the middle of the
+raster is eaten into from both sides in both directions, so it loses considerably more than
+one overlap's worth.
+
+One further figure worth having, from the same script: **44% of the time spent writing a
+tile goes on the smaller copies** that keep the zoomed-out view current. That is the first
+dial to reach for if writing ever cannot keep up with the camera — fewer levels, or build
+the coarse ones behind the acquisition rather than in step with it, at the cost of a
+zoomed-out view that lags a little behind the run.
+
+#### The subtlety that is easy to get wrong
+
+Two tiles written at the same moment are unsafe when they **share a piece of image** — not
+when they overlap each other. Those are different things, and confusing them is the kind of
+mistake that leaves no trace.
+
+Where two writers share a piece, each reads it, each adds its own tile to its own copy, and
+each writes the whole piece back, so whichever finishes second erases the other's
+contribution. Nothing reports it; the picture simply comes out with parts missing.
+
+The trap is that two tiles can sit well apart, not overlapping at all, and still both fall
+inside one piece of image — which is just as destructive. A guard that holds back
+overlapping tiles therefore lets exactly the wrong pairs through. The writer here widens
+each tile's claim to whole pieces before comparing, and it claims by the pieces of the
+*smallest* copy, since those cover the most ground and the finer ones nest inside them.
+
+This was found by a test rather than by reasoning, which is the argument for having it:
+`zmart_storage/tests/test_canvas.py` writes four tiles at once and checks that the strip
+belonging to each one alone survives.
+
+#### What it costs elsewhere
+
+The viewer pays nothing worth minding, but two other readers do.
+
+**Analysis has several images to read instead of one.** Asking for the pixels around a cell
+becomes "read that region from four images and combine them", which puts the joining-up
+back into the analysis path. That wants a small helper next to the writer, so analysis code
+can ask for a region and be handed one array without knowing there were four. It is not
+built yet.
+
+**Anything else that opens the data sees four images.** A colleague's tool, or napari, will
+show four layers rather than one and will not know they belong together. Each is a valid
+OME-NGFF image saying honestly what it is, so nothing is broken — but assembling them is
+knowledge that lives here rather than in the files.
+
+Neither is a reason against it for a run whose overlap is worth keeping. Both are reasons to
+write a single fused image afterwards if the data is going to be handed on, which is
+Decision 1b's original recommendation and is unaffected.
+
+The writer is `zmart_storage/canvas.py`, deliberately outside the viewer: the drivers know
+instruments, the viewer knows pictures, and neither should have to know how a run is laid
+out on disk.
 
 ### Why a canvas can be declared at all
 
