@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import threading
 
 import numpy as np
@@ -58,8 +59,10 @@ def _tiny_store(path):
 @pytest.fixture
 def two_runs(tmp_path):
     """Two separate folders, each holding one acquisition, as two runs would be."""
-    monday = tmp_path / "run_monday"
-    friday = tmp_path / "run_friday"
+    # A folder holds one acquisition and is named after it: the load names the
+    # dataset, so this is what the panel and the close-by-name API both use.
+    monday = tmp_path / "overview"
+    friday = tmp_path / "targetscan"
     monday.mkdir()
     friday.mkdir()
     _tiny_store(monday / "overview.ome.zarr")
@@ -108,7 +111,7 @@ class TestOpeningFolders:
 
 
 class TestClosing:
-    """Closing is by acquisition type, because that is the unit on screen."""
+    """Closing is by dataset, because that is the unit on screen."""
 
     def test_closing_an_acquisition_removes_it(self, two_runs):
         monday, friday, _ = two_runs
@@ -413,6 +416,39 @@ class TestNoticingThatSomethingChanged:
         assert library.revision() != while_writing, (
             "the acquisition became readable and nothing said so — a viewer would "
             "never look again, and it would stay invisible for the whole session"
+        )
+
+    def test_it_moves_even_when_the_clock_does_not(self, tmp_path):
+        """The same change, with the timestamps forced to be identical.
+
+        The test above only fails when the machine is slow enough for the two
+        writes to land in different ticks of the clock — which on Windows advances
+        about every sixteen milliseconds, so on a warm run they share one and the
+        rewrite becomes invisible. That is not a hypothetical: a writer creating an
+        empty description and filling it in immediately is the whole reason this
+        machinery exists. So here the times are made equal on purpose, and the
+        answer still has to move.
+        """
+        library = Library()
+        _tiny_store(tmp_path / "overview_pos001.ome.zarr")
+        library.open(tmp_path)
+
+        still_writing = tmp_path / "prescan_pos001.ome.zarr"
+        still_writing.mkdir()
+        described = still_writing / ".zattrs"
+        described.write_text("{}", encoding="utf-8")
+        pinned = described.stat()
+        while_writing = library.revision()
+
+        described.write_text(
+            json.dumps({"multiscales": [{"version": "0.4", "axes": [], "datasets": []}]}),
+            encoding="utf-8",
+        )
+        os.utime(described, ns=(pinned.st_atime_ns, pinned.st_mtime_ns))
+        assert described.stat().st_mtime_ns == pinned.st_mtime_ns, "the clock was not pinned"
+
+        assert library.revision() != while_writing, (
+            "a description rewritten within one tick of the clock went unnoticed"
         )
 
     def test_it_stays_put_when_nothing_has_happened(self, tmp_path):

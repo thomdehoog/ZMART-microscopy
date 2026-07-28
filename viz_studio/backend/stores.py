@@ -119,31 +119,114 @@ def is_store(path: Path) -> bool:
 # should still appear in the viewer, correctly grouped, with no code change.
 
 
-def split_name(store_name: str) -> tuple[str, str]:
-    """Separate a store's name into its acquisition type and its position.
+# What an axis unit is called in the format, against what microscopists and their
+# software actually write. OME-Zarr asks for the UDUNITS-2 name and the engine
+# refuses a store that says anything else -- rejecting the whole image, not the
+# axis -- so a store saying "um" is unopenable until this is put right.
+_UNIT_SPELLINGS = {
+    "um": "micrometer",
+    "µm": "micrometer",  # the micro sign, U+00B5
+    "μm": "micrometer",  # greek small letter mu, U+03BC -- identical to look at
+    "nm": "nanometer",
+    "mm": "millimeter",
+    "cm": "centimeter",
+    "m": "meter",
+    "s": "second",
+    "ms": "millisecond",
+}
 
-    The driver joins the two with an underscore, so the text before the first
-    underscore is the acquisition type and the rest names the position. A name
-    with no underscore has no position to speak of, and is treated as a type on
-    its own — which keeps hand-made and older stores working instead of hiding
-    them.
+
+def normalise_units(raw: bytes) -> bytes:
+    """A store's description with its axis units spelled the way the format asks.
+
+    Returned unchanged — the same object, so the caller can tell — whenever there
+    is nothing to repair. That matters for more than speed: these descriptions are
+    remembered and handed to the browser to keep, and rewriting one that was
+    already correct would mean every store in the world got a new copy of itself.
+
+    Anything unrecognised is passed through rather than guessed at, and a
+    description that cannot be read is handed back exactly as it was found. A
+    repair that breaks a store which used to open would be far worse than a store
+    that never opened.
     """
-    stem = _stem(store_name)
-    kind, _, position = stem.partition("_")
-    return (kind, position) if position else (stem, "")
+    if b"unit" not in raw:
+        return raw
+    try:
+        described = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return raw
+    if not isinstance(described, dict):
+        return raw
+    # 0.4 keeps multiscales at the top; 0.5 moves it under "ome". Both are looked
+    # at so the repair does not quietly stop working at the next version.
+    holders = [described, described.get("ome")]
+    changed = False
+    for holder in holders:
+        if not isinstance(holder, dict):
+            continue
+        for multiscale in holder.get("multiscales") or []:
+            if not isinstance(multiscale, dict):
+                continue
+            for axis in multiscale.get("axes") or []:
+                if not isinstance(axis, dict):
+                    continue
+                spelled = axis.get("unit")
+                correct = _UNIT_SPELLINGS.get(spelled) if isinstance(spelled, str) else None
+                if correct is not None and correct != spelled:
+                    axis["unit"] = correct
+                    changed = True
+    if not changed:
+        return raw
+    return json.dumps(described).encode("utf-8")
 
 
-def group_by_type(names: list[str]) -> list[tuple[str, list[str]]]:
-    """Gather store names into ``(acquisition_type, store_names)`` families.
+def voxel_size(store: Path) -> tuple[float, ...]:
+    """How large one voxel is at full resolution, as the store itself declares it.
 
-    The order is stable: the types come out sorted, and so do the positions
-    within each, so the viewer's panel does not reshuffle itself between runs.
+    This is what says whether two stores belong to the same acquisition. An
+    overview and a target scan of the same specimen differ here and cannot not
+    differ — it is the magnification they were taken at — whereas a name can be
+    changed by anyone and a channel can simply not have been imaged yet.
+
+    Only the **spatial** axes are reported, and that is the whole point rather
+    than a simplification. Magnification is a fact about space; the scale entries
+    for time and channel say nothing about what was imaged, and comparing the
+    whole list would make a timelapse and a single volume of the very same
+    acquisition look like different ones because one has an extra number in front.
+
+    Rounded, because the number is only ever compared with another of its kind
+    and two writers can spell the same voxel size a hair apart.
+
+    An empty tuple means the store does not say, in which case it is not held
+    against it: a store that declares nothing matches anything.
     """
-    families: dict[str, list[str]] = {}
-    for name in sorted(names):
-        kind, _ = split_name(name)
-        families.setdefault(kind, []).append(name)
-    return sorted(families.items())
+    described = (_read_attrs_at(store).get("multiscales") or [{}])[0]
+    levels = described.get("datasets") or [{}]
+    for transform in levels[0].get("coordinateTransformations") or []:
+        if isinstance(transform, dict) and transform.get("type") == "scale":
+            found = transform.get("scale")
+            if not isinstance(found, list):
+                continue
+            names = axis_names(store)
+            if len(names) == len(found):
+                found = [
+                    value for name, value in zip(names, found) if name in ("z", "y", "x")
+                ]
+            return tuple(round(float(value), 6) for value in found)
+    return ()
+
+
+def declared_channels(store: Path) -> list[str] | None:
+    """The channels a store names inside itself, or ``None`` if it holds one image.
+
+    Two stores that each declare their own channels and declare different ones are
+    not the same acquisition, whatever they are called. Where the channel is in the
+    filename instead there is nothing to compare — one store is one channel — so
+    this answers ``None`` and the caller must not read that as "no channels".
+    """
+    if "c" not in axis_names(store):
+        return None
+    return [str(channel["name"]) for channel in channels(store)]
 
 
 # A store's description is read many times over while the panel is being built --
@@ -155,10 +238,34 @@ def group_by_type(names: list[str]) -> list[tuple[str, list[str]]]:
 _attrs_cache: dict[str, tuple[int, dict]] = {}
 
 
+def _description_file(path: Path) -> Path | None:
+    """Where this store keeps its description, whichever version wrote it.
+
+    Version 2 puts it in ``.zattrs`` beside a ``.zgroup``; version 3 puts
+    everything in one ``zarr.json``. Nothing else in this module needs to know
+    which, because :func:`_read_attrs_at` hands both back in the same shape.
+    """
+    for name in (".zattrs", "zarr.json"):
+        candidate = path / name
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def _read_attrs_at(path: Path) -> dict:
-    """The OME-Zarr description at ``path``, or an empty one if unreadable."""
+    """The OME-Zarr description at ``path``, or an empty one if unreadable.
+
+    Version 3 nests what we want twice over: the attributes live under
+    ``attributes`` in ``zarr.json``, and OME-Zarr 0.5 puts ``multiscales`` and
+    ``omero`` under an ``ome`` key inside that. Both are lifted here so that
+    everything downstream — axes, channels, voxel size, frame counts — reads one
+    flat description and never asks which version wrote it.
+    """
     key = str(path)
-    described = path / ".zattrs"
+    described = _description_file(path)
+    if described is None:
+        _attrs_cache.pop(key, None)
+        return {}
     try:
         stamp = described.stat().st_mtime_ns
     except OSError:
@@ -173,8 +280,27 @@ def _read_attrs_at(path: Path) -> dict:
         attrs = {}
     if not isinstance(attrs, dict):
         attrs = {}
+    if described.name == "zarr.json":
+        attrs = attrs.get("attributes") if isinstance(attrs.get("attributes"), dict) else {}
+        nested = attrs.get("ome")
+        if isinstance(nested, dict):
+            attrs = {**attrs, **nested}
     _attrs_cache[key] = (stamp, attrs)
     return attrs
+
+
+def zarr_scheme(store: Path) -> str:
+    """Which of the engine's zarr readers should be asked for this store.
+
+    The engine registers three: ``zarr`` detects the version itself, ``zarr2`` and
+    ``zarr3`` are told. We tell it, because detection means probing for *both*
+    layouts on every source, and a large folder is already dominated by exactly
+    those small metadata requests.
+
+    Anything we cannot identify is called version 2, which is what every store
+    written before this existed is.
+    """
+    return "zarr3" if (store / "zarr.json").exists() else "zarr2"
 
 
 def axis_names(store: Path) -> list[str]:

@@ -98,8 +98,15 @@ def _add_mask(image, name="nuclei"):
     return mask_path
 
 
-def _serve(browser, built_dist, folder, store):
-    server = make_server(port=0, data_dir=folder, site_dir=built_dist, store=store)
+def _serve(browser, built_dist, folder, store, name="overview"):
+    # The load names the dataset, and the panel heading is what the engine builds
+    # its layer names from ("overview · nuclei"), so it has to be said here rather
+    # than inferred from a temporary folder's name.
+    stores = [store] if isinstance(store, str) else list(store)
+    server = make_server(
+        port=0, data_dir=folder, site_dir=built_dist,
+        loads=[{"stores": stores, "name": name}],
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     page = browser.new_page(viewport={"width": 1300, "height": 1000})
@@ -279,9 +286,15 @@ def test_a_new_acquisition_is_noticed_quickly_and_quietly(browser, built_dist, t
         assert asked.count("annotations") <= 1, "the target list is being saved over and over"
         assert asked.count("events") <= 1, "the held connection is being remade"
 
+        # A store appearing in a watched folder joins the dataset that was loaded
+        # from it rather than making a heading of its own -- the load decides what a
+        # dataset is, not the filenames inside it. So what proves it arrived is the
+        # store itself reaching the page, not a new group.
         _image(tmp_path / "targetscan_cell007.ome.zarr")
         page.wait_for_function(
-            "() => window.zmartConfig.groups.includes('targetscan')", timeout=15_000
+            """() => window.zmartConfig.layers.some(
+                 (row) => row.sources.some((s) => s.includes('targetscan_cell007')))""",
+            timeout=15_000,
         )
     finally:
         page.close()

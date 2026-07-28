@@ -226,7 +226,11 @@ class TestHalfWrittenAndBroken:
         status, body = request(port, "/api/config")
         assert status == 200
         # The good store is still described; the broken one does not stop it.
-        assert any(row["group"] == "overview" for row in json.loads(body)["layers"])
+        # Asked of the sources rather than of the group heading, because what is
+        # being tested is that the readable store survived its neighbour — not what
+        # the dataset it landed in happens to be called.
+        served = [source for row in json.loads(body)["layers"] for source in row["sources"]]
+        assert any(good.name in source for source in served), served
 
 
 # --------------------------------------------------------------------------

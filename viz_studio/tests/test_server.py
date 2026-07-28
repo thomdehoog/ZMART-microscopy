@@ -446,7 +446,15 @@ class TestClosingGivesTheMemoryBack:
     def two_open(self, tmp_path):
         """A server with two acquisition types open, ready for one to be closed."""
         site, data = self._two_acquisitions(tmp_path)
-        server = make_server(port=0, data_dir=data, site_dir=site)
+        # Two acquisitions means two loads: one load is one dataset, so opening
+        # both together would make them a single thing with nothing to close.
+        server = make_server(
+            port=0, data_dir=data, site_dir=site,
+            loads=[
+                {"stores": ["overview_pos001.ome.zarr"], "name": "overview"},
+                {"stores": ["targetscan_cell001.ome.zarr"], "name": "targetscan"},
+            ],
+        )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         port = server.server_address[1]
@@ -501,7 +509,8 @@ class TestClosingGivesTheMemoryBack:
 
         port, data = two_open
         closed = str(data / "targetscan_cell001.ome.zarr")
-        request(port, "/data/0/targetscan_cell001.ome.zarr/.zattrs")
+        # Dataset 1: the second load above, which is the targetscan.
+        request(port, "/data/1/targetscan_cell001.ome.zarr/.zattrs")
         assert any(key.startswith(closed) for key in _Handler._described)
         self._close(port, "targetscan")
         assert not any(key.startswith(closed) for key in _Handler._described)
@@ -512,7 +521,7 @@ class TestClosingGivesTheMemoryBack:
 
         _, data = self._two_acquisitions(tmp_path)
         library = Library()
-        number = library.open(data)
+        number = library.open(data, names=["targetscan_cell001.ome.zarr"], name="targetscan")
         closed = library.close_group("targetscan", folder=number)
         assert [name for _, _, name in closed] == ["targetscan_cell001.ome.zarr"]
         assert [root for _, root, _ in closed] == [data.resolve()]

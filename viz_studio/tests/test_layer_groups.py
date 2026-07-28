@@ -32,11 +32,20 @@ def run_folder(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def grouped_page(browser, built_dist, run_folder):
+    # Two acquisitions means two loads. One load is one dataset however many
+    # stores it holds, so opening both at once in a single load would make them
+    # one thing and composite them into the same rows — which is right for tiles
+    # of one run and wrong for two different acquisitions. The names are given
+    # here because both loads read the same folder and would otherwise arrive
+    # called the same thing.
     server = make_server(
         port=0,
         data_dir=run_folder,
         site_dir=built_dist,
-        store=["overview.ome.zarr", "targetscan_cell042.ome.zarr"],
+        loads=[
+            {"stores": ["overview.ome.zarr"], "name": "overview"},
+            {"stores": ["targetscan_cell042.ome.zarr"], "name": "targetscan"},
+        ],
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -239,7 +248,9 @@ def test_a_store_with_one_channel_still_shows_as_one_row(browser, built_dist, tm
         port=0,
         data_dir=root,
         site_dir=built_dist,
-        store=["Mag5_Tile0_Ch488.ome.zarr", "Mag5_Tile0_Ch647.ome.zarr"],
+        # The load names the dataset; the store names no longer decide anything.
+        loads=[{"stores": ["Mag5_Tile0_Ch488.ome.zarr",
+                           "Mag5_Tile0_Ch647.ome.zarr"], "name": "Mag5"}],
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

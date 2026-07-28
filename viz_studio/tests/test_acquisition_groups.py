@@ -1,13 +1,15 @@
-"""Reading a run's shape from what is on disk: types, positions, channels.
+"""Reading a store's shape from what is inside it: axes and channels.
 
-A smart-microscopy run writes one OME-Zarr per acquisition, named by the driver
-as ``{acquisition_type}_{position_label}``. The viewer has to work out from those
-names and from each store's own description how to organise its layer list:
-which acquisition types exist, and what channels are inside them.
+What organises the layer list is the **dataset** — one load, one acquisition —
+and that is covered in `test_datasets.py`. It used to be worked out here instead,
+by reading a driver's naming convention off the filenames, and those tests went
+with the code that did it: a store called anything at all now belongs to whatever
+dataset it was loaded as part of.
 
-The important property throughout is that nothing is hardcoded. An experiment may
-invent an acquisition type nobody has heard of, or a channel with no description,
-and both must still appear — grouped sensibly, and never silently dropped.
+What remains here is the half that never depended on names. A store describes its
+own axes and its own channels, and the important property is that nothing is
+hardcoded: a channel with no description, or an axis order nobody expected, must
+still appear rather than being silently dropped.
 """
 
 from __future__ import annotations
@@ -15,55 +17,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from stores import axis_names, channels, group_by_type, split_name
-
-
-class TestSplittingAName:
-    """The driver joins the acquisition type and the position with an underscore."""
-
-    @pytest.mark.parametrize(
-        ("name", "expected"),
-        [
-            ("overview_pos001.ome.zarr", ("overview", "pos001")),
-            ("targetscan_cell042.ome.zarr", ("targetscan", "cell042")),
-            ("prescan_pos001.zarr", ("prescan", "pos001")),
-            # A position label may itself contain underscores; only the first splits.
-            ("targetscan_well_A1_cell_7.ome.zarr", ("targetscan", "well_A1_cell_7")),
-        ],
-    )
-    def test_the_type_comes_before_the_first_underscore(self, name, expected):
-        assert split_name(name) == expected
-
-    def test_a_name_with_no_position_is_still_a_type(self):
-        """Hand-made and older stores must not be hidden just for being plain."""
-        assert split_name("demo.zarr") == ("demo", "")
-
-
-class TestGrouping:
-    """Positions of one acquisition type belong together, in a stable order."""
-
-    def test_positions_gather_under_their_type(self):
-        groups = group_by_type(
-            [
-                "overview_pos002.ome.zarr",
-                "targetscan_cell042.ome.zarr",
-                "overview_pos001.ome.zarr",
-            ]
-        )
-        assert [kind for kind, _ in groups] == ["overview", "targetscan"]
-        assert dict(groups)["overview"] == [
-            "overview_pos001.ome.zarr",
-            "overview_pos002.ome.zarr",
-        ]
-
-    def test_an_unfamiliar_acquisition_type_still_appears(self):
-        """Nothing here lists the types we expect, so a new one needs no code change."""
-        groups = dict(group_by_type(["photobleach_pos001.ome.zarr"]))
-        assert "photobleach" in groups
-
-    def test_the_order_does_not_wander_between_runs(self):
-        names = ["b_pos2.zarr", "a_pos1.zarr", "b_pos1.zarr"]
-        assert group_by_type(names) == group_by_type(list(reversed(names)))
+from stores import axis_names, channels
 
 
 def _write_store(path, *, axes, shape, omero_channels=None):

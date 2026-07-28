@@ -35,6 +35,7 @@ import json
 import math
 import os
 import queue
+import re
 import tempfile
 import threading
 from http import HTTPStatus
@@ -58,8 +59,9 @@ from stores import (
     forget,
     label_images,
     layer_names,
-    split_name,
+    normalise_units,
     written_timepoints,
+    zarr_scheme,
 )
 
 # Where the two kinds of content live on disk. Both are resolved to absolute
@@ -70,6 +72,9 @@ _FRONTEND_DIST = (_HERE.parent / "frontend" / "dist").resolve()
 _DEMO_STORE = (_HERE / "demo_store").resolve()
 _ANNOTATIONS_FILE = "zmart-annotations.json"
 _EMPTY_ANNOTATIONS = {"version": 1, "annotations": []}
+# "bytes=0-99", "bytes=500-" or "bytes=-64": a start and end, an open end, or a
+# suffix. Only single ranges are honoured, which is all the engine ever asks for.
+_RANGE_HEADER = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
 def _validate_annotations(payload: object) -> dict:
@@ -115,30 +120,28 @@ def _validate_annotations(payload: object) -> dict:
     return {"version": 1, "annotations": clean}
 
 
-def group_labels(entries: list[tuple[int, Path, str]]) -> dict[tuple[int, str], str]:
-    """What to call each acquisition type in the panel, per open folder.
+def group_labels(datasets) -> dict[int, str]:
+    """What to call each open dataset in the panel.
 
-    Normally an acquisition type is simply called what it is — "overview",
+    Normally a dataset is called what the load called it — "overview",
     "targetscan" — because only one run is open and there is nothing to confuse
     it with. But the viewer is meant to be opened on a second run alongside the
     first: last week's experiment for comparison, or a colleague's data. Both
-    runs will have an "overview", and two headings reading "overview" would leave
-    the operator with no way to tell which is which — and, worse, the two would be
-    drawn into the same layer and silently overlaid on top of one another.
+    runs may be called "overview", and two headings reading the same thing would
+    leave the operator with no way to tell which is which.
 
-    So when the same acquisition type is found in more than one open folder, each
-    one is named after the folder it came from. Nothing changes in the ordinary
-    single-run case.
+    So a name shared by more than one open dataset is qualified by the folder it
+    came from. Nothing changes in the ordinary single-run case.
     """
-    where: dict[str, set[tuple[int, str]]] = {}
-    for number, root, name in entries:
-        kind, _ = split_name(name)
-        where.setdefault(kind, set()).add((number, root.name))
-    labels: dict[tuple[int, str], str] = {}
-    for kind, folders in where.items():
-        for number, folder in folders:
-            labels[(number, kind)] = kind if len(folders) == 1 else f"{folder} · {kind}"
-    return labels
+    shared: dict[str, int] = {}
+    for dataset in datasets:
+        shared[dataset.name] = shared.get(dataset.name, 0) + 1
+    return {
+        dataset.number: (
+            dataset.name if shared[dataset.name] == 1 else f"{dataset.root.name} · {dataset.name}"
+        )
+        for dataset in datasets
+    }
 
 
 class _Handler(SimpleHTTPRequestHandler):
@@ -228,18 +231,60 @@ class _Handler(SimpleHTTPRequestHandler):
         self._send_empty(HTTPStatus.NOT_FOUND)
 
     def do_HEAD(self) -> None:  # noqa: N802
-        """Answer a "does this exist?" question the same way as a full request.
+        """Answer "does this exist, and how big is it?" — headers only, no body.
 
         Without this, a HEAD for a piece of image would fall through to the
         machinery that serves the page's own files and be looked for in the wrong
-        place entirely — so an existing piece would be reported missing. Nothing
-        in the viewer asks this today; it is here so that nothing quietly gets a
-        wrong answer if something ever does.
+        place entirely, so an existing piece would be reported missing.
+
+        The routing below is shared with GET, and every reply it produces knows
+        not to write a body when the request was a HEAD. That distinction is not
+        pedantry: this server keeps connections alive, so a body sent where none
+        was asked for is read as the beginning of the *next* reply and everything
+        after it on that connection is nonsense.
+
+        A sharded store is what makes this matter. To read the last few bytes of a
+        shard the engine first asks how long the shard is, and it asks with a HEAD.
         """
         if self.path.startswith("/data/") or self.path.startswith("/api/"):
             self.do_GET()
             return
         super().do_HEAD()
+
+    def _wanted_range(self, total: int) -> tuple[int, int] | None:
+        """The byte range asked for as ``(start, length)``, or ``None`` for all of it.
+
+        Sharded zarr is why this exists. A shard holds many chunks in one file;
+        the engine reads the shard's index, then asks for one chunk out of the
+        middle by byte offset. A server that ignored that and returned the whole
+        shard would hand back megabytes for every few kilobytes wanted — and the
+        engine, which expects a partial answer, would not use it anyway.
+
+        Returns ``None`` when there is no range to honour, and raises
+        ``ValueError`` when one was asked for that cannot be satisfied.
+        """
+        asked = self.headers.get("Range")
+        if not asked:
+            return None
+        found = _RANGE_HEADER.match(asked.strip())
+        if not found:
+            # A range we do not understand is not an error: answering with the
+            # whole file is always a correct response to a Range request.
+            return None
+        first, last = found.group(1), found.group(2)
+        if not first:
+            # "the last N bytes" -- how the index at the end of a shard is read.
+            length = int(last or 0)
+            if length == 0:
+                raise ValueError("an empty suffix range cannot be satisfied")
+            start = max(0, total - length)
+            return start, total - start
+        start = int(first)
+        if start >= total:
+            raise ValueError(f"range starts at {start}, past the end at {total}")
+        end = int(last) if last else total - 1
+        end = min(end, total - 1)
+        return start, end - start + 1
 
     # -- image data ------------------------------------------------------
 
@@ -313,13 +358,42 @@ class _Handler(SimpleHTTPRequestHandler):
 
     def _send_file(self, target: Path) -> None:
         describing = target.name in self._DESCRIBING_FILES
-        data = self._read(target)
-        self.send_response(HTTPStatus.OK)
+        # A description is read whole because it is small and because it may have
+        # been repaired on the way out, so what is on disk is not what is served.
+        # Image data is not: a range of a shard is read out of the file directly
+        # rather than pulling the whole thing into memory to slice it.
+        data = self._read(target) if describing else None
+        total = len(data) if data is not None else target.stat().st_size
+        try:
+            wanted = self._wanted_range(total)
+        except ValueError:
+            self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+            self.send_header("Content-Range", f"bytes */{total}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if wanted is None:
+            start, length = 0, total
+        else:
+            start, length = wanted
+        if data is None:
+            with target.open("rb") as handle:
+                handle.seek(start)
+                body = handle.read(length)
+        else:
+            body = data[start : start + length]
+        self.send_response(HTTPStatus.PARTIAL_CONTENT if wanted else HTTPStatus.OK)
         self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Length", str(len(body)))
+        # Says a range may be asked for at all. Without it a well-behaved client
+        # will not try, and a sharded store would be fetched a whole shard at a time.
+        self.send_header("Accept-Ranges", "bytes")
+        if wanted:
+            self.send_header("Content-Range", f"bytes {start}-{start + len(body) - 1}/{total}")
         self.send_header("Cache-Control", self._how_long_to_keep(describing))
         self.end_headers()
-        self.wfile.write(data)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def _how_long_to_keep(self, describing: bool) -> str:
         """How long the browser may keep a copy of what we are about to send.
@@ -371,7 +445,11 @@ class _Handler(SimpleHTTPRequestHandler):
             remembered = self._described.get(key)
         if remembered is not None and remembered[0] == written:
             return remembered[1]
-        data = target.read_bytes()
+        # Repaired before it is remembered, so the cost is paid once per store
+        # rather than on every request. See ``normalise_units``: a store whose axis
+        # units are spelled the everyday way is refused outright by the engine, and
+        # this is the one place the description passes through.
+        data = normalise_units(target.read_bytes())
         with self._described_lock:
             self._described[key] = (written, data)
         return data
@@ -597,15 +675,17 @@ class _Handler(SimpleHTTPRequestHandler):
             self._send_json({"error": "which acquisition to close is needed"}, HTTPStatus.BAD_REQUEST)
             return
         # The panel closes by the heading it shows, which with two runs open names
-        # the folder as well as the acquisition type. Working back from the heading
-        # to the folder it belongs to is what keeps "close the overview I was
-        # comparing against" from also closing the overview being worked on.
-        named = group_labels(self._library.entries())
-        chosen = [where for where, label in named.items() if label == group]
+        # the folder as well as the dataset. Working back from the heading to the
+        # dataset it belongs to is what keeps "close the overview I was comparing
+        # against" from also closing the overview being worked on.
+        datasets = self._library.datasets()
+        named = group_labels(datasets)
+        by_number = {dataset.number: dataset for dataset in datasets}
+        chosen = [number for number, label in named.items() if label == group]
         closed = []
         if chosen:
-            for number, kind in chosen:
-                closed += self._library.close_group(kind, folder=number)
+            for number in chosen:
+                closed += self._library.close_group(by_number[number].name, folder=number)
         else:
             closed += self._library.close_group(group)
         # Give the memory back. An operator who closes an acquisition has said they
@@ -675,6 +755,7 @@ def make_server(
     data_dir: Path = _DEMO_STORE,
     site_dir: Path = _FRONTEND_DIST,
     store: str | list[str] = "demo.zarr",
+    loads: list[dict] | None = None,
     window: tuple[float, float] | None = None,
     depth_samples: int = 256,
     chrome: bool = False,
@@ -695,6 +776,15 @@ def make_server(
     contain it and every file is refused. A mapped network drive is the case
     that bites — ``Z:\\...`` resolves to ``\\\\server\\share\\...``, which
     shares no prefix with what the caller passed.
+
+    ``store`` names the images to open inside ``data_dir``, and they become one
+    dataset — one acquisition, however many tiles and channels it was written as.
+
+    ``loads`` opens several datasets instead, one per entry, each a dict with an
+    optional ``path`` (defaulting to ``data_dir``), ``stores`` (the names to open,
+    or all of them), and ``name`` (what the panel calls it). Two entries reading
+    the same folder need names, or they arrive as two datasets called the same
+    thing. Use this to put a finished run beside the one being worked on.
 
     ``allow_open`` decides whether the page offers the operator a way to choose
     folders for themselves.
@@ -756,7 +846,24 @@ def make_server(
     library = Library()
     # The folder the viewer was started on is the run being worked on, so it is
     # watched: an acquisition written while it is open appears on its own.
-    library.open(data_dir, names=names, watch=live)
+    #
+    # One load is one dataset, so opening more than one acquisition at a time means
+    # loading more than once -- which is why this takes a list. Without it the thing
+    # that starts the viewer could only ever show a single acquisition, and "open
+    # last week's run beside this one" would be impossible to express at startup.
+    wanted = loads if loads is not None else [{"stores": names}]
+    for spec in wanted:
+        library.open(
+            Path(spec.get("path", data_dir)),
+            names=spec.get("stores"),
+            # Only one dataset may watch, and only when it did not pick particular
+            # stores. Two datasets watching the same folder would each absorb the
+            # other's images on the next look: closing one would have it rediscovered
+            # moments later by its neighbour, and an operator who opened one
+            # acquisition out of a mixed folder would find the rest arriving anyway.
+            watch=live and (len(wanted) == 1 or spec.get("stores") is None),
+            name=spec.get("name"),
+        )
 
     # How open pages are told that something has changed, and the two things that
     # do the telling. See announcements.py for why there are two.
@@ -831,7 +938,7 @@ def make_server(
             # same acquisition type, each carrying its own place on the stage. The
             # engine takes a list and places them itself, so a row that happens to
             # come from one store is simply a list of one.
-            "sources": [f"/data/{root_number}/{name}/|zarr2:"],
+            "sources": [f"/data/{root_number}/{name}/|{zarr_scheme(root / name)}:"],
             "window": {"low": flat[0], "high": flat[1]},
             "volumeWindow": {"low": volume[0], "high": volume[1]},
             "color": list(color) if color else None,
@@ -897,10 +1004,10 @@ def make_server(
         entries = library.entries()
         present = [name for _, _, name in entries]
         labels = layer_names(present)
-        # What each acquisition type is called in the panel. With one run open this
-        # is simply its own name; with two, each is named after the folder it came
+        # What each dataset is called in the panel. With one run open this is
+        # simply its own name; with two, each is qualified by the folder it came
         # from so they can be told apart -- see ``group_labels``.
-        groups_named = group_labels(entries)
+        groups_named = group_labels(library.datasets())
         # One row per acquisition type and channel. Several *positions* of the same
         # acquisition and channel are not separate rows: they are one picture of one
         # specimen, taken in pieces, so they become one row that reads from all of
@@ -912,8 +1019,7 @@ def make_server(
         # each needing its own setup and its own shader compiled.
         merged: dict[tuple, dict] = {}
         for (root_number, root, name), label in zip(entries, labels, strict=True):
-            kind, _ = split_name(name)
-            group = groups_named[(root_number, kind)]
+            group = groups_named[root_number]
             store_path = root / name
             # Where this store is read from. It follows from the store's name, so
             # working it out costs nothing -- no pixel is touched. That matters
@@ -921,7 +1027,7 @@ def make_server(
             # and all but the first of them need only this address. Judging a
             # store's brightness, by contrast, means reading its image data, so
             # it is left until we know a row actually needs it (see below).
-            address = f"/data/{root_number}/{name}/|zarr2:"
+            address = f"/data/{root_number}/{name}/|{zarr_scheme(store_path)}:"
             if "c" in axis_names(store_path):
                 found = [
                     (index, channel["name"], channel["color"])
@@ -941,7 +1047,7 @@ def make_server(
                 # runs open side by side would each contribute their "overview" to
                 # the *same* row, and one experiment would be drawn on top of the
                 # other with nothing to say it had happened.
-                key = (root_number, kind, index, channel_name)
+                key = (root_number, index, channel_name)
                 row = merged.get(key)
                 if row is None:
                     # The first position of a row decides how the whole row is
@@ -1012,9 +1118,9 @@ def make_server(
             # of a different kind: the engine draws a mask by giving every object
             # its own colour, which is not something a picture layer can do.
             for mask in label_images(store_path):
-                key = (root_number, kind, "mask", mask)
+                key = (root_number, "mask", mask)
                 row = merged.get(key)
-                source = f"/data/{root_number}/{name}/labels/{mask}/|zarr2:"
+                source = f"/data/{root_number}/{name}/labels/{mask}/|{zarr_scheme(store_path / 'labels' / mask)}:"
                 if row is None:
                     merged[key] = {
                         "name": mask,
