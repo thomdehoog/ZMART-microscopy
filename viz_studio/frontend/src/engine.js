@@ -112,6 +112,13 @@ function sourceList(spec) {
  * What is left is the honest answer: a folder of forty thousand positions takes as long as
  * it takes, and the way to wait less is to open less — which is the operator's choice to
  * make, not ours to make for them. See Decision 5 in `DATA_LAYOUT.md`.
+ *
+ * There is one real way to make it quicker, and it is not in this file: have the run write
+ * into a single image rather than one store per position, so there are forty thousand
+ * places within one store instead of forty thousand stores. That is faster by a wide margin
+ * and is what we are aiming for, but it is a decision about how data is written, and this
+ * function has to go on working well for the runs that keep their positions separate. See
+ * Decision 1b.
  */
 
 // How many stores are offered at a time, **across the whole scene**. Two hundred is the
