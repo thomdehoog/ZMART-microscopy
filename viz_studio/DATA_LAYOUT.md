@@ -32,16 +32,21 @@ acquisition type feeds the same row, and they become one picture because the eng
 places each by its translation. What the panel shows is therefore acquisition types and
 channels; the fact that a position is a separate folder never surfaces.
 
-**How much to open.** Pointing the viewer at a folder shows its overview, not everything in
-it. Choosing what the engine is given is the viewer's responsibility, and the acquisition
-already says which image is the one to look at first. Target scans open when asked for. See
-Decision 5.
+**How much to open.** Whatever the operator asked for. Point it at a folder and it opens the
+folder; the viewer never decides to show less than it was given. What that asks of the
+interface is that narrowing down be easy and be offered *before* the loading starts — open
+one acquisition type rather than a whole folder. See Decision 5.
 
 **Getting data in, two ways.** While a run is producing data, the control application
 says "this position is ready" and the viewer hands the engine one more address. For data
 that is finished, point the viewer at a folder: it finds what is there, shows it, and
 then stops asking, because nothing can change. New *frames* need no announcing at all —
 the engine fetches them when you go and look, since it already has the address.
+
+**What to be good at.** One image that keeps being added to, since that is what smart
+microscopy actually is. So the care goes into not re-reading what is already known and into
+telling the page precisely what changed — not into cleverness about huge finished folders,
+which must simply not fail. See Decision 6.
 
 **The rule behind all of it.** *Add alongside; do not reshape.* And a position's place in
 the world lives in its metadata — not in a grid, not in a filename, not in the shape of
@@ -776,54 +781,92 @@ channel when something moves. On finished data it does not run at all.
 It remains the weaker of the two mechanisms, for the reason above, and an announcement
 should be preferred wherever there is one.
 
-## Decision 5: not loading too much is our responsibility
+## Decision 5: the operator decides how much is open; the viewer never does
 
-Neuroglancer draws well whatever it is given. **Choosing what to give it is ours**, and that
-is a division of labour rather than a shortcoming — it is where the viewer's judgement
-belongs.
+Point the viewer at a folder and it opens what is in the folder. All of it. It does not
+choose an overview for you, does not hold anything back, and does not decide that forty
+thousand positions is more than you meant. If you asked for it, you get it.
 
-Nearly every difficulty in this design came from ignoring that: hand the engine everything
-in a folder, then try to be clever about the consequences. A window of only the positions in
-view, a fused image, a batch size to tune — each was an attempt to repair a decision already
-made badly. State the responsibility plainly and none of them is needed.
+This was very nearly decided the other way, and the reason for landing here is worth
+keeping. A viewer that quietly limits what it shows has to be right about what you wanted,
+and when it is wrong it is wrong invisibly — you are looking at part of your specimen with
+no way to tell. That is the same failure as the silent ceiling described further up, only
+deliberate. Better to be slow and honest than quick and economical with the truth.
 
-**So: pointing the viewer at a folder means showing its overview, not everything in it.**
+**What follows from it is a duty on the interface, not on the loader.** If the viewer will
+not narrow things down, then narrowing them down has to be easy, obvious, and available
+before the loading starts:
 
-An acquisition already says which of its images is the one to look at first. A prescan or an
-overview is a handful of small stores covering the whole specimen; the target scans are many,
-and are looked at one region at a time. That hierarchy is in the *acquisition*, not in the
-file, and using it is what makes the viewer quick. Flattening it and then trying to recover
-the speed by other means was the mistake.
+- **Opening one acquisition type rather than a folder.** The panel already closes by
+  acquisition type; choosing at the moment of opening is the other half of that and is what
+  makes the whole thing workable. Somebody who wants their overview should be able to say so
+  and get it in a moment, without waiting for the target scans they were not going to look at.
+- **Saying what something will cost before doing it.** "This folder holds 40 000 positions"
+  is worth showing, because it lets the operator decide rather than guess. A viewer that
+  appears frozen and a viewer that is working through what it was asked for look identical,
+  and only one of them is a problem.
+- **Closing what is not being used**, and having that genuinely give the memory back.
 
-Target scans open when asked for, by acquisition type, which the panel already does.
+So the speed of a large folder is accepted rather than engineered around. The mechanisms
+that were proposed to engineer around it are both rejected — a window of only the positions
+in view (see the note in `engine.js`) and a fused image (Decision 1b) — and this is the
+reason: neither was worth its complexity once the operator could simply open less.
 
-### What this is not
+**Feeding stores in groups is unaffected**, and is not a form of limiting. It exists so that
+nothing is *silently lost*, which is the one thing that must never happen whatever the
+operator asks for. It changes the order requests are made in, never which data arrives.
 
-It is **not** a viewing window. We do not keep our own idea of what is on screen and feed
-the engine accordingly — the engine already knows where the view is and chooses pieces of
-image far better than we would. This is a coarser and much simpler thing: which *stores* are
-open at all, decided by the operator and by what the acquisition says is the overview.
+### What "as fast as possible" means, given all that
 
-It does **not** replace feeding stores in groups. That stays exactly as it is, unchanged and
-untuned, as protection against a mistake rather than as the mechanism. Its job is only to
-stop several thousand requests being fired in one breath, after which the browser refuses
-them and the engine quietly writes those positions off.
+Three things, in order, and only the first is about loading:
 
-### What "as fast as possible" actually means here
-
-Three things, in this order, because they are not the same and only one of them is about
-loading:
-
-1. **First pixel before completeness.** Draw the overview, then let the rest arrive. Somebody
-   watching a run wants their specimen on screen now, not a complete picture in a minute and
-   a half.
+1. **First pixel before completeness.** Draw what has arrived rather than waiting for
+   everything. Somebody watching a run wants their specimen on screen now.
 2. **Controls that never stall.** Turning a contrast handle must not stutter, whatever is
-   open. This is why layers are adjusted rather than rebuilt, and why costs that grew with the
-   number of positions mattered so much: they were paid on the same thread the engine draws
-   with. Keeping that at nothing is most of what makes the viewer *feel* fast, and it is
-   independent of how much data is open.
-3. **Completeness last** — and never silently. Whatever is not shown must be something the
-   operator chose not to open, not something the viewer failed to load and said nothing about.
+   open. This is why layers are adjusted rather than rebuilt, and why costs that grew with
+   the number of positions mattered so much — they were paid on the thread the engine draws
+   with. This is most of what makes the viewer *feel* fast, and it is independent of how
+   much is open.
+3. **Completeness last, and never silently.** Anything not on screen must be something the
+   operator chose not to open — never something the viewer failed to load and said nothing
+   about.
+
+## Decision 6: the case to be good at is one store that keeps growing
+
+The previous decision says what the viewer will not do. This one says where the care
+should go instead, because "do less" is only half an instruction.
+
+Smart microscopy, as we actually do it, is **one image that is added to over time**. The
+microscope decides where to look next, writes another frame or another position, and the
+person watching wants to see it appear. That is the case worth being genuinely good at.
+Forty thousand finished stores opened in one go is a real thing an operator may ask for and
+must not fail — that is what Decision 5 and the grouped feeding are about — but it is not
+the shape of the work, and the design should not be bent around it.
+
+The distinction matters because it tells you which problem is worth complexity. In the
+growing case almost nothing is new on any given update: one more frame, or one more
+position among hundreds already open. Everything else on screen is unchanged and should
+not be touched, refetched, or thought about again. So the two things that deserve real
+attention are:
+
+- **Not throwing away what is already known.** Both in the browser, where a piece of image
+  already fetched must not be fetched again, and on the server, where what a store contains
+  is read once and remembered. This is why layers are adjusted rather than rebuilt, and why
+  the cheap "has anything changed?" question exists separately from the expensive "what is
+  here?" one.
+- **Telling the page what changed, promptly and precisely.** Not "something changed, look
+  again at everything" but as close to "this position, this many frames" as we can manage.
+  Decision 4 covers the channel this travels down.
+
+### On simplicity
+
+A viewer that is a **plain, honest use of Neuroglancer** is the goal — not a clever one.
+Where there is an abstraction of ours that is not paying for itself, remove it; where there
+is a special case fitted to one measurement on one machine, be suspicious of it. Two
+concrete things follow. The engine is given the same treatment whether data is live or
+finished, with nothing anywhere asking which it is. And each of the two things above should
+be one mechanism doing one job, not a mechanism plus a fallback that quietly compensates
+for it — a fallback that is always running is not a safety net, it is the design.
 
 ## Status
 
