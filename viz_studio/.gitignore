@@ -5,6 +5,9 @@ frontend/dist/
 # The demo volume is generated on first run.
 backend/demo_store/
 
+# The store run_live_run_demo.py declares and fills; rebuilt on every run.
+backend/live_run_demo/
+
 # Python and test scratch.
 **/__pycache__/
 backend/_check/
