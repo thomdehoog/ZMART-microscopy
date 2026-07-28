@@ -1,5 +1,13 @@
 # ZMART Viz Studio — spike plan
 
+> **This is the plan that was written before the viewer was built, and it is kept
+> as a record of the reasoning rather than as a description of what exists.** The
+> stack it argues for is the stack that was built, so that part still holds. What
+> has moved on is the storage layout: anything below about how an acquisition is
+> written to disk has been superseded by `DATA_LAYOUT.md`, which is the document to
+> trust. If you want to know how the viewer works today, read `README.md` and
+> `DATA_LAYOUT.md` instead.
+
 A standalone, Windows-native, conda-installable, lightweight visualization
 studio: **your own React UI + neuroglancer engine**, driven by a **Python
 backend**, with a **demo mode** that fully simulates being at the microscope

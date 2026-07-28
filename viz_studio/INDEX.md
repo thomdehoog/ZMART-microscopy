@@ -9,36 +9,51 @@ Read the linked docs in the order below.
 ZMART has two operator interfaces. The **target-acquisition webapp** (in
 `workflows/target_acquisition/`) is the mature, full working UI — the whole
 acquisition flow, driven in a browser or a native window, on a real or simulated
-microscope. The **viz-studio viewer** (in `viz_studio/`) is a newer spike: a
+microscope. The **viz-studio viewer** (in `viz_studio/`) is a working viewer: a
 React app that embeds the neuroglancer engine to view large, 3-D, multi-channel
 images (OME-Zarr), intended to grow into the single image viewer for the whole
 workflow. Both run with no microscope (demo mode).
 
 ## Read these, in this order
 
-1. **This index** — orientation.
-2. **`docs/reviews/2026-07-23-visualization-engine-session.md`** — *what we
-   learned and decided, and the reasoning behind it.* The most useful starting
-   read: it explains why the engine choice was made, how the render bug was
-   found and fixed, and the thought patterns worth reusing. Read this to
-   understand the "why".
-3. **`viz_studio/README.md`** — what the viewer is and how to run the demo
-   (build the frontend, launch the window). Read this to *run* it.
-4. **`viz_studio/PLAN.md`** — the viewer's design and the decisions behind every
-   part of the stack (neuroglancer, React, OME-Zarr, pywebview, conda). Read
-   this to understand the architecture.
-5. **`viz_studio/SPIKE_RESULTS.md`** — exactly what the spike proved, the
-   worker-bundling bug it found and fixed, and the acceptance check that guards
-   against regression. Read this to know what is and isn't verified.
-6. **`viz_studio/INTEGRATION_ROADMAP.md`** — the plan to make the viewer the main
-   image viewer for the whole workflow: what it replaces, what stays, and the
-   incremental path via OME-Zarr. Read this to know where it's going.
-7. **`viz_studio/DATA_LAYOUT.md`** — how a smart-microscopy run should be written
-   to disk, and why: one OME-Zarr per acquisition type, positions sharing one
-   canvas, time declared generously up front. Every cost claim in it was measured,
-   and `viz_studio/measure_canvas.py` reproduces those measurements. Read this
-   **before changing how acquisitions are saved**, and before adding live
-   updating — the decisions there are what make both cheap.
+There are four, and they answer different questions. The list is deliberately
+short; the older planning documents are still here and are listed further down as
+history, but reading them first would leave you with a picture of the design that
+is a few months out of date.
+
+1. **`viz_studio/README.md`** — what the viewer is and how to run the demo (build
+   the frontend, launch the window). Read this to *run* it.
+2. **`viz_studio/DATA_LAYOUT.md`** — the design record: how a smart-microscopy run
+   is written to disk and how the viewer presents it, with the reasoning for each
+   decision and what was tried and rejected. One store per position, each carrying
+   its own place on the stage; how much to open is the operator's choice; and the
+   case to be good at is one image added to over time. Every claim about cost in it
+   was measured rather than assumed. **Read this before changing how acquisitions
+   are saved.**
+3. **`viz_studio/NEXT_STEPS.md`** — what is known to be unfinished or wrong, and
+   what to pick up next. Read this before starting work, so you are not solving
+   something already understood.
+4. **`viz_studio/TESTING.md`** — how to run the tests, and what each group of them
+   is actually for.
+
+If you want the reasoning behind the engine choice itself — why neuroglancer, and
+how the first render bug was found — that is in
+`docs/reviews/2026-07-23-visualization-engine-session.md`.
+
+## Kept as history, not as description
+
+These were written before or during the build and are left in place because the
+reasoning in them is worth having. They are **not** descriptions of what exists
+now, and each says so at the top. Read them if you want to know how a decision was
+reached; do not read them to find out how the viewer works.
+
+| | What it was for | What has since changed |
+|---|---|---|
+| `PLAN.md` | The plan to review before building the spike: the stack, the risks, the sequence. | The spike was built. The architecture it describes is right; the storage layout it assumes is superseded by `DATA_LAYOUT.md`. |
+| `SPIKE_RESULTS.md` | What the spike established, honestly, including the worker-bundling bug. | Still accurate about the spike. The viewer has grown a great deal since. |
+| `INTEGRATION_PLAN.md` | The plan for turning the prototype into the real viewer. | Carried out, with the stage-moving part deliberately dropped. |
+| `INTEGRATION_ROADMAP.md` | The decision to make this the one image viewer for the whole workflow. | Still the intent. Not yet done. |
+| `prototype/` | A single self-contained HTML page demonstrating the interface design. | The real viewer exists and keeps that design. |
 
 ## The two interfaces at a glance
 
@@ -48,7 +63,7 @@ workflow. Both run with no microscope (demo mode).
 | What | full acquisition flow (steps, gates, gallery, report) | image/volume viewer (neuroglancer), 3-D capable |
 | Maturity | mature, 42 tests, demo-complete | working viewer: renders, full control panel, annotations; not yet wired to the workflow |
 | Run (demo, no scope) | `python workflows/target_acquisition/run_webapp.py --demo --window` | `python viz_studio/run_demo.py` (after building the frontend once) |
-| Test | `pytest workflows/target_acquisition/tests/test_webapp*.py` | `pytest viz_studio/tests` (166 tests; the browser ones skip unless the frontend is built) |
+| Test | `pytest workflows/target_acquisition/tests/test_webapp*.py` | `python viz_studio/run_tests.py` — builds the page and runs everything; see `TESTING.md` |
 
 Both open in a native desktop window via `pywebview` (`pip install pywebview` —
 conda-forge does not package it), and both fall back to a browser if it is
@@ -71,9 +86,15 @@ missing.
   including beside a running experiment. A test asserts that no
   stage-moving endpoint exists, so this cannot drift back.
 
+  A run in progress is followed properly: the application driving the microscope
+  says when a position is ready, the page is told over one connection it holds open,
+  and only what actually changed is added to the picture rather than the scene being
+  rebuilt. Closing an acquisition hands the memory back.
+
   What remains is moving the workflow's overview onto OME-Zarr/neuroglancer (see
-  the roadmap). Still demo/manual data only: not yet wired to the acquisition
-  workflow.
+  the roadmap), and writing the OME-Zarr ourselves rather than relying on what the
+  mesoSPIM produces. Still demo and manual data only: not yet wired to the
+  acquisition workflow. `NEXT_STEPS.md` has the honest list.
 - The native window has now been opened on Windows (2026-07-23) and works. That
   first run found the interaction bug described in `SPIKE_RESULTS.md`: the
   volume rendered but nothing responded to the mouse, because the default input
