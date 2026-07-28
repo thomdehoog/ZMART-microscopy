@@ -63,9 +63,9 @@ Three things about it are worth carrying forward:
 **What this does not fix is speed, and it was never going to.** Nine hundred positions
 take half a minute to open and then draw at twelve frames in five seconds, with a nudge
 of a brightness slider costing about ten milliseconds. Every position is still read;
-they are merely read in an orderly fashion. The answer to speed is item 1 below — hand
-the engine only the positions the operator is actually looking at — and the reasoning
-for why the two belong together is in the next section.
+they are merely read in an orderly fashion. The answer to speed is item 0 — have the run
+write into a single store, so there are not forty thousand of them to read. The other
+candidate, handing the engine only the positions in view, was rejected; item 1 says why.
 
 ---
 
@@ -121,11 +121,12 @@ Neuroglancer to hold its coordinate space still, so it means replacing a method 
 internal object of theirs at run time: something that works today and can break silently
 on a version bump, in the one place we chose not to rewrite.
 
-The viewing window in item 1 answers all three at once, and it makes this finding
-irrelevant rather than merely redundant — a window that holds a couple of hundred
-positions never accumulates enough of them for the square to hurt. If the window turns out
-to be much further off than it looks, this is the fallback, and the measurements above are
-what you would start from.
+**What does answer all three is item 0**, and it answers them by removing the situation
+rather than managing it: a run written into one store never registers forty thousand
+coordinate spaces, because there is one. The square cannot hurt what does not accumulate.
+For folders that *are* laid out one store per position, the honest position is that they
+open as slowly as they open; the measurements above are what you would start from if that
+ever becomes unacceptable.
 
 ---
 
@@ -147,11 +148,12 @@ they are kept here because the reasoning is what stops them being undone by acci
 - ~~**Build the pacing where the layer is created**~~, not only where sources are added
   later — the burst is in the constructor. Done, and it was the half that mattered:
   pacing only the later additions would have left a cold open exactly as it was. The
-  viewing window still has to be built, and it goes in the same place.
+  a large folder quick, and what makes it quick is item 0: a run that wrote into one
+  store gives the engine one source instead of forty thousand.
 - **Batching does not make a large folder quick.** It stops positions being lost, and
   that is all it does — nine hundred positions still take half a minute to open and
-  still draw at twelve frames in five seconds. Speed is the viewing window's job, and
-  beyond that the stitched image's.
+  still draw at twelve frames in five seconds. Speed comes from there being fewer
+  stores in the first place; see item 0.
 - **HTTP was not a choice and is not the problem.** Measure HTTP/2 before adopting it,
   and do not mistake it for a fix — see below.
 
@@ -185,10 +187,9 @@ During a run that is one position, which is a single group and costs nothing ext
 Opening a folder of forty thousand is many groups. Same code, no branch on whether
 the data is live, and the live path stays exactly as cheap as it is today.
 
-It also composes with the viewing window rather than competing with it. The window
-decides *which* positions; the batching decides *how fast* they go in. A window that
-suddenly takes in two hundred positions because the operator zoomed out is a burst
-too, so the pacing is wanted there regardless of how the folder was opened.
+And it is wanted whatever else changes. However few stores a run produces, the moment
+several are offered at once the pacing is what keeps any of them from being refused, so
+this does not become dead code if item 0 succeeds — it simply has less to do.
 
 **Where it is the right answer rather than a workaround: loading a finished folder on
 purpose.** Offline you genuinely do want every position, and you mean it — the whole
@@ -213,7 +214,7 @@ work orderly rather than removing it.
 
 ### And there is a case neither of them can help
 
-Both batching and a viewing window assume the view holds a few positions at a time.
+Batching assumes the view holds a few positions at a time.
 That is true while navigating, and false the moment the operator zooms out to see the
 whole specimen: the view then genuinely contains all forty thousand, and pacing or
 windowing cannot help, because all of them really are needed.
@@ -245,20 +246,18 @@ Worth adding what is *not* a problem: a single very large store. There is nothin
 batch — one source, and its pyramid does the work. That is the case Neuroglancer was
 built for and it is already fine.
 
-So there are three cases with three answers, and none substitutes for another. Loading
-a finished folder deliberately: batching. Navigating a very large run: **hand the engine
-only the positions in view, and extend as the operator moves**, which is item 1 below.
-Looking at the whole specimen at once: one object that stands for all of it — the
-overview, or a stitched image. Then forty thousand positions cost whatever is being looked
+So there are three cases, and the answer to two of them turned out to be the same one.
+Loading a finished folder deliberately: batching, so nothing is lost. Navigating a very
+large run, and looking at the whole specimen at once: **one object that stands for all of
+it**, which for a smart-microscopy run means the run wrote into a single store (item 0),
+and otherwise means the overview. Then forty thousand positions cost whatever is being looked
 at, and the browser's queue is never near its limit — so batching stops being what keeps
 the viewer honest and goes back to being the ordinary way sources are handed over.
 
 The catch was *where* the batching had to go, which is not where it first appeared. The
 burst is not in `syncSources` but in the layer's construction, which was handed every
 position at once; a fix in `syncSources` alone would have left a cold open exactly as
-broken as it was. That is where it now lives, and it is where the viewing window goes
-too — `handOverWhatIsWaiting` in `engine.js` already decides *how fast* positions go in,
-so the window has only to decide *which*.
+broken as it was. `handOverWhatIsWaiting` in `engine.js` is where the pacing now lives.
 
 **HTTP/2 — the same HTTP, many requests multiplexed down one connection.** Instead
 of six conversations at a time there are a hundred or more, so the queue drains far
@@ -281,13 +280,90 @@ The sensible order was therefore: batch first, because it is the cure and it is
 measured; then, if a large folder is still slower than it should be, measure whether
 HTTP/2 buys enough to justify the dependency. The batching is done, so HTTP/2 is now a
 live question rather than a premature one — but read the third point above before
-spending a day on it, and read item 1 first, because a viewer holding only the positions
-in view has far fewer requests to multiplex in the first place.
+spending a day on it, and read item 0 first, because a run that wrote into one store has
+far fewer requests to multiplex in the first place.
 
 **What is not worth doing:** reaching past HTTP with a reader of our own inside the
 engine. That is deep surgery on the one piece we chose specifically not to rewrite,
 and the whole reason this viewer exists is that Neuroglancer already handles data of
 this size well.
+
+---
+
+## Start here: two things, and they are the important ones
+
+Everything else in this document is worth doing and none of it is worth doing first. These
+two are, and they are related: the first changes what the viewer is asked to open, and the
+second says what opening it costs.
+
+### A. Write the run into one OME-Zarr as it goes
+
+**This is no longer a question, it is the aim.** `DATA_LAYOUT.md` Decision 1b states it, the
+measurements behind it are in this document under item 0, and the viewer's side of it is
+built and tested. What is missing is the thing that writes.
+
+The short version of why: what costs the viewer is the *number of separate stores*, not the
+amount of data behind them. One store describing about 137 GB reaches the screen in 1.4
+seconds on 38 requests; three hundred separate positions covering a far smaller specimen
+take 2.4 seconds on 1 125 requests and then draw at a quarter of the rate. Writing into one
+store as the run goes gets that benefit with **no copy and no extra step** — the tile is
+written once, where it belongs.
+
+Read item 0 below for the full evidence and for what the viewer already does. What has
+changed since item 0 was written is that the two things it listed as still needing a
+decision have both been decided, in `DATA_LAYOUT.md`:
+
+- **How large to make the image.** Sized to the ground the experiment means to cover, or —
+  where the experiment does not say — **the stage's own travel limits**. Declared size is not
+  occupied size (a declared 4 TiB image measured 59 MiB on disk), so this can be generously
+  over-estimated. The origin goes at the low corner and growth only ever goes outward,
+  because growing backwards would shift every chunk index and invalidate everything already
+  written. With the stage limits as the canvas, growth becomes impossible rather than merely
+  rare, since the stage cannot reach outside them.
+- **The one constraint that makes concurrent writing safe: tiles must begin and end on chunk
+  boundaries in y and x.** This is the real cost of the change and it falls entirely on the
+  writing side. Two tiles sharing a chunk file both read it, each adds its own tile, and each
+  writes the whole chunk back — so the second erases the first, silently. Measured: tiles
+  straddling chunk edges lost up to **75% of a tile's voxels**, with no error and no warning.
+  Choose the chunk size and the tile step together; watch overlap especially, since a few per
+  cent of overlap that is not a whole number of chunks puts two tiles in one chunk; and where
+  neither is possible, serialise the writes for tiles that share chunks.
+
+There is one genuinely open piece, and it is work rather than a decision: **the pyramid has
+to be kept up to date as tiles land**, during the run rather than after it. It is bounded — a
+tile only affects the levels above its own position — but somebody has to write it.
+
+Where the writer belongs is also still open, and is the first thing to settle: the mesoSPIM
+writes its own OME-Zarr today and our driver copies the frame files it produced, so this is
+either a conversion step after acquisition or a change to what the driver writes. That
+choice decides everything about how the code is shaped.
+
+**How you would know it was finished.** A run writes one store; the viewer is pointed at it
+and shows the specimen growing tile by tile as they land, with the run announcing
+`{"wrote_image_in_place": true}`; and a test writes several tiles concurrently and asserts
+every voxel of every tile survived. `check_writing_into_one_store.py` already does the
+viewer half of that and is the place to start reading.
+
+### B. Measure what one open folder costs in memory
+
+Closing an acquisition now gives back everything the server remembered about it, so a
+session that moves from folder to folder no longer accumulates. **Nothing is forgotten while
+a folder stays open**, which is deliberate — it is what keeps the viewer quick — and it
+leaves a question nobody has answered: what does *one* folder of forty thousand positions
+cost, and at what point does a machine give up?
+
+Four things are remembered per store, all keyed on its path on disk: what it contains, how
+many frames are written, the brightness measured from its pixels, and the small description
+files handed to the page. Three of them hold one entry per store. Find the growth law and
+the ceiling, and say it in megabytes per thousand positions so an operator can be told what
+a folder will cost before opening it — which is exactly what Decision 5 asks the interface to
+do.
+
+The browser tab is a separate question and a real one, since it holds decoded image rather
+than metadata. Worth measuring in the same sitting but do not conflate the two numbers.
+
+This is audit brief 4 below, and the half about closing is now done; what is written there
+is the remaining half.
 
 ---
 
@@ -469,7 +545,11 @@ files on one worker.
 
 ---
 
-## Start here: six auditors, in parallel
+## The scale audits: three run, three left
+
+*This was the "start here" of the last hand-over, and three of the six have since been
+done. It is still the right way to find what nobody is looking at, but read the two items
+above first — they are what the next session should actually begin with.*
 
 The target is real and it is not met: **forty thousand positions, forty terabytes.** Two
 audits at that scale have run and their findings are folded into the items below, but they
@@ -490,10 +570,8 @@ worthless; otherwise run them one at a time, which is what produced the result a
 Findings expressed as counts — of requests, of measurements, of renders — survive
 contention and are worth asking for either way.
 
-Of the five left, **the engine boundary (3) is the one to do next**, because the cold open
-is now short enough that the engine's own fan-out is what stands between the viewer and a
-large finished folder, and its answer decides whether item 1 further down is optional or
-compulsory.
+Of the three left, **memory (4) is the one to do next**, and it is item B under "Start here"
+at the top of this document.
 
 Give each of them the figures already measured, tell them not to re-litigate the decisions
 in `DATA_LAYOUT.md`, and require that every finding be **measured rather than reasoned** —
@@ -552,8 +630,8 @@ The briefs, chosen so they do not overlap:
    inside the engine's own `addDataSource`, which we merely call. Our own arithmetic was
    about eight milliseconds. There is nothing cheap to fix on our side.
 
-   Three separate walls were measured, and they have to be beaten together. **The first
-   of them is now down**; the other two are what item 1 is for.
+   Three separate walls were measured. **The first of them is now down**; the other two
+   are what item 0 removes, by there being one store rather than tens of thousands.
 
    - ~~**Positions are silently lost above about 680.**~~ **Fixed** — stores are handed
      over in groups now. See the section at the top of this document.
@@ -604,11 +682,16 @@ not to be the better answer for finished data.
 
 ---
 
-## 0. Consider writing the run into one OME-Zarr, not one per position
+## 0. Write the run into one OME-Zarr, not one per position — **decided**
 
-**This may make items 1 and everything above it unnecessary, and it is now measured
-rather than hoped for.** Read it before starting the viewing window, because if this is
-the direction, the window is a much smaller piece of work or none at all.
+**This is the aim, not a proposal.** It is recorded as Decision 1b in `DATA_LAYOUT.md`, and
+what the next session should do about it is set out under "Start here" at the top of this
+document. What follows is the evidence, kept here because it is worth reading before
+building anything on top of it.
+
+The two questions this section used to leave open — how large to make the image, and how to
+write into it safely from more than one place at once — have both since been answered. See
+"Start here", or `DATA_LAYOUT.md` for the full reasoning.
 
 **What costs the viewer is the number of separate stores, not the amount of data behind
 them.** That sentence is the whole finding, and `measure_one_stitched_store.py` is the
@@ -666,42 +749,60 @@ the right thing almost always and has to be released deliberately in the one cas
 the disk has changed underneath it. There the viewer drops what it had *read* about a
 store; here it would drop what it had *decoded* from one.
 
-**What still needs deciding before building it**, and neither is a viewer question:
+**What was still open when this was written, and where it now stands:**
 
-- **The shape has to be known when the store is created.** A mosaic over a known bounding
-  box is fine. A run that chooses its targets adaptively may not know how far it will
-  spread, and a zarr array can be grown but every level of the pyramid has to be grown
-  with it.
+- ~~**The shape has to be known when the store is created.**~~ **Decided.** Sized to the
+  ground the experiment means to cover, or the stage's travel limits where it does not say.
+  Declared size is not occupied size, so over-estimating is free, and with the stage limits
+  as the canvas no tile can ever land outside it. See `DATA_LAYOUT.md`.
 - **The pyramid has to be kept up to date as tiles land**, which is real work during the
   run rather than after it. It is bounded — a tile only affects the levels above its own
-  position — but somebody has to write it.
+  position — but somebody has to write it. **Still open, and it is the main piece of work.**
+- **Tiles must land on chunk boundaries**, which was not known when this section was written
+  and is the constraint that makes concurrent writing safe at all. Tiles straddling chunk
+  edges lost up to 75% of a tile's voxels, silently. See "Start here" above.
 
 ---
 
-## 1. Hand the engine only the sources it needs
+## 1. Hand the engine only the sources it needs — **rejected; do not build this**
 
-**Start here, and it is a measurement before it is a change.**
+> **Do not start here, whatever the paragraphs below say.** A viewing window — the viewer
+> keeping its own idea of what is on screen and feeding the engine only those positions — was
+> turned down, and for a reason that survives the argument for it: deciding which pieces of
+> image to fetch from where the view is, is precisely what Neuroglancer already does, and
+> better than we would. Keeping our own copy of that knowledge is how this project has got
+> into trouble before.
+>
+> There is also a second objection, which is Decision 5 in `DATA_LAYOUT.md`: a viewer that
+> shows less than it was given has to be right about what the operator wanted, and when it is
+> wrong it is wrong invisibly. That is the same failure as the silent ceiling at the top of
+> this document, only deliberate.
+>
+> **The problem it was solving is real** — a large folder of separate positions draws slowly,
+> and the measurements below are sound. The answer is item 0: fewer stores, because the run
+> wrote into one. That makes the engine's work smaller rather than making our code cleverer.
+>
+> Kept because the analysis of *where* the cost sits is accurate and useful, and because
+> somebody will propose this again.
 
-**This is no longer optional, and it is no longer a measurement.** Audit 3 has been run and
+**What follows was written when this was the plan.** Audit 3 has been run and
 its findings are above: the wall is inside Neuroglancer, and it is three walls rather than
 one. The first — positions beyond about six hundred and eighty being silently dropped — has
-been beaten by handing the stores over in groups. The other two are still there, and they
-are what makes this the next thing to build: each extra position costs more than the last,
-and even fully loaded a large folder will not draw at a usable rate. The server's share of
-opening a large folder is now about twelve seconds at forty thousand positions, so
-everything left is on the engine's side.
+been beaten by handing the stores over in groups. The other two are still there: each extra
+position costs more than the last, and even fully loaded a large folder will not draw at a
+usable rate. The server's share of opening a large folder is now about twelve seconds at
+forty thousand positions, so everything left is on the engine's side.
 
-A viewing window answers both of the remaining walls, which is why it is the thing to build:
-the number of positions the engine holds stays bounded, so it never pays the cost that grows
-with the square of the number open, and never ends up with thousands of drawing layers in a
-single frame. It also keeps the first wall comfortably out of reach rather than merely
-survived.
+A viewing window would answer both of the remaining walls: the number of positions the engine
+holds stays bounded, so it never pays the cost that grows with the square of the number open,
+and never ends up with thousands of drawing layers in a single frame.
 
-**Stitching does not replace it.** For a finished folder, one stitched image is one source
-and the problem disappears — but during a live run the positions arrive one at a time and
-the count climbs past six hundred and eighty regardless, so the window is needed whatever is
-decided about finished data. Stitching is worth measuring as an optimisation for finished
-folders, not as a substitute.
+**Note what this argument got wrong about writing into one store.** It says that during a
+live run positions arrive one at a time and the count climbs past six hundred and eighty
+regardless, so a window is needed whatever is decided about finished data. That is true of
+one store *per position*, and it is exactly what item 0 changes: a run writing into a single
+image adds no stores as it goes, so the count never climbs at all. The two are not
+alternatives at different stages — one of them removes the problem the other manages.
 
 **The pacing is already built, and the window goes in the same place.** Feeding positions in
 bounded groups and extending as the operator navigates are the same mechanism: the pacing
@@ -906,11 +1007,14 @@ Branch `claude/napaly-neuroglancer-progress-jo0b8h`. The whole suite passes in a
 and a half minutes with `-n 3` — 328 tests, 8 skipped where there is no GPU or no mesoSPIM
 data, and no `xfail` left. Nothing uncommitted.
 
-**The order the next session should read this in.** Item 0 is new and may change what is
-worth building: if a run writes into a single OME-Zarr, most of the difficulty above
-disappears rather than being solved. Item 1, the viewing window, is still the right answer
-for folders that are already laid out as one store per position, and there will be plenty
-of those. Nothing else has changed.
+**The order the next session should read this in.** Read "Start here" at the top, which is
+the whole of what to do next. Item 0 — writing the run into a single OME-Zarr — is now
+decided rather than proposed, and most of the difficulty described in the items below
+disappears rather than being solved once a run does that. Item 1, the viewing window, is
+**rejected**; the folders that are already laid out as one store per position are handled by
+the batching that is built, and they will simply be slower to open than a run written into
+one store, which is accepted rather than engineered around. See Decision 5 in
+`DATA_LAYOUT.md`.
 
 **How the viewer learns about new data, as it now stands.** There is no browser polling:
 `/api/revision` is gone and answers 404, and a test asserts an idle viewer asks for
