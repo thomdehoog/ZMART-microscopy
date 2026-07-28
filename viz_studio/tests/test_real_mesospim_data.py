@@ -65,6 +65,21 @@ def _a_transfer() -> Path | None:
     return transfers[-1] if transfers else None
 
 
+def _holds_an_image(candidate: Path) -> bool:
+    """Whether a folder is an image store, rather than a group that contains them.
+
+    A transfer folder is itself a zarr group — it has a ``.zgroup`` and an empty
+    ``.zattrs`` — so the presence of those files says nothing about whether there
+    is an image here. What distinguishes an image is the ``multiscales``
+    description of its pyramid, which is also exactly what the reader needs.
+    """
+    try:
+        attrs = json.loads((candidate / ".zattrs").read_text())
+    except (OSError, ValueError):
+        return False
+    return bool(attrs.get("multiscales"))
+
+
 def _a_tile(transfer: Path) -> Path | None:
     """One tile store from inside a transfer.
 
@@ -73,10 +88,10 @@ def _a_tile(transfer: Path) -> Path | None:
     rather than naming one — a named tile is how these tests became unreachable
     in the first place.
     """
-    if (transfer / ".zattrs").exists() and (transfer / ".zgroup").exists():
+    if _holds_an_image(transfer):
         return transfer  # pointed straight at a single store
     for candidate in sorted(transfer.glob("*.ome.zarr")):
-        if (candidate / ".zattrs").exists() and (candidate / ".zgroup").exists():
+        if _holds_an_image(candidate):
             return candidate
     return None
 
@@ -176,7 +191,7 @@ def test_the_viewer_reads_it_from_where_it_was_written(tile, transfer, built_dis
                                  + 'void main() { emitGrayscale(normalized()); }'}],
                  layout: 'yz',
                })""",
-            [f"{base}/data/{tile.name}/|zarr2:", low, high],
+            [f"{base}/data/0/{tile.name}/|zarr2:", low, high],
         )
 
         deadline = time.monotonic() + 180
