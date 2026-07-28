@@ -28,7 +28,9 @@ import os
 import threading
 from pathlib import Path
 
-from stores import discover, split_name
+from dataclasses import dataclass, field
+
+from stores import channel_of, declared_channels, discover, voxel_size
 
 # The small files that say "this folder is an image, and here is its shape". A
 # store is only recognisable once one of these is readable, so these are the
@@ -49,21 +51,120 @@ def _described_at(folder: Path) -> str:
     """
     for name in _DESCRIPTION_FILES:
         try:
-            return str((folder / name).stat().st_mtime_ns)
+            found = (folder / name).stat()
         except OSError:
             continue
+        # The size as well as the time, and this is not belt-and-braces. Windows
+        # advances a file's timestamp only about every sixteen milliseconds, so a
+        # description created empty and filled in a moment later can carry the same
+        # time before and after — and that rewrite is precisely the change this
+        # exists to notice. The size always moves when an empty description becomes
+        # a real one, and the two together cost the same single question of the
+        # operating system that the time alone did.
+        return f"{found.st_mtime_ns}:{found.st_size}"
     return "-"
 
 
+def _named_for(path: Path, parent: Path) -> str:
+    """What to call the dataset a load produced.
+
+    The folder the operator chose, or — when they pointed straight at a single
+    store — that store, with the format's suffixes taken off so the panel shows
+    ``overview`` rather than ``overview.ome.zarr``.
+    """
+    del parent  # kept in the signature: what was chosen is the whole answer here
+    for suffix in (".ome.zarr", ".zarr"):
+        if path.name.endswith(suffix):
+            return path.name[: -len(suffix)]
+    return path.name
+
+
+@dataclass
+class Dataset:
+    """One load: one acquisition, however many stores it was written as.
+
+    The stores in it are tiles and channels of the same run, which is why they can
+    be drawn as one picture — the engine places each by the position recorded
+    inside it. What makes them one thing is not their names but what they are: an
+    overview and a target scan of the same specimen are different acquisitions
+    because they were taken at different magnifications, and that is checked when
+    the dataset is opened rather than inferred afterwards.
+    """
+
+    number: int
+    root: Path
+    name: str
+    stores: list[str]
+    channels: list[str]
+    live: bool
+    # Whether to keep looking in the folder for stores that appear after it was
+    # opened. See the note on ``open``.
+    watch: bool = field(default=True)
+
+
+def _one_acquisition_only(root: Path, names: list[str]) -> None:
+    """Refuse a load that spans more than one acquisition, saying what it found.
+
+    A refusal here is deliberate and is the one place the viewer declines to show
+    something it was pointed at. It is not the silent absence Decision 5 forbids:
+    what is refused is named, with the stores in each acquisition listed, so the
+    answer is to open one of them rather than to wonder what happened.
+    """
+    families: dict[tuple, list[str]] = {}
+    for name in names:
+        size = voxel_size(root / name)
+        if size:
+            families.setdefault(size, []).append(name)
+    if len(families) > 1:
+        described = "\n".join(
+            "  voxel " + " x ".join(f"{value:g}" for value in size) + " um: " + ", ".join(found)
+            for size, found in sorted(families.items())
+        )
+        raise ValueError(
+            f"{root} holds more than one acquisition — open one of them instead:\n{described}"
+        )
+
+    declared: dict[tuple, list[str]] = {}
+    for name in names:
+        found = declared_channels(root / name)
+        if found is not None:
+            declared.setdefault(tuple(found), []).append(name)
+    if len(declared) > 1:
+        described = "\n".join(
+            "  channels " + ", ".join(names_of) + ": " + ", ".join(found)
+            for names_of, found in sorted(declared.items())
+        )
+        raise ValueError(
+            f"{root} holds stores declaring different channels, so they are not one "
+            f"acquisition — open one of them instead:\n{described}"
+        )
+
+
+def _channels_of(root: Path, names: list[str]) -> list[str]:
+    """The channels a dataset presents, in the order the panel should show them.
+
+    Where a store names its channels internally that answer is taken whole. Where
+    the channel is in the filename instead, each store carries one and the dataset
+    presents the union — a tile that has not been imaged in every channel yet is a
+    normal state during a run, not a mismatch.
+    """
+    for name in names:
+        found = declared_channels(root / name)
+        if found is not None:
+            return found
+    seen: list[str] = []
+    for name in sorted(names):
+        wavelength = channel_of(name)
+        if wavelength and f"Ch{wavelength}" not in seen:
+            seen.append(f"Ch{wavelength}")
+    return seen
+
+
 class Library:
-    """The folders the viewer has open, and the images found inside them."""
+    """The datasets the viewer has open, and where they live on disk."""
 
     def __init__(self) -> None:
-        self._roots: dict[int, Path] = {}
-        self._stores: dict[int, list[str]] = {}
-        # Whether to keep looking in a folder for images that appear after it was
-        # opened. See the note on ``open``.
-        self._watch: dict[int, bool] = {}
+        self._datasets: dict[int, Dataset] = {}
         # Counts up forever rather than filling gaps, so a number never refers to
         # two different folders over the life of a session.
         self._next = 0
@@ -82,6 +183,7 @@ class Library:
         *,
         names: list[str] | None = None,
         watch: bool | None = None,
+        name: str | None = None,
     ) -> int:
         """Open a folder and return the number it will be addressed by.
 
@@ -112,13 +214,32 @@ class Library:
                 f"no OME-Zarr image was found in {path} — if the images are one "
                 "level down, choose the folder that contains them"
             )
+        root = parent.resolve()
+        _one_acquisition_only(root, list(chosen))
+        watched = watch if watch is not None else (names is None)
         with self._lock:
             number = self._next
             self._next += 1
-            self._roots[number] = parent.resolve()
-            self._stores[number] = list(chosen)
-            self._watch[number] = watch if watch is not None else (names is None)
+            self._datasets[number] = Dataset(
+                number=number,
+                root=root,
+                name=name or _named_for(path, parent),
+                stores=list(chosen),
+                channels=_channels_of(root, list(chosen)),
+                live=bool(watched),
+                watch=bool(watched),
+            )
         return number
+
+    def dataset(self, number: int) -> Dataset | None:
+        """The dataset a load produced, or ``None`` if it has since been closed."""
+        with self._lock:
+            return self._datasets.get(number)
+
+    def datasets(self) -> list[Dataset]:
+        """Every open dataset, oldest first, which is the order the panel shows."""
+        with self._lock:
+            return [self._datasets[number] for number in sorted(self._datasets)]
 
     def close(self, number: int) -> bool:
         """Stop serving a folder. Returns whether it was open at all."""
@@ -126,44 +247,34 @@ class Library:
             return self._close(number)
 
     def _close(self, number: int) -> bool:
-        """Stop serving a folder, with the lock already held."""
-        self._stores.pop(number, None)
-        self._watch.pop(number, None)
-        return self._roots.pop(number, None) is not None
+        """Stop serving a dataset, with the lock already held."""
+        return self._datasets.pop(number, None) is not None
 
     def close_group(self, group: str, *, folder: int | None = None) -> list[tuple[int, Path, str]]:
-        """Close every image belonging to one acquisition type.
+        """Close a dataset by the name the panel shows it under.
 
-        The panel offers closing by acquisition type rather than by folder,
-        because that is the unit an operator thinks in. A folder that has nothing
-        left in it afterwards is closed with them.
+        A dataset is one acquisition, so closing one is closing all of it — there
+        is no longer a sub-group inside a folder to pick out, because the load that
+        produced the dataset is what decided its extent.
 
-        ``folder`` narrows this to one open folder. That matters when two runs are
-        open side by side: both will have an "overview", and closing the one being
-        compared against must not also close the one being worked on.
+        ``folder`` narrows this to one open dataset by number. That matters when two
+        runs are open side by side: both may be called "overview", and closing the
+        one being compared against must not also close the one being worked on.
 
-        Returns the images that were closed, as ``(folder number, folder, store
-        name)``. The caller needs that in order to let go of what it remembered
-        about them: closing something is supposed to give the memory back, and only
-        this knows which images were actually affected.
+        Returns the images that were closed, as ``(number, folder, store name)``.
+        The caller needs that in order to let go of what it remembered about them:
+        closing something is supposed to give the memory back, and only this knows
+        which images were actually affected.
         """
         closed: list[tuple[int, Path, str]] = []
         with self._lock:
-            for number, names in list(self._stores.items()):
+            for number, dataset in list(self._datasets.items()):
                 if folder is not None and number != folder:
                     continue
-                kept = [name for name in names if split_name(name)[0] != group]
-                if kept == names:
+                if dataset.name != group:
                     continue
-                root = self._roots[number]
-                closed += [(number, root, name) for name in names if name not in kept]
-                if kept:
-                    self._stores[number] = kept
-                    # Stop watching, or the closed images would be found again on
-                    # the next look and reappear moments after being dismissed.
-                    self._watch[number] = False
-                else:
-                    self._close(number)
+                closed += [(number, dataset.root, store) for store in dataset.stores]
+                self._close(number)
         return closed
 
     # -- reading -----------------------------------------------------------
@@ -178,8 +289,8 @@ class Library:
         from disk quietly drops out.
         """
         with self._lock:
-            open_now = [(number, self._roots[number], self._stores[number],
-                         self._watch.get(number)) for number in sorted(self._stores)]
+            open_now = [(dataset.number, dataset.root, list(dataset.stores), dataset.watch)
+                        for dataset in self.datasets()]
         out = []
         for number, root, names, watched in open_now:
             if watched:
@@ -188,8 +299,9 @@ class Library:
                 # moment to answer, and no other request should wait on that.
                 names = self._present(root, names)
                 with self._lock:
-                    if number in self._stores:
-                        self._stores[number] = names
+                    found = self._datasets.get(number)
+                    if found is not None:
+                        found.stores = names
             out.extend((number, root, name) for name in names)
         return out
 
@@ -264,8 +376,8 @@ class Library:
         viewer actually needs to know.
         """
         with self._lock:
-            open_now = [(number, self._roots[number], list(self._stores.get(number, ())))
-                        for number in sorted(self._roots)]
+            open_now = [(dataset.number, dataset.root, list(dataset.stores))
+                        for dataset in self.datasets()]
         marks = []
         for number, root, names in open_now:
             try:
@@ -303,7 +415,7 @@ class Library:
     def is_empty(self) -> bool:
         """Whether nothing at all is open, which the server reports as an empty viewer."""
         with self._lock:
-            return not any(self._stores.values())
+            return not any(dataset.stores for dataset in self._datasets.values())
 
     def resolve(self, relative: str) -> Path | None:
         """Turn ``<number>/<store>/<chunk…>`` into a file, or ``None`` if not allowed.
@@ -317,9 +429,10 @@ class Library:
         if not number.isdigit() or not rest:
             return None
         with self._lock:
-            root = self._roots.get(int(number))
-        if root is None:
+            found = self._datasets.get(int(number))
+        if found is None:
             return None
+        root = found.root
         target = (root / rest).resolve()
         if root not in target.parents and target != root:
             return None

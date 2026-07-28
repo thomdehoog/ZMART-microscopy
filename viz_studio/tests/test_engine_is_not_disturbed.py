@@ -203,7 +203,7 @@ def _settled_viewer(browser, built_dist, tmp_path, *, live: bool):
         port=0,
         data_dir=tmp_path,
         site_dir=built_dist,
-        store="overview_pos001.ome.zarr",
+        loads=[{"stores": ["overview_pos001.ome.zarr"], "name": "overview"}],
         live=live,
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -448,7 +448,7 @@ class TestOpeningSomethingElse:
         self, browser, built_dist, tmp_path
     ):
         _store(tmp_path / "overview_pos001.ome.zarr")
-        second = tmp_path / "later"
+        second = tmp_path / "targetscan"
         second.mkdir()
         _store(second / "targetscan_cell007.ome.zarr", seed=40)
 
@@ -456,7 +456,7 @@ class TestOpeningSomethingElse:
             port=0,
             data_dir=tmp_path,
             site_dir=built_dist,
-            store="overview_pos001.ome.zarr",
+            loads=[{"stores": ["overview_pos001.ome.zarr"], "name": "overview"}],
             browse=lambda: str(second),
         )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -514,7 +514,8 @@ class TestDataArrivingWhileYouWatch:
             port=0,
             data_dir=tmp_path,
             site_dir=built_dist,
-            store=sorted(p.name for p in tmp_path.glob("*.ome.zarr")),
+            loads=[{"stores": sorted(p.name for p in tmp_path.glob("*.ome.zarr")),
+                    "name": "overview"}],
         )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -535,7 +536,9 @@ class TestDataArrivingWhileYouWatch:
                 # open, and when the suite is run several tests at a time the
                 # browsers are competing for the same few cores. What is being
                 # measured is below, and it is not a stopwatch.
-                "() => window.zmartConfig.groups.includes('targetscan')", timeout=90_000
+                """() => window.zmartConfig.layers.some(
+                     (row) => row.sources.some((s) => s.includes('targetscan_cell900')))""",
+                timeout=90_000,
             )
             noticed = time.monotonic() - started
             page.wait_for_timeout(4000)
@@ -588,7 +591,8 @@ class TestDataArrivingWhileYouWatch:
         )
 
         server = make_server(
-            port=0, data_dir=tmp_path, site_dir=built_dist, store=store.name
+            port=0, data_dir=tmp_path, site_dir=built_dist,
+            loads=[{"stores": [store.name], "name": "overview"}],
         )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()

@@ -62,8 +62,10 @@ def _store(path, *, value=4000, channels=2):
 @pytest.fixture
 def live(browser, built_dist, tmp_path):
     """A viewer open on one run, with a second run sitting on disk unopened."""
-    first = tmp_path / "run_a"
-    second = tmp_path / "run_b"
+    # One load is one dataset, and it is named after what was loaded — so a folder
+    # holds one acquisition and is called after it. That is what the panel shows.
+    first = tmp_path / "overview"
+    second = tmp_path / "targetscan"
     first.mkdir()
     second.mkdir()
     _store(first / "overview_pos001.ome.zarr")
@@ -182,10 +184,14 @@ def test_an_acquisition_appearing_on_disk_is_noticed_on_its_own(live):
     """A run writes as it goes, so the viewer must look again without being asked."""
     page, first, _ = live
     _store(first / "prescan_pos001.ome.zarr", value=2500)
+    # It joins the dataset whose folder it appeared in, so what is watched for is
+    # the store reaching the page rather than a heading named after its filename.
     page.wait_for_function(
-        "() => window.zmartConfig.groups.includes('prescan')", timeout=30_000
+        """() => window.zmartConfig.layers.some(
+             (row) => row.sources.some((s) => s.includes('prescan_pos001')))""",
+        timeout=30_000,
     )
-    assert "prescan" in _groups(page)
+    assert _groups(page) == ["overview"]
 
 
 def test_the_load_data_box_can_be_switched_off(browser, built_dist, demo_store):

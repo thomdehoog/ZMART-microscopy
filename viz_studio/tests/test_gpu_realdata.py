@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 import pytest
 
 from server import make_server
-from stores import discover
+from stores import declared_channels, discover
 
 REAL_STORE_ENV = "ZMART_TEST_STORE"
 
@@ -111,15 +111,22 @@ def real_server(real_store: Path, built_dist: Path):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_address[1]}", names
+        yield f"http://127.0.0.1:{server.server_address[1]}", parent, names
     finally:
         server.shutdown()
         thread.join(timeout=5)
 
 
 def test_real_store_channels_become_layers(real_server):
-    """Every channel found in the store, and only those, becomes a layer."""
-    url, names = real_server
+    """Every channel found in the store, and only those, becomes a layer.
+
+    A layer is a *channel*, not a store, and the two are only the same number
+    when each store holds one channel — which is what a mesoSPIM transfer writes
+    and what this test used to assume. A fused acquisition puts its channels on a
+    ``c`` axis inside one store, so one store there is two layers.
+    """
+    url, parent, names = real_server
+    expected = sum(len(declared_channels(parent / name) or [None]) for name in names)
     host = urlparse(url)
     conn = http.client.HTTPConnection(host.hostname, host.port, timeout=15)
     try:
@@ -127,7 +134,7 @@ def test_real_store_channels_become_layers(real_server):
         config = json.loads(conn.getresponse().read())
     finally:
         conn.close()
-    assert len(config["layers"]) == len(names)
+    assert len(config["layers"]) == expected
     for layer in config["layers"]:
         assert layer["window"]["low"] < layer["window"]["high"]   # a usable window, measured from the data
 
@@ -140,7 +147,7 @@ def test_real_store_renders(real_server, browser):
     separate test above. Real data streams over disk or the network, so the
     wait is generous.
     """
-    url, _ = real_server
+    url, _, _ = real_server
     page = browser.new_page(viewport={"width": 1200, "height": 900})
     try:
         page.goto(url, wait_until="domcontentloaded")
