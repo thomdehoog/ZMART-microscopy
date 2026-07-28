@@ -18,6 +18,21 @@ acquire is several hundred gigabytes. If the large one still opens faster than t
 one, the cost has nothing to do with how much data there is and everything to do with how
 many separate stores it is spread across.
 
+Both stores here are synthetic, which is what makes the comparison controlled — and
+also what makes it easy to dismiss, since a declared store written sparsely is not the
+same thing as an acquisition somebody actually made. So a **real** store can be measured
+alongside them, and it appears as a third row in the same table with the same columns::
+
+    ZMART_REAL_STORE=/path/to/acquisition.ome.zarr python measure_one_stitched_store.py
+    python measure_one_stitched_store.py /path/to/acquisition.ome.zarr
+
+Measured this way on a real 75 GB fused acquisition (1×2×833×4613×4734, uint16, six
+levels, zstd): it opened in about three seconds and then drew at the full frame rate,
+with a nudge of the contrast costing nothing measurable — while eight hundred tiny
+separate positions, a small fraction of the data, took nineteen seconds to open and then
+managed eighteen frames in five seconds. That is the finding in one line: the cost is the
+number of stores, not the amount of data.
+
 Run it with::
 
     python measure_one_stitched_store.py
@@ -32,6 +47,7 @@ on screen, and neither depends on the parts of the specimen nobody is looking at
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -325,6 +341,16 @@ def main() -> int:
                              f"{MOSAIC_POSITIONS} separate positions"))
         finally:
             shutil.rmtree(many, ignore_errors=True)
+
+        # A real acquisition, if one was named. Nothing is written and nothing is
+        # removed here -- it is somebody's data, and this only reads it.
+        named = os.environ.get("ZMART_REAL_STORE") or (sys.argv[1] if len(sys.argv) > 1 else "")
+        if named:
+            real = Path(named)
+            if (real / ".zattrs").exists() or (real / "zarr.json").exists():
+                rows.append(look(pw, real.parent, [real.name], f"real store: {real.name}"))
+            else:
+                print(f"nothing readable as a store at {real}; skipping that row")
 
     print()
     print(f"{'what':>34} {'config':>8} {'1st pixel':>11} {'settled':>9} "
