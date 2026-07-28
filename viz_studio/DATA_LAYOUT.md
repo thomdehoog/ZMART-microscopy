@@ -48,6 +48,14 @@ microscopy actually is. So the care goes into not re-reading what is already kno
 telling the page precisely what changed — not into cleverness about huge finished folders,
 which must simply not fail. See Decision 6.
 
+**One store or many.** Where a run does not need its overlap kept, it should create one
+image at the start and write each tile into its place: no copy, no extra step, and the
+viewer holds a single store from the first moment, which is much faster to open and smoother
+to draw. Where the overlap must survive for stitching, the tiles stay separate and the
+viewer shows them side by side. Both work; the first is what we are aiming for. What is
+*rejected* is fusing finished positions into a copy afterwards just to make the viewer
+quick. See Decision 1b.
+
 **The rule behind all of it.** *Add alongside; do not reshape.* And a position's place in
 the world lives in its metadata — not in a grid, not in a filename, not in the shape of
 the folders.
@@ -324,39 +332,59 @@ we care about.
 is fine and is described above; changing what a chunk contains is not, because a
 reader may already be holding it.
 
-## Decision 1b: one stitched image — **considered and rejected**
+## Decision 1b: one image covering the whole specimen
 
-> **This is not going to be built.** It is kept because the reasoning below is sound on its
-> own terms and someone will propose it again, and because the measurements in it are real.
-> What changed is not the arithmetic but what the arithmetic was being asked to solve.
->
-> Fusing the positions of an acquisition type into a single image was the answer to one
-> question: opening a folder of many thousands of positions is slow. It would have worked —
-> one source, one pyramid, and the engine handles every zoom unaided.
->
-> But it is a second copy of the data, made by a step that has to run, kept somewhere, and
-> kept in step with the original. That is a large thing to take on, and the problem it
-> solves turns out not to need solving. **The viewer should not be opening forty thousand
-> positions in the first place.** See Decision 5.
->
-> Stitching for *scientific* reasons — correcting where the stage actually put each tile —
-> is a separate matter and is not what this section was about. Nothing here argues against
-> it. It argues only against fusing in order to make the viewer quick.
+This section is about a single OME-Zarr that stands for the whole specimen, rather than one
+store per position. There are two quite different ways to arrive at one, they have opposite
+verdicts, and telling them apart is the whole point of this section.
 
-### The original reasoning, kept for the record
+> **Writing into one store as the run goes: this is what we are aiming for.** Create the
+> image empty at the start, sized to cover the ground the experiment will visit, and have
+> the microscope write each tile straight into its place. There is no second copy and no
+> extra step — the tile is written once, where it belongs. The viewer then holds one store
+> from the first moment, which is worth a great deal: **one store describing about a hundred
+> and thirty-seven gigabytes reaches the screen in 1.4 seconds on 38 requests, where three
+> hundred separate positions — a far smaller specimen — take 2.4 seconds on 1 125 requests
+> and then draw at a quarter of the rate.** Everything below about how large to make the
+> image, what to do when the experiment cannot say, and why tiles must land on chunk
+> boundaries, is about this. `check_writing_into_one_store.py` runs it end to end.
+>
+> It comes with one condition, which the viewer already handles: a tile landing where the
+> viewer has already looked changes nothing that any description would show, so the run has
+> to say so. See "What the viewer does about copies while a run is going" below, and
+> Decision 4.
+>
+> **Fusing finished positions into one image afterwards: rejected.** Same destination,
+> reached by copying. It would have worked, and it was the answer to one question — opening
+> a folder of many thousands of positions is slow — but it is a second copy of the data,
+> made by a step that has to run, kept somewhere, and kept in step with the original. That
+> is a large thing to take on for a problem that turns out not to need solving: **the viewer
+> should not be opening forty thousand positions in the first place.** See Decision 5.
+>
+> **And one store per position is not going away**, because a run that intends to stitch
+> needs its tiles kept separately with their overlap intact — see the section immediately
+> below, which is the reason writing into one store is a choice rather than the rule. It is
+> also what the mesoSPIM already writes. So the viewer has to be good at both, and is.
+>
+> Stitching for *scientific* reasons — working out where the stage actually put each tile —
+> is a third thing again, and nothing here argues against it. What is rejected is only
+> copying data in order to make the viewer quick.
 
-Everything above describes data as it comes off an instrument. There is a second,
-optional artefact worth having once a run is finished and the alignment is known:
-**a single OME-Zarr image with the positions written into their places.**
+### Why one image is worth having at all
+
+Decision 1 describes data as it comes off an instrument: one store per position, each
+carrying its own place on the stage. The alternative is **a single OME-Zarr image with the
+positions written into their places.**
 
 One image is the better thing to keep, hand to a colleague, or archive. It is a
 picture rather than a set of pieces plus instructions for arranging them, so any
 tool can open it without understanding how the acquisition was organised, and the
 viewer has one source to work from instead of hundreds.
 
-It is deliberately *not* how acquisition writes, for the reason immediately below.
+That is the case for it, and it is a strong one. What follows is the case against doing it
+at acquisition time, which is real but applies only to runs that intend to stitch.
 
-### Why this is not how acquisition writes: overlap cannot survive it
+### The one thing it costs: overlap cannot survive it
 
 One image holds **one value per voxel**. So where two tiles overlap, the second one
 written replaces the first in the shared region — the two versions of that region
@@ -379,11 +407,14 @@ at that moment. That is Decision 1 above.
 known, whether by a stitcher or simply by trusting the stage coordinates. It is the right thing to keep,
 to hand to a colleague, and to view for the rest of the data's life.
 
-A run that never intends to stitch — one that trusts the stage — can skip the first
-and write the second directly, and then everything above applies with no caveat.
+**A run that never intends to stitch — one that trusts the stage — can skip the first
+entirely and write straight into one image as it goes.** That is the aim stated at the top
+of this section, and this is the condition on it: it is available exactly when nobody needs
+the overlap back. For smart microscopy, where the point is to watch the specimen and decide
+where to look next rather than to assemble a publication mosaic, that is usually the case.
 
 This is why the viewer has to handle both, and why the work on opening many stores
-quickly matters: during acquisition, many stores is what there is.
+quickly matters: for a run that does keep its tiles, many stores is what there is.
 
 ### Why a canvas can be declared at all
 
@@ -813,10 +844,17 @@ before the loading starts:
   until they quit the viewer, which made "close what you are not using" advice the viewer
   did not honour.
 
-So the speed of a large folder is accepted rather than engineered around. The mechanisms
-that were proposed to engineer around it are both rejected — a window of only the positions
-in view (see the note in `engine.js`) and a fused image (Decision 1b) — and this is the
-reason: neither was worth its complexity once the operator could simply open less.
+So the speed of a large folder of separate positions is accepted rather than engineered
+around. The two mechanisms proposed to engineer around it are both rejected — a window of
+only the positions in view (see the note in `engine.js`) and fusing finished positions into
+a copy (Decision 1b) — and this is the reason: neither was worth its complexity once the
+operator could simply open less.
+
+Note what this does *not* argue against. Writing into one image as the run goes, also in
+Decision 1b, makes a folder faster to open by a wide margin and is what we are aiming for.
+It is a different thing entirely: it changes how the data is written in the first place
+rather than adding a second copy of it or a second idea of what is on screen, and it makes
+the viewer's work smaller rather than cleverer.
 
 **Feeding stores in groups is unaffected**, and is not a form of limiting. It exists so that
 nothing is *silently lost*, which is the one thing that must never happen whatever the
@@ -876,10 +914,11 @@ for it — a fallback that is always running is not a safety net, it is the desi
 
 ## Status
 
-**Decided, and written above:** one store per position with its place in its own
-metadata; a stitched image as a separate later artefact; a timelapse that grows its own
-length; one data type per image; how the layer list is organised; and what caching
-follows from all of it.
+**Decided, and written above:** one store per position with its place in its own metadata,
+for runs that keep their tiles; one image written into as the run goes, for runs that do not
+need the overlap back, which is what we are aiming for; a timelapse that grows its own
+length; one data type per image; how the layer list is organised; how much is open being the
+operator's choice and never the viewer's; and what caching follows from all of it.
 
 **Built and tested:** reading acquisition types, positions and channels from what is on
 disk; the panel with grouped rows, one shared set of display settings, colour maps and
