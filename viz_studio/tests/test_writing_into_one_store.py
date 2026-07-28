@@ -233,6 +233,113 @@ def test_a_tile_written_into_an_open_store_appears(browser, built_dist, tmp_path
         thread.join(timeout=5)
 
 
+def write_one_tile_at(store, row: int, column: int) -> None:
+    """Land a single tile at one place, at every level of the pyramid.
+
+    Every level, because a run writing into one store has to keep the coarser ones
+    current as it goes. A level left unwritten is a specimen that vanishes when the
+    operator zooms out — and the coarse levels are what the zoomed-out view reads,
+    so that is the first thing anyone would look at.
+    """
+    for level in range(LEVELS):
+        side = SIDE >> level
+        across = max(1, side // CHUNK)
+        # The same ground, addressed at this level's resolution.
+        at_row = min(across - 1, row >> level)
+        at_column = min(across - 1, column >> level)
+        folder = store / str(level)
+        (folder / f"0.{side // 2}.{at_row}.{at_column}").write_bytes(one_tile())
+
+
+def _how_much_is_drawn(page) -> float:
+    """How far the middle of the picture is from being one flat colour.
+
+    Deliberately not a count of chunks the engine says it has. A chunk of unwritten
+    canvas is decoded, held and counted as available exactly like a written one — so
+    the count does not move when a tile lands, and a test watching it would conclude
+    nothing had arrived while the picture in front of it changed. What moves is the
+    image, so that is what is measured.
+    """
+    return 1.0 - colour_spread(image_middle(page))["dominant_fraction"]
+
+
+def test_a_store_grows_tile_by_tile_and_each_one_is_seen(browser, built_dist, tmp_path):
+    """The live case this whole layout exists for: one store, filled in as a run goes.
+
+    The test above lands a single tile and proves the mechanism works once. That is
+    not the same as a run, where tiles keep arriving into a store the viewer has been
+    holding open — and the failure everyone fears is the one that appears only after
+    a while, where the engine settles into what it has already decoded and stops
+    noticing. So this lands four tiles one after another and checks each is seen.
+
+    The second half is the part that decides whether a long run stays usable: what
+    one landing costs must not depend on how much has already landed. If it climbs,
+    a run gets slower the further it gets, which is invisible in a short test and
+    unbearable by the end of a real acquisition.
+    """
+    store = tmp_path / "overview_whole.ome.zarr"
+    declare_the_whole_specimen(store)
+    server = make_server(
+        port=0, data_dir=tmp_path, site_dir=built_dist, store=store.name, live=True
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1000, "height": 800})
+    asked: list[str] = []
+    page.on("request", lambda request: asked.append(request.url))
+    try:
+        page.goto(
+            f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded"
+        )
+        page.wait_for_function("() => window.zmartViewer !== undefined", timeout=60_000)
+        page.wait_for_timeout(3000)
+
+        # The control: nothing has been written, so nothing should be drawn. Without
+        # this the checks below would pass on a store that was never empty.
+        assert colour_spread(image_middle(page))["distinct"] <= 2, (
+            "the store was meant to start empty"
+        )
+
+        seen = _how_much_is_drawn(page)
+        costs = []
+        landings = [(1, 1), (1, 2), (2, 1), (2, 2)]
+        for number, (row, column) in enumerate(landings, start=1):
+            before = len(asked)
+            write_one_tile_at(store, row, column)
+            assert page.evaluate(ANNOUNCE_IN_PLACE) >= 1, (
+                f"the page was not listening when tile {number} was announced"
+            )
+            arrived = False
+            for _ in range(30):
+                page.wait_for_timeout(500)
+                now = _how_much_is_drawn(page)
+                # More of the picture is something other than the background than
+                # there was before this tile landed.
+                if now > seen + 0.01:
+                    seen = now
+                    arrived = True
+                    break
+            assert arrived, (
+                f"tile {number} of {len(landings)} never reached the engine — it is "
+                "still answering from the emptiness it decided on earlier"
+            )
+            costs.append(len(asked) - before)
+
+        assert_something_was_drawn(page, "a store grown tile by tile")
+
+        # What one landing costs must not grow with what is already there. Compared
+        # generously, because these are small numbers over a live browser and the
+        # question is the shape of the cost, not its exact value.
+        assert costs[-1] <= costs[0] * 3 + 10, (
+            f"the cost of one tile landing grew as the store filled: {costs} — a run "
+            "of this shape gets slower the longer it goes on"
+        )
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def write_position(folder, name, *, at):
     """One ordinary position, complete when it is written — the layout used today."""
     store = folder / f"{name}.ome.zarr"
