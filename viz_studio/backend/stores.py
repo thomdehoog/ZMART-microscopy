@@ -136,6 +136,32 @@ _UNIT_SPELLINGS = {
 }
 
 
+def _ome_holders(described: dict) -> list[dict]:
+    """Every place inside a parsed description where the OME metadata could be living.
+
+    The format has moved this twice, and a reader that knows only one of the places
+    stops working the moment an instrument is updated. OME-Zarr 0.4 puts
+    ``multiscales`` and ``omero`` at the top of the file. 0.5 gathers them under an
+    ``ome`` key. And zarr version 3, which 0.5 goes with, keeps a store's own
+    attributes under ``attributes`` inside ``zarr.json`` — so a 0.5 store written
+    that way nests them twice over, at ``attributes.ome``.
+
+    All of those are returned, outermost first, so a caller can look in each without
+    having to work out which version wrote the store. The dictionaries handed back
+    are the very ones inside ``described`` rather than copies of them, which is what
+    lets :func:`normalise_units` repair a unit in place wherever it finds it.
+    """
+    holders = []
+    for outer in (described, described.get("attributes")):
+        if not isinstance(outer, dict):
+            continue
+        holders.append(outer)
+        nested = outer.get("ome")
+        if isinstance(nested, dict):
+            holders.append(nested)
+    return holders
+
+
 def normalise_units(raw: bytes) -> bytes:
     """A store's description with its axis units spelled the way the format asks.
 
@@ -157,13 +183,13 @@ def normalise_units(raw: bytes) -> bytes:
         return raw
     if not isinstance(described, dict):
         return raw
-    # 0.4 keeps multiscales at the top; 0.5 moves it under "ome". Both are looked
-    # at so the repair does not quietly stop working at the next version.
-    holders = [described, described.get("ome")]
+    # A store keeps its axes wherever its own version of the format put them, and the
+    # repair has to reach all of those places -- see :func:`_ome_holders`. This matters
+    # more than it looks: the whole reason the repair exists is a foreign instrument
+    # whose store says "um", and an instrument that has moved on to OME-Zarr 0.5 is
+    # exactly the one most likely to need it.
     changed = False
-    for holder in holders:
-        if not isinstance(holder, dict):
-            continue
+    for holder in _ome_holders(described):
         for multiscale in holder.get("multiscales") or []:
             if not isinstance(multiscale, dict):
                 continue
@@ -257,9 +283,10 @@ def _read_attrs_at(path: Path) -> dict:
 
     Version 3 nests what we want twice over: the attributes live under
     ``attributes`` in ``zarr.json``, and OME-Zarr 0.5 puts ``multiscales`` and
-    ``omero`` under an ``ome`` key inside that. Both are lifted here so that
-    everything downstream — axes, channels, voxel size, frame counts — reads one
-    flat description and never asks which version wrote it.
+    ``omero`` under an ``ome`` key inside that. Both are lifted here — see
+    :func:`_ome_holders` for the places that are looked in — so that everything
+    downstream, meaning axes, channels, voxel size and frame counts, reads one flat
+    description and never asks which version wrote it.
     """
     key = str(path)
     described = _description_file(path)
@@ -281,12 +308,142 @@ def _read_attrs_at(path: Path) -> dict:
     if not isinstance(attrs, dict):
         attrs = {}
     if described.name == "zarr.json":
+        # Everything else in a version 3 file describes the group rather than the
+        # image, so the store's own attributes are all we want from it.
         attrs = attrs.get("attributes") if isinstance(attrs.get("attributes"), dict) else {}
-        nested = attrs.get("ome")
-        if isinstance(nested, dict):
-            attrs = {**attrs, **nested}
+    # Flattened by merging each place the metadata could be, the innermost last so
+    # that a store nesting it under "ome" wins over anything left at the top.
+    flat: dict = {}
+    for holder in _ome_holders(attrs):
+        flat.update(holder)
+    attrs = flat
     _attrs_cache[key] = (stamp, attrs)
     return attrs
+
+
+# --- what the array inside a store says about itself ------------------------
+#
+# The store's description, read above, says what the image *is*: its axes, its
+# channels, how large a voxel is. The array inside it keeps a second description,
+# just as small, saying how the image is actually laid out on disk — how long it is,
+# how its pieces are named, and how much of the image one piece holds. Two questions
+# here need those facts, and getting them wrong is not harmless: it either offers the
+# operator moments that were never imaged, or hides moments that were.
+#
+# Zarr version 2 writes this as ``.zarray`` beside the pieces, version 3 as a
+# ``zarr.json`` in the same place. The two say the same things under different names,
+# and :func:`_read_array_description` hands both back in one shape so that nothing
+# below has to ask which version wrote the store.
+#
+# What it costs: one small file read per store, and only the first time. The answer is
+# remembered against the file's own modification time, exactly as the store's
+# description is, because an array's layout does not change once the array exists. So
+# a folder of tens of thousands of stores pays one read each when it is opened and
+# nothing at all on later refreshes.
+_array_cache: dict[str, tuple[int, dict]] = {}
+
+
+def _read_array_description(level: Path) -> dict:
+    """How the array at ``level`` is laid out on disk, whichever zarr version wrote it.
+
+    ``level`` is the folder holding one resolution level of the image — ``0`` inside
+    the store, for the full-resolution copy. What comes back is a small set of facts,
+    and an empty answer if the array cannot be read at all:
+
+    ``shape``
+        How long the array is along each axis, as the store declares it. Note that
+        this is room promised rather than images written, which is the whole reason
+        :func:`written_timepoints` has to go and look at what is on disk.
+    ``pieces``
+        How much of the image, along each axis, a single *file* on disk covers.
+    ``prefix`` and ``separator``
+        How a piece's name is built from its position, described in full under
+        :func:`_count_frames`.
+
+    Nothing here raises. A store caught half-written, or one whose description is not
+    the shape we expect, comes back as an empty answer and the callers then decline to
+    say anything rather than guessing.
+    """
+    key = str(level)
+    for name in (".zarray", "zarr.json"):
+        found = level / name
+        try:
+            stamp = found.stat().st_mtime_ns
+        except OSError:
+            continue
+        remembered = _array_cache.get(key)
+        if remembered is not None and remembered[0] == stamp:
+            return remembered[1]
+        try:
+            described = json.loads(found.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            described = None
+        answer = _array_layout(described) if isinstance(described, dict) else {}
+        _array_cache[key] = (stamp, answer)
+        return answer
+    _array_cache.pop(key, None)
+    return {}
+
+
+def _array_layout(described: dict) -> dict:
+    """Read one array description into the shape :func:`_read_array_description` promises."""
+    shape = _numbers(described.get("shape"))
+    if described.get("zarr_format") == 3 or "chunk_grid" in described:
+        return {"shape": shape, **_version_3_layout(described)}
+    return {"shape": shape, **_version_2_layout(described)}
+
+
+def _version_2_layout(described: dict) -> dict:
+    """Version 2, which names its pieces plainly: ``3.0.0`` or, in folders, ``3/0/0``."""
+    separator = described.get("dimension_separator")
+    return {
+        "pieces": _numbers(described.get("chunks")),
+        "prefix": "",
+        # A version 2 array that says nothing files its pieces side by side in one
+        # folder, which is the layout `DATA_LAYOUT.md` asks writers to avoid.
+        "separator": separator if separator in ("/", ".") else ".",
+    }
+
+
+def _version_3_layout(described: dict) -> dict:
+    """Version 3, which has two ways of naming a piece and a default for each.
+
+    The ``default`` naming puts a ``c`` in front of every piece — ``c/3/0/0`` — to
+    keep the pieces from being confused with anything else in the folder, and its
+    separator is a slash unless the store says otherwise. The ``v2`` naming leaves the
+    ``c`` off, so it looks exactly like version 2, and its separator is a dot unless
+    the store says otherwise. Those two defaults being *different* is the easiest thing
+    to get wrong here.
+
+    One thing worth knowing about the sizes: the chunk grid describes the pieces that
+    are really written as files, so where a ``sharding_indexed`` codec packs many small
+    chunks into one large file, the grid already gives the size of that file. That is
+    why the codecs do not have to be read to find out how much of the image one file
+    covers.
+    """
+    grid = described.get("chunk_grid")
+    settings = grid.get("configuration") if isinstance(grid, dict) else None
+    encoding = described.get("chunk_key_encoding")
+    encoding = encoding if isinstance(encoding, dict) else {}
+    named = encoding.get("configuration")
+    named = named if isinstance(named, dict) else {}
+    prefix, fallback = ("", ".") if encoding.get("name") == "v2" else ("c", "/")
+    separator = named.get("separator")
+    return {
+        "pieces": _numbers(settings.get("chunk_shape") if isinstance(settings, dict) else None),
+        "prefix": prefix,
+        "separator": separator if separator in ("/", ".") else fallback,
+    }
+
+
+def _numbers(value: object) -> list[int]:
+    """A list of whole numbers out of a description, or nothing if it is not one."""
+    if not isinstance(value, list):
+        return []
+    try:
+        return [int(number) for number in value]
+    except (TypeError, ValueError):
+        return []
 
 
 def zarr_scheme(store: Path) -> str:
@@ -357,17 +514,19 @@ def _channel_count(store: Path, names: list[str], described: int) -> int | None:
     The array is the authority, not the ``omero`` block: a description listing
     three channels for a two-channel array would otherwise produce a layer with
     nothing behind it.
+
+    The array's own length is read through :func:`_read_array_description`, so this
+    holds for a version 3 store as well as a version 2 one. That is not a detail: a
+    store written to OME-Zarr 0.5 keeps its ``omero`` block in a different place but
+    is no more likely to have got the number right, and falling back to what the
+    description claims is precisely how the empty layer appears.
     """
     if "c" not in names:
         return None
     datasets = (_read_attrs_at(store).get("multiscales") or [{}])[0].get("datasets") or []
     if not datasets:
         return described or None
-    level = datasets[0].get("path")
-    try:
-        shape = json.loads((store / str(level) / ".zarray").read_text(encoding="utf-8"))["shape"]
-    except (OSError, json.JSONDecodeError, KeyError, TypeError):
-        return described or None
+    shape = _read_array_description(store / str(datasets[0].get("path"))).get("shape") or []
     index = names.index("c")
     return int(shape[index]) if index < len(shape) else (described or None)
 
@@ -447,7 +606,7 @@ def forget(store: Path) -> None:
     # insisting on the separator, keeps a store called "overview" from taking
     # "overview-2" with it.
     inside = under + os.sep
-    for remembered in (_attrs_cache, _frame_counts):
+    for remembered in (_attrs_cache, _array_cache, _frame_counts):
         for key in [key for key in remembered if key == under or key.startswith(inside)]:
             del remembered[key]
 
@@ -488,10 +647,12 @@ def written_timepoints(store: Path) -> int | None:
     **What ``None`` means.** There is nothing to stop the slider at, so the viewer
     places no limit on it and every moment the store declares can be reached. That
     is the answer when the store has no time axis, when nothing has been written
-    yet, and when the answer cannot be had cheaply. It is deliberately not used for a
-    timelapse with gaps in it, because for a store declaring room for ten thousand
-    moments it would offer all ten thousand — many more empty ones than simply
-    reaching as far as the data does.
+    yet, when the answer cannot be had cheaply, and when a single file on disk holds
+    more than one moment — on which see :func:`_count_frames`, because that last one
+    is the case where a number would be badly wrong rather than merely unavailable.
+    It is deliberately not used for a timelapse with gaps in it, because for a store
+    declaring room for ten thousand moments it would offer all ten thousand — many
+    more empty ones than simply reaching as far as the data does.
 
     **How the image is filed decides whether this is instant or ruinous.** A piece
     of the image is stored under a name built from its position. Those names can be
@@ -506,6 +667,10 @@ def written_timepoints(store: Path) -> int | None:
       which is slow to look through and hard on the file system besides. Here the
       look is capped and, past the cap, abandoned rather than allowed to stall the
       viewer.
+
+    Zarr version 3 spells both of those slightly differently — it usually puts a
+    ``c`` in front of every piece — and :func:`_count_frames` reads all of the
+    spellings. Nothing above changes for a version 3 store; only the names do.
     """
     names = axis_names(store)
     if "t" not in names or names.index("t") != 0:
@@ -514,12 +679,17 @@ def written_timepoints(store: Path) -> int | None:
     if not datasets:
         return None
     level = store / str(datasets[0].get("path"))
+    # Which folder gains an entry as each moment lands depends on how the store names
+    # its pieces, so it has to be worked out rather than assumed to be this one. Watch
+    # the wrong folder and its modification time never moves, which would leave the
+    # viewer repeating the first answer it ever worked out however long the run went on.
+    watched = _moments_folder(level)
 
     try:
-        stamp = level.stat().st_mtime_ns
+        stamp = watched.stat().st_mtime_ns
     except OSError:
         return None
-    remembered = _frame_counts.get(str(level))
+    remembered = _frame_counts.get(str(watched))
     if remembered is not None and (remembered[0] == stamp or remembered[1] is _TOO_MANY):
         # A folder holding too many pieces to look through will not hold fewer
         # later, so that verdict stands whatever is written next. Without this the
@@ -534,8 +704,26 @@ def written_timepoints(store: Path) -> int | None:
         return None if remembered[1] is _TOO_MANY else remembered[1]
 
     answer = _count_frames(level)
-    _frame_counts[str(level)] = (stamp, answer)
+    _frame_counts[str(watched)] = (stamp, answer)
     return None if answer is _TOO_MANY else answer
+
+
+def _moments_folder(level: Path) -> Path:
+    """The folder that gains an entry as each moment of a timelapse is written.
+
+    For nearly every layout that is the resolution level's own folder, ``0`` inside the
+    store. Zarr version 3's default naming is the exception: it files every piece under
+    a folder called ``c`` inside that one, so ``c`` is what grows as the run goes and
+    ``0`` itself is left untouched after the array is created.
+
+    This is what the frame count is remembered against, which is why it matters. A
+    folder whose modification time never moves looks to the viewer like a run that
+    never produced another frame.
+    """
+    described = _read_array_description(level)
+    if described.get("prefix") and described.get("separator") == "/":
+        return level / str(described["prefix"])
+    return level
 
 
 def _count_frames(level: Path) -> int | None | _TooManyToCount:
@@ -551,12 +739,36 @@ def _count_frames(level: Path) -> int | None | _TooManyToCount:
     :func:`written_timepoints` for the two ordinary reasons — so stopping at the
     first missing one would hide every moment after it.
 
+    **The names to expect, and there are more of them than there used to be.** A piece
+    is named after the position it holds, and both zarr versions offer a choice of
+    separator between the numbers of that position. Version 3 adds a ``c`` in front by
+    default, to keep its pieces distinct from anything else in the folder. Reading only
+    the version 2 spellings is what made this answer ``None`` for a version 3 store,
+    and ``None`` means "do not limit the slider" — so a run of three moments inside a
+    store declaring a thousand offered the operator all thousand of them.
+
     ``None`` means nothing countable is there *yet*: the run has not written its
     first frame, or the folder could not be read at this moment. That is an ordinary
     and hopeful answer, worth asking about again shortly. ``_TOO_MANY`` is the other
     way of coming away without a number and it is final: there are more pieces in
     this folder than it is sensible to look through, and a folder that large is not
     going to become small again.
+
+    **One file holding several moments is a third way of coming away with nothing, and
+    it is the important one.** Everything above rests on a file's name telling you which
+    moment it belongs to, and that only holds while one file is one moment. A store may
+    instead give each file a span of the time axis — a chunk covering ten moments, or a
+    shard packing a thousand of them into one file — and then the furthest file says
+    almost nothing about how far the images reach. A run nine hundred moments in, writing
+    into a shard that spans a thousand, has produced exactly one file, numbered zero:
+    counted naively that reads as a single moment imaged, and the operator would be shown
+    one moment out of nine hundred that exist and are perfectly readable.
+
+    So where a file spans more than one moment this declines to answer at all. That looks
+    like giving up more than the rest of this function does, and it is the right way
+    round. Under-reporting is tolerable only while the error is bounded by a single
+    moment, which is what the layouts above guarantee. Bounded by the span of a shard it
+    hides the whole run, and no number is better than that number.
 
     Either way the caller ends up without a number and should then not limit the
     time slider at all. The operator can reach every moment the store declares, and
@@ -591,34 +803,91 @@ def _count_frames(level: Path) -> int | None | _TooManyToCount:
     now faster as well as correct. What has genuinely become dearer is following a
     store that is still growing, and there the cost is a few milliseconds each time
     a frame lands — frames land seconds apart.
+
+    Reading the array's own description costs one small file read per store, paid the
+    first time and remembered after that — see :func:`_read_array_description`. It
+    takes the place of two reads of the same kind that were not remembered at all, one
+    here and one in :func:`_channel_count`, so a folder of tens of thousands of stores
+    is if anything slightly cheaper to describe than it was.
+
+    The caller has already checked that time is this array's *first* axis, which is why
+    the first number of everything read here can be taken as a moment.
     """
-    nested = _reads_from_folders(level)
-    highest = -1
+    described = _read_array_description(level)
+    if not described:
+        # Without the array's own description there is no way to know how its pieces
+        # are named, nor how much of the timelapse one of them holds, and either guess
+        # produces a number that is confidently wrong. This is the answer for a store
+        # caught in the moment between being created and being described, too.
+        return None
+    if (described.get("pieces") or [])[:1] != [1]:
+        # A file spanning several moments, or an array that will not say how much a
+        # file spans. Either way the names on disk cannot be read as moments; the
+        # docstring above sets out why declining is much safer than counting anyway.
+        return None
+
+    prefix, separator = described["prefix"], described["separator"]
+    if separator == "/":
+        # One folder per moment, and its name *is* the moment. Version 3's default
+        # naming keeps those folders one step further in, under ``c``. Nothing is
+        # capped on this path, and that is deliberate: this is the layout
+        # `DATA_LAYOUT.md` asks for precisely because it keeps the folder down to one
+        # entry per moment, which is small enough to read however long the run goes on.
+        furthest = _furthest_moment_among_folders(level / prefix if prefix else level)
+    else:
+        # All in one folder, so every piece is its own file with its whole position in
+        # the name. Many pieces share one moment, which is why the furthest is taken
+        # rather than the names being counted.
+        furthest = _furthest_moment_among_files(level, f"{prefix}{separator}" if prefix else "")
+
+    if not isinstance(furthest, int):
+        return furthest  # Nothing there yet, or more pieces than are worth reading.
+    # Every entry in the folder has been looked at, so this really is the furthest
+    # moment on disk and not merely the furthest one that happens to sit above a
+    # gap. That is the whole difference between this and the version it replaced.
+    return furthest + 1
+
+
+def _furthest_moment_among_folders(folder: Path) -> int | None:
+    """The highest-numbered folder in ``folder``, each of which is one moment."""
+    furthest = None
+    try:
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                if entry.name.isdigit():
+                    moment = int(entry.name)
+                    furthest = moment if furthest is None else max(furthest, moment)
+    except OSError:
+        return None
+    return furthest
+
+
+def _furthest_moment_among_files(folder: Path, prefix: str) -> int | None | _TooManyToCount:
+    """The furthest moment named by the files in ``folder``, or nothing if there are too many.
+
+    ``prefix`` is whatever every piece's name begins with before the numbers start —
+    ``"c."`` for a version 3 store using its default naming, and nothing at all for the
+    rest. Anything not beginning with it is not a piece of this image and is passed
+    over: the array's own description sits in this same folder.
+    """
+    furthest = None
     seen = 0
     try:
-        with os.scandir(level) as entries:
+        with os.scandir(folder) as entries:
             for entry in entries:
                 name = entry.name
                 if name.startswith("."):
                     # ``.zarray`` and its like describe the image rather than
                     # holding any of it, so they are not moments.
                     continue
-                if nested:
-                    # One folder per frame, and its name *is* the frame number.
-                    # Nothing is capped on this path, and that is deliberate: this
-                    # is the layout `DATA_LAYOUT.md` asks for precisely because it
-                    # keeps this folder down to one entry per frame, which is small
-                    # enough to read however long the timelapse runs.
-                    if name.isdigit():
-                        highest = max(highest, int(name))
-                    continue
-                # All in one folder, so every piece is its own file and the first
-                # number in its name says which moment it belongs to. Many pieces
-                # share one moment, which is why the highest is taken rather than
-                # the names being counted.
+                if prefix:
+                    if not name.startswith(prefix):
+                        continue
+                    name = name[len(prefix) :]
                 head, _, rest = name.partition(".")
                 if rest and head.isdigit():
-                    highest = max(highest, int(head))
+                    moment = int(head)
+                    furthest = moment if furthest is None else max(furthest, moment)
                 seen += 1
                 if seen > _SCAN_LIMIT:
                     # Too many to look through. Better to let the store speak for
@@ -628,21 +897,7 @@ def _count_frames(level: Path) -> int | None | _TooManyToCount:
                     return _TOO_MANY
     except OSError:
         return None
-    if highest < 0:
-        return None
-    # Every entry in the folder has been looked at, so this really is the furthest
-    # moment on disk and not merely the furthest one that happens to sit above a
-    # gap. That is the whole difference between this and the version it replaced.
-    return highest + 1
-
-
-def _reads_from_folders(level: Path) -> bool:
-    """Whether this image files its pieces in folders rather than one flat heap."""
-    try:
-        described = json.loads((level / ".zarray").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    return described.get("dimension_separator") == "/"
+    return furthest
 
 
 def _hex_to_rgb(value: object) -> tuple[float, float, float] | None:
