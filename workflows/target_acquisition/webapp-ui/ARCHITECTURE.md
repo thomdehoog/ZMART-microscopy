@@ -120,18 +120,29 @@ tree matches the picture.
 
 | part | state |
 |---|---|
-| `lib/` | built, unit-tested, **not yet imported by the app** |
+| `lib/carriers.js` | built, unit-tested, **used by the app and by `widgets/carrier.js`** |
+| `lib/microscopes.js` | used by the app |
+| `lib/surface.js`, `sweep.js`, `sample.js`, `rng.js` | built, unit-tested, **not yet imported by the app** |
 | `backend/mock.js` | built, **not yet imported by the app** |
-| `frame/steps.js` | built, unit-tested, **not yet imported by the app** |
-| `workflows/` | built, unit-tested, **not yet imported by the app** |
-| `widgets/` | not started |
-| `src/main.js` | the whole running app, ~2100 lines, its own copies of all of the above |
+| `frame/steps.js` | built, unit-tested; only `numbered()` is used |
+| `workflows/` | built, unit-tested, **not yet imported and now stale** |
+| `widgets/carrier.js` | built, used — the first widget, and the shape the rest should follow |
+| `src/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
-**Widget extraction is deferred on purpose.** While the UI is still being
-designed, a single file is faster to iterate in — most changes are CSS plus one
-draw function — and module boundaries drawn around a moving design get redrawn.
-Extraction earns its keep when a new widget appears, or when more than one
-person works on the page at once. Neither is true yet.
+**Widget extraction has started, from the outside in.** `widgets/carrier.js` is
+the first: it owns one panel, is handed a configuration and a callback, and
+knows nothing about run state. Its geometry lives in `lib/carriers.js`, so the
+panel and the canvas cannot disagree about where a well is.
+
+One rule it establishes, which the next widget should keep: **a widget redraws
+itself.** Asking the frame to rebuild the panel on every change destroys the
+field being typed into — the defect this page has produced twice. `carrier.js`
+writes new values into the controls that already exist and skips the focused
+one.
+
+The rest is still inline in `main.js` on purpose. While the UI is being
+designed a single file is faster to iterate in, and boundaries drawn around a
+moving design get redrawn. Take a panel out when it stops moving.
 
 **The hazard: four facts are currently defined twice.** Surface fitting, the
 sweep and peak rules, the synthetic sample, and the workflow declarations all
