@@ -142,7 +142,7 @@ import {
   const state = {
     session: { ...DEFAULT_SESSION },
     recordings: [],
-    draft: { type: SETTING_TYPES[0].key, name: "" },
+    drafts: [{ type: SETTING_TYPES[0].key, name: "" }],
     carrier: DEFAULT_CARRIER,
     checks: [],
     wf: "target_acquisition",
@@ -192,7 +192,7 @@ import {
     Object.assign(state, {
       activeIdx: 0, done: new Set(), running: null, notes: {},
       session: { ...DEFAULT_SESSION }, recordings: [],
-      draft: { type: SETTING_TYPES[0].key, name: "" },
+      drafts: [{ type: SETTING_TYPES[0].key, name: "" }],
       carrier: DEFAULT_CARRIER, checks: [],
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
       detect: newDetect(), detected: new Set(),
@@ -594,12 +594,22 @@ import {
       card.append(list);
     }
 
-    if (!done) card.append(renderRecorder());
+    if (!done) renderDrafts(card);
     host.append(card);
   }
 
-  /** The always-empty row at the bottom: pick a kind, name it, record it. */
-  function renderRecorder() {
+  /* One bar per setting. Choosing a kind in the last bar opens a fresh one
+     beneath it, so several presets can be lined up and recorded as the
+     microscope is set up for each — and there is always an empty bar waiting
+     at the bottom.
+
+     Only the select spawns a bar. Doing it on every keystroke would rebuild
+     the row being typed into and throw the field away. */
+  function renderDrafts(card) {
+    for (const draft of state.drafts) card.append(renderDraft(draft));
+  }
+
+  function renderDraft(draft) {
     const row = document.createElement("div");
     row.className = "rec-new";
 
@@ -610,14 +620,18 @@ import {
       o.textContent = t.label;
       kind.append(o);
     }
-    kind.value = state.draft.type;
-    kind.addEventListener("change", () => { state.draft.type = kind.value; });
+    kind.value = draft.type;
+    kind.addEventListener("change", () => {
+      draft.type = kind.value;
+      if (draft === state.drafts[state.drafts.length - 1]) newDraft();
+      renderSetup();
+    });
 
     const name = document.createElement("input");
     name.type = "text";
     name.placeholder = "Name of this preset";
-    name.value = state.draft.name;
-    name.setAttribute("aria-label", "name for this recording");
+    name.value = draft.name;
+    name.setAttribute("aria-label", "name for this preset");
 
     const go = document.createElement("button");
     go.className = "run";
@@ -627,31 +641,34 @@ import {
     const why = document.createElement("div");
     why.className = "session-hint";
 
-    // typing must not rebuild the row, or the field loses focus every keystroke
+    const taken = (value) => state.recordings.some((r) => r.name === value)
+      || state.drafts.some((d) => d !== draft && d.name.trim() === value);
+
     const check = () => {
+      draft.name = name.value;
       const value = name.value.trim();
-      const taken = state.recordings.some((r) => r.name === value);
-      go.disabled = !value || taken || !!state.running;
-      why.textContent = taken ? "that name is already used" : "";
-      why.classList.toggle("bad", taken);
-      state.draft.name = name.value;
+      const clash = value && taken(value);
+      go.disabled = !value || clash || !!state.running;
+      why.textContent = clash ? "that name is already used" : "";
+      why.classList.toggle("bad", !!clash);
     };
     name.addEventListener("input", check);
     check();
 
     go.addEventListener("click", () => {
       const value = name.value.trim();
-      const nth = state.recordings.filter((r) => r.type === state.draft.type).length;
+      const nth = state.recordings.filter((r) => r.type === draft.type).length;
       go.disabled = true;
       go.textContent = "reading…";
       // a controller round-trip, not an instant assignment
       setTimeout(() => {
         state.recordings.push({
-          type: state.draft.type,
+          type: draft.type,
           name: value,
-          state: sampleState(state.draft.type, nth),
+          state: sampleState(draft.type, nth),
         });
-        state.draft.name = "";
+        state.drafts = state.drafts.filter((d) => d !== draft);
+        if (!state.drafts.length) newDraft();
         renderSetup();
         renderActionBar();
       }, 480);
@@ -660,6 +677,9 @@ import {
     row.append(kind, name, go, why);
     return row;
   }
+
+  const newDraft = () =>
+    state.drafts.push({ type: SETTING_TYPES[0].key, name: "" });
 
   function renderCarrierCard(host) {
     const done = state.done.has("carrier");
