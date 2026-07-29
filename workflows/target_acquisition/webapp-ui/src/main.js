@@ -651,7 +651,7 @@ import {
       const label = document.createElement("div");
       label.className = "group-label";
       // the selector says the kind; the heading says what kind of thing it is
-      label.textContent = `${type.label} presets`;
+      label.textContent = `Recorded ${type.label} presets`;
       group.append(label);
 
       for (const bar of mine) {
