@@ -65,14 +65,17 @@ export default {
 `ctx` carries `{ state, actions, backend }`. Widgets read `state`, call
 `actions` to change it, and the frame re-renders. That is the whole contract.
 
-**The canvas holds acquired data, so it appears when there is some.** Before
-the first tile lands there is nothing to put on a stage, and the setup steps
-have real state worth showing — so **setup** is the base widget until then,
-and the canvas is the base from the first tile onward.
+**The carrier sets the canvas up.** It settles where the stage may go, which
+is the frame everything afterwards is drawn in, so that is the moment there is
+something to draw. **setup** is the base widget until then; from there the
+canvas is the base and stays for the rest of the run — the window into the
+data, filling up rather than appearing once full.
 
-Every other widget belongs to the step that declared it and is only shown
-while that step is selected. Planning surfaces — choosing a focus strategy,
-tuning detection — are not acquired data and get their own widgets.
+The setup steps each declare the `setup` widget, so walking back to one still
+shows its card once the canvas has taken the base. Every other widget belongs
+to the step that declared it and is only shown while that step is selected.
+Planning surfaces — choosing a focus strategy, tuning detection — are not
+acquired data and get their own widgets.
 
 ## Steps and workflows
 
