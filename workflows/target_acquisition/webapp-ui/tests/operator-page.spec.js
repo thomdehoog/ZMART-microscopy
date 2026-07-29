@@ -278,12 +278,13 @@ test("nothing advances by itself, and the next step stays locked until it can ru
 
 test("the carrier sets the canvas up, and from then on it is always there",
   async ({ page }) => {
-    // Its own panel and nothing else, so no tab bar at all: one tab is not a
-    // choice, and the rail already says which step this is.
-    await expect(page.locator(".tab")).toHaveCount(0);
+    // a tab names what is loaded, even when it is the only one
+    await expect(page.locator(".tab")).toHaveText(["Microscope configuration"]);
     await throughSetup(page);
     await expect(page.locator(".tab"), "the run reached the carrier, so the canvas exists")
       .toHaveText(["Canvas"]);
+    // the channel is named over the column it heads, not as a tab you switch to
+    await expect(page.locator(".side-tab")).toHaveText("Carrier configuration");
     // the carrier is not a tab of its own: its controls dock beside the drawing
     // they change, and the canvas is the only picture of it
     await expect(page.locator("#canvas-side")).toBeVisible();
