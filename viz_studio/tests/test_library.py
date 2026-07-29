@@ -385,9 +385,19 @@ class TestNoticingThatSomethingChanged:
         still_writing.mkdir()
         (still_writing / ".zattrs").write_text("{}", encoding="utf-8")
         while_writing = library.revision()
-        assert not library.entries() or "prescan_pos001.ome.zarr" not in [
-            name for _, _, name in library.entries()
-        ], "it should not be readable yet"
+        # Two things are being said here, and both of them need saying. The folder
+        # still being written is not offered yet, which is the point of this
+        # check — but the store that *is* readable has to be offered, or an empty
+        # list would satisfy the first half while telling us nothing at all. A
+        # library that had lost both stores would then look like a library
+        # behaving correctly.
+        open_now = [name for _, _, name in library.entries()]
+        assert "overview_pos001.ome.zarr" in open_now, (
+            f"the readable store went missing, so this proves nothing: {open_now}"
+        )
+        assert "prescan_pos001.ome.zarr" not in open_now, (
+            f"a folder still being written was offered as an image: {open_now}"
+        )
 
         # Now the writer fills in the description it created earlier. Nothing is
         # added to the folder, so the folder's own time does not move -- only the

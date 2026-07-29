@@ -71,31 +71,56 @@ export function shaderFor(color, volumetric, lut = null) {
     const [r, g, b] = color || [1, 1, 1];
     return source + `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized() * opacity)); }`;
   }
-  // Ground nothing has been imaged on has to come out *transparent*, not black.
+  // A flat picture has two things to get right at once, and they pull in opposite
+  // directions, so it is worth setting out both before the code.
   //
-  // A row drawn with a solid colour everywhere covers whatever is underneath it,
-  // and most of a row is usually empty: a canvas is declared to the size of the
-  // stage and filled in as the run goes, so at the start it is empty everywhere.
-  // Drawn opaque, the topmost row therefore blacks out every row below it, and an
-  // experiment with an overview and a target scan — or simply two channels — shows
+  // **The brightness has to reach the screen.** Turning the contrast handles is how
+  // a microscopist finds their specimen, so whatever window is chosen must change
+  // what the picture looks like. That means the *colour* the shader emits has to
+  // carry the brightness: `colour × v`, where `v` is the value after the window has
+  // been applied.
+  //
+  // **Ground nothing has been imaged on has to come out transparent, not black.**
+  // Most of a row is usually empty — a canvas is declared to the size of the stage
+  // and filled in as the run goes, so at the start it is empty everywhere. A row
+  // drawn opaque everywhere therefore blacks out every row below it, and an
+  // experiment with an overview and a target scan, or simply two channels, shows
   // only whichever happens to be on top. Both rows load, both hold their data, and
-  // one of them is invisible.
+  // one of them is invisible. That means the *transparency* has to say whether this
+  // spot was imaged at all — and nothing else.
   //
-  // Giving the brightness to the alpha channel fixes it, and changes nothing about
-  // how a single row looks: the engine multiplies the colour by the alpha before
-  // drawing, so a lone row over the black background comes out exactly as it did
-  // before. It is only where rows overlap that the behaviour differs, and there
-  // the new behaviour is the one anybody would expect.
+  // So brightness goes in the colour and coverage goes in the transparency. They are
+  // two separate questions and each gets its own channel.
   //
-  // This is the same shape the three-dimensional path above has always used, which
-  // is why volumes could be shown together and flat pictures could not.
+  // This corrects an earlier attempt that put the brightness into the transparency
+  // instead, on the belief that the engine multiplies colour by transparency before
+  // drawing. It does not, for the bottom-most picture on screen: there it switches
+  // blending off altogether and writes the colour straight out, using transparency
+  // only as a yes-or-no test for "is this background?". A window chosen by the
+  // operator therefore never reached the picture — every window drew the same flat
+  // white shape — which is the fault this shape fixes.
+  //
+  // Two temptations to record, because both are wrong in ways that are hard to see.
+  // Writing `vec4(colour * v, v)` fixes the bottom picture and quietly darkens every
+  // picture above it twice over, because the engine's ordinary blending is
+  // *straight* transparency rather than the pre-multiplied kind and so multiplies by
+  // `v` a second time. And asking for additive blending fixes the brightness by
+  // making overlapping tiles sum into bright seams, which breaks the property the
+  // several-images arrangement exists to provide: where tiles overlap, one picture is
+  // simply drawn over the other and the result looks as it would have if a single
+  // image had been used.
+  const covered = "v > 0.0 ? 1.0 : 0.0";
   if (stops) {
+    // A lookup table already carries the brightness in its colour, since that is
+    // what a lookup table is, so only the transparency needs saying here.
     return source + "void main() { float v = normalized();"
-      + " emitRGBA(vec4(zmartLut(v), v)); }";
+      + ` emitRGBA(vec4(zmartLut(v), ${covered})); }`;
   }
-  if (!color) return source + "void main() { emitRGBA(vec4(1.0, 1.0, 1.0, normalized())); }";
-  const [r, g, b] = color;
-  return source + `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized())); }`;
+  // White is the honest default for a single channel with no colour of its own:
+  // there is nothing to distinguish it from, so a colour would be an invention.
+  const [r, g, b] = color || [1, 1, 1];
+  return source + "void main() { float v = normalized();"
+    + ` emitRGBA(vec4(vec3(${r}, ${g}, ${b}) * v, ${covered})); }`;
 }
 
 // The values for the controls declared above. These reach the graphics card

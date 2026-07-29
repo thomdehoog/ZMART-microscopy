@@ -33,8 +33,8 @@ want the whole screen for the specimen. It has up to four parts:
   for whichever channel is picked out below. There is one set of these rather than
   one per channel: you adjust one channel at a time, and with sliders on every row
   only two or three channels fitted on a screen.
-- **image data** — every acquisition type open, with its channels under it. Click a
-  channel to adjust it, use the eye to hide it, drag an acquisition type by its grip
+- **image data** — every acquisition open, with its channels under it. Click a
+  channel to adjust it, use the eye to hide it, drag an acquisition by its grip
   to change which is drawn on top.
 - **selection** — the places you have marked. Off unless asked for (`--select`).
 
@@ -52,13 +52,27 @@ says so and suggests the folder above or below.
 
 A few things worth knowing:
 
-- **A folder being written to is fine.** Acquisitions that appear while you are
+- **A folder being written to is fine.** Positions that appear while you are
   watching are picked up on their own, usually within a second, and a timelapse
   growing in time extends its own slider as frames arrive.
-- **Names carry meaning.** A store called `overview_pos001.ome.zarr` is read as
-  the "overview" acquisition type at position 1, and every position of one
-  acquisition type is gathered under one heading. `DATA_LAYOUT.md` explains the
-  naming and why it was chosen.
+- **One folder, one acquisition.** What you open becomes a single heading in the
+  panel, named after the folder you chose, and every store in it feeds it — the
+  positions of a tiled overview are pieces of one specimen, so they are drawn as
+  one picture. Which stores belong together is read from the stores themselves,
+  not from their names: an overview and a close-up target scan were taken at
+  different magnifications, and that is recorded inside each store where nobody
+  can rename it. If the folder you pick already holds two of them, the viewer
+  says so and lists both, so you can point it at the one you wanted.
+- **A second kind of scan appearing during a run gets its own heading.** While a
+  run is being watched, a target scan written into the same folder as the overview
+  is not added to it — it is a different picture at a different magnification, and
+  merging the two would leave you one row, one eye and one set of brightness
+  controls for both. It appears as a heading of its own instead, named after the
+  kind of scan, with its own controls and its own close button.
+- **Names are used for labels, not for grouping.** `Ch488` in a store's name gives
+  a row its name and its false colour, and `Tile0` and the filter block keep the
+  labels short and distinct (that is also what `--tiles` and `--filter` select on).
+  `DATA_LAYOUT.md` records how a run is written to disk and why.
 - **Put the controls on the left** with `--panel-side left`, if that side is easier
   to reach at your microscope.
 - **Show the selection list** with `--select` if you want to mark places.

@@ -97,26 +97,55 @@ def is_store(path: Path) -> bool:
     return bool(_read_attrs_at(path).get("multiscales"))
 
 
-# --- what a smart-microscopy run leaves on disk -----------------------------
+# --- what a smart-microscopy run leaves on disk, and what we read from it ----
 #
-# A run writes one OME-Zarr per acquisition, named by the driver as
-# "{acquisition_type}_{position_label}" -- for example ``overview_pos001`` and
-# ``targetscan_cell042``. So the folder for one experiment holds many stores that
-# fall into a few natural families:
+# A run's folder holds each of its kinds of scan side by side. There are two
+# shapes of that, and both turn up:
 #
-#   overview_pos001.ome.zarr  \
-#   overview_pos002.ome.zarr   >  the "overview" acquisition type, three positions
-#   overview_pos003.ome.zarr  /
-#   targetscan_cell042.ome.zarr  -  the "targetscan" type, one position
+#   overview.ome.zarr             one image per kind of scan, named after it, with
+#   targetscan.ome.zarr           every position written into its own place inside.
+#                                 This is what zmart_storage writes today; a run
+#                                 that has to keep the overlap between its tiles
+#                                 spreads the same scan over overview_part0,
+#                                 overview_part1 and so on.
 #
-# Positions belong together: each carries its own place on the stage, so shown
-# together they make one specimen rather than three unrelated pictures. That is
-# why the viewer groups by acquisition type and treats the positions inside a
-# group as pieces of the same image.
+#   overview_pos001.ome.zarr      one image per position, named by the driver as
+#   overview_pos002.ome.zarr      "{acquisition type}_{position label}" -- that is
+#   targetscan_cell042.ome.zarr   canonical_stem() in the mesoSPIM driver. A
+#                                 transfer of separate tiles and channels arrives
+#                                 in this shape too, carrying the tile and the
+#                                 channel in the name (scan_Tile0_Ch488.ome.zarr).
 #
-# The type is read from the name rather than from a list written here on purpose.
-# An experiment may invent an acquisition type we have never heard of, and it
-# should still appear in the viewer, correctly grouped, with no code change.
+# Positions of one scan belong together: each carries its own place on the stage,
+# so shown together they make one specimen rather than several unrelated pictures.
+#
+# **What decides that they belong together is not the name.** The viewer used to
+# read the text before a store's first underscore as its acquisition type and
+# gather stores by it, so what appeared on screen came from a naming convention.
+# That was replaced: one load is one dataset, and the stores in a load have to be
+# one acquisition -- which is checked by reading the *voxel size* out of each store
+# (``voxel_size`` below, used by ``library.py``). The voxel size is the
+# magnification the microscope actually used and cannot be anything else, whereas a
+# folder can be renamed by anybody. A folder holding two magnifications is
+# therefore refused, with both named, rather than merged; see
+# ``_one_acquisition_only`` in ``library.py``.
+#
+# The names are still read, for three things, and it is worth knowing which:
+#
+#   - the channel, where a store holds a single one and says so in its name
+#     (``Ch488``): that gives the row its label and its false colour. See
+#     ``channel_of`` and ``channel_color``.
+#   - the tile and the filter block (``Tile0``, ``Flt...``), which keep layer
+#     labels short and, where two stores would otherwise read the same, distinct.
+#     ``select_tiles`` and ``prefer_filter`` let an operator ask for some of them.
+#   - the kind of scan, as a heading only, when the viewer has had to open a
+#     dataset on its own because a second acquisition appeared in a folder it was
+#     watching. See ``_acquisition_type_in`` in ``library.py``.
+#
+# None of those three decides what belongs with what, which is the point: a run may
+# invent a kind of scan we have never heard of and name it anything at all, and it
+# will still be shown correctly, because what is compared comes from inside the
+# stores.
 
 
 # What an axis unit is called in the format, against what microscopists and their
