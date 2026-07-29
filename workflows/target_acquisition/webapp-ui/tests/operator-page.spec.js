@@ -174,10 +174,18 @@ test("the optical settings panel lines up", async ({ page }) => {
       .map((e) => e.getBoundingClientRect());
     const labels = [...document.querySelectorAll(".group-label")]
       .map((e) => round(e.getBoundingClientRect().x));
-    // whatever opens a row: the recorded name, or the kind selector
+    // Whatever opens a row: the recorded name, or the kind selector. Measured
+    // where its text starts rather than where its box does — a bordered field
+    // holds its text a border and a padding inside its own edge, a recorded
+    // name has neither, and the eye lines up the words.
+    const textStart = (e) => {
+      const c = getComputedStyle(e);
+      return round(e.getBoundingClientRect().x
+        + parseFloat(c.borderLeftWidth) + parseFloat(c.paddingLeft));
+    };
     const starts = [
-      ...[...document.querySelectorAll(".rec-name")].map((e) => round(e.getBoundingClientRect().x)),
-      round(document.querySelector(".rec-new select").getBoundingClientRect().x),
+      ...[...document.querySelectorAll(".rec-name")].map(textStart),
+      textStart(document.querySelector(".rec-new select")),
     ];
     // whatever closes it: the remove button, or Record
     const ends = [
@@ -203,8 +211,10 @@ test("the optical settings panel lines up", async ({ page }) => {
   one(seen.widths, "every bar the same width");
   one(seen.recordedHeights, "every recorded bar the same height");
   one(seen.openHeights, "and the open bar consistent with itself");
-  expect(seen.recordedHeights[0], "folded, both bars stand the same height")
-    .toBe(seen.openHeights[0]);
+  expect(seen.openHeights[0],
+    "the open bar carries the same fields a session does, so it stands taller "
+    + "than the line of text a recorded preset is")
+    .toBeGreaterThan(seen.recordedHeights[0]);
   one(seen.lefts, "every bar on the same left edge");
   one(seen.rights, "every bar on the same right edge");
   one(seen.labels, "every label on that edge too");
