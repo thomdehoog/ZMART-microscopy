@@ -59,24 +59,27 @@ export const SETTING_TYPES = [
   {
     key: "acquisition",
     label: "Acquisition",
-    /* Objective first — magnification, numerical aperture and immersion — then
-       the pixel size it gives, then how many channels. Those are what decide
-       whether a setting can see the thing being looked for. */
+    /* The objective — magnification, numerical aperture, immersion — and how
+       many channels. That is what decides whether a setting can see the thing
+       being looked for. */
     sample: [
-      "5x / 0.15 NA dry · 1.30 µm/px · 2 channels",
-      "63x / 1.40 NA oil · 0.10 µm/px · 2 channels",
-      "10x / 0.40 NA dry · 0.65 µm/px · 1 channel",
-      "40x / 1.10 NA water · 0.16 µm/px · 3 channels",
-      "100x / 1.40 NA oil · 0.06 µm/px · 2 channels",
+      "5x / 0.15 NA dry · 2 channels",
+      "63x / 1.40 NA oil · 2 channels",
+      "10x / 0.40 NA dry · 1 channel",
+      "40x / 1.10 NA water · 3 channels",
+      "100x / 1.40 NA oil · 2 channels",
     ],
   },
   {
     key: "autofocus",
     label: "Autofocus",
+    /* An autofocus runs through an objective like anything else, so it reports
+       the same thing an acquisition does. Its values differ because focusing
+       is usually done lower and faster than imaging. */
     sample: [
-      "Brenner · ±30 µm · 61 steps",
-      "DCT · ±15 µm · 31 steps",
-      "Brenner · ±60 µm · 41 steps",
+      "10x / 0.40 NA dry · 1 channel",
+      "5x / 0.15 NA dry · 1 channel",
+      "20x / 0.75 NA dry · 1 channel",
     ],
   },
 ];

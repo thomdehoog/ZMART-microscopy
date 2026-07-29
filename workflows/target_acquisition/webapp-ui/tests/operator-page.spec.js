@@ -148,8 +148,8 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
   await expect(page.locator(".setting-group")).toHaveCount(2);
   // names are stored capitalised, being identifiers the run refers to
   await expect(page.locator(".rec-name").first()).toHaveText("Survey");
-  await expect(page.locator(".rec-row").first()).toContainText("µm/px");
-  await expect(page.locator(".rec-row").last()).toContainText("Brenner");
+  await expect(page.locator(".rec-row").first()).toContainText("NA");
+  await expect(page.locator(".rec-row").last()).toContainText("NA");
   // a setting existing is what completes the step
   await expect(page.locator('.step:has-text("Optical settings")').first())
     .toHaveClass(/done/);

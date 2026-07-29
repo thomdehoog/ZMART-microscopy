@@ -679,3 +679,6 @@ button.run.danger:hover:enabled { background: #991b1b; }
 .rec-name { grid-column: 1; }
 .rec-state { grid-column: 2; }
 .rec-drop { grid-column: 3; }
+
+/* flush with the left edge of the boxes it heads */
+.group-label { padding-left: 0; }
