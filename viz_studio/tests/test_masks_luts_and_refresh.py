@@ -15,6 +15,7 @@ import threading
 import numpy as np
 import pytest
 import zarr
+from pixels import colour_spread, image_middle
 from server import make_server
 
 
@@ -155,6 +156,24 @@ class TestSegmentationMasks:
         assert kinds.get("overview · ch0") == "image"
 
     def test_its_pixels_arrive(self, masked_page):
+        """The objects are on screen, checked by looking at the screen.
+
+        The engine can report every piece of the mask fetched and decoded while the
+        panel shows nothing of it — a mask drawn at the wrong scale, or behind the
+        image, or in a colour indistinguishable from the background, all count as
+        arrived as far as the engine is concerned. So the engine is asked only when
+        to look, and the picture is asked what is there.
+
+        The two picture channels are hidden before the photograph is taken. Both are
+        an even fill, so leaving them on would put a broad flat wash over the panel
+        that the mask would have to be picked out of; with only the mask showing,
+        any variety in the middle of the picture is the objects themselves. Two
+        objects were written into this mask, and the engine gives each its own
+        colour, so a drawn mask is unmistakable and a mask that never made it to
+        the screen leaves a single flat colour behind.
+        """
+        # The precondition: the mask's pieces have all arrived, so there is nothing
+        # left to wait for. This says when to photograph, not what will be in it.
         masked_page.wait_for_function(
             """() => {
               const m = window.zmartViewer.layerManager.managedLayers
@@ -169,6 +188,36 @@ class TestSegmentationMasks:
               return available > 0 && available >= needed;
             }""",
             timeout=60_000,
+        )
+
+        # Leave the mask alone on screen, so what is measured is the mask.
+        masked_page.get_by_label("toggle ch0").first.click()
+        masked_page.get_by_label("toggle ch1").first.click()
+        masked_page.wait_for_timeout(2000)
+        # What is measured, and why it is not `assert_something_was_drawn`. That
+        # helper asks whether the middle of the panel has a picture filling it, and
+        # its thresholds are set for the demo volume, which covers the whole view.
+        # Two small objects do not: measured, they light three distinct colours with
+        # a spread of about ten, and leave 99.7% of the middle showing background.
+        # That is a mask perfectly present on screen, and the helper would call it
+        # blank. So the question here is the narrower one it can actually answer --
+        # is there more than one colour in the panel, and does any of it vary -- and
+        # the control below is what turns that into evidence about the mask.
+        drawn = colour_spread(image_middle(masked_page))
+        assert drawn["distinct"] > 1 and drawn["spread"] > 1.0, (
+            f"nothing of the segmentation mask reached the screen: {drawn}"
+        )
+
+        # The control, which is what keeps the line above from decaying into an
+        # assertion that cannot fail. If our own buttons or a background gradient
+        # were supplying the variety rather than the mask, hiding the mask would
+        # change nothing. It has to go flat.
+        masked_page.get_by_label("toggle nuclei").first.click()
+        masked_page.wait_for_timeout(2000)
+        hidden = colour_spread(image_middle(masked_page))
+        assert hidden["distinct"] < drawn["distinct"], (
+            "hiding the mask left the picture exactly as varied as before, so what "
+            f"was measured was never the mask: {drawn} then {hidden}"
         )
 
     def test_it_shows_no_contrast_handles(self, masked_page):

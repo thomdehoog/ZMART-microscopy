@@ -14,6 +14,7 @@ import threading
 import numpy as np
 import pytest
 import zarr
+from pixels import fraction_lit
 from server import make_server
 
 
@@ -118,12 +119,29 @@ def test_opening_adds_an_acquisition_and_its_channels(live):
 
 
 def test_the_newly_opened_images_actually_render(live):
-    """Opening has to grant permission to read the files, not just list them."""
+    """Opening has to grant permission to read the files, not just list them.
+
+    The name of this test promises a picture, so a picture is what it looks at.
+    Asking the engine how many pieces of image it holds would not do, because that
+    number can be perfectly healthy while the panel shows nothing — which is the
+    fault this whole suite exists to catch. The engine is still asked, but only to
+    know *when* to take the photograph; the photograph is what decides.
+
+    There is one more thing to be careful about, and it is why the run that was
+    already open gets hidden part-way through. The viewer is showing two
+    acquisitions by then, both drawn in the same place, so a lit panel on its own
+    would be satisfied by the overview alone and would say nothing whatever about
+    what was just opened. With the overview hidden, any light left in the middle of
+    the picture can only be coming from the newly opened images.
+    """
     page, _, _ = live
     page.get_by_label("open images").click()
     page.wait_for_function(
         "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
     )
+    # The precondition: everything the newly opened images need has been fetched
+    # and decoded, so there is nothing left to wait for and the panel can be
+    # photographed. This says when to look, not what will be there.
     page.wait_for_function(
         """() => {
           const v = window.zmartViewer;
@@ -141,6 +159,34 @@ def test_the_newly_opened_images_actually_render(live):
           return available > 0 && available >= needed;
         }""",
         timeout=60_000,
+    )
+
+    # Now put the run that was already open out of the picture, so that whatever
+    # is left on screen was drawn from the files the "open" button just granted
+    # access to.
+    page.get_by_label("toggle group overview").click()
+    page.wait_for_timeout(2000)
+    lit = fraction_lit(page)
+    assert lit > 0.01, (
+        "the newly opened images reached the engine but nothing of them was drawn: "
+        f"only {lit:.1%} of the middle of the picture is showing anything. Opening "
+        "listed the files without really granting access to them, or they were "
+        "drawn somewhere nobody can see"
+    )
+
+    # And the control, which is what stops the line above quietly becoming an
+    # assertion that cannot fail. These stores are an even fill, so "is the panel
+    # blank?" cannot be asked by looking for variety in it — a panel covered edge
+    # to edge by an even tile is just as flat as an empty one. What is measured
+    # instead is how much of the middle is brighter than the background, and this
+    # is the proof that the measurement responds: with the new images hidden as
+    # well, there is nothing left to draw and the panel goes dark.
+    page.get_by_label("toggle group targetscan").click()
+    page.wait_for_timeout(2000)
+    empty = fraction_lit(page)
+    assert empty < lit / 2, (
+        "hiding both acquisitions left the picture as bright as before, so the "
+        f"measurement is not reading the image at all: {lit:.1%} -> {empty:.1%}"
     )
 
 
