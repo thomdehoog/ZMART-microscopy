@@ -56,12 +56,24 @@ viewer shows them side by side. Both work; the first is what we are aiming for. 
 *rejected* is fusing finished positions into a copy afterwards just to make the viewer
 quick. See Decision 1b.
 
-**And a run can have both**, which was missed when the two above were first written down
-as a choice. The slowness comes from the number of images growing with the run, not from
-there being more than one — so a *small, fixed* number keeps the overlap and stays fast.
-Four images is enough for a run tiled in y and x. Measured, it opens in 0.6 seconds against
-0.5, draws just as smoothly, and keeps the fifth of the acquired data that a single image
-overwrites. See "Unless there is more than one image" under Decision 1b.
+**The rule, decided.** *One image per acquisition type, and its tiles do not overlap.* A run
+has a handful of acquisition types — a prescan, an overview, a target scan — so the viewer
+holds a handful of images, each growing as its tiles land. That is a small, fixed number
+that does not grow with the run, which is the whole of what made many stores slow.
+
+**And if a run does overlap its tiles, it does not write into one image at all.** It keeps
+its tiles separate while it runs and is stitched into one picture afterwards, once every
+tile exists and the alignment can actually be solved. The two are different paths rather
+than settings of one, because overlap written into a single image is destroyed at the moment
+of writing: measured, a run overlapping by an eighth loses **18% of everything the camera
+recorded**, and no later step can recover it. The writer refuses rather than allowing it
+quietly. See Decision 1b.
+
+**Why not overlap and keep it anyway.** It can be done — spread the tiles over four images
+so neighbours never share one — and it measures well: 0.6 seconds to open against 0.5, the
+same sixty draws a second, nothing lost. It is available and tested. It is not the rule
+because it makes every reader deal with four images instead of one, and analysis reads these
+images too. See "If a run must keep its overlap" under Decision 1b.
 
 **The rule behind all of it.** *Add alongside; do not reshape.* And a position's place in
 the world lives in its metadata — not in a grid, not in a filename, not in the shape of
@@ -423,11 +435,36 @@ where to look next rather than to assemble a publication mosaic, that is usually
 This is why the viewer has to handle both, and why the work on opening many stores
 quickly matters: for a run that does keep its tiles, many stores is what there is.
 
-### Unless there is more than one image: keeping the overlap without the slowness
+### The rule that follows: no overlap in an image written as the run goes
 
-Everything above is true of **one** image, and the section was written as though one image
-and many were the only two arrangements. They are not, and the missing one turns out to be
-the good one.
+The cost above is real and cannot be worked around inside one image, so it becomes a rule
+rather than a caution:
+
+> **An image written while the run goes has tiles that do not overlap. A run that overlaps
+> its tiles keeps them separate and is stitched once it has finished.**
+
+Two different paths, not two settings of one. The first is for a run that trusts the stage,
+which is most smart-microscopy work, where the point is to watch the specimen and decide
+where to look next rather than to assemble a publication mosaic. The second is for a run
+whose alignment must be computed, which can only happen once every tile exists.
+
+The writer enforces this at the moment the images are created rather than letting a run
+discover it later from a picture that looks subtly wrong — see
+`zmart_storage/canvas.py`, and the refusal is pinned by
+`test_a_run_with_overlapping_tiles_is_refused`.
+
+**What follows for the tile size.** Since there is no overlap, the step can be chosen freely,
+and it should be chosen so that a tile is a whole number of pieces of image. Then no two
+tiles ever land in the same piece, and they can be written at the same moment with no waiting
+at all. The size to divide into is `chunk × 2^(levels−1)` — the piece of the *smallest* copy,
+which covers the most ground. With 256-voxel pieces and three levels that is 1024, so a
+2048-voxel tile works and a 1500-voxel one does not. Getting it wrong is not dangerous, only
+slower, and the writer says so when it happens.
+
+### If a run must keep its overlap: several images, deliberately
+
+This is available, measured, and not the rule. It is recorded because the reasoning is worth
+having and because somebody will ask.
 
 Go back to what actually made many stores slow. It was never that there was more than one
 image. It was that the number of images grew with the run, and the work of keeping track of

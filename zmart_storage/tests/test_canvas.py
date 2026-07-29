@@ -1,10 +1,15 @@
-"""Does a tile actually land where it was put, and does the overlap survive?
+"""Does a tile land where it was put, and is the rule about overlap enforced?
 
-These are the two questions the design rests on. The first is ordinary
-correctness. The second is the whole reason there is more than one image: if
-overlapping tiles are written into a single image, the second one to arrive
-quietly erases the shared strip, and no error is raised to say so. The test
-below writes exactly that situation both ways and looks at the pixels.
+The arrangement this writer is for is **one image per acquisition type, with tiles
+that do not overlap**. Most of what follows checks that ordinary path.
+
+The rest checks the rule itself. A run whose tiles overlap must not be written
+into one image as it goes, because the second tile to arrive replaces the strip
+it shares with the first — and those two recordings of the shared strip are
+exactly what a stitcher compares. Such a run keeps its tiles separate and is
+stitched once it has finished. The writer refuses rather than letting it happen
+quietly, and the tests below pin both the refusal and what it is protecting
+against.
 """
 
 from __future__ import annotations
@@ -20,20 +25,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from zmart_storage.canvas import Channel, TileCanvases, slots_per_axis
 
-# A small run: tiles 64 voxels across, stepped 48, so neighbours share 16 voxels.
-# That is a third of a tile, which is more overlap than anyone acquires -- chosen
-# so the shared strip is large enough to see plainly in a failure message.
-TILE = (2, 64, 64)
-STEP = (2, 48, 48)
-GRID = 4  # tiles per side
+# Tiles 128 voxels across. With 64-voxel pieces and two levels of shrunk-down
+# copies, a whole piece is 128 voxels -- so a tile is exactly one piece and tiles
+# never share one, which is the arrangement to aim for.
+TILE = (2, 128, 128)
+BUTTED_UP = (2, 128, 128)    # the rule: the stage steps by a whole tile
+OVERLAPPING = (2, 112, 112)  # a run that must be stitched afterwards instead
+GRID = 4
 
 
-def _canvases(folder: Path, **kwargs) -> TileCanvases:
+def _canvases(folder: Path, *, step=BUTTED_UP, **kwargs) -> TileCanvases:
     return TileCanvases.create(
         folder,
-        canvas_shape=(2, 512, 512),
+        name="overview",
+        canvas_shape=(2, 640, 640),
         tile_shape=TILE,
-        tile_step=STEP,
+        tile_step=step,
         voxel_size_um=(2.0, 0.35, 0.35),
         channels=[Channel("488")],
         levels=2,
@@ -42,12 +49,12 @@ def _canvases(folder: Path, **kwargs) -> TileCanvases:
     )
 
 
-def _write_a_grid(canvases: TileCanvases) -> dict[tuple[int, int], int]:
-    """Fill a small raster of overlapping tiles, each a flat, distinct value.
+def _write_a_grid(canvases: TileCanvases, step=BUTTED_UP) -> dict[tuple[int, int], int]:
+    """Fill a small raster, each tile a flat value of its own.
 
     Giving every tile its own value is what makes the overlap question
     answerable: afterwards you can look at any voxel and say which tile it came
-    from, so a tile that was overwritten is obvious rather than merely suspected.
+    from, so a tile that was written over is obvious rather than merely suspected.
     """
     expected = {}
     for row in range(GRID):
@@ -55,7 +62,7 @@ def _write_a_grid(canvases: TileCanvases) -> dict[tuple[int, int], int]:
             value = 1000 + row * GRID + col
             canvases.write(
                 np.full(TILE, value, dtype="uint16"),
-                origin=(0, row * STEP[1], col * STEP[2]),
+                origin=(0, row * step[1], col * step[2]),
                 tile_index=(0, row, col),
             )
             expected[(row, col)] = value
@@ -66,72 +73,181 @@ def _read_level0(store: Path) -> np.ndarray:
     return np.asarray(zarr.open_group(str(store), mode="r")["0"][0, 0])
 
 
-# -- how many images a run needs ---------------------------------------------
+# -- the rule ----------------------------------------------------------------
+
+
+def test_a_run_with_overlapping_tiles_is_refused(tmp_path):
+    """Overlap and one image do not go together, and saying so early is the point.
+
+    Discovering it instead from a picture that looks subtly wrong, weeks later, is
+    the outcome this prevents.
+    """
+    with pytest.raises(ValueError, match="these tiles overlap"):
+        _canvases(tmp_path, step=OVERLAPPING)
+
+
+def test_the_refusal_says_what_to_do_instead(tmp_path):
+    """An error that only says no leaves the operator stuck."""
+    with pytest.raises(ValueError) as complaint:
+        _canvases(tmp_path, step=OVERLAPPING)
+    said = str(complaint.value)
+    assert "step the stage by the whole tile" in said
+    assert "stitch" in said
+
+
+def test_tiles_that_do_not_divide_into_pieces_are_only_a_warning(tmp_path):
+    """Awkward sizes cost speed, not correctness, so they must not stop a run."""
+    with pytest.warns(UserWarning, match="does not divide into whole pieces"):
+        canvases = TileCanvases.create(
+            tmp_path, name="overview",
+            canvas_shape=(2, 640, 640),
+            tile_shape=(2, 100, 100), tile_step=(2, 100, 100),
+            voxel_size_um=(2.0, 0.35, 0.35),
+            channels=[Channel("488")], levels=2, chunk=64,
+        )
+    canvases.write(np.full((2, 100, 100), 7, dtype="uint16"),
+                   origin=(0, 0, 0), tile_index=(0, 0, 0))
+    assert _read_level0(canvases.paths[0])[0, 50, 50] == 7
 
 
 @pytest.mark.parametrize(
     ("tile", "step", "wanted"),
     [
-        (64, 64, 1),   # no overlap at all: one image is enough
-        (64, 58, 2),   # a tenth of a tile shared -- the ordinary case
-        (64, 48, 2),   # a third shared
+        (64, 64, 1),   # butted up, which is the rule: one image is enough
+        (64, 58, 2),   # a tenth of a tile shared
         (64, 32, 2),   # exactly half: still two
         (64, 24, 3),   # more than half, which no tiled acquisition does
     ],
 )
-def test_how_many_images_one_axis_needs(tile, step, wanted):
-    """Two images per axis is enough for any overlap up to half a tile."""
+def test_how_many_images_an_overlapping_run_would_need(tile, step, wanted):
+    """Only relevant to a run being spread deliberately, but worth pinning."""
     assert slots_per_axis(tile, step) == wanted
 
 
-# -- tiles landing where they were put ---------------------------------------
+# -- the ordinary path: one image, tiles butted up ---------------------------
+
+
+def test_one_acquisition_type_is_one_image_named_after_it(tmp_path):
+    """The viewer groups rows by this name, so it is what the operator sees."""
+    canvases = _canvases(tmp_path)
+    assert [p.name for p in canvases.paths] == ["overview.ome.zarr"]
 
 
 def test_a_tile_lands_where_it_was_put(tmp_path):
     canvases = _canvases(tmp_path)
-    tile = np.arange(2 * 64 * 64, dtype="uint16").reshape(TILE)
+    tile = np.arange(2 * 128 * 128, dtype="uint16").reshape(TILE)
 
-    canvases.write(tile, origin=(0, 128, 192), tile_index=(0, 0, 0))
+    canvases.write(tile, origin=(0, 128, 256), tile_index=(0, 1, 2))
 
     written = _read_level0(canvases.paths[0])
-    assert np.array_equal(written[:, 128:192, 192:256], tile)
-    # And nothing was scribbled outside it: a tile that lands in the wrong place
+    assert np.array_equal(written[:, 128:256, 256:384], tile)
+    # And nothing was scribbled outside it: a tile that landed in the wrong place
     # would still read back correctly at the place it was asked about.
     assert written[:, 0:128, :].max() == 0
+
+
+def test_every_tile_survives_when_they_do_not_overlap(tmp_path):
+    """The ordinary run: nothing is written over, because nothing is shared."""
+    canvases = _canvases(tmp_path)
+    expected = _write_a_grid(canvases)
+
+    written = _read_level0(canvases.paths[0])
+    for (row, col), value in expected.items():
+        y0, x0 = row * BUTTED_UP[1], col * BUTTED_UP[2]
+        patch = written[:, y0:y0 + TILE[1], x0:x0 + TILE[2]]
+        assert (patch == value).all(), (
+            f"tile ({row}, {col}) lost {int((patch != value).sum())} voxels"
+        )
 
 
 def test_the_smaller_copies_are_filled_in_as_tiles_arrive(tmp_path):
     """The zoomed-out view has to be right during a run, not only at the end."""
     canvases = _canvases(tmp_path)
-    canvases.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 64, 64),
-                   tile_index=(0, 0, 0))
+    canvases.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 128),
+                   tile_index=(0, 0, 1))
 
     half = np.asarray(zarr.open_group(str(canvases.paths[0]), mode="r")["1"][0, 0])
-    assert half[:, 32:64, 32:64].max() == 4242
+    assert half[:, 0:64, 64:128].max() == 4242
 
 
 def test_a_tile_beyond_the_declared_room_is_refused(tmp_path):
     """Better a clear complaint than a run that quietly loses its far edge."""
     canvases = _canvases(tmp_path)
     with pytest.raises(ValueError, match="past the declared room"):
-        canvases.write(np.zeros(TILE, dtype="uint16"), origin=(0, 500, 0),
+        canvases.write(np.zeros(TILE, dtype="uint16"), origin=(0, 600, 0),
                        tile_index=(0, 0, 0))
 
 
-# -- the overlap, which is the point -----------------------------------------
+def test_tiles_written_at_once_do_not_corrupt_each_other(tmp_path):
+    """Neighbouring tiles arriving together must both survive intact.
 
+    With tiles butted up and sized to whole pieces of image they never share one,
+    so this should hold with no waiting at all. It is checked rather than assumed
+    because the failure it guards against is silent: two writers in one piece each
+    write the whole piece back, and the second erases the first.
+    """
+    import threading
 
-def test_every_tile_survives_when_the_run_is_spread_over_several_images(tmp_path):
-    """No tile loses a single voxel, however much its neighbours overlap it."""
     canvases = _canvases(tmp_path)
-    expected = _write_a_grid(canvases)
+    values = [(111, 0), (222, 128), (333, 256), (444, 384)]
 
-    # Four images, because tiles overlap in y and x but not in z.
+    def write(value, x0):
+        canvases.write(np.full(TILE, value, dtype="uint16"),
+                       origin=(0, 0, x0), tile_index=(0, 0, x0 // 128))
+
+    threads = [threading.Thread(target=write, args=pair) for pair in values]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    written = _read_level0(canvases.paths[0])
+    for value, x0 in values:
+        patch = written[:, :TILE[1], x0:x0 + TILE[2]]
+        assert (patch == value).all(), (
+            f"the tile at x={x0} lost {int((patch != value).sum())} of its "
+            f"{patch.size} voxels to a concurrent write"
+        )
+
+
+# -- what the rule is protecting against -------------------------------------
+
+
+def test_writing_an_overlapping_run_into_one_image_would_lose_a_fifth(tmp_path):
+    """The cost the refusal exists to prevent, as a measured number.
+
+    Reached deliberately here, by asking for a single image outright, which is the
+    only way to get one for a run whose tiles overlap.
+    """
+    canvases = _canvases(tmp_path, step=OVERLAPPING, slots=(1, 1, 1))
+    expected = _write_a_grid(canvases, step=OVERLAPPING)
+
+    written = _read_level0(canvases.paths[0])
+    lost = 0
+    for (row, col), value in expected.items():
+        y0, x0 = row * OVERLAPPING[1], col * OVERLAPPING[2]
+        patch = written[:, y0:y0 + TILE[1], x0:x0 + TILE[2]]
+        lost += int((patch != value).sum())
+
+    total = len(expected) * int(np.prod(TILE))
+    assert lost > 0
+    print(f"\none image, tiles overlapping: {lost} of {total} voxels overwritten "
+          f"({100 * lost / total:.0f}% of what was acquired)")
+
+
+def test_spreading_an_overlapping_run_keeps_every_tile(tmp_path):
+    """The other way to keep it: several images, so nothing is ever written over.
+
+    Available deliberately, for a run that wants one artefact rather than tiles
+    plus a stitching step afterwards. Not the default.
+    """
+    canvases = _canvases(tmp_path, step=OVERLAPPING, slots=(1, 2, 2))
+    expected = _write_a_grid(canvases, step=OVERLAPPING)
+
     assert len(canvases.paths) == 4
-
     levels = [_read_level0(path) for path in canvases.paths]
     for (row, col), value in expected.items():
-        y0, x0 = row * STEP[1], col * STEP[2]
+        y0, x0 = row * OVERLAPPING[1], col * OVERLAPPING[2]
         found = [
             level[:, y0:y0 + TILE[1], x0:x0 + TILE[2]]
             for level in levels
@@ -140,67 +256,5 @@ def test_every_tile_survives_when_the_run_is_spread_over_several_images(tmp_path
         assert found, f"tile ({row}, {col}) is not in any image"
         assert (found[0] == value).all(), (
             f"tile ({row}, {col}) was partly overwritten: "
-            f"{int((found[0] != value).sum())} of {found[0].size} voxels lost"
-        )
-
-
-def test_a_single_image_loses_the_overlap(tmp_path):
-    """The same run written into one image, to show what it costs.
-
-    This is not a fault being reported -- it is what a single image *means*, and
-    it is here so the cost is a measured number rather than an argument.
-    """
-    canvases = _canvases(tmp_path, slots=(1, 1, 1))
-    expected = _write_a_grid(canvases)
-
-    assert len(canvases.paths) == 1
-    written = _read_level0(canvases.paths[0])
-
-    lost = 0
-    for (row, col), value in expected.items():
-        y0, x0 = row * STEP[1], col * STEP[2]
-        patch = written[:, y0:y0 + TILE[1], x0:x0 + TILE[2]]
-        lost += int((patch != value).sum())
-
-    total = len(expected) * int(np.prod(TILE))
-    # Every tile except those on the far edges is eaten into by its neighbours.
-    assert lost > 0
-    print(f"\none image: {lost} of {total} voxels overwritten "
-          f"({100 * lost / total:.0f}% of what was acquired)")
-
-
-def test_two_tiles_written_at_once_do_not_corrupt_each_other(tmp_path):
-    """Concurrent writes that share a piece of image are held apart.
-
-    Without this, both writers read the shared piece, each adds its own tile to
-    its own copy, and whichever finishes second erases the other's contribution
-    -- silently, with the picture merely coming out wrong.
-    """
-    import threading
-
-    canvases = _canvases(tmp_path, slots=(1, 1, 1))
-    # Deliberately overlapping, and deliberately not lined up with the pieces of
-    # image, which is the arrangement that goes wrong.
-    def write(value, x0):
-        canvases.write(np.full(TILE, value, dtype="uint16"), origin=(0, 0, x0),
-                       tile_index=(0, 0, 0))
-
-    threads = [threading.Thread(target=write, args=(v, x))
-               for v, x in ((111, 0), (222, 40), (333, 80), (444, 120))]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-    written = _read_level0(canvases.paths[0])
-    # Each tile has a strip that belongs to it alone: past where the tile on its
-    # left reaches, and before the one on its right begins. Whichever order the
-    # four writes happened in, those strips must hold that tile's own value.
-    # They also straddle the boundary between two pieces of image, which is
-    # exactly where two writers would tread on each other without the guard.
-    for value, x0 in ((222, 40), (333, 80), (444, 120)):
-        mine_alone = written[:, :TILE[1], x0 + (TILE[2] - 40):x0 + 40]
-        assert (mine_alone == value).all(), (
-            f"the tile at x={x0} lost {int((mine_alone != value).sum())} of its "
-            f"own {mine_alone.size} voxels to a concurrent write"
+            f"{int((found[0] != value).sum())} voxels lost"
         )

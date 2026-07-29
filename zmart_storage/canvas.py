@@ -103,6 +103,74 @@ def slots_per_axis(tile_length: int, step: int) -> int:
     return max(1, math.ceil(tile_length / step))
 
 
+def _refuse_overlapping_tiles(tile_shape, tile_step) -> None:
+    """Stop a run whose tiles overlap from being written into one image.
+
+    This is the rule the whole arrangement rests on, so it is checked once at the
+    start rather than discovered later from a picture that looks slightly wrong.
+
+    One image holds one value per voxel, so where two tiles overlap the second to
+    arrive replaces the first and the shared strip is gone. That is fine when
+    there is no shared strip, and it is a real loss when there is — because the
+    two recordings of it are exactly what a stitcher compares in order to work out
+    where the stage actually put each tile.
+
+    So a run that overlaps its tiles should keep them as separate images while it
+    runs, and be stitched into one picture once it has finished and the alignment
+    can be solved. That is a different path, not a variation on this one.
+    """
+    axes = ("z", "y", "x")
+    overlapping = [
+        (axes[axis], tile_shape[axis] - tile_step[axis])
+        for axis in range(3)
+        if tile_step[axis] < tile_shape[axis]
+    ]
+    if not overlapping:
+        return
+    described = ", ".join(f"{by} voxels in {axis}" for axis, by in overlapping)
+    raise ValueError(
+        f"these tiles overlap ({described}), and overlapping tiles must not be "
+        "written into one image as the run goes: the second tile to arrive would "
+        "replace the strip it shares with the first, and the two recordings of "
+        "that strip are what a stitcher needs.\n\n"
+        "Either acquire without overlap — step the stage by the whole tile — or "
+        "keep the tiles as separate images while the run goes and stitch them "
+        "into one picture afterwards, once every tile exists and the alignment "
+        "can be solved."
+    )
+
+
+def _warn_if_tiles_straddle_pieces(tile_shape, tile_step, chunk: int, levels: int) -> None:
+    """Point out a tile size that makes concurrent writing needlessly slow.
+
+    Two tiles can only be written at the same moment if they do not share a piece
+    of image. When a tile is a whole number of pieces and the stage steps by that
+    same number, they never do, and tiles can be written as fast as they arrive.
+
+    The size that matters is the piece of the *smallest* copy, because that covers
+    the most ground — a piece of the quarter-size copy spans four times as much
+    specimen as a piece of the full-size one. Getting this wrong is not dangerous:
+    the writer notices and holds the tiles apart. It just means waiting.
+    """
+    import warnings
+
+    grain = chunk * 2 ** (levels - 1)
+    for axis, name in ((1, "y"), (2, "x")):
+        if tile_shape[axis] % grain or tile_step[axis] % grain:
+            nearest = max(grain, round(tile_shape[axis] / grain) * grain)
+            warnings.warn(
+                f"a tile of {tile_shape[axis]} voxels in {name}, stepped "
+                f"{tile_step[axis]}, does not divide into whole pieces of image "
+                f"({grain} voxels, which is {chunk} across {levels} levels of "
+                f"shrunk-down copies). Tiles will sometimes share a piece, and "
+                f"the writer then has to write those one after another rather "
+                f"than at the same time. Nothing is lost, but a tile of "
+                f"{nearest} voxels would avoid the wait.",
+                stacklevel=3,
+            )
+            return
+
+
 @dataclass(frozen=True)
 class Channel:
     """One colour of light the run records, and how it should first appear.
@@ -196,6 +264,7 @@ class TileCanvases:
         cls,
         folder: str | Path,
         *,
+        name: str = "canvas",
         canvas_shape: tuple[int, int, int],
         tile_shape: tuple[int, int, int],
         tile_step: tuple[int, int, int],
@@ -217,6 +286,12 @@ class TileCanvases:
 
         Args:
             folder: where to put the images. Created if it is not there yet.
+                This is the run's own folder, and every acquisition type in the
+                run writes its image into it side by side.
+            name: what to call this image, which should be the acquisition type
+                it holds — ``"overview"``, ``"prescan"``, ``"targetscan"``. The
+                viewer groups the rows it shows by this name, so it is what the
+                operator sees rather than an internal detail.
             canvas_shape: how much room to allow, as ``(z, y, x)`` in voxels.
                 The stage's travel range is a good choice when the experiment
                 does not say: the stage cannot reach outside it, so no tile can
@@ -244,26 +319,39 @@ class TileCanvases:
                 let a huge image feel light when zoomed out. Three is plenty for
                 ordinary tiles.
             slots: how many images to spread the tiles over, as ``(z, y, x)``.
-                Normally left out, and worked out from the tile size and step so
-                that overlapping tiles never share an image. Setting it to
-                ``(1, 1, 1)`` forces everything into a single image, which loses
-                the overlap — that is only useful for comparing the two
-                arrangements against each other.
+                Normally left out, which gives a single image — the arrangement
+                this writer is for. Setting it spreads overlapping tiles across
+                several images so that none is written over; see the note on
+                overlap at the top of this module for when that is worth doing.
 
         Returns:
             The images, ready to be written into.
+
+        Raises:
+            ValueError: if the tiles overlap. A run that overlaps its tiles
+                should keep them separate and be stitched once it is finished,
+                rather than being written into one image as it goes.
         """
         folder = Path(folder)
         folder.mkdir(parents=True, exist_ok=True)
 
-        slot_grid = slots or tuple(
-            slots_per_axis(tile_shape[axis], tile_step[axis]) for axis in range(3)
-        )
+        if slots is None:
+            _refuse_overlapping_tiles(tile_shape, tile_step)
+            slot_grid = (1, 1, 1)
+        else:
+            slot_grid = slots
+        _warn_if_tiles_straddle_pieces(tile_shape, tile_step, chunk, levels)
+
         depth_max = int(np.iinfo(np.dtype(dtype)).max)
 
+        total = slot_grid[0] * slot_grid[1] * slot_grid[2]
         slots: list[_Slot] = []
-        for index in range(slot_grid[0] * slot_grid[1] * slot_grid[2]):
-            store = folder / f"canvas{index}.ome.zarr"
+        for index in range(total):
+            # One image per acquisition type, named after it, so the viewer can
+            # group what it finds the way the experiment is organised. Only a run
+            # that spreads its tiles needs more than one, and those are numbered.
+            leaf = name if total == 1 else f"{name}_part{index}"
+            store = folder / f"{leaf}.ome.zarr"
             arrays = _declare_one(
                 store,
                 canvas_shape=canvas_shape,

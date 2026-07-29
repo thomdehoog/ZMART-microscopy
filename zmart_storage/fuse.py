@@ -85,7 +85,7 @@ def fuse(
         )
 
     run = Path(run)
-    sources = sorted(run.glob("canvas*.ome.zarr"))
+    sources = sorted(run.glob("*.ome.zarr"))
     if not sources:
         raise FileNotFoundError(
             f"{run} holds no images from a run — expected canvas0.ome.zarr and so on"
