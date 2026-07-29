@@ -544,3 +544,8 @@ canvas.scattercv { cursor: crosshair; }
 
 /* The first step should not crowd the rule under the workflow selector. */
 .steps { padding-top: 18px; }
+
+/* Both header bars sit their contents toward the bottom of the bar, so the
+   selector and the tab labels line up with each other and with the rule. */
+.wf-box { justify-content: flex-end; padding-bottom: 13px; }
+.tabs .tab { align-items: flex-end; padding-bottom: 11px; }
