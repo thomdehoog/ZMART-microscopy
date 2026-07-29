@@ -60,7 +60,7 @@ import {
       blurb: "overview, detect, select, acquire",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", ownButton: true, panels: [], mode: "optics" },
+        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: [], mode: "optics" },
         { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0) for this run.", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
@@ -77,7 +77,7 @@ import {
       blurb: "no analysis panel",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", ownButton: true, panels: [], mode: "optics" },
+        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: [], mode: "optics" },
         { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
@@ -90,7 +90,7 @@ import {
       blurb: "calibration run",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", ownButton: true, panels: [], mode: "optics" },
+        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: [], mode: "optics" },
         { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
@@ -274,7 +274,7 @@ import {
     if (s.mode === "focus" && !STRATEGIES[state.focus.strategy].needs(state.focus)) {
       return STRATEGIES[state.focus.strategy].unmet;
     }
-    if (s.mode === "optics" && !recordedBars().length) return "record at least one setting";
+    if (s.mode === "optics" && !recordedBars().length) return "record at least one preset";
     if (s.mode === "detect" && !state.detect.tested) return "try it on one tile first";
     if ((s.mode === "select" || s.mode === "targets") && state.gated.size === 0) return "nothing gated yet";
     return null;
@@ -597,7 +597,7 @@ import {
     const n = recordedBars().length;
     if (n) {
       state.done.add("optics");
-      state.notes.optics = `${n} setting${n === 1 ? "" : "s"} recorded`;
+      state.notes.optics = `${n} preset${n === 1 ? "" : "s"} recorded`;
     } else {
       state.done.delete("optics");
       delete state.notes.optics;
@@ -623,6 +623,11 @@ import {
        is taken. */
     const open = state.bars.find((b) => !b.state);
     if (open) {
+      const label = document.createElement("div");
+      label.className = "group-label";
+      label.textContent = "Add new optical setting";
+      host.append(label);
+
       const box = document.createElement("div");
       box.className = "setting-box open";
       box.append(renderOpenBar(open));
@@ -646,7 +651,7 @@ import {
       const label = document.createElement("div");
       label.className = "group-label";
       // the selector says the kind; the heading says what kind of thing it is
-      label.textContent = `${type.label} Settings`;
+      label.textContent = `${type.label} presets`;
       group.append(label);
 
       for (const bar of mine) {

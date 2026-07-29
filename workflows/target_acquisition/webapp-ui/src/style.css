@@ -682,3 +682,6 @@ button.run.danger:hover:enabled { background: #991b1b; }
 
 /* flush with the left edge of the boxes it heads */
 .group-label { padding-left: 0; }
+
+/* the label above the open bar reads as an invitation, not a category */
+.group-label { margin-top: 2px; }
