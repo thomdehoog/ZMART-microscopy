@@ -420,6 +420,33 @@ class TestHowFarTheDataReaches:
         # And the answer is simply worked out again, unchanged.
         assert written_timepoints(store) == 3
 
+    def test_closing_a_store_lets_go_of_what_its_array_said_too(self, tmp_path):
+        """Counting reads a second small file, and that is remembered as well.
+
+        How the pieces of an image are named, and how much of the timelapse one of
+        them holds, are read from the array's own description — a few hundred bytes
+        beside the pieces. It is remembered for the same reason everything else here
+        is, and it has to be given back for the same reason too: closing a folder
+        should return the memory it was using, or "close what you are not using" is
+        advice the viewer does not honour.
+        """
+        import stores as stores_module
+
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(10, 1, 1, 64, 64),
+            chunks=(1, 1, 1, 64, 64),
+            axes=("t", "c", "z", "y", "x"),
+            nested=True,
+            fill=(slice(0, 3),),
+        )
+        assert written_timepoints(store) == 3
+        assert any(key.startswith(str(store)) for key in stores_module._array_cache)
+
+        stores_module.forget(store)
+        assert not any(key.startswith(str(store)) for key in stores_module._array_cache)
+        assert written_timepoints(store) == 3
+
 
 # --------------------------------------------------------------------------
 # Damage: stores caught half-written, or malformed
