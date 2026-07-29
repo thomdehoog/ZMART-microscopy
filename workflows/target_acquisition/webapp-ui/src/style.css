@@ -672,8 +672,13 @@ canvas.scattercv { cursor: crosshair; }
    begin on the same edge instead of the bar sitting indented behind a column
    reserved for something it has not got. The kind is as wide as the kind and
    sits after the name, so it stands beside the field it describes rather than
-   in front of it. */
-.rec-new { grid-template-columns: minmax(120px, 1fr) max-content auto; }
+   in front of it.
+
+   The name field is as wide as a preset name needs and no wider: a box drawn
+   to the panel's edge offers room for a sentence when what goes in it is a
+   word. Everything after it follows on directly and the slack collects at the
+   end, where it says nothing rather than holding the bar apart. */
+.rec-new { grid-template-columns: 240px max-content max-content 1fr; }
 
 .rec-fold, .rec-new input { grid-column: 1; }
 .rec-name, .rec-new select { grid-column: 2; }
@@ -684,7 +689,7 @@ canvas.scattercv { cursor: crosshair; }
    as tall as the name box beside it — taken from the row rather than set to a
    height of its own that would have to be kept in step by hand. */
 .rec-new button.run {
-  grid-column: 3; justify-self: end; align-self: stretch; padding: 0 14px;
+  grid-column: 3; justify-self: start; align-self: stretch; padding: 0 14px;
 }
 /* a native select renders a pixel short of a text field; same treatment */
 .rec-new select { align-self: stretch; }
@@ -704,7 +709,7 @@ canvas.scattercv { cursor: crosshair; }
    kind it belongs to instead of drifting to the end of the column — plus room
    at the end for the arrow itself, which the browser draws inside the box and
    which otherwise sits pressed against the edge. */
-.rec-new select { width: auto; justify-self: end; padding-right: 30px; }
+.rec-new select { width: auto; justify-self: start; padding-right: 30px; }
 .rec-new input { font-family: var(--mono); }
 .rec-new input::placeholder { color: var(--ink-3); }
 
