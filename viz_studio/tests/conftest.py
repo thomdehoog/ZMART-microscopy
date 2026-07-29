@@ -15,6 +15,7 @@ from __future__ import annotations
 import socket
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -35,13 +36,50 @@ def viz_root() -> Path:
     return _VIZ_ROOT
 
 
+def _newest_source_change() -> float:
+    """When the viewer's own source was last edited."""
+    newest = 0.0
+    for path in (_VIZ_ROOT / "frontend" / "src").rglob("*"):
+        if path.is_file():
+            newest = max(newest, path.stat().st_mtime)
+    return newest
+
+
 @pytest.fixture(scope="session")
 def built_dist() -> Path:
-    """The built viewer page, or skip if the frontend has not been built."""
+    """The built viewer page — and a check that it was built from today's source.
+
+    Every test that opens a browser reads the *built* page, not the source beside
+    it, and the built page is not kept in the repository because it is generated.
+    So it is entirely possible to edit the viewer, run the tests, and be told
+    something confident and completely wrong about code that was never running.
+
+    That is not a hypothetical. It cost this project a session: the tests for
+    noticing a tile written into an open store were passing and failing against a
+    bundle two days older than the source, and the conclusions drawn from them
+    were nonsense in both directions.
+
+    A missing build is a *skip*, because a machine that has never built the page
+    has simply not been set up for these tests and there is nothing wrong with it.
+    A build older than the source is a **failure**, because that machine is about
+    to answer questions about the wrong program.
+    """
     if not (_DIST / "index.html").exists():
         pytest.skip(
             "frontend/dist is not built — run "
             "`npm --prefix frontend install && npm --prefix frontend run build`"
+        )
+    built = (_DIST / "index.html").stat().st_mtime
+    changed = _newest_source_change()
+    if changed > built:
+        raise AssertionError(
+            "the built viewer page is older than the source it was built from, so "
+            "these tests would be measuring a program that is no longer the one in "
+            "the repository. Rebuild it first:\n\n"
+            "    npm --prefix frontend run build\n\n"
+            f"(built {time.strftime('%H:%M:%S', time.localtime(built))}, "
+            f"source last changed "
+            f"{time.strftime('%H:%M:%S', time.localtime(changed))})"
         )
     return _DIST
 
