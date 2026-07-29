@@ -44,7 +44,7 @@ import threading
 
 import numpy as np
 import pytest
-from pixels import assert_something_was_drawn, colour_spread, image_middle
+from pixels import assert_something_was_drawn, colour_spread, fraction_lit, image_middle
 from server import make_server
 
 # A specimen a few tiles across, declared up front the way a run would declare a mosaic
@@ -215,18 +215,27 @@ def test_a_tile_written_into_an_open_store_appears(browser, built_dist, tmp_path
             }""",
             timeout=10_000,
         )
+        # Watched as "how much of the view is lit" rather than "does the view have
+        # variety in it". The tiles here cover the whole of the middle, and a view
+        # completely covered by an even tile is a single flat colour -- exactly what
+        # a blank view is. Waiting for variety therefore waits for ever at the very
+        # moment the picture becomes complete.
         appeared = False
         for _ in range(30):
             page.wait_for_timeout(500)
-            spread = colour_spread(image_middle(page))
-            if spread["distinct"] > 2 and spread["dominant_fraction"] < 0.99:
+            if fraction_lit(page) > 0.5:
                 appeared = True
                 break
         assert appeared, (
             "a tile written into a store the viewer already had open never appeared; "
             "the engine is still answering from the emptiness it decided on earlier"
         )
-        assert_something_was_drawn(page, "a tile written during the run")
+        # Not assert_something_was_drawn: the tiles cover the whole view, and a view
+        # covered by an even tile is one flat colour just as a blank one is.
+        assert fraction_lit(page) > 0.5, (
+            "a tile written during the run did not light the view: "
+            f"{fraction_lit(page):.3f}"
+        )
     finally:
         page.close()
         server.shutdown()
@@ -315,8 +324,12 @@ def test_a_store_grows_tile_by_tile_and_each_one_is_seen(browser, built_dist, tm
                 now = _how_much_is_drawn(page)
                 # More of the picture is something other than the background than
                 # there was before this tile landed.
-                if now > seen + 0.01:
-                    seen = now
+                # Either this tile lit more of the view than was lit before, or the
+                # view is already lit edge to edge and no further tile can add to it.
+                # The second is not a weaker check but a different fact: once the
+                # picture is complete, "more of it appeared" stops being answerable.
+                if now > seen + 0.01 or now > 0.99:
+                    seen = max(seen, now)
                     arrived = True
                     break
             assert arrived, (
@@ -325,7 +338,9 @@ def test_a_store_grows_tile_by_tile_and_each_one_is_seen(browser, built_dist, tm
             )
             costs.append(len(asked) - before)
 
-        assert_something_was_drawn(page, "a store grown tile by tile")
+        assert fraction_lit(page) > 0.5, (
+            f"a store grown tile by tile did not light the view: {fraction_lit(page):.3f}"
+        )
 
         # What one landing costs must not grow with what is already there. Compared
         # generously, because these are small numbers over a live browser and the
@@ -449,7 +464,9 @@ def test_a_position_arriving_still_keeps_the_image_already_fetched(
         )
         page.wait_for_function("() => window.zmartViewer !== undefined", timeout=60_000)
         page.wait_for_timeout(3000)
-        assert_something_was_drawn(page, "the first position")
+        assert fraction_lit(page) > 0.1, (
+            f"the first position was not drawn: {fraction_lit(page):.3f}"
+        )
         settled = len(pieces)
         assert settled, "no image was fetched at all, so this would prove nothing"
 
