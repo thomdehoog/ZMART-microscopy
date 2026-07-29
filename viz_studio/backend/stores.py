@@ -405,9 +405,24 @@ def label_images(store: Path) -> list[str]:
 # folders and the answer takes one glance.
 _SCAN_LIMIT = 20_000
 
+class _TooManyToCount:
+    """Stands for "this folder holds more pieces than it is sensible to look through".
+
+    Counting can fail to give a number for two quite different reasons, and they
+    need remembering differently. A folder too large to look through will never
+    become small again, so that answer can be kept for good. A store that has
+    simply not been written to yet is empty only for the moment — it is a live run
+    about to produce its first frame — and keeping *that* answer would leave the
+    viewer believing the run was empty for the rest of the session. Both reasons
+    reach the caller as "no number available", but only this one is remembered.
+    """
+
+
+_TOO_MANY = _TooManyToCount()
+
 # Remembering the answer alongside the folder's own modification time, so asking
 # again costs one cheap look unless something has actually been written since.
-_frame_counts: dict[str, tuple[int, int | None]] = {}
+_frame_counts: dict[str, tuple[int, int | None | _TooManyToCount]] = {}
 
 # The highest frame number seen in each store that files its pieces in folders, so
 # a growing timelapse can be followed by asking only about the frames that are new.
@@ -480,31 +495,40 @@ def written_timepoints(store: Path) -> int | None:
     except OSError:
         return None
     remembered = _frame_counts.get(str(level))
-    if remembered is not None and (remembered[0] == stamp or remembered[1] is None):
+    if remembered is not None and (remembered[0] == stamp or remembered[1] is _TOO_MANY):
         # A folder holding too many pieces to look through will not hold fewer
         # later, so that verdict stands whatever is written next. Without this the
         # look would be repeated on every refresh -- and a piece is written every
         # few seconds during a run, so the modification time is always moving.
-        return remembered[1]
+        #
+        # Every other answer is only kept while the folder is untouched. That
+        # matters most for a store looked at before its first frame has landed:
+        # the honest answer then is "nothing yet", and it has to be asked again
+        # once the run starts writing, or the viewer would offer no frames at all
+        # for the rest of the session.
+        return None if remembered[1] is _TOO_MANY else remembered[1]
 
     answer = _count_frames(level)
     _frame_counts[str(level)] = (stamp, answer)
-    return answer
+    return None if answer is _TOO_MANY else answer
 
 
-def _count_frames(level: Path) -> int | None:
+def _count_frames(level: Path) -> int | None | _TooManyToCount:
     """How many frames of a timelapse have been written so far.
 
     Counting means looking at the names of the pieces on disk, which is cheap when
     each frame has its own folder and very much not cheap when a store keeps
     millions of pieces side by side in one directory. So the look is given a
-    limit, and ``None`` means "there are more pieces here than it is sensible to
-    count through".
+    limit, and ``_TOO_MANY`` means "there are more pieces here than it is sensible
+    to count through". ``None`` means something quite different and much more
+    ordinary: nothing countable is there *yet*, because the run has not written its
+    first frame or the folder could not be read at this moment. That answer is
+    worth asking about again; the other is not.
 
-    A caller that gets ``None`` should simply not offer a limit on the time
-    slider: the operator can then reach every frame the store declares, and a
-    frame not yet written shows as empty rather than as missing. That is a better
-    outcome than making them wait while the viewer counts files.
+    Either way the caller ends up without a number, and should then simply not
+    offer a limit on the time slider: the operator can reach every frame the store
+    declares, and a frame not yet written shows as empty rather than as missing.
+    That is a better outcome than making them wait while the viewer counts files.
     """
     nested = _reads_from_folders(level)
     # When each frame has its own folder, a growing timelapse can be followed
@@ -549,8 +573,10 @@ def _count_frames(level: Path) -> int | None:
                 seen += 1
                 if seen > _SCAN_LIMIT:
                     # Too many to look through. Better to let the store speak for
-                    # itself than to keep the operator waiting on a count.
-                    return None
+                    # itself than to keep the operator waiting on a count. This is
+                    # the one verdict worth keeping for good: a folder this large
+                    # is not going to shrink.
+                    return _TOO_MANY
     except OSError:
         return None
     if highest < 0:

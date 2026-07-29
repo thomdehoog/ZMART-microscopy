@@ -23,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import stores
 import zarr
 from library import Library
 from server import make_server
@@ -152,6 +153,58 @@ class TestVeryLargeImages:
         elapsed = time.monotonic() - started
         assert answer is None, "expected the count to be abandoned, not guessed"
         assert elapsed < PATIENCE, f"gave up only after {elapsed:.1f}s"
+
+    def test_a_folder_given_up_on_is_not_counted_again(self, tmp_path, monkeypatch):
+        """Having given up once on a huge folder, the viewer does not try again.
+
+        A run writes a piece every few seconds, so the folder's modification time
+        is always moving and a fresh look would be taken on every refresh. Since a
+        folder that large will never become small again, the verdict is kept.
+
+        To watch that happen without writing millions of files, the limit is turned
+        right down and the folder is then made small again. Real data cannot shrink
+        like this; the shrinking is only here so that a second count, if one were
+        taken, would give a different answer and so be visible.
+        """
+        monkeypatch.setattr(stores, "_SCAN_LIMIT", 5)
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(4, 1, 1, 256, 256),
+            chunks=(1, 1, 1, 256, 256),
+            axes=("t", "c", "z", "y", "x"),
+            fill=(slice(0, 2),),
+        )
+        level = store / "0"
+        for i in range(20):
+            (level / f"0.0.0.{i}.0").write_bytes(b"")
+        assert written_timepoints(store) is None
+
+        for i in range(3, 20):
+            (level / f"0.0.0.{i}.0").unlink()
+        assert written_timepoints(store) is None, "counted again a folder it had abandoned"
+
+    def test_a_store_looked_at_before_its_first_frame_is_asked_again(self, tmp_path):
+        """"Nothing yet" is an answer about this moment, not about the run.
+
+        The viewer meets a store at whatever moment the operator happens to open
+        the folder, and during a live run that is often before the first frame has
+        landed. Answering "nothing has been written" is right at that moment and
+        wrong a few seconds later, so it must not be the answer the viewer keeps.
+        Were it kept, the time slider would offer no frames at all for the rest of
+        the session, however long the run went on.
+        """
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(4, 1, 1, 256, 256),
+            chunks=(1, 1, 1, 256, 256),
+            axes=("t", "c", "z", "y", "x"),
+            nested=True,
+        )
+        assert written_timepoints(store) is None, "an empty store has no frames yet"
+
+        # The run produces its first frame.
+        zarr.open_array(str(store / "0"), mode="r+")[0] = 1234
+        assert written_timepoints(store) == 1, "the store was still thought to be empty"
 
     def test_asking_twice_costs_nothing_the_second_time(self, tmp_path):
         store = write_store(
