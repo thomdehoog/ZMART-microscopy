@@ -314,7 +314,7 @@ import "./style.css";
         const t = Math.min(1, (performance.now() - started) / s.ms);
         state.tilesShown = Math.round(t * total);
         state.notes[s.id] = `${state.tilesShown} / ${total} tiles`;
-        drawStage(); renderRail(); renderActionBar();
+        drawStage(); renderAll();
         if (t < 1) raf = requestAnimationFrame(tick);
       };
       raf = requestAnimationFrame(tick);
@@ -365,6 +365,7 @@ import "./style.css";
      tabs — they accumulate as steps declare panels
      ============================================================ */
   const PANEL_META = {
+    setup: { label: "Setup", panel: "panel-setup" },
     canvas: { label: "Canvas", panel: "panel-canvas" },
     detect: { label: "Detection", panel: "panel-detect" },
     focus: { label: "Focus strategy", panel: "panel-focus" },
@@ -372,15 +373,65 @@ import "./style.css";
     gallery: { label: "Gallery", panel: "panel-gallery" },
   };
 
-  /* The canvas is always there — it is the run. Everything beside it belongs
-     to the step you are standing on, so the tab bar is rebuilt each time the
-     active step changes rather than growing forever. */
-  const panelsFor = (i) => ["canvas", ...(step(i).panels || []).filter((p) => p !== "canvas")];
+  /* The canvas holds acquired data, so it appears when there is some — before
+     the first tile lands it would be an empty stage, and the setup steps have
+     real state worth showing instead. Everything else belongs to the step you
+     are standing on, so the tab bar is rebuilt each time the active step
+     changes rather than growing forever. */
+  const hasAcquiredData = () => state.tilesShown > 0;
+
+  function panelsFor(i) {
+    const own = (step(i).panels || []).filter((p) => p !== "canvas");
+    const base = hasAcquiredData() ? ["canvas"] : ["setup"];
+    return own.length ? [...base, ...own] : base;
+  }
 
   function focusPanelsFor(i) {
     state.tabs = panelsFor(i);
-    // a step that brings a panel of its own opens on it; otherwise the canvas
-    state.tab = state.tabs.length > 1 ? state.tabs[1] : "canvas";
+    // a step that brings a panel of its own opens on it; otherwise the base
+    state.tab = state.tabs.length > 1 ? state.tabs[1] : state.tabs[0];
+  }
+
+  /* ============================================================
+     the setup panel — the run's configuration, before it has data
+     ============================================================ */
+  /* Rows come from the steps themselves: anything a setup step recorded shows
+     its result, anything not yet run shows what it is waiting for. A workflow
+     that skips a step simply has no row for it. */
+  const SETUP_ROWS = [
+    { step: "connect", name: "Session", waiting: "not connected" },
+    { step: "origin", name: "Stage origin", waiting: "not set" },
+    { step: "job_ov", name: "Overview job", waiting: "not captured" },
+    { step: "job_tg", name: "Target job", waiting: "not captured" },
+    { step: "focus", name: "Focus surface", waiting: "not measured" },
+  ];
+
+  function renderSetup() {
+    const host = el("setup-list");
+    host.textContent = "";
+    const present = new Set(steps().map((s) => s.id));
+
+    for (const row of SETUP_ROWS) {
+      if (!present.has(row.step)) continue;
+      const done = state.done.has(row.step);
+      const value = state.notes[row.step];
+
+      const el_ = document.createElement("div");
+      el_.className = "setup-row" + (done ? "" : " pending");
+      el_.innerHTML =
+        `<span class="setup-mark">${done ? "✓" : "·"}</span>` +
+        '<span class="setup-name"></span><span class="setup-value"></span>';
+      el_.querySelector(".setup-name").textContent = row.name;
+      el_.querySelector(".setup-value").textContent = done && value ? value : row.waiting;
+      host.append(el_);
+    }
+
+    const note = document.createElement("div");
+    note.className = "setup-note";
+    note.textContent = state.done.has("scan")
+      ? "The canvas has the scan on it."
+      : "The canvas appears once the first tile lands.";
+    host.append(note);
   }
 
   function renderTabs() {
@@ -410,10 +461,11 @@ import "./style.css";
   }
 
   function renderPanels() {
-    const show = state.tabs.includes(state.tab) ? state.tab : "canvas";
+    const show = state.tabs.includes(state.tab) ? state.tab : state.tabs[0];
     for (const [key, meta] of Object.entries(PANEL_META)) {
       el(meta.panel).classList.toggle("on", show === key);
     }
+    if (show === "setup") renderSetup();
     if (show === "canvas") { sizeCanvas(stageCv); drawStage(); }
     if (show === "detect") { renderDetectToolbar(); drawTilePreview(); }
     if (show === "focus") { renderFocusToolbar(); drawFocus(); drawTrace(); }
@@ -421,6 +473,12 @@ import "./style.css";
   }
 
   function renderAll() {
+    /* Recomputed every render, not only on a step change: the first tile of a
+       scan lands while the operator is standing still, and that is the moment
+       the canvas earns its place and setup stops being the useful view. */
+    state.tabs = panelsFor(state.activeIdx);
+    if (!state.tabs.includes(state.tab)) state.tab = state.tabs[0];
+
     renderRail();
     renderActionBar();
     renderTabs();

@@ -64,24 +64,31 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     await expect(page.locator('.step:has-text("Capture target job")').first()).toBeDisabled();
   });
 
-test("canvas is permanent, every other tab belongs to the active step", async ({ page }) => {
-  await expect(page.locator(".tab")).toHaveText(["Canvas"]);
+test("setup holds the base until there is data, then the canvas takes over",
+  async ({ page }) => {
+    // an empty stage is not worth a tab; the configuration is
+    await expect(page.locator(".tab")).toHaveText(["Setup"]);
+    await throughJobs(page);
+    await expect(page.locator(".tab")).toHaveText(["Setup"]);
+    await expect(page.locator(".setup-row")).toHaveCount(5);
+    await expect(page.locator(".setup-row").first()).toContainText("session open");
 
-  await throughJobs(page);
-  await expect(page.locator(".tab")).toHaveText(["Canvas"]);
+    await placeFocusPoints(page);
+    await expect(page.locator(".tab")).toHaveText(["Setup", "Focus strategy"]);
+    await expect(page.locator('.tab[aria-selected="true"]')).toHaveText("Focus strategy");
 
-  await placeFocusPoints(page);
-  await expect(page.locator(".tab")).toHaveText(["Canvas", "Focus strategy"]);
-  await expect(page.locator('.tab[aria-selected="true"]')).toHaveText("Focus strategy");
+    await runStep(page, 1600);
+    await gotoStep(page, "Scan the overview");
+    await expect(page.locator(".tab")).toHaveText(["Setup"]);
 
-  await runStep(page, 1600);
-  await gotoStep(page, "Scan the overview");
-  await expect(page.locator(".tab")).toHaveText(["Canvas"]);
+    await runStep(page, 3000);
+    await expect(page.locator(".tab"), "the first tile is what earns the canvas")
+      .toHaveText(["Canvas"]);
 
-  await gotoStep(page, "Focus strategy");
-  await expect(page.locator(".tab"), "walking back reopens that step's panel")
-    .toHaveText(["Canvas", "Focus strategy"]);
-});
+    await gotoStep(page, "Focus strategy");
+    await expect(page.locator(".tab"), "walking back reopens that step's panel")
+      .toHaveText(["Canvas", "Focus strategy"]);
+  });
 
 test("one walk of the whole run", async ({ page }) => {
   await throughJobs(page);
