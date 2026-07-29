@@ -65,7 +65,12 @@ def fuse(
     Args:
         run: the folder the run was written to, holding ``canvas0.ome.zarr`` and
             its siblings.
-        into: where to write the joined image. Replaced if it already exists.
+        into: where to write the joined image. This has to be somewhere outside
+            the run's own folder — beside it is the natural place — because the
+            joined image is made by emptying whatever is already there, and
+            because everything ending in ``.ome.zarr`` inside a run's folder is
+            read as one of that run's images. Anything already at this path is
+            replaced.
         where_they_meet: ``"blend"``, ``"first"`` or ``"mean"`` — what to do
             where two tiles recorded the same place. See the note at the top of
             this module.
@@ -77,7 +82,9 @@ def fuse(
 
     Raises:
         FileNotFoundError: if the folder holds no images from a run.
-        ValueError: if ``where_they_meet`` is not one of the three above.
+        ValueError: if ``where_they_meet`` is not one of the three above, or if
+            the joined image was asked to be written inside the run it is made
+            from — which would destroy the run instead of joining it.
     """
     if where_they_meet not in ("blend", "first", "mean"):
         raise ValueError(
@@ -91,11 +98,15 @@ def fuse(
             f"{run} holds no images from a run — expected canvas0.ome.zarr and so on"
         )
 
+    into = Path(into)
+    # Asked before anything at all is opened, because making the joined image
+    # begins by emptying whatever is at that path.
+    _refuse_to_write_the_joined_image_into_the_run(run, into, sources)
+
     groups = [zarr.open_group(str(path), mode="r") for path in sources]
     first = groups[0]["0"]
     shape, dtype = first.shape, first.dtype
 
-    into = Path(into)
     joined = zarr.open_group(str(into), mode="w", zarr_format=2)
     # One piece per plane in every axis except the last two, whatever those axes
     # happen to be -- a run of a single moment has no time axis, so the number of
@@ -116,6 +127,77 @@ def fuse(
     _write_smaller_copies(joined, full, levels, chunk)
     _describe(into, sources[0], levels)
     return into
+
+
+def _refuse_to_write_the_joined_image_into_the_run(
+    run: Path, into: Path, sources: list[Path]
+) -> None:
+    """Stop the joined image from being written on top of the run it is made from.
+
+    Joining begins by emptying whatever is already at the target path, and it
+    reads the run's images as it goes. So if the target is one of those images —
+    or the run's folder itself, or a place inside one of the images — the run is
+    emptied before a single plane of it has been read. What follows is the worst
+    kind of failure: the joining stops part way with a complaint about missing
+    description, no joined image is produced, and the run it was made from is
+    gone. Asked for directly, ``fuse(run, run / "overview.ome.zarr")`` did exactly
+    that, and ``fuse(run, run)`` replaced the whole run folder with an empty one.
+
+    A target sitting beside the run's images rather than on top of them is
+    refused too, though nothing would be destroyed by it. The reason is that a
+    run's folder is read by gathering everything in it whose name ends in
+    ``.ome.zarr``, so a joined image left there becomes, from then on, one of that
+    run's own images: the viewer would show it as part of the acquisition, and
+    joining the run a second time would read the first joined image back in as
+    though it were acquired data. Keeping the joined image outside the run's
+    folder avoids all of that, and costs nothing.
+    """
+    run_here = run.resolve()
+    into_here = into.resolve()
+    somewhere_else = run.parent / (run.name + "_joined.ome.zarr")
+
+    def is_inside_or_the_same(inner: Path, outer: Path) -> bool:
+        return inner == outer or outer in inner.parents
+
+    what_would_go = None
+    if is_inside_or_the_same(run_here, into_here):
+        # The target is the run folder itself, or a folder holding it, so
+        # emptying it would take every image the run wrote.
+        what_would_go = f"the whole run folder {run}"
+    else:
+        for source in sources:
+            if is_inside_or_the_same(into_here, source.resolve()):
+                what_would_go = f"the run's own image {source.name}"
+                break
+
+    if what_would_go is not None:
+        raise ValueError(
+            f"the joined image was asked for at {into}, which would empty "
+            f"{what_would_go}. Joining starts by emptying whatever is at the "
+            "target path and only then reads the run, so the run would be "
+            "destroyed before it could be read, and no joined image would be "
+            "produced at all.\n\n"
+            f"Write the joined image somewhere outside the run's folder — "
+            f"{somewhere_else} would do — so that the run it was made from is "
+            "still there afterwards. The run's images are worth keeping: they are "
+            "the only place both recordings of every shared strip exist, which is "
+            "what a stitcher needs in order to work out where the stage really "
+            "put each tile."
+        )
+
+    if is_inside_or_the_same(into_here, run_here):
+        raise ValueError(
+            f"the joined image was asked for at {into}, which is inside the run "
+            f"folder {run} that it is made from. Nothing would be destroyed by "
+            "that, but a run's folder is read by gathering every image in it, so "
+            "a joined image left there would become one of that run's own images "
+            "from then on: the viewer would draw it as part of the acquisition, "
+            "and joining the run again would read it back in as though it had "
+            "been acquired.\n\n"
+            f"Write it outside the run's folder instead — {somewhere_else} would "
+            "do — which also keeps the run plainly separate from the picture made "
+            "from it."
+        )
 
 
 def _join(planes: list[np.ndarray], how: str, dtype) -> np.ndarray:

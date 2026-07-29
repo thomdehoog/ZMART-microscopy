@@ -127,6 +127,98 @@ def test_the_overlap_is_still_there_to_be_compared(tmp_path):
     )
 
 
+# -- not joining a run on top of itself ---------------------------------------
+#
+# Making the joined image begins by emptying whatever is already at the path it was
+# asked for, and the run is only read afterwards. So a target inside the run is the
+# worst kind of mistake: the run goes first, then the joining stops part way with a
+# complaint about missing description, and there is neither a run nor a joined
+# image left. Reproduced before this was fixed, `fuse(run, run / "overview.ome.zarr")`
+# turned a tile of 4242 into zeros and died with `KeyError: 'multiscales'`.
+
+
+def _a_plain_run(folder: Path) -> TileCanvases:
+    """One image with one tile in it, which is all these need."""
+    canvases = TileCanvases.create(
+        folder, name="overview",
+        canvas_shape=(2, 256, 256),
+        tile_shape=TILE, tile_step=TILE,
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488")], chunk=64, levels=2,
+    )
+    canvases.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                   tile_index=(0, 0, 0))
+    return canvases
+
+
+def _the_run_is_still_readable(canvases: TileCanvases) -> None:
+    picture = _planes(zarr.open_group(str(canvases.paths[0]), mode="r")["0"])
+    assert (picture[:, :TILE[1], :TILE[2]] == 4242).all(), (
+        "the run was destroyed by a fuse that should have been refused"
+    )
+
+
+def test_joining_a_run_on_top_of_its_own_image_is_refused(tmp_path):
+    """The run must still be there when the joining is over, or refused before it."""
+    run = tmp_path / "run"
+    canvases = _a_plain_run(run)
+
+    with pytest.raises(ValueError, match="would empty the run's own image"):
+        fuse(run, run / "overview.ome.zarr", levels=2, chunk=64)
+
+    _the_run_is_still_readable(canvases)
+
+
+def test_joining_into_a_place_inside_the_runs_image_is_refused(tmp_path):
+    """Inside one of the run's images is inside the run, and just as destructive."""
+    run = tmp_path / "run"
+    canvases = _a_plain_run(run)
+
+    with pytest.raises(ValueError, match="would empty the run's own image"):
+        fuse(run, run / "overview.ome.zarr" / "joined", levels=2, chunk=64)
+
+    _the_run_is_still_readable(canvases)
+
+
+def test_joining_on_top_of_the_run_folder_is_refused(tmp_path):
+    """The run folder holds every image of the run, so this would take all of them."""
+    run = tmp_path / "run"
+    canvases = _a_plain_run(run)
+
+    with pytest.raises(ValueError, match="would empty the whole run folder"):
+        fuse(run, run, levels=2, chunk=64)
+
+    _the_run_is_still_readable(canvases)
+    assert (run / "overview.ome.zarr").is_dir()
+
+
+def test_joining_into_the_run_folder_beside_its_images_is_refused(tmp_path):
+    """Nothing is destroyed by this, but the joined image would join the run.
+
+    A run's folder is read by gathering every image in it, so a joined image left
+    there becomes one of that run's own images from then on: the viewer draws it as
+    part of the acquisition, and joining the run a second time reads the first
+    joined image back in as though it had been acquired. Somewhere outside the run
+    is both safer and easier to explain.
+    """
+    run = tmp_path / "run"
+    _a_plain_run(run)
+
+    with pytest.raises(ValueError, match="inside the run folder"):
+        fuse(run, run / "joined.ome.zarr", levels=2, chunk=64)
+
+
+def test_joining_beside_the_run_is_what_works(tmp_path):
+    """The refusals must leave the ordinary way of doing this untouched."""
+    run = tmp_path / "run"
+    _a_plain_run(run)
+
+    joined = fuse(run, tmp_path / "run_joined.ome.zarr", levels=2, chunk=64)
+
+    picture = _planes(zarr.open_group(str(joined), mode="r")["0"])
+    assert (picture[:, :TILE[1], :TILE[2]] == 4242).all()
+
+
 # -- what analysis pays ------------------------------------------------------
 
 
