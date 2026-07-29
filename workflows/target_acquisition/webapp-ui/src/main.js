@@ -445,26 +445,19 @@ import carrierWidget from "./widgets/carrier.js";
     gallery: { label: "Gallery", panel: "panel-gallery" },
   };
 
-  /* The canvas is the microscope's own limits drawn to scale, so it is there
-     from the step that sets it up onward — from reaching that step, not from
-     finishing it. Nothing about the frame depends on the carrier chosen inside
-     it; the carrier only says where within those limits the sample sits.
+  /* The canvas is always the base. It is the stage — the room every step
+     works in — so it is there from the first step rather than arriving once
+     something has been put on it, and a step's own panel opens on top of it.
 
-     Setting it up fixes the run's zero as well, which is why no step asks for
-     an origin any more. That happens behind the scenes and is deliberately not
-     drawn: it is a consequence of having a frame, not a thing to confirm.
+     Setting the frame up fixes the run's zero as well, which is why no step
+     asks for an origin: it is a consequence of having a stage, not a thing to
+     confirm. Origin is the stage's top left. Later the limits come from the
+     controller; today they are a stand-in.
 
-     From there the canvas is the window into the run, filling with data rather
-     than appearing once data exists. The tab set is rebuilt on every render
-     rather than growing forever. */
-  const canvasReady = () => {
-    const i = indexOfStep("carrier");
-    return i >= 0 && steps().slice(0, i).every((s) => state.done.has(s.id));
-  };
-
+     The tab set is rebuilt on every render rather than growing forever. */
   function panelsFor(i) {
     const own = (step(i).panels || []).filter((p) => p !== "canvas");
-    return canvasReady() ? ["canvas", ...own] : own;
+    return ["canvas", ...own];
   }
 
   function focusPanelsFor(i) {
@@ -901,14 +894,9 @@ import carrierWidget from "./widgets/carrier.js";
 
   }
 
-  /* A step's own panel, alone, is not worth a tab: it is the only thing there
-     and the rail already names the step. The canvas keeps its tab even alone,
-     because it never goes away — a fixture that blinked in and out as steps
-     declared panels beside it would read as a different thing each time. */
   function renderTabs() {
     const host = el("tabs");
     host.textContent = "";
-    if (state.tabs.length === 1 && state.tabs[0] !== "canvas") return;
 
     for (const key of state.tabs) {
       const meta = PANEL_META[key];
