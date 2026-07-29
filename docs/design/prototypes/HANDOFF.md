@@ -13,8 +13,10 @@ not be correct about physics.
 ## Where it is
 
 - Clone: `C:\ProgramData\MinicondaZMB\home\t.de\ZMART-microscopy_main`
-- Branch: `design/operator-page-prototype`, pushed to
-  `github.com/thomdehoog/ZMART-microscopy` — **public repo**
+- Branch: `design/operator-page-prototype` on
+  `github.com/thomdehoog/ZMART-microscopy` — **public repo**. The branch runs
+  ahead of the remote; check `git log origin/design/operator-page-prototype..HEAD`
+  before assuming what is pushed, and do not push without asking.
 - The live project: `workflows/target_acquisition/webapp-ui/` — a Vite app.
   **Read its `ARCHITECTURE.md` first.**
 - `git` is not on PATH: `C:\ProgramData\MinicondaZMB\Library\bin\git.exe`
