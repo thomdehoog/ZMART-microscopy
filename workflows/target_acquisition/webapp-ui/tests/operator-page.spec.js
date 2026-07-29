@@ -38,9 +38,9 @@ async function record(page, kind, name) {
 async function throughSetup(page) {
   await connect(page);
   await gotoStep(page, "Optical settings");
+  // recording is the work; there is no button to confirm afterwards
   await record(page, "acquisition", "survey");
   await record(page, "acquisition", "target");
-  await runStep(page, 900);
   for (const name of ["Carrier setup", "Set origin"]) {
     await gotoStep(page, name);
     await runStep(page, 900);
@@ -102,23 +102,49 @@ test("connecting reports what it checked", async ({ page }) => {
   await expect(page.locator(".session-state").first()).toContainText("Leica Stellaris 5");
 });
 
+test("the session can only be changed by disconnecting first", async ({ page }) => {
+  const fields = page.locator(".session-form select, .session-form input");
+  await connect(page);
+  await expect(fields.first(), "an open session is what the run rests on").toBeDisabled();
+
+  // and disconnecting takes the run with it: those settings came off this scope
+  await gotoStep(page, "Optical settings");
+  await record(page, "acquisition", "survey");
+  await gotoStep(page, "Connect");
+  await page.locator("button.run.danger").click();
+  await page.waitForTimeout(300);
+
+  await expect(fields.first()).toBeEnabled();
+  await expect(page.locator('.field input[type="password"]'),
+    "the credentials stay, since editing them is the reason to disconnect")
+    .toHaveValue("hunter2");
+  await expect(page.locator(".check-row")).toHaveCount(0);
+  await expect(page.locator('.step:has-text("Connect")').first()).not.toHaveClass(/done/);
+});
+
 test("settings are recorded off the instrument, and the list grows", async ({ page }) => {
   await connect(page);
   await gotoStep(page, "Optical settings");
 
   // nothing is preconfigured: the only choice is what kind of thing to record
-  await expect(page.locator("#action-bar button.run"),
-    "a run with no settings recorded has nothing to run with").toBeDisabled();
+  await expect(page.locator("#action-bar"),
+    "recording is the work, so there is nothing to confirm").toBeHidden();
   await expect(page.locator(".rec-row")).toHaveCount(0);
+  await expect(page.locator('.step:has-text("Optical settings")').first())
+    .not.toHaveClass(/done/);
 
   await record(page, "acquisition", "survey");
   await record(page, "acquisition", "target");
   await record(page, "autofocus", "af-coarse");
 
   await expect(page.locator(".rec-row")).toHaveCount(3);
+  // grouped by kind rather than by the order record happened to be pressed
+  await expect(page.locator(".setting-group")).toHaveCount(2);
   await expect(page.locator(".rec-row").first()).toContainText("µm/px");
   await expect(page.locator(".rec-row").last()).toContainText("Brenner");
-  await expect(page.locator("#action-bar button.run")).toBeEnabled();
+  // a setting existing is what completes the step
+  await expect(page.locator('.step:has-text("Optical settings")').first())
+    .toHaveClass(/done/);
 
   // a recorded setting and the next open bar are separate boxes
   await expect(page.locator(".setting-box.done")).toHaveCount(3);

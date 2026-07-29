@@ -642,3 +642,19 @@ canvas.scattercv { cursor: crosshair; }
 
 /* one height for both states, so the list does not jog as bars are recorded */
 .setting-box { min-height: 72px; display: grid; align-items: center; }
+
+/* Settings of one kind sit close together; a wider gap separates the kinds.
+   Each box already says which kind it is, so the grouping is spacing rather
+   than a heading repeating it on every row. */
+.setting-group { display: flex; flex-direction: column; gap: 6px; }
+.setup-list { gap: 18px; }
+
+/* Disconnecting closes the session and clears the run with it, so the button
+   says so before it is pressed rather than after. */
+button.run.danger { background: var(--bad); }
+button.run.danger:hover:enabled { background: #991b1b; }
+:root[data-theme="dark"] button.run.danger,
+:root:not([data-theme="light"]) button.run.danger { color: #1a0505; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) button.run.danger { color: #fff; }
+}
