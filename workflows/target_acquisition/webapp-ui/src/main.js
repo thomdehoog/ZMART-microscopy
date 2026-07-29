@@ -425,6 +425,8 @@ import {
      here and press something over there. */
   function renderSessionCard(host) {
     const connected = state.done.has("connect");
+    let connectBtn = null;
+    let connectHint = null;
     const connecting = state.running === "connect";
     const card = document.createElement("div");
     card.className = "session-card" + (connected ? " done" : "");
@@ -483,9 +485,14 @@ import {
       const pwInput = pw.querySelector("input");
       pwInput.value = state.session.password;
       pwInput.disabled = locked;
+      /* Typing must not rebuild the card: re-rendering destroys the very
+         input being typed into, which drops focus after every keystroke.
+         Only what depends on the password is touched. */
       pwInput.addEventListener("input", () => {
         state.session.password = pwInput.value;
-        renderSetup(); renderActionBar();
+        const ready = !!pwInput.value;
+        if (connectBtn) connectBtn.disabled = connecting || !ready;
+        if (connectHint) connectHint.hidden = ready;
       });
 
       form.append(scope, api, pw);
@@ -493,19 +500,19 @@ import {
       // once the session is open the button has nothing left to do; the fields
       // stay on show as the record of what it was opened with
       if (!connected) {
-        const go = document.createElement("button");
-        go.className = "run"; go.type = "button";
-        go.textContent = connecting ? "connecting…" : "Connect";
-        go.disabled = connecting || !state.session.password;
-        go.addEventListener("click", () => runStep(indexOfStep("connect")));
-        form.append(go);
+        connectBtn = document.createElement("button");
+        connectBtn.className = "run";
+        connectBtn.type = "button";
+        connectBtn.textContent = connecting ? "connecting…" : "Connect";
+        connectBtn.disabled = connecting || !state.session.password;
+        connectBtn.addEventListener("click", () => runStep(indexOfStep("connect")));
+        form.append(connectBtn);
 
-        if (!state.session.password && !connecting) {
-          const hint = document.createElement("div");
-          hint.className = "session-hint";
-          hint.textContent = "a password is needed to open the session";
-          form.append(hint);
-        }
+        connectHint = document.createElement("div");
+        connectHint.className = "session-hint";
+        connectHint.textContent = "a password is needed to open the session";
+        connectHint.hidden = !!state.session.password || connecting;
+        form.append(connectHint);
       }
       card.append(form);
     }
@@ -557,12 +564,6 @@ import {
       host.append(el_);
     }
 
-    const note = document.createElement("div");
-    note.className = "setup-note";
-    note.textContent = state.done.has("scan")
-      ? "The canvas has the scan on it."
-      : "The canvas appears once the first tile lands.";
-    host.append(note);
   }
 
   function renderTabs() {
