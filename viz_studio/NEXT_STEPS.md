@@ -1362,10 +1362,37 @@ else depends on it.
 
 ## Where things stand
 
-Branch `claude/time-axis-storage-trso2u`. The whole suite passes in about nine and a half
-minutes with `-n 3` — 378 passed, 8 skipped where there is no GPU or no mesoSPIM data,
-and one `xfail`. The writer has a suite of its own, `zmart_storage/tests`, which is 25
+Branch `claude/time-axis-storage-trso2u`. The whole suite passes — 378 passed, 8 skipped
+where there is no GPU or no mesoSPIM data, and one `xfail`, in about eighteen minutes run
+one test at a time. The writer has a suite of its own, `zmart_storage/tests`, which is 25
 passed and 1 skipped in half a minute. Nothing uncommitted.
+
+**`-n 3` needs more than four cores, and the way it fails is misleading.** Running three
+at once is much quicker where there is room for it, and the previous hand-over recommended
+it without qualification. On a four-core machine there is not room, and the failures that
+result look like faults in the viewer rather than like a machine running out of breath.
+Measured here on four cores: three parallel runs produced four different failures between
+them, no two runs failing the same test, and every one of them passed when run on its own.
+The tracebacks say plainly what was happening —
+
+- `Page.screenshot: Timeout 30000ms exceeded` in the volume-view test. That is not an
+  assertion about the picture at all; the browser could not produce a screenshot within
+  thirty seconds, because three of them were ray-casting volumes in software at once.
+- `coming back asked the server again for 34 of the 413 pieces it had already sent`, where
+  the test allows eight. The engine's memory of decoded pieces was being evicted under
+  pressure from the other browsers, so it genuinely had to fetch them again.
+
+Neither is a fault to chase. If you have the cores, use `-n 3`; if you do not, run the
+suite plainly and give it the eighteen minutes. What you should not do is take a single
+parallel failure at face value — run that test on its own first, which takes a minute and
+will usually pass.
+
+Worth knowing rather than acting on: both of those tests have a threshold tuned for a
+machine with room to breathe — a fixed four-second wait for a volume to be ray-cast, and a
+ceiling of eight re-fetched pieces. Waiting on the engine's own account of what it has
+drawn, the way the `timelapse_page` fixture already does, would make them say what they
+mean under any load. That has not been done, because it is a change to tests that are
+currently telling the truth.
 
 **The one `xfail`, because it is a real gap and not a flaky test.**
 `test_each_acquisition_type_gets_a_row_of_its_own` is marked strict, so it will announce
