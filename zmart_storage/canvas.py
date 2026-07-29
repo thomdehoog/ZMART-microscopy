@@ -227,14 +227,10 @@ class TileCanvases:
 
     def __init__(self, folder: Path, slots: list[_Slot], *, shape: tuple[int, ...],
                  levels: int, tile_shape: tuple[int, int, int],
-                 slot_grid: tuple[int, int, int], timed: bool = False) -> None:
+                 slot_grid: tuple[int, int, int]) -> None:
         self.folder = folder
         self._slots = slots
         self._shape = shape
-        # Whether these images carry a time axis at all. A run of a single moment
-        # does not, so writing has one fewer index to place -- see _declare_one for
-        # why an unused time axis is worse than no time axis.
-        self._timed = timed
         self._levels = levels
         self._tile_shape = tile_shape
         self._slot_grid = slot_grid
@@ -379,7 +375,6 @@ class TileCanvases:
             levels=levels,
             tile_shape=tile_shape,
             slot_grid=slot_grid,
-            timed=frames > 1,
         )
 
     # -- writing ----------------------------------------------------------
@@ -440,7 +435,8 @@ class TileCanvases:
                 self._free.wait()
             self._busy.append(region)
         try:
-            at = ((frame,) if self._timed else ()) + (channel,)
+            self._make_room_for(slot, frame)
+            at = (frame, channel)
             slot.arrays[0][
                 *at, z0:z0 + depth, y0:y0 + height, x0:x0 + width
             ] = image
@@ -483,6 +479,33 @@ class TileCanvases:
             f"(there are currently {len(self._slots)}, the emptiest holding "
             f"{len(emptiest.written)} tiles)."
         )
+
+    def _make_room_for(self, slot: _Slot, frame: int) -> None:
+        """Lengthen the run by a moment, if this frame is one it has not reached.
+
+        A run does not know how long it will be, so its images start one moment
+        long and are lengthened as frames arrive. That way the store always says
+        exactly how many moments were recorded, and the viewer's time slider ends
+        where the data ends rather than running out over frames nobody imaged.
+
+        Lengthening is safe and cheap, and both halves of that were measured. It
+        is safe because a piece of image is addressed by its position, so adding
+        room at the far end of the first axis leaves every piece already written
+        exactly where it was — an image declared with two moments and grown to
+        five kept both, accepted a write at the fifth, and read the ones never
+        written as empty. It is cheap because the file describing an image is a
+        few hundred bytes whether it holds one moment or ten thousand; only a
+        number in it changes, and no voxel is touched.
+
+        The one thing to know is that a viewer following the run re-reads the
+        frame it is showing when the length changes, because the engine files
+        decoded pieces under a key that includes the shape. That is bounded to
+        the frame on screen and happens once per new moment.
+        """
+        if frame < slot.arrays[0].shape[0]:
+            return
+        for array in slot.arrays:
+            array.resize((frame + 1, *array.shape[1:]))
 
     def _check_it_fits(self, footprint: tuple[int, ...]) -> None:
         z0, z1, y0, y1, x0, x1 = footprint
@@ -532,7 +555,7 @@ class TileCanvases:
             width = min(width, array.shape[-1] - x0)
             if height <= 0 or width <= 0:
                 continue
-            at = ((frame,) if self._timed else ()) + (channel,)
+            at = (frame, channel)
             array[*at, z0:z0 + depth, y0:y0 + height, x0:x0 + width] = (
                 smaller[:, :height, :width]
             )
@@ -594,9 +617,13 @@ def _declare_one(
     store.mkdir(parents=True, exist_ok=True)
     group = zarr.open_group(str(store), mode="w", zarr_format=2)
 
-    timed = frames > 1
+    # A time axis is always declared, and always starts one moment long. It is
+    # never given a length the run has not reached: the length of this axis is a
+    # statement about how many moments were actually recorded, and a store that
+    # claims moments it does not hold leaves the time slider running out over
+    # frames that do not exist. It is raised by one as each frame lands.
     axes = [
-        *([{"name": "t", "type": "time", "unit": "second"}] if timed else []),
+        {"name": "t", "type": "time", "unit": "second"},
         {"name": "c", "type": "channel"},
         {"name": "z", "type": "space", "unit": "micrometer"},
         {"name": "y", "type": "space", "unit": "micrometer"},
@@ -607,7 +634,7 @@ def _declare_one(
     for level in range(levels):
         factor = 2 ** level
         shape = (
-            *((frames,) if timed else ()),
+            frames,
             channels,
             canvas_shape[0],
             max(1, canvas_shape[1] // factor),
@@ -618,8 +645,7 @@ def _declare_one(
             shape=shape,
             # One plane per piece in time, colour and depth, so showing a single
             # plane never means fetching the ones on either side of it.
-            chunks=(*((1,) if timed else ()), 1, 1,
-                    min(chunk, shape[-2]), min(chunk, shape[-1])),
+            chunks=(1, 1, 1, min(chunk, shape[-2]), min(chunk, shape[-1])),
             dtype=dtype,
             # Pieces filed in folders rather than side by side in one directory.
             # A long run otherwise puts millions of files in a single folder,
@@ -630,7 +656,7 @@ def _declare_one(
             "path": str(level),
             "coordinateTransformations": [{
                 "type": "scale",
-                "scale": [*((1.0,) if timed else ()), 1.0, voxel_size_um[0],
+                "scale": [1.0, 1.0, voxel_size_um[0],
                           voxel_size_um[1] * factor, voxel_size_um[2] * factor],
             }],
         })
@@ -644,7 +670,7 @@ def _declare_one(
             # same corner, which is what makes them line up on screen.
             "coordinateTransformations": [{
                 "type": "translation",
-                "translation": [*((0.0,) if timed else ()), 0.0,
+                "translation": [0.0, 0.0,
                                 origin_um[0], origin_um[1], origin_um[2]],
             }],
         }],

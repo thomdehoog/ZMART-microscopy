@@ -266,3 +266,63 @@ def test_spreading_an_overlapping_run_keeps_every_tile(tmp_path):
             f"tile ({row}, {col}) was partly overwritten: "
             f"{int((found[0] != value).sum())} voxels lost"
         )
+
+
+# -- moments, which the run does not know the number of in advance -------------
+
+
+def test_a_run_starts_one_moment_long(tmp_path):
+    """A run has recorded one moment when it starts, so that is what it says."""
+    canvases = _canvases(tmp_path)
+    array = zarr.open_group(str(canvases.paths[0]), mode="r")["0"]
+    assert array.shape[0] == 1, (
+        f"a run that has recorded one moment declared {array.shape[0]}"
+    )
+
+
+def test_the_run_lengthens_as_moments_are_recorded(tmp_path):
+    """Writing a later moment makes room for it rather than being refused.
+
+    The store then always says exactly how many moments were recorded, which is
+    what lets the viewer's time slider end where the data ends instead of running
+    out over frames nobody imaged.
+    """
+    canvases = _canvases(tmp_path)
+    for moment in range(3):
+        canvases.write(np.full(TILE, 1000 + moment, dtype="uint16"),
+                       origin=(0, 0, 0), frame=moment, tile_index=(0, 0, 0))
+        array = zarr.open_group(str(canvases.paths[0]), mode="r")["0"]
+        assert array.shape[0] == moment + 1, (
+            f"after recording {moment + 1} moments the run says {array.shape[0]}"
+        )
+
+
+def test_lengthening_leaves_the_moments_already_recorded_alone(tmp_path):
+    """Making room at the end must not disturb anything already written.
+
+    Safe because a piece of image is addressed by its position, so adding room at
+    the far end of the first axis leaves every piece exactly where it was. Checked
+    rather than trusted, because losing an earlier moment would be silent.
+    """
+    canvases = _canvases(tmp_path)
+    for moment in range(3):
+        canvases.write(np.full(TILE, 1000 + moment, dtype="uint16"),
+                       origin=(0, 0, 0), frame=moment, tile_index=(0, 0, 0))
+
+    array = zarr.open_group(str(canvases.paths[0]), mode="r")["0"]
+    for moment in range(3):
+        recorded = np.asarray(array[moment, 0, :, 0:TILE[1], 0:TILE[2]])
+        assert (recorded == 1000 + moment).all(), (
+            f"moment {moment} was disturbed by the ones recorded after it"
+        )
+
+
+def test_a_moment_that_was_skipped_reads_as_empty(tmp_path):
+    """Room made but never written to is empty, not stale or invented."""
+    canvases = _canvases(tmp_path)
+    canvases.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                   frame=4, tile_index=(0, 0, 0))
+    array = zarr.open_group(str(canvases.paths[0]), mode="r")["0"]
+    assert array.shape[0] == 5
+    assert int(np.asarray(array[2]).max()) == 0
+    assert int(np.asarray(array[4, 0, 0, 0, 0])) == 4242
