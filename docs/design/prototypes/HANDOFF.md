@@ -38,8 +38,8 @@ instead of inside a well.
 
 - Clone: `C:\ProgramData\MinicondaZMB\home\t.de\ZMART-microscopy_main`
 - Branch: `design/operator-page-prototype` on
-  `github.com/thomdehoog/ZMART-microscopy` — **public repo**. The branch runs
-  may run ahead of the remote — check
+  `github.com/thomdehoog/ZMART-microscopy` — **public repo**. The branch may
+  run ahead of the remote — check
   `git log origin/design/operator-page-prototype..HEAD` rather than assuming,
   and do not push without asking.
 - The live project: `workflows/target_acquisition/webapp-ui/` — a Vite app.
@@ -239,9 +239,9 @@ new values into the controls that already exist rather than rebuilding — a
 rebuild per keystroke destroys the field being typed into. It exports `drawOn`
 too, because the controls and what they put on the canvas are one subject.
 
-Widget extraction is deliberately deferred while the UI is still being
-designed. Do it when a new widget appears or two people work on the page at
-once.
+The rest is still inline in `main.js` on purpose: while the UI is being
+designed a single file is faster to iterate in, and boundaries drawn around a
+moving design get redrawn. Take a panel out when it stops moving.
 
 ## Open questions — ask, do not invent
 
