@@ -1431,10 +1431,26 @@ else depends on it.
 
 ## Where things stand
 
-Branch `claude/time-axis-storage-trso2u`. The whole suite passes — 378 passed, 8 skipped
-where there is no GPU or no mesoSPIM data, and one `xfail`, in about eighteen minutes run
-one test at a time. The writer has a suite of its own, `zmart_storage/tests`, which is 25
-passed and 1 skipped in half a minute. Nothing uncommitted.
+Branch `claude/time-axis-storage-trso2u`. The suite is 378 tests, 8 skipped where there is
+no GPU or no mesoSPIM data, and one `xfail`, in about eighteen minutes run one test at a
+time. The writer has a suite of its own, `zmart_storage/tests`, which is 26 passed and 1
+skipped in half a minute. Nothing uncommitted.
+
+**One test in the viewer's suite is intermittent, and it is worth knowing before it
+surprises somebody.** `test_masks_luts_and_refresh.py::test_a_new_acquisition_is_noticed_
+quickly_and_quietly` asserts that the target list is saved at most once in the three
+seconds after the page settles, and it occasionally sees two saves. It failed once in a
+full serial run and once in three runs on its own; it then passed six times out of six
+when the same three seconds were watched directly, and every one of those runs showed a
+single `POST` and nothing else. So the second save is real but infrequent, and it has not
+been pinned down.
+
+Two things to note about it. It is **not** the load sensitivity described below — it
+happens on an idle machine, and it is a count of requests rather than a threshold on a
+timing. And it is worth treating as a possible fault in the page rather than assuming the
+test is wrong: a list being saved twice when nothing was drawn is the same shape as the
+play button that threw where nobody was pressing it. The place to look is whatever
+triggers a save after the list is first read.
 
 **`-n 3` needs more than four cores, and the way it fails is misleading.** Running three
 at once is much quicker where there is room for it, and the previous hand-over recommended
