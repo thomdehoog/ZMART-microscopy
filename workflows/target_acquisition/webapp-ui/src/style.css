@@ -685,3 +685,14 @@ button.run.danger:hover:enabled { background: #991b1b; }
 
 /* the label above the open bar reads as an invitation, not a category */
 .group-label { margin-top: 2px; }
+
+/* An empty hint still claimed a grid row, so the open bar sat taller than it
+   looked and its contents rode high in the box. */
+.session-hint:empty { display: none; }
+
+/* The Record button reaches the same right edge the ✕ column does, so the
+   dashed bar lines up with the recorded ones rather than stopping short. */
+.rec-new button.run { grid-column: 3 / -1; }
+
+/* every label above a box lines up with it, and sits the same distance off */
+.group-label { padding: 0; margin: 0 0 2px; }
