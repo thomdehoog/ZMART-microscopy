@@ -240,24 +240,18 @@ import carrierWidget from "./widgets/carrier.js";
       if (running) head.insertAdjacentHTML("beforeend", '<span class="spin"></span>');
       b.append(head);
 
-      /* The step you are standing on says what it is for; the others say only
-         what they produced. Explaining every step at once is a wall of text,
-         and explaining none of them leaves the panel unaccounted for. */
-      if (active || state.notes[s.id]) {
+      /* A step says what it produced and nothing else. Standing on one used to
+         unfold a sentence explaining it, which grew the step you were on by
+         two lines and pushed the rest of the run down the rail every time you
+         moved — a rail that shifts underfoot to explain a step the panel
+         beside it is already showing. */
+      if (state.notes[s.id]) {
         const n = document.createElement("div");
         n.className = "step-body";
-        if (active) {
-          const why = document.createElement("div");
-          why.className = "step-why";
-          why.textContent = s.why;
-          n.append(why);
-        }
-        if (state.notes[s.id]) {
-          const note = document.createElement("div");
-          note.className = "step-note ok";
-          note.textContent = state.notes[s.id];
-          n.append(note);
-        }
+        const note = document.createElement("div");
+        note.className = "step-note ok";
+        note.textContent = state.notes[s.id];
+        n.append(note);
         b.append(n);
       }
 
@@ -688,9 +682,10 @@ import carrierWidget from "./widgets/carrier.js";
     }
   };
 
-  /* Each setting is its own box, and the open bar is another box below them.
-     Two objects on screen are two objects in the run — a recorded setting and
-     the next one waiting to be taken. */
+  /* Each recorded setting is its own box, because each is an object the run
+     holds. The bar that takes the next one is not: it is the act of taking,
+     drawn as the field it is being taken into, opening on the same edge the
+     boxes stand on. */
   function renderOpticsCard(host) {
     /* No title and no count. The rail says which step this is, the boxes are
        the settings, and counting things the operator can see is the panel

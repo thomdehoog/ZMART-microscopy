@@ -227,7 +227,6 @@ button.danger:disabled { opacity: 0.45; cursor: default; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .step-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 2px 28px; }
-.step-why { font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
 .step-note { font-size: 12.5px; color: var(--ink-3); font-family: var(--mono); }
 .step-note.ok { color: var(--good); }
 .step-note.bad { color: var(--bad); }
@@ -661,7 +660,12 @@ canvas.scattercv { cursor: crosshair; }
   background: var(--surface-2); padding: 6px 16px;
 }
 .setting-box.done { border-color: var(--line); }
-.setting-box.open { border-style: dashed; background: transparent; }
+/* The bar waiting to take the next preset is not a box. A recorded preset is
+   an object the run holds and is drawn as one; this is the act of taking the
+   next, and an outline around it drew a second object where there is only a
+   field being filled in. Without the frame its controls open on the edge the
+   boxes stand on, so the column still has one left edge. */
+.setting-box.open { border: none; padding: 0; background: transparent; }
 
 .rec-row, .rec-new {
   display: grid; align-items: center; gap: var(--row-gap); min-height: 28px;

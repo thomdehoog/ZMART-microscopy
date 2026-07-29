@@ -203,11 +203,11 @@ test("the optical settings panel lines up", async ({ page }) => {
       .map((e) => e.getBoundingClientRect());
     const labels = [...document.querySelectorAll(".group-label")]
       .map((e) => round(e.getBoundingClientRect().x));
-    // whatever opens a row: the fold triangle, or the name being taken
-    const starts = [
-      ...[...document.querySelectorAll(".rec-fold")].map((e) => round(e.getBoundingClientRect().x)),
-      round(document.querySelector(".rec-new input").getBoundingClientRect().x),
-    ];
+    // what opens a recorded row: its fold triangle
+    const starts = [...document.querySelectorAll(".rec-fold")]
+      .map((e) => round(e.getBoundingClientRect().x));
+    // and the open bar, which is not a box, opens on the edge the boxes are on
+    const openStart = round(document.querySelector(".rec-new input").getBoundingClientRect().x);
     /* A recorded row runs the width of its box and closes with the remove
        button. The open bar does not: its controls sit together at the start
        and the slack collects after Record, so there is nothing to line the
@@ -219,30 +219,26 @@ test("the optical settings panel lines up", async ({ page }) => {
 
     return {
       widths: boxes.map((b) => round(b.width)),
-      // a recorded preset is a line of text; the open bar holds controls. Each
-      // kind is uniform, and they differ by what they hold
       recordedHeights: heightsOf(".setting-box.done"),
-      openHeights: heightsOf(".setting-box.open"),
       lefts: boxes.map((b) => round(b.x)),
       rights: boxes.map((b) => round(b.right)),
-      labels, starts, ends,
+      labels, starts, ends, openStart,
     };
   });
 
   const one = (xs, what) => expect(new Set(xs).size, what).toBe(1);
   one(seen.widths, "every bar the same width");
   one(seen.recordedHeights, "every recorded bar the same height");
-  one(seen.openHeights, "and the open bar consistent with itself");
-  expect(seen.openHeights[0],
-    "the open bar carries the same fields a session does, so it stands taller "
-    + "than the line of text a recorded preset is")
-    .toBeGreaterThan(seen.recordedHeights[0]);
   one(seen.lefts, "every bar on the same left edge");
   one(seen.rights, "every bar on the same right edge");
   one(seen.labels, "every label on that edge too");
-  one(seen.starts, "every row opens in the same column");
-  one(seen.ends, "and every recorded row closes in the same one");
+  one(seen.starts, "every recorded row opens in the same column");
+  one(seen.ends, "and closes in the same one");
   expect(seen.lefts[0], "labels flush with the bars").toBe(seen.labels[0]);
+  expect(seen.openStart,
+    "the open bar has no box of its own, so its field starts on the edge the "
+    + "boxes stand on rather than inside one")
+    .toBe(seen.lefts[0]);
 });
 
 test("a recorded preset unfolds to show everything that was read", async ({ page }) => {
