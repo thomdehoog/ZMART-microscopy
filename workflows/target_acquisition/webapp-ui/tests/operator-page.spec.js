@@ -177,11 +177,63 @@ test("a setting looks the same recorded or not", async ({ page }) => {
       nameLeft: Math.round(r(".rec-name").x - r(".setting-box.done").x),
     };
   });
-  // recording changes what is in the fields, not the size of the thing
-  expect(geom.done, "same size").toEqual(geom.open);
+  // same width and columns; the recorded one is slimmer, holding only text
+  expect(geom.done.w, "same width").toBe(geom.open.w);
   // and the name starts at the left of its box: the group names the kind, so
   // there is no column standing empty in front of it
   expect(geom.nameLeft).toBeLessThan(30);
+});
+
+test("the optical settings panel lines up", async ({ page }) => {
+  await connect(page);
+  await gotoStep(page, "Optical settings");
+  await record(page, "acquisition", "survey");
+  await record(page, "acquisition", "target");
+  await record(page, "autofocus", "af coarse");
+
+  const seen = await page.evaluate(() => {
+    const round = (n) => Math.round(n);
+    const boxes = [...document.querySelectorAll(".setting-box")]
+      .map((e) => e.getBoundingClientRect());
+    const labels = [...document.querySelectorAll(".group-label")]
+      .map((e) => round(e.getBoundingClientRect().x));
+    // whatever opens a row: the recorded name, or the kind selector
+    const starts = [
+      ...[...document.querySelectorAll(".rec-name")].map((e) => round(e.getBoundingClientRect().x)),
+      round(document.querySelector(".rec-new select").getBoundingClientRect().x),
+    ];
+    // whatever closes it: the remove button, or Record
+    const ends = [
+      ...[...document.querySelectorAll(".rec-drop")].map((e) => round(e.getBoundingClientRect().right)),
+      round(document.querySelector(".rec-new button.run").getBoundingClientRect().right),
+    ];
+    const heightsOf = (sel) => [...document.querySelectorAll(sel)]
+      .map((e) => round(e.getBoundingClientRect().height));
+
+    return {
+      widths: boxes.map((b) => round(b.width)),
+      // a recorded preset is a line of text; the open bar holds controls. Each
+      // kind is uniform, and they differ by what they hold
+      recordedHeights: heightsOf(".setting-box.done"),
+      openHeights: heightsOf(".setting-box.open"),
+      lefts: boxes.map((b) => round(b.x)),
+      rights: boxes.map((b) => round(b.right)),
+      labels, starts, ends,
+    };
+  });
+
+  const one = (xs, what) => expect(new Set(xs).size, what).toBe(1);
+  one(seen.widths, "every bar the same width");
+  one(seen.recordedHeights, "every recorded bar the same height");
+  one(seen.openHeights, "and the open bar consistent with itself");
+  expect(seen.recordedHeights[0], "a recorded bar is the slimmer of the two")
+    .toBeLessThan(seen.openHeights[0]);
+  one(seen.lefts, "every bar on the same left edge");
+  one(seen.rights, "every bar on the same right edge");
+  one(seen.labels, "every label on that edge too");
+  one(seen.starts, "every row opens in the same column");
+  one(seen.ends, "and closes in the same one");
+  expect(seen.lefts[0], "labels flush with the bars").toBe(seen.labels[0]);
 });
 
 test("every label sits the same distance off its box", async ({ page }) => {
