@@ -13,15 +13,31 @@ Continue work on the ZMART operator-page layout prototype.
 - Clone: `C:\ProgramData\MinicondaZMB\home\t.de\ZMART-microscopy_main`
 - Branch: `design/operator-page-prototype`, pushed to
   `github.com/thomdehoog/ZMART-microscopy` — **public repo**
-- Files:
-  - `docs/design/prototypes/operator-page-layout.html` — the prototype. One
-    self-contained standalone page: no build step, no network, opens from disk.
-  - `docs/design/prototypes/README.md` — what it proposes, what is synthetic.
 - `git` is not on PATH: `C:\ProgramData\MinicondaZMB\Library\bin\git.exe`
 
-The real operator webapp it prototypes is on `main` at
+**The live prototype is a Vite project at
+`workflows/target_acquisition/webapp-ui/`.** Start there, and read its
+`ARCHITECTURE.md` first — it states the layers, the contracts between them,
+and honestly which parts are built versus still waiting.
+
+```bash
+E="C:/ProgramData/MinicondaZMB/envs/zmart-microscopy"     # node lives here
+export PATH="$E:$PATH"
+cd workflows/target_acquisition/webapp-ui
+npm install
+npm run dev        # http://127.0.0.1:5174, hot reload
+npm run build      # one self-contained file -> ../workflow/webapp/static/
+npm run test:unit  # vitest, ~0.2 s
+npm run test:ui    # playwright, ~26 s
+```
+
+`docs/design/prototypes/operator-page-layout.html` is the **frozen snapshot**
+of the design as it stood when it was one hand-authored file. It is not the
+working copy and will drift; keep it or delete it, but do not edit it.
+
+The real operator webapp this feeds is on `main` at
 `workflows/target_acquisition/workflow/webapp/` (`_server`, `_page`, `_flow`,
-`_host`). The prototype is **not** wired to it and should not pretend to be.
+`_host`). The prototype is **not** wired to it yet and should not pretend to be.
 
 ## What it is
 
@@ -96,6 +112,24 @@ reading the code did not surface:
   silently missed;
 - collinear points collapsing to a constant because the normal equations go
   singular where `np.linalg.lstsq` would still return a minimum-norm plane.
+
+## Decisions taken, so they are not reopened by accident
+
+**Widget extraction is deferred** (2026-07-29). The UI is still being designed;
+a single file iterates faster for CSS and draw-function changes, and boundaries
+drawn around a moving design get redrawn. Do it when a new widget appears or
+when more than one person works on the page at once.
+
+**Because of that, four facts are currently defined twice** — surface fitting,
+the sweep and peak rules, the synthetic sample, and the workflow declarations
+live both inline in `src/main.js` and in the modules beside it. `main.js` is
+what runs; the modules are what the unit tests cover. **If you change a rule,
+change it in both**, or do the de-duplication first: have `main.js` import them
+and drop its runner's mode switch in favour of `step.run(ctx)`. That is a
+contained change and does not touch any UI code. See `ARCHITECTURE.md`.
+
+**Build served by Python** (2026-07-29). `vite-plugin-singlefile` inlines
+everything into one `index.html`; the microscope PC never needs a toolchain.
 
 ## Open questions — ask before deciding
 
