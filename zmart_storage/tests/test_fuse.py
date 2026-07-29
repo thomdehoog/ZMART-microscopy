@@ -27,6 +27,11 @@ STEP = (2, 112, 112)
 GRID = 5
 
 
+def _planes(array) -> np.ndarray:
+    """The image as (z, y, x), stepping past whatever leading axes it declares."""
+    return np.asarray(array[(0,) * (array.ndim - 3)])
+
+
 def _a_run(folder: Path, *, single: bool = False) -> TileCanvases:
     side = (GRID - 1) * STEP[1] + TILE[1]
     canvases = TileCanvases.create(
@@ -62,7 +67,7 @@ def test_a_run_can_be_joined_into_one_image(tmp_path, how):
     joined = fuse(tmp_path / "run", tmp_path / f"joined_{how}.ome.zarr",
                   where_they_meet=how, levels=2, chunk=64)
 
-    picture = np.asarray(zarr.open_group(str(joined), mode="r")["0"][0, 0])
+    picture = _planes(zarr.open_group(str(joined), mode="r")["0"])
     # Every place a tile covered now holds something, and nothing is left of the
     # gaps between the run's separate images.
     covered = picture[:, :(GRID - 1) * STEP[1] + TILE[1],
@@ -83,7 +88,7 @@ def test_keeping_the_first_recording_leaves_the_numbers_untouched(tmp_path):
     joined = fuse(tmp_path / "run", tmp_path / "joined.ome.zarr",
                   where_they_meet="first", levels=2, chunk=64)
 
-    picture = np.asarray(zarr.open_group(str(joined), mode="r")["0"][0, 0])
+    picture = _planes(zarr.open_group(str(joined), mode="r")["0"])
     values = set(np.unique(picture).tolist()) - {0}
     acquired = {1000 + row * GRID + col for row in range(GRID) for col in range(GRID)}
     assert values <= acquired, (
@@ -98,7 +103,7 @@ def test_blending_only_changes_the_shared_strips(tmp_path):
     joined = fuse(tmp_path / "run", tmp_path / "joined.ome.zarr",
                   where_they_meet="blend", levels=2, chunk=64)
 
-    picture = np.asarray(zarr.open_group(str(joined), mode="r")["0"][0, 0])
+    picture = _planes(zarr.open_group(str(joined), mode="r")["0"])
     # Well inside the first tile, past where any neighbour reaches.
     assert (picture[:, 8:100, 8:100] == 1000).all()
 
@@ -110,7 +115,7 @@ def test_the_overlap_is_still_there_to_be_compared(tmp_path):
     have kept one of the two, and no later step could recover the other.
     """
     canvases = _a_run(tmp_path / "run")
-    pictures = [np.asarray(zarr.open_group(str(p), mode="r")["0"][0, 0])
+    pictures = [_planes(zarr.open_group(str(p), mode="r")["0"])
                 for p in canvases.paths]
 
     # The strip shared by the tiles at column 0 and column 1.
@@ -144,7 +149,7 @@ def test_reading_a_region_costs_about_the_same_either_way(tmp_path, capsys):
             x = int(rng.integers(0, (GRID - 1) * STEP[2]))
             patch = None
             for array in arrays:
-                here = np.asarray(array[0, 0, :, y:y + 64, x:x + 64])
+                here = np.asarray(array[(0,) * (array.ndim - 3)][:, y:y + 64, x:x + 64])
                 patch = here if patch is None else np.where(patch == 0, here, patch)
         return (time.perf_counter() - began) / rounds * 1000
 

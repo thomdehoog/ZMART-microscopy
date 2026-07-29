@@ -70,7 +70,14 @@ def _write_a_grid(canvases: TileCanvases, step=BUTTED_UP) -> dict[tuple[int, int
 
 
 def _read_level0(store: Path) -> np.ndarray:
-    return np.asarray(zarr.open_group(str(store), mode="r")["0"][0, 0])
+    """The full-resolution image as (z, y, x), whatever leading axes it declares.
+
+    A run of a single moment has no time axis, so the number of indexes to step
+    past before reaching the planes is not fixed. Counting from the end keeps the
+    tests honest about that instead of assuming a shape.
+    """
+    array = zarr.open_group(str(store), mode="r")["0"]
+    return np.asarray(array[(0,) * (array.ndim - 3)])
 
 
 # -- the rule ----------------------------------------------------------------
@@ -166,7 +173,8 @@ def test_the_smaller_copies_are_filled_in_as_tiles_arrive(tmp_path):
     canvases.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 128),
                    tile_index=(0, 0, 1))
 
-    half = np.asarray(zarr.open_group(str(canvases.paths[0]), mode="r")["1"][0, 0])
+    level1 = zarr.open_group(str(canvases.paths[0]), mode="r")["1"]
+    half = np.asarray(level1[(0,) * (level1.ndim - 3)])
     assert half[:, 0:64, 64:128].max() == 4242
 
 

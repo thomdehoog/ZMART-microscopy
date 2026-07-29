@@ -97,20 +97,21 @@ def fuse(
 
     into = Path(into)
     joined = zarr.open_group(str(into), mode="w", zarr_format=2)
+    # One piece per plane in every axis except the last two, whatever those axes
+    # happen to be -- a run of a single moment has no time axis, so the number of
+    # them is not fixed.
     full = joined.create_array(
-        "0", shape=shape, chunks=(1, 1, 1, chunk, chunk), dtype=dtype,
+        "0", shape=shape,
+        chunks=(*(1,) * (len(shape) - 2), chunk, chunk), dtype=dtype,
         chunk_key_encoding={"name": "v2", "separator": "/"},
     )
 
     # Worked through one plane at a time. A run is very often larger than memory,
     # and a plane of it is not, so this keeps the joining possible on an ordinary
     # machine rather than only on the one with the most memory in the building.
-    frames, channels, depth = shape[0], shape[1], shape[2]
-    for frame in range(frames):
-        for channel in range(channels):
-            for z in range(depth):
-                planes = [np.asarray(g["0"][frame, channel, z]) for g in groups]
-                full[frame, channel, z] = _join(planes, where_they_meet, dtype)
+    for at in np.ndindex(*shape[:-2]):
+        planes = [np.asarray(g["0"][at]) for g in groups]
+        full[at] = _join(planes, where_they_meet, dtype)
 
     _write_smaller_copies(joined, full, levels, chunk)
     _describe(into, sources[0], levels)
@@ -184,21 +185,18 @@ def _write_smaller_copies(group, full, levels: int, chunk: int) -> None:
     """Build the progressively smaller copies from the finished full-size one."""
     for level in range(1, levels):
         factor = 2 ** level
-        shape = (*full.shape[:3],
-                 max(1, full.shape[3] // factor), max(1, full.shape[4] // factor))
+        shape = (*full.shape[:-2],
+                 max(1, full.shape[-2] // factor), max(1, full.shape[-1] // factor))
         array = group.create_array(
             str(level), shape=shape,
-            chunks=(1, 1, 1, min(chunk, shape[3]), min(chunk, shape[4])),
+            chunks=(*(1,) * (len(shape) - 2),
+                    min(chunk, shape[-2]), min(chunk, shape[-1])),
             dtype=full.dtype,
             chunk_key_encoding={"name": "v2", "separator": "/"},
         )
-        for frame in range(shape[0]):
-            for channel in range(shape[1]):
-                for z in range(shape[2]):
-                    plane = np.asarray(full[frame, channel, z])
-                    array[frame, channel, z] = plane[::factor, ::factor][
-                        :shape[3], :shape[4]
-                    ]
+        for at in np.ndindex(*shape[:-2]):
+            plane = np.asarray(full[at])
+            array[at] = plane[::factor, ::factor][:shape[-2], :shape[-1]]
 
 
 def _describe(into: Path, like: Path, levels: int) -> None:
@@ -219,7 +217,10 @@ def _describe(into: Path, like: Path, levels: int) -> None:
             "path": str(level),
             "coordinateTransformations": [{
                 "type": "scale",
-                "scale": [*scale[:3], scale[3] * factor, scale[4] * factor],
+                # Only y and x shrink between levels, and they are the last two
+                # axes whatever else the image declares -- a run of a single
+                # moment has no time axis, so counting from the front would break.
+                "scale": [*scale[:-2], scale[-2] * factor, scale[-1] * factor],
             }],
         })
 
