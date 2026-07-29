@@ -250,6 +250,22 @@ _PART = """(label) => {
 }"""
 
 
+def _box(page, label, whole_control=True):
+    """Where something sits on screen, once it is actually there.
+
+    The waiting matters and is not belt-and-braces. These tests share one page
+    with the rest of the module, and another test in it switches to the volume
+    view and back — which takes the depth slider away and puts it back, since
+    depth means nothing when the whole stack is already on screen. The engine
+    announces the switch before the interface has finished catching up with it,
+    so measuring straight away can find nothing there and fail for reasons that
+    have nothing to do with where the sliders are. Waiting for the control first
+    makes the answer depend only on this test.
+    """
+    page.wait_for_selector(f"[aria-label='{label}']", state="attached", timeout=15_000)
+    return page.evaluate(_BOX if whole_control else _PART, label)
+
+
 class TestWhereTheSlidersSit:
     """Each slider is placed and turned the way the thing it moves through is.
 
@@ -268,7 +284,7 @@ class TestWhereTheSlidersSit:
         return page.evaluate("() => ({width: innerWidth, height: innerHeight})")
 
     def test_depth_stands_upright_along_the_right_hand_edge(self, timelapse_page):
-        box = timelapse_page.evaluate(_BOX, "z position")
+        box = _box(timelapse_page, "z position")
         view = self._view(timelapse_page)
         assert box["height"] > box["width"] * 3, (
             f"the depth slider is not standing upright: {box['width']:.0f} wide by "
@@ -280,7 +296,7 @@ class TestWhereTheSlidersSit:
         )
 
     def test_time_lies_along_the_bottom(self, timelapse_page):
-        box = timelapse_page.evaluate(_BOX, "t position")
+        box = _box(timelapse_page, "t position")
         view = self._view(timelapse_page)
         assert box["width"] > box["height"] * 3, (
             f"the time slider is not lying flat: {box['width']:.0f} wide by "
@@ -292,8 +308,8 @@ class TestWhereTheSlidersSit:
         )
 
     def test_neither_is_drawn_over_the_other(self, timelapse_page):
-        depth = timelapse_page.evaluate(_BOX, "z position")
-        time = timelapse_page.evaluate(_BOX, "t position")
+        depth = _box(timelapse_page, "z position")
+        time = _box(timelapse_page, "t position")
         assert depth["bottom"] <= time["top"], (
             "the depth slider runs down into the time slider: it ends at "
             f"{depth['bottom']:.0f} and the time slider starts at {time['top']:.0f}"
@@ -307,8 +323,8 @@ class TestWhereTheSlidersSit:
         pale text on whatever happens to be underneath, which is where it is least
         readable.
         """
-        control = timelapse_page.evaluate(_BOX, "z position")
-        reading = timelapse_page.evaluate(_PART, "z position value")
+        control = _box(timelapse_page, "z position")
+        reading = _box(timelapse_page, "z position value", whole_control=False)
         assert reading["bottom"] <= control["bottom"], (
             f"the reading ends at {reading['bottom']:.0f}, below the control's own "
             f"bottom edge at {control['bottom']:.0f}"
