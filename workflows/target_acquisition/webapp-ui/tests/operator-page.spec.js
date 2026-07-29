@@ -90,7 +90,7 @@ test("connecting reports what it checked", async ({ page }) => {
 test("a run refuses to survey and image with the same configuration", async ({ page }) => {
   await connect(page);
   await gotoStep(page, "Optical configurations");
-  const selects = page.locator(".session-card").nth(1).locator("select");
+  const selects = page.locator(".session-card").locator("select");
   await expect(page.locator("#action-bar button.run")).toBeEnabled();
   await selects.nth(1).selectOption("ov_5x");
   await expect(page.locator("#action-bar button.run"),
@@ -124,10 +124,13 @@ test("setup holds the base until there is data, then the canvas takes over",
     await expect(page.locator(".tab")).toHaveText(["Setup"]);
     // only what the run has established, plus what is being done now
     await expect(page.locator(".setup-row")).toHaveCount(1);
-    // a card retires once the next setup step is settled, so the session and
-    // the optics have given way to the carrier
-    await expect(page.locator(".session-card")).toHaveCount(1);
-    await expect(page.locator(".session-title")).toHaveText("Carrier");
+    // a card belongs to its step: standing on Set origin, none of them show
+    await expect(page.locator(".session-card")).toHaveCount(0);
+    await gotoStep(page, "Connect");
+    await expect(page.locator(".session-title"), "and comes back when you return")
+      .toHaveText("Session");
+    await expect(page.locator(".check-row")).toHaveCount(6);
+    await gotoStep(page, "Set origin");
 
     await placeFocusPoints(page);
     await expect(page.locator(".tab")).toHaveText(["Setup", "Focus strategy"]);
