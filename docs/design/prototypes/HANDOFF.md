@@ -10,6 +10,30 @@ Continue work on the ZMART operator-page prototype. It is a **mock** — a real
 microscope gets wired in later — so it should work well and be easy to change,
 not be correct about physics.
 
+## Start here
+
+1. Read `workflows/target_acquisition/webapp-ui/ARCHITECTURE.md`, then the
+   rest of this. Get the page running and click through it — most of what
+   follows is easier to see than to read.
+2. **Say what you would do and why before changing anything.** The first work
+   is below, but check the reading against what is actually on screen.
+
+**Define prescan.** Asked for in the last session and not built: a step after
+Carrier configuration where the overview positions are defined. "Pre-scan" is
+the working name, chosen so it would not be argued about yet.
+
+Nothing beyond the name was specified. The shape that fits what is already
+there is a second channel beside the canvas — like the carrier's — with the
+chosen positions drawn on the plate, since the canvas is already the view and
+a panel that is *about* the canvas belongs next to it rather than on a tab.
+That is a guess. Ask before building it.
+
+While you are in there, two things sitting under it are placeholders rather
+than decisions, and prescan is the step that will care: the carrier is pinned
+to the stage origin (top left), and the synthetic sample is still a 7×5 tile
+grid unrelated to the carrier, so the scan area sits in the plate's corner
+instead of inside a well.
+
 ## Where it is
 
 - Clone: `C:\ProgramData\MinicondaZMB\home\t.de\ZMART-microscopy_main`
@@ -217,14 +241,6 @@ too, because the controls and what they put on the canvas are one subject.
 Widget extraction is deliberately deferred while the UI is still being
 designed. Do it when a new widget appears or two people work on the page at
 once.
-
-## Next up
-
-**Define prescan** — asked for and not built. A step after Carrier
-configuration where the overview positions are defined ("pre-scan" is the
-working name). The obvious shape is a second channel beside the canvas with
-the chosen areas drawn on the carrier, but it was never specified past the
-name.
 
 ## Open questions — ask, do not invent
 
