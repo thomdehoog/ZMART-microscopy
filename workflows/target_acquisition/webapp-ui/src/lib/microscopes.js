@@ -43,23 +43,49 @@ export const MICROSCOPES = {
 };
 
 /**
- * The optical configurations a run can draw on. A run needs two: the one it
- * surveys the sample with, and the one it images the chosen targets with.
+ * The kinds of setting a run can record off the microscope.
  *
- * They must not be the same. Imaging targets at overview quality is the
- * mistake the pairing exists to prevent, so it is refused rather than warned
- * about — the same rule the current webapp enforces on its two job captures.
+ * The operator sets the instrument up in its own software, names what they
+ * have set up, and presses record — the controller reads the state back and
+ * the run keeps it under that name. Nothing is typed in twice, which is the
+ * point: a value re-entered by hand is a value that can disagree with the
+ * instrument.
+ *
+ * This list is meant to grow. Adding a kind is adding an entry here; the panel
+ * offers whatever is in it and always leaves an empty row at the bottom.
+ * `sample` stands in for the controller read that a real backend would do.
  */
-export const OPTICAL_CONFIGS = [
-  { key: "ov_5x", label: "Overview 5x", detail: "1.30 µm/px · 2 ch · widefield" },
-  { key: "ov_10x", label: "Survey 10x", detail: "0.65 µm/px · 1 ch · widefield" },
-  { key: "tg_63x", label: "Target 63x", detail: "0.10 µm/px · 2 ch · confocal" },
-  { key: "tg_100x", label: "Target 100x oil", detail: "0.06 µm/px · 2 ch · confocal" },
+export const SETTING_TYPES = [
+  {
+    key: "acquisition",
+    label: "Acquisition",
+    hint: "objective, channels, pixel size",
+    sample: [
+      "5x · 1.30 µm/px · 2 ch · widefield",
+      "63x · 0.10 µm/px · 2 ch · confocal",
+      "10x · 0.65 µm/px · 1 ch · widefield",
+      "100x oil · 0.06 µm/px · 2 ch · confocal",
+    ],
+  },
+  {
+    key: "autofocus",
+    label: "Autofocus",
+    hint: "metric, range, step",
+    sample: [
+      "Brenner · ±30 µm · 61 steps",
+      "DCT · ±15 µm · 31 steps",
+      "Brenner · ±60 µm · 41 steps",
+    ],
+  },
 ];
 
-export const opticalConfig = (key) => OPTICAL_CONFIGS.find((o) => o.key === key);
+export const settingType = (key) => SETTING_TYPES.find((t) => t.key === key);
 
-export const DEFAULT_OPTICS = { overview: "ov_5x", target: "tg_63x" };
+/** What the controller reports for the nth recording of a kind. */
+export const sampleState = (key, nth) => {
+  const type = settingType(key);
+  return type.sample[nth % type.sample.length];
+};
 
 /**
  * What the sample is mounted in. The carrier decides where the stage may go
