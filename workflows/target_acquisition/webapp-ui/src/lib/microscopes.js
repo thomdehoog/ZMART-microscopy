@@ -59,7 +59,6 @@ export const SETTING_TYPES = [
   {
     key: "acquisition",
     label: "Acquisition",
-    hint: "objective, channels, pixel size",
     sample: [
       "5x · 1.30 µm/px · 2 ch · widefield",
       "63x · 0.10 µm/px · 2 ch · confocal",
@@ -70,7 +69,6 @@ export const SETTING_TYPES = [
   {
     key: "autofocus",
     label: "Autofocus",
-    hint: "metric, range, step",
     sample: [
       "Brenner · ±30 µm · 61 steps",
       "DCT · ±15 µm · 31 steps",

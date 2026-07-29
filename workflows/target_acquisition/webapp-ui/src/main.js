@@ -608,18 +608,14 @@ import {
       const o = document.createElement("option");
       o.value = t.key;
       o.textContent = t.label;
-      o.title = t.hint;
       kind.append(o);
     }
     kind.value = state.draft.type;
-    kind.addEventListener("change", () => {
-      state.draft.type = kind.value;
-      name.placeholder = settingType(kind.value).hint;
-    });
+    kind.addEventListener("change", () => { state.draft.type = kind.value; });
 
     const name = document.createElement("input");
     name.type = "text";
-    name.placeholder = settingType(state.draft.type).hint;
+    name.placeholder = "Name of this preset";
     name.value = state.draft.name;
     name.setAttribute("aria-label", "name for this recording");
 
