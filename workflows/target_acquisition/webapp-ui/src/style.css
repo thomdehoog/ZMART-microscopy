@@ -696,3 +696,10 @@ button.run.danger:hover:enabled { background: #991b1b; }
 
 /* every label above a box lines up with it, and sits the same distance off */
 .group-label { padding: 0; margin: 0 0 2px; }
+
+/* A recorded preset is a line of text and needs no more room than that. The
+   open bar keeps the height its controls need, so the two differ by what they
+   hold rather than by an arbitrary number. */
+.setting-box { min-height: 0; }
+.setting-box.done { padding: 6px 16px; }
+.rec-row { min-height: 28px; }
