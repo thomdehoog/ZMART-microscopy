@@ -55,7 +55,7 @@ export const CARRIER_TYPES = [
          Corning flat-bottom 96 is 6.86 mm at the rim and 6.35 mm at the flat,
          which is a different plate; matching it here would quietly describe
          a plate this lab does not run. */
-      { label: "96-well (Greiner)", rows: 8, cols: 12, shape: "round", w: 6.6, h: 6.6, gap: 2.4, corner: 0 },
+      { label: "96-well", rows: 8, cols: 12, shape: "round", w: 6.6, h: 6.6, gap: 2.4, corner: 0 },
       { label: "384-well", rows: 16, cols: 24, shape: "round", w: 3.6, h: 3.6, gap: 0.9, corner: 0 },
     ],
   },
