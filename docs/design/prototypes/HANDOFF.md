@@ -1,182 +1,183 @@
-# Handoff — operator page layout prototype
+# Handoff — ZMART operator page prototype
 
-Paste this into a fresh session to pick the work up. It is written to be
+Paste the section below into a fresh session. It is written to be
 self-contained: nothing in it depends on the conversation that produced the
 prototype.
 
 ---
 
-Continue work on the ZMART operator-page layout prototype.
+Continue work on the ZMART operator-page prototype. It is a **mock** — a real
+microscope gets wired in later — so it should work well and be easy to change,
+not be correct about physics.
 
 ## Where it is
 
 - Clone: `C:\ProgramData\MinicondaZMB\home\t.de\ZMART-microscopy_main`
 - Branch: `design/operator-page-prototype`, pushed to
   `github.com/thomdehoog/ZMART-microscopy` — **public repo**
+- The live project: `workflows/target_acquisition/webapp-ui/` — a Vite app.
+  **Read its `ARCHITECTURE.md` first.**
 - `git` is not on PATH: `C:\ProgramData\MinicondaZMB\Library\bin\git.exe`
 
-**The live prototype is a Vite project at
-`workflows/target_acquisition/webapp-ui/`.** Start there, and read its
-`ARCHITECTURE.md` first — it states the layers, the contracts between them,
-and honestly which parts are built versus still waiting.
+`docs/design/prototypes/operator-page-layout.html` is a frozen snapshot from
+before the Vite move. Not the working copy; do not edit it.
+
+## Running it
+
+Node lives in the project conda env. Everything — node, `node_modules`, the
+Playwright browsers — must stay under `C:\ProgramData\MinicondaZMB\`, because
+AppLocker refuses to run executables from user-writable paths.
 
 ```bash
-E="C:/ProgramData/MinicondaZMB/envs/zmart-microscopy"     # node lives here
+E="C:/ProgramData/MinicondaZMB/envs/zmart-microscopy"
 export PATH="$E:$PATH"
+export PLAYWRIGHT_BROWSERS_PATH="C:\ProgramData\MinicondaZMB\home\t.de\ms-playwright"
 cd workflows/target_acquisition/webapp-ui
-npm install
-npm run dev        # http://127.0.0.1:5174, hot reload
+
+npm run dev        # http://127.0.0.1:5174 — hot reload
 npm run build      # one self-contained file -> ../workflow/webapp/static/
 npm run test:unit  # vitest, ~0.2 s
-npm run test:ui    # playwright, ~26 s
+npm run test:ui    # playwright, ~60 s
+python dev_window.py   # the page in a native pywebview window, still hot-reloading
 ```
 
-`docs/design/prototypes/operator-page-layout.html` is the **frozen snapshot**
-of the design as it stood when it was one hand-authored file. It is not the
-working copy and will drift; keep it or delete it, but do not edit it.
+CSS edits hot-swap and keep the run's state; a JS edit reloads the page and
+resets it to step 1.
 
-The real operator webapp this feeds is on `main` at
-`workflows/target_acquisition/workflow/webapp/` (`_server`, `_page`, `_flow`,
-`_host`). The prototype is **not** wired to it yet and should not pretend to be.
+## What the page is
 
-## What it is
+A left rail of workflow steps, a right side whose panels follow the step.
+Eleven steps in `target_acquisition`:
 
-A working mock of a proposed layout, driving a deterministic synthetic sample
-(7×5 grid of 2662 µm tiles, ~1250 cells) so that every control does something.
-It is a design artifact for arguing about shape before building.
+1 Connect · 2 Optical Configuration · 3 Carrier setup · 4 Set origin ·
+5 Focus strategy · 6 Scan the overview · 7 Detect cells · 8 Select cells ·
+9 Acquire and curate · 10 Save the run · 11 Disconnect
 
-## Design decisions already locked — do not relitigate without asking
+Two other workflows exist to prove the frame is not built around one:
+`overview_only` (7 steps) and `focus_check` (7).
 
-1. Narrow left rail (260–320 px), **navigation only**: number, title, ✓, and the
-   one-line result of each step. Workflow selector in a box above it.
-2. **The step list is data.** Each workflow declares its steps: `id`, `n`,
-   `title`, `why`, `btn`, `panels`, `mode`. Three workflows exist to prove it.
-3. **The canvas is permanent** and holds **acquired data only** — tiles,
-   detected cells, the gate, acquired targets. It is blank until the scan; that
-   is correct, not an oversight.
-4. **Every other tab belongs to the active step** and appears only while that
-   step is selected. Clicking a step in the rail opens its tab.
-5. **The run button lives in an action bar above the panel it operates**, never
-   in the rail.
-6. **Nothing auto-advances.** Completing a step leaves the operator where they
-   are. The rail still gates order: only the next step is enabled.
-7. **Simplicity is the priority.** Few options. Better to add an option later
-   than to ship one that has to be removed. The base must stay clean.
+## Decisions already settled — do not relitigate without asking
 
-## The two substantive panels
+**Frame**
 
-**Focus strategy** — its own tab, because planning is not acquired data. Shows
-the position list as the microscope software reports it; the operator drops
-focus points onto it. The model is chosen by geometry, matching
-`workflows/target_acquisition/workflow/_focus_surface.py`: a flat sample or one
-point gives a constant, four or more non-collinear points give a thin-plate
-spline, anything else gives a least-squares plane. `SPLINE_SMOOTHING = 0.1`, so
-the spline passes near the points rather than through them and the residual
-still means something — the panel reports rms and names the worst point, which
-is how a single autofocus that landed on dust gets caught.
+- The rail is **navigation only**: number, title, ✓, one-line result.
+- **Nothing advances by itself.** Finishing a step leaves you on it. The rail
+  still gates order — only the next step is enabled.
+- The **run button lives with the widget it operates**, in an action bar above
+  the panel. A step that carries its own button (`ownButton: true`) hides the
+  action bar entirely — Connect and Optical Configuration do.
+- **Base panel**: `setup` until the first tile lands, `canvas` after. The
+  canvas holds acquired data only, so before the scan there is nothing to put
+  on it. The tab set is recomputed every render, because the first tile arrives
+  while the operator is standing still.
+- **A panel belongs to its step** and shows only while that step is selected.
+  Walk back to Connect and the session and its checks are there again.
+- Step **numbers are derived from position**, never typed.
 
-Beneath it, the z-sweep for the selected point with **both sharpness metrics on
-one plot** (Brenner and DCT, each normalised to its own maximum). The legend is
-the control: click a metric to let it decide. A peak narrower than 4.5 µm is not
-tissue and is not a candidate — rejected peaks stay drawn. Dragging the vertical
-line overrules the pick, and the square preview beside the plot defocuses as you
-drag, so a peak that was really a speck of debris becomes visible rather than
-asserted. Colormap is viridis; the surface is a smooth field, not per-tile
-blocks.
+**Setup panels**
 
-**Detection** — tune on one tile before running the sample. Cellpose or a plain
-threshold, that algorithm's parameters, a tile stepper, and *Test on this tile*.
-The step cannot run until it has been tested, and changing a parameter or moving
-to another tile clears the test.
+- **Connect** is a form: microscope, API, password, and its own button. Opening
+  the session runs six checks that land one at a time (reachable, credentials,
+  API version, stage, objectives, storage). An open session is not editable; a
+  red **Disconnect** hands the fields back and **clears the run**, keeping only
+  the credentials — everything else was read off that microscope.
+- **Optical Configuration** is a recorder, not a picker. Nothing is
+  preconfigured. Pick a kind, name it, press Record; the controller reads the
+  state back. The bar then *becomes* the record in place and a fresh open bar
+  appears. Recording is the work, so a preset existing completes the step, and
+  forgetting the last one undoes it.
+  - Presets group by kind: `RECORDED ACQUISITION PRESETS`, `RECORDED AUTOFOCUS
+    PRESETS`. The kind names the group, not every row.
+  - A preset **unfolds** (triangle, leading the row) to show everything the
+    controller returned.
+  - Names are capitalised on the way in and clash case-insensitively.
+  - Adding a kind is one entry in `SETTING_TYPES` — nothing else to touch.
+- The panel's alignment is asserted by a test, not eyeballed: one width, one
+  left and right edge, labels flush, every row opening and closing in the same
+  column, both bars the same height when folded.
 
-## How to test it
+**Two panels worth understanding**
 
-Drive it in a browser; do not just read it. Playwright lives in the `zmart-viz`
-conda env, and AppLocker kills Chromium with `spawn UNKNOWN` unless the browsers
-path is set to the whitelisted copy:
+- **Focus strategy** works on the position list, not on imagery. Model chosen
+  by geometry, matching `workflow/_focus_surface.py`: constant / least-squares
+  plane / thin-plate spline, smoothing 0.1. Both sharpness metrics are drawn on
+  one plot and the legend is the control. Peaks narrower than 4.5 µm are not
+  tissue and are rejected but still drawn; dragging the line overrules the pick
+  and the preview beside it defocuses as you drag.
+- **Detection** is tuned on one tile before it may run the sample.
 
-```bash
-export PLAYWRIGHT_BROWSERS_PATH="C:\ProgramData\MinicondaZMB\home\t.de\ms-playwright"
-C:/ProgramData/MinicondaZMB/envs/zmart-viz/python.exe <script>.py
-```
+## How this user works — read this, it will save a cycle
 
-Write a small helper that clicks through the flow — nothing auto-advances, so
-every step is an explicit click on the rail — assert on the readouts, capture
-screenshots, and look at them. Three real defects were caught this way that
-reading the code did not surface:
+- **Simplify wherever it makes things more powerful.** Fewer options. Better to
+  add one later than ship one that has to be removed.
+- **No redundancy.** One owner per fact. If a constant or rule needs to exist
+  twice, the split was wrong — merge it back. Redundancy creeping in is the
+  signal that something is over-split.
+- **Nothing fixed in place.** A value typed at the point of use is a value in
+  the wrong module. Derive it, or give it an owner.
+- **Do not over-test at prototyping pace** — but do test before building
+  further on something. The browser suite is a smoke net, not a specification.
+- Expect **many small steering messages**, often mid-turn. Apply them, run the
+  suites, commit, and say what changed. Small commits, each green.
+- Screenshots are worth taking and *looking at*: several real defects here were
+  invisible to assertions.
 
-- a toolbar that reflowed to a taller row when its text changed, shifting the
-  canvas 47 px under the cursor so clicks landed 0.89 mm from where they aimed;
-- one shared camera between two differently-sized canvases, so a fit computed
-  against one put the sample off the edge of the other and clicks near the edges
-  silently missed;
-- collinear points collapsing to a constant because the normal equations go
-  singular where `np.linalg.lstsq` would still return a minimum-norm plane.
+## Defects this shape has produced twice — watch for them
 
-## Decisions taken, so they are not reopened by accident
+- **Re-rendering on input destroys the field being typed into.** Fixed for the
+  password and the preset name by updating only what depends on the value.
+  Any new form field will do it again unless handled.
+- **Alignment drifts from structural causes**, not wrong numbers: a
+  `grid-column` on a child of the wrong grid conjured an implicit column; a
+  label sibling to a list inherited a different gap than one inside a group.
+- **An explicit `display` beats the `hidden` attribute** — `.action-bar[hidden]`
+  needed saying.
 
-**Widget extraction is deferred** (2026-07-29). The UI is still being designed;
-a single file iterates faster for CSS and draw-function changes, and boundaries
-drawn around a moving design get redrawn. Do it when a new widget appears or
-when more than one person works on the page at once.
+## The state of the code — the important caveat
 
-**Because of that, four facts are currently defined twice** — surface fitting,
-the sweep and peak rules, the synthetic sample, and the workflow declarations
-live both inline in `src/main.js` and in the modules beside it. `main.js` is
-what runs; the modules are what the unit tests cover. **If you change a rule,
-change it in both**, or do the de-duplication first: have `main.js` import them
-and drop its runner's mode switch in favour of `step.run(ctx)`. That is a
-contained change and does not touch any UI code. See `ARCHITECTURE.md`.
+`src/main.js` is **2,600 lines and runs the whole app**. Beside it are modules
+that are tested but **not all of them are used**:
 
-**Build served by Python** (2026-07-29). `vite-plugin-singlefile` inlines
-everything into one `index.html`; the microscope PC never needs a toolchain.
+| part | state |
+|---|---|
+| `lib/surface.js`, `lib/sweep.js`, `lib/rng.js` | tested; **main.js has its own copies** |
+| `lib/sample.js`, `lib/microscopes.js` | `microscopes.js` is used; `sample.js` is not |
+| `frame/steps.js` | tested; only `numbered()` is used |
+| `backend/mock.js`, `workflows/` | tested; **not used at all** |
+| `widgets/` | does not exist yet |
 
-## Open questions — ask before deciding
+So **surface fitting, the sweep, the sample and the workflow declarations are
+each defined twice**. `main.js` is what runs; the modules are what the unit
+tests cover — the suite can stay green while the app drifts. **If you change a
+rule, change it in both**, or do the de-duplication first: have `main.js`
+import them and drop its `mode` switch in favour of `step.run(ctx)`. That is
+contained and touches no UI code.
 
-- Should the canvas show the planned tile grid faintly before the scan, or stay
-  blank? Blank is what the "acquired data only" rule implies.
-- A single click in the trace plot jumps the focus line; it is not drag-only. A
-  stray click near the legend moves a measured height.
-- The focus step requires ≥3 points, but `_focus_surface.py` accepts 1
-  (constant).
-- Two detection algorithms exist so the selector is meaningful; the smart-targets
-  plan said Cellpose-only.
-- The Playwright harness is not in the repo. Should it be?
+Widget extraction is deliberately deferred while the UI is still being
+designed. Do it when a new widget appears or two people work on the page at
+once.
 
-## The north star — context only, explicitly out of scope
+## Open questions — ask, do not invent
 
-Eventually an agent should compose workflows: you talk to it and it assembles
-the steps and the right-hand panels. That is why the step list and the panel
-list are declarations rather than code.
+- Which preset the scan uses and which the acquisition uses. The old
+  survey/target pairing was dropped with the picker; nothing replaced it.
+- Should the canvas show the planned tile grid before the scan, or stay blank?
+- A single click in the focus trace jumps the line; it is not drag-only.
+- The focus step wants ≥3 points, but `_focus_surface.py` accepts 1.
+- `lib/microscopes.js` now carries microscopes, APIs, connect checks, setting
+  types and carriers — more than its name promises. Wants splitting by subject.
+- The password is prefilled (`demo`) for clicking through. **A real build must
+  ship that empty.**
 
+## The north star — context only, out of scope
+
+Eventually an agent composes workflows: you describe a run and it assembles the
+steps and the right-hand panels. That is why steps and panels are declarations.
 The boundary to protect: **a workflow declares, the frame owns.** Declarations
 get ids, titles, sentences, button labels, prerequisites, and which panels from
-a **fixed registry**. The frame keeps the canvas projection, layer compositing,
-selection state, the ordering guard, and every hardware call. An agent composing
-from a registry is something you can let loose; an agent emitting widget code is
-a different risk class.
+a fixed registry. The frame keeps the canvas projection, layer compositing,
+selection state, the ordering guard, and every hardware call.
 
-**Decided (2026-07-29): build it with Vite.** The objection was that a
-toolchain on an AppLocker'd microscope PC would not run. It does, provided the
-toolchain and its `node_modules` live under `C:\ProgramData\MinicondaZMB\`,
-which is whitelisted — install node/npm/vite from the MinicondaZMB envs rather
-than into a user-writable path. Verify this before committing to it: install,
-then actually start the dev server and load a page.
-
-The real webapp today has no build step — React is vendored and modules are
-served straight from Python at `/esm/<name>.mjs` — so moving to Vite is a change
-to how the operator page is delivered, not just how the prototype is authored.
-Worth deciding deliberately: whether the production page ships a Vite *build*
-(static assets served by the existing Python server, no toolchain on the scope
-PC at runtime) or whether the dev server is expected to run there too. The first
-keeps the deployment story intact and is almost certainly what you want.
-
-## Note on copies
-
-A rendered copy also exists as a private Claude artifact. It and the repo file
-are **independent copies**, not a synced pair. Treat the repo file as the source
-of truth; publishing is a one-line step whenever a shareable link is wanted.
-
-An artifact cannot make network requests (strict CSP) and must stay a single
-self-contained file. Neither limit matters while the sample is synthetic; both
-become blocking the moment the prototype wants real data from the webapp.
+`backend/` is the seam where the real microscope arrives. Steps call the
+backend and await — never a timer, never hardware. If wiring a microscope ever
+means editing a widget, the seam leaked.
