@@ -2,7 +2,7 @@ import "./style.css";
 import { numbered } from "./frame/steps.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor, describeSession, CONNECT_CHECKS,
-  SETTING_TYPES, settingType, sampleState, CARRIERS, DEFAULT_CARRIER, carrier,
+  SETTING_TYPES, settingType, sampleReading, CARRIERS, DEFAULT_CARRIER, carrier,
 } from "./lib/microscopes.js";
 
 (() => {
@@ -670,17 +670,34 @@ import {
     }
   }
 
+  /* The summary is the headline; the detail is what the controller actually
+     read. Folded away by default, because a list of presets should stay a
+     list — but one click from view, because "trust me" is not a good answer
+     when the run depends on it. */
   function renderRecordedBar(bar) {
+    const wrap = document.createDocumentFragment();
+
     const row = document.createElement("div");
     row.className = "rec-row";
     // no kind cell: the group above names it, so the name starts at the left
-    row.innerHTML = '<span class="rec-name"></span>'
-      + '<span class="rec-state"></span><button type="button" class="rec-drop">✕</button>';
+    row.innerHTML = '<button type="button" class="rec-fold"></button>'
+      + '<span class="rec-name"></span><span class="rec-state"></span>'
+      + '<button type="button" class="rec-drop">✕</button>';
     row.querySelector(".rec-name").textContent = bar.name;
     row.querySelector(".rec-state").textContent = bar.state;
 
+    const fold = row.querySelector(".rec-fold");
+    fold.textContent = "▸";
+    fold.title = bar.expanded ? "fold away" : "show everything recorded";
+    fold.setAttribute("aria-expanded", String(!!bar.expanded));
+    fold.classList.toggle("open", !!bar.expanded);
+    fold.addEventListener("click", () => {
+      bar.expanded = !bar.expanded;
+      renderSetup();
+    });
+
     const drop = row.querySelector(".rec-drop");
-    drop.title = "forget this setting";
+    drop.title = "forget this preset";
     drop.disabled = !!state.running;
     drop.addEventListener("click", () => {
       state.bars = state.bars.filter((b) => b !== bar);
@@ -689,7 +706,22 @@ import {
       renderSetup();
       renderAll();
     });
-    return row;
+
+    wrap.append(row);
+
+    if (bar.expanded && bar.detail) {
+      const detail = document.createElement("dl");
+      detail.className = "rec-detail";
+      for (const [label, value] of bar.detail) {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        detail.append(dt, dd);
+      }
+      wrap.append(detail);
+    }
+    return wrap;
   }
 
   function renderOpenBar(bar) {
@@ -747,8 +779,10 @@ import {
       go.textContent = "reading…";
       // a controller round-trip, not an instant assignment
       setTimeout(() => {
+        const reading = sampleReading(bar.type, nth);
         bar.name = capitalised(name.value.trim());
-        bar.state = sampleState(bar.type, nth);
+        bar.state = reading.summary;
+        bar.detail = reading.detail;
         ensureOpenBar();
         settingsChanged();
         renderSetup();

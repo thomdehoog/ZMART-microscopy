@@ -59,27 +59,93 @@ export const SETTING_TYPES = [
   {
     key: "acquisition",
     label: "Acquisition",
-    /* The objective — magnification, numerical aperture, immersion — and how
-       many channels. That is what decides whether a setting can see the thing
-       being looked for. */
-    sample: [
-      "5x / 0.15 NA dry · 2 channels",
-      "63x / 1.40 NA oil · 2 channels",
-      "10x / 0.40 NA dry · 1 channel",
-      "40x / 1.10 NA water · 3 channels",
-      "100x / 1.40 NA oil · 2 channels",
+    /* A reading is a summary and the detail behind it. The summary is the
+       objective and the channel count — what decides whether a preset can see
+       the thing being looked for. The detail is everything the controller
+       read, for when the summary is not enough to trust it. */
+    readings: [
+      {
+        summary: "5x / 0.15 NA dry · 2 channels",
+        detail: [
+          ["Objective", "HC PL FLUOTAR 5x / 0.15 NA dry"],
+          ["Pixel size", "1.30 µm"],
+          ["Frame", "2048 × 2048 px · 2662 × 2662 µm"],
+          ["Channel 1", "DAPI · 405 nm · 50 ms · gain 1.0"],
+          ["Channel 2", "GFP · 488 nm · 120 ms · gain 1.2"],
+          ["Z stack", "off"],
+        ],
+      },
+      {
+        summary: "63x / 1.40 NA oil · 2 channels",
+        detail: [
+          ["Objective", "HC PL APO 63x / 1.40 NA oil"],
+          ["Pixel size", "0.10 µm"],
+          ["Frame", "1024 × 1024 px · 102 × 102 µm"],
+          ["Channel 1", "DAPI · 405 nm · 30 ms · gain 1.0"],
+          ["Channel 2", "GFP · 488 nm · 80 ms · gain 1.5"],
+          ["Z stack", "11 planes · 0.50 µm"],
+        ],
+      },
+      {
+        summary: "10x / 0.40 NA dry · 1 channel",
+        detail: [
+          ["Objective", "HC PL APO 10x / 0.40 NA dry"],
+          ["Pixel size", "0.65 µm"],
+          ["Frame", "2048 × 2048 px · 1331 × 1331 µm"],
+          ["Channel 1", "GFP · 488 nm · 60 ms · gain 1.0"],
+          ["Z stack", "off"],
+        ],
+      },
+      {
+        summary: "40x / 1.10 NA water · 3 channels",
+        detail: [
+          ["Objective", "HC PL APO 40x / 1.10 NA water"],
+          ["Pixel size", "0.16 µm"],
+          ["Frame", "1024 × 1024 px · 164 × 164 µm"],
+          ["Channel 1", "DAPI · 405 nm · 40 ms · gain 1.0"],
+          ["Channel 2", "GFP · 488 nm · 90 ms · gain 1.3"],
+          ["Channel 3", "mCherry · 561 nm · 150 ms · gain 1.6"],
+          ["Z stack", "21 planes · 0.30 µm"],
+        ],
+      },
     ],
   },
   {
     key: "autofocus",
     label: "Autofocus",
     /* An autofocus runs through an objective like anything else, so it reports
-       the same thing an acquisition does. Its values differ because focusing
-       is usually done lower and faster than imaging. */
-    sample: [
-      "10x / 0.40 NA dry · 1 channel",
-      "5x / 0.15 NA dry · 1 channel",
-      "20x / 0.75 NA dry · 1 channel",
+       the same summary an acquisition does. Its detail carries the sweep. */
+    readings: [
+      {
+        summary: "10x / 0.40 NA dry · 1 channel",
+        detail: [
+          ["Objective", "HC PL APO 10x / 0.40 NA dry"],
+          ["Channel", "GFP · 488 nm · 20 ms · gain 1.0"],
+          ["Metric", "Brenner gradient"],
+          ["Range", "±30 µm"],
+          ["Steps", "61 · 1.0 µm apart"],
+        ],
+      },
+      {
+        summary: "5x / 0.15 NA dry · 1 channel",
+        detail: [
+          ["Objective", "HC PL FLUOTAR 5x / 0.15 NA dry"],
+          ["Channel", "GFP · 488 nm · 30 ms · gain 1.0"],
+          ["Metric", "DCT energy"],
+          ["Range", "±60 µm"],
+          ["Steps", "41 · 3.0 µm apart"],
+        ],
+      },
+      {
+        summary: "20x / 0.75 NA dry · 1 channel",
+        detail: [
+          ["Objective", "HC PL APO 20x / 0.75 NA dry"],
+          ["Channel", "DAPI · 405 nm · 15 ms · gain 1.0"],
+          ["Metric", "Brenner gradient"],
+          ["Range", "±15 µm"],
+          ["Steps", "31 · 1.0 µm apart"],
+        ],
+      },
     ],
   },
 ];
@@ -87,9 +153,9 @@ export const SETTING_TYPES = [
 export const settingType = (key) => SETTING_TYPES.find((t) => t.key === key);
 
 /** What the controller reports for the nth recording of a kind. */
-export const sampleState = (key, nth) => {
-  const type = settingType(key);
-  return type.sample[nth % type.sample.length];
+export const sampleReading = (key, nth) => {
+  const { readings } = settingType(key);
+  return readings[nth % readings.length];
 };
 
 /**
