@@ -295,9 +295,23 @@ class TileCanvases:
                 viewer groups the rows it shows by this name, so it is what the
                 operator sees rather than an internal detail.
             canvas_shape: how much room to allow, as ``(z, y, x)`` in voxels.
-                The stage's travel range is a good choice when the experiment
-                does not say: the stage cannot reach outside it, so no tile can
-                ever land beyond the edge.
+                Across the specimen — the ``y`` and ``x`` of it — the stage's
+                travel range is a good choice when the experiment does not say:
+                the stage cannot reach outside it, so no tile can ever land
+                beyond the edge, and over-declaring costs nothing there.
+
+                **Depth is the exception, and it is worth a moment.** Give ``z``
+                the depth the run means to image, with room to spare, rather than
+                the stage's whole travel in z. The reason is that the smaller
+                copies of an image shrink it across the specimen but keep every
+                plane of its depth, and the viewer judges how bright an image
+                should look by sampling four planes spread through that depth.
+                Declare much more depth than you image and all four land in
+                planes nothing was ever written to, so the volume view and the
+                contrast slider open with no usable range at all — silently.
+                About three times the imaged depth is the point where that starts,
+                which is measured in ``viz_studio/DATA_LAYOUT.md``. Depth also
+                needs no generosity: a run knows the stack it asked for.
             tile_shape: the size of one acquired tile, as ``(z, y, x)`` in voxels.
             tile_step: how far the stage moves between neighbouring tiles, as
                 ``(z, y, x)`` in voxels. Together with ``tile_shape`` this is what

@@ -634,28 +634,67 @@ the origin goes at a corner of the region and growth only ever goes outward.
 ### How big to make the canvas
 
 Since declared space is free and the shape can be raised later, the temptation is to
-declare something enormous and never think about it again. That is nearly right, and
-there is one bound worth respecting: **declare the stage travel the experiment can
-actually use, not the largest number that will fit.** A stage has a real range, and
-it is generous next to a specimen without being absurd.
+declare something enormous and never think about it again. That is nearly right across
+the specimen, and wrong in depth, and the difference between the two is worth reading
+before choosing a number: **declare the stage travel the experiment can actually use in
+y and x, and declare in z the depth the run means to image.** A stage's range across the
+specimen is generous next to a specimen without being absurd; its range in depth is not,
+for the measured reason below.
 
-Two things scale with the declared size rather than with the data, and both go wrong
-quietly if the canvas is wildly over-declared.
+Two things scale with the declared size rather than with the data. One of them is a
+matter of taste. The other has since been measured, and it is a good deal sharper than
+this document used to say — sharp enough that the advice below had to change.
 
-**The brightness measurement.** The window an image first appears with is measured
-from the smallest copy in the pyramid, and how big that copy is follows from the
-canvas. On a canvas a hundred times larger than the specimen, that copy is almost
-entirely empty, so the measurement is taken mostly from nothing and the window comes
-out wrong — the specimen then appears black, or washed out. It reads as a broken
-viewer rather than as a metadata choice.
+**The brightness measurement, which is the one that bites.** The window an image first
+appears with is measured from the smallest copy in the pyramid. That copy is still far
+too large to read whole on a real acquisition, so a bounded sample is taken instead:
+four planes, spread evenly through the depth, each cropped to a square about the middle.
+Spreading the samples evenly through the depth is exactly right for an ordinary stack,
+where every plane holds specimen. On a canvas it is a trap, because most of the declared
+depth was never imaged, and a sample plane landing in never-imaged space reads as
+nothing but zeros.
 
-**The opening view.** The viewer opens showing the whole declared extent. Over-declare
-by a large factor and the specimen is a few pixels in the corner of an empty field,
-which again looks like a fault rather than a choice.
+Depth is where this bites, for a reason that is easy to walk past: **the smaller copies
+shrink an image in y and x only.** Depth is carried at full length on every level, which
+is right in itself — a stack of a few hundred planes has nothing to spare — but it means
+the coarsest copy of a canvas declared to the stage's travel is a very tall, very thin
+thing, and the four sampled planes are spread across the whole of that travel while the
+specimen occupies one band somewhere inside it.
 
-A canvas a little larger than the stage can reach avoids both, and leaves growth as
-the rare answer to a genuine surprise rather than something relied upon — which suits
-it, since growth is the one operation with a restriction attached.
+The arithmetic is unforgiving, and the measurement agrees with it. The four planes sit at
+the top, at the bottom, and at the two thirds between, so they stand a third of the
+declared depth apart. A band of imaged specimen is certain to be caught only while it is
+thicker than that gap — which is to say, **only while the declared depth is no more than
+about three times the depth actually imaged.** Measured on a canvas imaging sixty-four
+planes, with the specimen in the middle of the canvas, which is where a run puts it:
+
+| declared depth | times what was imaged | of the sample, imaged | window that came out |
+| --- | --- | --- | --- |
+| 64   | 1×   | 100% | (3557, 4194) |
+| 128  | 2×   | 50%  | (3430, 4096) |
+| 192  | 3×   | 25%  | (3275, 4027) |
+| 224  | 3.5× | 0%   | **(0, 1)** |
+| 2048 | 32×  | 0%   | **(0, 1)** |
+
+Past that point every sampled plane misses the specimen, every value read is zero, and
+the volume window, the histogram and the contrast slider's Auto button all come back as
+`(0, 1)` — which is not a window that is slightly wrong, but no usable range at all. The
+script is `viz_studio/measure_declared_room.py`, and it confirms the reassuring half of
+the story in the same table: the bytes on disk are **identical** across every row of it.
+Declaring generously really is free of everything except this.
+
+Width is far more forgiving, and for a pleasant reason: the sample is cropped *about the
+middle*, and the middle of the stage's travel is roughly where a specimen sits. The same
+measurement over-declared y and x eight-fold and the window came back sound.
+
+**The opening view.** The viewer opens showing the whole declared extent, so a large
+over-declaration leaves the specimen as a few pixels in the middle of an empty field.
+This one is only a nuisance — the operator can zoom — but it does look like a fault
+rather than a choice.
+
+A canvas a little larger than the specimen avoids both, and leaves growth as the rare
+answer to a genuine surprise rather than something relied upon — which suits it, since
+growth is the one operation with a restriction attached.
 
 ### If the experiment does not say: use the stage limits
 
@@ -678,15 +717,38 @@ impossible, and the one operation with a restriction attached never has to happe
 The origin sits at the low end of travel in each spatial axis, so there is nothing
 behind it either.
 
-And it is not wildly too large. A stage's range is a few centimetres, which is
-generous next to a specimen but nowhere near the hundred-fold over-declaration that
-would spoil the brightness measurement or open the view on an empty field. It sits
-comfortably inside the bound described above.
+**Across the specimen, it is not too large.** A stage's range in y and x is a few
+centimetres, which is generous next to a specimen without being absurd — and the
+brightness sample is cropped about the middle of what is declared, which is roughly
+where the specimen sits. Measured at an eight-fold over-declaration in each of y and x,
+the window came out sound.
 
-The cost is honest and small: an experiment covering one corner of the stage gets a
-canvas larger than it needed, so it opens zoomed further out than ideal and its
-first brightness measurement is taken from a sparser picture. An experiment that
-cares can say so and get something tighter. One that does not care still works.
+**In depth it is too large, and this is the one place the default has to be qualified.**
+A stage travels a few millimetres in z where a stack is a few hundred microns, so
+declaring the travel is routinely ten to fifty times the depth actually imaged — well
+past the three-fold bound measured above. A canvas declared that way opens its volume
+view, its histogram and its Auto button with no usable range at all, and it does so
+silently.
+
+So the default holds in y and x, and **in depth the canvas is declared to the depth the
+experiment means to image**, with room to spare, rather than to the stage's whole travel.
+That is a number an experiment nearly always has, because it is the stack it asked for;
+it is only the extent across the specimen that a run genuinely may not know in advance.
+Depth also does not need the same generosity, because the reason for declaring generously
+— that the stage may wander further across the specimen than planned — does not apply to
+a stack whose range the experiment chose.
+
+Where the imaged depth genuinely is not known, declare the travel and give each channel
+a brightness window in its `omero` block. That is honoured for the plane view and costs
+no read at all. Be aware that it is only half a cure today: the volume window and the
+histogram are still worked out from pixels whatever the block says, so they will still
+come back empty. That gap is recorded in `viz_studio/NEXT_STEPS.md` and closing it would
+make a declared window a complete answer.
+
+The cost of the default is otherwise honest and small: an experiment covering one corner
+of the stage gets a canvas larger than it needed, so it opens zoomed further out than
+ideal and its first brightness measurement is taken from a sparser picture. An experiment
+that cares can say so and get something tighter. One that does not care still works.
 ### What this buys
 
 The viewer receives one multiscale image per acquisition type and lets Neuroglancer
