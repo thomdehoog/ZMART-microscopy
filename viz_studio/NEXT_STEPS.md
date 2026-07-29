@@ -332,11 +332,14 @@ decision have both been decided, in `DATA_LAYOUT.md`:
 
 - **How large to make the image.** Sized to the ground the experiment means to cover, or —
   where the experiment does not say — **the stage's own travel limits**. Declared size is not
-  occupied size (a declared 4 TiB image measured 59 MiB on disk), so this can be generously
-  over-estimated. The origin goes at the low corner and growth only ever goes outward,
-  because growing backwards would shift every chunk index and invalidate everything already
-  written. With the stage limits as the canvas, growth becomes impossible rather than merely
-  rare, since the stage cannot reach outside them.
+  occupied size (a declared 4 TiB image measured 59 MiB on disk), so across the specimen this
+  can be generously over-estimated. The origin goes at the low corner and growth only ever
+  goes outward, because growing backwards would shift every chunk index and invalidate
+  everything already written. With the stage limits as the canvas, growth becomes impossible
+  rather than merely rare, since the stage cannot reach outside them. **Depth is the one
+  exception and it has since been measured:** declare `z` to the depth the run means to image,
+  not to the stage's travel, or the brightness measurement comes back empty. See the first
+  entry under "Done since the last hand-over" for the numbers.
 - **The one constraint that makes concurrent writing safe: tiles must begin and end on chunk
   boundaries in y and x.** This is the real cost of the change and it falls entirely on the
   writing side. Two tiles sharing a chunk file both read it, each adds its own tile, and each
@@ -392,6 +395,70 @@ is the remaining half.
 ---
 
 ## Done since the last hand-over
+
+**A generously declared depth does cost something, and it is not the clock — it is the
+brightness measurement.** This was the open question left by the last session, and the
+argument behind it was half right. The reasoning went: time can be declared generously
+because a moment nothing was written to takes no space, but depth is the one axis the
+smaller copies do *not* shrink, and the coarsest copy is what gets read to judge how
+bright an image should look — so a generous depth ought to cost something real. It does.
+It simply costs it in a different currency than anyone expected, and the measurement is
+in `measure_declared_room.py`.
+
+**What it does not cost.** Not disk: the same four tiles occupied 482 MB whether the
+canvas around them was declared at the size imaged or thirty-two times larger, in every
+axis. And not time either — a generous depth measured 64 ms against 77 ms for an honest
+one, which is if anything slightly *quicker*, because a taller coarsest copy tips the
+reader past the point where it reads the whole thing and into sampling instead. So the
+half of the argument about the clock is answered: there is nothing there.
+
+**What it does cost.** The reader takes four planes spread evenly through the declared
+depth, each cropped to a square about the middle. That is exactly right for an ordinary
+stack, where every plane holds specimen, and it is a trap on a canvas, where most of the
+declared depth was never imaged. Those four planes sit a third of the declared depth
+apart, so a band of specimen is certain to be caught only while it is thicker than that
+gap — while the declared depth is **no more than about three times the depth imaged.**
+Measured on a canvas imaging sixty-four planes with the specimen in the middle, where a
+run puts it:
+
+| declared depth | times imaged | of the sample, imaged | window that came out |
+| --- | --- | --- | --- |
+| 64   | 1×   | 100% | (3557, 4194) |
+| 192  | 3×   | 25%  | (3275, 4027) |
+| 224  | 3.5× | 0%   | **(0, 1)** |
+| 2048 | 32×  | 0%   | **(0, 1)** |
+
+Past that, every sampled value is a zero, and the volume window, the histogram and the
+contrast slider's Auto button all come back as `(0, 1)` — no usable range at all, with
+nothing on screen or in a log to say why. A stage travels a few millimetres in z where a
+stack is a few hundred microns, so declaring the travel is routinely ten to fifty times
+the imaged depth. That is not near the bound; it is far past it.
+
+Width is forgiving in the same measurement, and for a pleasant reason — the crop is taken
+*about the middle*, and the middle of the travel is roughly where a specimen sits. Eight
+times too much y and x still gave a sound window.
+
+So `DATA_LAYOUT.md` and the `canvas_shape` docstring now say the same qualified thing:
+declare y and x to the stage's travel as before, and declare **z to the depth the run
+means to image**. Depth never needed the generosity anyway — the reason to over-declare
+is that the stage may wander further across the specimen than planned, and a run always
+knows the stack it asked for.
+
+**One thing found alongside it, not acted on, and worth someone's attention.** Every
+canvas our own writer produces declares a brightness window of `start: 0, end: 65535` —
+the whole range a 16-bit camera can express — because `Channel` fills the window in with
+the type's limits when the caller leaves it out. The viewer honours a declared window for
+the plane view, so the flat view of a canvas opens with the full 16-bit ramp while the
+pixels sit between about 200 and 4 000 counts. That is the specimen rendered in the
+bottom six percent of the ramp: the "real acquisitions come out black" failure that
+`contrast.py` exists to prevent, arriving by the one route that module cannot defend
+against, since a declared window is meant to be trusted. `Channel`'s own docstring says
+the opposite of what the code does — *"Left out, the viewer measures one from the pixels,
+which costs a read"* — so this is a disagreement between a docstring and its code rather
+than a considered choice. Nothing in the suite catches it because every browser test that
+photographs pixels passes an explicit `window=(0, 4000)`. The fix is to leave `start` and
+`end` out of the block when the caller gave no window, so the viewer measures as the
+docstring promises; it wants a test that opens a canvas written without one.
 
 **A timelapse declares its length up front and fills it in, exactly as the room in space
 is declared.** This settled in two steps within one session, and the second step reversed
