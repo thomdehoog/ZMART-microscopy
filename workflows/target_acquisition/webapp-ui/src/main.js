@@ -1,8 +1,8 @@
 import "./style.css";
 import { numbered } from "./frame/steps.js";
 import {
-  MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor, describeSession,
-  describeConnection, CONNECT_CHECKS,
+  MICROSCOPES, DEFAULT_SESSION, DEMO_PRESETS, apisFor, defaultApiFor,
+  describeSession, describeConnection, CONNECT_CHECKS,
   SETTING_TYPES, settingType, sampleReading, STAGE_LIMITS_MM,
 } from "./lib/microscopes.js";
 import { DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
@@ -139,10 +139,22 @@ import carrierWidget from "./widgets/carrier.js";
     run_0709_c: { label: "2026-07-09 · slide C", plane: { a: 71, b: 88, c: -389 }, residual: 3.1, ageDays: 19 },
   };
 
+  /* The bars a run starts with: the demo presets as though the controller had
+     already been read for them, and under those the one open bar that is
+     always waiting. Built fresh each time, because a bar is edited in place
+     and a shared one would carry the last run's typing into the next. */
+  function startingBars() {
+    const recorded = DEMO_PRESETS.map(({ name, type, nth }) => {
+      const reading = sampleReading(type, nth);
+      return { type, name, state: reading.summary, detail: reading.detail };
+    });
+    return [...recorded, { type: SETTING_TYPES[0].key, name: "" }];
+  }
+
   const state = {
     session: { ...DEFAULT_SESSION },
     recordings: [],
-    bars: [{ type: SETTING_TYPES[0].key, name: "", state: null }],
+    bars: startingBars(),
     carrier: { ...DEFAULT_CARRIER },
     checks: [],
     wf: "target_acquisition",
@@ -197,7 +209,7 @@ import carrierWidget from "./widgets/carrier.js";
     Object.assign(state, {
       activeIdx: 0, done: new Set(), running: null, notes: {},
       recordings: [],
-      bars: [{ type: SETTING_TYPES[0].key, name: "", state: null }],
+      bars: startingBars(),
       carrier: { ...DEFAULT_CARRIER }, checks: [],
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
       detect: newDetect(), detected: new Set(),
@@ -205,6 +217,9 @@ import carrierWidget from "./widgets/carrier.js";
       locked: false,
     });
     view.fitted = false; fview.fitted = false;
+    // the presets a run starts with complete their step, by the same rule any
+    // other recorded preset does
+    settingsChanged();
     focusPanelsFor(0);
     el("gate-readout").textContent = "drag a rectangle to gate";
     el("pairs").textContent = "";
@@ -2765,6 +2780,7 @@ import carrierWidget from "./widgets/carrier.js";
 
   renderFocusToolbar();
   renderDetectToolbar();
+  settingsChanged();
   focusPanelsFor(0);
   renderAll();
 })();
