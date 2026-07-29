@@ -62,8 +62,8 @@ import carrierWidget from "./widgets/carrier.js";
       name: "Target acquisition",
       blurb: "overview, detect, select, acquire",
       steps: numbered([
-        { id: "connect", title: "Microscope Configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
-        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
+        { id: "connect", title: "Microscope configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
+        { id: "optics", title: "Optical configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
         { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
@@ -78,8 +78,8 @@ import carrierWidget from "./widgets/carrier.js";
       name: "Overview only",
       blurb: "no analysis panel",
       steps: numbered([
-        { id: "connect", title: "Microscope Configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
-        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
+        { id: "connect", title: "Microscope configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
+        { id: "optics", title: "Optical configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
         { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "save", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
@@ -90,8 +90,8 @@ import carrierWidget from "./widgets/carrier.js";
       name: "Focus surface check",
       blurb: "calibration run",
       steps: numbered([
-        { id: "connect", title: "Microscope Configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
-        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
+        { id: "connect", title: "Microscope configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
+        { id: "optics", title: "Optical configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
         { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "save", title: "Write the surface", why: "Fits the plane and records its residual for this objective.", btn: "Write surface", panels: [], ms: 700, note: "residual 1.8 µm · written" },
@@ -708,7 +708,7 @@ import carrierWidget from "./widgets/carrier.js";
 
       const label = document.createElement("div");
       label.className = "group-label";
-      label.textContent = "Record Optical Configuration";
+      label.textContent = "Record optical configuration";
       group.append(label);
 
       const box = document.createElement("div");
@@ -993,7 +993,12 @@ import carrierWidget from "./widgets/carrier.js";
     if (shownPanel() === "canvas") {
       const side = document.createElement("span");
       side.className = "side-tab";
-      side.textContent = carrierWidget.label;
+      /* The name is its own element: it carries the rule under it, so that
+         rule is as wide as the word the way a tab's is, rather than as wide
+         as the channel this stands over. */
+      const label = document.createElement("span");
+      label.textContent = carrierWidget.label;
+      side.append(label);
       host.append(side);
     }
   }

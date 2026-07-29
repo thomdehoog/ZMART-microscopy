@@ -39,7 +39,7 @@ async function record(page, kind, name) {
 /** Everything before the sample is touched: session, optics, carrier. */
 async function throughSetup(page) {
   await connect(page);
-  await gotoStep(page, "Optical Configuration");
+  await gotoStep(page, "Optical configuration");
   // recording is the work; there is no button to confirm afterwards
   await record(page, "acquisition", "survey");
   await record(page, "acquisition", "target");
@@ -73,7 +73,7 @@ test.afterEach(async ({ page }) => {
 
 test("the rail carries the workflow's declared steps", async ({ page }) => {
   await expect(page.locator("#steps .step")).toHaveCount(10);
-  await expect(page.locator(".step.active .step-name")).toHaveText("Microscope Configuration");
+  await expect(page.locator(".step.active .step-name")).toHaveText("Microscope configuration");
 
   await page.locator("#wf-select").selectOption("overview_only");
   await expect(page.locator("#steps .step")).toHaveCount(6);
@@ -142,30 +142,30 @@ test("an open session is not editable, and Disconnect is the way out", async ({ 
   // closing it takes the run with it — everything after this was read off this
   // session — but keeps what it was opened with, since editing that is the
   // reason to close one
-  await gotoStep(page, "Optical Configuration");
+  await gotoStep(page, "Optical configuration");
   await page.locator(".setting-box.open input").fill("survey");
   await page.locator(".setting-box.open button.run").click();
   await page.waitForTimeout(650);
   await expect(page.locator(".rec-row")).toHaveCount(1);
 
-  await gotoStep(page, "Microscope Configuration");
+  await gotoStep(page, "Microscope configuration");
   await page.locator(".session-foot button").click();
   await expect(fields.first(), "and the form is answerable again").toBeEnabled();
   await expect(page.locator(".check-row")).toHaveCount(0);
   await expect(page.locator(".session-done")).toHaveCount(0);
   await expect(page.locator('.field input[type="password"]')).toHaveValue("hunter2");
-  await expect(page.locator('.step:has-text("Optical Configuration")').first()).toBeDisabled();
+  await expect(page.locator('.step:has-text("Optical configuration")').first()).toBeDisabled();
 });
 
 test("settings are recorded off the instrument, and the list grows", async ({ page }) => {
   await connect(page);
-  await gotoStep(page, "Optical Configuration");
+  await gotoStep(page, "Optical configuration");
 
   // nothing is preconfigured: the only choice is what kind of thing to record
   await expect(page.locator(".panel.on button.step-run"),
     "recording is the work, so there is nothing to confirm").toHaveCount(0);
   await expect(page.locator(".rec-row")).toHaveCount(0);
-  await expect(page.locator('.step:has-text("Optical Configuration")').first())
+  await expect(page.locator('.step:has-text("Optical configuration")').first())
     .not.toHaveClass(/done/);
 
   await record(page, "acquisition", "survey");
@@ -180,7 +180,7 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
   await expect(page.locator(".rec-row").first()).toContainText("NA");
   await expect(page.locator(".rec-row").last()).toContainText("NA");
   // a setting existing is what completes the step
-  await expect(page.locator('.step:has-text("Optical Configuration")').first())
+  await expect(page.locator('.step:has-text("Optical configuration")').first())
     .toHaveClass(/done/);
 
   // a recorded setting and the next open bar are separate boxes
@@ -192,7 +192,7 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
 
 test("the optical settings panel lines up", async ({ page }) => {
   await connect(page);
-  await gotoStep(page, "Optical Configuration");
+  await gotoStep(page, "Optical configuration");
   await record(page, "acquisition", "survey");
   await record(page, "acquisition", "target");
   await record(page, "autofocus", "af coarse");
@@ -246,7 +246,7 @@ test("the optical settings panel lines up", async ({ page }) => {
 
 test("a recorded preset unfolds to show everything that was read", async ({ page }) => {
   await connect(page);
-  await gotoStep(page, "Optical Configuration");
+  await gotoStep(page, "Optical configuration");
   await record(page, "acquisition", "survey");
 
   // folded by default: a list of presets should stay a list
@@ -266,7 +266,7 @@ test("a recorded preset unfolds to show everything that was read", async ({ page
 
 test("every label sits the same distance off its box", async ({ page }) => {
   await connect(page);
-  await gotoStep(page, "Optical Configuration");
+  await gotoStep(page, "Optical configuration");
   await record(page, "acquisition", "survey");
   await record(page, "autofocus", "af coarse");
 
@@ -282,7 +282,7 @@ test("every label sits the same distance off its box", async ({ page }) => {
 
 test("a recording will not reuse a name", async ({ page }) => {
   await connect(page);
-  await gotoStep(page, "Optical Configuration");
+  await gotoStep(page, "Optical configuration");
   await record(page, "acquisition", "survey");
 
   const bar = page.locator(".setting-box.open");
@@ -310,8 +310,8 @@ test("the api offered follows the microscope chosen", async ({ page }) => {
 test("nothing advances by itself, and the next step stays locked until it can run",
   async ({ page }) => {
     await connect(page);
-    await expect(page.locator(".step.active .step-name")).toHaveText("Microscope Configuration");
-    await expect(page.locator('.step:has-text("Microscope Configuration")').first()).toHaveClass(/done/);
+    await expect(page.locator(".step.active .step-name")).toHaveText("Microscope configuration");
+    await expect(page.locator('.step:has-text("Microscope configuration")').first()).toHaveClass(/done/);
     await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeDisabled();
   });
 
@@ -341,9 +341,9 @@ test("the canvas belongs to the steps that happen inside it, and to no others",
     // behind. The session and the instrument are not in the frame, so parking
     // a tab for it on those steps offers something they have nothing to do
     // with — the rule every other panel already follows.
-    await gotoStep(page, "Optical Configuration");
+    await gotoStep(page, "Optical configuration");
     await expect(page.locator(".tab")).toHaveText(["Optical configuration"]);
-    await gotoStep(page, "Microscope Configuration");
+    await gotoStep(page, "Microscope configuration");
     await expect(page.locator(".tab")).toHaveText(["Microscope configuration"]);
     await expect(page.locator(".session-title"), "and the session comes back when you return")
       .toHaveText("Connect to the microscope");

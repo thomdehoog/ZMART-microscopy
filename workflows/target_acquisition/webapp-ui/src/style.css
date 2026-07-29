@@ -271,19 +271,29 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 .action-hint.bad { color: var(--bad); }
 /* names the channel over the column it heads, at the far end of the tab row */
 .side-tab {
-  /* out past the row's own padding, so it ends where the channel does */
+  /* out past the row's own padding, so it stands over the whole channel */
   margin-left: auto; margin-right: calc(-1 * var(--tabs-pad));
   width: var(--side-w); flex: none;
-  /* reads as the tab it stands in for: same size, same weight, same blue and
-     the same rule under it. It is the heading of a column that is always
-     shown, so it is always in the selected state — there is no other. */
-  font: inherit; font-size: 13.5px; font-weight: 600; color: var(--accent-deep);
-  border-bottom: 2px solid var(--accent);
   display: flex; align-items: flex-end; height: 100%;
-  padding: 0 16px 11px;
+}
+/* Reads as the tab it stands in for: same size, same weight, same blue, and a
+   rule as wide as the name rather than as the column under it. It is the
+   heading of a column that is always shown, so it is always in the selected
+   state — there is no other. The name carries all of that and the box around
+   it carries none, or the rule runs the width of the channel and stops looking
+   like the thing it stands in for. */
+.side-tab > span {
+  font-size: 13.5px; font-weight: 600; color: var(--accent-deep);
+  border-bottom: 2px solid var(--accent);
+  padding: 0 var(--tab-pad-x) var(--tab-pad-b);
 }
 .tabs {
   --tabs-pad: 12px;
+  /* what a tab holds off its own name, so the heading standing in for one at
+     the end of the row sits the same distance off its own and lands on the
+     same rule */
+  --tab-pad-x: 13px;
+  --tab-pad-b: 11px;
   display: flex; align-items: stretch; gap: 2px;
   padding: 0 var(--tabs-pad); border-bottom: 1px solid var(--line);
   background: var(--surface-2); overflow-x: auto;
@@ -291,7 +301,7 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 .tab {
   font: inherit; font-size: 13.5px; font-weight: 600; color: var(--ink-3);
   background: none; border: none; border-bottom: 2px solid transparent;
-  padding: 11px 13px 9px; cursor: pointer; white-space: nowrap;
+  padding: 0 var(--tab-pad-x) var(--tab-pad-b); cursor: pointer; white-space: nowrap;
   display: flex; align-items: center; gap: 7px;
 }
 .tab:hover { color: var(--ink); }
@@ -604,7 +614,7 @@ canvas.scattercv { cursor: crosshair; }
 :root { --head-h: 110px; }
 .wf-box { height: var(--head-h); justify-content: center; padding-top: 0; padding-bottom: 0; }
 .tabs { height: var(--head-h); align-items: center; }
-.tabs .tab { padding-top: 0; padding-bottom: 0; height: 100%; }
+.tabs .tab { height: 100%; }
 
 /* The first step should not crowd the rule under the workflow selector. */
 .steps { padding-top: 18px; }
@@ -612,7 +622,7 @@ canvas.scattercv { cursor: crosshair; }
 /* Both header bars sit their contents toward the bottom of the bar, so the
    selector and the tab labels line up with each other and with the rule. */
 .wf-box { justify-content: flex-end; padding-bottom: 13px; }
-.tabs .tab { align-items: flex-end; padding-bottom: 11px; }
+.tabs .tab { align-items: flex-end; }
 
 /* ---- wordmark ----------------------------------------------------------
    Typographic rather than a drawn logo: ZMART set tight and heavy, the
