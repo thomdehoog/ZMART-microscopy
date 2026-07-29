@@ -16,8 +16,15 @@ async function runStep(page, ms = 1000) {
   await page.waitForTimeout(ms);
 }
 
+/** Connect is a form with its own button, not a step the action bar drives. */
+async function connect(page, password = "hunter2") {
+  await page.locator('.field input[type="password"]').fill(password);
+  await page.locator(".session-form button.run").click();
+  await page.waitForTimeout(2200);
+}
+
 async function throughJobs(page) {
-  await runStep(page, 950);
+  await connect(page);
   for (const name of ["Set origin", "Capture overview job", "Capture target job"]) {
     await gotoStep(page, name);
     await runStep(page, 800);
@@ -56,9 +63,30 @@ test("the rail carries the workflow's declared steps", async ({ page }) => {
   await expect(page.locator("#steps .step")).toHaveCount(5);
 });
 
+test("a session needs a password before it will open", async ({ page }) => {
+  await expect(page.locator(".session-form button.run")).toBeDisabled();
+  await page.locator('.field input[type="password"]').fill("hunter2");
+  await expect(page.locator(".session-form button.run")).toBeEnabled();
+});
+
+test("connecting reports what it checked", async ({ page }) => {
+  await connect(page);
+  await expect(page.locator(".check-row")).toHaveCount(6);
+  await expect(page.locator(".check-row").first()).toContainText("Microscope reachable");
+  await expect(page.locator(".session-state")).toContainText("Leica Stellaris 5");
+});
+
+test("the api offered follows the microscope chosen", async ({ page }) => {
+  const apis = () => page.locator(".field select").nth(1).locator("option").allInnerTexts();
+  expect((await apis()).join()).toContain("CAM");
+  await page.locator(".field select").first().selectOption("mesospim");
+  await page.waitForTimeout(150);
+  expect((await apis()).join()).toContain("Remote Control");
+});
+
 test("nothing advances by itself, and the next step stays locked until it can run",
   async ({ page }) => {
-    await runStep(page, 950);
+    await connect(page);
     await expect(page.locator(".step.active .step-name")).toHaveText("Connect");
     await expect(page.locator('.step:has-text("Connect")').first()).toHaveClass(/done/);
     await expect(page.locator('.step:has-text("Capture target job")').first()).toBeDisabled();
@@ -70,8 +98,9 @@ test("setup holds the base until there is data, then the canvas takes over",
     await expect(page.locator(".tab")).toHaveText(["Setup"]);
     await throughJobs(page);
     await expect(page.locator(".tab")).toHaveText(["Setup"]);
-    await expect(page.locator(".setup-row")).toHaveCount(5);
-    await expect(page.locator(".setup-row").first()).toContainText("session open");
+    // only what the run has established, plus what is being done now
+    await expect(page.locator(".setup-row")).toHaveCount(3);
+    await expect(page.locator(".session-state")).toContainText("Leica Stellaris 5");
 
     await placeFocusPoints(page);
     await expect(page.locator(".tab")).toHaveText(["Setup", "Focus strategy"]);

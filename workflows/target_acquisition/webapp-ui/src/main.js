@@ -1,4 +1,8 @@
 import "./style.css";
+import { numbered } from "./frame/steps.js";
+import {
+  MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor, describeSession, CONNECT_CHECKS,
+} from "./lib/microscopes.js";
 
 (() => {
   "use strict";
@@ -52,43 +56,43 @@ import "./style.css";
   const WORKFLOWS = {
     target_acquisition: {
       name: "Target acquisition",
-      blurb: "10 steps · overview, detect, select, acquire",
-      steps: [
-        { id: "connect", n: "1", title: "Connect", why: "Opens the microscope session and starts the analysis engine.", btn: "Connect", panels: [], ms: 900, note: "session open · run folder created" },
-        { id: "origin", n: "2", title: "Set origin", why: "Marks the stage where it stands as (0, 0) for this run.", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
+      blurb: "overview, detect, select, acquire",
+      steps: numbered([
+        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
+        { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0) for this run.", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
         { id: "job_ov", n: "3a", title: "Capture overview job", why: "Select the low-magnification job in LAS X, then capture its settings.", btn: "Capture overview job", panels: [], ms: 700, note: "5x · 1.30 µm/px · 2 channels" },
         { id: "job_tg", n: "3b", title: "Capture target job", why: "Now select the high-magnification job and capture it too.", btn: "Capture target job", panels: [], ms: 700, note: "63x · 0.10 µm/px · 2 channels" },
-        { id: "focus", n: "4", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
-        { id: "scan", n: "5", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
-        { id: "detect", n: "6", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, note: "1250 cells found", mode: "detect" },
-        { id: "select", n: "7", title: "Select cells", why: "Gate the cells worth imaging — drag a box on the plot, or pick them on the canvas.", btn: "Confirm selection", panels: ["analysis"], ms: 600, mode: "select" },
-        { id: "acquire", n: "8", title: "Acquire and curate", why: "Images the selected cells at target magnification and collects your verdicts.", btn: "Acquire selection", panels: ["gallery"], ms: 2200, mode: "targets" },
-        { id: "save", n: "9", title: "Save the run", why: "Writes the report, the layout picture and your verdicts beside the images.", btn: "Save results", panels: [], ms: 800, note: "report + layout written" },
-        { id: "disconnect", n: "10", title: "Disconnect", why: "Releases the microscope and shuts the analysis engine down.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
-      ],
+        { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
+        { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
+        { id: "detect", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, note: "1250 cells found", mode: "detect" },
+        { id: "select", title: "Select cells", why: "Gate the cells worth imaging — drag a box on the plot, or pick them on the canvas.", btn: "Confirm selection", panels: ["analysis"], ms: 600, mode: "select" },
+        { id: "acquire", title: "Acquire and curate", why: "Images the selected cells at target magnification and collects your verdicts.", btn: "Acquire selection", panels: ["gallery"], ms: 2200, mode: "targets" },
+        { id: "save", title: "Save the run", why: "Writes the report, the layout picture and your verdicts beside the images.", btn: "Save results", panels: [], ms: 800, note: "report + layout written" },
+        { id: "disconnect", title: "Disconnect", why: "Releases the microscope and shuts the analysis engine down.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
+      ]),
     },
     overview_only: {
       name: "Overview only",
-      blurb: "6 steps · no analysis panel",
-      steps: [
-        { id: "connect", n: "1", title: "Connect", why: "Opens the microscope session.", btn: "Connect", panels: [], ms: 900, note: "session open" },
-        { id: "origin", n: "2", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
-        { id: "job_ov", n: "3", title: "Capture overview job", why: "Select the overview job in LAS X and capture its settings.", btn: "Capture overview job", panels: [], ms: 700, note: "5x · 1.30 µm/px" },
-        { id: "scan", n: "4", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
-        { id: "save", n: "5", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
-        { id: "disconnect", n: "6", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
-      ],
+      blurb: "no analysis panel",
+      steps: numbered([
+        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
+        { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
+        { id: "job_ov", title: "Capture overview job", why: "Select the overview job in LAS X and capture its settings.", btn: "Capture overview job", panels: [], ms: 700, note: "5x · 1.30 µm/px" },
+        { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
+        { id: "save", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
+        { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
+      ]),
     },
     focus_check: {
       name: "Focus surface check",
-      blurb: "5 steps · calibration run",
-      steps: [
-        { id: "connect", n: "1", title: "Connect", why: "Opens the microscope session.", btn: "Connect", panels: [], ms: 900, note: "session open" },
-        { id: "origin", n: "2", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
-        { id: "focus", n: "3", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
-        { id: "save", n: "4", title: "Write the surface", why: "Fits the plane and records its residual for this objective.", btn: "Write surface", panels: [], ms: 700, note: "residual 1.8 µm · written" },
-        { id: "disconnect", n: "5", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
-      ],
+      blurb: "calibration run",
+      steps: numbered([
+        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
+        { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
+        { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
+        { id: "save", title: "Write the surface", why: "Fits the plane and records its residual for this objective.", btn: "Write surface", panels: [], ms: 700, note: "residual 1.8 µm · written" },
+        { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
+      ]),
     },
   };
 
@@ -132,6 +136,8 @@ import "./style.css";
   };
 
   const state = {
+    session: { ...DEFAULT_SESSION },
+    checks: [],
     wf: "target_acquisition",
     activeIdx: 0,
     done: new Set(),
@@ -192,11 +198,8 @@ import "./style.css";
   }
 
   function renderRail() {
-    const wf = WORKFLOWS[state.wf];
-    el("wf-meta").textContent = state.locked
-      ? `${wf.blurb} — locked while the run is open`
-      : wf.blurb;
-    el("wf-meta").classList.toggle("locked", state.locked);
+    /* No summary line: the rail below already lists the steps, and a locked
+       selector shows for itself that the run has started. */
     selectEl.disabled = state.locked;
     el("restart-btn").disabled = !state.locked;
 
@@ -256,17 +259,14 @@ import "./style.css";
   function renderActionBar() {
     const host = el("action-bar");
     host.textContent = "";
+    host.hidden = !!step(state.activeIdx).ownButton;
+    if (host.hidden) return;
     const i = state.activeIdx, s = step(i);
     const done = state.done.has(s.id);
     const running = state.running === s.id;
     const blocked = readiness(s);
 
-    const label = document.createElement("span");
-    label.className = "action-step";
-    label.textContent = s.n;
-    host.append(label);
-
-    if (s.btn) {
+    if (s.btn && !s.ownButton) {
       const run = document.createElement("button");
       run.className = "run"; run.type = "button";
       run.textContent = running ? "working…" : (done ? "Run again" : s.btn);
@@ -307,6 +307,20 @@ import "./style.css";
     const started = performance.now();
     let raf = null;
 
+    /* Connecting is a handful of questions, not one action. Each answer lands
+       as it arrives, so a session that fails does so at a named check rather
+       than as a spinner that stops. */
+    if (s.id === "connect") {
+      state.checks = [];
+      CONNECT_CHECKS.forEach((check, k) => {
+        setTimeout(() => {
+          if (state.running !== "connect") return;
+          state.checks.push({ ...check, result: check.result(state.session) });
+          renderSetup();
+        }, 260 * (k + 1));
+      });
+    }
+
     if (s.mode === "scan") {
       state.tilesShown = 0;
       const total = COLS * ROWS;
@@ -325,6 +339,7 @@ import "./style.css";
       state.running = null;
       state.done.add(s.id);
       if (s.note) state.notes[s.id] = s.note;
+      if (s.id === "connect") state.notes[s.id] = describeSession(state.session);
 
       if (s.mode === "focus") {
         const f = state.focus;
@@ -399,20 +414,131 @@ import "./style.css";
      its result, anything not yet run shows what it is waiting for. A workflow
      that skips a step simply has no row for it. */
   const SETUP_ROWS = [
-    { step: "connect", name: "Session", waiting: "not connected" },
     { step: "origin", name: "Stage origin", waiting: "not set" },
     { step: "job_ov", name: "Overview job", waiting: "not captured" },
     { step: "job_tg", name: "Target job", waiting: "not captured" },
     { step: "focus", name: "Focus surface", waiting: "not measured" },
   ];
 
+  /* Connecting is a form, so its button belongs in the form rather than in the
+     bar above it — you fill a session in and open it, you do not configure it
+     here and press something over there. */
+  function renderSessionCard(host) {
+    const connected = state.done.has("connect");
+    const connecting = state.running === "connect";
+    const card = document.createElement("div");
+    card.className = "session-card" + (connected ? " done" : "");
+
+    const head = document.createElement("div");
+    head.className = "session-head";
+    head.innerHTML = '<span class="session-title">Session</span><span class="session-state"></span>';
+    head.querySelector(".session-state").textContent = connected
+      ? describeSession(state.session)
+      : "not connected";
+    card.append(head);
+
+    if (!connected) {
+      const form = document.createElement("div");
+      form.className = "session-form";
+
+      const scope = document.createElement("label");
+      scope.className = "field";
+      scope.innerHTML = "<span>Microscope</span><select></select>";
+      const scopeSel = scope.querySelector("select");
+      for (const [key, m] of Object.entries(MICROSCOPES)) {
+        const o = document.createElement("option");
+        o.value = key;
+        o.textContent = m.detail ? `${m.label} · ${m.detail}` : m.label;
+        scopeSel.append(o);
+      }
+      scopeSel.value = state.session.microscope;
+      scopeSel.disabled = connecting;
+      scopeSel.addEventListener("change", () => {
+        state.session.microscope = scopeSel.value;
+        state.session.api = defaultApiFor(scopeSel.value);
+        renderSetup(); renderActionBar();
+      });
+
+      const api = document.createElement("label");
+      api.className = "field";
+      api.innerHTML = "<span>API</span><select></select>";
+      const apiSel = api.querySelector("select");
+      for (const [key, a] of apisFor(state.session.microscope)) {
+        const o = document.createElement("option");
+        o.value = key;
+        o.textContent = `${a.label} · ${a.detail}`;
+        apiSel.append(o);
+      }
+      apiSel.value = state.session.api;
+      apiSel.disabled = connecting;
+      apiSel.addEventListener("change", () => {
+        state.session.api = apiSel.value;
+        renderSetup(); renderActionBar();
+      });
+
+      const pw = document.createElement("label");
+      pw.className = "field";
+      pw.innerHTML = '<span>Password</span><input type="password" autocomplete="current-password">';
+      const pwInput = pw.querySelector("input");
+      pwInput.value = state.session.password;
+      pwInput.disabled = connecting;
+      pwInput.addEventListener("input", () => {
+        state.session.password = pwInput.value;
+        renderSetup(); renderActionBar();
+      });
+
+      form.append(scope, api, pw);
+
+      const go = document.createElement("button");
+      go.className = "run"; go.type = "button";
+      go.textContent = connecting ? "connecting…" : "Connect";
+      go.disabled = connecting || !state.session.password;
+      go.addEventListener("click", () => runStep(indexOfStep("connect")));
+      form.append(go);
+
+      if (!state.session.password && !connecting) {
+        const hint = document.createElement("div");
+        hint.className = "session-hint";
+        hint.textContent = "a password is needed to open the session";
+        form.append(hint);
+      }
+      card.append(form);
+    }
+
+    if (state.checks.length) {
+      const list = document.createElement("div");
+      list.className = "check-list";
+      for (const c of state.checks) {
+        const row = document.createElement("div");
+        row.className = "check-row";
+        row.innerHTML = '<span class="check-mark">✓</span><span class="check-name"></span>'
+          + '<span class="check-value"></span>';
+        row.querySelector(".check-name").textContent = c.label;
+        row.querySelector(".check-value").textContent = c.result;
+        list.append(row);
+      }
+      card.append(list);
+    }
+
+    host.append(card);
+  }
+
+  const indexOfStep = (id) => steps().findIndex((s) => s.id === id);
+
   function renderSetup() {
     const host = el("setup-list");
     host.textContent = "";
     const present = new Set(steps().map((s) => s.id));
 
+    if (present.has("connect")) renderSessionCard(host);
+
+    /* Only what the run has established, plus whatever is being done now. The
+       rail already lists what is still ahead; repeating it here as a column of
+       "not set" would make the panel a second, worse copy of it. */
+    const activeId = step(state.activeIdx).id;
     for (const row of SETUP_ROWS) {
       if (!present.has(row.step)) continue;
+      if (!state.done.has(row.step) && row.step !== activeId) continue;
       const done = state.done.has(row.step);
       const value = state.notes[row.step];
 
