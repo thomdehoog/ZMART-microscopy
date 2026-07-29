@@ -31,12 +31,16 @@ def _a_run(folder: Path, *, single: bool = False) -> TileCanvases:
     side = (GRID - 1) * STEP[1] + TILE[1]
     canvases = TileCanvases.create(
         folder,
+        name="overview",
         canvas_shape=(TILE[0], side, side),
         tile_shape=TILE, tile_step=STEP,
         voxel_size_um=(2.0, 0.35, 0.35),
         channels=[Channel("488", window=(0, 4000))],
         chunk=64, levels=2,
-        slots=(1, 1, 1) if single else None,
+        # These tiles overlap, which is the case that must not be written into
+        # one image by default -- so both arrangements here are asked for
+        # outright. That is the only way to get either.
+        slots=(1, 1, 1) if single else (1, 2, 2),
     )
     for row in range(GRID):
         for col in range(GRID):
