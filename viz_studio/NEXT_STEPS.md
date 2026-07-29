@@ -408,9 +408,11 @@ in `measure_declared_room.py`.
 **What it does not cost.** Not disk: the same four tiles occupied 482 MB whether the
 canvas around them was declared at the size imaged or thirty-two times larger, in every
 axis. And not time either — a generous depth measured 64 ms against 77 ms for an honest
-one, which is if anything slightly *quicker*, because a taller coarsest copy tips the
-reader past the point where it reads the whole thing and into sampling instead. So the
-half of the argument about the clock is answered: there is nothing there.
+one, which is if anything slightly *quicker*. The reason it is quicker is the same fault
+seen from the other side: the read is bounded to four planes either way, and on a
+generous canvas three of those four land in places nothing was written, so there is
+nothing to unpack. It is faster because it is reading emptiness. So the half of the
+argument about the clock is answered, and there is nothing there.
 
 **What it does cost.** The reader takes four planes spread evenly through the declared
 depth, each cropped to a square about the middle. That is exactly right for an ordinary
@@ -1454,12 +1456,49 @@ suite plainly and give it the eighteen minutes. What you should not do is take a
 parallel failure at face value — run that test on its own first, which takes a minute and
 will usually pass.
 
-Worth knowing rather than acting on: both of those tests have a threshold tuned for a
-machine with room to breathe — a fixed four-second wait for a volume to be ray-cast, and a
-ceiling of eight re-fetched pieces. Waiting on the engine's own account of what it has
-drawn, the way the `timelapse_page` fixture already does, would make them say what they
-mean under any load. That has not been done, because it is a change to tests that are
-currently telling the truth.
+**Both of those tests were looked at, and only one of them wanted changing.** The
+suggestion was the same for each: have them wait on the engine's own account of what it
+has drawn, the way the `timelapse_page` fixture already does, instead of on a threshold
+tuned for a quiet machine. It was right about one and wrong about the other, and the
+difference is worth keeping so that nobody re-attempts the second.
+
+**The volume test now waits on the engine, and it was worth doing.** It used to sleep a
+flat four seconds after switching to the volume view, on the reasoning that a ray-cast
+needs longer than a slice. Measured, the volume is ready in about a quarter of a second,
+so the four seconds was mostly idling — slow when it passed, and not necessarily generous
+enough when the machine was busy, which is the worst of both. It now waits for the
+drawing layers to report that what they need has arrived.
+
+One detail in it is load-bearing. Switching to the volume view does not *replace* the
+drawing layers, it adds to them — eleven while showing slices, fourteen while showing a
+volume, one extra per image on screen. So asking only "has everything arrived?" straight
+after the click is answered *yes* by the slice layers, which are still loaded and still
+satisfied, and the test would photograph the panel before the volume existed. Waiting for
+the count to grow first is what makes the rest of the condition mean the volume.
+
+**The re-fetch test was left exactly as it is, because the change does not work.** The
+theory was that its ceiling of eight re-fetched pieces was a threshold problem. It is not.
+Measured over nine journeys, taking the mark after waiting for the engine to settle rather
+than after a fixed two and a half seconds gave **the same answer every single time** — the
+count came out 0, 4 or 8 depending on the run, and identical under both ways of measuring.
+There is no timing artefact to remove.
+
+What is actually happening is that the engine genuinely lets go of about one coarse plane
+on some journeys. The eight pieces are always the same shape — one z plane at one pyramid
+level, both channels, four tiles — which is a coherent thing to release rather than a sign
+that nothing is kept. The test's allowance is a proportion of the outbound traffic
+(`went_away // 50`), which for these journeys lands between seven and ten, so it sits right
+on top of a spread of nought to eight and is decided by which side of the line a run falls.
+It failed here once at eight against an allowance of seven, and then passed six times out
+of six run alone and twice more beside another browser test.
+
+So the ceiling is not tuned for an unloaded machine; it is tuned to a real behaviour whose
+spread it barely clears. If it becomes a nuisance, the thing to change is the allowance —
+it should be a plain statement about how much the engine may let go of, which the shape of
+the re-fetches suggests is one plane — and **not** the waiting, which has been measured and
+makes no difference. Leaving it alone remains defensible: the test still asks the right
+question, and the docstring already says what it is really guarding against is the whole
+return leg arriving again rather than a stray piece or two.
 
 **The one `xfail`, because it is a real gap and not a flaky test.**
 `test_each_acquisition_type_gets_a_row_of_its_own` is marked strict, so it will announce

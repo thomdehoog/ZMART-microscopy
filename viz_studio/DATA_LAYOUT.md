@@ -705,7 +705,8 @@ number is no use at the microscope.
 
 **So where no canvas is given, the canvas is the stage's own travel limits.**
 
-This is a good default rather than a resigned one, for three reasons.
+This is a good default rather than a resigned one, for two reasons — and it carries one
+qualification, in depth, which was measured after the default was chosen.
 
 It is already known. The travel limits are established during setup, before any
 imaging, because the instrument needs them to keep from driving into its own end

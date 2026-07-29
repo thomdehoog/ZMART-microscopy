@@ -141,6 +141,10 @@ def look_at(store: Path) -> dict:
         started = time.perf_counter()
         result = contrast.measure(store)
         runs.append((time.perf_counter() - started) * 1000)
+    # The same sample the window was taken from, asked for again so the table can say
+    # how much of it had anything written to it. That share is what explains the window
+    # rather than merely reporting it, and it is not something `measure` hands back --
+    # hence reaching for the reading step directly.
     samples = contrast._samples(store)
     values = samples[1] if samples is not None else np.asarray([])
     return {
