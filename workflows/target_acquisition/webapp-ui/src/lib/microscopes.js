@@ -58,7 +58,7 @@ export const MICROSCOPES = {
 export const SETTING_TYPES = [
   {
     key: "acquisition",
-    label: "Acquisition",
+    label: "Acquisition Settings",
     /* Objective first — magnification, numerical aperture and immersion — then
        the pixel size it gives, then how many channels. Those are what decide
        whether a setting can see the thing being looked for. */
@@ -72,7 +72,7 @@ export const SETTING_TYPES = [
   },
   {
     key: "autofocus",
-    label: "Autofocus",
+    label: "Autofocus Settings",
     sample: [
       "Brenner · ±30 µm · 61 steps",
       "DCT · ±15 µm · 31 steps",
