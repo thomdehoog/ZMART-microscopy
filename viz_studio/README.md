@@ -19,10 +19,17 @@ experiment, with no possibility of it disturbing the instrument.
 
 ## What is on screen
 
-The image fills the window. Along the bottom are sliders for moving through the
-planes of a stack (Z) and the frames of a timelapse (T); each appears only if the
-image actually has that axis, and each has a play button that steps through on its
-own. A scale bar sits in the top-right corner and follows the zoom.
+The image fills the window. Two sliders move you through it, and each is placed to
+match the direction the thing it moves through lies in: **depth (Z) stands upright
+along the right-hand edge**, the way a stack of planes is pictured, and **time (T)
+lies along the bottom**, the way a recording is. That way you can reach for the
+right one without stopping to read the labels, which matters when both are on
+screen and one hand is on the stage.
+
+Each appears only if the image really has that axis with more than one step along
+it, so a still picture gets no time slider and a single plane no depth slider. Each
+has a play button that steps through on its own. A scale bar sits in the top-right
+corner and follows the zoom.
 
 Everything else is one bar of controls down one edge, which folds away when you
 want the whole screen for the specimen. It has up to four parts:

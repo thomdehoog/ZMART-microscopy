@@ -2,8 +2,8 @@
 
 ## Audience: write for biologists, not software engineers
 
-ZMART is used mostly by **microscopists and biologists who are learning**, not by
-professional software engineers. Every docstring, comment, notebook-markdown
+ZMART-viewer is used mostly by **microscopists and biologists who are learning**,
+not by professional software engineers. Every docstring, comment, notebook-markdown
 cell, and README must be written for that reader. This is a **general rule** for
 all code and docs in this repository.
 
@@ -21,9 +21,9 @@ Concretely:
   plainer phrase). Prefer "a 90° turn" over "a D4 element" in operator-facing
   text; keep the precise term for internal code comments if it genuinely helps a
   maintainer, but still gloss it.
-- **Operator-facing surfaces get the most care**: the setup notebooks
-  (`limits`, `orientation`, `calibration`), the `zmart_controller` `Session`
-  methods, and the top-level READMEs. These are the front door.
+- **Operator-facing surfaces get the most care**: the top-level `README.md`, the
+  viewer's own `viz_studio/README.md`, the controls in `viz_studio/frontend/src`,
+  and the writer's public methods in `zmart_storage`. These are the front door.
 - **Docstrings state contracts plainly**: what goes in, what comes back, what
   can go wrong — in a sentence or two a non-programmer can follow.
 - **Write in easy, complete sentences.** Read it back and make sure it flows.

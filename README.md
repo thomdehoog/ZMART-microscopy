@@ -1,166 +1,118 @@
-# ZMART Microscopy
+# ZMART-viewer
 
-**ZMB's Microscopy-Agnostic Research Toolkit (ZMART).**
+A viewer for the large, three-dimensional, multi-channel images a light-sheet or
+confocal microscope produces — including while the microscope is still producing
+them.
 
-This toolkit gives you programmatic control of a wide range of microscopes
-through a simple, unified scripting philosophy, so you can quickly build
-interoperable, adaptive feedback microscopy workflows. It is developed at the
-Center for Microscopy and Image Analysis (ZMB), University of Zurich.
+It is built on [neuroglancer](https://github.com/google/neuroglancer), which does
+the hard part: it fetches only the pieces of an image you are actually looking at,
+so a four-hundred-gigabyte specimen feels no heavier than a small one, and it draws
+in true three dimensions on the graphics card. Neuroglancer's own interface is
+switched off. Everything you see — the sliders, the channel controls, the scale bar
+— is a [React](https://react.dev) interface of ours, so how the tool looks and
+behaves is ours to change.
 
-<br/>
+**It cannot talk to your microscope.** Places you mark are saved to a file beside
+the image data, and the control software reads them from there. That separation is
+deliberate and it is tested: it means this can be opened on anybody's data, on any
+machine, including one next to a running experiment, with no possibility of
+disturbing the instrument.
 
-<p align="center">
-  <img src="docs/zmart-architecture.png" alt="ZMART sits between Jupyter notebooks and an AI coding agent above, and vendor drivers - each bound to a microscope - below" width="100%">
-</p>
+## See it working, without any data of your own
 
-<br/>
+This is the quickest way to find out whether the tool suits you, and it needs no
+microscope and no files:
 
-## ZMART Controller
-
-The vendor-agnostic API for driving a microscope — small, consistent, and the
-same for every vendor. The pattern is always **discover, then apply**. Call a
-`get_*` to see what the instrument supports; each option lists its allowed values
-and the one that's active. Then pass your choice to the matching call. Write it
-once, and it runs on any microscope that has a driver.
-
-Full API and per-call docs: **[ZMART Controller »](zmart_controller/README.md)**
-
-```python
-import zmart_controller
-
-# 1) Get the available instruments and connect to one
-zmart_controller.get_instruments()
-zmart_controller.set_instrument(instrument=Dict)
-
-# 2) Set the origin point of the frame (current position becomes 0, 0, 0)
-zmart_controller.set_origin()
-
-# 3) Discover actuators, then read or move the position in the frame
-zmart_controller.get_actuators()
-zmart_controller.get_xyz()
-zmart_controller.set_xyz(x, y, z, with_actuators=Dict)
-
-# 4) Capture and reapply instrument state
-zmart_controller.get_state()
-zmart_controller.set_state(Dict)
-
-# 5) Acquire data (captures and saves) with the current state and position
-zmart_controller.get_acquisition_options()
-zmart_controller.acquire(acquisition_type=String, position_label=String, options=Dict)
-
-# 6) Run microscope-specific procedures (e.g. get run root / scan positions)
-zmart_controller.get_procedures()
-zmart_controller.run_procedure(Dict)
-
-# 7) Optionally inspect extra diagnostic information the driver provides
-zmart_controller.get_info()
-
-# 8) Close the session
-zmart_controller.disconnect()
+```
+python -m pip install -e ".[dev]"
+python -m playwright install chromium
+npm --prefix viz_studio/frontend install
+npm --prefix viz_studio/frontend run build
+python viz_studio/run_demo.py
 ```
 
-## ZMART Drivers
+That writes a small pretend specimen — three colours, forty-eight planes — and
+opens it. Everything the controls do, you can try on that.
 
-Drivers live under `zmart_drivers/<vendor>/<machine>/<api>/` and are registered with
-the controller through its registry (see the controller README), so adding a
-vendor, microscope, or API is an additive change. Each driver documents its own
-command model, state handling, and gotchas in its own README.
+The two `npm` steps build the page itself, which is not kept in the repository
+because it is generated. They take a couple of minutes the first time and are not
+needed again unless you change the interface.
 
-### Production-ready
+## Your own data
 
-| Microscope | API | Driver | Status |
-|---|---|---|---|
-| Leica STELLARIS 5 | LAS X CAM / Navigator Expert | [`zmart_drivers/leica/stellaris5_y42h93/navigator_expert/`](zmart_drivers/leica/stellaris5_y42h93/navigator_expert/README.md) | **Production-tested** — LAS X simulator + real STELLARIS |
-
-### Under construction
-
-| Microscope | API | Driver | Status |
-|---|---|---|---|
-| mesoSPIM (open-source light-sheet) | mesoSPIM-control (PyQt5; resident socket hook) | [`zmart_drivers/mesospim/`](zmart_drivers/mesospim/README.md) | **Demo-validated — near production** — the full round-trip **incl. `acquire`** passes against a live mesoSPIM `-D` demo (real software, simulated hardware); offline suite green, `run_ci.py` runs offline/online/both. GPL app driven at arm's length via a resident hook + MIT client. Pending real-hardware validation |
-| ZEISS (ZEN) | ZEN API (gRPC) | [`zmart_drivers/zeiss/zenapi/`](zmart_drivers/zeiss/zenapi/README.md) | **Minimum viable product** — full offline suite green; not yet bench-validated (see [Risks](zmart_drivers/zeiss/zenapi/README.md#10-risks--bench-verify)) |
-| Nikon (NIS-Elements 6.2) | NIS-Elements macros / NkSocket TCP | [`zmart_drivers/nikon/`](zmart_drivers/nikon/README.md) | **Investigation + spike** — socket round-trip proof landed; no production driver yet (device verbs still to be pinned) |
-| Evident FLUOVIEW FV4000 (IX83) | FLUOVIEW RDK (TCP command server) | [`zmart_drivers/evident/`](zmart_drivers/evident/README.md) | **Investigation + planning** — RDK route mapped (Leica-CAM-symmetric); pending Evident developer-program access to the FV RDK command reference |
-
-The ZMART Controller is the surface workflows should drive. The current Leica
-target-acquisition workflow already uses it; the other adapters are still
-maturing behind the same interface. As each driver matures it graduates from
-**Under construction** to **Production-ready**.
-
-## Architecture
-
-The top-level layout — vendor-specific drivers up to vendor-neutral workflows,
-plus setup and docs:
-
-- **`zmart_drivers/`** — each driver speaks one microscope's native API and is keyed by
-  `<vendor>/<machine>/<api>`. A driver owns its own calibration and limits. New
-  microscopes are added here without touching workflows.
-- **`zmart_controller/`** — the cross-vendor controller: one small, consistent interface
-  a workflow drives, so the same workflow runs on any microscope that has a
-  driver. This is the **emerging `zmart` surface** — the vendor-agnostic API the
-  rest of the world would import. See its README for the full API and for how to
-  register a new driver.
-- **`workflows/`** — the zmart-microscopy workflows themselves (current:
-  `workflows/target_acquisition/`).
-- **`getting_started/`** — setup and orientation: the one-step environment build,
-  the conda-forge / PyPI rationale, and the typical path through the repo.
-- **`docs/`** — project docs: the ZMART identity and architecture
-  (`docs/ZMART.md`), the diagram, and design notes.
-
-## Getting Started
-
-Follow these four steps to go from a fresh clone to driving the microscope (full detail in `getting_started/`).
-
-### 1. Clone the repository
-First, download the code and enter the project directory:
-```bash
-git clone https://github.com/thomdehoog/ZMART-microscopy
-cd ZMART-microscopy
+```
+python viz_studio/run_demo.py --data /path/to/your/run
 ```
 
-### 2. Install the environment
-The environment is built via `conda-forge`. Run the build script and then activate the environment:
-```bash
-# Create the "zmart-microscopy" env and install packages
-python build_env.py --name zmart-microscopy
+Point it at a single `.ome.zarr` store or at a folder holding many of them — both
+work, so you do not have to know which you have. A mesoSPIM transfer is usually the
+second kind: one store per tile and channel, each carrying its own position on the
+stage, which is what lets them be drawn as one specimen rather than as a pile of
+separate pictures.
 
-# Activate the environment
-conda activate zmart-microscopy
+A window of its own rather than a browser tab needs `pywebview`, which comes with
+the install above. Without it the page still serves and prints an address you can
+open in any browser.
+
+## What is on screen
+
+The image fills the window. Depth runs up the right-hand edge, the way a stack of
+planes is pictured; time runs along the bottom, the way a recording is. Each slider
+appears only if the image really has that axis with more than one step along it, so
+a still picture is given no time slider and a single plane no depth slider. Each has
+a play button that steps through on its own.
+
+Everything else is one bar down one edge that folds away when you want the whole
+screen for the specimen: what is open, the channels inside it, and the brightness
+and colour controls for whichever channel you have picked.
+
+`viz_studio/README.md` describes all of it properly.
+
+## Watching a run as it happens
+
+A run can write straight into images declared, empty, at the start — one per
+acquisition type, sized to the ground the experiment means to cover. Nothing is
+copied afterwards and the viewer holds the same few images from the first moment.
+`zmart_storage` is the writer that does this. When it has written a tile, the run
+says so, and the picture fills in on screen without the page reloading.
+
+`viz_studio/DATA_LAYOUT.md` records how a run should be stored and why, with the
+measurements behind each decision. Read it before changing anything about the layout
+— several of the obvious-looking choices were tried and rejected for reasons that
+are written down there.
+
+## Running the tests
+
+```
+python -m pytest zmart_storage/tests     # the writer, about half a minute
+python -m pytest viz_studio/tests        # the viewer, about eighteen minutes
 ```
 
-The builder also installs and launches the matching Playwright Chromium,
-verifies Node.js for generated-widget syntax checks, and import-checks the
-notebook and CI dependencies. For a pip-based test environment use
-`requirements-dev.txt`, then run `python -m playwright install chromium`.
+The viewer's suite opens a real browser and looks at the pixels that came out. That
+is slower than asking the engine whether it thinks it drew something, and it is the
+only thing that catches the fault this project keeps meeting: a picture that is
+silently absent, with everything reporting itself content.
 
-### 3. Machine Setup (Limits, Orientation, & Calibration)
-The driver reads machine-local configuration from `C:\ProgramData\zmart-microscopy\...`.
-If ProgramData is empty, repo defaults are copied there so mock CI and first
-connects can run; on the real microscope, replace those defaults with measured
-values by running the setup notebooks:
+Run it one test at a time unless the machine has more than four processors. Three
+at once is much quicker where there is room, and where there is not, the browser
+tests fail on starvation rather than on faults — which reads exactly like a real
+problem and is not one.
 
-For the production Leica Stellaris driver:
+## What is not finished
 
-1.  **Set Stage Limits:** Defines the physical travel range.
-    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_limits.ipynb`
-    
-3.  **Set Orientation:** Defines the stage coordinate system relative to the camera/detector.
-    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/orientation/notebooks/set_orientation.ipynb`
-    
-5.  **Calibrate Objective Pair:** Defines the objective-pair translation for one lens configuration.
-    Run it for each lens configuration you need.
-    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/notebooks/calibrate_objective_pair.ipynb`
+Written down because finding out for yourself is worse:
 
-### 4. Run it
+- **An overview and a target scan share one set of brightness and visibility
+  controls**, so they cannot be adjusted apart. This is the next thing worth fixing
+  and it is pinned by a failing test rather than left to be discovered.
+- **A folder of many separate positions is slow to open** — around ten minutes for
+  two thousand. Every position does arrive and none is lost; it simply takes that
+  long. A run written into one image per acquisition type opens in seconds, which is
+  the arrangement to prefer.
+- **The writer produces OME-Zarr 0.4**, not 0.5. The viewer reads both.
+- **A run cannot be resumed.** Pointing the writer at a folder that already holds
+  images is refused rather than allowed to overwrite them.
 
-For the Leica Stellaris driver:
+## Licence
 
-Navigate to the `navigator_expert` directory and execute the validation:
-```bash
-cd zmart_drivers/leica/stellaris5_y42h93/navigator_expert
-
-# Mock/offline validation; no LAS X required
-python run_ci.py
-
-# Live bench validation; LAS X required, moves/acquires, restored where possible
-python run_ci.py --hardware
-```
+MIT. See `LICENSE`.

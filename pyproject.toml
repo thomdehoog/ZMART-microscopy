@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "zmart-microscopy"
+name = "zmart-viewer"
 version = "0.1.0"
-description = "Smart microscopy for the ZMB: instrument drivers, run control, and a viewer for the images a run produces."
+description = "A viewer for large, changing, multi-channel microscopy images, and the writer that feeds it while a run is going."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = "MIT"
@@ -37,8 +37,8 @@ dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools]
 # Named rather than discovered, because this repository holds more than library
-# code: measurement scripts, notebooks, and the viewer's own front end all live
-# here and none of them belong in an install.
+# code: measurement scripts and the viewer's own front end live here too, and
+# neither belongs in an install.
 #
 # One honest omission. The viewer's server (`viz_studio/backend`) is a set of
 # loose modules that its scripts and tests reach by adding the folder to the
@@ -47,7 +47,7 @@ dependencies = { file = ["requirements.txt"] }
 # started from inside its own folder -- see viz_studio/README.md. Turning it into
 # a package is worth doing and is not a small change, because a dozen scripts and
 # the whole browser test suite import those modules by bare name.
-packages = ["zmart_storage", "zmart_controller"]
+packages = ["zmart_storage"]
 
 [tool.ruff]
 target-version = "py310"
@@ -58,15 +58,9 @@ extend-exclude = [
     ".venv",
     ".eggs",
     "**/__pycache__",
-    # Calibration / orientation setup notebooks are not part of the driver lint
-    # baseline: a config cell legitimately imports the _bootstrap sys.path shim
-    # before importing the driver, which the import-sorter can't express.
-    "zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/notebooks",
-    "zmart_drivers/leica/stellaris5_y42h93/navigator_expert/orientation/notebooks",
-    # Operator notebooks: a config cell legitimately sets sys.path before
-    # importing the pipeline, which the import-sorter can't express. Cell
-    # syntax + API drift are guarded by tests/test_v4_notebook.py instead.
-    "workflows/target_acquisition/*.ipynb",
+    # The built viewer page and its dependencies are generated, not written.
+    "viz_studio/frontend/dist",
+    "viz_studio/frontend/node_modules",
 ]
 
 [tool.ruff.lint]
