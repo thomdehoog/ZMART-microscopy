@@ -537,7 +537,7 @@ canvas.scattercv { cursor: crosshair; }
    The workflow box on the left and the tab bar on the right both sit above a
    rule that runs the width of the app. One shared height keeps that rule
    continuous instead of stepping down where the columns meet. */
-:root { --head-h: 96px; }
+:root { --head-h: 110px; }
 .wf-box { height: var(--head-h); justify-content: center; padding-top: 0; padding-bottom: 0; }
 .tabs { height: var(--head-h); align-items: center; }
 .tabs .tab { padding-top: 0; padding-bottom: 0; height: 100%; }
