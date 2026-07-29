@@ -101,12 +101,15 @@ Two other workflows exist to prove the frame is not built around one:
   (Microscope Configuration does). Three steps have no button at all: Optical
   Configuration and Carrier configuration are settled by doing the work, and
   Microscope Configuration's lives in its form.
-- **The canvas arrives at step 3 and never leaves.** It is the microscope's
-  own limits drawn to scale, so it exists from *reaching* Carrier configuration,
-  not from finishing it — nothing about the frame depends on what is mounted in
-  it. Setting it up fixes the run's zero too, which is why no step asks for an
-  origin; that happens behind the scenes and is deliberately not drawn. Later
-  the limits come from the controller; today it is UI only.
+- **The canvas belongs to the steps that happen inside it** — Carrier
+  configuration onward, and to no others. It is the microscope's own limits
+  drawn to scale, so it exists from *reaching* that step, not from finishing it;
+  nothing about the frame depends on what is mounted in it. Walk back to the
+  session or the instrument and it is gone again: those steps are not about the
+  stage, which makes this the same rule every other panel follows. Setting it up
+  fixes the run's zero too, which is why no step asks for an origin; that
+  happens behind the scenes and is deliberately not drawn. Later the limits come
+  from the controller; today it is UI only.
 - **Every step declares its own panel** — `connect`, `optics`, `carrier`,
   `focus`, … — rather than sharing one called Setup, so the tab beside the
   canvas says which of them it opens. The three setup panels draw into the same
