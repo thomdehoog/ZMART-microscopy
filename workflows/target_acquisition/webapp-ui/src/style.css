@@ -658,3 +658,24 @@ button.run.danger:hover:enabled { background: #991b1b; }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) button.run.danger { color: #fff; }
 }
+
+/* with no title beside it, the count keeps to the right on its own */
+.setup-heading { justify-content: flex-end; }
+
+/* Settings of one kind sit close; one kind and the next stand apart, so the
+   grouping is legible without a label announcing it. */
+.setting-group + .setting-group { margin-top: 16px; }
+
+/* Named once, quietly: enough to see two groups, not enough to shout. */
+.group-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--ink-3); padding: 0 0 2px 17px;
+}
+.rec-kind:empty { min-height: 1px; }
+
+/* A recorded setting has no kind cell — the group names it — so the name
+   starts at the left edge rather than sitting behind an empty column. */
+.rec-row { grid-template-columns: minmax(120px, 1fr) auto 26px; }
+.rec-name { grid-column: 1; }
+.rec-state { grid-column: 2; }
+.rec-drop { grid-column: 3; }

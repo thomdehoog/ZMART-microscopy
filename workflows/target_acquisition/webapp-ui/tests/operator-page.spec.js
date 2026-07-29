@@ -80,13 +80,19 @@ test("the rail carries the workflow's declared steps", async ({ page }) => {
 });
 
 test("a session needs a password before it will open", async ({ page }) => {
+  // the mock prefills one so it can be clicked through; empty it and the
+  // session refuses to open
+  const pw = page.locator('.field input[type="password"]');
+  await expect(pw).not.toHaveValue("");
+  await pw.fill("");
   await expect(page.locator(".session-form button.run")).toBeDisabled();
-  await page.locator('.field input[type="password"]').fill("hunter2");
+  await pw.fill("hunter2");
   await expect(page.locator(".session-form button.run")).toBeEnabled();
 });
 
 test("typing the password does not throw the field away", async ({ page }) => {
   const pw = page.locator('.field input[type="password"]');
+  await pw.fill("");
   await pw.click();
   await page.keyboard.type("hunter2", { delay: 30 });
   // rebuilding the card on every keystroke destroys the input being typed into
@@ -140,6 +146,8 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
   await expect(page.locator(".rec-row")).toHaveCount(3);
   // grouped by kind rather than by the order record happened to be pressed
   await expect(page.locator(".setting-group")).toHaveCount(2);
+  // names are stored capitalised, being identifiers the run refers to
+  await expect(page.locator(".rec-name").first()).toHaveText("Survey");
   await expect(page.locator(".rec-row").first()).toContainText("µm/px");
   await expect(page.locator(".rec-row").last()).toContainText("Brenner");
   // a setting existing is what completes the step
@@ -163,17 +171,17 @@ test("a setting looks the same recorded or not", async ({ page }) => {
       const r = document.querySelector(s).getBoundingClientRect();
       return { w: Math.round(r.width), h: Math.round(r.height) };
     };
-    const x = (s) => Math.round(document.querySelector(s).getBoundingClientRect().x);
+    const r = (s) => document.querySelector(s).getBoundingClientRect();
     return {
       done: box(".setting-box.done"), open: box(".setting-box.open"),
-      kind: [x(".rec-kind"), x(".rec-new select")],
-      name: [x(".rec-name"), x(".rec-new input")],
+      nameLeft: Math.round(r(".rec-name").x - r(".setting-box.done").x),
     };
   });
-  // recording changes what is in the fields, not what the thing is
+  // recording changes what is in the fields, not the size of the thing
   expect(geom.done, "same size").toEqual(geom.open);
-  expect(geom.kind[0], "kind column").toBe(geom.kind[1]);
-  expect(geom.name[0], "name column").toBe(geom.name[1]);
+  // and the name starts at the left of its box: the group names the kind, so
+  // there is no column standing empty in front of it
+  expect(geom.nameLeft).toBeLessThan(30);
 });
 
 test("a recording will not reuse a name", async ({ page }) => {
@@ -185,6 +193,10 @@ test("a recording will not reuse a name", async ({ page }) => {
   await bar.locator("input").fill("survey");
   await expect(bar.locator("button.run")).toBeDisabled();
   await expect(bar.locator(".session-hint")).toHaveText("that name is already used");
+
+  // and case is not a way around it: a name is a name
+  await bar.locator("input").fill("SURVEY");
+  await expect(bar.locator("button.run")).toBeDisabled();
 
   await bar.locator("input").fill("");
   await expect(bar.locator("button.run"),
