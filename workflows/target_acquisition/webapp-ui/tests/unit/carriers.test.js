@@ -10,10 +10,10 @@ const preset = (typeId, label) =>
 describe("a carrier is a grid, whatever it is called", () => {
   it("measures a 96-well plate the way the catalogue does", () => {
     const g = geometry(fromPreset("wellplate", preset("wellplate", "96-well")));
-    // 12 columns of 6.9 mm with 2.1 mm between them, and the gap is not
+    // 12 columns of 6.6 mm with 2.4 mm between them, and the gap is not
     // counted after the last one
-    expect(g.width).toBeCloseTo(12 * 9.0 - 2.1, 6);
-    expect(g.height).toBeCloseTo(8 * 9.0 - 2.1, 6);
+    expect(g.width).toBeCloseTo(12 * 9.0 - 2.4, 6);
+    expect(g.height).toBeCloseTo(8 * 9.0 - 2.4, 6);
     expect(g.areas).toBe(96);
     expect(g.pitchX).toBeCloseTo(9.0, 6);
   });
@@ -78,8 +78,22 @@ describe("a configuration knows whether it is still a catalogue part", () => {
     expect(matchingPreset({ ...c, w: c.w + 1 })).toBe(-1);
   });
 
-  it("the default is a plate, since that is what the lab runs most", () => {
+  it("the default is the plate the lab runs most, with that plate's numbers", () => {
     expect(DEFAULT_CARRIER.type).toBe("wellplate");
-    expect(geometry(DEFAULT_CARRIER).areas).toBe(96);
+    const g = geometry(DEFAULT_CARRIER);
+    expect(g.areas).toBe(96);
+    expect([DEFAULT_CARRIER.rows, DEFAULT_CARRIER.cols]).toEqual([8, 12]);
+    // Greiner's flat well bottom, on the SLAS 9 mm pitch
+    expect(DEFAULT_CARRIER.w).toBeCloseTo(6.6, 6);
+    expect(DEFAULT_CARRIER.h).toBeCloseTo(6.6, 6);
+    expect(g.pitchX).toBeCloseTo(9.0, 6);
+    expect(g.pitchY).toBeCloseTo(9.0, 6);
+    // round, and it says so: a full corner on a square area is a circle
+    expect(DEFAULT_CARRIER.cornerRatio).toBe(1);
+    expect(g.corner).toBeCloseTo(3.3, 6);
+    expect(shapeName(DEFAULT_CARRIER)).toBe("Circle");
+    // and it comes back to the growth area Greiner publishes, 0.34 cm²
+    expect(g.areaMm2).toBeCloseTo(Math.PI * 3.3 ** 2, 6);
+    expect(g.areaMm2 / 100).toBeCloseTo(0.34, 2);
   });
 });
