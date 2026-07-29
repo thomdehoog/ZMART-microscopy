@@ -645,7 +645,8 @@ import {
          setting still lines up with the open bar's selector. */
       const label = document.createElement("div");
       label.className = "group-label";
-      label.textContent = type.label;
+      // the selector says the kind; the heading says what kind of thing it is
+      label.textContent = `${type.label} Settings`;
       group.append(label);
 
       for (const bar of mine) {
