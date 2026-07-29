@@ -87,14 +87,19 @@ export default {
    * Under everything else: it is the frame the run happens inside, not a layer
    * of the run. Handed the projection rather than reaching for it, so this
    * knows nothing about how the canvas is panned.
+   *
+   * Filled as well as outlined, because an area is somewhere a sample can be
+   * rather than a line around nothing — the stage around it is empty travel,
+   * and the difference between the two is worth seeing at a glance.
    */
-  drawOn(ctx, { config, toScreen, scale, colour }) {
+  drawOn(ctx, { config, toScreen, scale, colour, fill }) {
     const g = geometry(config);
     const aw = config.w * MM_UM * scale;
     const ah = config.h * MM_UM * scale;
     if (aw < 1.5 || ah < 1.5) return;
     const rad = Math.min(g.corner * MM_UM * scale, aw / 2, ah / 2);
     ctx.save();
+    ctx.fillStyle = fill;
     ctx.strokeStyle = colour;
     ctx.globalAlpha = 0.8;
     ctx.lineWidth = Math.min(1.2, Math.max(0.4, aw * 0.02));
@@ -103,6 +108,7 @@ export default {
         const [x, y] = toScreen(c * g.pitchX * MM_UM, r * g.pitchY * MM_UM);
         ctx.beginPath();
         ctx.roundRect(x, y, aw, ah, rad);
+        if (fill) ctx.fill();
         ctx.stroke();
       }
     }

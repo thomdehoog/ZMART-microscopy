@@ -315,7 +315,7 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeDisabled();
   });
 
-test("the carrier sets the canvas up, and from then on it is always there",
+test("the canvas belongs to the steps that happen inside it, and to no others",
   async ({ page }) => {
     // a tab names what is loaded, even when it is the only one
     await expect(page.locator(".tab")).toHaveText(["Microscope configuration"]);
@@ -336,12 +336,24 @@ test("the carrier sets the canvas up, and from then on it is always there",
     // up to here owns a row: the session has its own card, the carrier its own
     // channel, and the focus surface is neither measured nor being stood on.
     await expect(page.locator(".setup-row")).toHaveCount(0);
+
+    // Walking back to a step that is not about the stage leaves the canvas
+    // behind. The session and the instrument are not in the frame, so parking
+    // a tab for it on those steps offers something they have nothing to do
+    // with — the rule every other panel already follows.
+    await gotoStep(page, "Optical Configuration");
+    await expect(page.locator(".tab")).toHaveText(["Optical configuration"]);
     await gotoStep(page, "Microscope Configuration");
+    await expect(page.locator(".tab")).toHaveText(["Microscope configuration"]);
     await expect(page.locator(".session-title"), "and the session comes back when you return")
       .toHaveText("Connect to the microscope");
     await expect(page.locator(".check-row")).toHaveCount(6);
     await expect(page.locator("#canvas-side"),
       "which is not the canvas, so the channel is not there either").toBeHidden();
+
+    // and it is there again the moment the operator is back inside the frame
+    await gotoStep(page, "Carrier configuration");
+    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
 
     await placeFocusPoints(page);
     await expect(page.locator(".tab")).toHaveText(["Canvas", "Focus strategy"]);

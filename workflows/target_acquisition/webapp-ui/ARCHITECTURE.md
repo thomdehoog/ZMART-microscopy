@@ -68,12 +68,16 @@ export default {
 **The canvas is the base from step 3 on.** It is the microscope's own limits
 drawn to scale, so it exists from *reaching* the carrier step, not from
 finishing it. Before that there is no frame to draw and the step's own panel
-holds the right-hand side alone.
+holds the right-hand side alone — and walking back to one of those steps
+returns to exactly that, because the session and the instrument are not on the
+stage.
 
 Every step declares the panel it wants — `connect`, `optics`, `focus`, … — and
 it shows only while that step is selected, so walking back to Connect brings
-the session and its checks with it. Planning surfaces are not acquired data and
-get their own widgets.
+the session and its checks with it. The canvas is no exception: it belongs to
+the steps that happen inside it, which is why the tab set is a question about
+the step being looked at rather than about how far the run has got. Planning
+surfaces are not acquired data and get their own widgets.
 
 A panel need not be a tab. Something that *is* the canvas rather than an
 alternative to it takes the channel beside it instead: see the carrier below.

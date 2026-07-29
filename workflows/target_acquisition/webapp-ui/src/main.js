@@ -442,9 +442,9 @@ import carrierWidget from "./widgets/carrier.js";
   };
 
   /* The canvas is the microscope's own limits drawn to scale, so it is there
-     from the step that sets it up onward — from reaching that step, not from
-     finishing it. Nothing about the frame depends on the carrier chosen inside
-     it; the carrier only says where within those limits the sample sits.
+     from the step that sets it up onward. Nothing about the frame depends on
+     the carrier chosen inside it; the carrier only says where within those
+     limits the sample sits.
 
      Setting it up fixes the run's zero as well, which is why no step asks for
      an origin any more. That happens behind the scenes and is deliberately not
@@ -453,19 +453,20 @@ import carrierWidget from "./widgets/carrier.js";
      From there the canvas is the window into the run, filling with data rather
      than appearing once data exists. The tab set is rebuilt on every render
      rather than growing forever. */
-  /* Reaching the carrier step is what brings the canvas out, not finishing the
-     ones before it. Completing step 2 is pressing Record, and a stage sliding
-     in beside the preset you just took reads as a consequence of recording,
-     which it is not. So it waits until the operator is actually there — and
-     once the carrier has been applied it stays, however far back they walk. */
-  const canvasReady = () => {
-    const i = indexOfStep("carrier");
-    return i >= 0 && (state.activeIdx >= i || state.done.has("carrier"));
+  /* It belongs to the steps that happen inside it, and to no others — the same
+     rule every other panel follows. The session and the instrument are not on
+     the stage, so walking back to those steps leaves the canvas behind rather
+     than parking a tab there for something the step has nothing to do with.
+     Which makes this a question about the step being looked at, not about how
+     far the run has got. */
+  const canvasAt = (i) => {
+    const c = indexOfStep("carrier");
+    return c >= 0 && i >= c;
   };
 
   function panelsFor(i) {
     const own = (step(i).panels || []).filter((p) => p !== "canvas");
-    return canvasReady() ? ["canvas", ...own] : own;
+    return canvasAt(i) ? ["canvas", ...own] : own;
   }
 
   function focusPanelsFor(i) {
@@ -1018,9 +1019,9 @@ import carrierWidget from "./widgets/carrier.js";
   }
 
   function renderAll() {
-    /* Recomputed every render, not only on a step change: the first tile of a
-       scan lands while the operator is standing still, and that is the moment
-       the canvas earns its place and setup stops being the useful view. */
+    /* The step being looked at decides the tab set on its own, so this is the
+       one place that has to agree with it — recomputed rather than trusted,
+       and the selection kept only while it still names a tab that is there. */
     state.tabs = panelsFor(state.activeIdx);
     if (!state.tabs.includes(state.tab)) state.tab = state.tabs[0];
 
@@ -1108,8 +1109,11 @@ import carrierWidget from "./widgets/carrier.js";
     const ctx = stageCv.getContext("2d");
     const w = stageCv.cssW, h = stageCv.cssH;
 
+    /* The stage is the page's own surface — empty travel, nothing in it. What
+       the carrier declares sits a shade off that, so the areas a sample can be
+       in read as the only part of the stage that is anything. */
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = css("--surface-3");
+    ctx.fillStyle = css("--screen");
     ctx.fillRect(0, 0, w, h);
 
     drawStageLimits(ctx);
@@ -1118,7 +1122,8 @@ import carrierWidget from "./widgets/carrier.js";
        thing the run produced. Dark enough to read against the stage behind it,
        which is grey too. */
     carrierWidget.drawOn(ctx, {
-      config: state.carrier, toScreen, scale: view.scale, colour: css("--ink-3"),
+      config: state.carrier, toScreen, scale: view.scale,
+      colour: css("--ink-3"), fill: css("--surface-3"),
     });
 
     const showTiles = el("lay-tiles").checked;
