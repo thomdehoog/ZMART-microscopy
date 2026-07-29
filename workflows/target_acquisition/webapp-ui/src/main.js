@@ -237,7 +237,6 @@ import carrierWidget from "./widgets/carrier.js";
         `<span class="step-n">${s.n}</span><span class="step-name"></span>`;
       head.querySelector(".step-name").textContent = s.title;
       if (running) head.insertAdjacentHTML("beforeend", '<span class="spin"></span>');
-      else if (done) head.insertAdjacentHTML("beforeend", '<span class="tick">✓</span>');
       b.append(head);
 
       /* The step you are standing on says what it is for; the others say only

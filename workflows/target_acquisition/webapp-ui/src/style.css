@@ -182,9 +182,9 @@ button.ghost:disabled { opacity: 0.45; cursor: default; }
    further along the row.
 
    Standing on a finished step keeps the blue. Where you are is the more
-   immediate fact and it changes as you move, while done does not — and the
-   tick beside it still says the step is finished. So this comes first and the
-   active rule wins on the step that is both. */
+   immediate fact and it changes as you move, while done does not — and that
+   step shows its result underneath, which says it ran. So this comes first
+   and the active rule wins on the step that is both. */
 .step.done .step-n { background: var(--good); color: #ffffff; }
 .step.active .step-n { background: var(--accent); color: #ffffff; }
 :root[data-theme="dark"] .step.done .step-n,
@@ -207,7 +207,6 @@ button.ghost:disabled { opacity: 0.45; cursor: default; }
 .step-name { font-size: 13.5px; font-weight: 600; flex: 1; min-width: 0; }
 .step.active .step-name { color: var(--accent-deep); }
 .step.done .step-name { color: var(--ink-2); font-weight: 550; }
-.tick { color: var(--good); font-size: 13px; font-weight: 700; }
 .spin {
   width: 11px; height: 11px; border-radius: 50%;
   border: 2px solid var(--line-strong); border-top-color: var(--accent);
