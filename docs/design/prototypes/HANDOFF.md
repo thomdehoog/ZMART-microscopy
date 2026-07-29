@@ -29,15 +29,17 @@ Playwright browsers — must stay under `C:\ProgramData\MinicondaZMB\`, because
 AppLocker refuses to run executables from user-writable paths.
 
 ```bash
-E="C:/ProgramData/MinicondaZMB/envs/zmart-microscopy"
+# POSIX form, not C:/... — bash splits PATH on the colon, so "C:/..." is two
+# junk entries and python silently falls through to another env
+E="/c/ProgramData/MinicondaZMB/envs/zmart-microscopy"
 export PATH="$E:$PATH"
 export PLAYWRIGHT_BROWSERS_PATH="C:\ProgramData\MinicondaZMB\home\t.de\ms-playwright"
 cd workflows/target_acquisition/webapp-ui
 
 npm run dev        # http://127.0.0.1:5174 — hot reload
 npm run build      # one self-contained file -> ../workflow/webapp/static/
-npm run test:unit  # vitest, ~0.2 s
-npm run test:ui    # playwright, ~60 s
+npm run test:unit  # vitest, 63 tests, ~0.2 s
+npm run test:ui    # playwright, 14 tests, ~60 s
 python dev_window.py   # the page in a native pywebview window, still hot-reloading
 ```
 
@@ -49,7 +51,7 @@ resets it to step 1.
 A left rail of workflow steps, a right side whose panels follow the step.
 Ten steps in `target_acquisition`:
 
-1 Connect · 2 Optical Configuration · 3 Carrier configuration ·
+1 Microscope Configuration · 2 Optical Configuration · 3 Carrier configuration ·
 4 Focus strategy · 5 Scan the overview · 6 Detect cells · 7 Select cells ·
 8 Acquire and curate · 9 Save the run · 10 Disconnect
 
@@ -60,12 +62,18 @@ Two other workflows exist to prove the frame is not built around one:
 
 **Frame**
 
-- The rail is **navigation only**: number, title, ✓, one-line result.
+- The rail is **navigation only**: number, title, one-line result. The number
+  carries the state — grey ahead, **green done**, **blue where you are**, and
+  blue wins on a step that is both. There is no tick; the badge said it twice.
 - **Nothing advances by itself.** Finishing a step leaves you on it. The rail
   still gates order — only the next step is enabled.
-- The **run button lives with the widget it operates**, in an action bar above
-  the panel. A step that carries its own button (`ownButton: true`) hides the
-  action bar entirely — Connect and Optical Configuration do.
+- **A step's action sits at the end of what it operates.** There is no action
+  bar. Steps with a tab panel get a foot at its bottom; the carrier's is inside
+  its channel. The button carries `.step-run` wherever it lands, which is what
+  the tests find it by. `ownButton: true` means "this panel builds its own"
+  (Microscope Configuration does). Three steps have no button at all: Optical
+  Configuration and Carrier configuration are settled by doing the work, and
+  Microscope Configuration's lives in its form.
 - **The canvas arrives at step 3 and never leaves.** It is the microscope's
   own limits drawn to scale, so it exists from *reaching* Carrier configuration,
   not from finishing it — nothing about the frame depends on what is mounted in
@@ -76,19 +84,26 @@ Two other workflows exist to prove the frame is not built around one:
   `focus`, … — rather than sharing one called Setup, so the tab beside the
   canvas says which of them it opens. The three setup panels draw into the same
   element because only one is ever shown.
-- **One tab is not a choice, so it is not drawn.** Steps 1 and 2 have no tab bar
-  at all. The canvas keeps its tab even alone, because it never goes away.
+- **A tab is always drawn, even alone**, because it names what is loaded —
+  Microscope configuration, Optical configuration, Canvas. It said "Setup" for
+  every step once, and then hiding it lost nothing.
+- **The channel beside the canvas is headed, not tabbed.** "Carrier
+  configuration" sits at the right end of the tab row, over the column it
+  heads, styled exactly as a selected tab and permanently in that state —
+  there is nothing to switch to.
 - **A panel belongs to its step** and shows only while that step is selected.
   Walk back to Connect and the session and its checks are there again.
 - Step **numbers are derived from position**, never typed.
 
 **Setup panels**
 
-- **Connect** is a form: microscope, API, password, and its own button. Opening
-  the session runs six checks that land one at a time (reachable, credentials,
-  API version, stage, objectives, storage). An open session is not editable; a
-  red **Disconnect** hands the fields back and **clears the run**, keeping only
-  the credentials — everything else was read off that microscope.
+- **Microscope Configuration** is a form headed "Connect to the microscope":
+  microscope, API, password, and its own button. Opening the session runs six
+  checks that land one at a time (reachable, credentials, API version, stage,
+  objectives, storage). An open session is **not editable and cannot be
+  reopened** — there is no Disconnect here. The run ends the session at its own
+  step, and **Restart** is how you begin again. Nothing says "not connected"
+  before it is; the fields and the button already do.
 - **Optical Configuration** is a recorder, not a picker. Nothing is
   preconfigured. Pick a kind, name it, press Record; the controller reads the
   state back. The bar then *becomes* the record in place and a fresh open bar
@@ -112,7 +127,11 @@ Two other workflows exist to prove the frame is not built around one:
   controls dock in a channel to the right of the canvas and the carrier itself
   is drawn on the stage. One drawing, not two.
   - The channel is **not a menu for step 3**. The frame outlasts the step that
-    set it: readable whenever the canvas is, editable until applied.
+    set it: readable whenever the canvas is.
+  - **No Apply button.** Configuring is the work, the way recording is in step
+    2 — it always holds a valid carrier and every edit is already on the canvas.
+    Standing on the step settles it. It stays editable until a later step has
+    run, since that is when changing it would invalidate what was done.
   - `widgets/carrier.js` holds the controls *and* `drawOn` — one subject, one
     file — over the geometry in `lib/carriers.js`. It is the first extracted
     widget and the shape the rest should follow.
@@ -152,7 +171,14 @@ Two other workflows exist to prove the frame is not built around one:
   `grid-column` on a child of the wrong grid conjured an implicit column; a
   label sibling to a list inherited a different gap than one inside a group.
 - **An explicit `display` beats the `hidden` attribute** — `.action-bar[hidden]`
-  needed saying.
+  needed saying, and `.panel-foot:empty` does now.
+- **A stray `}` in the stylesheet silently ate every custom property after
+  it.** The channel and its heading came out 461px and 156px instead of 320,
+  both falling back to content width, and the page looked plausible. Measure
+  in the browser; do not trust the eye for widths.
+- **A fixed-height child overflows its panel and swallows clicks** on whatever
+  is beneath it. The focus trace strip did this to Apply strategy; the browser
+  suite caught it as a click timeout naming the intercepting element.
 
 ## The state of the code — the important caveat
 
@@ -161,11 +187,13 @@ that are tested but **not all of them are used**:
 
 | part | state |
 |---|---|
+| `lib/carriers.js` | tested and **used** — by the app and by the carrier widget |
+| `lib/microscopes.js` | used |
+| `widgets/carrier.js` | used — the first widget, and the shape the rest should follow |
 | `lib/surface.js`, `lib/sweep.js`, `lib/rng.js` | tested; **main.js has its own copies** |
-| `lib/sample.js`, `lib/microscopes.js` | `microscopes.js` is used; `sample.js` is not |
+| `lib/sample.js` | tested; not used |
 | `frame/steps.js` | tested; only `numbered()` is used |
-| `backend/mock.js`, `workflows/` | tested; **not used at all** |
-| `widgets/` | does not exist yet |
+| `backend/mock.js`, `workflows/` | tested; **not used, and now stale** |
 
 So **surface fitting, the sweep, the sample and the workflow declarations are
 each defined twice**. `main.js` is what runs; the modules are what the unit
@@ -174,14 +202,37 @@ rule, change it in both**, or do the de-duplication first: have `main.js`
 import them and drop its `mode` switch in favour of `step.run(ctx)`. That is
 contained and touches no UI code.
 
+`workflows/` is worse than unused — it still describes the job-picker flow
+that was replaced, with no `optics` or `carrier` step. Rewrite it from
+`main.js`, do not merge into it.
+
+**A widget owns its panel and redraws itself.** `widgets/carrier.js` is the
+pattern: handed a value and a callback, knows nothing of run state, and writes
+new values into the controls that already exist rather than rebuilding — a
+rebuild per keystroke destroys the field being typed into. It exports `drawOn`
+too, because the controls and what they put on the canvas are one subject.
+
 Widget extraction is deliberately deferred while the UI is still being
 designed. Do it when a new widget appears or two people work on the page at
 once.
+
+## Next up
+
+**Define prescan** — asked for and not built. A step after Carrier
+configuration where the overview positions are defined ("pre-scan" is the
+working name). The obvious shape is a second channel beside the canvas with
+the chosen areas drawn on the carrier, but it was never specified past the
+name.
 
 ## Open questions — ask, do not invent
 
 - Which preset the scan uses and which the acquisition uses. The old
   survey/target pairing was dropped with the picker; nothing replaced it.
+- **Where the carrier sits on the stage.** It is pinned to the origin — top
+  left — which is a placeholder, not a decision. `STAGE_LIMITS_MM` (120 × 80)
+  is a placeholder too, standing in for what the controller will report.
+- The synthetic sample is still a 7×5 tile grid unrelated to the carrier, so
+  the scan area sits in the plate's corner rather than inside a well.
 - Should the canvas show the planned tile grid before the scan, or stay blank?
 - A single click in the focus trace jumps the line; it is not drag-only.
 - The focus step wants ≥3 points, but `_focus_surface.py` accepts 1.
