@@ -300,7 +300,24 @@ second says what opening it costs.
 
 **This is no longer a question, it is the aim.** `DATA_LAYOUT.md` Decision 1b states it, the
 measurements behind it are in this document under item 0, and the viewer's side of it is
-built and tested. What is missing is the thing that writes.
+built and tested.
+
+**The writer now exists too, and what is missing has moved.** `zmart_storage/canvas.py`
+declares a run's images empty at the start, writes each tile straight into its place,
+lengthens the run in time as moments are recorded, and keeps the smaller copies of the
+image up to date as it goes. It has its own tests, and `viz_studio/tests/
+test_canvas_written_live.py` drives it against a real browser to check that a run written
+this way actually appears on screen while it is being written — which is the claim that
+matters and the one the engine's own account of itself cannot settle.
+
+What is missing now is the **acquisition using it**. Nothing in `zmart_controller` or
+`workflows` calls `TileCanvases` yet; the only callers are its tests and a measurement
+script. So the remaining work is not "build a writer" but "have the run write through this
+one", which also means deciding where a run's canvases are created and who announces to
+the viewer once a tile has landed. `DATA_LAYOUT.md` records the decision that our driver
+copies frame files and does not touch zarr, so this is either a conversion step or a
+change to what the driver writes — that choice is still open and is the first thing to
+settle.
 
 The short version of why: what costs the viewer is the *number of separate stores*, not the
 amount of data behind them. One store describing about 137 GB reaches the screen in 1.4
@@ -375,6 +392,76 @@ is the remaining half.
 ---
 
 ## Done since the last hand-over
+
+**A run now lengthens in time as moments are recorded, rather than promising them.**
+The writer used to be told how many moments a run would have and would declare that
+many at the start. A run does not know: a timelapse ends when the experiment ends. So
+the store claimed moments that had never been imaged, and the viewer's time slider ran
+out over frames that did not exist — which is the arrangement `DATA_LAYOUT.md` considered
+and rejected, quietly reintroduced. A run now declares one moment, which is what it has
+recorded when it starts, and is lengthened by one as each frame lands. The store
+therefore always says exactly what it holds, and the slider ends where the data ends
+without anything having to count files on disk to find the honest answer.
+
+Lengthening is safe and cheap, and both halves were checked rather than assumed. Safe
+because a piece of image is addressed by its position, so making room at the far end of
+the first axis leaves every piece already written exactly where it was — losing an
+earlier moment would otherwise be silent. Cheap because only a number in the store's
+description changes and no voxel is touched.
+
+A time axis is now **always** declared, where before it was left out for a run of a
+single moment. That omission was a workaround for the engine drawing the wrong axes when
+a time axis was present, and that is fixed: the engine is now handed the axes that
+measure distance, whatever else an image has. With the workaround gone, the list of axes
+never changes shape part-way through a run — only a length grows, which is the cheap and
+safe operation.
+
+**"Nothing has been written yet" is an answer about this moment, not for good.** Counting
+the frames of a timelapse can fail to give a number for two quite different reasons, and
+both used to arrive as the same answer, so both were remembered the same way: for good. A
+folder holding more pieces than it is sensible to look through will never hold fewer, so
+giving up on it once is right. A store that simply has not been written to yet is empty
+only for the moment — it is a live run about to produce its first frame. Keeping that
+answer left the viewer believing the run was empty for the rest of the session, and the
+viewer meets a store at whatever moment the operator opens the folder, which during a run
+is often before the first frame lands. The two are now separate answers inside
+`stores.py` and only the first is kept.
+
+**A timelapse opens at its beginning rather than half way along.** The engine opens every
+axis in the middle, which is right for the axes that measure the specimen — the middle of
+a stack is a sensible plane to start on — and wrong for time, which is read from the
+start. It also showed on screen. An image that declares its whole intended length before
+those moments have been imaged has genuinely empty moments in the middle, so opening in
+the middle opened on a black screen with the recorded data sitting at the beginning,
+unseen and with nothing to say so. Measured on a store declaring three moments with only
+the first imaged: the view opened blank, and moving to the first moment showed the
+specimen. Our own writer no longer produces that shape, but an instrument that plans its
+length up front does, and being handed one is ordinary.
+
+This is also the case the browser tests did not previously cover. Every other test of a
+growing store watches tiles land while somebody is looking, which is the harder case;
+opening the viewer on data written *before* it started shares none of that path, since
+there is no announcement to act on and nothing decoded too early to let go of. Two tests
+now open on data already written — an ordinary canvas, which always worked and is now
+pinned, and the part-recorded timelapse, which drew nothing at all before.
+
+**The two sliders are placed the way the thing they move through lies.** Depth stands
+upright along the right-hand edge, the way a stack of planes is pictured; time lies along
+the bottom, the way a recording is. They were two identical bars stacked in the bottom
+corner, which told the operator nothing about which was which — with a hand on the stage
+and both on screen, reaching for the right one meant stopping to read the labels.
+Standing depth on end also makes it as long as the window allows, which is the difference
+between picking out one plane of a few hundred and hunting for it. It is still one
+control used twice; only the direction it runs in changes.
+
+**One test had been failing on a switch that works.** Coming back from the volume view to
+the plane was checked by asking whether the shader still emitted alpha. That stopped
+being the right question when the flat view began emitting alpha itself, so that unimaged
+ground comes out transparent and rows can be seen together. Both views emit alpha now,
+for two different reasons. What separates them is the opacity control, which exists only
+in the volume shader — seeing through the fog to the structure inside is the point of
+that view, and a single plane has nothing to see through. The test asks that instead, in
+both directions.
 
 **Positions are no longer lost.** This is the first of audit 3's three walls, and the
 one that was a correctness problem rather than a slow one. Stores are handed to the
@@ -1221,6 +1308,18 @@ the revision tests, and the cache tests) if you want the shape.
   "still good" with no data. That needs the server to answer conditional requests, which
   it does not today. Only worth it if re-reading during a run ever shows up as a real
   cost — it has not been measured, and on localhost it may never matter.
+- **Decide what `frames=` on `TileCanvases.create` is still for.** A run's images now
+  grow in time as moments are recorded, so nothing needs to say up front how long the
+  run will be. The argument survives that change as the *starting* length and still
+  defaults to one, which is right — but a caller passing `frames=5` gets an image
+  declaring five moments with none of them imaged, which is exactly the arrangement the
+  change was made to remove, now reachable by asking for it. Its docstring still says
+  "how many timepoints to allow for", which invites precisely that. Either drop the
+  argument, or keep it and say plainly that it is for reproducing what an instrument
+  that plans its length up front would write. The viewer copes either way — it opens at
+  the first moment — so this is about not offering our own writer a way back into the
+  shape we rejected. `tests/test_canvas_written_live.py` uses it deliberately for that
+  purpose in one test, which is the only caller that wants it.
 - **Give the folder watcher a way to be switched off.** It exists as a safety net for
   writers that do not announce (see below). A workflow that *does* announce is paying for
   a directory scan a second for nothing.
@@ -1252,9 +1351,26 @@ else depends on it.
 
 ## Where things stand
 
-Branch `claude/napaly-neuroglancer-progress-jo0b8h`. The whole suite passes in about five
-and a half minutes with `-n 3` — 328 tests, 8 skipped where there is no GPU or no mesoSPIM
-data, and no `xfail` left. Nothing uncommitted.
+Branch `claude/time-axis-storage-trso2u`. The whole suite passes in about nine and a half
+minutes with `-n 3` — 378 passed, 8 skipped where there is no GPU or no mesoSPIM data,
+and one `xfail`. The writer has a suite of its own, `zmart_storage/tests`, which is 25
+passed and 1 skipped in half a minute. Nothing uncommitted.
+
+**The one `xfail`, because it is a real gap and not a flaky test.**
+`test_each_acquisition_type_gets_a_row_of_its_own` is marked strict, so it will announce
+itself the moment somebody fixes it. The viewer still gathers every image in a folder
+into a single row, as though they were positions of one acquisition. Both are drawn now
+that unimaged ground is transparent, but they share one row's contrast, colour and
+visibility — so an overview and a target scan cannot be adjusted apart, which is
+something an operator will want to do almost immediately. The grouping in `stores.py`
+assumes a folder of positions and has to learn that one image can be a whole acquisition
+type. That is the natural next piece of work on the panel.
+
+**Setting a machine up to run the browser tests.** They need the viewer page built
+(`npm --prefix frontend install && npm --prefix frontend run build`) and a Chromium that
+Playwright can launch. Without the build the browser tests skip, and a build older than
+the source is a hard failure rather than a skip — that check exists because a session was
+once spent drawing confident conclusions from a bundle two days stale.
 
 **The order the next session should read this in.** Read "Start here" at the top, which is
 the whole of what to do next. Item 0 — writing the run into a single OME-Zarr — is now
