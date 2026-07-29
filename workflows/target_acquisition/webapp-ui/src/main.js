@@ -60,7 +60,7 @@ import {
       blurb: "overview, detect, select, acquire",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", btn: "Confirm settings", panels: [], ms: 800, mode: "optics" },
+        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", ownButton: true, panels: [], mode: "optics" },
         { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0) for this run.", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
@@ -77,7 +77,7 @@ import {
       blurb: "no analysis panel",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", btn: "Confirm settings", panels: [], ms: 800, mode: "optics" },
+        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", ownButton: true, panels: [], mode: "optics" },
         { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
@@ -90,7 +90,7 @@ import {
       blurb: "calibration run",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", btn: "Confirm settings", panels: [], ms: 800, mode: "optics" },
+        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", ownButton: true, panels: [], mode: "optics" },
         { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
@@ -187,6 +187,19 @@ import {
   });
 
   el("restart-btn").addEventListener("click", resetRun);
+
+  /* Closing the session takes the run with it: settings were read off this
+     microscope, the origin is in its coordinates, and the tiles came from it.
+     Keeping any of that against a session that has been closed would be
+     keeping something that might now be a lie. The chosen microscope, API and
+     password stay, since editing them is the reason to disconnect. */
+  function disconnectSession() {
+    const keep = { ...state.session };
+    resetRun();
+    state.session = keep;
+    renderSetup();
+    renderAll();
+  }
 
   function resetRun() {
     Object.assign(state, {
@@ -511,6 +524,19 @@ import {
 
       form.append(scope, api, pw);
 
+      /* An open session is the one thing the whole run rests on, so its
+         settings are not editable while it is open. Disconnecting hands them
+         back — and takes the run with it, because a different microscope
+         invalidates everything recorded off the last one. */
+      if (connected) {
+        const off = document.createElement("button");
+        off.className = "run danger";
+        off.type = "button";
+        off.textContent = "Disconnect";
+        off.addEventListener("click", disconnectSession);
+        form.append(off);
+      }
+
       // once the session is open the button has nothing left to do; the fields
       // stay on show as the record of what it was opened with
       if (!connected) {
@@ -563,6 +589,21 @@ import {
    */
   const recordedBars = () => state.bars.filter((b) => b.state);
 
+  /* Recording is the work, so there is nothing left to confirm: the step is
+     done once a setting exists, and undone again if the last one is forgotten.
+     The rail stays honest about what may follow without asking for a press
+     that would only repeat what the operator already did. */
+  function settingsChanged() {
+    const n = recordedBars().length;
+    if (n) {
+      state.done.add("optics");
+      state.notes.optics = `${n} setting${n === 1 ? "" : "s"} recorded`;
+    } else {
+      state.done.delete("optics");
+      delete state.notes.optics;
+    }
+  }
+
   const ensureOpenBar = () => {
     if (!state.bars.some((b) => !b.state)) {
       state.bars.push({ type: SETTING_TYPES[0].key, name: "" });
@@ -573,8 +614,6 @@ import {
      Two objects on screen are two objects in the run — a recorded setting and
      the next one waiting to be taken. */
   function renderOpticsCard(host) {
-    const done = state.done.has("optics");
-
     const heading = document.createElement("div");
     heading.className = "setup-heading";
     heading.innerHTML = '<span class="session-title">Optical settings</span>'
@@ -585,21 +624,38 @@ import {
       : "nothing recorded yet";
     host.append(heading);
 
-    for (const bar of state.bars) {
+    /* The open bar sits above what has been recorded: it is the thing you are
+       doing, and it should not walk further down the panel each time a setting
+       is taken. */
+    const open = state.bars.find((b) => !b.state);
+    if (open) {
       const box = document.createElement("div");
-      if (bar.state) {
-        box.className = "setting-box done";
-        box.append(renderRecordedBar(bar, done));
-      } else {
-        if (done) continue;
-        box.className = "setting-box open";
-        box.append(renderOpenBar(bar));
-      }
+      box.className = "setting-box open";
+      box.append(renderOpenBar(open));
       host.append(box);
+    }
+
+    /* Recorded settings are grouped by kind, in the order the kinds are
+       declared: every acquisition together, every autofocus together. A run
+       is read as "what can it image with" and "how does it focus", not as the
+       order somebody happened to press record in. */
+    for (const type of SETTING_TYPES) {
+      const mine = state.bars.filter((b) => b.state && b.type === type.key);
+      if (!mine.length) continue;
+
+      const group = document.createElement("div");
+      group.className = "setting-group";
+      for (const bar of mine) {
+        const box = document.createElement("div");
+        box.className = "setting-box done";
+        box.append(renderRecordedBar(bar));
+        group.append(box);
+      }
+      host.append(group);
     }
   }
 
-  function renderRecordedBar(bar, done) {
+  function renderRecordedBar(bar) {
     const row = document.createElement("div");
     row.className = "rec-row";
     row.innerHTML = '<span class="rec-kind"></span><span class="rec-name"></span>'
@@ -610,12 +666,13 @@ import {
 
     const drop = row.querySelector(".rec-drop");
     drop.title = "forget this setting";
-    drop.disabled = done || !!state.running;
+    drop.disabled = !!state.running;
     drop.addEventListener("click", () => {
       state.bars = state.bars.filter((b) => b !== bar);
       ensureOpenBar();
+      settingsChanged();
       renderSetup();
-      renderActionBar();
+      renderAll();
     });
     return row;
   }
@@ -676,8 +733,9 @@ import {
         bar.name = name.value.trim();
         bar.state = sampleState(bar.type, nth);
         ensureOpenBar();
+        settingsChanged();
         renderSetup();
-        renderActionBar();
+        renderAll();
       }, 480);
     });
 
