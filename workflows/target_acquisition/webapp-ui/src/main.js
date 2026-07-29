@@ -603,7 +603,7 @@ import carrierWidget from "./widgets/carrier.js";
       const btn = document.createElement("button");
       btn.type = "button";
       if (connected) {
-        btn.className = "ghost";
+        btn.className = "danger";
         btn.textContent = "Disconnect";
         btn.disabled = !!state.running;
         btn.addEventListener("click", closeSession);
