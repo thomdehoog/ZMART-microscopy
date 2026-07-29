@@ -61,6 +61,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -140,6 +141,124 @@ def _refuse_overlapping_tiles(tile_shape, tile_step) -> None:
     )
 
 
+# The handful of files inside an image that describe it rather than hold any
+# picture. Everything else under an image folder is acquired data, which is what
+# makes them the thing to look past when asking "has anything been imaged here?".
+_DESCRIPTION_FILES = {".zarray", ".zattrs", ".zgroup", ".zmetadata", "zarr.json"}
+
+
+def _a_tile_already_written(store: Path) -> Path | None:
+    """The first piece of acquired picture found inside ``store``, if there is one.
+
+    An image that has been declared but never written to contains only its own
+    description — a few hundred bytes saying how large it is and where it sits.
+    A piece of picture appears only when something is actually imaged, so finding
+    one is a reliable sign that a run happened here.
+
+    The search stops at the first thing it finds rather than counting everything,
+    because a finished run can hold millions of pieces and the answer is the same
+    either way.
+
+    Returns:
+        The path of a piece of acquired picture, or ``None`` if this image holds
+        nothing but its description.
+    """
+    if not store.exists():
+        return None
+    for here, _, files in os.walk(store):
+        for name in files:
+            if name not in _DESCRIPTION_FILES:
+                return Path(here) / name
+    return None
+
+
+def _refuse_to_write_over_a_finished_run(folder: Path, name: str) -> None:
+    """Stop a new run from emptying the images an earlier one filled in.
+
+    Declaring images empties whatever is already under their name, which is the
+    right thing when a run is starting and nothing is there yet. It is a disaster
+    when a run has already been imaged into that folder: the acquired pictures go
+    and nothing says so, because the newly declared images are perfectly valid —
+    simply empty.
+
+    That is easy to walk into. A notebook cell run a second time, a script
+    restarted after a crash, or a run repeated with the same folder name all lead
+    here, and the loss is silent and complete.
+
+    Only the images belonging to this ``name`` are looked at. One run's folder
+    holds each of its acquisition types side by side — an overview, a prescan, a
+    targetscan — and each is declared in its own call, so a folder that already
+    holds an imaged overview must still accept a prescan being declared beside it.
+    """
+    already = [
+        (store, found)
+        for store in sorted(folder.glob(f"{name}*.ome.zarr"))
+        if (found := _a_tile_already_written(store)) is not None
+    ]
+    if not already:
+        return
+    store, found = already[0]
+    others = (
+        "" if len(already) == 1
+        else f" ({len(already)} images in this folder have been imaged into)"
+    )
+    raise ValueError(
+        f"there is already an imaged run in this folder: {store.name} holds "
+        f"acquired pictures{others}, for example {found.relative_to(folder)}. "
+        "Declaring the images again would empty them, and everything that run "
+        "acquired would be gone with nothing to say so — which is why this is "
+        "refused rather than done.\n\n"
+        "If this is a new run, give it a folder of its own. One folder per run "
+        "is what the rest of this works best with, and it keeps each run's "
+        "images side by side under names that mean something.\n\n"
+        "If you are restarting a run that stopped part way through, note that "
+        "carrying on from where it stopped is not something this writer can do: "
+        "it would have to read back where every tile went before it could place "
+        "the next one safely. Until then the honest choice is a new folder.\n\n"
+        "If the earlier run really is finished with and you mean to throw it "
+        "away, say so outright by passing discard_existing_run=True."
+    )
+
+
+def _refuse_pieces_that_hold_several_tiles(pieces) -> None:
+    """Stop a run whose storage bundles several tiles into one piece of image.
+
+    Two tiles must never be written into the same piece at the same moment,
+    because a piece is read, changed and written back whole, so whichever writer
+    finishes second erases the other's contribution. The writer prevents that by
+    making each tile claim the pieces it lands in and wait for anything sharing
+    one — but it can only widen a claim to whole pieces across the specimen, in y
+    and x. In time, colour and depth it compares positions exactly, which is
+    right only while one piece holds a single moment, a single colour and a
+    single plane.
+
+    Images made by :meth:`TileCanvases.create` are always like that. This is
+    here for images made some other way, so that an arrangement the writer cannot
+    keep safe is refused at the start rather than quietly losing tiles later.
+
+    Args:
+        pieces: how large one piece of storage is, in voxels, along every axis of
+            the image — its shard shape if it is sharded, its chunk shape if not.
+    """
+    leading = tuple(int(n) for n in pieces[:-2])
+    if all(n == 1 for n in leading):
+        return
+    raise ValueError(
+        "these images keep more than one moment, colour or plane in a single "
+        f"piece of storage (one piece spans {leading} of them, before the "
+        "specimen's y and x). The writer stops two tiles from being written into "
+        "one piece at the same time, because a piece is read, changed and "
+        "written back whole and the second writer would erase the first — but it "
+        "can only do that across the specimen. In time, colour and depth it "
+        "relies on each piece holding a single one, and here that is not so, so "
+        "tiles written at the same moment would be lost with nothing to say "
+        "so.\n\n"
+        "Declare the images with one moment, one colour and one plane per piece, "
+        "which is what TileCanvases.create does. That is also what makes showing "
+        "a single plane cheap, so nothing is given up by it."
+    )
+
+
 def _warn_if_tiles_straddle_pieces(tile_shape, tile_step, chunk: int, levels: int) -> None:
     """Point out a tile size that makes concurrent writing needlessly slow.
 
@@ -193,13 +312,31 @@ class Channel:
     window: tuple[int, int] | None = None
 
     def described(self, depth_max: int) -> dict:
-        """This channel in the form an OME-Zarr ``omero`` block expects."""
+        """This channel in the form an OME-Zarr ``omero`` block expects.
+
+        The ``min`` and ``max`` written here are the range of numbers the camera
+        can produce at all — nought to 65535 for a 16-bit camera — which is a
+        plain fact about the data and always worth recording.
+
+        The ``start`` and ``end`` are a different thing: they are the brightness
+        range the image should first be *displayed* with, and they are written
+        only when the run actually asked for one. That distinction matters more
+        than it looks. A real acquisition sits in the bottom few per cent of the
+        camera's range — a few hundred counts of background with the signal not
+        far above — so declaring the whole range as the display window opens the
+        acquisition almost black, and it stays that way until somebody drags the
+        contrast slider. Leaving ``start`` and ``end`` out instead tells the
+        viewer nothing was asked for, and it measures a sensible window from the
+        pixels themselves.
+        """
         color = self.color or _CHANNEL_COLORS.get(self.name, "FFFFFF")
-        start, end = self.window or (0, depth_max)
+        window = {"min": 0, "max": depth_max}
+        if self.window is not None:
+            window["start"], window["end"] = self.window
         return {
             "label": self.name,
             "color": color,
-            "window": {"min": 0, "max": depth_max, "start": start, "end": end},
+            "window": window,
         }
 
 
@@ -249,13 +386,31 @@ class TileCanvases:
         #
         # The pieces of the smallest copy are the ones that matter, because they
         # cover the most ground: a piece of the half-size copy spans twice as much
-        # of the specimen as a piece of the full-size one, and they nest inside
-        # each other. Claiming by the coarsest therefore covers every level at once.
-        chunks = slots[0].arrays[0].chunks
-        coarsest = 2 ** (levels - 1)
-        # Counted from the end, since a run of a single moment has no time axis and
-        # so one index fewer.
-        self._grain = (chunks[-2] * coarsest, chunks[-1] * coarsest)
+        # of the specimen as a piece of the full-size one. So every level is asked
+        # how large its pieces are, each answer is scaled back up to full-size
+        # voxels, and the largest of them is what tiles are held apart by. That
+        # one claim then covers the writing of every level at once.
+        #
+        # What counts as "a piece" needs care. Ordinarily it is a chunk, the
+        # smallest amount of picture zarr stores as one file. But a zarr image can
+        # also be **sharded**, which means many chunks are bundled together and
+        # kept in a single file to save the filesystem from millions of tiny ones.
+        # When that is done it is the shard, not the chunk, that is read and
+        # written back whole — so two tiles in different chunks of one shard are
+        # every bit as dangerous as two tiles in one chunk, and measuring the
+        # claim in chunks would let them through. Measured here on zarr 3.1.6,
+        # four tiles written at once into four chunks of one shard left three of
+        # them missing, with nothing reported. Hence: shards where there are any,
+        # chunks where there are not.
+        grain_y = grain_x = 1
+        for level, array in enumerate(slots[0].arrays):
+            pieces = array.shards or array.chunks
+            _refuse_pieces_that_hold_several_tiles(pieces)
+            # Counted from the end, so that this does not depend on how many axes
+            # come before the specimen's y and x.
+            grain_y = max(grain_y, pieces[-2] * 2 ** level)
+            grain_x = max(grain_x, pieces[-1] * 2 ** level)
+        self._grain = (grain_y, grain_x)
         self._busy: list[tuple[int, ...]] = []
         self._free = threading.Condition()
 
@@ -278,6 +433,7 @@ class TileCanvases:
         chunk: int = 256,
         levels: int = 3,
         slots: tuple[int, int, int] | None = None,
+        discard_existing_run: bool = False,
     ) -> TileCanvases:
         """Declare the images for a run, before anything has been imaged.
 
@@ -346,17 +502,33 @@ class TileCanvases:
                 this writer is for. Setting it spreads overlapping tiles across
                 several images so that none is written over; see the note on
                 overlap at the top of this module for when that is worth doing.
+            discard_existing_run: whether to throw away a run that has already
+                been imaged into this folder. Normally left alone, and then a
+                folder that already holds acquired pictures is refused rather
+                than emptied. Set it only when you know what is there and mean
+                to lose it — repeating a test run into the same scratch folder
+                is the usual honest reason.
 
         Returns:
             The images, ready to be written into.
 
         Raises:
-            ValueError: if the tiles overlap. A run that overlaps its tiles
-                should keep them separate and be stitched once it is finished,
-                rather than being written into one image as it goes.
+            ValueError: if the tiles overlap, or if this folder already holds an
+                imaged run. A run that overlaps its tiles should keep them
+                separate and be stitched once it is finished, rather than being
+                written into one image as it goes. A folder that already holds
+                acquired pictures should be left alone and the new run given a
+                folder of its own, because declaring the images again empties
+                them.
         """
         folder = Path(folder)
         folder.mkdir(parents=True, exist_ok=True)
+
+        # Asked before anything is declared, because declaring is what does the
+        # damage: the images are emptied as they are made, so there is no moment
+        # afterwards at which this could still be caught.
+        if not discard_existing_run:
+            _refuse_to_write_over_a_finished_run(folder, name)
 
         if slots is None:
             _refuse_overlapping_tiles(tile_shape, tile_step)
