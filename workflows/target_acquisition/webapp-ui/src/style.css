@@ -224,19 +224,28 @@ button.run:hover:enabled { background: var(--accent-deep); }
 button.run:disabled { opacity: 0.4; cursor: default; }
 
 /* ---- right column ---- */
-.stage { display: grid; grid-template-rows: auto auto 1fr; min-width: 0; min-height: 0; }
+/* tabs, then the panel — the action moved inside the panel it operates */
+.stage { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
 
-/* The run lives with the thing it operates, not in the progress list. */
-.action-bar {
+/* The run lives at the end of the panel it operates. Empty for a step that
+   builds its own button, and then it takes no room at all. */
+.panel-foot {
   display: flex; align-items: center; gap: 12px;
-  padding: 10px 16px; border-bottom: 1px solid var(--line);
-  background: var(--screen); min-height: 52px;
+  padding: 11px 16px; border-top: 1px solid var(--line);
+  background: var(--screen);
+  position: relative; z-index: 1;
 }
-.action-step {
-  font-family: var(--mono); font-size: 11.5px; font-weight: 600;
-  color: var(--accent-deep); flex: none; font-variant-numeric: tabular-nums;
+.panel-foot:empty { display: none; }
+
+/* The canvas keeps its whole height; the controls that read it sit under it in
+   one bar — what is drawn, then what to draw and what to do next. */
+#panel-canvas.on { grid-template-rows: minmax(0, 1fr) auto; }
+.canvas-foot {
+  display: flex; align-items: stretch;
+  border-top: 1px solid var(--line); background: var(--screen);
 }
-.action-why { color: var(--ink-2); font-size: 13px; min-width: 0; flex: 1 1 auto; }
+.canvas-foot > .toolbar { flex: 1 1 auto; border-top: none; border-bottom: none; }
+.canvas-foot > .panel-foot { border-top: none; }
 .action-hint { font-size: 12.5px; color: var(--ink-3); font-family: var(--mono); flex: none; }
 .action-hint.ok { color: var(--good); }
 .action-hint.bad { color: var(--bad); }
@@ -260,7 +269,7 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 }
 
 .panel { position: relative; min-width: 0; min-height: 0; display: none; }
-.panel.on { display: grid; grid-template-rows: auto 1fr; }
+.panel.on { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 
 .toolbar {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
@@ -327,6 +336,9 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   grid-template-columns: 1fr minmax(248px, 306px);
   grid-template-rows: 1fr 248px;
   min-height: 0;
+  /* the trace strip is a fixed height, so the body has to clip rather than
+     spill over the action at the end of the panel */
+  overflow: hidden;
 }
 .focus-body > .plot-host { grid-column: 1; grid-row: 1; }
 .focus-side {
@@ -539,7 +551,6 @@ canvas.scattercv { cursor: crosshair; }
 @keyframes check-in { from { opacity: 0; transform: translateY(-2px); } }
 
 /* An explicit display beats the hidden attribute, so say so. */
-.action-bar[hidden] { display: none; }
 
 /* ---- the two header bars line up --------------------------------------
    The workflow box on the left and the tab bar on the right both sit above a

@@ -11,8 +11,10 @@ const FOCUS_POINTS = [[0.3, 0.3], [0.68, 0.28], [0.5, 0.5], [0.32, 0.7], [0.7, 0
 
 const gotoStep = (page, name) => page.locator(`.step:has-text("${name}")`).first().click();
 
+/* A step's button sits at the end of whichever panel is showing, so this does
+   not need to know which step it is running. */
 async function runStep(page, ms = 1000) {
-  await page.locator("#action-bar button.run").click();
+  await page.locator(".panel.on button.step-run").click();
   await page.waitForTimeout(ms);
 }
 
@@ -69,7 +71,7 @@ test.afterEach(async ({ page }) => {
 
 test("the rail carries the workflow's declared steps", async ({ page }) => {
   await expect(page.locator("#steps .step")).toHaveCount(10);
-  await expect(page.locator(".step.active .step-name")).toHaveText("Connect");
+  await expect(page.locator(".step.active .step-name")).toHaveText("Microscope Configuration");
 
   await page.locator("#wf-select").selectOption("overview_only");
   await expect(page.locator("#steps .step")).toHaveCount(6);
@@ -114,7 +116,7 @@ test("the session can only be changed by disconnecting first", async ({ page }) 
   // and disconnecting takes the run with it: those settings came off this scope
   await gotoStep(page, "Optical Configuration");
   await record(page, "acquisition", "survey");
-  await gotoStep(page, "Connect");
+  await gotoStep(page, "Microscope Configuration");
   await page.locator("button.run.danger").click();
   await page.waitForTimeout(300);
 
@@ -123,7 +125,7 @@ test("the session can only be changed by disconnecting first", async ({ page }) 
     "the credentials stay, since editing them is the reason to disconnect")
     .toHaveValue("hunter2");
   await expect(page.locator(".check-row")).toHaveCount(0);
-  await expect(page.locator('.step:has-text("Connect")').first()).not.toHaveClass(/done/);
+  await expect(page.locator('.step:has-text("Microscope Configuration")').first()).not.toHaveClass(/done/);
 });
 
 test("settings are recorded off the instrument, and the list grows", async ({ page }) => {
@@ -131,8 +133,8 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
   await gotoStep(page, "Optical Configuration");
 
   // nothing is preconfigured: the only choice is what kind of thing to record
-  await expect(page.locator("#action-bar"),
-    "recording is the work, so there is nothing to confirm").toBeHidden();
+  await expect(page.locator(".panel.on button.step-run"),
+    "recording is the work, so there is nothing to confirm").toHaveCount(0);
   await expect(page.locator(".rec-row")).toHaveCount(0);
   await expect(page.locator('.step:has-text("Optical Configuration")').first())
     .not.toHaveClass(/done/);
@@ -279,8 +281,8 @@ test("the api offered follows the microscope chosen", async ({ page }) => {
 test("nothing advances by itself, and the next step stays locked until it can run",
   async ({ page }) => {
     await connect(page);
-    await expect(page.locator(".step.active .step-name")).toHaveText("Connect");
-    await expect(page.locator('.step:has-text("Connect")').first()).toHaveClass(/done/);
+    await expect(page.locator(".step.active .step-name")).toHaveText("Microscope Configuration");
+    await expect(page.locator('.step:has-text("Microscope Configuration")').first()).toHaveClass(/done/);
     await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeDisabled();
   });
 
@@ -300,9 +302,9 @@ test("the carrier sets the canvas up, and from then on it is always there",
     // up to here owns a row: the session has its own card, the carrier its own
     // channel, and the focus surface is neither measured nor being stood on.
     await expect(page.locator(".setup-row")).toHaveCount(0);
-    await gotoStep(page, "Connect");
+    await gotoStep(page, "Microscope Configuration");
     await expect(page.locator(".session-title"), "and the session comes back when you return")
-      .toHaveText("Session");
+      .toHaveText("Connect to the microscope");
     await expect(page.locator(".check-row")).toHaveCount(6);
     await expect(page.locator("#canvas-side"),
       "which is not the canvas, so the channel is not there either").toBeHidden();
@@ -338,7 +340,7 @@ test("one walk of the whole run", async ({ page }) => {
   await runStep(page, 3000);
 
   await gotoStep(page, "Detect cells");
-  await expect(page.locator("#action-bar button.run"),
+  await expect(page.locator(".panel.on button.step-run"),
     "detection may not run on settings nobody has seen work").toBeDisabled();
   await page.getByRole("button", { name: "Test on this tile" }).click();
   await page.waitForTimeout(250);

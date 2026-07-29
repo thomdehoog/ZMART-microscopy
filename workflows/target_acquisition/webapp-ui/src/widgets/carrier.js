@@ -96,7 +96,7 @@ export default {
     const rad = Math.min(g.corner * MM_UM * scale, aw / 2, ah / 2);
     ctx.save();
     ctx.strokeStyle = colour;
-    ctx.globalAlpha = 0.5;
+    ctx.globalAlpha = 0.8;
     ctx.lineWidth = Math.min(1.2, Math.max(0.4, aw * 0.02));
     for (let r = 0; r < config.rows; r++) {
       for (let c = 0; c < config.cols; c++) {
@@ -296,6 +296,11 @@ export default {
     shapeGrid.append(cornerIn, areaIn, shapeBtn);
     shapeGroup.append(shapeGrid);
     controls.append(shapeGroup);
+
+    /* Where the run's own button goes: after the numbers that decide it and
+       before the summary of what they came to, so applying reads as the end of
+       the editing rather than a footnote under the result. */
+    card.append(el("div", "carrier-action"));
 
     const stats = el("div", "carrier-stats");
     card.append(stats);
