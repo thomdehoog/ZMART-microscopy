@@ -175,14 +175,6 @@ def test_a_canvas_written_by_the_writer_starts_empty_and_fills_in(
         thread.join(timeout=5)
 
 
-@pytest.mark.xfail(
-    reason="the viewer does not yet treat one canvas per acquisition type as "
-           "separate rows: two canvases in a folder are merged into a single row "
-           "with two sources, as though they were two positions of one "
-           "acquisition. The empty one then covers the written one and its tiles "
-           "cannot be seen. Grouping in stores.py has to learn the canvas layout.",
-    strict=True,
-)
 def test_several_canvases_update_on_the_fly_independently(
     browser, built_dist, tmp_path
 ):
@@ -290,15 +282,6 @@ MOVE_IN_TIME = """(frame) => {
 }"""
 
 
-@pytest.mark.xfail(
-    reason="an image row is drawn opaque everywhere, including where nothing has "
-           "been imaged, so the topmost row blacks out every row beneath it. Both "
-           "channels get their own row and both tiles are written, but only the "
-           "top row's is ever seen. The shader in scene.js has to make unimaged "
-           "ground transparent -- alpha from the intensity -- before more than one "
-           "row can be shown at once. Same cause as the two-canvas failure above.",
-    strict=True,
-)
 def test_each_channel_is_its_own_row_and_fills_in_on_its_own(
     browser, built_dist, tmp_path
 ):
@@ -417,6 +400,41 @@ def test_a_timepoint_written_later_can_be_reached_and_is_seen(
             "a moment nothing was written to is showing another moment's image"
         )
         print(f"\n  a late frame reached and drawn: {late:.2f}")
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+@pytest.mark.xfail(
+    reason="the viewer still gathers every image in a folder into one row, as "
+           "though they were positions of a single acquisition. Both are drawn "
+           "now that unimaged ground is transparent, but they share one row's "
+           "contrast, colour and visibility -- so an overview and a target scan "
+           "cannot be adjusted apart. Grouping in stores.py assumes a folder of "
+           "positions and has to learn that one image can be an acquisition type.",
+    strict=True,
+)
+def test_each_acquisition_type_gets_a_row_of_its_own(browser, built_dist, tmp_path):
+    """An overview and a target scan are different things and want separate controls.
+
+    Being visible is not the same as being separable. This is what the panel has to
+    show before "one image per acquisition type" is really true on screen.
+    """
+    run = tmp_path / "run"
+    _a_canvas(run, "overview")
+    _a_canvas(run, "targetscan")
+    server, thread, page = _open_the_viewer(browser, built_dist, run,
+                                            "overview.ome.zarr")
+    try:
+        rows = page.evaluate(
+            """() => window.zmartViewer.layerManager.managedLayers
+                 .filter((m) => m.layer && m.layer.type === 'image')
+                 .map((m) => m.name)"""
+        )
+        assert len(rows) == 2, (
+            f"expected a row for the overview and one for the target scan, got {rows}"
+        )
     finally:
         page.close()
         server.shutdown()

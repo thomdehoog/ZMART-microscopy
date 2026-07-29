@@ -71,10 +71,31 @@ export function shaderFor(color, volumetric, lut = null) {
     const [r, g, b] = color || [1, 1, 1];
     return source + `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized() * opacity)); }`;
   }
-  if (stops) return source + "void main() { emitRGB(zmartLut(normalized())); }";
-  if (!color) return source + "void main() { emitGrayscale(normalized()); }";
+  // Ground nothing has been imaged on has to come out *transparent*, not black.
+  //
+  // A row drawn with a solid colour everywhere covers whatever is underneath it,
+  // and most of a row is usually empty: a canvas is declared to the size of the
+  // stage and filled in as the run goes, so at the start it is empty everywhere.
+  // Drawn opaque, the topmost row therefore blacks out every row below it, and an
+  // experiment with an overview and a target scan — or simply two channels — shows
+  // only whichever happens to be on top. Both rows load, both hold their data, and
+  // one of them is invisible.
+  //
+  // Giving the brightness to the alpha channel fixes it, and changes nothing about
+  // how a single row looks: the engine multiplies the colour by the alpha before
+  // drawing, so a lone row over the black background comes out exactly as it did
+  // before. It is only where rows overlap that the behaviour differs, and there
+  // the new behaviour is the one anybody would expect.
+  //
+  // This is the same shape the three-dimensional path above has always used, which
+  // is why volumes could be shown together and flat pictures could not.
+  if (stops) {
+    return source + "void main() { float v = normalized();"
+      + " emitRGBA(vec4(zmartLut(v), v)); }";
+  }
+  if (!color) return source + "void main() { emitRGBA(vec4(1.0, 1.0, 1.0, normalized())); }";
   const [r, g, b] = color;
-  return source + `void main() { emitRGB(vec3(${r}, ${g}, ${b}) * normalized()); }`;
+  return source + `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized())); }`;
 }
 
 // The values for the controls declared above. These reach the graphics card
