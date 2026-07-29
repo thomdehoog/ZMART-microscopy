@@ -86,6 +86,29 @@ def colour_spread(pixels) -> dict:
     }
 
 
+def fraction_lit(page, floor: int = 40) -> float:
+    """How much of the middle of the picture is showing specimen rather than nothing.
+
+    This answers a different question from :func:`assert_something_was_drawn`, and
+    the difference matters more than it sounds.
+
+    That one asks "does this panel have variety in it", which is the right question
+    when the worry is a viewer that has drawn nothing at all. But it cannot tell a
+    blank panel from one *completely covered* by an even tile: both are a single
+    flat colour, and both score the same. A canvas being filled in tile by tile
+    reaches exactly that state as soon as the tiles cover the view, so a test
+    watching for variety would report the picture vanishing at the moment it became
+    complete.
+
+    Counting how much of the view is brighter than the background separates the two,
+    and it rises steadily as tiles land, which is what a test following a run needs.
+    The floor sits well above the near-black of an unimaged region and well below
+    any real signal, so it is not sensitive to where it is set.
+    """
+    pixels = image_middle(page)
+    return float((pixels.max(axis=2) > floor).mean())
+
+
 def assert_something_was_drawn(page, what: str = "the image") -> dict:
     """Fail unless the middle of the image really has a picture in it.
 
