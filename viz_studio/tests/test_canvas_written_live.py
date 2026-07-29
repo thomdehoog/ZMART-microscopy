@@ -337,14 +337,6 @@ def test_each_channel_is_its_own_row_and_fills_in_on_its_own(
         thread.join(timeout=5)
 
 
-@pytest.mark.xfail(
-    reason="a moment the engine looked at while it was still empty stays empty on "
-           "screen even after it has been written and the run has said it wrote in "
-           "place. Letting go of the decoded pieces is not reaching whatever holds "
-           "the emptiness decided on for a frame. This is the hazard DATA_LAYOUT "
-           "warns about under Decision 2, now demonstrated rather than predicted.",
-    strict=True,
-)
 def test_a_timepoint_written_later_can_be_reached_and_is_seen(
     browser, built_dist, tmp_path
 ):

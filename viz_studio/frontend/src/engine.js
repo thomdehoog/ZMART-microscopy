@@ -773,6 +773,64 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
  * Returns a function that stops the waiting, for the caller to use when the
  * viewer goes away.
  */
+/**
+ * Draw the axes that measure distance, and leave the rest to the sliders.
+ *
+ * An image says what its axes are and what each one measures. Some are places in
+ * the specimen — depth, height, width — and some are not: which moment this is,
+ * or which colour of light was recorded. Only the first kind belongs on screen.
+ *
+ * The engine does not know that on its own. Left alone it takes the first three
+ * axes the image declares, in the order they were written. For an image of a
+ * single moment those happen to be depth, height and width and everything looks
+ * right — which is exactly what made this hard to see. Add a time axis at the
+ * front, as every timelapse has, and the first three become time, depth and
+ * height: the engine draws time against depth and pins width, so the specimen is
+ * nowhere on screen. Nothing reports a fault. The picture is simply black while
+ * the data on disk is perfectly correct.
+ *
+ * Measured, on the same tiles in the same places: an image declaring one moment
+ * filled the view, and an image declaring three drew nothing at all.
+ *
+ * Which axes measure distance is not guessed at. An image declares a unit for
+ * each axis, and "m" — metres — is the only one that measures distance across a
+ * specimen. Seconds do not, and an axis with no unit does not. That is the same
+ * test the scale bar uses, for the same reason.
+ *
+ * Only *which* axes are drawn is changed here, never the order they are drawn in.
+ * Handing them over in a different order was tried and draws the specimen edge-on;
+ * the engine's own sense of which way round they go was right all along.
+ *
+ * An image declaring fewer than two such axes is left completely alone. We would
+ * have nothing better to offer than the engine's own choice, and replacing a
+ * possibly-odd view with a certainly-wrong one is not an improvement.
+ */
+function pinTheAxesThatMeasureDistance(viewer) {
+  const space = viewer.navigationState.position.coordinateSpace.value;
+  if (!space?.names) return;
+  const distances = space.names.filter((_, at) => space.units?.[at] === "m");
+  if (distances.length < 2) return;
+  const current = viewer.navigationState.pose.displayDimensions.value;
+  // Left alone when it is already right. Handing the engine the same answer it
+  // already had is not free: it counts as a change, and everything downstream
+  // that follows the view -- the zoom, the scale bar, the panel -- is asked to
+  // catch up with a difference that does not exist.
+  const showing = Array.from(current?.displayDimensionIndices ?? [])
+    .filter((at) => at >= 0)
+    .map((at) => space.names[at]);
+  if (showing.length === distances.slice(0, 3).length
+      && showing.every((name, at) => name === distances[at])) {
+    return;
+  }
+  try {
+    viewer.navigationState.pose.displayDimensions.restoreState(distances.slice(0, 3));
+  } catch {
+    // An engine that will not take them leaves the view as it was rather than
+    // leaving the page broken. This runs while an operator is waiting for their
+    // acquisition to appear, so it must not be the thing that stops it.
+  }
+}
+
 export function chooseScaleWhenTheImagesAreMeasured(viewer) {
   const { position } = viewer.navigationState;
   // Axes, not images: a space with no axes is the placeholder described above.
@@ -781,6 +839,10 @@ export function chooseScaleWhenTheImagesAreMeasured(viewer) {
   let stop = () => {};
   const check = () => {
     if (!measured()) return;
+    // Which axes are drawn is settled first, because how far to zoom is worked
+    // out from what is being drawn. Choosing the zoom and then changing the axes
+    // leaves the view scaled for a picture nobody is looking at.
+    pinTheAxesThatMeasureDistance(viewer);
     // Clearing rather than setting a number of our own on purpose: the engine's
     // own default is a sensible starting point, and it is the one an operator
     // who has used neuroglancer elsewhere will expect. All that was ever wrong
