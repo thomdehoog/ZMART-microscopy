@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry,
-  shapeName, niceScale, maxRadius, DEFAULT_CARRIER,
+  shapeName, maxRadius, DEFAULT_CARRIER,
 } from "../../src/lib/carriers.js";
 
 const preset = (typeId, label) =>
@@ -81,19 +81,5 @@ describe("a configuration knows whether it is still a catalogue part", () => {
   it("the default is a plate, since that is what the lab runs most", () => {
     expect(DEFAULT_CARRIER.type).toBe("wellplate");
     expect(geometry(DEFAULT_CARRIER).areas).toBe(96);
-  });
-});
-
-describe("the scale bar picks a round number that fits", () => {
-  it("stays under a third of what it measures", () => {
-    for (const width of [3, 12, 50, 108, 340]) {
-      expect(niceScale(width), `width ${width}`).toBeLessThanOrEqual(width * 0.35);
-    }
-  });
-
-  it("and is one of the round steps", () => {
-    expect(niceScale(108)).toBe(30);
-    expect(niceScale(12)).toBe(2);
-    expect(niceScale(50)).toBe(10);
   });
 });

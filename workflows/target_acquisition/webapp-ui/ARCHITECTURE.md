@@ -65,17 +65,18 @@ export default {
 `ctx` carries `{ state, actions, backend }`. Widgets read `state`, call
 `actions` to change it, and the frame re-renders. That is the whole contract.
 
-**The carrier sets the canvas up.** It settles where the stage may go, which
-is the frame everything afterwards is drawn in, so that is the moment there is
-something to draw. **setup** is the base widget until then; from there the
-canvas is the base and stays for the rest of the run — the window into the
-data, filling up rather than appearing once full.
+**The canvas is the base from step 3 on.** It is the microscope's own limits
+drawn to scale, so it exists from *reaching* the carrier step, not from
+finishing it. Before that there is no frame to draw and the step's own panel
+holds the right-hand side alone.
 
-The setup steps each declare the `setup` widget, so walking back to one still
-shows its card once the canvas has taken the base. Every other widget belongs
-to the step that declared it and is only shown while that step is selected.
-Planning surfaces — choosing a focus strategy, tuning detection — are not
-acquired data and get their own widgets.
+Every step declares the panel it wants — `connect`, `optics`, `focus`, … — and
+it shows only while that step is selected, so walking back to Connect brings
+the session and its checks with it. Planning surfaces are not acquired data and
+get their own widgets.
+
+A panel need not be a tab. Something that *is* the canvas rather than an
+alternative to it takes the channel beside it instead: see the carrier below.
 
 ## Steps and workflows
 
@@ -130,9 +131,19 @@ tree matches the picture.
 | `src/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
 **Widget extraction has started, from the outside in.** `widgets/carrier.js` is
-the first: it owns one panel, is handed a configuration and a callback, and
-knows nothing about run state. Its geometry lives in `lib/carriers.js`, so the
-panel and the canvas cannot disagree about where a well is.
+the first: it is handed a configuration and a callback and knows nothing about
+run state. Its geometry lives in `lib/carriers.js`, so nothing can disagree
+about where a well is.
+
+It also shows the second shape a widget can take. A panel is not always a tab:
+the carrier is *what the canvas is drawing*, so its controls dock in a channel
+beside the picture (`#canvas-side`) and it exports `drawOn(ctx, …)` to put the
+carrier on the stage itself. Controls and drawing are in the one file because
+they are one subject — change what a carrier is and a single place follows.
+
+The channel is not a menu for one step. The frame outlasts the step that set
+it, so it stays readable for the rest of the run and stops being editable once
+applied.
 
 One rule it establishes, which the next widget should keep: **a widget redraws
 itself.** Asking the frame to rebuild the panel on every change destroys the

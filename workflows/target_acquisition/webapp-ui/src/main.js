@@ -4,7 +4,7 @@ import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor, describeSession, CONNECT_CHECKS,
   SETTING_TYPES, settingType, sampleReading,
 } from "./lib/microscopes.js";
-import { DEFAULT_CARRIER, describeCarrier, geometry } from "./lib/carriers.js";
+import { DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
 import carrierWidget from "./widgets/carrier.js";
 
 (() => {
@@ -63,7 +63,7 @@ import carrierWidget from "./widgets/carrier.js";
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
-        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: ["carrier"], ms: 700, mode: "carrier" },
+        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "detect", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, note: "1250 cells found", mode: "detect" },
@@ -79,7 +79,7 @@ import carrierWidget from "./widgets/carrier.js";
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
-        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: ["carrier"], ms: 700, mode: "carrier" },
+        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "save", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -91,7 +91,7 @@ import carrierWidget from "./widgets/carrier.js";
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
-        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: ["carrier"], ms: 700, mode: "carrier" },
+        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "save", title: "Write the surface", why: "Fits the plane and records its residual for this objective.", btn: "Write surface", panels: [], ms: 700, note: "residual 1.8 µm · written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -414,7 +414,6 @@ import carrierWidget from "./widgets/carrier.js";
   const PANEL_META = {
     connect: { label: "Session", panel: "panel-setup" },
     optics: { label: "Optical configuration", panel: "panel-setup" },
-    carrier: { label: carrierWidget.label, panel: "panel-setup" },
     canvas: { label: "Canvas", panel: "panel-canvas" },
     detect: { label: "Detection", panel: "panel-detect" },
     focus: { label: "Focus strategy", panel: "panel-focus" },
@@ -807,13 +806,26 @@ import carrierWidget from "./widgets/carrier.js";
     return row;
   }
 
-  /* The widget owns its panel and redraws itself, so this only hands it the
-     configuration and takes the new one back. Re-rendering the panel from here
-     on every change would destroy the number being typed into. */
-  function renderCarrierCard(host) {
+  /* The carrier is what the canvas is drawing, so its controls sit beside the
+     drawing and stay there. Not a menu that appears for one step: the frame is
+     a property of the run, readable whenever the canvas is, and only editable
+     until it has been applied.
+
+     Mounted once per lock state rather than on every render, because the widget
+     keeps its own and rebuilding it would throw away the number being typed. */
+  function renderSide(show) {
+    const host = el("canvas-side");
+    const on = show === "canvas";
+    const locked = state.done.has("carrier") || !!state.running;
+    const key = on && `carrier:${locked}`;
+    host.hidden = !on;
+    if (state.sideMounted === key) return;
+    state.sideMounted = key;
+    host.textContent = "";
+    if (!on) return;
     carrierWidget.render(host, {
       config: state.carrier,
-      locked: state.done.has("carrier") || !!state.running,
+      locked,
       onChange: (next) => {
         state.carrier = next;
         view.fitted = false;
@@ -830,7 +842,6 @@ import carrierWidget from "./widgets/carrier.js";
   const SETUP_CARDS = {
     connect: renderSessionCard,
     optics: renderOpticsCard,
-    carrier: renderCarrierCard,
   };
 
   function renderSetup(which = step(state.activeIdx).id) {
@@ -902,6 +913,7 @@ import carrierWidget from "./widgets/carrier.js";
     for (const id of new Set(Object.values(PANEL_META).map((m) => m.panel))) {
       el(id).classList.toggle("on", id === shown);
     }
+    renderSide(show);
     if (SETUP_CARDS[show]) renderSetup(show);
     if (show === "canvas") { sizeCanvas(stageCv); drawStage(); }
     if (show === "detect") { renderDetectToolbar(); drawTilePreview(); }
@@ -949,53 +961,19 @@ import carrierWidget from "./widgets/carrier.js";
   const stageTip = el("stage-tip");
   const view = { scale: 0.03, tx: 0, ty: 0, fitted: false };
 
-  /* Millimetres are the carrier's unit and micrometres are the stage's. This
-     is the only place the two meet, so the rest of the drawing stays in one. */
-  const MM_UM = 1000;
-
-  const carrierExtentUm = () => {
-    const g = geometry(state.carrier);
-    return [g.width * MM_UM, g.height * MM_UM];
-  };
-
   /* Fit to whichever is larger. The carrier is the whole of what the stage may
      reach and the scan covers a corner of it, so framing only the scan would
      hide the thing the canvas was set up to show. */
   function fitView() {
     const w = stageCv.cssW || 800, h = stageCv.cssH || 600;
     const pad = 26;
-    const [cw, ch] = carrierExtentUm();
+    const [cw, ch] = carrierWidget.extentUm(state.carrier);
     const fw = Math.max(W_UM, cw), fh = Math.max(H_UM, ch);
     const s = Math.min((w - 2 * pad) / fw, (h - 2 * pad) / fh);
     view.scale = s;
     view.tx = (w - fw * s) / 2;
     view.ty = (h - fh * s) / 2;
     view.fitted = true;
-  }
-
-  /* Every imageable area the carrier declares, in stage coordinates. Drawn
-     under everything else: it is the frame the run happens inside, not a layer
-     of the run. */
-  function drawCarrier(ctx) {
-    const cfg = state.carrier;
-    const g = geometry(cfg);
-    const aw = cfg.w * MM_UM * view.scale;
-    const ah = cfg.h * MM_UM * view.scale;
-    if (aw < 1.5 || ah < 1.5) return;
-    const rad = Math.min(g.corner * MM_UM * view.scale, aw / 2, ah / 2);
-    ctx.save();
-    ctx.strokeStyle = css("--accent");
-    ctx.globalAlpha = 0.5;
-    ctx.lineWidth = Math.min(1.2, Math.max(0.4, aw * 0.02));
-    for (let r = 0; r < cfg.rows; r++) {
-      for (let c = 0; c < cfg.cols; c++) {
-        const [x, y] = toScreen(c * g.pitchX * MM_UM, r * g.pitchY * MM_UM);
-        ctx.beginPath();
-        ctx.roundRect(x, y, aw, ah, rad);
-        ctx.stroke();
-      }
-    }
-    ctx.restore();
   }
 
   const toScreen = (x, y) => [x * view.scale + view.tx, y * view.scale + view.ty];
@@ -1025,7 +1003,9 @@ import carrierWidget from "./widgets/carrier.js";
     ctx.fillStyle = css("--surface-3");
     ctx.fillRect(0, 0, w, h);
 
-    drawCarrier(ctx);
+    carrierWidget.drawOn(ctx, {
+      config: state.carrier, toScreen, scale: view.scale, colour: css("--accent"),
+    });
 
     const showTiles = el("lay-tiles").checked;
     const showCells = el("lay-cells").checked;

@@ -291,19 +291,21 @@ test("the carrier sets the canvas up, and from then on it is always there",
     await expect(page.locator(".tab")).toHaveCount(0);
     await throughSetup(page);
     await expect(page.locator(".tab"), "the run reached the carrier, so the canvas exists")
-      .toHaveText(["Canvas", "Carrier configuration"]);
-    // Only what the run has established, plus what is being done now. Nothing
-    // up to here owns a row: the session and the carrier have their own cards,
-    // and the focus surface is neither measured nor the step being stood on.
-    await expect(page.locator(".setup-row")).toHaveCount(0);
-    // a panel belongs to its step: standing on the carrier, its own is shown
-    // and the session's is not
+      .toHaveText(["Canvas"]);
+    // the carrier is not a tab of its own: its controls dock beside the drawing
+    // they change, and the canvas is the only picture of it
+    await expect(page.locator("#canvas-side")).toBeVisible();
     await expect(page.locator(".carrier-card")).toHaveCount(1);
-    await expect(page.locator(".session-card")).toHaveCount(0);
+    // Only what the run has established, plus what is being done now. Nothing
+    // up to here owns a row: the session has its own card, the carrier its own
+    // channel, and the focus surface is neither measured nor being stood on.
+    await expect(page.locator(".setup-row")).toHaveCount(0);
     await gotoStep(page, "Connect");
     await expect(page.locator(".session-title"), "and the session comes back when you return")
       .toHaveText("Session");
     await expect(page.locator(".check-row")).toHaveCount(6);
+    await expect(page.locator("#canvas-side"),
+      "which is not the canvas, so the channel is not there either").toBeHidden();
 
     await placeFocusPoints(page);
     await expect(page.locator(".tab")).toHaveText(["Canvas", "Focus strategy"]);
@@ -313,6 +315,10 @@ test("the carrier sets the canvas up, and from then on it is always there",
     // a step that owns no panel is the canvas alone — setup does not follow it
     await gotoStep(page, "Scan the overview");
     await expect(page.locator(".tab")).toHaveText(["Canvas"]);
+    // and the carrier channel is still there, since the frame outlasts the step
+    // that set it: readable for the rest of the run, editable no longer
+    await expect(page.locator(".carrier-card")).toHaveCount(1);
+    await expect(page.locator(".carrier-num").first()).toBeDisabled();
 
     await runStep(page, 3000);
 

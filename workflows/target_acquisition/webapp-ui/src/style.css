@@ -699,16 +699,19 @@ button.run.danger:hover:enabled { background: #991b1b; }
    Controls down one side, the carrier drawn beside them. The drawing is the
    check on the numbers: a wrong pitch is hard to see in a field and obvious
    as soon as the areas overlap. */
-.carrier-card {
-  display: grid; grid-template-columns: 340px minmax(0, 1fr);
-  border: 1px solid var(--line-strong); border-radius: 10px;
-  background: var(--surface-2); overflow: hidden;
+/* The canvas keeps the room; a step whose work is about the frame gets a
+   column beside it. Scrolls on its own so the picture never moves. */
+.canvas-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 0; }
+.canvas-side {
+  width: 320px; overflow-y: auto; min-height: 0;
+  border-left: 1px solid var(--line); background: var(--surface-2);
 }
+.canvas-side[hidden] { display: none; }
+
+.carrier-card { display: flex; flex-direction: column; height: 100%; }
 .carrier-controls {
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 14px 16px; border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 8px; padding: 14px;
 }
-.carrier-view { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 340px; }
 
 .carrier-types { display: flex; gap: 5px; }
 .carrier-type {
@@ -767,17 +770,11 @@ button.run.danger:hover:enabled { background: #991b1b; }
 .carrier-shape.round::before { content: "◯"; }
 .carrier-link:disabled, .carrier-shape:disabled, .carrier-reset:disabled { opacity: 0.5; cursor: default; }
 
-.carrier-preview {
-  display: grid; place-items: center; padding: 18px; min-height: 0;
-  background: var(--screen);
-}
-.carrier-preview svg { max-width: 100%; max-height: 100%; display: block; }
-.carrier-area { fill: var(--surface-2); stroke: var(--accent); }
-.carrier-scale line { stroke: var(--ink-3); }
-.carrier-scale text { fill: var(--ink-3); font-family: var(--mono); }
-
+/* What the numbers add up to, under the numbers. Two columns, because the
+   column is narrow and four of these in a row would not fit. */
 .carrier-stats {
-  display: flex; gap: 20px; padding: 9px 16px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px;
+  margin-top: auto; padding: 12px 14px;
   border-top: 1px solid var(--line);
 }
 .carrier-stat { display: flex; flex-direction: column; gap: 1px; }
