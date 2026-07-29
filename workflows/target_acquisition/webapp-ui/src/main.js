@@ -621,17 +621,23 @@ import {
     /* The open bar sits above what has been recorded: it is the thing you are
        doing, and it should not walk further down the panel each time a setting
        is taken. */
+    /* The open bar is a group of one, so its label sits the same distance off
+       its box as every other label does. */
     const open = state.bars.find((b) => !b.state);
     if (open) {
+      const group = document.createElement("div");
+      group.className = "setting-group";
+
       const label = document.createElement("div");
       label.className = "group-label";
       label.textContent = "Add new optical setting";
-      host.append(label);
+      group.append(label);
 
       const box = document.createElement("div");
       box.className = "setting-box open";
       box.append(renderOpenBar(open));
-      host.append(box);
+      group.append(box);
+      host.append(group);
     }
 
     /* Recorded settings are grouped by kind, in the order the kinds are
