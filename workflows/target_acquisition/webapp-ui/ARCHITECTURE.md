@@ -105,6 +105,40 @@ composed by an agent: something assembling a run from a registry of widgets and
 a catalogue of steps cannot break the shell. Something emitting widget code
 can.
 
+## Where this stands, and what is deliberately not done yet
+
+The layers above are the target. Some of them are built and used, some are
+built and waiting, and one gap is a live hazard. Read this before assuming the
+tree matches the picture.
+
+| part | state |
+|---|---|
+| `lib/` | built, unit-tested, **not yet imported by the app** |
+| `backend/mock.js` | built, **not yet imported by the app** |
+| `frame/steps.js` | built, unit-tested, **not yet imported by the app** |
+| `workflows/` | built, unit-tested, **not yet imported by the app** |
+| `widgets/` | not started |
+| `src/main.js` | the whole running app, ~2100 lines, its own copies of all of the above |
+
+**Widget extraction is deferred on purpose.** While the UI is still being
+designed, a single file is faster to iterate in — most changes are CSS plus one
+draw function — and module boundaries drawn around a moving design get redrawn.
+Extraction earns its keep when a new widget appears, or when more than one
+person works on the page at once. Neither is true yet.
+
+**The hazard: four facts are currently defined twice.** Surface fitting, the
+sweep and peak rules, the synthetic sample, and the workflow declarations all
+exist both inline in `main.js` and in the modules beside it. `main.js` is what
+runs; the modules are what the tests cover. Change a rule in one and the other
+disagrees in silence — the unit suite stays green while the app misbehaves.
+
+The fix is small and does not touch the UI: `main.js` imports the maths, the
+sample and the workflows instead of carrying copies, and its runner drops the
+mode switch in favour of calling `step.run(ctx)`. Every line worth editing
+while iterating on design stays where it is. Until that is done, **treat
+`main.js` as the source of truth and the modules as a proposal** — and if you
+change a rule, change it in both.
+
 ## Tests
 
 - `tests/unit/**` — vitest, on `lib/` only. Fast, no browser. This is where
