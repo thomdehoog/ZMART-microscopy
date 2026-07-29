@@ -680,13 +680,22 @@ export default function App() {
         <NeuroglancerView onViewer={setViewer} />
         <ModeToggle mode={mode} onChange={setMode} />
         <ScaleBar viewer={viewer} />
-        <div style={styles.axisControls}>
-          {/* Z steps through the planes of the stack, so it belongs to the 2-D
-              working view; in 3-D the whole depth is already on screen. Time is
-              meaningful in both. Neither appears unless the image actually has
-              that axis with more than one step along it -- a still image gets no
-              time slider, and a single plane gets no Z slider. */}
-          {mode === "flat" && <AxisSlider viewer={viewer} axis="z" label="Z" />}
+        {/* The two sliders are placed to match the directions they move in, which
+            makes them quicker to reach for without reading the labels. Depth runs
+            up and down the right-hand edge, the way a stack is pictured; time runs
+            left to right along the bottom, the way a recording is pictured.
+
+            Z steps through the planes of the stack, so it belongs to the 2-D
+            working view; in 3-D the whole depth is already on screen. Time is
+            meaningful in both. Neither appears unless the image actually has that
+            axis with more than one step along it -- a still image gets no time
+            slider, and a single plane gets no Z slider. */}
+        <div style={styles.depthControl}>
+          {mode === "flat" && (
+            <AxisSlider viewer={viewer} axis="z" label="Z" orientation="vertical" />
+          )}
+        </div>
+        <div style={styles.timeControl}>
           <AxisSlider
             viewer={viewer}
             axis="t"
@@ -823,14 +832,26 @@ const styles = {
   buttonActive: { background: "#2f6feb", color: "#fff" },
   // The sliders stack in one column at the bottom of the stage, so a timelapse
   // showing both Z and T never has them overlapping.
-  axisControls: {
+  // Down the right-hand edge, between the scale bar in the top corner and the time
+  // slider along the bottom. Both gaps are deliberate: the depth slider takes
+  // whatever height is left, so it is as long as the window allows without ever
+  // running into either of them.
+  depthControl: {
+    position: "absolute",
+    top: 72,
+    right: 14,
+    bottom: 62,
+    zIndex: 10,
+    display: "grid",
+    justifyItems: "end",
+  },
+  timeControl: {
     position: "absolute",
     left: 14,
     right: 14,
     bottom: 14,
     zIndex: 10,
     display: "grid",
-    gap: 6,
     justifyItems: "stretch",
   },
 };

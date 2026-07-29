@@ -230,6 +230,91 @@ class TestTheTimeSlider:
         timelapse_page.wait_for_function("() => window.zmartMode === 'flat'", timeout=15_000)
 
 
+# The whole control -- play button, name, slider and reading together -- which is
+# what has to be placed and turned, and what two of them must not overlap in.
+_BOX = """(label) => {
+  const element = document.querySelector(`[aria-label='${label}']`);
+  if (!element) return null;
+  const box = (element.closest('label') ?? element).getBoundingClientRect();
+  return {left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+          width: box.width, height: box.height};
+}"""
+
+# Just the one element, for asking where a part of a control sits within it.
+_PART = """(label) => {
+  const element = document.querySelector(`[aria-label='${label}']`);
+  if (!element) return null;
+  const box = element.getBoundingClientRect();
+  return {left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+          width: box.width, height: box.height};
+}"""
+
+
+class TestWhereTheSlidersSit:
+    """Each slider is placed and turned the way the thing it moves through is.
+
+    Depth stands upright along the right-hand edge, the way a stack of planes is
+    pictured, and time lies along the bottom, the way a recording is. The point is
+    that an operator can reach for the right one without stopping to read the
+    labels, which matters when both are on screen and their hand is on the stage.
+
+    This is worth pinning because it is easy to lose. The two are the same control
+    used twice, so a change to one reaches the other, and an arrangement that
+    quietly went back to two identical bars stacked in a corner would still pass
+    every other test here.
+    """
+
+    def _view(self, page):
+        return page.evaluate("() => ({width: innerWidth, height: innerHeight})")
+
+    def test_depth_stands_upright_along_the_right_hand_edge(self, timelapse_page):
+        box = timelapse_page.evaluate(_BOX, "z position")
+        view = self._view(timelapse_page)
+        assert box["height"] > box["width"] * 3, (
+            f"the depth slider is not standing upright: {box['width']:.0f} wide by "
+            f"{box['height']:.0f} tall"
+        )
+        assert box["left"] > view["width"] / 2, (
+            "the depth slider should be on the right-hand side of the view, and its "
+            f"left edge is at {box['left']:.0f} of {view['width']}"
+        )
+
+    def test_time_lies_along_the_bottom(self, timelapse_page):
+        box = timelapse_page.evaluate(_BOX, "t position")
+        view = self._view(timelapse_page)
+        assert box["width"] > box["height"] * 3, (
+            f"the time slider is not lying flat: {box['width']:.0f} wide by "
+            f"{box['height']:.0f} tall"
+        )
+        assert box["top"] > view["height"] / 2, (
+            "the time slider should be along the bottom of the view, and its top "
+            f"edge is at {box['top']:.0f} of {view['height']}"
+        )
+
+    def test_neither_is_drawn_over_the_other(self, timelapse_page):
+        depth = timelapse_page.evaluate(_BOX, "z position")
+        time = timelapse_page.evaluate(_BOX, "t position")
+        assert depth["bottom"] <= time["top"], (
+            "the depth slider runs down into the time slider: it ends at "
+            f"{depth['bottom']:.0f} and the time slider starts at {time['top']:.0f}"
+        )
+
+    def test_the_reading_stays_inside_the_upright_control(self, timelapse_page):
+        """Which plane you are on has to be inside the panel showing it.
+
+        Standing the control on end gives it a fixed height to fit into, and a
+        reading that spills past the bottom edge lands on the image instead — small
+        pale text on whatever happens to be underneath, which is where it is least
+        readable.
+        """
+        control = timelapse_page.evaluate(_BOX, "z position")
+        reading = timelapse_page.evaluate(_PART, "z position value")
+        assert reading["bottom"] <= control["bottom"], (
+            f"the reading ends at {reading['bottom']:.0f}, below the control's own "
+            f"bottom edge at {control['bottom']:.0f}"
+        )
+
+
 def test_no_time_slider_for_a_single_moment_volume(viewer_page):
     """The ordinary demo has no time axis, so it must show no time slider."""
     assert viewer_page.locator("[aria-label='z position']").count() == 1
