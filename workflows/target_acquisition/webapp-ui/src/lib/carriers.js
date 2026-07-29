@@ -124,26 +124,6 @@ export function shapeName({ w, h, cornerRatio }) {
   return cornerRatio > 0 ? "Rounded rect" : "Rectangle";
 }
 
-/**
- * A scale bar wants a round number that is a useful fraction of what it
- * measures — long enough to read against, short enough not to span the whole
- * drawing. Steps run 1, 2, 5 and then every ten, and the longest one still
- * under a third of the width wins.
- */
-export function niceScale(width) {
-  const steps = [1, 2, 5];
-  for (let s = 10; s <= 500; s += 10) steps.push(s);
-  const lo = width * 0.15;
-  const hi = width * 0.35;
-  let chosen = steps[0];
-  for (const s of steps) {
-    if (s > hi) break;
-    chosen = s;
-  }
-  if (chosen < lo) chosen = steps.find((s) => s >= lo) ?? chosen;
-  return chosen;
-}
-
 /** One line for the rail: what was configured, without opening the panel. */
 export const describeCarrier = (config) => {
   const g = geometry(config);

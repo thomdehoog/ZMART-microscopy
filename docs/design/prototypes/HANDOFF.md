@@ -107,10 +107,15 @@ Two other workflows exist to prove the frame is not built around one:
   recorded preset is, and its kind, name and Record are all one height.
 
 - **Carrier configuration** is a full designer, not a dropdown: type, preset,
-  rows/columns, area size, pitch and corner, each pair tieable, with the carrier
-  drawn live beside the numbers and its areas laid onto the canvas. It is the
-  first extracted widget — `widgets/carrier.js` over `lib/carriers.js` — and the
-  shape the rest should follow.
+  rows/columns, area size, pitch and corner, each pair tieable. It has **no tab
+  and no picture of its own** — it is what the canvas is drawing, so the
+  controls dock in a channel to the right of the canvas and the carrier itself
+  is drawn on the stage. One drawing, not two.
+  - The channel is **not a menu for step 3**. The frame outlasts the step that
+    set it: readable whenever the canvas is, editable until applied.
+  - `widgets/carrier.js` holds the controls *and* `drawOn` — one subject, one
+    file — over the geometry in `lib/carriers.js`. It is the first extracted
+    widget and the shape the rest should follow.
 
 **Two panels worth understanding**
 

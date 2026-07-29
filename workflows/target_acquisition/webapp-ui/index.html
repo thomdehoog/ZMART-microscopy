@@ -54,9 +54,14 @@
           <button class="ghost" id="fit-btn">Fit</button>
           <div class="readout" id="stage-readout">—</div>
         </div>
-        <div class="plot-host">
-          <canvas class="plot stagecv" id="stage-canvas"></canvas>
-          <div class="tip" id="stage-tip"></div>
+        <div class="canvas-body">
+          <div class="plot-host">
+            <canvas class="plot stagecv" id="stage-canvas"></canvas>
+            <div class="tip" id="stage-tip"></div>
+          </div>
+          <!-- a step whose work is about the frame itself docks its controls
+               here, beside what they change, rather than on a tab of its own -->
+          <aside class="canvas-side" id="canvas-side" hidden></aside>
         </div>
       </div>
 

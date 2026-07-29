@@ -3,8 +3,12 @@
  *
  * Owns one panel and nothing else: it is handed a configuration and a way to
  * report a new one, and it never reaches for run state or for another widget.
- * Everything it knows about geometry comes from `lib/carriers.js`, so what is
- * drawn here and what the canvas will draw later cannot drift apart.
+ *
+ * It draws no picture of its own. The carrier belongs on the canvas beside it,
+ * and a second drawing of the same thing is a second thing to keep right — so
+ * the controls live here and `drawOn` puts the carrier itself on the stage.
+ * Both are in this file because they are one subject: change what a carrier is
+ * and there is a single place that has to follow.
  *
  * It redraws itself rather than asking the frame to rebuild the panel. A
  * rebuild on every keystroke would destroy the field being typed into — the
@@ -14,7 +18,7 @@
 
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry,
-  shapeName, niceScale, maxRadius,
+  shapeName, maxRadius,
 } from "../lib/carriers.js";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -64,9 +68,46 @@ const typeIcon = (id) => {
   return svg;
 };
 
+/* Millimetres are the carrier's unit and micrometres are the stage's. This is
+   the only place the two meet. */
+const MM_UM = 1000;
+
 export default {
   id: "carrier",
   label: "Carrier configuration",
+
+  /** How much stage the carrier covers, for whatever has to frame it. */
+  extentUm(config) {
+    const g = geometry(config);
+    return [g.width * MM_UM, g.height * MM_UM];
+  },
+
+  /**
+   * Every imageable area the carrier declares, drawn in stage coordinates.
+   * Under everything else: it is the frame the run happens inside, not a layer
+   * of the run. Handed the projection rather than reaching for it, so this
+   * knows nothing about how the canvas is panned.
+   */
+  drawOn(ctx, { config, toScreen, scale, colour }) {
+    const g = geometry(config);
+    const aw = config.w * MM_UM * scale;
+    const ah = config.h * MM_UM * scale;
+    if (aw < 1.5 || ah < 1.5) return;
+    const rad = Math.min(g.corner * MM_UM * scale, aw / 2, ah / 2);
+    ctx.save();
+    ctx.strokeStyle = colour;
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = Math.min(1.2, Math.max(0.4, aw * 0.02));
+    for (let r = 0; r < config.rows; r++) {
+      for (let c = 0; c < config.cols; c++) {
+        const [x, y] = toScreen(c * g.pitchX * MM_UM, r * g.pitchY * MM_UM);
+        ctx.beginPath();
+        ctx.roundRect(x, y, aw, ah, rad);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  },
 
   render(host, { config, locked, onChange }) {
     let cfg = { ...config };
@@ -81,8 +122,7 @@ export default {
 
     const card = el("div", "carrier-card");
     const controls = el("div", "carrier-controls");
-    const view = el("div", "carrier-view");
-    card.append(controls, view);
+    card.append(controls);
     host.append(card);
 
     const inputs = [];
@@ -257,42 +297,8 @@ export default {
     shapeGroup.append(shapeGrid);
     controls.append(shapeGroup);
 
-    const preview = el("div", "carrier-preview");
     const stats = el("div", "carrier-stats");
-    view.append(preview, stats);
-
-    function drawPreview() {
-      const g = geometry(cfg);
-      const span = Math.max(g.width, g.height);
-      const pad = { side: span * 0.28, top: span * 0.18, bottom: span * 0.26 };
-      const bar = niceScale(g.width);
-      const barY = g.height + span * 0.035;
-      const tick = span * 0.012;
-      const font = span * 0.028;
-      const svg = svgEl("svg", {
-        viewBox: `${-pad.side} ${-pad.top} ${g.width + pad.side * 2} ${g.height + pad.top + pad.bottom}`,
-        preserveAspectRatio: "xMidYMid meet",
-      });
-      const stroke = Math.min(Math.min(cfg.w, cfg.h) * 0.02, span * 0.004);
-      for (let r = 0; r < cfg.rows; r++) {
-        for (let c = 0; c < cfg.cols; c++) {
-          svg.append(svgEl("rect", {
-            x: c * g.pitchX, y: r * g.pitchY, width: cfg.w, height: cfg.h,
-            rx: Math.min(g.corner, cfg.w / 2, cfg.h / 2),
-            class: "carrier-area", "stroke-width": stroke,
-          }));
-        }
-      }
-      const scale = svgEl("g", { class: "carrier-scale" });
-      scale.append(svgEl("line", { x1: 0, y1: barY, x2: bar, y2: barY, "stroke-width": span * 0.0018 }));
-      scale.append(svgEl("line", { x1: 0, y1: barY - tick, x2: 0, y2: barY + tick, "stroke-width": span * 0.0018 }));
-      scale.append(svgEl("line", { x1: bar, y1: barY - tick, x2: bar, y2: barY + tick, "stroke-width": span * 0.0018 }));
-      const t = svgEl("text", { x: bar / 2, y: barY + tick + span * 0.018 + font * 0.8, "text-anchor": "middle", "font-size": font });
-      t.textContent = `${bar} mm`;
-      scale.append(t);
-      svg.append(scale);
-      preview.replaceChildren(svg);
-    }
+    card.append(stats);
 
     function stat(label, value) {
       const d = el("div", "carrier-stat");
@@ -321,7 +327,6 @@ export default {
         stat("Layout", `${cfg.rows}×${cfg.cols}`),
         stat("Shape", shapeName(cfg)),
       );
-      drawPreview();
     }
 
     sync();
