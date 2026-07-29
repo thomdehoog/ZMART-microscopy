@@ -250,9 +250,13 @@ moving design get redrawn. Take a panel out when it stops moving.
 
 - Which preset the scan uses and which the acquisition uses. The old
   survey/target pairing was dropped with the picker; nothing replaced it.
-- **Where the carrier sits on the stage.** It is pinned to the origin — top
-  left — which is a placeholder, not a decision. `STAGE_LIMITS_MM` (120 × 80)
-  is a placeholder too, standing in for what the controller will report.
+- **Where the carrier sits on the stage** is centred in the travel, and that is
+  a default rather than an answer: the real offset comes from calibrating
+  against a plate actually on the stage. `carrierOriginUm()` is the one line
+  that answer replaces, and everything the run produces is placed through it,
+  so the carrier and what was imaged inside it move together.
+  `STAGE_LIMITS_MM` (120 × 80) is still a placeholder, standing in for what the
+  controller will report.
 - The synthetic sample is still a 7×5 tile grid unrelated to the carrier, so
   the scan area sits in the plate's corner rather than inside a well.
 - Should the canvas show the planned tile grid before the scan, or stay blank?

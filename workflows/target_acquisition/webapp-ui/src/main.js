@@ -1068,6 +1068,21 @@ import carrierWidget from "./widgets/carrier.js";
      same coordinates and lands where it belongs. */
   const STAGE_UM = [STAGE_LIMITS_MM.width * 1000, STAGE_LIMITS_MM.height * 1000];
 
+  /* Where the carrier's own zero sits on the stage.
+   *
+   * Centred in the travel, because that is where a holder puts a plate and it
+   * is the only placement that can be worked out rather than measured. It is a
+   * default and not a fact: the real offset comes from calibrating against a
+   * plate actually on the stage, and this is the one line that answer replaces.
+   *
+   * Everything the run produces is placed from this point too, so the carrier
+   * and what was imaged inside it move together instead of drifting apart the
+   * moment either of them moves. */
+  function carrierOriginUm() {
+    const [w, h] = carrierWidget.extentUm(state.carrier);
+    return [(STAGE_UM[0] - w) / 2, (STAGE_UM[1] - h) / 2];
+  }
+
   function fitView() {
     const w = stageCv.cssW || 800, h = stageCv.cssH || 600;
     const pad = 26;
@@ -1094,9 +1109,8 @@ import carrierWidget from "./widgets/carrier.js";
   const toScreen = (x, y) => [x * view.scale + view.tx, y * view.scale + view.ty];
   const toWorld = (px, py) => [(px - view.tx) / view.scale, (py - view.ty) / view.scale];
 
-  function tileTexture(ctx, col, row) {
-    const x0 = col * TILE_UM, y0 = row * TILE_UM;
-    const [sx, sy] = toScreen(x0, y0);
+  function tileTexture(ctx, col, row, place) {
+    const [sx, sy] = place(col * TILE_UM, row * TILE_UM);
     const sz = TILE_UM * view.scale;
 
     // tile ground with a gentle per-tile vignette — the flat-field seam
@@ -1123,11 +1137,18 @@ import carrierWidget from "./widgets/carrier.js";
 
     drawStageLimits(ctx);
 
+    /* One projection for everything that sits in the carrier: the carrier
+       itself and every tile, cell and target the run put inside it. Handed
+       down rather than reached for, so where the carrier stands is decided in
+       one place and nothing can be drawn against a different answer. */
+    const [ox, oy] = carrierOriginUm();
+    const place = (x, y) => toScreen(x + ox, y + oy);
+
     /* Grey, not the accent: the carrier is the room the run happens in, not a
        thing the run produced. Dark enough to read against the stage behind it,
        which is grey too. */
     carrierWidget.drawOn(ctx, {
-      config: state.carrier, toScreen, scale: view.scale,
+      config: state.carrier, toScreen: place, scale: view.scale,
       colour: css("--ink-3"), fill: css("--surface-3"),
     });
 
@@ -1143,12 +1164,12 @@ import carrierWidget from "./widgets/carrier.js";
       for (let i = 0; i < shown; i++) {
         const row = Math.floor(i / COLS);
         const col = row % 2 === 0 ? i % COLS : COLS - 1 - (i % COLS); // serpentine, like the stage
-        tileTexture(ctx, col, row);
+        tileTexture(ctx, col, row, place);
       }
       // tissue, clipped to what has been scanned
       ctx.globalCompositeOperation = "lighter";
       for (const b of blobs) {
-        const [bx, by] = toScreen(b.x, b.y);
+        const [bx, by] = place(b.x, b.y);
         const br = b.r * view.scale;
         const rowsDone = Math.ceil(shown / COLS);
         if (b.y > rowsDone * TILE_UM + b.r * 0.4) continue;
@@ -1166,7 +1187,7 @@ import carrierWidget from "./widgets/carrier.js";
     if (state.running === "scan" && showTiles) {
       const row = Math.floor(shown / COLS);
       const col = row % 2 === 0 ? shown % COLS : COLS - 1 - (shown % COLS);
-      const [fx, fy] = toScreen(col * TILE_UM, row * TILE_UM);
+      const [fx, fy] = place(col * TILE_UM, row * TILE_UM);
       ctx.strokeStyle = css("--accent");
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 4]);
@@ -1179,7 +1200,7 @@ import carrierWidget from "./widgets/carrier.js";
        sitting in the plate's corner before any of this had happened, which
        says the run has a sample somewhere it does not yet have one. */
     if (shown > 0) {
-      const [bx, by] = toScreen(0, 0);
+      const [bx, by] = place(0, 0);
       ctx.strokeStyle = css("--line-strong");
       ctx.lineWidth = 1;
       ctx.strokeRect(bx, by, W_UM * view.scale, H_UM * view.scale);
@@ -1193,7 +1214,7 @@ import carrierWidget from "./widgets/carrier.js";
       ctx.beginPath();
       for (const c of cells) {
         if (!state.detected.has(c.id) || state.gated.has(c.id)) continue;
-        const [x, y] = toScreen(c.x, c.y);
+        const [x, y] = place(c.x, c.y);
         if (x < -8 || y < -8 || x > w + 8 || y > h + 8) continue;
         ctx.moveTo(x + ctxRad, y);
         ctx.arc(x, y, ctxRad, 0, Math.PI * 2);
@@ -1205,7 +1226,7 @@ import carrierWidget from "./widgets/carrier.js";
       const gr = Math.max(3, 4.2 * Math.sqrt(view.scale / 0.03));
       for (const c of cells) {
         if (!state.gated.has(c.id)) continue;
-        const [x, y] = toScreen(c.x, c.y);
+        const [x, y] = place(c.x, c.y);
         if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
         ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2);
         ctx.fillStyle = "#0284c7"; ctx.fill();
@@ -1217,7 +1238,7 @@ import carrierWidget from "./widgets/carrier.js";
     if (showTargets && state.acquired.length) {
       for (const id of state.acquired) {
         const c = cells[id - 1];
-        const [x, y] = toScreen(c.x, c.y);
+        const [x, y] = place(c.x, c.y);
         const rr = Math.max(7, 9 * Math.sqrt(view.scale / 0.03));
         ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
         ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 2.2; ctx.stroke();
@@ -1269,6 +1290,9 @@ import carrierWidget from "./widgets/carrier.js";
       drawStage();
       return;
     }
+    /* The readout is where the stage is, because the canvas is the stage. The
+       hit test is not: a cell knows where it is in the carrier, so the pointer
+       is put into the carrier's coordinates to meet it. */
     const [wx, wy] = toWorld(e.offsetX, e.offsetY);
     el("stage-readout").textContent =
       `x ${wx.toFixed(0)} µm · y ${wy.toFixed(0)} µm · ${(view.scale * 1000).toFixed(1)} px/mm`;
@@ -1276,10 +1300,11 @@ import carrierWidget from "./widgets/carrier.js";
     // hover the nearest visible cell
     let hit = null;
     if (state.cellsShown && el("lay-cells").checked) {
+      const [ox, oy] = carrierOriginUm();
       let best = 12 / view.scale;
       for (const c of cells) {
         if (!state.detected.has(c.id)) continue;
-        const d = Math.hypot(c.x - wx, c.y - wy);
+        const d = Math.hypot(c.x + ox - wx, c.y + oy - wy);
         if (d < best) { best = d; hit = c; }
       }
     }

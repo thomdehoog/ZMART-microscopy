@@ -82,10 +82,11 @@ export default {
   },
 
   /**
-   * Every imageable area the carrier declares, drawn in stage coordinates.
-   * Under everything else: it is the frame the run happens inside, not a layer
-   * of the run. Handed the projection rather than reaching for it, so this
-   * knows nothing about how the canvas is panned.
+   * Every imageable area the carrier declares, drawn from the carrier's own
+   * zero. Under everything else: it is the frame the run happens inside, not a
+   * layer of the run. Handed the projection rather than reaching for it, so
+   * this knows neither how the canvas is panned nor where on the stage the
+   * carrier has been placed — both are the caller's to decide.
    *
    * Filled as well as outlined, because an area is somewhere a sample can be
    * rather than a line around nothing — the stage around it is empty travel,
