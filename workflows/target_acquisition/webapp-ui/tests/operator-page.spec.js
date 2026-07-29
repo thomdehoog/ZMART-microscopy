@@ -286,14 +286,15 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeDisabled();
   });
 
-test("the carrier sets the canvas up, and from then on it is always there",
+test("the canvas is the base from the first step, and a step opens on its own",
   async ({ page }) => {
-    // Its own panel and nothing else, so no tab bar at all: one tab is not a
-    // choice, and the rail already says which step this is.
-    await expect(page.locator(".tab")).toHaveCount(0);
+    // the stage is the room every step works in, so it is there from the start
+    await expect(page.locator(".tab")).toHaveText(["Canvas", "Microscope"]);
+    await expect(page.locator('.tab[aria-selected="true"]'),
+      "and the step being stood on opens on top of it").toHaveText("Microscope");
     await throughSetup(page);
-    await expect(page.locator(".tab"), "the run reached the carrier, so the canvas exists")
-      .toHaveText(["Canvas"]);
+    await expect(page.locator(".tab"),
+      "the carrier brings no tab of its own").toHaveText(["Canvas"]);
     // the carrier is not a tab of its own: its controls dock beside the drawing
     // they change, and the canvas is the only picture of it
     await expect(page.locator("#canvas-side")).toBeVisible();
