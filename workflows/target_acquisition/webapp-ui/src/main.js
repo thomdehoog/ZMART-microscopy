@@ -192,14 +192,6 @@ import carrierWidget from "./widgets/carrier.js";
      Keeping any of that against a session that has been closed would be
      keeping something that might now be a lie. The chosen microscope, API and
      password stay, since editing them is the reason to disconnect. */
-  function disconnectSession() {
-    const keep = { ...state.session };
-    resetRun();
-    state.session = keep;
-    renderSetup();
-    renderAll();
-  }
-
   function resetRun() {
     Object.assign(state, {
       activeIdx: 0, done: new Set(), running: null, notes: {},
@@ -445,19 +437,26 @@ import carrierWidget from "./widgets/carrier.js";
     gallery: { label: "Gallery", panel: "panel-gallery" },
   };
 
-  /* The canvas is always the base. It is the stage — the room every step
-     works in — so it is there from the first step rather than arriving once
-     something has been put on it, and a step's own panel opens on top of it.
+  /* The canvas is the microscope's own limits drawn to scale, so it is there
+     from the step that sets it up onward — from reaching that step, not from
+     finishing it. Nothing about the frame depends on the carrier chosen inside
+     it; the carrier only says where within those limits the sample sits.
 
-     Setting the frame up fixes the run's zero as well, which is why no step
-     asks for an origin: it is a consequence of having a stage, not a thing to
-     confirm. Origin is the stage's top left. Later the limits come from the
-     controller; today they are a stand-in.
+     Setting it up fixes the run's zero as well, which is why no step asks for
+     an origin any more. That happens behind the scenes and is deliberately not
+     drawn: it is a consequence of having a frame, not a thing to confirm.
 
-     The tab set is rebuilt on every render rather than growing forever. */
+     From there the canvas is the window into the run, filling with data rather
+     than appearing once data exists. The tab set is rebuilt on every render
+     rather than growing forever. */
+  const canvasReady = () => {
+    const i = indexOfStep("carrier");
+    return i >= 0 && steps().slice(0, i).every((s) => state.done.has(s.id));
+  };
+
   function panelsFor(i) {
     const own = (step(i).panels || []).filter((p) => p !== "canvas");
-    return ["canvas", ...own];
+    return canvasReady() ? ["canvas", ...own] : own;
   }
 
   function focusPanelsFor(i) {
@@ -558,17 +557,10 @@ import carrierWidget from "./widgets/carrier.js";
       form.append(scope, api, pw);
 
       /* An open session is the one thing the whole run rests on, so its
-         settings are not editable while it is open. Disconnecting hands them
-         back — and takes the run with it, because a different microscope
-         invalidates everything recorded off the last one. */
-      if (connected) {
-        const off = document.createElement("button");
-        off.className = "run danger";
-        off.type = "button";
-        off.textContent = "Disconnect";
-        off.addEventListener("click", disconnectSession);
-        form.append(off);
-      }
+         settings stop being editable once it is open and there is no way back
+         from here. Reopening one against a different microscope would
+         invalidate everything recorded off the last, so the run ends the
+         session at its own step and Restart is how you begin again. */
 
       // once the session is open the button has nothing left to do; the fields
       // stay on show as the record of what it was opened with
@@ -894,9 +886,14 @@ import carrierWidget from "./widgets/carrier.js";
 
   }
 
+  /* A step's own panel, alone, is not worth a tab: it is the only thing there
+     and the rail already names the step. The canvas keeps its tab even alone,
+     because it never goes away — a fixture that blinked in and out as steps
+     declared panels beside it would read as a different thing each time. */
   function renderTabs() {
     const host = el("tabs");
     host.textContent = "";
+    if (state.tabs.length === 1 && state.tabs[0] !== "canvas") return;
 
     for (const key of state.tabs) {
       const meta = PANEL_META[key];
