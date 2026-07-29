@@ -428,7 +428,7 @@ import carrierWidget from "./widgets/carrier.js";
   const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-detect", "foot-focus", "foot-analysis", "foot-gallery"];
 
   const PANEL_META = {
-    connect: { label: "Microscope", panel: "panel-setup" },
+    connect: { label: "Microscope configuration", panel: "panel-setup" },
     optics: { label: "Optical configuration", panel: "panel-setup" },
     canvas: { label: "Canvas", panel: "panel-canvas" },
     detect: { label: "Detection", panel: "panel-detect" },
@@ -449,9 +449,14 @@ import carrierWidget from "./widgets/carrier.js";
      From there the canvas is the window into the run, filling with data rather
      than appearing once data exists. The tab set is rebuilt on every render
      rather than growing forever. */
+  /* Reaching the carrier step is what brings the canvas out, not finishing the
+     ones before it. Completing step 2 is pressing Record, and a stage sliding
+     in beside the preset you just took reads as a consequence of recording,
+     which it is not. So it waits until the operator is actually there — and
+     once the carrier has been applied it stays, however far back they walk. */
   const canvasReady = () => {
     const i = indexOfStep("carrier");
-    return i >= 0 && steps().slice(0, i).every((s) => state.done.has(s.id));
+    return i >= 0 && (state.activeIdx >= i || state.done.has("carrier"));
   };
 
   function panelsFor(i) {
@@ -886,14 +891,13 @@ import carrierWidget from "./widgets/carrier.js";
 
   }
 
-  /* A step's own panel, alone, is not worth a tab: it is the only thing there
-     and the rail already names the step. The canvas keeps its tab even alone,
-     because it never goes away — a fixture that blinked in and out as steps
-     declared panels beside it would read as a different thing each time. */
+  /* Always drawn, even for one. A tab used to say "Setup" for every step and
+     was worth hiding; it says what it holds now — Optical configuration, the
+     presets that were loaded — and naming what you are looking at is worth a
+     line whether or not there is a second one to switch to. */
   function renderTabs() {
     const host = el("tabs");
     host.textContent = "";
-    if (state.tabs.length === 1 && state.tabs[0] !== "canvas") return;
 
     for (const key of state.tabs) {
       const meta = PANEL_META[key];
@@ -914,6 +918,16 @@ import carrierWidget from "./widgets/carrier.js";
       }
       b.addEventListener("click", () => { state.tab = key; renderPanels(); renderTabs(); });
       host.append(b);
+    }
+
+    /* The channel beside the canvas is named where it sits, at the right end
+       of the same row and over the column it heads. Not a tab: there is
+       nothing to switch to, it is always beside the canvas. */
+    if (shownPanel() === "canvas") {
+      const side = document.createElement("span");
+      side.className = "side-tab";
+      side.textContent = carrierWidget.label;
+      host.append(side);
     }
   }
 
