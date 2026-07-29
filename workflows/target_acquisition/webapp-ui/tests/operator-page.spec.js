@@ -161,29 +161,6 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
   await expect(page.locator(".setting-box.open").locator("input")).toHaveValue("");
 });
 
-test("a setting looks the same recorded or not", async ({ page }) => {
-  await connect(page);
-  await gotoStep(page, "Optical settings");
-  await record(page, "acquisition", "survey");
-
-  const geom = await page.evaluate(() => {
-    const box = (s) => {
-      const r = document.querySelector(s).getBoundingClientRect();
-      return { w: Math.round(r.width), h: Math.round(r.height) };
-    };
-    const r = (s) => document.querySelector(s).getBoundingClientRect();
-    return {
-      done: box(".setting-box.done"), open: box(".setting-box.open"),
-      nameLeft: Math.round(r(".rec-name").x - r(".setting-box.done").x),
-    };
-  });
-  // same width and columns; the recorded one is slimmer, holding only text
-  expect(geom.done.w, "same width").toBe(geom.open.w);
-  // and the name starts at the left of its box: the group names the kind, so
-  // there is no column standing empty in front of it
-  expect(geom.nameLeft).toBeLessThan(30);
-});
-
 test("the optical settings panel lines up", async ({ page }) => {
   await connect(page);
   await gotoStep(page, "Optical settings");
@@ -226,14 +203,34 @@ test("the optical settings panel lines up", async ({ page }) => {
   one(seen.widths, "every bar the same width");
   one(seen.recordedHeights, "every recorded bar the same height");
   one(seen.openHeights, "and the open bar consistent with itself");
-  expect(seen.recordedHeights[0], "a recorded bar is the slimmer of the two")
-    .toBeLessThan(seen.openHeights[0]);
+  expect(seen.recordedHeights[0], "folded, both bars stand the same height")
+    .toBe(seen.openHeights[0]);
   one(seen.lefts, "every bar on the same left edge");
   one(seen.rights, "every bar on the same right edge");
   one(seen.labels, "every label on that edge too");
   one(seen.starts, "every row opens in the same column");
   one(seen.ends, "and closes in the same one");
   expect(seen.lefts[0], "labels flush with the bars").toBe(seen.labels[0]);
+});
+
+test("a recorded preset unfolds to show everything that was read", async ({ page }) => {
+  await connect(page);
+  await gotoStep(page, "Optical settings");
+  await record(page, "acquisition", "survey");
+
+  // folded by default: a list of presets should stay a list
+  await expect(page.locator(".rec-detail")).toHaveCount(0);
+  await expect(page.locator(".rec-fold")).toHaveAttribute("aria-expanded", "false");
+
+  await page.locator(".rec-fold").first().click();
+  await expect(page.locator(".rec-fold")).toHaveAttribute("aria-expanded", "true");
+  const labels = await page.locator(".rec-detail dt").allInnerTexts();
+  expect(labels, "the detail behind the summary").toContain("Objective");
+  expect(labels).toContain("Channel 1");
+  await expect(page.locator(".rec-detail dd").first()).toContainText("NA");
+
+  await page.locator(".rec-fold").first().click();
+  await expect(page.locator(".rec-detail")).toHaveCount(0);
 });
 
 test("every label sits the same distance off its box", async ({ page }) => {
