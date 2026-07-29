@@ -61,7 +61,7 @@ import {
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["setup"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["setup"], mode: "optics" },
-        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: ["setup"], ms: 700, mode: "carrier" },
+        { id: "carrier", title: "Setup canvas", why: "Tell the run what the sample is mounted in — it sets the stage limits the canvas is drawn in.", btn: "Setup canvas", panels: ["setup"], ms: 700, mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "detect", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, note: "1250 cells found", mode: "detect" },
@@ -77,7 +77,7 @@ import {
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["setup"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["setup"], mode: "optics" },
-        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: ["setup"], ms: 700, mode: "carrier" },
+        { id: "carrier", title: "Setup canvas", why: "Tell the run what the sample is mounted in — it sets the stage limits the canvas is drawn in.", btn: "Setup canvas", panels: ["setup"], ms: 700, mode: "carrier" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "save", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -89,7 +89,7 @@ import {
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["setup"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["setup"], mode: "optics" },
-        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: ["setup"], ms: 700, mode: "carrier" },
+        { id: "carrier", title: "Setup canvas", why: "Tell the run what the sample is mounted in — it sets the stage limits the canvas is drawn in.", btn: "Setup canvas", panels: ["setup"], ms: 700, mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "save", title: "Write the surface", why: "Fits the plane and records its residual for this objective.", btn: "Write surface", panels: [], ms: 700, note: "residual 1.8 µm · written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
