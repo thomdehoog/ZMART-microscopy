@@ -211,18 +211,18 @@ def test_a_canvas_written_before_the_viewer_opened_is_drawn(
 
 
 def test_a_timelapse_opens_on_a_moment_that_was_imaged(browser, built_dist, tmp_path):
-    """Opening a timelapse whose later moments were declared but never imaged.
+    """Opening a timelapse whose later moments have been declared but not yet imaged.
 
-    Our own writer no longer declares moments it has not recorded, so this is not
-    the shape a run of ours has. It is the shape other images have: a timelapse
-    still being recorded by an instrument that plans its length up front, which is
-    a perfectly ordinary thing to be handed and one the viewer should open sensibly.
+    This is the ordinary shape of a run in progress. A timelapse declares room for
+    all the moments it could record and fills them in as the experiment goes, so
+    at any point before the end most of its declared moments are empty — and an
+    operator opening the viewer part-way through meets exactly that.
 
     Left to itself the engine starts half way along every axis, and half way along
-    a time axis whose later moments are empty is a black screen — with the recorded
-    data sitting at the beginning, unseen and with nothing on screen to say so.
-    Opening at the first moment is both what somebody watching a recording expects
-    and what keeps that from happening.
+    a time axis whose later moments are empty is a black screen, with the recorded
+    data sitting at the beginning, unseen and with nothing to say so. Opening at
+    the first moment is both what somebody watching a recording expects and what
+    keeps that from happening.
     """
     run = tmp_path / "run"
     canvas = TileCanvases.create(

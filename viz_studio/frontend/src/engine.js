@@ -839,14 +839,16 @@ function pinTheAxesThatMeasureDistance(viewer) {
  * to start on. Time is not like that. A recording is watched from the beginning,
  * and the middle of a run is not a place anybody asked for.
  *
- * There is a second reason, and it is the one that shows on screen. Some images
- * declare their whole intended length in time at the start, before those moments
- * have been imaged — a timelapse the microscope has not finished, or one written
- * by an instrument that plans its length up front. The moments in the middle of
- * such an image are then genuinely empty, so opening in the middle means opening
- * on a black screen with the recorded data sitting at the beginning, unseen.
+ * There is a second reason, and it is the one that shows on screen. A timelapse
+ * declares room for all the moments it could record and fills them in as the
+ * experiment goes, so until the run ends most of its declared moments are empty.
+ * Opening in the middle of one therefore means opening on a black screen, with
+ * the recorded data sitting at the beginning, unseen and with nothing to say so.
  * Measured, on a store declaring three moments with only the first imaged: the
  * view opened blank, and moving to the first moment showed the specimen.
+ *
+ * This is not a rare shape. It is what every run in progress looks like, and what
+ * an instrument that plans its length up front writes as well.
  *
  * The time axis is recognised by its unit — seconds — which is the same test used
  * for the axes that measure distance, and for the same reason: an image says what

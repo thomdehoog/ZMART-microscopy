@@ -23,8 +23,9 @@ is no container folder per acquisition type, because the engine cannot see one a
 something of ours would have to list its contents anyway.
 
 **How things grow.** A new position is a new store. A new frame is written into the
-store that already exists, whose length in time grows by one as the frame lands. A new
-mask is a folder under `labels/`. Nothing that is already being read ever changes shape.
+store that already exists, into room declared for it at the start — so a store gains
+pieces of image but never changes its declared shape. A new mask is a folder under
+`labels/`. Nothing that is already being read ever changes shape.
 
 **On screen.** Rows are gathered under their acquisition type, one row per channel — and
 a mask is simply another row, drawn with its own controls. Every position of one
@@ -283,35 +284,60 @@ brightness window. The viewer honours all three, so an acquisition arrives looki
 sensible instead of flat grey. Without it, channels are named by number and the
 window is measured from the pixels, which costs a read.
 
-**A timelapse grows its own length; it is not declared in advance.** When a frame is
-written, the array's shape is raised by one. The store then always says what it actually
-contains, which is the honest arrangement: the time slider ends where the data ends,
-with nothing having to hide frames that do not exist yet.
+**A timelapse declares its length up front and fills it in.** A run declares room for
+comfortably more moments than it could record — ten thousand is a sensible figure — and
+writes each frame into its place as the experiment goes. This is the same arrangement as
+the room in space, which is declared to the stage's whole travel range rather than grown
+to fit, and for the same reason: a moment nothing has been written to occupies no space
+on disk at all, so declaring generously costs only the number written in the store's
+description.
 
-The alternative — declaring a generous length up front and never changing it — was
-considered and rejected as untidy. It works, and it has one merit: the description never
-changes, so it could be kept by the browser indefinitely. But it means the store claims
-frames it does not have, and something then has to stop the operator reaching them,
-because the engine remembers "there is nothing here" for a frame looked at too early and
-will not look again.
+**This reverses an earlier decision, and the reversal is worth understanding.** The
+document previously said the opposite — that a timelapse should raise its own length by
+one as each frame lands, so the store always said exactly what it held. The objection to
+declaring up front was recorded here as: *the store claims frames it does not have, and
+something then has to stop the operator reaching them, because the engine remembers
+"there is nothing here" for a frame looked at too early and will not look again.*
 
-Growing it is affordable, which is what makes the tidier choice the practical one too. A
-store's description is a few hundred bytes whether the array holds one frame or ten
-thousand — only a number in it changes — and re-reading it does not touch a single voxel,
-because a piece of image keeps its address when the array grows.
+That objection was sound, and it is now spent, because the something exists.
+`written_timepoints` in the viewer's `stores.py` counts what has actually been written and
+stops the time slider there, and the viewer opens a timelapse at its first moment rather
+than half way along. Both are built and tested. With those in place an operator is never
+offered a moment that was not imaged, whatever the store declares — so the property that
+growing bought is delivered by the viewer instead, and bought nothing that is still needed.
 
-**What that means for keeping copies.** The two kinds of file are treated oppositely, and
-the reason is exactly this decision:
+What growing cost, by contrast, does not go away. Changing an array's shape changes the
+key under which the engine files the pieces it has decoded, so a viewer following the run
+re-reads the frame on screen every time the length moves — once per moment, for the whole
+length of the run. Declaring up front costs that exactly once, which is to say never. The
+description also stops changing, which means it could in principle be kept by the browser
+rather than re-fetched; that is not done today and is noted here as available rather than
+claimed.
+
+**Counting has to stay cheap, and that is a constraint on the layout, not a hope.** The
+viewer now depends on counting written moments, so the pieces of a store must be filed in
+folders — one per moment — rather than heaped side by side in a single directory. That is
+already required for other reasons and is stated below; it is simply load-bearing now.
+Where a store does not do it and the folder is too large to look through, the viewer
+declines to limit the slider rather than making the operator wait, and an unwritten moment
+then shows as empty rather than as missing.
+
+**What that means for keeping copies.** The two kinds of file are treated oppositely:
 
 - **Pieces of image: kept for a year, and marked as never changing.** Written once,
   never rewritten. An acquisition can run for many hours, so anything shorter would have
   a piece expire mid-run, and returning to somewhere already visited would fetch it all
   again.
-- **The files describing a store: never kept at all.** They are what changes when a
-  timelapse grows. A stale copy, even a few seconds old, would leave the engine believing
-  the old length — so a frame sitting on disk would simply not appear, with nothing to
-  explain why. The cost of always asking is a round trip, not a read: a few hundred bytes,
-  answered from memory.
+- **The files describing a store: never kept at all.** This rule was written for the
+  growing arrangement, where the description was what changed as a timelapse lengthened
+  and a stale copy would have left the engine believing the old length — a frame sitting
+  on disk simply not appearing, with nothing to explain why. Declaring the length up front
+  removes that: during a run the description of an existing store no longer changes at
+  all. The rule is kept because it is cheap and certainly correct — a round trip for a few
+  hundred bytes, answered from memory — and because nothing has measured a case where it
+  costs anything. Letting the browser keep a copy and check it is the obvious refinement,
+  and it is listed in `NEXT_STEPS.md` under the smaller things worth doing; it should be
+  done on evidence rather than on this paragraph.
 
 **One depth per image, and let it be the camera's own.** The kind of number a voxel
 is — 16-bit, 8-bit — is read from the store itself, so nothing has to be told and an
@@ -591,8 +617,15 @@ do. Declare a metre of stage travel if you like; it costs nothing until imaged.
 extending an image outward leaves every existing chunk exactly where it was.
 Measured: an image declared with two timepoints, grown to five after the fact, kept
 both original frames intact, accepted a write at frame five, and read the frames
-never written as empty. Timepoints can therefore be added retrospectively, which is
-what a timelapse of unpredictable length needs.
+never written as empty.
+
+That measurement is the reason the first one is safe to rely on: over-estimating the
+declared size is not a decision anybody is stuck with, because a run that somehow
+outgrows what it declared can still be extended. It is an escape hatch and not the
+design — the writer declares its room at the start and does not grow it, because
+growing changes the shape, and changing the shape makes a viewer following the run
+re-read the frame on screen each time. Declare generously and the hatch is never
+needed.
 
 The one thing that is **not** allowed is extending *backwards* past the origin.
 That would shift every index by one and invalidate every chunk already written. So
