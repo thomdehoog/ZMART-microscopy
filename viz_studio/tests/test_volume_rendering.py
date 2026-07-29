@@ -71,12 +71,30 @@ def test_the_plane_scrolls_through_z(viewer_page):
     assert after[1:] == before[1:], "the wheel must not pan"
 
 
+# What tells the two shaders apart, now that both of them emit alpha.
+#
+# They did not always. The flat view used to draw solid colour, and "does this
+# shader emit alpha at all" was then enough to say which of the two was loaded.
+# It is not any more: a flat row also has to come out transparent where nothing
+# has been imaged, or the topmost row blacks out every row beneath it and an
+# experiment with two channels shows only one of them. So both views emit alpha,
+# for two different reasons, and asking about alpha no longer distinguishes them.
+#
+# What still does is the opacity control. It exists only in the volume shader,
+# where it is what lets an operator see through the fog to the structure inside;
+# a single plane has nothing to see through and is not given one.
+VOLUME_ONLY_CONTROL = "opacity"
+
+
 def test_clicking_3d_switches_to_volume_rendering(viewer_page):
     click_mode(viewer_page, "3D")
     state = viewer_page.evaluate(_STATE)
     assert state["mode"] == "volume"
     assert state["volumeMode"] == 1, "the engine did not enter volume rendering"
-    assert "emitRGBA" in state["shader"], "a volume shader must emit alpha"
+    assert "emitRGBA" in state["shader"], "any shader here must emit alpha"
+    assert VOLUME_ONLY_CONTROL in state["shader"], (
+        f"the volume shader must be the one loaded: {state['shader']}"
+    )
     assert state["layout"] == '"3d"'
 
 
@@ -86,7 +104,12 @@ def test_switching_back_restores_the_plane(viewer_page):
     state = viewer_page.evaluate(_STATE)
     assert state["mode"] == "flat"
     assert state["volumeMode"] == 0
-    assert "emitRGBA" not in state["shader"]
+    assert "emitRGBA" in state["shader"], (
+        "a flat row emits alpha too, so that unimaged ground is transparent"
+    )
+    assert VOLUME_ONLY_CONTROL not in state["shader"], (
+        f"the volume shader was left in place: {state['shader']}"
+    )
     assert state["panels"] == 1
 
 
