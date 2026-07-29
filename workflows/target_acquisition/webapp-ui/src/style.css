@@ -177,11 +177,20 @@ button.ghost:disabled { opacity: 0.45; cursor: default; }
   background: var(--accent-tint); border-color: var(--accent);
   cursor: default;
 }
-.step.active .step-n {
-  background: var(--accent); color: #ffffff;
-}
+/* A finished step says so in its number, the way the one being worked on
+   does: one badge carrying one fact, rather than a badge here and a mark
+   further along the row.
+
+   Standing on a finished step keeps the blue. Where you are is the more
+   immediate fact and it changes as you move, while done does not — and the
+   tick beside it still says the step is finished. So this comes first and the
+   active rule wins on the step that is both. */
+.step.done .step-n { background: var(--good); color: #ffffff; }
+.step.active .step-n { background: var(--accent); color: #ffffff; }
+:root[data-theme="dark"] .step.done .step-n,
 :root[data-theme="dark"] .step.active .step-n { color: #04121d; }
 @media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .step.done .step-n,
   :root:not([data-theme="light"]) .step.active .step-n { color: #04121d; }
 }
 .step.active .step-name { font-weight: 700; }
