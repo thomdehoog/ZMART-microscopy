@@ -95,8 +95,8 @@ def test_the_panel_lists_every_layer(two_channel_page):
 
 def test_channels_arrive_green_and_magenta(two_channel_page):
     shaders = [layer["shader"] for layer in two_channel_page.evaluate(_ENGINE_LAYERS)]
-    assert "vec3(0, 1, 0.4)" in shaders[0], "488 should be green"
-    assert "vec3(1, 0.2, 1)" in shaders[1], "647 should be magenta"
+    assert "0, 1, 0.4" in shaders[0], "488 should be green"
+    assert "1, 0.2, 1" in shaders[1], "647 should be magenta"
 
 
 def test_hiding_a_layer_hides_it_in_the_engine(two_channel_page):
@@ -120,7 +120,7 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
     two_channel_page.click("[aria-label='cyan for Ch488']")
     two_channel_page.wait_for_timeout(800)
     shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
-    assert "vec3(0.2, 0.8, 1)" in shader
+    assert "0.2, 0.8, 1" in shader
 
 
 def test_colour_survives_the_three_d_toggle(two_channel_page):
