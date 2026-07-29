@@ -23,11 +23,12 @@ async function connect(page, password = "hunter2") {
   await page.waitForTimeout(2200);
 }
 
-async function throughJobs(page) {
+/** Everything before the sample is touched: session, optics, origin. */
+async function throughSetup(page) {
   await connect(page);
-  for (const name of ["Set origin", "Capture overview job", "Capture target job"]) {
+  for (const name of ["Optical configurations", "Carrier setup", "Set origin"]) {
     await gotoStep(page, name);
-    await runStep(page, 800);
+    await runStep(page, 900);
   }
 }
 
@@ -58,9 +59,9 @@ test("the rail carries the workflow's declared steps", async ({ page }) => {
   await expect(page.locator(".step.active .step-name")).toHaveText("Connect");
 
   await page.locator("#wf-select").selectOption("overview_only");
-  await expect(page.locator("#steps .step")).toHaveCount(6);
+  await expect(page.locator("#steps .step")).toHaveCount(7);
   await page.locator("#wf-select").selectOption("focus_check");
-  await expect(page.locator("#steps .step")).toHaveCount(5);
+  await expect(page.locator("#steps .step")).toHaveCount(7);
 });
 
 test("a session needs a password before it will open", async ({ page }) => {
@@ -83,7 +84,20 @@ test("connecting reports what it checked", async ({ page }) => {
   await connect(page);
   await expect(page.locator(".check-row")).toHaveCount(6);
   await expect(page.locator(".check-row").first()).toContainText("Microscope reachable");
-  await expect(page.locator(".session-state")).toContainText("Leica Stellaris 5");
+  await expect(page.locator(".session-state").first()).toContainText("Leica Stellaris 5");
+});
+
+test("a run refuses to survey and image with the same configuration", async ({ page }) => {
+  await connect(page);
+  await gotoStep(page, "Optical configurations");
+  const selects = page.locator(".session-card").nth(1).locator("select");
+  await expect(page.locator("#action-bar button.run")).toBeEnabled();
+  await selects.nth(1).selectOption("ov_5x");
+  await expect(page.locator("#action-bar button.run"),
+    "imaging targets at survey quality is the mistake this prevents").toBeDisabled();
+  await expect(page.locator(".session-hint.bad")).toBeVisible();
+  await selects.nth(1).selectOption("tg_100x");
+  await expect(page.locator("#action-bar button.run")).toBeEnabled();
 });
 
 test("the api offered follows the microscope chosen", async ({ page }) => {
@@ -99,18 +113,21 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     await connect(page);
     await expect(page.locator(".step.active .step-name")).toHaveText("Connect");
     await expect(page.locator('.step:has-text("Connect")').first()).toHaveClass(/done/);
-    await expect(page.locator('.step:has-text("Capture target job")').first()).toBeDisabled();
+    await expect(page.locator('.step:has-text("Carrier setup")').first()).toBeDisabled();
   });
 
 test("setup holds the base until there is data, then the canvas takes over",
   async ({ page }) => {
     // an empty stage is not worth a tab; the configuration is
     await expect(page.locator(".tab")).toHaveText(["Setup"]);
-    await throughJobs(page);
+    await throughSetup(page);
     await expect(page.locator(".tab")).toHaveText(["Setup"]);
     // only what the run has established, plus what is being done now
-    await expect(page.locator(".setup-row")).toHaveCount(3);
-    await expect(page.locator(".session-state")).toContainText("Leica Stellaris 5");
+    await expect(page.locator(".setup-row")).toHaveCount(1);
+    // a card retires once the next setup step is settled, so the session and
+    // the optics have given way to the carrier
+    await expect(page.locator(".session-card")).toHaveCount(1);
+    await expect(page.locator(".session-title")).toHaveText("Carrier");
 
     await placeFocusPoints(page);
     await expect(page.locator(".tab")).toHaveText(["Setup", "Focus strategy"]);
@@ -128,7 +145,7 @@ test("setup holds the base until there is data, then the canvas takes over",
   });
 
 test("one walk of the whole run", async ({ page }) => {
-  await throughJobs(page);
+  await throughSetup(page);
 
   await placeFocusPoints(page);
   await runStep(page, 1600);

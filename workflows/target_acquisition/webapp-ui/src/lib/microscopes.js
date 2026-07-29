@@ -42,6 +42,40 @@ export const MICROSCOPES = {
   },
 };
 
+/**
+ * The optical configurations a run can draw on. A run needs two: the one it
+ * surveys the sample with, and the one it images the chosen targets with.
+ *
+ * They must not be the same. Imaging targets at overview quality is the
+ * mistake the pairing exists to prevent, so it is refused rather than warned
+ * about — the same rule the current webapp enforces on its two job captures.
+ */
+export const OPTICAL_CONFIGS = [
+  { key: "ov_5x", label: "Overview 5x", detail: "1.30 µm/px · 2 ch · widefield" },
+  { key: "ov_10x", label: "Survey 10x", detail: "0.65 µm/px · 1 ch · widefield" },
+  { key: "tg_63x", label: "Target 63x", detail: "0.10 µm/px · 2 ch · confocal" },
+  { key: "tg_100x", label: "Target 100x oil", detail: "0.06 µm/px · 2 ch · confocal" },
+];
+
+export const opticalConfig = (key) => OPTICAL_CONFIGS.find((o) => o.key === key);
+
+export const DEFAULT_OPTICS = { overview: "ov_5x", target: "tg_63x" };
+
+/**
+ * What the sample is mounted in. The carrier decides where the stage may go
+ * and how the survey is laid out, so it is settled before anything moves.
+ */
+export const CARRIERS = [
+  { key: "slide", label: "Slide", detail: "76 × 26 mm · one region" },
+  { key: "dish35", label: "35 mm dish", detail: "one circular region" },
+  { key: "plate24", label: "24-well plate", detail: "6 × 4 · 15.6 mm wells" },
+  { key: "plate96", label: "96-well plate", detail: "12 × 8 · 6.4 mm wells" },
+];
+
+export const carrier = (key) => CARRIERS.find((c) => c.key === key);
+
+export const DEFAULT_CARRIER = "slide";
+
 export const DEFAULT_SESSION = {
   microscope: "stellaris5",
   api: "cam",
