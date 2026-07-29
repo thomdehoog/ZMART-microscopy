@@ -23,10 +23,22 @@ async function connect(page, password = "hunter2") {
   await page.waitForTimeout(2200);
 }
 
+/** Set the instrument up, name it, record it — the loop the panel is built on. */
+async function record(page, kind, name) {
+  await page.locator(".rec-new select").selectOption(kind);
+  await page.locator(".rec-new input").fill(name);
+  await page.locator(".rec-new button.run").click();
+  await page.waitForTimeout(650);
+}
+
 /** Everything before the sample is touched: session, optics, origin. */
 async function throughSetup(page) {
   await connect(page);
-  for (const name of ["Optical configurations", "Carrier setup", "Set origin"]) {
+  await gotoStep(page, "Optical settings");
+  await record(page, "acquisition", "survey");
+  await record(page, "acquisition", "target");
+  await runStep(page, 900);
+  for (const name of ["Carrier setup", "Set origin"]) {
     await gotoStep(page, name);
     await runStep(page, 900);
   }
@@ -87,17 +99,40 @@ test("connecting reports what it checked", async ({ page }) => {
   await expect(page.locator(".session-state").first()).toContainText("Leica Stellaris 5");
 });
 
-test("a run refuses to survey and image with the same configuration", async ({ page }) => {
+test("settings are recorded off the instrument, and the list grows", async ({ page }) => {
   await connect(page);
-  await gotoStep(page, "Optical configurations");
-  const selects = page.locator(".session-card").locator("select");
-  await expect(page.locator("#action-bar button.run")).toBeEnabled();
-  await selects.nth(1).selectOption("ov_5x");
+  await gotoStep(page, "Optical settings");
+
+  // nothing is preconfigured: the only choice is what kind of thing to record
   await expect(page.locator("#action-bar button.run"),
-    "imaging targets at survey quality is the mistake this prevents").toBeDisabled();
-  await expect(page.locator(".session-hint.bad")).toBeVisible();
-  await selects.nth(1).selectOption("tg_100x");
+    "a run with no settings recorded has nothing to run with").toBeDisabled();
+  await expect(page.locator(".rec-row")).toHaveCount(0);
+
+  await record(page, "acquisition", "survey");
+  await record(page, "acquisition", "target");
+  await record(page, "autofocus", "af-coarse");
+
+  await expect(page.locator(".rec-row")).toHaveCount(3);
+  await expect(page.locator(".rec-row").first()).toContainText("µm/px");
+  await expect(page.locator(".rec-row").last()).toContainText("Brenner");
   await expect(page.locator("#action-bar button.run")).toBeEnabled();
+
+  // the empty row stays at the bottom, ready for the next one
+  await expect(page.locator(".rec-new input")).toHaveValue("");
+});
+
+test("a recording will not reuse a name", async ({ page }) => {
+  await connect(page);
+  await gotoStep(page, "Optical settings");
+  await record(page, "acquisition", "survey");
+
+  await page.locator(".rec-new input").fill("survey");
+  await expect(page.locator(".rec-new button.run")).toBeDisabled();
+  await expect(page.locator(".rec-new .session-hint")).toHaveText("that name is already used");
+
+  await page.locator(".rec-new input").fill("");
+  await expect(page.locator(".rec-new button.run"),
+    "and will not take an empty one either").toBeDisabled();
 });
 
 test("the api offered follows the microscope chosen", async ({ page }) => {

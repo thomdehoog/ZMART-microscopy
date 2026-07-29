@@ -2,7 +2,7 @@ import "./style.css";
 import { numbered } from "./frame/steps.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor, describeSession, CONNECT_CHECKS,
-  OPTICAL_CONFIGS, DEFAULT_OPTICS, opticalConfig, CARRIERS, DEFAULT_CARRIER, carrier,
+  SETTING_TYPES, settingType, sampleState, CARRIERS, DEFAULT_CARRIER, carrier,
 } from "./lib/microscopes.js";
 
 (() => {
@@ -60,7 +60,7 @@ import {
       blurb: "overview, detect, select, acquire",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical configurations", why: "Pick the configuration that surveys the sample and the one that images the targets.", btn: "Apply configurations", panels: [], ms: 800, mode: "optics" },
+        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", btn: "Confirm settings", panels: [], ms: 800, mode: "optics" },
         { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0) for this run.", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
@@ -77,7 +77,7 @@ import {
       blurb: "no analysis panel",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical configurations", why: "Pick the configuration that surveys the sample and the one that images the targets.", btn: "Apply configurations", panels: [], ms: 800, mode: "optics" },
+        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", btn: "Confirm settings", panels: [], ms: 800, mode: "optics" },
         { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
@@ -90,7 +90,7 @@ import {
       blurb: "calibration run",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical configurations", why: "Pick the configuration that surveys the sample and the one that images the targets.", btn: "Apply configurations", panels: [], ms: 800, mode: "optics" },
+        { id: "optics", title: "Optical settings", why: "Set the microscope up in its own software, name what you set up, and record it.", btn: "Confirm settings", panels: [], ms: 800, mode: "optics" },
         { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
@@ -141,7 +141,8 @@ import {
 
   const state = {
     session: { ...DEFAULT_SESSION },
-    optics: { ...DEFAULT_OPTICS },
+    recordings: [],
+    draft: { type: SETTING_TYPES[0].key, name: "" },
     carrier: DEFAULT_CARRIER,
     checks: [],
     wf: "target_acquisition",
@@ -190,7 +191,8 @@ import {
   function resetRun() {
     Object.assign(state, {
       activeIdx: 0, done: new Set(), running: null, notes: {},
-      session: { ...DEFAULT_SESSION }, optics: { ...DEFAULT_OPTICS },
+      session: { ...DEFAULT_SESSION }, recordings: [],
+      draft: { type: SETTING_TYPES[0].key, name: "" },
       carrier: DEFAULT_CARRIER, checks: [],
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
       detect: newDetect(), detected: new Set(),
@@ -259,7 +261,7 @@ import {
     if (s.mode === "focus" && !STRATEGIES[state.focus.strategy].needs(state.focus)) {
       return STRATEGIES[state.focus.strategy].unmet;
     }
-    if (s.mode === "optics" && opticsClash()) return "survey and target must differ";
+    if (s.mode === "optics" && !state.recordings.length) return "record at least one setting";
     if (s.mode === "detect" && !state.detect.tested) return "try it on one tile first";
     if ((s.mode === "select" || s.mode === "targets") && state.gated.size === 0) return "nothing gated yet";
     return null;
@@ -351,7 +353,8 @@ import {
       if (s.id === "connect") state.notes[s.id] = describeSession(state.session);
       if (s.id === "carrier") state.notes[s.id] = carrier(state.carrier).label;
       if (s.id === "optics") {
-        state.notes[s.id] = `${opticalConfig(state.optics.overview).label} → ${opticalConfig(state.optics.target).label}`;
+        const n = state.recordings.length;
+        state.notes[s.id] = `${n} setting${n === 1 ? "" : "s"} recorded`;
       }
 
       if (s.mode === "focus") {
@@ -547,12 +550,13 @@ import {
   }
 
   const indexOfStep = (id) => steps().findIndex((s) => s.id === id);
+  /* Settings are recorded off the instrument, not typed in: the operator sets
+     the microscope up in its own software, names what they set up, and presses
+     record. Nothing is entered twice, so nothing can disagree with the
+     instrument.
 
-  /* Two configurations, and they may not be the same one: imaging targets at
-     overview quality is the mistake this pairing exists to prevent, so it is
-     refused rather than warned about. */
-  const opticsClash = () => state.optics.overview === state.optics.target;
-
+     The list of kinds is meant to grow, so the row at the bottom is always
+     empty and always offers every kind there is. */
   function renderOpticsCard(host) {
     const done = state.done.has("optics");
     const card = document.createElement("div");
@@ -560,45 +564,105 @@ import {
 
     const head = document.createElement("div");
     head.className = "session-head";
-    head.innerHTML = '<span class="session-title">Optical configurations</span>'
+    head.innerHTML = '<span class="session-title">Optical settings</span>'
       + '<span class="session-state"></span>';
-    head.querySelector(".session-state").textContent = done
-      ? `${opticalConfig(state.optics.overview).label} → ${opticalConfig(state.optics.target).label}`
-      : "not applied";
+    head.querySelector(".session-state").textContent = state.recordings.length
+      ? `${state.recordings.length} recorded`
+      : "nothing recorded yet";
     card.append(head);
 
-    const form = document.createElement("div");
-    form.className = "session-form";
-
-    for (const [role, label] of [["overview", "Survey with"], ["target", "Image with"]]) {
-      const field = document.createElement("label");
-      field.className = "field";
-      field.innerHTML = `<span>${label}</span><select></select>`;
-      const sel = field.querySelector("select");
-      for (const oc of OPTICAL_CONFIGS) {
-        const o = document.createElement("option");
-        o.value = oc.key;
-        o.textContent = `${oc.label} · ${oc.detail}`;
-        sel.append(o);
+    if (state.recordings.length) {
+      const list = document.createElement("div");
+      list.className = "rec-list";
+      for (const rec of state.recordings) {
+        const row = document.createElement("div");
+        row.className = "rec-row";
+        row.innerHTML = '<span class="rec-kind"></span><span class="rec-name"></span>'
+          + '<span class="rec-state"></span><button type="button" class="rec-drop">✕</button>';
+        row.querySelector(".rec-kind").textContent = settingType(rec.type).label;
+        row.querySelector(".rec-name").textContent = rec.name;
+        row.querySelector(".rec-state").textContent = rec.state;
+        const drop = row.querySelector(".rec-drop");
+        drop.title = "forget this recording";
+        drop.disabled = done || !!state.running;
+        drop.addEventListener("click", () => {
+          state.recordings = state.recordings.filter((r) => r !== rec);
+          renderSetup(); renderActionBar();
+        });
+        list.append(row);
       }
-      sel.value = state.optics[role];
-      sel.disabled = done || !!state.running;
-      sel.addEventListener("change", () => {
-        state.optics[role] = sel.value;
-        renderSetup(); renderActionBar();
-      });
-      form.append(field);
+      card.append(list);
     }
 
-    if (!done && opticsClash()) {
-      const hint = document.createElement("div");
-      hint.className = "session-hint bad";
-      hint.textContent = "the two must differ — this would image targets at survey quality";
-      form.append(hint);
-    }
-
-    card.append(form);
+    if (!done) card.append(renderRecorder());
     host.append(card);
+  }
+
+  /** The always-empty row at the bottom: pick a kind, name it, record it. */
+  function renderRecorder() {
+    const row = document.createElement("div");
+    row.className = "rec-new";
+
+    const kind = document.createElement("select");
+    for (const t of SETTING_TYPES) {
+      const o = document.createElement("option");
+      o.value = t.key;
+      o.textContent = t.label;
+      o.title = t.hint;
+      kind.append(o);
+    }
+    kind.value = state.draft.type;
+    kind.addEventListener("change", () => {
+      state.draft.type = kind.value;
+      name.placeholder = settingType(kind.value).hint;
+    });
+
+    const name = document.createElement("input");
+    name.type = "text";
+    name.placeholder = settingType(state.draft.type).hint;
+    name.value = state.draft.name;
+    name.setAttribute("aria-label", "name for this recording");
+
+    const go = document.createElement("button");
+    go.className = "run";
+    go.type = "button";
+    go.textContent = "Record";
+
+    const why = document.createElement("div");
+    why.className = "session-hint";
+
+    // typing must not rebuild the row, or the field loses focus every keystroke
+    const check = () => {
+      const value = name.value.trim();
+      const taken = state.recordings.some((r) => r.name === value);
+      go.disabled = !value || taken || !!state.running;
+      why.textContent = taken ? "that name is already used" : "";
+      why.classList.toggle("bad", taken);
+      state.draft.name = name.value;
+    };
+    name.addEventListener("input", check);
+    check();
+
+    go.addEventListener("click", () => {
+      const value = name.value.trim();
+      const nth = state.recordings.filter((r) => r.type === state.draft.type).length;
+      go.disabled = true;
+      go.textContent = "reading…";
+      // a controller round-trip, not an instant assignment
+      setTimeout(() => {
+        state.recordings.push({
+          type: state.draft.type,
+          name: value,
+          state: sampleState(state.draft.type, nth),
+        });
+        state.draft.name = "";
+        renderSetup();
+        renderActionBar();
+      }, 480);
+    });
+
+    row.append(kind, name, go, why);
+    return row;
   }
 
   function renderCarrierCard(host) {
