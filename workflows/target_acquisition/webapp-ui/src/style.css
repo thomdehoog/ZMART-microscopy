@@ -262,9 +262,13 @@ button.run:disabled { opacity: 0.4; cursor: default; }
   /* out past the row's own padding, so it ends where the channel does */
   margin-left: auto; margin-right: calc(-1 * var(--tabs-pad));
   width: var(--side-w); flex: none;
-  display: flex; align-items: center; padding: 0 16px;
-  border-left: 1px solid var(--line);
-  font-size: 13px; font-weight: 600; color: var(--ink-2);
+  /* reads as the tab it stands in for: same size, same weight, same blue and
+     the same rule under it. It is the heading of a column that is always
+     shown, so it is always in the selected state — there is no other. */
+  font: inherit; font-size: 13.5px; font-weight: 600; color: var(--accent-deep);
+  border-bottom: 2px solid var(--accent);
+  display: flex; align-items: flex-end; height: 100%;
+  padding: 0 16px 11px;
 }
 .tabs {
   --tabs-pad: 12px;
