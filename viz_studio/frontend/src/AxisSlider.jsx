@@ -51,7 +51,13 @@ function axisInfo(viewer, name) {
  * number in the engine's position -- so they are the same control, and a store
  * that has no such axis simply gets no slider.
  */
-export default function AxisSlider({ viewer, axis: axisName, label, limit = null }) {
+export default function AxisSlider({
+  viewer,
+  axis: axisName,
+  label,
+  limit = null,
+  orientation = "horizontal",
+}) {
   const [axis, setAxis] = React.useState(null);
   const [playing, onPlay] = usePlayback(viewer, axisName, limit);
 
@@ -125,8 +131,13 @@ export default function AxisSlider({ viewer, axis: axisName, label, limit = null
   // no Z slider, without anything having to know which is which.
   if (count < 2) return null;
 
+  // Standing up rather than lying down. The two arrangements hold exactly the same
+  // controls in the same order -- play, name, slider, where you are -- so only the
+  // direction they run in changes.
+  const upright = orientation === "vertical";
+
   return (
-    <label style={styles.axisControl}>
+    <label style={upright ? styles.axisControlUpright : styles.axisControl}>
       <button
         type="button"
         onClick={onPlay}
@@ -149,7 +160,12 @@ export default function AxisSlider({ viewer, axis: axisName, label, limit = null
         value={value}
         onChange={(event) => moveTo(Number(event.target.value))}
         aria-label={`${axisName} position`}
-        style={styles.axisRange}
+        style={upright ? styles.axisRangeUpright : styles.axisRange}
+        // Browsers do not agree on how a slider is stood on end. Firefox reads
+        // this attribute; the others read the writing direction in the style
+        // beside it. Giving both means the control is upright everywhere rather
+        // than lying on its side in half of them.
+        {...(upright ? { orient: "vertical" } : null)}
       />
       <output aria-label={`${axisName} position value`} style={styles.axisValue}>
         {stepNumber} / {count}
@@ -216,14 +232,50 @@ const styles = {
     color: "#f2f5f8",
     font: "600 11px/1 system-ui, sans-serif",
   },
+  // The same control stood on end. It is laid out as rows rather than columns and
+  // fills the height it is given, so the slider itself is as long as there is room
+  // for -- which is what makes a deep stack comfortable to move through.
+  axisControlUpright: {
+    display: "grid",
+    gridTemplateRows: "22px 16px 1fr auto",
+    justifyItems: "center",
+    alignItems: "center",
+    gap: 8,
+    padding: "12px 8px",
+    height: "100%",
+    // Counting the border and the padding as part of that height, rather than as
+    // extra on top of it. Without this the control is taller than the room it was
+    // given and the reading at the foot of it falls outside the panel.
+    boxSizing: "border-box",
+    border: "1px solid #2c333d",
+    borderRadius: 7,
+    background: "rgba(12, 15, 19, .82)",
+    boxShadow: "0 2px 10px rgba(0,0,0,.6)",
+    color: "#f2f5f8",
+    font: "600 11px/1 system-ui, sans-serif",
+  },
   axisLabel: { color: "#f2f5f8" },
   axisRange: { width: "100%", accentColor: "#2f81f7", cursor: "pointer" },
+  axisRangeUpright: {
+    // Running the control's text down the page rather than across is what turns a
+    // slider on its end in browsers built on Chromium and WebKit. Reversing the
+    // direction as well puts the first plane at the bottom, so moving the handle
+    // up moves up through the stack, which is the way round it reads at the
+    // microscope.
+    writingMode: "vertical-lr",
+    direction: "rtl",
+    height: "100%",
+    width: 22,
+    accentColor: "#2f81f7",
+    cursor: "pointer",
+  },
   axisValue: {
     textAlign: "right",
     color: "#e6edf3",
     fontVariantNumeric: "tabular-nums",
   },
   play: {
+    width: 22,
     border: "1px solid #3a444f",
     borderRadius: 4,
     background: "rgba(255,255,255,.06)",
