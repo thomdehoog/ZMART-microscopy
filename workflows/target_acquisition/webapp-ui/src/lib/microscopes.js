@@ -158,21 +158,6 @@ export const sampleReading = (key, nth) => {
   return readings[nth % readings.length];
 };
 
-/**
- * What the sample is mounted in. The carrier decides where the stage may go
- * and how the survey is laid out, so it is settled before anything moves.
- */
-export const CARRIERS = [
-  { key: "slide", label: "Slide", detail: "76 × 26 mm · one region" },
-  { key: "dish35", label: "35 mm dish", detail: "one circular region" },
-  { key: "plate24", label: "24-well plate", detail: "6 × 4 · 15.6 mm wells" },
-  { key: "plate96", label: "96-well plate", detail: "12 × 8 · 6.4 mm wells" },
-];
-
-export const carrier = (key) => CARRIERS.find((c) => c.key === key);
-
-export const DEFAULT_CARRIER = "slide";
-
 export const DEFAULT_SESSION = {
   microscope: "stellaris5",
   api: "cam",

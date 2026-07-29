@@ -41,7 +41,7 @@ async function throughSetup(page) {
   // recording is the work; there is no button to confirm afterwards
   await record(page, "acquisition", "survey");
   await record(page, "acquisition", "target");
-  await gotoStep(page, "Setup canvas");
+  await gotoStep(page, "Carrier configuration");
   await runStep(page, 900);
 }
 
@@ -281,25 +281,27 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     await connect(page);
     await expect(page.locator(".step.active .step-name")).toHaveText("Connect");
     await expect(page.locator('.step:has-text("Connect")').first()).toHaveClass(/done/);
-    await expect(page.locator('.step:has-text("Setup canvas")').first()).toBeDisabled();
+    await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeDisabled();
   });
 
 test("the carrier sets the canvas up, and from then on it is always there",
   async ({ page }) => {
-    // nothing to draw before the carrier settles where the stage may go
-    await expect(page.locator(".tab")).toHaveText(["Setup"]);
+    // Its own panel and nothing else, so no tab bar at all: one tab is not a
+    // choice, and the rail already says which step this is.
+    await expect(page.locator(".tab")).toHaveCount(0);
     await throughSetup(page);
-    await expect(page.locator(".tab"), "the carrier ran, so the canvas exists")
-      .toHaveText(["Canvas", "Setup"]);
+    await expect(page.locator(".tab"), "the run reached the carrier, so the canvas exists")
+      .toHaveText(["Canvas", "Carrier configuration"]);
     // Only what the run has established, plus what is being done now. Nothing
     // up to here owns a row: the session and the carrier have their own cards,
     // and the focus surface is neither measured nor the step being stood on.
     await expect(page.locator(".setup-row")).toHaveCount(0);
-    // a card belongs to its step: standing on the carrier, only its card shows
-    await expect(page.locator(".session-card")).toHaveCount(1);
-    await expect(page.locator(".session-title")).toHaveText("Carrier");
+    // a panel belongs to its step: standing on the carrier, its own is shown
+    // and the session's is not
+    await expect(page.locator(".carrier-card")).toHaveCount(1);
+    await expect(page.locator(".session-card")).toHaveCount(0);
     await gotoStep(page, "Connect");
-    await expect(page.locator(".session-title"), "and comes back when you return")
+    await expect(page.locator(".session-title"), "and the session comes back when you return")
       .toHaveText("Session");
     await expect(page.locator(".check-row")).toHaveCount(6);
 

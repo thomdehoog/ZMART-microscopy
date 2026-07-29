@@ -2,8 +2,10 @@ import "./style.css";
 import { numbered } from "./frame/steps.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor, describeSession, CONNECT_CHECKS,
-  SETTING_TYPES, settingType, sampleReading, CARRIERS, DEFAULT_CARRIER, carrier,
+  SETTING_TYPES, settingType, sampleReading,
 } from "./lib/microscopes.js";
+import { DEFAULT_CARRIER, describeCarrier, geometry } from "./lib/carriers.js";
+import carrierWidget from "./widgets/carrier.js";
 
 (() => {
   "use strict";
@@ -59,9 +61,9 @@ import {
       name: "Target acquisition",
       blurb: "overview, detect, select, acquire",
       steps: numbered([
-        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["setup"], ms: 1900 },
-        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["setup"], mode: "optics" },
-        { id: "carrier", title: "Setup canvas", why: "Tell the run what the sample is mounted in — it sets the stage limits the canvas is drawn in.", btn: "Setup canvas", panels: ["setup"], ms: 700, mode: "carrier" },
+        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
+        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
+        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: ["carrier"], ms: 700, mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "detect", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, note: "1250 cells found", mode: "detect" },
@@ -75,9 +77,9 @@ import {
       name: "Overview only",
       blurb: "no analysis panel",
       steps: numbered([
-        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["setup"], ms: 1900 },
-        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["setup"], mode: "optics" },
-        { id: "carrier", title: "Setup canvas", why: "Tell the run what the sample is mounted in — it sets the stage limits the canvas is drawn in.", btn: "Setup canvas", panels: ["setup"], ms: 700, mode: "carrier" },
+        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
+        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
+        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: ["carrier"], ms: 700, mode: "carrier" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "save", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -87,9 +89,9 @@ import {
       name: "Focus surface check",
       blurb: "calibration run",
       steps: numbered([
-        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["setup"], ms: 1900 },
-        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["setup"], mode: "optics" },
-        { id: "carrier", title: "Setup canvas", why: "Tell the run what the sample is mounted in — it sets the stage limits the canvas is drawn in.", btn: "Setup canvas", panels: ["setup"], ms: 700, mode: "carrier" },
+        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
+        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
+        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: ["carrier"], ms: 700, mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "save", title: "Write the surface", why: "Fits the plane and records its residual for this objective.", btn: "Write surface", panels: [], ms: 700, note: "residual 1.8 µm · written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -140,7 +142,7 @@ import {
     session: { ...DEFAULT_SESSION },
     recordings: [],
     bars: [{ type: SETTING_TYPES[0].key, name: "", state: null }],
-    carrier: DEFAULT_CARRIER,
+    carrier: { ...DEFAULT_CARRIER },
     checks: [],
     wf: "target_acquisition",
     activeIdx: 0,
@@ -203,7 +205,7 @@ import {
       activeIdx: 0, done: new Set(), running: null, notes: {},
       session: { ...DEFAULT_SESSION }, recordings: [],
       bars: [{ type: SETTING_TYPES[0].key, name: "", state: null }],
-      carrier: DEFAULT_CARRIER, checks: [],
+      carrier: { ...DEFAULT_CARRIER }, checks: [],
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
       detect: newDetect(), detected: new Set(),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], verdicts: {},
@@ -361,7 +363,7 @@ import {
       state.done.add(s.id);
       if (s.note) state.notes[s.id] = s.note;
       if (s.id === "connect") state.notes[s.id] = describeSession(state.session);
-      if (s.id === "carrier") state.notes[s.id] = carrier(state.carrier).label;
+      if (s.id === "carrier") state.notes[s.id] = describeCarrier(state.carrier);
       if (s.id === "optics") {
         const n = recordedBars().length;
         state.notes[s.id] = `${n} setting${n === 1 ? "" : "s"} recorded`;
@@ -405,8 +407,14 @@ import {
   /* ============================================================
      tabs — they accumulate as steps declare panels
      ============================================================ */
+  /* Each setup step brings its own panel rather than sharing one called Setup.
+     They are three different things — a session, a list of presets, a carrier —
+     and a tab beside the canvas should say which of them it opens. They draw
+     into the same element because only one is ever shown. */
   const PANEL_META = {
-    setup: { label: "Setup", panel: "panel-setup" },
+    connect: { label: "Session", panel: "panel-setup" },
+    optics: { label: "Optical configuration", panel: "panel-setup" },
+    carrier: { label: carrierWidget.label, panel: "panel-setup" },
     canvas: { label: "Canvas", panel: "panel-canvas" },
     detect: { label: "Detection", panel: "panel-detect" },
     focus: { label: "Focus strategy", panel: "panel-focus" },
@@ -414,20 +422,26 @@ import {
     gallery: { label: "Gallery", panel: "panel-gallery" },
   };
 
-  /* The carrier is what sets the canvas up: it settles where the stage may go,
-     which is the frame everything afterwards is drawn in. From that point the
-     canvas is the base — the window into the run, there for the rest of it and
-     filling with data rather than appearing once data exists.
+  /* The canvas is the microscope's own limits drawn to scale, so it is there
+     from the step that sets it up onward — from reaching that step, not from
+     finishing it. Nothing about the frame depends on the carrier chosen inside
+     it; the carrier only says where within those limits the sample sits.
 
-     Before it there is no frame to draw, so the setup panel holds the base
-     instead. Everything else belongs to the step being stood on, so the tab
-     bar is rebuilt on every render rather than growing forever. */
-  const canvasReady = () => state.done.has("carrier");
+     Setting it up fixes the run's zero as well, which is why no step asks for
+     an origin any more. That happens behind the scenes and is deliberately not
+     drawn: it is a consequence of having a frame, not a thing to confirm.
+
+     From there the canvas is the window into the run, filling with data rather
+     than appearing once data exists. The tab set is rebuilt on every render
+     rather than growing forever. */
+  const canvasReady = () => {
+    const i = indexOfStep("carrier");
+    return i >= 0 && steps().slice(0, i).every((s) => state.done.has(s.id));
+  };
 
   function panelsFor(i) {
-    const base = canvasReady() ? "canvas" : "setup";
-    const own = (step(i).panels || []).filter((p) => p !== base);
-    return [base, ...own];
+    const own = (step(i).panels || []).filter((p) => p !== "canvas");
+    return canvasReady() ? ["canvas", ...own] : own;
   }
 
   function focusPanelsFor(i) {
@@ -793,40 +807,20 @@ import {
     return row;
   }
 
+  /* The widget owns its panel and redraws itself, so this only hands it the
+     configuration and takes the new one back. Re-rendering the panel from here
+     on every change would destroy the number being typed into. */
   function renderCarrierCard(host) {
-    const done = state.done.has("carrier");
-    const card = document.createElement("div");
-    card.className = "session-card" + (done ? " done" : "");
-
-    const head = document.createElement("div");
-    head.className = "session-head";
-    head.innerHTML = '<span class="session-title">Carrier</span><span class="session-state"></span>';
-    head.querySelector(".session-state").textContent = done
-      ? carrier(state.carrier).label
-      : "not applied";
-    card.append(head);
-
-    const form = document.createElement("div");
-    form.className = "session-form";
-    const field = document.createElement("label");
-    field.className = "field";
-    field.innerHTML = "<span>Mounted in</span><select></select>";
-    const sel = field.querySelector("select");
-    for (const c of CARRIERS) {
-      const o = document.createElement("option");
-      o.value = c.key;
-      o.textContent = `${c.label} · ${c.detail}`;
-      sel.append(o);
-    }
-    sel.value = state.carrier;
-    sel.disabled = done || !!state.running;
-    sel.addEventListener("change", () => {
-      state.carrier = sel.value;
-      renderSetup(); renderActionBar();
+    carrierWidget.render(host, {
+      config: state.carrier,
+      locked: state.done.has("carrier") || !!state.running,
+      onChange: (next) => {
+        state.carrier = next;
+        view.fitted = false;
+        drawStage();
+        renderActionBar();
+      },
     });
-    form.append(field);
-    card.append(form);
-    host.append(card);
   }
 
   /* A card belongs to its step and shows while you are standing on it —
@@ -839,13 +833,13 @@ import {
     carrier: renderCarrierCard,
   };
 
-  function renderSetup() {
+  function renderSetup(which = step(state.activeIdx).id) {
     const host = el("setup-list");
     host.textContent = "";
     const present = new Set(steps().map((s) => s.id));
 
     const activeId = step(state.activeIdx).id;
-    if (present.has(activeId) && SETUP_CARDS[activeId]) SETUP_CARDS[activeId](host);
+    if (SETUP_CARDS[which]) SETUP_CARDS[which](host);
 
     /* Only what the run has established, plus whatever is being done now. The
        rail already lists what is still ahead; repeating it here as a column of
@@ -868,9 +862,14 @@ import {
 
   }
 
+  /* A step's own panel, alone, is not worth a tab: it is the only thing there
+     and the rail already names the step. The canvas keeps its tab even alone,
+     because it never goes away — a fixture that blinked in and out as steps
+     declared panels beside it would read as a different thing each time. */
   function renderTabs() {
     const host = el("tabs");
     host.textContent = "";
+    if (state.tabs.length === 1 && state.tabs[0] !== "canvas") return;
 
     for (const key of state.tabs) {
       const meta = PANEL_META[key];
@@ -896,10 +895,14 @@ import {
 
   function renderPanels() {
     const show = state.tabs.includes(state.tab) ? state.tab : state.tabs[0];
-    for (const [key, meta] of Object.entries(PANEL_META)) {
-      el(meta.panel).classList.toggle("on", show === key);
+    if (!show) return;
+    /* By element, not by key: the setup steps share one, so asking each key in
+       turn would switch it on for its own and straight back off for the next. */
+    const shown = PANEL_META[show].panel;
+    for (const id of new Set(Object.values(PANEL_META).map((m) => m.panel))) {
+      el(id).classList.toggle("on", id === shown);
     }
-    if (show === "setup") renderSetup();
+    if (SETUP_CARDS[show]) renderSetup(show);
     if (show === "canvas") { sizeCanvas(stageCv); drawStage(); }
     if (show === "detect") { renderDetectToolbar(); drawTilePreview(); }
     if (show === "focus") { renderFocusToolbar(); drawFocus(); drawTrace(); }
@@ -946,14 +949,53 @@ import {
   const stageTip = el("stage-tip");
   const view = { scale: 0.03, tx: 0, ty: 0, fitted: false };
 
+  /* Millimetres are the carrier's unit and micrometres are the stage's. This
+     is the only place the two meet, so the rest of the drawing stays in one. */
+  const MM_UM = 1000;
+
+  const carrierExtentUm = () => {
+    const g = geometry(state.carrier);
+    return [g.width * MM_UM, g.height * MM_UM];
+  };
+
+  /* Fit to whichever is larger. The carrier is the whole of what the stage may
+     reach and the scan covers a corner of it, so framing only the scan would
+     hide the thing the canvas was set up to show. */
   function fitView() {
     const w = stageCv.cssW || 800, h = stageCv.cssH || 600;
     const pad = 26;
-    const s = Math.min((w - 2 * pad) / W_UM, (h - 2 * pad) / H_UM);
+    const [cw, ch] = carrierExtentUm();
+    const fw = Math.max(W_UM, cw), fh = Math.max(H_UM, ch);
+    const s = Math.min((w - 2 * pad) / fw, (h - 2 * pad) / fh);
     view.scale = s;
-    view.tx = (w - W_UM * s) / 2;
-    view.ty = (h - H_UM * s) / 2;
+    view.tx = (w - fw * s) / 2;
+    view.ty = (h - fh * s) / 2;
     view.fitted = true;
+  }
+
+  /* Every imageable area the carrier declares, in stage coordinates. Drawn
+     under everything else: it is the frame the run happens inside, not a layer
+     of the run. */
+  function drawCarrier(ctx) {
+    const cfg = state.carrier;
+    const g = geometry(cfg);
+    const aw = cfg.w * MM_UM * view.scale;
+    const ah = cfg.h * MM_UM * view.scale;
+    if (aw < 1.5 || ah < 1.5) return;
+    const rad = Math.min(g.corner * MM_UM * view.scale, aw / 2, ah / 2);
+    ctx.save();
+    ctx.strokeStyle = css("--accent");
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = Math.min(1.2, Math.max(0.4, aw * 0.02));
+    for (let r = 0; r < cfg.rows; r++) {
+      for (let c = 0; c < cfg.cols; c++) {
+        const [x, y] = toScreen(c * g.pitchX * MM_UM, r * g.pitchY * MM_UM);
+        ctx.beginPath();
+        ctx.roundRect(x, y, aw, ah, rad);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   const toScreen = (x, y) => [x * view.scale + view.tx, y * view.scale + view.ty];
@@ -982,6 +1024,8 @@ import {
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = css("--surface-3");
     ctx.fillRect(0, 0, w, h);
+
+    drawCarrier(ctx);
 
     const showTiles = el("lay-tiles").checked;
     const showCells = el("lay-cells").checked;

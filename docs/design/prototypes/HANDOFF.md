@@ -49,9 +49,9 @@ resets it to step 1.
 A left rail of workflow steps, a right side whose panels follow the step.
 Ten steps in `target_acquisition`:
 
-1 Connect · 2 Optical Configuration · 3 Carrier setup · 4 Focus strategy ·
-5 Scan the overview · 6 Detect cells · 7 Select cells · 8 Acquire and curate ·
-9 Save the run · 10 Disconnect
+1 Connect · 2 Optical Configuration · 3 Carrier configuration ·
+4 Focus strategy · 5 Scan the overview · 6 Detect cells · 7 Select cells ·
+8 Acquire and curate · 9 Save the run · 10 Disconnect
 
 Two other workflows exist to prove the frame is not built around one:
 `overview_only` (6 steps) and `focus_check` (6).
@@ -66,15 +66,18 @@ Two other workflows exist to prove the frame is not built around one:
 - The **run button lives with the widget it operates**, in an action bar above
   the panel. A step that carries its own button (`ownButton: true`) hides the
   action bar entirely — Connect and Optical Configuration do.
-- **Base panel**: `setup` until the carrier is applied, `canvas` from then on.
-  The carrier settles where the stage may go, which is the frame everything
-  afterwards is drawn in — so that is the moment there is something to draw.
-  From there the canvas is the window into the run and never goes away; it
-  fills with data rather than appearing once data exists. Later it will load
-  the stage limits from the controller; today it is UI only. The setup steps
-  (Connect, Optical Configuration, Carrier setup) each own the `setup` panel,
-  so walking back to one still shows its card. Every other step is canvas plus
-  whatever it declares. The tab set is recomputed every render.
+- **The canvas arrives at step 3 and never leaves.** It is the microscope's
+  own limits drawn to scale, so it exists from *reaching* Carrier configuration,
+  not from finishing it — nothing about the frame depends on what is mounted in
+  it. Setting it up fixes the run's zero too, which is why no step asks for an
+  origin; that happens behind the scenes and is deliberately not drawn. Later
+  the limits come from the controller; today it is UI only.
+- **Every step declares its own panel** — `connect`, `optics`, `carrier`,
+  `focus`, … — rather than sharing one called Setup, so the tab beside the
+  canvas says which of them it opens. The three setup panels draw into the same
+  element because only one is ever shown.
+- **One tab is not a choice, so it is not drawn.** Steps 1 and 2 have no tab bar
+  at all. The canvas keeps its tab even alone, because it never goes away.
 - **A panel belongs to its step** and shows only while that step is selected.
   Walk back to Connect and the session and its checks are there again.
 - Step **numbers are derived from position**, never typed.
@@ -102,6 +105,12 @@ Two other workflows exist to prove the frame is not built around one:
   column. The open bar carries the same fields a session does — one rule in
   the stylesheet serves both — so it stands taller than the line of text a
   recorded preset is, and its kind, name and Record are all one height.
+
+- **Carrier configuration** is a full designer, not a dropdown: type, preset,
+  rows/columns, area size, pitch and corner, each pair tieable, with the carrier
+  drawn live beside the numbers and its areas laid onto the canvas. It is the
+  first extracted widget — `widgets/carrier.js` over `lib/carriers.js` — and the
+  shape the rest should follow.
 
 **Two panels worth understanding**
 
