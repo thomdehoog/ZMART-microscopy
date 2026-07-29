@@ -39,12 +39,9 @@ async function record(page, kind, name) {
 /** Everything before the sample is touched: session, optics, carrier. */
 async function throughSetup(page) {
   await connect(page);
-  await gotoStep(page, "Optical configuration");
-  // recording is the work; there is no button to confirm afterwards
-  await record(page, "acquisition", "survey");
-  await record(page, "acquisition", "target");
-  // no button here: configuring the carrier is the work, so standing on the
-  // step settles it
+  // the mock starts with an overview, a target and an autofocus preset already
+  // recorded, so optics needs nothing; and configuring the carrier is the work,
+  // so standing on that step settles it
   await gotoStep(page, "Carrier configuration");
   await page.waitForTimeout(200);
 }
@@ -143,10 +140,9 @@ test("an open session is not editable, and Disconnect is the way out", async ({ 
   // session — but keeps what it was opened with, since editing that is the
   // reason to close one
   await gotoStep(page, "Optical configuration");
-  await page.locator(".setting-box.open input").fill("survey");
-  await page.locator(".setting-box.open button.run").click();
-  await page.waitForTimeout(650);
-  await expect(page.locator(".rec-row")).toHaveCount(1);
+  const started = await page.locator(".rec-row").count();
+  await record(page, "acquisition", "survey");
+  await expect(page.locator(".rec-row")).toHaveCount(started + 1);
 
   await gotoStep(page, "Microscope configuration");
   await page.locator(".session-foot button").click();
@@ -155,46 +151,73 @@ test("an open session is not editable, and Disconnect is the way out", async ({ 
   await expect(page.locator(".session-done")).toHaveCount(0);
   await expect(page.locator('.field input[type="password"]')).toHaveValue("hunter2");
   await expect(page.locator('.step:has-text("Optical configuration")').first()).toBeDisabled();
+
+  // and the next session starts where any run does: what the closed one
+  // recorded is gone, what a run begins with is back
+  await page.locator(".session-foot button.run").click();
+  await page.waitForTimeout(2200);
+  await gotoStep(page, "Optical configuration");
+  await expect(page.locator(".rec-row")).toHaveCount(started);
+});
+
+test("the mock starts on the three presets a target run needs", async ({ page }) => {
+  await connect(page);
+  await gotoStep(page, "Optical configuration");
+
+  // a convenience of the mock, not of the design: a real build records these
+  await expect(page.locator(".rec-name")).toHaveText(["Overview", "Target", "AF"]);
+  await expect(page.locator(".rec-row").nth(0), "the overview maps the sample")
+    .toContainText("5x");
+  await expect(page.locator(".rec-row").nth(1), "the target images single cells")
+    .toContainText("63x");
+  // and a preset existing is what completes the step, seeded or recorded
+  await expect(page.locator('.step:has-text("Optical configuration")').first())
+    .toHaveClass(/done/);
 });
 
 test("settings are recorded off the instrument, and the list grows", async ({ page }) => {
   await connect(page);
   await gotoStep(page, "Optical configuration");
 
-  // nothing is preconfigured: the only choice is what kind of thing to record
-  await expect(page.locator(".panel.on button.step-run"),
-    "recording is the work, so there is nothing to confirm").toHaveCount(0);
+  // recording is the work, so there is nothing to confirm afterwards
+  await expect(page.locator(".panel.on button.step-run")).toHaveCount(0);
+  const started = await page.locator(".rec-row").count();
+
+  await record(page, "acquisition", "survey");
+  await record(page, "autofocus", "af-coarse");
+
+  await expect(page.locator(".rec-row")).toHaveCount(started + 2);
+  // grouped by kind rather than by the order record happened to be pressed
+  await expect(page.locator(".setting-group:has(.setting-box.done)")).toHaveCount(2);
+  // names are stored capitalised, being identifiers the run refers to
+  await expect(page.locator(".rec-name").nth(started - 1)).toHaveText("Survey");
+  await expect(page.locator(".rec-row").first()).toContainText("NA");
+  await expect(page.locator(".rec-row").last()).toContainText("NA");
+
+  // forgetting every preset undoes the step, since a preset existing is what
+  // completed it. Re-queried each time: dropping one rebuilds the list, and a
+  // handle taken before that points at an element no longer on the page
+  while (await page.locator(".rec-drop").count()) {
+    await page.locator(".rec-drop").first().click();
+    await page.waitForTimeout(60);
+  }
   await expect(page.locator(".rec-row")).toHaveCount(0);
   await expect(page.locator('.step:has-text("Optical configuration")').first())
     .not.toHaveClass(/done/);
 
-  await record(page, "acquisition", "survey");
-  await record(page, "acquisition", "target");
-  await record(page, "autofocus", "af-coarse");
-
-  await expect(page.locator(".rec-row")).toHaveCount(3);
-  // grouped by kind rather than by the order record happened to be pressed
-  await expect(page.locator(".setting-group:has(.setting-box.done)")).toHaveCount(2);
-  // names are stored capitalised, being identifiers the run refers to
-  await expect(page.locator(".rec-name").first()).toHaveText("Survey");
-  await expect(page.locator(".rec-row").first()).toContainText("NA");
-  await expect(page.locator(".rec-row").last()).toContainText("NA");
-  // a setting existing is what completes the step
-  await expect(page.locator('.step:has-text("Optical configuration")').first())
-    .toHaveClass(/done/);
-
-  // a recorded setting and the next open bar are separate boxes
-  await expect(page.locator(".setting-box.done")).toHaveCount(3);
-  await expect(page.locator(".setting-box.open"), "and one bar is always waiting")
-    .toHaveCount(1);
+  // a recorded setting and the next open bar are separate boxes, and one bar
+  // is always waiting
+  await expect(page.locator(".setting-box.open")).toHaveCount(1);
   await expect(page.locator(".setting-box.open").locator("input")).toHaveValue("");
 });
 
 test("the optical settings panel lines up", async ({ page }) => {
   await connect(page);
   await gotoStep(page, "Optical configuration");
-  await record(page, "acquisition", "survey");
-  await record(page, "acquisition", "target");
+  // names of their own: the mock already starts with an Overview, a Target and
+  // an AF, and a name is a name whatever its case
+  await record(page, "acquisition", "wide");
+  await record(page, "acquisition", "zoom");
   await record(page, "autofocus", "af coarse");
 
   const seen = await page.evaluate(() => {
@@ -244,20 +267,20 @@ test("the optical settings panel lines up", async ({ page }) => {
 test("a recorded preset unfolds to show everything that was read", async ({ page }) => {
   await connect(page);
   await gotoStep(page, "Optical configuration");
-  await record(page, "acquisition", "survey");
+  const fold = page.locator(".rec-fold").first();
 
   // folded by default: a list of presets should stay a list
   await expect(page.locator(".rec-detail")).toHaveCount(0);
-  await expect(page.locator(".rec-fold")).toHaveAttribute("aria-expanded", "false");
+  await expect(fold).toHaveAttribute("aria-expanded", "false");
 
-  await page.locator(".rec-fold").first().click();
-  await expect(page.locator(".rec-fold")).toHaveAttribute("aria-expanded", "true");
+  await fold.click();
+  await expect(fold).toHaveAttribute("aria-expanded", "true");
   const labels = await page.locator(".rec-detail dt").allInnerTexts();
   expect(labels, "the detail behind the summary").toContain("Objective");
   expect(labels).toContain("Channel 1");
   await expect(page.locator(".rec-detail dd").first()).toContainText("NA");
 
-  await page.locator(".rec-fold").first().click();
+  await fold.click();
   await expect(page.locator(".rec-detail")).toHaveCount(0);
 });
 
@@ -309,7 +332,11 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     await connect(page);
     await expect(page.locator(".step.active .step-name")).toHaveText("Microscope configuration");
     await expect(page.locator('.step:has-text("Microscope configuration")').first()).toHaveClass(/done/);
-    await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeDisabled();
+    /* Carrier configuration is reachable — the presets the mock starts with
+       complete the step between here and it — but the rail still stops at the
+       first step that has not been done, so nothing beyond it opens. */
+    await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeEnabled();
+    await expect(page.locator('.step:has-text("Focus strategy")').first()).toBeDisabled();
   });
 
 test("the canvas belongs to the steps that happen inside it, and to no others",
