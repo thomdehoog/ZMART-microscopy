@@ -300,11 +300,22 @@ something then has to stop the operator reaching them, because the engine rememb
 "there is nothing here" for a frame looked at too early and will not look again.*
 
 That objection was sound, and it is now spent, because the something exists.
-`written_timepoints` in the viewer's `stores.py` counts what has actually been written and
-stops the time slider there, and the viewer opens a timelapse at its first moment rather
-than half way along. Both are built and tested. With those in place an operator is never
-offered a moment that was not imaged, whatever the store declares — so the property that
-growing bought is delivered by the viewer instead, and bought nothing that is still needed.
+`written_timepoints` in the viewer's `stores.py` reads how far the images on disk reach
+and stops the time slider there, and the viewer opens a timelapse at its first moment
+rather than half way along. Both are built and tested. With those in place the operator is
+never offered a moment beyond the furthest one imaged, whatever the store declares — so
+the property that growing bought is delivered by the viewer instead, and bought nothing
+that is still needed.
+
+One qualification, because the earlier wording here promised more than the code delivers
+and that is worth correcting rather than leaving to be discovered. What is stopped at is
+the furthest moment written, not the number of moments written, and the two differ
+whenever a moment in the middle holds nothing. A canvas imaged at the moments a workflow
+chooses does that by design, and so does a frame that came out entirely black, since zarr
+stores no piece at all for a chunk that is only fill value. In those cases the moments in
+between are offered too, and draw as empty. That is the deliberate choice: stopping
+earlier would put real, readable data out of reach with nothing on screen to say it was
+there. It is written out in full in the `written_timepoints` docstring.
 
 What growing cost, by contrast, does not go away. Changing an array's shape changes the
 key under which the engine files the pieces it has decoded, so a viewer following the run

@@ -474,10 +474,13 @@ frame lands — so that the store always said exactly what it held.
 
 That fix treated the symptom. The real fault was that nothing stopped the operator
 reaching a moment that was never imaged, and both halves of *that* are now fixed
-independently: `written_timepoints` counts what has been written and stops the slider
-there, and the viewer opens a timelapse at its first moment rather than half way along.
-Once those exist, a store may declare whatever room it likes and the operator still sees
-only what was recorded — so lengthening bought nothing that was still needed, while
+independently: `written_timepoints` reads how far the images on disk reach and stops the
+slider there, and the viewer opens a timelapse at its first moment rather than half way
+along. (It stops at the *furthest* moment written rather than at a count of them, so a
+canvas imaged at chosen moments still offers the empty ones in between — see the
+docstring, which sets out why that is the lesser of the two mistakes.)
+Once those exist, a store may declare whatever room it likes and the operator sees little
+beyond what was recorded — so lengthening bought nothing that was still needed, while
 costing something real. Changing an array's shape changes the key the engine files
 decoded pieces under, so a viewer following the run re-reads the frame on screen every
 time the length moves, once per moment for the whole run.
