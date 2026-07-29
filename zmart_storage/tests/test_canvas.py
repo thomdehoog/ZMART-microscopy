@@ -23,7 +23,7 @@ import zarr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from zmart_storage.canvas import Channel, TileCanvases, slots_per_axis
+from zmart_storage.canvas import Channel, TileCanvases, _Slot, slots_per_axis
 
 # Tiles 128 voxels across. With 64-voxel pieces and two levels of shrunk-down
 # copies, a whole piece is 128 voxels -- so a tile is exactly one piece and tiles
@@ -34,10 +34,10 @@ OVERLAPPING = (2, 112, 112)  # a run that must be stitched afterwards instead
 GRID = 4
 
 
-def _canvases(folder: Path, *, step=BUTTED_UP, **kwargs) -> TileCanvases:
+def _canvases(folder: Path, *, step=BUTTED_UP, name="overview", **kwargs) -> TileCanvases:
     return TileCanvases.create(
         folder,
-        name="overview",
+        name=name,
         canvas_shape=(2, 640, 640),
         tile_shape=TILE,
         tile_step=step,
@@ -115,6 +115,103 @@ def test_tiles_that_do_not_divide_into_pieces_are_only_a_warning(tmp_path):
     canvases.write(np.full((2, 100, 100), 7, dtype="uint16"),
                    origin=(0, 0, 0), tile_index=(0, 0, 0))
     assert _read_level0(canvases.paths[0])[0, 50, 50] == 7
+
+
+# -- not writing over a run that has already been imaged ----------------------
+#
+# Declaring the images empties whatever is already under their name. That is
+# right at the start of a run, when nothing is there, and it is a disaster once a
+# run has been imaged into that folder: the pictures go, and the newly declared
+# images look perfectly healthy because an empty image is a valid one. A notebook
+# cell run twice, or a script restarted after a crash, is all it takes.
+
+
+def test_declaring_over_an_imaged_run_is_refused(tmp_path):
+    """A folder that already holds acquired pictures must not be emptied."""
+    first = _canvases(tmp_path)
+    first.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                tile_index=(0, 0, 0))
+
+    with pytest.raises(ValueError, match="already an imaged run in this folder"):
+        _canvases(tmp_path)
+
+
+def test_the_refused_run_is_still_there_afterwards(tmp_path):
+    """The refusal is worth nothing if the data went before it was raised.
+
+    This is the check that matters: not that a complaint was made, but that the
+    tiles the earlier run acquired are still readable once it has been made.
+    """
+    first = _canvases(tmp_path)
+    first.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                tile_index=(0, 0, 0))
+
+    with pytest.raises(ValueError):
+        _canvases(tmp_path)
+
+    kept = _read_level0(first.paths[0])
+    assert (kept[:, :TILE[1], :TILE[2]] == 4242).all(), (
+        "the earlier run's tile was destroyed by the create() that was refused"
+    )
+
+
+def test_the_refusal_says_what_to_do_about_it(tmp_path):
+    """An operator meeting this mid-experiment needs to be told their options."""
+    first = _canvases(tmp_path)
+    first.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                tile_index=(0, 0, 0))
+
+    with pytest.raises(ValueError) as complaint:
+        _canvases(tmp_path)
+    said = str(complaint.value)
+    assert "a folder of its own" in said
+    assert "discard_existing_run=True" in said
+
+
+def test_a_folder_declared_but_never_imaged_into_can_be_declared_again(tmp_path):
+    """Nothing was acquired, so there is nothing to protect and nothing to refuse.
+
+    This keeps the guard from being a nuisance: setting a run up, changing your
+    mind about its size and declaring it again is an ordinary thing to do, and it
+    loses nobody's data.
+    """
+    _canvases(tmp_path)
+    second = _canvases(tmp_path, frames=5)
+    second.write(np.full(TILE, 7, dtype="uint16"), origin=(0, 0, 0),
+                 tile_index=(0, 0, 0))
+    assert _read_level0(second.paths[0])[0, 0, 0] == 7
+
+
+def test_another_acquisition_type_can_still_be_declared_beside_it(tmp_path):
+    """A run's folder holds each of its acquisition types side by side.
+
+    The overview, the prescan and the targetscan are declared in separate calls
+    into the one folder, so an imaged overview must not stand in the way of the
+    prescan that follows it. Only images sharing a name are protected from each
+    other, which is what makes the ordinary run still work.
+    """
+    overview = _canvases(tmp_path, name="overview")
+    overview.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                   tile_index=(0, 0, 0))
+
+    prescan = _canvases(tmp_path, name="prescan")
+    prescan.write(np.full(TILE, 7, dtype="uint16"), origin=(0, 0, 0),
+                  tile_index=(0, 0, 0))
+
+    assert _read_level0(overview.paths[0])[0, 0, 0] == 4242
+    assert _read_level0(prescan.paths[0])[0, 0, 0] == 7
+
+
+def test_an_earlier_run_can_be_thrown_away_when_that_is_said_outright(tmp_path):
+    """Starting again from scratch is allowed; it just has to be asked for."""
+    first = _canvases(tmp_path)
+    first.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                tile_index=(0, 0, 0))
+
+    second = _canvases(tmp_path, discard_existing_run=True)
+    assert _read_level0(second.paths[0]).max() == 0, (
+        "asking to discard the earlier run left some of it behind"
+    )
 
 
 @pytest.mark.parametrize(
@@ -216,6 +313,127 @@ def test_tiles_written_at_once_do_not_corrupt_each_other(tmp_path):
             f"the tile at x={x0} lost {int((patch != value).sum())} of its "
             f"{patch.size} voxels to a concurrent write"
         )
+
+
+# -- writing at once into images that bundle their pieces ---------------------
+#
+# Zarr can keep many small pieces of an image together in one file, which is
+# called *sharding*. It exists because a large run otherwise leaves millions of
+# tiny files behind, which most filesystems handle badly.
+#
+# It matters here because the file, not the small piece inside it, is what gets
+# read and written back whole. So two tiles landing in different small pieces of
+# the same bundle collide just as surely as two tiles in one piece — and a writer
+# that held tiles apart by the small piece would let them through. `create` does
+# not bundle anything today, so these images are built by hand, which is also how
+# they would arrive if bundling were switched on later.
+
+
+def _built_by_hand(folder: Path, *, chunks, shards) -> TileCanvases:
+    """One image with pieces of a chosen size, wired up to the writer directly."""
+    store = folder / "overview.ome.zarr"
+    group = zarr.open_group(str(store), mode="w", zarr_format=3)
+    array = group.create_array(
+        "0", shape=(1, 1, 2, 512, 512), chunks=chunks, shards=shards, dtype="uint16"
+    )
+    return TileCanvases(
+        folder,
+        [_Slot(index=0, folder=store, arrays=[array])],
+        shape=(1, 1, 2, 512, 512),
+        levels=1,
+        tile_shape=TILE,
+        slot_grid=(1, 1, 1),
+    )
+
+
+def test_tiles_sharing_a_bundle_survive_being_written_at_once(tmp_path):
+    """Four tiles, four small pieces, one bundle: all four must still be there.
+
+    Each tile has a piece of its own here, so a writer counting in small pieces
+    sees nothing to wait for and lets all four go at once. They then rewrite the
+    same bundle over each other. Measured on zarr 3.1.6 before this was fixed,
+    three of the four tiles were simply gone, with nothing reported.
+    """
+    import threading
+
+    canvases = _built_by_hand(
+        tmp_path, chunks=(1, 1, 1, 128, 128), shards=(1, 1, 1, 256, 256)
+    )
+    values = [(11, 0), (22, 128), (33, 256), (44, 384)]
+
+    def write(value, x0):
+        canvases.write(np.full(TILE, value, dtype="uint16"),
+                       origin=(0, 0, x0), tile_index=(0, 0, x0 // 128))
+
+    threads = [threading.Thread(target=write, args=pair) for pair in values]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    written = _read_level0(canvases.paths[0])
+    for value, x0 in values:
+        patch = written[:, :TILE[1], x0:x0 + TILE[2]]
+        assert (patch == value).all(), (
+            f"the tile at x={x0} lost {int((patch != value).sum())} of its "
+            f"{patch.size} voxels to a tile sharing its bundle"
+        )
+
+
+def test_pieces_holding_several_planes_are_refused(tmp_path):
+    """The one arrangement the writer cannot keep safe, refused at the start.
+
+    Tiles are held apart across the specimen by widening each claim to whole
+    pieces, but in time, colour and depth the writer compares positions exactly.
+    That is only right while a piece holds a single moment, a single colour and a
+    single plane. A piece spanning two planes would let two tiles at different
+    depths into the same file at once, so it is refused rather than risked.
+    """
+    with pytest.raises(ValueError, match="more than one moment, colour or plane"):
+        _built_by_hand(tmp_path, chunks=(1, 1, 2, 128, 128), shards=None)
+
+
+# -- how an acquisition first appears on screen --------------------------------
+
+
+def _omero_channels(store: Path) -> list[dict]:
+    import json
+    return json.loads((store / ".zattrs").read_text(encoding="utf-8"))["omero"]["channels"]
+
+
+def test_a_channel_given_no_window_does_not_claim_one(tmp_path):
+    """Leaving the window out has to mean "measure it", not "use the whole range".
+
+    A 16-bit camera can count to 65535, but a real acquisition sits in the bottom
+    few per cent of that: a few hundred counts of background with the signal not
+    far above. Declaring the whole range as the starting window therefore opens
+    the acquisition almost black. The viewer measures a good window from the
+    pixels instead whenever the description does not ask for one, so the way to
+    get that is to genuinely not ask.
+    """
+    canvases = _canvases(tmp_path)
+    window = _omero_channels(canvases.paths[0])[0]["window"]
+
+    assert "start" not in window and "end" not in window, (
+        f"no window was asked for, yet the description declares one: {window}"
+    )
+    # The camera's own range is still worth recording -- it says what the numbers
+    # mean -- and it is not the same thing as asking to be displayed that way.
+    assert window["min"] == 0 and window["max"] == 65535
+
+
+def test_a_channel_given_a_window_still_gets_it(tmp_path):
+    """Asking for a window is the way to override the measurement, and must work."""
+    canvases = TileCanvases.create(
+        tmp_path, name="overview",
+        canvas_shape=(2, 640, 640),
+        tile_shape=TILE, tile_step=BUTTED_UP,
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488", window=(100, 4000))],
+        levels=2, chunk=64,
+    )
+    window = _omero_channels(canvases.paths[0])[0]["window"]
+    assert (window["start"], window["end"]) == (100, 4000)
 
 
 # -- what the rule is protecting against -------------------------------------
