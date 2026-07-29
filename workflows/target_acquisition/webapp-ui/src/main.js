@@ -637,31 +637,27 @@ import {
     host.append(card);
   }
 
-  /* Each setup step gets a card, and keeps it until the next one has been
-     settled — a session you have already moved past twice is history, and the
-     panel should be showing the thing being decided now. */
-  const SETUP_CARDS = [
-    { step: "connect", render: renderSessionCard },
-    { step: "optics", render: renderOpticsCard },
-    { step: "carrier", render: renderCarrierCard },
-  ];
+  /* A card belongs to its step and shows while you are standing on it —
+     the same rule the rows follow. Click back on Connect and the session and
+     its checks are there again; step away and the panel is about the step you
+     moved to. */
+  const SETUP_CARDS = {
+    connect: renderSessionCard,
+    optics: renderOpticsCard,
+    carrier: renderCarrierCard,
+  };
 
   function renderSetup() {
     const host = el("setup-list");
     host.textContent = "";
     const present = new Set(steps().map((s) => s.id));
 
-    const shown = SETUP_CARDS.filter((c) => present.has(c.step));
-    shown.forEach((card, i) => {
-      const successor = shown[i + 1];
-      const retired = successor && state.done.has(successor.step);
-      if (!retired) card.render(host);
-    });
+    const activeId = step(state.activeIdx).id;
+    if (present.has(activeId) && SETUP_CARDS[activeId]) SETUP_CARDS[activeId](host);
 
     /* Only what the run has established, plus whatever is being done now. The
        rail already lists what is still ahead; repeating it here as a column of
        "not set" would make the panel a second, worse copy of it. */
-    const activeId = step(state.activeIdx).id;
     for (const row of SETUP_ROWS) {
       if (!present.has(row.step)) continue;
       if (!state.done.has(row.step) && row.step !== activeId) continue;
