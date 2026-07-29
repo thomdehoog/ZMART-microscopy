@@ -437,7 +437,8 @@ import {
       : "not connected";
     card.append(head);
 
-    if (!connected) {
+    {
+      const locked = connected || connecting;
       const form = document.createElement("div");
       form.className = "session-form";
 
@@ -452,7 +453,7 @@ import {
         scopeSel.append(o);
       }
       scopeSel.value = state.session.microscope;
-      scopeSel.disabled = connecting;
+      scopeSel.disabled = locked;
       scopeSel.addEventListener("change", () => {
         state.session.microscope = scopeSel.value;
         state.session.api = defaultApiFor(scopeSel.value);
@@ -470,7 +471,7 @@ import {
         apiSel.append(o);
       }
       apiSel.value = state.session.api;
-      apiSel.disabled = connecting;
+      apiSel.disabled = locked;
       apiSel.addEventListener("change", () => {
         state.session.api = apiSel.value;
         renderSetup(); renderActionBar();
@@ -481,7 +482,7 @@ import {
       pw.innerHTML = '<span>Password</span><input type="password" autocomplete="current-password">';
       const pwInput = pw.querySelector("input");
       pwInput.value = state.session.password;
-      pwInput.disabled = connecting;
+      pwInput.disabled = locked;
       pwInput.addEventListener("input", () => {
         state.session.password = pwInput.value;
         renderSetup(); renderActionBar();
@@ -489,18 +490,22 @@ import {
 
       form.append(scope, api, pw);
 
-      const go = document.createElement("button");
-      go.className = "run"; go.type = "button";
-      go.textContent = connecting ? "connecting…" : "Connect";
-      go.disabled = connecting || !state.session.password;
-      go.addEventListener("click", () => runStep(indexOfStep("connect")));
-      form.append(go);
+      // once the session is open the button has nothing left to do; the fields
+      // stay on show as the record of what it was opened with
+      if (!connected) {
+        const go = document.createElement("button");
+        go.className = "run"; go.type = "button";
+        go.textContent = connecting ? "connecting…" : "Connect";
+        go.disabled = connecting || !state.session.password;
+        go.addEventListener("click", () => runStep(indexOfStep("connect")));
+        form.append(go);
 
-      if (!state.session.password && !connecting) {
-        const hint = document.createElement("div");
-        hint.className = "session-hint";
-        hint.textContent = "a password is needed to open the session";
-        form.append(hint);
+        if (!state.session.password && !connecting) {
+          const hint = document.createElement("div");
+          hint.className = "session-hint";
+          hint.textContent = "a password is needed to open the session";
+          form.append(hint);
+        }
       }
       card.append(form);
     }
