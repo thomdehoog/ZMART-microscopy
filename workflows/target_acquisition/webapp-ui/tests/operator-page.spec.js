@@ -108,24 +108,14 @@ test("connecting reports what it checked", async ({ page }) => {
   await expect(page.locator(".session-state").first()).toContainText("Leica Stellaris 5");
 });
 
-test("the session can only be changed by disconnecting first", async ({ page }) => {
+test("an open session is not editable, and there is no way back from it", async ({ page }) => {
   const fields = page.locator(".session-form select, .session-form input");
   await connect(page);
   await expect(fields.first(), "an open session is what the run rests on").toBeDisabled();
-
-  // and disconnecting takes the run with it: those settings came off this scope
-  await gotoStep(page, "Optical Configuration");
-  await record(page, "acquisition", "survey");
-  await gotoStep(page, "Microscope Configuration");
-  await page.locator("button.run.danger").click();
-  await page.waitForTimeout(300);
-
-  await expect(fields.first()).toBeEnabled();
-  await expect(page.locator('.field input[type="password"]'),
-    "the credentials stay, since editing them is the reason to disconnect")
-    .toHaveValue("hunter2");
-  await expect(page.locator(".check-row")).toHaveCount(0);
-  await expect(page.locator('.step:has-text("Microscope Configuration")').first()).not.toHaveClass(/done/);
+  // no disconnect here: the run ends the session at its own step, and starting
+  // over is Restart. Two ways out of one session was one too many.
+  await expect(page.locator(".session-form button")).toHaveCount(0);
+  await expect(page.locator(".check-row")).toHaveCount(6);
 });
 
 test("settings are recorded off the instrument, and the list grows", async ({ page }) => {
@@ -286,15 +276,14 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeDisabled();
   });
 
-test("the canvas is the base from the first step, and a step opens on its own",
+test("the carrier sets the canvas up, and from then on it is always there",
   async ({ page }) => {
-    // the stage is the room every step works in, so it is there from the start
-    await expect(page.locator(".tab")).toHaveText(["Canvas", "Microscope"]);
-    await expect(page.locator('.tab[aria-selected="true"]'),
-      "and the step being stood on opens on top of it").toHaveText("Microscope");
+    // Its own panel and nothing else, so no tab bar at all: one tab is not a
+    // choice, and the rail already says which step this is.
+    await expect(page.locator(".tab")).toHaveCount(0);
     await throughSetup(page);
-    await expect(page.locator(".tab"),
-      "the carrier brings no tab of its own").toHaveText(["Canvas"]);
+    await expect(page.locator(".tab"), "the run reached the carrier, so the canvas exists")
+      .toHaveText(["Canvas"]);
     // the carrier is not a tab of its own: its controls dock beside the drawing
     // they change, and the canvas is the only picture of it
     await expect(page.locator("#canvas-side")).toBeVisible();

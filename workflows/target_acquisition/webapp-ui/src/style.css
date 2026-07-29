@@ -696,14 +696,6 @@ canvas.scattercv { cursor: crosshair; }
   color: var(--ink-3); margin: 0 0 2px; padding: 0;
 }
 
-/* Disconnecting closes the session and clears the run with it, so the button
-   says so before it is pressed rather than after. */
-button.run.danger { background: var(--bad); }
-button.run.danger:hover:enabled { background: #991b1b; }
-:root[data-theme="dark"] button.run.danger,
-:root:not([data-theme="light"]) button.run.danger { color: #1a0505; }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) button.run.danger { color: #fff; }
 }
 
 /* ---- the carrier configuration panel ------------------------------------
