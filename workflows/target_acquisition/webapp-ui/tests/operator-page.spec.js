@@ -41,7 +41,7 @@ async function throughSetup(page) {
   // recording is the work; there is no button to confirm afterwards
   await record(page, "acquisition", "survey");
   await record(page, "acquisition", "target");
-  await gotoStep(page, "Carrier setup");
+  await gotoStep(page, "Setup canvas");
   await runStep(page, 900);
 }
 
@@ -281,7 +281,7 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     await connect(page);
     await expect(page.locator(".step.active .step-name")).toHaveText("Connect");
     await expect(page.locator('.step:has-text("Connect")').first()).toHaveClass(/done/);
-    await expect(page.locator('.step:has-text("Carrier setup")').first()).toBeDisabled();
+    await expect(page.locator('.step:has-text("Setup canvas")').first()).toBeDisabled();
   });
 
 test("the carrier sets the canvas up, and from then on it is always there",
