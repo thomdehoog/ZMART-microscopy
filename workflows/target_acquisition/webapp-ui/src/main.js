@@ -1,7 +1,8 @@
 import "./style.css";
 import { numbered } from "./frame/steps.js";
 import {
-  MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor, describeSession, CONNECT_CHECKS,
+  MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor, describeSession,
+  describeConnection, CONNECT_CHECKS,
   SETTING_TYPES, settingType, sampleReading, STAGE_LIMITS_MM,
 } from "./lib/microscopes.js";
 import { DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
@@ -195,7 +196,7 @@ import carrierWidget from "./widgets/carrier.js";
   function resetRun() {
     Object.assign(state, {
       activeIdx: 0, done: new Set(), running: null, notes: {},
-      session: { ...DEFAULT_SESSION }, recordings: [],
+      recordings: [],
       bars: [{ type: SETTING_TYPES[0].key, name: "", state: null }],
       carrier: { ...DEFAULT_CARRIER }, checks: [],
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
@@ -348,12 +349,16 @@ import carrierWidget from "./widgets/carrier.js";
        as it arrives, so a session that fails does so at a named check rather
        than as a spinner that stops. */
     if (s.id === "connect") {
-      state.checks = [];
+      /* Every question is on screen from the moment it is asked; only the
+         answers arrive. A list that grew a row at a time made the last check
+         look like an afterthought and moved everything under it as it came. */
+      state.checks = CONNECT_CHECKS.map((check) => ({ ...check, result: null }));
+      renderSetup();
       CONNECT_CHECKS.forEach((check, k) => {
         setTimeout(() => {
           if (state.running !== "connect") return;
-          state.checks.push({ ...check, result: check.result(state.session) });
-          renderSetup();
+          state.checks[k].result = check.result(state.session);
+          answerCheck(k);
         }, 260 * (k + 1));
       });
     }
@@ -479,9 +484,10 @@ import carrierWidget from "./widgets/carrier.js";
     { step: "focus", name: "Focus surface", waiting: "not measured" },
   ];
 
-  /* Connecting is a form, so its button belongs in the form rather than in the
-     bar above it — you fill a session in and open it, you do not configure it
-     here and press something over there. */
+  /* Connecting is a card that reads downward — the form, the checks, what they
+     came to, and the button that acts on all of it. Its button is its own
+     rather than the frame's, because it is disabled until there is a password
+     and it changes what it does once a session is open. */
   function renderSessionCard(host) {
     const connected = state.done.has("connect");
     let connectBtn = null;
@@ -490,16 +496,12 @@ import carrierWidget from "./widgets/carrier.js";
     const card = document.createElement("div");
     card.className = "session-card" + (connected ? " done" : "");
 
+    /* The heading is the heading and nothing else. What the session was opened
+       with is already in the fields below it and in the rail beside it, so a
+       third copy in the corner was the panel talking about itself. */
     const head = document.createElement("div");
     head.className = "session-head";
-    head.innerHTML = '<span class="session-title">Connect to the microscope</span>'
-      + '<span class="session-state"></span>';
-    /* Only once there is a session to describe. Before that the fields and the
-       button already say the session is not open, and a line saying so again is
-       the panel talking about itself. */
-    head.querySelector(".session-state").textContent = connected
-      ? describeSession(state.session)
-      : "";
+    head.innerHTML = '<span class="session-title">Connect to the microscope</span>';
     card.append(head);
 
     {
@@ -559,49 +561,89 @@ import carrierWidget from "./widgets/carrier.js";
       });
 
       form.append(scope, api, pw);
-
-      /* An open session is the one thing the whole run rests on, so its
-         settings stop being editable once it is open and there is no way back
-         from here. Reopening one against a different microscope would
-         invalidate everything recorded off the last, so the run ends the
-         session at its own step and Restart is how you begin again. */
-
-      // once the session is open the button has nothing left to do; the fields
-      // stay on show as the record of what it was opened with
-      if (!connected) {
-        connectBtn = document.createElement("button");
-        connectBtn.className = "run";
-        connectBtn.type = "button";
-        connectBtn.textContent = connecting ? "connecting…" : "Connect";
-        connectBtn.disabled = connecting || !state.session.password;
-        connectBtn.addEventListener("click", () => runStep(indexOfStep("connect")));
-        form.append(connectBtn);
-
-        connectHint = document.createElement("div");
-        connectHint.className = "session-hint";
-        connectHint.textContent = "a password is needed to open the session";
-        connectHint.hidden = !!state.session.password || connecting;
-        form.append(connectHint);
-      }
       card.append(form);
     }
 
+    /* Every check is listed the moment the session is opened, and each one
+       ticks as its answer comes back. The row is the question; the mark is the
+       answer. An open session is not editable, so the fields stay on show as
+       the record of what it was opened with. */
     if (state.checks.length) {
       const list = document.createElement("div");
       list.className = "check-list";
       for (const c of state.checks) {
+        const answered = c.result !== null;
         const row = document.createElement("div");
-        row.className = "check-row";
+        row.className = "check-row" + (answered ? "" : " pending");
         row.innerHTML = '<span class="check-mark">✓</span><span class="check-name"></span>'
           + '<span class="check-value"></span>';
         row.querySelector(".check-name").textContent = c.label;
-        row.querySelector(".check-value").textContent = c.result;
+        row.querySelector(".check-value").textContent = answered ? c.result : "";
         list.append(row);
       }
       card.append(list);
     }
 
+    /* What the checks came to, said once, where they end. */
+    if (connected) {
+      const done = document.createElement("div");
+      done.className = "session-done";
+      done.textContent = describeConnection(state.session);
+      card.append(done);
+    }
+
+    /* The button sits at the end of the card, after everything it acts on —
+       the rule every other step already follows. It never leaves: while the
+       session is closed it opens one, and while one is open it is the way out
+       of it. */
+    {
+      const foot = document.createElement("div");
+      foot.className = "session-foot";
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      if (connected) {
+        btn.className = "ghost";
+        btn.textContent = "Disconnect";
+        btn.disabled = !!state.running;
+        btn.addEventListener("click", closeSession);
+      } else {
+        btn.className = "run";
+        btn.textContent = connecting ? "connecting…" : "Connect";
+        btn.disabled = connecting || !state.session.password;
+        btn.addEventListener("click", () => runStep(indexOfStep("connect")));
+        connectBtn = btn;
+
+        connectHint = document.createElement("div");
+        connectHint.className = "session-hint";
+        connectHint.textContent = "a password is needed to open the session";
+        connectHint.hidden = !!state.session.password || connecting;
+      }
+      foot.append(btn);
+      if (connectHint) foot.append(connectHint);
+      card.append(foot);
+    }
+
     host.append(card);
+  }
+
+  /* Only the answer lands. The row is already on screen, so filling one in
+     touches that row rather than rebuilding the card under the operator —
+     which would restart every other row's arrival along with it. */
+  function answerCheck(k) {
+    const row = document.querySelectorAll(".check-row")[k];
+    if (!row) return;
+    row.classList.remove("pending");
+    row.querySelector(".check-value").textContent = state.checks[k].result;
+  }
+
+  /* Closing the session takes the run with it, for the reason resetRun already
+     gives: everything after this was read off this session. Reopening against
+     a different microscope is the reason to close one, so the choice of
+     microscope, API and password is what survives. */
+  function closeSession() {
+    if (state.running) return;
+    resetRun();
   }
 
   const indexOfStep = (id) => steps().findIndex((s) => s.id === id);

@@ -191,6 +191,19 @@ export const describeSession = ({ microscope, api }) => {
 };
 
 /**
+ * What an opened session says for itself, once every check has answered. The
+ * rail carries the same fact as a label; this is the sentence the checks end
+ * on, so the two are worded here rather than in the panel that shows them.
+ */
+export const describeConnection = ({ microscope, api }) => {
+  const scope = MICROSCOPES[microscope];
+  const apiDef = scope?.apis?.[api];
+  return scope && apiDef
+    ? `Successfully connected to the ${scope.label} over ${apiDef.label}`
+    : "No session is open";
+};
+
+/**
  * What connecting actually verifies, in the order it is verified. Each check
  * knows how to describe its own result for the session it was run against, so
  * adding one is adding an entry here and nothing else.
