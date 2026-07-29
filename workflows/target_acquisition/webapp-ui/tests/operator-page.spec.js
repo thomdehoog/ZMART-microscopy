@@ -18,10 +18,10 @@ async function runStep(page, ms = 1000) {
   await page.waitForTimeout(ms);
 }
 
-/** Connect is a form with its own button, not a step the action bar drives. */
+/** Connect has its own button at the end of its card, not one the frame drives. */
 async function connect(page, password = "hunter2") {
   await page.locator('.field input[type="password"]').fill(password);
-  await page.locator(".session-form button.run").click();
+  await page.locator(".session-foot button.run").click();
   await page.waitForTimeout(2200);
 }
 
@@ -87,9 +87,9 @@ test("a session needs a password before it will open", async ({ page }) => {
   const pw = page.locator('.field input[type="password"]');
   await expect(pw).not.toHaveValue("");
   await pw.fill("");
-  await expect(page.locator(".session-form button.run")).toBeDisabled();
+  await expect(page.locator(".session-foot button.run")).toBeDisabled();
   await pw.fill("hunter2");
-  await expect(page.locator(".session-form button.run")).toBeEnabled();
+  await expect(page.locator(".session-foot button.run")).toBeEnabled();
 });
 
 test("typing the password does not throw the field away", async ({ page }) => {
@@ -100,24 +100,61 @@ test("typing the password does not throw the field away", async ({ page }) => {
   // rebuilding the card on every keystroke destroys the input being typed into
   expect(await pw.inputValue()).toBe("hunter2");
   expect(await page.evaluate(() => document.activeElement?.type === "password")).toBe(true);
-  await expect(page.locator(".session-form button.run")).toBeEnabled();
+  await expect(page.locator(".session-foot button.run")).toBeEnabled();
 });
 
-test("connecting reports what it checked", async ({ page }) => {
+test("every check is asked at once, and each one ticks as it answers", async ({ page }) => {
+  await page.locator('.field input[type="password"]').fill("hunter2");
+  await page.locator(".session-foot button.run").click();
+
+  // the whole list arrives with the session; only the marks are waiting on
+  // anything, so nothing under them moves as the answers come in
+  await expect(page.locator(".check-row")).toHaveCount(6);
+  const answered = page.locator(".check-row:not(.pending)");
+  expect(await answered.count(), "no answers yet").toBe(0);
+
+  await page.waitForTimeout(700);
+  const part = await answered.count();
+  expect(part, "some marks have landed").toBeGreaterThan(0);
+  expect(part, "and not all of them").toBeLessThan(6);
+  await expect(page.locator(".check-row")).toHaveCount(6);
+
+  await page.waitForTimeout(1600);
+  await expect(answered).toHaveCount(6);
+});
+
+test("connecting reports what it checked, and what that came to", async ({ page }) => {
   await connect(page);
   await expect(page.locator(".check-row")).toHaveCount(6);
   await expect(page.locator(".check-row").first()).toContainText("Microscope reachable");
-  await expect(page.locator(".session-state").first()).toContainText("Leica Stellaris 5");
+  // the card ends on the answer rather than labelling itself in the corner
+  await expect(page.locator(".session-head")).not.toContainText("Leica");
+  await expect(page.locator(".session-done"))
+    .toHaveText("Successfully connected to the Leica Stellaris 5 over CAM");
 });
 
-test("an open session is not editable, and there is no way back from it", async ({ page }) => {
+test("an open session is not editable, and Disconnect is the way out", async ({ page }) => {
   const fields = page.locator(".session-form select, .session-form input");
   await connect(page);
   await expect(fields.first(), "an open session is what the run rests on").toBeDisabled();
-  // no disconnect here: the run ends the session at its own step, and starting
-  // over is Restart. Two ways out of one session was one too many.
-  await expect(page.locator(".session-form button")).toHaveCount(0);
   await expect(page.locator(".check-row")).toHaveCount(6);
+
+  // closing it takes the run with it — everything after this was read off this
+  // session — but keeps what it was opened with, since editing that is the
+  // reason to close one
+  await gotoStep(page, "Optical Configuration");
+  await page.locator(".setting-box.open input").fill("survey");
+  await page.locator(".setting-box.open button.run").click();
+  await page.waitForTimeout(650);
+  await expect(page.locator(".rec-row")).toHaveCount(1);
+
+  await gotoStep(page, "Microscope Configuration");
+  await page.locator(".session-foot button").click();
+  await expect(fields.first(), "and the form is answerable again").toBeEnabled();
+  await expect(page.locator(".check-row")).toHaveCount(0);
+  await expect(page.locator(".session-done")).toHaveCount(0);
+  await expect(page.locator('.field input[type="password"]')).toHaveValue("hunter2");
+  await expect(page.locator('.step:has-text("Optical Configuration")').first()).toBeDisabled();
 });
 
 test("settings are recorded off the instrument, and the list grows", async ({ page }) => {
