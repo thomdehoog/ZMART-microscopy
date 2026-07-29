@@ -127,6 +127,29 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
   await expect(page.locator(".setting-box.open").locator("input")).toHaveValue("");
 });
 
+test("a setting looks the same recorded or not", async ({ page }) => {
+  await connect(page);
+  await gotoStep(page, "Optical settings");
+  await record(page, "acquisition", "survey");
+
+  const geom = await page.evaluate(() => {
+    const box = (s) => {
+      const r = document.querySelector(s).getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) };
+    };
+    const x = (s) => Math.round(document.querySelector(s).getBoundingClientRect().x);
+    return {
+      done: box(".setting-box.done"), open: box(".setting-box.open"),
+      kind: [x(".rec-kind"), x(".rec-new select")],
+      name: [x(".rec-name"), x(".rec-new input")],
+    };
+  });
+  // recording changes what is in the fields, not what the thing is
+  expect(geom.done, "same size").toEqual(geom.open);
+  expect(geom.kind[0], "kind column").toBe(geom.kind[1]);
+  expect(geom.name[0], "name column").toBe(geom.name[1]);
+});
+
 test("a recording will not reuse a name", async ({ page }) => {
   await connect(page);
   await gotoStep(page, "Optical settings");
