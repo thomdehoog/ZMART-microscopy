@@ -40,7 +40,13 @@ export const CARRIER_TYPES = [
       { label: "12-well", rows: 3, cols: 4, shape: "round", w: 22.1, h: 22.1, gap: 3.9, corner: 0 },
       { label: "24-well", rows: 4, cols: 6, shape: "round", w: 15.6, h: 15.6, gap: 3.4, corner: 0 },
       { label: "48-well", rows: 6, cols: 8, shape: "round", w: 11.4, h: 11.4, gap: 1.5, corner: 0 },
-      { label: "96-well", rows: 8, cols: 12, shape: "round", w: 6.9, h: 6.9, gap: 2.1, corner: 0 },
+      /* Greiner Bio-One, flat bottom. The 9.0 mm pitch is the SLAS footprint
+         standard and holds for any 96-well plate. The 6.6 mm is the well
+         bottom, not the 6.96 mm rim: the flat of the well is the part an
+         objective can reach, which is what this list means by an area. It is
+         the diameter Greiner's published 0.34 cm² growth area comes to, so
+         the area this panel reports can be checked against the catalogue. */
+      { label: "96-well (Greiner)", rows: 8, cols: 12, shape: "round", w: 6.6, h: 6.6, gap: 2.4, corner: 0 },
       { label: "384-well", rows: 16, cols: 24, shape: "round", w: 3.6, h: 3.6, gap: 0.9, corner: 0 },
     ],
   },
@@ -77,7 +83,15 @@ export function fromPreset(typeId, preset) {
   };
 }
 
-export const DEFAULT_CARRIER = fromPreset("wellplate", carrierType("wellplate").presets[4]);
+/**
+ * What a run starts on: the plate this lab runs most. Named rather than
+ * indexed, so adding a preset above it does not quietly change what every
+ * fresh run begins with.
+ */
+export const DEFAULT_CARRIER = fromPreset(
+  "wellplate",
+  carrierType("wellplate").presets.find((p) => p.label.startsWith("96-well")),
+);
 
 const close = (a, b) => Math.abs(a - b) < 0.005;
 
