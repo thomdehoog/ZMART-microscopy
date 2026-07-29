@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ZMART operator page</title>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="screen">
+    <!-- ================= left rail ================= -->
+    <div class="rail">
+      <div class="wf-box">
+        <div class="wf-label">Workflow</div>
+        <div class="wf-row">
+          <select class="wf-select" id="wf-select" aria-label="Select workflow"></select>
+          <button class="ghost" id="restart-btn" disabled>Restart</button>
+        </div>
+        <div class="wf-meta" id="wf-meta"></div>
+      </div>
+      <div class="steps" id="steps"></div>
+    </div>
+
+    <!-- ================= right stage ================= -->
+    <div class="stage">
+      <div class="tabs" id="tabs" role="tablist"></div>
+      <div class="action-bar" id="action-bar"></div>
+
+      <!-- canvas panel -->
+      <div class="panel" id="panel-canvas" role="tabpanel">
+        <div class="toolbar">
+          <div class="group">
+            <span style="font-weight:600;color:var(--ink-3)">Layers</span>
+            <label><input type="checkbox" id="lay-tiles" checked> Tiles</label>
+            <label><input type="checkbox" id="lay-cells" checked> Cells</label>
+            <label><input type="checkbox" id="lay-targets" checked> Targets</label>
+          </div>
+          <div class="sep"></div>
+          <div class="group">
+            <span style="font-weight:600;color:var(--ink-3)">Channels</span>
+            <label><input type="checkbox" id="ch-0" checked> <span class="swatch" style="background:#22d3ee"></span> ch1</label>
+            <label><input type="checkbox" id="ch-1" checked> <span class="swatch" style="background:#f59e0b"></span> ch2</label>
+          </div>
+          <div class="sep"></div>
+          <button class="ghost" id="fit-btn">Fit</button>
+          <div class="readout" id="stage-readout">—</div>
+        </div>
+        <div class="plot-host">
+          <canvas class="plot stagecv" id="stage-canvas"></canvas>
+          <div class="tip" id="stage-tip"></div>
+        </div>
+      </div>
+
+      <!-- detection panel: tune on one tile, then run them all -->
+      <div class="panel" id="panel-detect" role="tabpanel">
+        <div class="toolbar focus-toolbar">
+          <div class="tb-row">
+            <span class="tb-label">Algorithm</span>
+            <div class="seg" id="detect-algo" role="radiogroup" aria-label="Detection algorithm">
+              <button type="button" role="radio" data-algo="cellpose" aria-checked="true">Cellpose</button>
+              <button type="button" role="radio" data-algo="threshold" aria-checked="false">Threshold</button>
+            </div>
+            <div class="group" id="detect-params"></div>
+            <span class="tb-label tile-pick">
+              <button type="button" class="ghost tiny" id="tile-prev" aria-label="previous tile">◀</button>
+              <span id="tile-label">tile</span>
+              <button type="button" class="ghost tiny" id="tile-next" aria-label="next tile">▶</button>
+            </span>
+            <div class="readout" id="detect-readout">—</div>
+          </div>
+        </div>
+        <div class="plot-host">
+          <canvas class="plot" id="tile-canvas"></canvas>
+        </div>
+      </div>
+
+      <!-- focus strategy panel -->
+      <div class="panel" id="panel-focus" role="tabpanel">
+        <div class="toolbar focus-toolbar">
+          <div class="tb-row">
+            <span class="tb-label">Strategy</span>
+            <div class="seg" id="focus-strategy" role="radiogroup" aria-label="Focus strategy">
+              <button type="button" role="radio" data-strat="plane" aria-checked="true">Fit from points</button>
+              <button type="button" role="radio" data-strat="fixed" aria-checked="false">Fixed Z</button>
+              <button type="button" role="radio" data-strat="auto" aria-checked="false">Per-tile autofocus</button>
+              <button type="button" role="radio" data-strat="reuse" aria-checked="false">Reuse surface</button>
+            </div>
+            <div class="group" id="focus-params"></div>
+            <div class="readout" id="focus-readout">—</div>
+          </div>
+        </div>
+        <div class="focus-body">
+          <div class="plot-host">
+            <canvas class="plot focuscv" id="focus-canvas"></canvas>
+            <div class="tip" id="focus-tip"></div>
+          </div>
+          <aside class="focus-side">
+            <div class="side-head">Focus points</div>
+            <div class="point-list" id="point-list"></div>
+          </aside>
+          <div class="focus-strip">
+            <div class="side-head trace-head">
+              Focus trace <span id="trace-which"></span>
+            </div>
+            <div class="trace-host">
+              <canvas id="trace-canvas"></canvas>
+              <div class="zpreview">
+                <canvas id="zpreview-canvas" width="256" height="256"
+                        aria-label="image at the selected focus height"></canvas>
+                <div class="zcap">
+                  <span class="zval" id="zpreview-z">—</span>
+                  <span class="zstate" id="zpreview-state"></span>
+                </div>
+              </div>
+              <div class="trace-empty" id="trace-empty">Run the strategy to measure each point, then its sweep appears here.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- analysis panel -->
+      <div class="panel" id="panel-analysis" role="tabpanel">
+        <div class="toolbar">
+          <div class="legend">
+            <span><i class="dot" style="background:var(--mark-context)"></i> all cells</span>
+            <span><i class="dot" style="background:var(--mark-gated)"></i> gated</span>
+            <span><i class="dot" style="background:var(--mark-acquired)"></i> acquired</span>
+          </div>
+          <div class="sep"></div>
+          <button class="ghost" id="clear-gate">Clear gate</button>
+          <div class="readout" id="gate-readout">drag a rectangle to gate</div>
+        </div>
+        <div class="plot-host">
+          <canvas class="plot scattercv" id="scatter-canvas"></canvas>
+          <div class="tip" id="scatter-tip"></div>
+        </div>
+      </div>
+
+      <!-- gallery panel -->
+      <div class="panel" id="panel-gallery" role="tabpanel">
+        <div class="toolbar">
+          <div class="group">
+            <span style="font-weight:600;color:var(--ink-3)">Acquired pairs</span>
+            <span class="readout" id="gallery-readout" style="margin:0">—</span>
+          </div>
+          <div class="sep"></div>
+          <span style="color:var(--ink-3)">overview crop · target crop — mark each ✓ or ✗</span>
+        </div>
+        <div class="gallery-wrap"><div class="pairs" id="pairs"></div></div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
