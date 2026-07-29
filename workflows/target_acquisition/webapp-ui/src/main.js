@@ -2,7 +2,7 @@ import "./style.css";
 import { numbered } from "./frame/steps.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor, describeSession, CONNECT_CHECKS,
-  SETTING_TYPES, settingType, sampleReading,
+  SETTING_TYPES, settingType, sampleReading, STAGE_LIMITS_MM,
 } from "./lib/microscopes.js";
 import { DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
 import carrierWidget from "./widgets/carrier.js";
@@ -61,7 +61,7 @@ import carrierWidget from "./widgets/carrier.js";
       name: "Target acquisition",
       blurb: "overview, detect, select, acquire",
       steps: numbered([
-        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
+        { id: "connect", title: "Microscope Configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
         { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
@@ -77,7 +77,7 @@ import carrierWidget from "./widgets/carrier.js";
       name: "Overview only",
       blurb: "no analysis panel",
       steps: numbered([
-        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
+        { id: "connect", title: "Microscope Configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
         { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
@@ -89,7 +89,7 @@ import carrierWidget from "./widgets/carrier.js";
       name: "Focus surface check",
       blurb: "calibration run",
       steps: numbered([
-        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
+        { id: "connect", title: "Microscope Configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
         { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
@@ -248,11 +248,24 @@ import carrierWidget from "./widgets/carrier.js";
       else if (done) head.insertAdjacentHTML("beforeend", '<span class="tick">✓</span>');
       b.append(head);
 
-      if (state.notes[s.id]) {
+      /* The step you are standing on says what it is for; the others say only
+         what they produced. Explaining every step at once is a wall of text,
+         and explaining none of them leaves the panel unaccounted for. */
+      if (active || state.notes[s.id]) {
         const n = document.createElement("div");
         n.className = "step-body";
-        n.innerHTML = '<div class="step-note ok"></div>';
-        n.querySelector(".step-note").textContent = state.notes[s.id];
+        if (active) {
+          const why = document.createElement("div");
+          why.className = "step-why";
+          why.textContent = s.why;
+          n.append(why);
+        }
+        if (state.notes[s.id]) {
+          const note = document.createElement("div");
+          note.className = "step-note ok";
+          note.textContent = state.notes[s.id];
+          n.append(note);
+        }
         b.append(n);
       }
 
@@ -279,29 +292,34 @@ import carrierWidget from "./widgets/carrier.js";
     return null;
   }
 
-  function renderActionBar() {
-    const host = el("action-bar");
-    host.textContent = "";
-    host.hidden = !!step(state.activeIdx).ownButton;
-    if (host.hidden) return;
+  /* A step's action lives with the panel it operates, at the end of it — the
+     way Connect's button has always sat inside its form. There is no bar above
+     the panel any more: a button that runs the thing you are looking at should
+     not be somewhere else, and a sentence explaining the step belongs with the
+     step, which is the rail.
+
+     `ownButton` now means "this panel builds its own", not "hide the bar". */
+  function renderStepAction(shown) {
+    for (const id of FOOT_IDS) el(id).textContent = "";
+    for (const slot of document.querySelectorAll(".carrier-action")) slot.textContent = "";
+    if (!shown) return;
     const i = state.activeIdx, s = step(i);
+    /* A step with controls of its own puts its action at the end of them; the
+       rest fall back to the bar under the panel they are looking at. */
+    const host = document.querySelector(`.${s.id}-action`) ?? el(`foot-${shown}`);
+    if (!host || s.ownButton || !s.btn) return;
+
     const done = state.done.has(s.id);
     const running = state.running === s.id;
     const blocked = readiness(s);
 
-    if (s.btn && !s.ownButton) {
-      const run = document.createElement("button");
-      run.className = "run"; run.type = "button";
-      run.textContent = running ? "working…" : (done ? "Run again" : s.btn);
-      run.disabled = !!state.running || !!blocked;
-      run.addEventListener("click", () => runStep(i));
-      host.append(run);
-    }
-
-    const why = document.createElement("span");
-    why.className = "action-why";
-    why.textContent = s.why;
-    host.append(why);
+    const run = document.createElement("button");
+    /* marked as the step's own, because where it sits depends on the step */
+    run.className = "run step-run"; run.type = "button";
+    run.textContent = running ? "working…" : (done ? "Run again" : s.btn);
+    run.disabled = !!state.running || !!blocked;
+    run.addEventListener("click", () => runStep(i));
+    host.append(run);
 
     const hint = document.createElement("span");
     if (blocked) { hint.className = "action-hint"; hint.textContent = blocked; }
@@ -310,6 +328,10 @@ import carrierWidget from "./widgets/carrier.js";
     else if (state.notes[s.id]) { hint.className = "action-hint ok"; hint.textContent = state.notes[s.id]; }
     host.append(hint);
   }
+
+  /* Which panel is showing decides which foot fills, so the action follows the
+     operator rather than the step declaring where to put it. */
+  const renderActionBar = () => renderStepAction(shownPanel());
 
   function firstIncomplete() {
     const list = steps();
@@ -411,8 +433,10 @@ import carrierWidget from "./widgets/carrier.js";
      They are three different things — a session, a list of presets, a carrier —
      and a tab beside the canvas should say which of them it opens. They draw
      into the same element because only one is ever shown. */
+  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-detect", "foot-focus", "foot-analysis", "foot-gallery"];
+
   const PANEL_META = {
-    connect: { label: "Session", panel: "panel-setup" },
+    connect: { label: "Microscope", panel: "panel-setup" },
     optics: { label: "Optical configuration", panel: "panel-setup" },
     canvas: { label: "Canvas", panel: "panel-canvas" },
     detect: { label: "Detection", panel: "panel-detect" },
@@ -472,10 +496,14 @@ import carrierWidget from "./widgets/carrier.js";
 
     const head = document.createElement("div");
     head.className = "session-head";
-    head.innerHTML = '<span class="session-title">Session</span><span class="session-state"></span>';
+    head.innerHTML = '<span class="session-title">Connect to the microscope</span>'
+      + '<span class="session-state"></span>';
+    /* Only once there is a session to describe. Before that the fields and the
+       button already say the session is not open, and a line saying so again is
+       the panel talking about itself. */
     head.querySelector(".session-state").textContent = connected
       ? describeSession(state.session)
-      : "not connected";
+      : "";
     card.append(head);
 
     {
@@ -904,8 +932,10 @@ import carrierWidget from "./widgets/carrier.js";
     }
   }
 
+  const shownPanel = () => (state.tabs.includes(state.tab) ? state.tab : state.tabs[0]);
+
   function renderPanels() {
-    const show = state.tabs.includes(state.tab) ? state.tab : state.tabs[0];
+    const show = shownPanel();
     if (!show) return;
     /* By element, not by key: the setup steps share one, so asking each key in
        turn would switch it on for its own and straight back off for the next. */
@@ -914,6 +944,7 @@ import carrierWidget from "./widgets/carrier.js";
       el(id).classList.toggle("on", id === shown);
     }
     renderSide(show);
+    renderStepAction(show);
     if (SETUP_CARDS[show]) renderSetup(show);
     if (show === "canvas") { sizeCanvas(stageCv); drawStage(); }
     if (show === "detect") { renderDetectToolbar(); drawTilePreview(); }
@@ -961,19 +992,32 @@ import carrierWidget from "./widgets/carrier.js";
   const stageTip = el("stage-tip");
   const view = { scale: 0.03, tx: 0, ty: 0, fitted: false };
 
-  /* Fit to whichever is larger. The carrier is the whole of what the stage may
-     reach and the scan covers a corner of it, so framing only the scan would
-     hide the thing the canvas was set up to show. */
+  /* The canvas is the stage, so it is what the view frames — not the carrier
+     inside it and not the scan inside that. Everything else is drawn in the
+     same coordinates and lands where it belongs. */
+  const STAGE_UM = [STAGE_LIMITS_MM.width * 1000, STAGE_LIMITS_MM.height * 1000];
+
   function fitView() {
     const w = stageCv.cssW || 800, h = stageCv.cssH || 600;
     const pad = 26;
-    const [cw, ch] = carrierWidget.extentUm(state.carrier);
-    const fw = Math.max(W_UM, cw), fh = Math.max(H_UM, ch);
+    const [fw, fh] = STAGE_UM;
     const s = Math.min((w - 2 * pad) / fw, (h - 2 * pad) / fh);
     view.scale = s;
     view.tx = (w - fw * s) / 2;
     view.ty = (h - fh * s) / 2;
     view.fitted = true;
+  }
+
+  /* Where the stage ends. Drawn first and faintly: it is the edge of what any
+     of this can reach, which is context for everything else rather than a
+     thing in its own right. */
+  function drawStageLimits(ctx) {
+    const [x, y] = toScreen(0, 0);
+    ctx.save();
+    ctx.strokeStyle = css("--line-strong");
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, STAGE_UM[0] * view.scale, STAGE_UM[1] * view.scale);
+    ctx.restore();
   }
 
   const toScreen = (x, y) => [x * view.scale + view.tx, y * view.scale + view.ty];
@@ -1003,8 +1047,13 @@ import carrierWidget from "./widgets/carrier.js";
     ctx.fillStyle = css("--surface-3");
     ctx.fillRect(0, 0, w, h);
 
+    drawStageLimits(ctx);
+
+    /* Grey, not the accent: the carrier is the room the run happens in, not a
+       thing the run produced. Dark enough to read against the stage behind it,
+       which is grey too. */
     carrierWidget.drawOn(ctx, {
-      config: state.carrier, toScreen, scale: view.scale, colour: css("--accent"),
+      config: state.carrier, toScreen, scale: view.scale, colour: css("--ink-3"),
     });
 
     const showTiles = el("lay-tiles").checked;

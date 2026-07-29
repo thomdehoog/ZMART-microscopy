@@ -158,6 +158,16 @@ export const sampleReading = (key, nth) => {
   return readings[nth % readings.length];
 };
 
+/**
+ * How far the stage can travel, in millimetres — the canvas is this area drawn
+ * to scale, and every carrier sits inside it.
+ *
+ * A stand-in until the controller is asked. One number for every microscope
+ * here, which is exactly the part that is not true: it is the first thing the
+ * live driver replaces, per instrument.
+ */
+export const STAGE_LIMITS_MM = { width: 120, height: 80 };
+
 export const DEFAULT_SESSION = {
   microscope: "stellaris5",
   api: "cam",

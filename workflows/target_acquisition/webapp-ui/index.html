@@ -26,17 +26,27 @@
     <!-- ================= right stage ================= -->
     <div class="stage">
       <div class="tabs" id="tabs" role="tablist"></div>
-      <div class="action-bar" id="action-bar"></div>
 
       <!-- setup panel: what the run is configured with, before there is data -->
       <div class="panel" id="panel-setup" role="tabpanel">
         <div class="setup-wrap">
           <div class="setup-list" id="setup-list"></div>
         </div>
+        <div class="panel-foot" id="foot-setup"></div>
       </div>
 
       <!-- canvas panel -->
       <div class="panel" id="panel-canvas" role="tabpanel">
+        <div class="canvas-body">
+          <div class="plot-host">
+            <canvas class="plot stagecv" id="stage-canvas"></canvas>
+            <div class="tip" id="stage-tip"></div>
+          </div>
+          <!-- a step whose work is about the frame itself docks its controls
+               here, beside what they change, rather than on a tab of its own -->
+          <aside class="canvas-side" id="canvas-side" hidden></aside>
+        </div>
+        <div class="canvas-foot">
         <div class="toolbar">
           <div class="group">
             <span style="font-weight:600;color:var(--ink-3)">Layers</span>
@@ -54,14 +64,7 @@
           <button class="ghost" id="fit-btn">Fit</button>
           <div class="readout" id="stage-readout">—</div>
         </div>
-        <div class="canvas-body">
-          <div class="plot-host">
-            <canvas class="plot stagecv" id="stage-canvas"></canvas>
-            <div class="tip" id="stage-tip"></div>
-          </div>
-          <!-- a step whose work is about the frame itself docks its controls
-               here, beside what they change, rather than on a tab of its own -->
-          <aside class="canvas-side" id="canvas-side" hidden></aside>
+          <div class="panel-foot" id="foot-canvas"></div>
         </div>
       </div>
 
@@ -86,6 +89,7 @@
         <div class="plot-host">
           <canvas class="plot" id="tile-canvas"></canvas>
         </div>
+        <div class="panel-foot" id="foot-detect"></div>
       </div>
 
       <!-- focus strategy panel -->
@@ -130,6 +134,7 @@
             </div>
           </div>
         </div>
+        <div class="panel-foot" id="foot-focus"></div>
       </div>
 
       <!-- analysis panel -->
@@ -148,6 +153,7 @@
           <canvas class="plot scattercv" id="scatter-canvas"></canvas>
           <div class="tip" id="scatter-tip"></div>
         </div>
+        <div class="panel-foot" id="foot-analysis"></div>
       </div>
 
       <!-- gallery panel -->
@@ -161,6 +167,7 @@
           <span style="color:var(--ink-3)">overview crop · target crop — mark each ✓ or ✗</span>
         </div>
         <div class="gallery-wrap"><div class="pairs" id="pairs"></div></div>
+        <div class="panel-foot" id="foot-gallery"></div>
       </div>
 
     </div>
