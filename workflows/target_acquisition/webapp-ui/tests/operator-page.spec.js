@@ -145,7 +145,7 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
 
   await expect(page.locator(".rec-row")).toHaveCount(3);
   // grouped by kind rather than by the order record happened to be pressed
-  await expect(page.locator(".setting-group")).toHaveCount(2);
+  await expect(page.locator(".setting-group:has(.setting-box.done)")).toHaveCount(2);
   // names are stored capitalised, being identifiers the run refers to
   await expect(page.locator(".rec-name").first()).toHaveText("Survey");
   await expect(page.locator(".rec-row").first()).toContainText("NA");
@@ -182,6 +182,22 @@ test("a setting looks the same recorded or not", async ({ page }) => {
   // and the name starts at the left of its box: the group names the kind, so
   // there is no column standing empty in front of it
   expect(geom.nameLeft).toBeLessThan(30);
+});
+
+test("every label sits the same distance off its box", async ({ page }) => {
+  await connect(page);
+  await gotoStep(page, "Optical settings");
+  await record(page, "acquisition", "survey");
+  await record(page, "autofocus", "af coarse");
+
+  const gaps = await page.evaluate(() =>
+    [...document.querySelectorAll(".setting-group")].map((g) => {
+      const label = g.querySelector(".group-label").getBoundingClientRect();
+      const box = g.querySelector(".setting-box").getBoundingClientRect();
+      return Math.round(box.top - label.bottom);
+    }));
+  expect(gaps.length, "add-new, plus one per kind").toBe(3);
+  expect(new Set(gaps).size, "one spacing, not one per group").toBe(1);
 });
 
 test("a recording will not reuse a name", async ({ page }) => {
