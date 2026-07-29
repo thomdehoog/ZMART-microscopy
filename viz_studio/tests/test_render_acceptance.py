@@ -62,17 +62,52 @@ def test_the_demo_volume_is_actually_drawn(viewer_page):
     assert_something_was_drawn(viewer_page, "the slice view")
 
 
+# What the engine says about the switch to the volume view: how many drawing layers
+# it is running, and how much of what they need has arrived. Both halves are needed.
+#
+# Switching to 3-D does not replace the drawing layers, it *adds* to them: the demo
+# has eleven while showing slices and fourteen while showing a volume, one extra for
+# each image on screen. So asking only "has everything arrived?" the instant after the
+# click would be answered by the slice layers, which are still loaded and still
+# satisfied, and the test would photograph the panel before the volume existed.
+# Waiting for the count to grow first is what makes the second half mean the volume.
+_RENDER_LAYERS = """() => {
+  let layers = 0;
+  for (const m of window.zmartViewer.layerManager.managedLayers)
+    for (const _ of (m.layer?.renderLayers) || []) layers += 1;
+  return layers;
+}"""
+
+_VOLUME_READY = """(before) => {
+  let layers = 0, needed = 0, available = 0;
+  for (const m of window.zmartViewer.layerManager.managedLayers)
+    for (const rl of (m.layer?.renderLayers) || []) {
+      layers += 1;
+      const p = rl.layerChunkProgressInfo;
+      if (p) { needed += p.numVisibleChunksNeeded; available += p.numVisibleChunksAvailable; }
+    }
+  return layers > before && available > 0 && available >= needed;
+}"""
+
+
 def test_the_volume_view_is_actually_drawn(viewer_page):
     """The same, for the 3-D view, which had the same fault for the same reason.
 
     Its background is black rather than grey, so a failure here reads as an empty
     black panel — indistinguishable by eye from a specimen that simply has
     nothing in view, which is why it is worth a test of its own.
+
+    The waiting here is worth a word, because it used to be a fixed four seconds
+    and that was the wrong shape of promise. Four seconds is far longer than this
+    needs on a quiet machine — the volume is ready in about a quarter of a second —
+    and not necessarily long enough on a busy one, so the test was slow when it
+    passed and untrustworthy when it failed. It now waits for the engine's own
+    account of what it has loaded, which is the same thing the timelapse fixture
+    waits for, and then looks at the picture. That takes as long as it takes.
     """
+    before = viewer_page.evaluate(_RENDER_LAYERS)
     viewer_page.click("text=3D")
-    # The volume is ray-cast from scratch when the view changes, so it needs a
-    # moment longer than a slice does before there is anything to photograph.
-    viewer_page.wait_for_timeout(4000)
+    viewer_page.wait_for_function(_VOLUME_READY, arg=before, timeout=60_000)
     assert_something_was_drawn(viewer_page, "the volume view")
 
 
