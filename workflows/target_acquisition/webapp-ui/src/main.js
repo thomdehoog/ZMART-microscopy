@@ -142,7 +142,7 @@ import {
   const state = {
     session: { ...DEFAULT_SESSION },
     recordings: [],
-    drafts: [{ type: SETTING_TYPES[0].key, name: "" }],
+    bars: [{ type: SETTING_TYPES[0].key, name: "", state: null }],
     carrier: DEFAULT_CARRIER,
     checks: [],
     wf: "target_acquisition",
@@ -192,7 +192,7 @@ import {
     Object.assign(state, {
       activeIdx: 0, done: new Set(), running: null, notes: {},
       session: { ...DEFAULT_SESSION }, recordings: [],
-      drafts: [{ type: SETTING_TYPES[0].key, name: "" }],
+      bars: [{ type: SETTING_TYPES[0].key, name: "", state: null }],
       carrier: DEFAULT_CARRIER, checks: [],
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
       detect: newDetect(), detected: new Set(),
@@ -261,7 +261,7 @@ import {
     if (s.mode === "focus" && !STRATEGIES[state.focus.strategy].needs(state.focus)) {
       return STRATEGIES[state.focus.strategy].unmet;
     }
-    if (s.mode === "optics" && !state.recordings.length) return "record at least one setting";
+    if (s.mode === "optics" && !recordedBars().length) return "record at least one setting";
     if (s.mode === "detect" && !state.detect.tested) return "try it on one tile first";
     if ((s.mode === "select" || s.mode === "targets") && state.gated.size === 0) return "nothing gated yet";
     return null;
@@ -353,7 +353,7 @@ import {
       if (s.id === "connect") state.notes[s.id] = describeSession(state.session);
       if (s.id === "carrier") state.notes[s.id] = carrier(state.carrier).label;
       if (s.id === "optics") {
-        const n = state.recordings.length;
+        const n = recordedBars().length;
         state.notes[s.id] = `${n} setting${n === 1 ? "" : "s"} recorded`;
       }
 
@@ -550,66 +550,77 @@ import {
   }
 
   const indexOfStep = (id) => steps().findIndex((s) => s.id === id);
-  /* Settings are recorded off the instrument, not typed in: the operator sets
-     the microscope up in its own software, names what they set up, and presses
-     record. Nothing is entered twice, so nothing can disagree with the
-     instrument.
+  /* One bar per setting, and a bar is the setting.
+   *
+   * It starts as a kind, a name and a Record button. Recording reads the state
+   * off the instrument and the bar becomes that record — the fields give way
+   * to what was captured, in place. Nothing jumps to a list somewhere else,
+   * and nothing is typed in twice, so nothing can disagree with the
+   * instrument.
+   *
+   * Choosing a kind in the last open bar opens a fresh one beneath, and there
+   * is always exactly one open bar waiting at the bottom.
+   */
+  const recordedBars = () => state.bars.filter((b) => b.state);
 
-     The list of kinds is meant to grow, so the row at the bottom is always
-     empty and always offers every kind there is. */
+  const ensureOpenBar = () => {
+    if (!state.bars.some((b) => !b.state)) {
+      state.bars.push({ type: SETTING_TYPES[0].key, name: "" });
+    }
+  };
+
+  /* Each setting is its own box, and the open bar is another box below them.
+     Two objects on screen are two objects in the run — a recorded setting and
+     the next one waiting to be taken. */
   function renderOpticsCard(host) {
     const done = state.done.has("optics");
-    const card = document.createElement("div");
-    card.className = "session-card" + (done ? " done" : "");
 
-    const head = document.createElement("div");
-    head.className = "session-head";
-    head.innerHTML = '<span class="session-title">Optical settings</span>'
+    const heading = document.createElement("div");
+    heading.className = "setup-heading";
+    heading.innerHTML = '<span class="session-title">Optical settings</span>'
       + '<span class="session-state"></span>';
-    head.querySelector(".session-state").textContent = state.recordings.length
-      ? `${state.recordings.length} recorded`
+    const n = recordedBars().length;
+    heading.querySelector(".session-state").textContent = n
+      ? `${n} recorded`
       : "nothing recorded yet";
-    card.append(head);
+    host.append(heading);
 
-    if (state.recordings.length) {
-      const list = document.createElement("div");
-      list.className = "rec-list";
-      for (const rec of state.recordings) {
-        const row = document.createElement("div");
-        row.className = "rec-row";
-        row.innerHTML = '<span class="rec-kind"></span><span class="rec-name"></span>'
-          + '<span class="rec-state"></span><button type="button" class="rec-drop">✕</button>';
-        row.querySelector(".rec-kind").textContent = settingType(rec.type).label;
-        row.querySelector(".rec-name").textContent = rec.name;
-        row.querySelector(".rec-state").textContent = rec.state;
-        const drop = row.querySelector(".rec-drop");
-        drop.title = "forget this recording";
-        drop.disabled = done || !!state.running;
-        drop.addEventListener("click", () => {
-          state.recordings = state.recordings.filter((r) => r !== rec);
-          renderSetup(); renderActionBar();
-        });
-        list.append(row);
+    for (const bar of state.bars) {
+      const box = document.createElement("div");
+      if (bar.state) {
+        box.className = "setting-box done";
+        box.append(renderRecordedBar(bar, done));
+      } else {
+        if (done) continue;
+        box.className = "setting-box open";
+        box.append(renderOpenBar(bar));
       }
-      card.append(list);
+      host.append(box);
     }
-
-    if (!done) renderDrafts(card);
-    host.append(card);
   }
 
-  /* One bar per setting. Choosing a kind in the last bar opens a fresh one
-     beneath it, so several presets can be lined up and recorded as the
-     microscope is set up for each — and there is always an empty bar waiting
-     at the bottom.
+  function renderRecordedBar(bar, done) {
+    const row = document.createElement("div");
+    row.className = "rec-row";
+    row.innerHTML = '<span class="rec-kind"></span><span class="rec-name"></span>'
+      + '<span class="rec-state"></span><button type="button" class="rec-drop">✕</button>';
+    row.querySelector(".rec-kind").textContent = settingType(bar.type).label;
+    row.querySelector(".rec-name").textContent = bar.name;
+    row.querySelector(".rec-state").textContent = bar.state;
 
-     Only the select spawns a bar. Doing it on every keystroke would rebuild
-     the row being typed into and throw the field away. */
-  function renderDrafts(card) {
-    for (const draft of state.drafts) card.append(renderDraft(draft));
+    const drop = row.querySelector(".rec-drop");
+    drop.title = "forget this setting";
+    drop.disabled = done || !!state.running;
+    drop.addEventListener("click", () => {
+      state.bars = state.bars.filter((b) => b !== bar);
+      ensureOpenBar();
+      renderSetup();
+      renderActionBar();
+    });
+    return row;
   }
 
-  function renderDraft(draft) {
+  function renderOpenBar(bar) {
     const row = document.createElement("div");
     row.className = "rec-new";
 
@@ -620,17 +631,17 @@ import {
       o.textContent = t.label;
       kind.append(o);
     }
-    kind.value = draft.type;
+    kind.value = bar.type;
     kind.addEventListener("change", () => {
-      draft.type = kind.value;
-      if (draft === state.drafts[state.drafts.length - 1]) newDraft();
+      bar.type = kind.value;
+      ensureOpenBar();
       renderSetup();
     });
 
     const name = document.createElement("input");
     name.type = "text";
     name.placeholder = "Name of this preset";
-    name.value = draft.name;
+    name.value = bar.name;
     name.setAttribute("aria-label", "name for this preset");
 
     const go = document.createElement("button");
@@ -641,11 +652,12 @@ import {
     const why = document.createElement("div");
     why.className = "session-hint";
 
-    const taken = (value) => state.recordings.some((r) => r.name === value)
-      || state.drafts.some((d) => d !== draft && d.name.trim() === value);
+    const taken = (value) =>
+      state.bars.some((b) => b !== bar && b.name.trim() === value);
 
+    // typing must not rebuild the row, or the field loses focus every keystroke
     const check = () => {
-      draft.name = name.value;
+      bar.name = name.value;
       const value = name.value.trim();
       const clash = value && taken(value);
       go.disabled = !value || clash || !!state.running;
@@ -656,19 +668,14 @@ import {
     check();
 
     go.addEventListener("click", () => {
-      const value = name.value.trim();
-      const nth = state.recordings.filter((r) => r.type === draft.type).length;
+      const nth = recordedBars().filter((b) => b.type === bar.type).length;
       go.disabled = true;
       go.textContent = "reading…";
       // a controller round-trip, not an instant assignment
       setTimeout(() => {
-        state.recordings.push({
-          type: draft.type,
-          name: value,
-          state: sampleState(draft.type, nth),
-        });
-        state.drafts = state.drafts.filter((d) => d !== draft);
-        if (!state.drafts.length) newDraft();
+        bar.name = name.value.trim();
+        bar.state = sampleState(bar.type, nth);
+        ensureOpenBar();
         renderSetup();
         renderActionBar();
       }, 480);
@@ -677,9 +684,6 @@ import {
     row.append(kind, name, go, why);
     return row;
   }
-
-  const newDraft = () =>
-    state.drafts.push({ type: SETTING_TYPES[0].key, name: "" });
 
   function renderCarrierCard(host) {
     const done = state.done.has("carrier");
