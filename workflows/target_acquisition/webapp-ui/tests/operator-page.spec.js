@@ -203,10 +203,10 @@ test("the optical settings panel lines up", async ({ page }) => {
       .map((e) => e.getBoundingClientRect());
     const labels = [...document.querySelectorAll(".group-label")]
       .map((e) => round(e.getBoundingClientRect().x));
-    // whatever opens a row: the fold triangle, or the kind selector
+    // whatever opens a row: the fold triangle, or the name being taken
     const starts = [
       ...[...document.querySelectorAll(".rec-fold")].map((e) => round(e.getBoundingClientRect().x)),
-      round(document.querySelector(".rec-new select").getBoundingClientRect().x),
+      round(document.querySelector(".rec-new input").getBoundingClientRect().x),
     ];
     // whatever closes it: the remove button, or Record
     const ends = [
