@@ -831,6 +831,50 @@ function pinTheAxesThatMeasureDistance(viewer) {
   }
 }
 
+/**
+ * Open a timelapse at its first moment rather than half way through it.
+ *
+ * The engine opens every axis in the middle, which is the right thing to do for
+ * the axes that measure the specimen — the middle of a stack is a sensible plane
+ * to start on. Time is not like that. A recording is watched from the beginning,
+ * and the middle of a run is not a place anybody asked for.
+ *
+ * There is a second reason, and it is the one that shows on screen. Some images
+ * declare their whole intended length in time at the start, before those moments
+ * have been imaged — a timelapse the microscope has not finished, or one written
+ * by an instrument that plans its length up front. The moments in the middle of
+ * such an image are then genuinely empty, so opening in the middle means opening
+ * on a black screen with the recorded data sitting at the beginning, unseen.
+ * Measured, on a store declaring three moments with only the first imaged: the
+ * view opened blank, and moving to the first moment showed the specimen.
+ *
+ * The time axis is recognised by its unit — seconds — which is the same test used
+ * for the axes that measure distance, and for the same reason: an image says what
+ * its axes mean, so there is no need to guess from their names.
+ *
+ * This runs once, as the image is opened. Afterwards the operator is in charge of
+ * where in time they are, and nothing here moves them again.
+ */
+function startTimeAtTheFirstMoment(viewer) {
+  const { position } = viewer.navigationState;
+  const space = position.coordinateSpace.value;
+  if (!space?.names || !space.units) return;
+  const at = Array.from(space.units).indexOf("s");
+  if (at < 0) return;
+  // The engine describes an axis by the extent the data covers, and says
+  // separately whether a moment sits *on* a whole number or half way between two.
+  // Both conventions occur, and the first moment has to be worked out for the one
+  // in use or the view lands between two frames. This is the same reading the time
+  // slider does -- see AxisSlider.jsx, where it is set out at length.
+  const onWholeNumbers = space.bounds.voxelCenterAtIntegerCoordinates[at];
+  const lower = space.bounds.lowerBounds[at];
+  const first = onWholeNumbers ? Math.ceil(lower) : Math.ceil(lower - 0.5) + 0.5;
+  if (!Number.isFinite(first) || position.value[at] === first) return;
+  const moved = Float32Array.from(position.value);
+  moved[at] = first;
+  position.value = moved;
+}
+
 export function chooseScaleWhenTheImagesAreMeasured(viewer) {
   const { position } = viewer.navigationState;
   // Axes, not images: a space with no axes is the placeholder described above.
@@ -843,6 +887,9 @@ export function chooseScaleWhenTheImagesAreMeasured(viewer) {
     // out from what is being drawn. Choosing the zoom and then changing the axes
     // leaves the view scaled for a picture nobody is looking at.
     pinTheAxesThatMeasureDistance(viewer);
+    // And then where in time to start, which is the beginning rather than the
+    // middle the engine would otherwise choose.
+    startTimeAtTheFirstMoment(viewer);
     // Clearing rather than setting a number of our own on purpose: the engine's
     // own default is a sensible starting point, and it is the one an operator
     // who has used neuroglancer elsewhere will expect. All that was ever wrong

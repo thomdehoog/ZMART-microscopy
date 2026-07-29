@@ -175,6 +175,82 @@ def test_a_canvas_written_by_the_writer_starts_empty_and_fills_in(
         thread.join(timeout=5)
 
 
+def test_a_canvas_written_before_the_viewer_opened_is_drawn(
+    browser, built_dist, tmp_path
+):
+    """Opening the viewer on a run that has already recorded something.
+
+    Every other test here watches tiles land while somebody is looking, which is
+    the live case and the harder one. This is the ordinary case that has to work
+    just as well: an operator opens the viewer part-way through a run, or on a run
+    that has finished, and whatever was recorded before they arrived should simply
+    be on screen.
+
+    It is worth testing separately because nothing about it is shared with the
+    live path. There is no announcement to act on and nothing decoded too early to
+    let go of — the picture has to be right the first time it is drawn, from the
+    store's own description of where its first moment sits.
+    """
+    run = tmp_path / "run"
+    canvas = _a_canvas(run, "overview")
+    # The run records a moment, and only then does anybody open the viewer.
+    canvas.write(_a_tile(), origin=(0, TILE[1], TILE[2]), tile_index=(0, 1, 1))
+    server, thread, page = _open_the_viewer(browser, built_dist, run,
+                                            "overview.ome.zarr")
+    try:
+        drawn = _how_much_is_drawn(page)
+        assert drawn > 0.02, (
+            "a tile recorded before the viewer opened was not on screen when it "
+            f"did: {drawn:.3f}"
+        )
+        print(f"\n  drawn on opening, with nothing announced: {drawn:.2f}")
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_a_timelapse_opens_on_a_moment_that_was_imaged(browser, built_dist, tmp_path):
+    """Opening a timelapse whose later moments were declared but never imaged.
+
+    Our own writer no longer declares moments it has not recorded, so this is not
+    the shape a run of ours has. It is the shape other images have: a timelapse
+    still being recorded by an instrument that plans its length up front, which is
+    a perfectly ordinary thing to be handed and one the viewer should open sensibly.
+
+    Left to itself the engine starts half way along every axis, and half way along
+    a time axis whose later moments are empty is a black screen — with the recorded
+    data sitting at the beginning, unseen and with nothing on screen to say so.
+    Opening at the first moment is both what somebody watching a recording expects
+    and what keeps that from happening.
+    """
+    run = tmp_path / "run"
+    canvas = TileCanvases.create(
+        run, name="overview", canvas_shape=CANVAS,
+        tile_shape=TILE, tile_step=TILE,
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488", window=(0, 4000))],
+        frames=3, chunk=CHUNK, levels=LEVELS,
+    )
+    # Only the first of the three declared moments is ever imaged, and it is
+    # imaged before anybody opens the viewer.
+    canvas.write(_a_tile(), origin=(0, TILE[1], TILE[2]), frame=0,
+                 tile_index=(0, 1, 1))
+    server, thread, page = _open_the_viewer(browser, built_dist, run,
+                                            "overview.ome.zarr")
+    try:
+        drawn = _how_much_is_drawn(page)
+        assert drawn > 0.02, (
+            "a timelapse opened on one of the moments it had never imaged, so the "
+            f"view was blank while its first moment held the specimen: {drawn:.3f}"
+        )
+        print(f"\n  drawn on opening a part-recorded timelapse: {drawn:.2f}")
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def test_several_canvases_update_on_the_fly_independently(
     browser, built_dist, tmp_path
 ):
