@@ -37,7 +37,7 @@ async function record(page, kind, name) {
 /** Everything before the sample is touched: session, optics, origin. */
 async function throughSetup(page) {
   await connect(page);
-  await gotoStep(page, "Optical settings");
+  await gotoStep(page, "Optical Configuration");
   // recording is the work; there is no button to confirm afterwards
   await record(page, "acquisition", "survey");
   await record(page, "acquisition", "target");
@@ -114,7 +114,7 @@ test("the session can only be changed by disconnecting first", async ({ page }) 
   await expect(fields.first(), "an open session is what the run rests on").toBeDisabled();
 
   // and disconnecting takes the run with it: those settings came off this scope
-  await gotoStep(page, "Optical settings");
+  await gotoStep(page, "Optical Configuration");
   await record(page, "acquisition", "survey");
   await gotoStep(page, "Connect");
   await page.locator("button.run.danger").click();
@@ -130,13 +130,13 @@ test("the session can only be changed by disconnecting first", async ({ page }) 
 
 test("settings are recorded off the instrument, and the list grows", async ({ page }) => {
   await connect(page);
-  await gotoStep(page, "Optical settings");
+  await gotoStep(page, "Optical Configuration");
 
   // nothing is preconfigured: the only choice is what kind of thing to record
   await expect(page.locator("#action-bar"),
     "recording is the work, so there is nothing to confirm").toBeHidden();
   await expect(page.locator(".rec-row")).toHaveCount(0);
-  await expect(page.locator('.step:has-text("Optical settings")').first())
+  await expect(page.locator('.step:has-text("Optical Configuration")').first())
     .not.toHaveClass(/done/);
 
   await record(page, "acquisition", "survey");
@@ -151,7 +151,7 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
   await expect(page.locator(".rec-row").first()).toContainText("NA");
   await expect(page.locator(".rec-row").last()).toContainText("NA");
   // a setting existing is what completes the step
-  await expect(page.locator('.step:has-text("Optical settings")').first())
+  await expect(page.locator('.step:has-text("Optical Configuration")').first())
     .toHaveClass(/done/);
 
   // a recorded setting and the next open bar are separate boxes
@@ -163,7 +163,7 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
 
 test("the optical settings panel lines up", async ({ page }) => {
   await connect(page);
-  await gotoStep(page, "Optical settings");
+  await gotoStep(page, "Optical Configuration");
   await record(page, "acquisition", "survey");
   await record(page, "acquisition", "target");
   await record(page, "autofocus", "af coarse");
@@ -215,7 +215,7 @@ test("the optical settings panel lines up", async ({ page }) => {
 
 test("a recorded preset unfolds to show everything that was read", async ({ page }) => {
   await connect(page);
-  await gotoStep(page, "Optical settings");
+  await gotoStep(page, "Optical Configuration");
   await record(page, "acquisition", "survey");
 
   // folded by default: a list of presets should stay a list
@@ -235,7 +235,7 @@ test("a recorded preset unfolds to show everything that was read", async ({ page
 
 test("every label sits the same distance off its box", async ({ page }) => {
   await connect(page);
-  await gotoStep(page, "Optical settings");
+  await gotoStep(page, "Optical Configuration");
   await record(page, "acquisition", "survey");
   await record(page, "autofocus", "af coarse");
 
@@ -251,7 +251,7 @@ test("every label sits the same distance off its box", async ({ page }) => {
 
 test("a recording will not reuse a name", async ({ page }) => {
   await connect(page);
-  await gotoStep(page, "Optical settings");
+  await gotoStep(page, "Optical Configuration");
   await record(page, "acquisition", "survey");
 
   const bar = page.locator(".setting-box.open");
