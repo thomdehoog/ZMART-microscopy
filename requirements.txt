@@ -13,6 +13,12 @@
 
 # --- compute core (registration, focusing, image I/O, calibration) ---
 numpy>=1.24
+# Writes and reads the OME-Zarr images a run produces (zmart_storage). Version 3
+# is required rather than preferred: the writer relies on behaviour that changed
+# within version 3 -- whether a chunk holding nothing is written at all, what the
+# default compressors are, and what resizing an array returns -- so an older zarr
+# would not merely be slower, it would be wrong in ways that are hard to see.
+zarr>=3,<4
 scipy>=1.10
 scikit-image>=0.22,<0.26 # registration: ORB, RANSAC, phase_cross_correlation
 opencv-python>=4.8      # registration: cv2 feature matching
