@@ -17,6 +17,7 @@ from __future__ import annotations
 import concurrent.futures
 import http.client
 import json
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -220,6 +221,204 @@ class TestVeryLargeImages:
         for _ in range(200):
             written_timepoints(store)
         assert time.monotonic() - started < 1.0
+
+
+# --------------------------------------------------------------------------
+# Honesty: what the frame count is allowed to claim
+# --------------------------------------------------------------------------
+
+
+class TestHowFarTheDataReaches:
+    """What the frame count is allowed to claim, and the ways it could be wrong.
+
+    The whole reason a timelapse may declare room for ten thousand moments and
+    fill them in as it goes is that ``written_timepoints`` says how far the images
+    on disk actually reach, and the viewer stops the time slider there. That is
+    only safe if the number can be trusted in both directions.
+
+    Reaching too far is the worse of the two failures. The operator lands on a
+    moment that was never imaged, the drawing engine notes "there is nothing here"
+    and does not look again, and that moment stays blank for the rest of the
+    session even after the microscope has written it. Not reaching far enough is
+    milder but still bad: data that is sitting on disk and perfectly readable
+    cannot be got to, and nothing on screen explains why.
+
+    So the number is one past the furthest moment that holds an image: far enough
+    to reach everything, and no further. A moment in the middle with nothing in it
+    is offered as well and draws empty, which is the truth about it. ``None`` means
+    there is nothing to stop the slider at, and the viewer then limits nothing.
+    """
+
+    def test_the_furthest_moment_on_disk_is_where_the_slider_stops(self, tmp_path):
+        """The ordinary case: five moments imaged in order, so the slider offers five."""
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(10, 1, 1, 64, 64),
+            chunks=(1, 1, 1, 64, 64),
+            axes=("t", "c", "z", "y", "x"),
+            nested=True,
+            fill=(slice(0, 5),),
+        )
+        answer = written_timepoints(store)
+        assert answer == 5
+        # Nothing on disk lies beyond where the slider would stop.
+        assert not (store / "0" / str(answer)).exists()
+
+    def test_running_a_second_experiment_into_the_same_folder_starts_over(self, tmp_path):
+        """A shorter re-run must not be described with the first run's length.
+
+        Pointing a second experiment at a folder that already held one is an
+        ordinary thing to do, and the viewer may well have been left open across
+        it. If it keeps the longer count from the run before, the operator is
+        offered moments this experiment never imaged.
+        """
+        path = tmp_path / "overview_pos001.ome.zarr"
+        write_store(
+            path,
+            shape=(10, 1, 1, 64, 64),
+            chunks=(1, 1, 1, 64, 64),
+            axes=("t", "c", "z", "y", "x"),
+            nested=True,
+            fill=(slice(0, 5),),
+        )
+        assert written_timepoints(path) == 5
+
+        # The same folder is cleared away and a second, shorter run writes into it.
+        shutil.rmtree(path)
+        write_store(
+            path,
+            shape=(10, 1, 1, 64, 64),
+            chunks=(1, 1, 1, 64, 64),
+            axes=("t", "c", "z", "y", "x"),
+            nested=True,
+            fill=(slice(0, 2),),
+        )
+        assert written_timepoints(path) == 2, "the first run's length was still being claimed"
+
+    def test_a_moment_beyond_a_gap_stays_reachable(self, tmp_path):
+        """Moment 7 exists and is readable, so the slider has to reach it.
+
+        Stopping at 1 — the last moment before the first gap — would be safe in the
+        narrow sense that moment 0 really is there, but it would put moment 7 out of
+        reach with nothing on screen to say it had ever been imaged. Reaching as far
+        as the data does costs a few empty moments in between and hides nothing.
+        """
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(10, 1, 1, 64, 64),
+            chunks=(1, 1, 1, 64, 64),
+            axes=("t", "c", "z", "y", "x"),
+            nested=True,
+        )
+        array = zarr.open_array(str(store / "0"), mode="r+")
+        array[0] = 1234
+        array[7] = 1234
+        assert written_timepoints(store) == 8, "a moment past the gap was put out of reach"
+
+    def test_a_black_frame_does_not_hide_everything_after_it(self, tmp_path):
+        """A bleached or failed acquisition leaves a hole, and it is not rare.
+
+        Zarr does not write a piece of image that holds nothing but the fill value,
+        so a frame that came out entirely black is stored as no frame at all. An
+        otherwise perfectly ordinary timelapse therefore ends up with a gap in the
+        middle of it, and stopping the slider at that gap would hide the moments
+        after it — which were imaged, and are sitting there readable.
+        """
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(10, 1, 1, 64, 64),
+            chunks=(1, 1, 1, 64, 64),
+            axes=("t", "c", "z", "y", "x"),
+            nested=True,
+        )
+        array = zarr.open_array(str(store / "0"), mode="r+")
+        for moment in range(7):
+            array[moment] = 0 if moment == 3 else 1234
+        assert not (store / "0" / "3").exists(), "the all-black frame was written after all"
+        assert written_timepoints(store) == 7, "moments 4, 5 and 6 were hidden"
+
+    @pytest.mark.parametrize("nested", [True, False])
+    def test_a_canvas_imaged_at_chosen_moments_reaches_its_furthest_one(self, tmp_path, nested):
+        """One moment imaged far along, and the answer says so rather than hedging.
+
+        A target-scan workflow images its canvas at the moments it decides on rather
+        than at every moment in turn, so this is normal data and not a broken store.
+        The store may declare room for a thousand moments while holding one.
+
+        Answering 901 does offer 900 moments that were never imaged, and that is a
+        real cost rather than a technicality. It is still the smallest number that
+        reaches the image. The tempting alternative is to answer ``None`` — to say
+        "I cannot put a sensible number on this" — and this test is here to record
+        why that turns out to be worse. ``None`` means "do not limit the slider at
+        all", so the operator would be offered all one thousand declared moments
+        instead of 901. It would also leave the answer at ``None`` however much the
+        run went on, and it is a *change* in this number that tells the viewer a
+        store has grown and is worth reading again, so new frames would go unnoticed
+        as well.
+        """
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(1000, 1, 1, 64, 64),
+            chunks=(1, 1, 1, 64, 64),
+            axes=("t", "c", "z", "y", "x"),
+            nested=nested,
+        )
+        zarr.open_array(str(store / "0"), mode="r+")[900] = 1234
+        assert written_timepoints(store) == 901
+
+    def test_a_backfilled_moment_does_not_move_the_reach(self, tmp_path):
+        """Filling in an earlier moment leaves the answer where it was, and that is a gap.
+
+        This is not a defect in the reach itself — 901 was right before the backfill
+        and is still right after it. It is recorded here because the viewer uses this
+        same number for a second job it was never designed for: an unchanged count is
+        how the page decides a store has *not* grown and need not be read again. So a
+        moment filled in behind the furthest one is written to disk without anything
+        telling the page to look, and if the operator had already visited it the
+        drawing engine will still believe it empty.
+
+        Reaching further is not the fix for that; a separate signal that changes on
+        any write is. Pinned so the next person to touch this knows the limitation is
+        known rather than overlooked.
+        """
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(1000, 1, 1, 64, 64),
+            chunks=(1, 1, 1, 64, 64),
+            axes=("t", "c", "z", "y", "x"),
+            nested=True,
+        )
+        array = zarr.open_array(str(store / "0"), mode="r+")
+        array[900] = 1234
+        assert written_timepoints(store) == 901
+        array[500] = 1234
+        assert written_timepoints(store) == 901
+
+    def test_closing_a_store_lets_go_of_its_frame_count(self, tmp_path):
+        """Whatever counting remembers has to be given back when the store is closed.
+
+        The count is kept so that asking again costs one cheap look rather than a
+        reading of the folder. Nothing expires it on its own, so an operator working
+        through one folder after another would otherwise accumulate a count for
+        every folder they had ever opened.
+        """
+        import stores as stores_module
+
+        store = write_store(
+            tmp_path / "overview_pos001.ome.zarr",
+            shape=(10, 1, 1, 64, 64),
+            chunks=(1, 1, 1, 64, 64),
+            axes=("t", "c", "z", "y", "x"),
+            nested=True,
+            fill=(slice(0, 3),),
+        )
+        assert written_timepoints(store) == 3
+        assert any(key.startswith(str(store)) for key in stores_module._frame_counts)
+
+        stores_module.forget(store)
+        assert not any(key.startswith(str(store)) for key in stores_module._frame_counts)
+        # And the answer is simply worked out again, unchanged.
+        assert written_timepoints(store) == 3
 
 
 # --------------------------------------------------------------------------
