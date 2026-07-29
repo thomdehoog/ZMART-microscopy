@@ -227,10 +227,14 @@ class TileCanvases:
 
     def __init__(self, folder: Path, slots: list[_Slot], *, shape: tuple[int, ...],
                  levels: int, tile_shape: tuple[int, int, int],
-                 slot_grid: tuple[int, int, int]) -> None:
+                 slot_grid: tuple[int, int, int], timed: bool = False) -> None:
         self.folder = folder
         self._slots = slots
         self._shape = shape
+        # Whether these images carry a time axis at all. A run of a single moment
+        # does not, so writing has one fewer index to place -- see _declare_one for
+        # why an unused time axis is worse than no time axis.
+        self._timed = timed
         self._levels = levels
         self._tile_shape = tile_shape
         self._slot_grid = slot_grid
@@ -253,7 +257,9 @@ class TileCanvases:
         # each other. Claiming by the coarsest therefore covers every level at once.
         chunks = slots[0].arrays[0].chunks
         coarsest = 2 ** (levels - 1)
-        self._grain = (chunks[3] * coarsest, chunks[4] * coarsest)
+        # Counted from the end, since a run of a single moment has no time axis and
+        # so one index fewer.
+        self._grain = (chunks[-2] * coarsest, chunks[-1] * coarsest)
         self._busy: list[tuple[int, ...]] = []
         self._free = threading.Condition()
 
@@ -373,6 +379,7 @@ class TileCanvases:
             levels=levels,
             tile_shape=tile_shape,
             slot_grid=slot_grid,
+            timed=frames > 1,
         )
 
     # -- writing ----------------------------------------------------------
@@ -433,8 +440,10 @@ class TileCanvases:
                 self._free.wait()
             self._busy.append(region)
         try:
-            slot.arrays[0][frame, channel,
-                           z0:z0 + depth, y0:y0 + height, x0:x0 + width] = image
+            at = ((frame,) if self._timed else ()) + (channel,)
+            slot.arrays[0][
+                *at, z0:z0 + depth, y0:y0 + height, x0:x0 + width
+            ] = image
             self._write_smaller_copies(slot, image, origin, channel, frame)
             slot.written.append(footprint)
         finally:
@@ -519,11 +528,12 @@ class TileCanvases:
             # A tile near the far edge can round to just past the end of a smaller
             # copy, so trim rather than fail: the lost row is half a voxel of the
             # coarsest view, which nothing can see.
-            height = min(height, array.shape[3] - y0)
-            width = min(width, array.shape[4] - x0)
+            height = min(height, array.shape[-2] - y0)
+            width = min(width, array.shape[-1] - x0)
             if height <= 0 or width <= 0:
                 continue
-            array[frame, channel, z0:z0 + depth, y0:y0 + height, x0:x0 + width] = (
+            at = ((frame,) if self._timed else ()) + (channel,)
+            array[*at, z0:z0 + depth, y0:y0 + height, x0:x0 + width] = (
                 smaller[:, :height, :width]
             )
 
@@ -572,15 +582,32 @@ def _declare_one(
     origin_um: tuple[float, float, float],
     channel_blocks: list[dict],
 ) -> list[zarr.Array]:
-    """Write one empty OME-Zarr image and hand back its levels."""
+    """Write one empty OME-Zarr image and hand back its levels.
+
+    A run that is not a timelapse gets **no time axis at all**, rather than a time
+    axis one frame long. That is not tidiness: the viewer picks which two axes to
+    put on screen from the ones the image declares, and an extra axis of length one
+    is enough to make it choose wrongly — the specimen then appears as a thin band,
+    because depth has been put on screen where height belongs. A single frame is
+    also nothing to offer a time slider for.
+    """
     store.mkdir(parents=True, exist_ok=True)
     group = zarr.open_group(str(store), mode="w", zarr_format=2)
+
+    timed = frames > 1
+    axes = [
+        *([{"name": "t", "type": "time", "unit": "second"}] if timed else []),
+        {"name": "c", "type": "channel"},
+        {"name": "z", "type": "space", "unit": "micrometer"},
+        {"name": "y", "type": "space", "unit": "micrometer"},
+        {"name": "x", "type": "space", "unit": "micrometer"},
+    ]
 
     arrays, datasets = [], []
     for level in range(levels):
         factor = 2 ** level
         shape = (
-            frames,
+            *((frames,) if timed else ()),
             channels,
             canvas_shape[0],
             max(1, canvas_shape[1] // factor),
@@ -591,7 +618,8 @@ def _declare_one(
             shape=shape,
             # One plane per piece in time, colour and depth, so showing a single
             # plane never means fetching the ones on either side of it.
-            chunks=(1, 1, 1, min(chunk, shape[3]), min(chunk, shape[4])),
+            chunks=(*((1,) if timed else ()), 1, 1,
+                    min(chunk, shape[-2]), min(chunk, shape[-1])),
             dtype=dtype,
             # Pieces filed in folders rather than side by side in one directory.
             # A long run otherwise puts millions of files in a single folder,
@@ -602,7 +630,7 @@ def _declare_one(
             "path": str(level),
             "coordinateTransformations": [{
                 "type": "scale",
-                "scale": [1.0, 1.0, voxel_size_um[0],
+                "scale": [*((1.0,) if timed else ()), 1.0, voxel_size_um[0],
                           voxel_size_um[1] * factor, voxel_size_um[2] * factor],
             }],
         })
@@ -610,19 +638,14 @@ def _declare_one(
     (store / ".zattrs").write_text(json.dumps({
         "multiscales": [{
             "version": "0.4",
-            "axes": [
-                {"name": "t", "type": "time", "unit": "second"},
-                {"name": "c", "type": "channel"},
-                {"name": "z", "type": "space", "unit": "micrometer"},
-                {"name": "y", "type": "space", "unit": "micrometer"},
-                {"name": "x", "type": "space", "unit": "micrometer"},
-            ],
+            "axes": axes,
             "datasets": datasets,
             # Where this image sits in the world. Every image in a run shares the
             # same corner, which is what makes them line up on screen.
             "coordinateTransformations": [{
                 "type": "translation",
-                "translation": [0.0, 0.0, origin_um[0], origin_um[1], origin_um[2]],
+                "translation": [*((0.0,) if timed else ()), 0.0,
+                                origin_um[0], origin_um[1], origin_um[2]],
             }],
         }],
         "omero": {"channels": channel_blocks},
