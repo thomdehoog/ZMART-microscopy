@@ -2,6 +2,7 @@ import "./style.css";
 import { numbered } from "./frame/steps.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor, describeSession, CONNECT_CHECKS,
+  OPTICAL_CONFIGS, DEFAULT_OPTICS, opticalConfig, CARRIERS, DEFAULT_CARRIER, carrier,
 } from "./lib/microscopes.js";
 
 (() => {
@@ -59,9 +60,9 @@ import {
       blurb: "overview, detect, select, acquire",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
+        { id: "optics", title: "Optical configurations", why: "Pick the configuration that surveys the sample and the one that images the targets.", btn: "Apply configurations", panels: [], ms: 800, mode: "optics" },
+        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0) for this run.", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
-        { id: "job_ov", n: "3a", title: "Capture overview job", why: "Select the low-magnification job in LAS X, then capture its settings.", btn: "Capture overview job", panels: [], ms: 700, note: "5x · 1.30 µm/px · 2 channels" },
-        { id: "job_tg", n: "3b", title: "Capture target job", why: "Now select the high-magnification job and capture it too.", btn: "Capture target job", panels: [], ms: 700, note: "63x · 0.10 µm/px · 2 channels" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "detect", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, note: "1250 cells found", mode: "detect" },
@@ -76,8 +77,9 @@ import {
       blurb: "no analysis panel",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
+        { id: "optics", title: "Optical configurations", why: "Pick the configuration that surveys the sample and the one that images the targets.", btn: "Apply configurations", panels: [], ms: 800, mode: "optics" },
+        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
-        { id: "job_ov", title: "Capture overview job", why: "Select the overview job in LAS X and capture its settings.", btn: "Capture overview job", panels: [], ms: 700, note: "5x · 1.30 µm/px" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "save", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -88,6 +90,8 @@ import {
       blurb: "calibration run",
       steps: numbered([
         { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
+        { id: "optics", title: "Optical configurations", why: "Pick the configuration that surveys the sample and the one that images the targets.", btn: "Apply configurations", panels: [], ms: 800, mode: "optics" },
+        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
         { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "save", title: "Write the surface", why: "Fits the plane and records its residual for this objective.", btn: "Write surface", panels: [], ms: 700, note: "residual 1.8 µm · written" },
@@ -137,6 +141,8 @@ import {
 
   const state = {
     session: { ...DEFAULT_SESSION },
+    optics: { ...DEFAULT_OPTICS },
+    carrier: DEFAULT_CARRIER,
     checks: [],
     wf: "target_acquisition",
     activeIdx: 0,
@@ -184,6 +190,8 @@ import {
   function resetRun() {
     Object.assign(state, {
       activeIdx: 0, done: new Set(), running: null, notes: {},
+      session: { ...DEFAULT_SESSION }, optics: { ...DEFAULT_OPTICS },
+      carrier: DEFAULT_CARRIER, checks: [],
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
       detect: newDetect(), detected: new Set(),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], verdicts: {},
@@ -251,6 +259,7 @@ import {
     if (s.mode === "focus" && !STRATEGIES[state.focus.strategy].needs(state.focus)) {
       return STRATEGIES[state.focus.strategy].unmet;
     }
+    if (s.mode === "optics" && opticsClash()) return "survey and target must differ";
     if (s.mode === "detect" && !state.detect.tested) return "try it on one tile first";
     if ((s.mode === "select" || s.mode === "targets") && state.gated.size === 0) return "nothing gated yet";
     return null;
@@ -340,6 +349,10 @@ import {
       state.done.add(s.id);
       if (s.note) state.notes[s.id] = s.note;
       if (s.id === "connect") state.notes[s.id] = describeSession(state.session);
+      if (s.id === "carrier") state.notes[s.id] = carrier(state.carrier).label;
+      if (s.id === "optics") {
+        state.notes[s.id] = `${opticalConfig(state.optics.overview).label} → ${opticalConfig(state.optics.target).label}`;
+      }
 
       if (s.mode === "focus") {
         const f = state.focus;
@@ -415,8 +428,6 @@ import {
      that skips a step simply has no row for it. */
   const SETUP_ROWS = [
     { step: "origin", name: "Stage origin", waiting: "not set" },
-    { step: "job_ov", name: "Overview job", waiting: "not captured" },
-    { step: "job_tg", name: "Target job", waiting: "not captured" },
     { step: "focus", name: "Focus surface", waiting: "not measured" },
   ];
 
@@ -537,12 +548,115 @@ import {
 
   const indexOfStep = (id) => steps().findIndex((s) => s.id === id);
 
+  /* Two configurations, and they may not be the same one: imaging targets at
+     overview quality is the mistake this pairing exists to prevent, so it is
+     refused rather than warned about. */
+  const opticsClash = () => state.optics.overview === state.optics.target;
+
+  function renderOpticsCard(host) {
+    const done = state.done.has("optics");
+    const card = document.createElement("div");
+    card.className = "session-card" + (done ? " done" : "");
+
+    const head = document.createElement("div");
+    head.className = "session-head";
+    head.innerHTML = '<span class="session-title">Optical configurations</span>'
+      + '<span class="session-state"></span>';
+    head.querySelector(".session-state").textContent = done
+      ? `${opticalConfig(state.optics.overview).label} → ${opticalConfig(state.optics.target).label}`
+      : "not applied";
+    card.append(head);
+
+    const form = document.createElement("div");
+    form.className = "session-form";
+
+    for (const [role, label] of [["overview", "Survey with"], ["target", "Image with"]]) {
+      const field = document.createElement("label");
+      field.className = "field";
+      field.innerHTML = `<span>${label}</span><select></select>`;
+      const sel = field.querySelector("select");
+      for (const oc of OPTICAL_CONFIGS) {
+        const o = document.createElement("option");
+        o.value = oc.key;
+        o.textContent = `${oc.label} · ${oc.detail}`;
+        sel.append(o);
+      }
+      sel.value = state.optics[role];
+      sel.disabled = done || !!state.running;
+      sel.addEventListener("change", () => {
+        state.optics[role] = sel.value;
+        renderSetup(); renderActionBar();
+      });
+      form.append(field);
+    }
+
+    if (!done && opticsClash()) {
+      const hint = document.createElement("div");
+      hint.className = "session-hint bad";
+      hint.textContent = "the two must differ — this would image targets at survey quality";
+      form.append(hint);
+    }
+
+    card.append(form);
+    host.append(card);
+  }
+
+  function renderCarrierCard(host) {
+    const done = state.done.has("carrier");
+    const card = document.createElement("div");
+    card.className = "session-card" + (done ? " done" : "");
+
+    const head = document.createElement("div");
+    head.className = "session-head";
+    head.innerHTML = '<span class="session-title">Carrier</span><span class="session-state"></span>';
+    head.querySelector(".session-state").textContent = done
+      ? carrier(state.carrier).label
+      : "not applied";
+    card.append(head);
+
+    const form = document.createElement("div");
+    form.className = "session-form";
+    const field = document.createElement("label");
+    field.className = "field";
+    field.innerHTML = "<span>Mounted in</span><select></select>";
+    const sel = field.querySelector("select");
+    for (const c of CARRIERS) {
+      const o = document.createElement("option");
+      o.value = c.key;
+      o.textContent = `${c.label} · ${c.detail}`;
+      sel.append(o);
+    }
+    sel.value = state.carrier;
+    sel.disabled = done || !!state.running;
+    sel.addEventListener("change", () => {
+      state.carrier = sel.value;
+      renderSetup(); renderActionBar();
+    });
+    form.append(field);
+    card.append(form);
+    host.append(card);
+  }
+
+  /* Each setup step gets a card, and keeps it until the next one has been
+     settled — a session you have already moved past twice is history, and the
+     panel should be showing the thing being decided now. */
+  const SETUP_CARDS = [
+    { step: "connect", render: renderSessionCard },
+    { step: "optics", render: renderOpticsCard },
+    { step: "carrier", render: renderCarrierCard },
+  ];
+
   function renderSetup() {
     const host = el("setup-list");
     host.textContent = "";
     const present = new Set(steps().map((s) => s.id));
 
-    if (present.has("connect")) renderSessionCard(host);
+    const shown = SETUP_CARDS.filter((c) => present.has(c.step));
+    shown.forEach((card, i) => {
+      const successor = shown[i + 1];
+      const retired = successor && state.done.has(successor.step);
+      if (!retired) card.render(host);
+    });
 
     /* Only what the run has established, plus whatever is being done now. The
        rail already lists what is still ahead; repeating it here as a column of
