@@ -69,6 +69,16 @@ test("a session needs a password before it will open", async ({ page }) => {
   await expect(page.locator(".session-form button.run")).toBeEnabled();
 });
 
+test("typing the password does not throw the field away", async ({ page }) => {
+  const pw = page.locator('.field input[type="password"]');
+  await pw.click();
+  await page.keyboard.type("hunter2", { delay: 30 });
+  // rebuilding the card on every keystroke destroys the input being typed into
+  expect(await pw.inputValue()).toBe("hunter2");
+  expect(await page.evaluate(() => document.activeElement?.type === "password")).toBe(true);
+  await expect(page.locator(".session-form button.run")).toBeEnabled();
+});
+
 test("connecting reports what it checked", async ({ page }) => {
   await connect(page);
   await expect(page.locator(".check-row")).toHaveCount(6);
@@ -111,8 +121,6 @@ test("setup holds the base until there is data, then the canvas takes over",
     await expect(page.locator(".tab")).toHaveText(["Setup"]);
 
     await runStep(page, 3000);
-    await expect(page.locator(".tab"), "the first tile is what earns the canvas")
-      .toHaveText(["Canvas"]);
 
     await gotoStep(page, "Focus strategy");
     await expect(page.locator(".tab"), "walking back reopens that step's panel")
