@@ -549,3 +549,20 @@ canvas.scattercv { cursor: crosshair; }
    selector and the tab labels line up with each other and with the rule. */
 .wf-box { justify-content: flex-end; padding-bottom: 13px; }
 .tabs .tab { align-items: flex-end; padding-bottom: 11px; }
+
+/* ---- wordmark ----------------------------------------------------------
+   Typographic rather than a drawn logo: ZMART set tight and heavy, the
+   discipline trailing it light, so the pair reads as one lockup at a glance.
+   --brand is its own token — point it at the institute's blue when the real
+   brand values are to hand and nothing else has to change. */
+:root { --brand: var(--accent-deep); }
+.wf-box { justify-content: space-between; padding-top: 12px; }
+.brand { display: flex; align-items: baseline; gap: 6px; user-select: none; }
+.brand-mark {
+  font-size: 21px; font-weight: 750; letter-spacing: -0.02em;
+  color: var(--brand); line-height: 1;
+}
+.brand-sub {
+  font-size: 15px; font-weight: 400; letter-spacing: 0.01em;
+  color: var(--ink-3); line-height: 1;
+}
