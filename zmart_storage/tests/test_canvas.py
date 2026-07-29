@@ -214,6 +214,326 @@ def test_an_earlier_run_can_be_thrown_away_when_that_is_said_outright(tmp_path):
     )
 
 
+def test_a_name_with_brackets_in_it_is_protected_like_any_other(tmp_path):
+    """The name of an acquisition type is text, and must be treated as text.
+
+    A well on a plate, or a filter with its wavelength in square brackets, are
+    perfectly ordinary things to call an acquisition. They mattered here because
+    the check above used to ask the filesystem to find everything matching
+    ``f"{name}*.ome.zarr"`` as a *pattern*, and in a pattern square brackets mean
+    "any one of these letters" rather than brackets. So ``well[A1]`` matched
+    nothing, the writer decided the folder was empty, and it emptied a run that
+    had already been imaged: measured before this was fixed, the tile written
+    below came back as zero.
+    """
+    first = _canvases(tmp_path, name="well[A1]")
+    first.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                tile_index=(0, 0, 0))
+
+    with pytest.raises(ValueError, match="already an imaged run in this folder"):
+        _canvases(tmp_path, name="well[A1]")
+
+    kept = _read_level0(first.paths[0])
+    assert (kept[:, :TILE[1], :TILE[2]] == 4242).all(), (
+        "the run named well[A1] was destroyed by the create() that should have "
+        "been refused"
+    )
+
+
+def test_a_name_with_a_star_in_it_can_be_declared_at_all(tmp_path):
+    """A star in the name used to stop the very first declaration.
+
+    It did so with a message about patterns — ``Invalid pattern: '**' can only be
+    an entire path component`` — which says nothing at all to somebody who was
+    only naming their sample. Now the name is simply a name, so the run starts,
+    and it is protected afterwards like any other.
+    """
+    first = _canvases(tmp_path, name="scan*")
+    first.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                tile_index=(0, 0, 0))
+
+    with pytest.raises(ValueError, match="already an imaged run in this folder"):
+        _canvases(tmp_path, name="scan*")
+    assert (_read_level0(first.paths[0])[:, :TILE[1], :TILE[2]] == 4242).all()
+
+
+def test_a_name_that_begins_another_name_is_a_different_run(tmp_path):
+    """``scan`` and ``scan_deep`` are two acquisition types, not one.
+
+    The images belonging to a name are the one named after it and the numbered set
+    a spread run makes, and nothing else. Asking instead for everything *beginning*
+    with the name — which is what the old pattern did — reads an imaged
+    ``scan_deep`` as though it were part of ``scan``, so the ``scan`` declared
+    beside it is refused for a run that has nothing to do with it. An operator
+    then cannot add an acquisition type to their own run folder, and the reason
+    they are given names an image they never asked about.
+    """
+    deep = _canvases(tmp_path, name="scan_deep")
+    deep.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+               tile_index=(0, 0, 0))
+
+    shallow = _canvases(tmp_path, name="scan")
+    shallow.write(np.full(TILE, 7, dtype="uint16"), origin=(0, 0, 0),
+                  tile_index=(0, 0, 0))
+
+    assert _read_level0(deep.paths[0])[0, 0, 0] == 4242, (
+        "declaring scan emptied the images belonging to scan_deep"
+    )
+    assert _read_level0(shallow.paths[0])[0, 0, 0] == 7
+    # And each is still protected in its own right, which is the other half of
+    # getting this right: telling them apart must not mean protecting neither.
+    with pytest.raises(ValueError, match="already an imaged run"):
+        _canvases(tmp_path, name="scan")
+    with pytest.raises(ValueError, match="already an imaged run"):
+        _canvases(tmp_path, name="scan_deep")
+
+
+def test_a_name_that_reaches_into_another_folder_is_refused(tmp_path):
+    """The name has to be a name, because the check only looks in one folder.
+
+    An acquisition type called ``prescans/overview`` would write its images one
+    folder down, where the check for an already-imaged run does not look — so the
+    protection would quietly not apply. Saying so plainly is better than leaving
+    a run unprotected without anybody knowing.
+    """
+    with pytest.raises(ValueError, match="folder separator"):
+        _canvases(tmp_path, name="prescans/overview")
+
+
+# -- only one writer at a time -------------------------------------------------
+#
+# The check above notices a run that has already been *imaged*, which leaves a gap:
+# two programs can declare the same folder before either has written a single tile,
+# and both are then let through. After that they lose tiles, because everything
+# that keeps a tile safe -- the record of where tiles have gone, and the record of
+# which pieces of picture are being written at this moment -- is remembered by the
+# writer rather than read back from disk, so neither writer can see the other's.
+#
+# So a writer says on disk that it has these images, in a way the operating system
+# holds for it and releases by itself when the program ends. That last part is what
+# keeps it from becoming a nuisance: a claim can never be left behind to block a
+# run that has every right to start.
+
+_A_SECOND_PROGRAM = """
+import sys
+sys.path.insert(0, {root!r})
+from zmart_storage.canvas import Channel, TileCanvases
+
+canvases = TileCanvases.create(
+    {folder!r}, name="overview", canvas_shape=(2, 640, 640),
+    tile_shape=(2, 128, 128), tile_step=(2, 128, 128),
+    voxel_size_um=(2.0, 0.35, 0.35), channels=[Channel("488")],
+    levels=2, chunk=64,
+)
+print("declared", flush=True)
+# Wait to be told to finish, so that the test can try to declare these same
+# images while this program still has them.
+sys.stdin.readline()
+"""
+
+
+def _another_program_declaring(folder: Path):
+    """Start a second program that declares ``folder`` and then waits.
+
+    Two programs are what this needs; two writers inside one program are a
+    different case, dealt with separately below. Returns once the other program
+    says it has declared the images, so there is nothing racy about the test.
+    """
+    import subprocess
+
+    root = str(Path(__file__).resolve().parents[2])
+    other = subprocess.Popen(
+        [sys.executable, "-c",
+         _A_SECOND_PROGRAM.format(root=root, folder=str(folder))],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+    )
+    said = other.stdout.readline().strip()
+    assert said == "declared", (
+        f"the second program did not get as far as declaring the images: {said!r}"
+    )
+    return other
+
+
+def _let_it_finish(other) -> None:
+    other.stdin.write("finish\n")
+    other.stdin.close()
+    other.wait(timeout=60)
+
+
+def test_a_second_program_cannot_declare_the_same_images(tmp_path):
+    """Two programs writing one acquisition lose tiles, so the second is refused.
+
+    Measured before this was fixed, two writers set going this way lost voxels in
+    every one of ten attempts: each placed its tiles by its own record, so tiles
+    landing in the same piece of picture were written over each other and nothing
+    was reported.
+    """
+    other = _another_program_declaring(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="already has this run's"):
+            _canvases(tmp_path)
+    finally:
+        _let_it_finish(other)
+
+
+def test_the_refusal_names_what_is_in_the_way(tmp_path):
+    """An operator meeting this needs to know which program to go and look at."""
+    other = _another_program_declaring(tmp_path)
+    try:
+        with pytest.raises(ValueError) as complaint:
+            _canvases(tmp_path)
+        said = str(complaint.value)
+        assert "overview.writing" in said
+        assert str(other.pid) in said, (
+            "the refusal does not say which program is holding the images"
+        )
+        assert "a folder of its own" in said
+    finally:
+        _let_it_finish(other)
+
+
+def test_the_claim_goes_when_the_program_holding_it_ends(tmp_path):
+    """A claim must never outlive the writer, or it would block honest runs.
+
+    This is why the operating system is asked to hold the claim rather than a
+    marker file being written by hand: the mark goes when the program does,
+    whether it finished tidily, crashed, or the machine lost power. So there is
+    never anything to clear away, and an operator is never told a run is in
+    progress when nothing is running at all.
+    """
+    _let_it_finish(_another_program_declaring(tmp_path))
+
+    canvases = _canvases(tmp_path)
+    canvases.write(np.full(TILE, 7, dtype="uint16"), origin=(0, 0, 0),
+                   tile_index=(0, 0, 0))
+    assert _read_level0(canvases.paths[0])[0, 0, 0] == 7
+
+
+def test_a_writer_declared_over_in_the_same_program_says_so(tmp_path):
+    """Declaring twice in one program is allowed, but the older writer stops.
+
+    Inside one program the earlier writer can be seen and set aside, which is
+    what happens here: it is the ordinary case of a notebook cell run a second
+    time, and refusing it would be unkind. What must not happen is the older
+    writer carrying on, because declaring emptied the images and started a fresh
+    record of where tiles have gone — so a tile written through the older one
+    would be placed by a record that no longer matches the disk. It is refused
+    loudly instead of losing anything quietly.
+    """
+    first = _canvases(tmp_path)
+    second = _canvases(tmp_path)
+
+    with pytest.raises(ValueError, match="declared again since this writer was made"):
+        first.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                    tile_index=(0, 0, 0))
+
+    second.write(np.full(TILE, 7, dtype="uint16"), origin=(0, 0, 0),
+                 tile_index=(0, 0, 0))
+    assert _read_level0(second.paths[0])[0, 0, 0] == 7
+
+
+def test_a_place_that_cannot_be_reserved_gets_a_warning_and_not_a_refusal(
+    tmp_path, monkeypatch
+):
+    """Some network filesystems cannot do this, and a run must not depend on it.
+
+    Microscope data often lives on a share, and a share that offers no way to
+    reserve a file would otherwise make every run refuse to start. That is the
+    wrong way round: it stops acquisitions that are perfectly fine, and an
+    operator worked into a corner finds a way past the guard that is worse than
+    what it was guarding against. So the check says out loud that it could not be
+    made, and the run goes ahead.
+    """
+    from zmart_storage import canvas as canvas_module
+
+    def cannot(_handle):
+        raise canvas_module._CannotBeMarkedHere("this share does not offer it")
+
+    monkeypatch.setattr(canvas_module, "_ask_for_the_mark", cannot)
+
+    with pytest.warns(UserWarning, match="could not be checked"):
+        canvases = _canvases(tmp_path)
+    canvases.write(np.full(TILE, 7, dtype="uint16"), origin=(0, 0, 0),
+                   tile_index=(0, 0, 0))
+    assert _read_level0(canvases.paths[0])[0, 0, 0] == 7
+
+
+def test_letting_go_of_a_run_lets_another_program_have_it(tmp_path):
+    """A finished run can be handed on, which is what close() is for."""
+    canvases = _canvases(tmp_path)
+    canvases.close()
+
+    other = _another_program_declaring(tmp_path)
+    _let_it_finish(other)
+
+
+# -- throwing an earlier run away ---------------------------------------------
+#
+# `discard_existing_run=True` is the operator saying outright that what is in this
+# folder can be lost. When they say that, the whole of that acquisition type has to
+# go. Leaving part of it behind is worse than useless: the leftovers still hold the
+# earlier run's pixels, the viewer gathers a run's images by name and so shows the
+# two mixed together as one acquisition, and every later declaration in that folder
+# is refused because those leftovers are themselves an imaged run in the way.
+
+
+def test_throwing_the_old_run_away_leaves_none_of_it_behind(tmp_path):
+    """A run spread over four images, thrown away for one that needs a single image.
+
+    The four numbered images belong to the same acquisition type, so all four go.
+    Before this was fixed, only the one the new arrangement happened to reuse was
+    replaced and the other three stayed on disk holding the old run's pixels.
+    """
+    first = _canvases(tmp_path, step=OVERLAPPING, slots=(1, 2, 2))
+    for index in range(4):
+        first.write(np.full(TILE, 500 + index, dtype="uint16"),
+                    origin=(0, 0, index * TILE[2]), tile_index=(0, 0, index))
+    assert len(list(tmp_path.glob("*.ome.zarr"))) == 4
+
+    second = _canvases(tmp_path, discard_existing_run=True)
+
+    left = sorted(p.name for p in tmp_path.glob("*.ome.zarr"))
+    assert left == ["overview.ome.zarr"], (
+        f"the earlier run left images behind: {left}"
+    )
+    assert _read_level0(second.paths[0]).max() == 0
+    # And with nothing of the old run in the way, the folder can be declared
+    # again in the ordinary manner. Orphans left behind used to make every later
+    # declaration here refuse, which is a corner an operator cannot get out of
+    # without deleting files by hand.
+    second.close()
+    third = _canvases(tmp_path)
+    third.write(np.full(TILE, 7, dtype="uint16"), origin=(0, 0, 0),
+                tile_index=(0, 0, 0))
+    assert _read_level0(third.paths[0])[0, 0, 0] == 7
+
+
+def test_throwing_one_acquisition_type_away_leaves_the_others(tmp_path):
+    """Only the acquisition type being declared may be thrown away.
+
+    A run's folder holds an overview, a prescan and a targetscan side by side, and
+    repeating the overview must not touch the rest. That includes an acquisition
+    type whose name merely begins the same way, which is why ``overview_deep``
+    is here.
+    """
+    prescan = _canvases(tmp_path, name="prescan")
+    prescan.write(np.full(TILE, 111, dtype="uint16"), origin=(0, 0, 0),
+                  tile_index=(0, 0, 0))
+    deep = _canvases(tmp_path, name="overview_deep")
+    deep.write(np.full(TILE, 222, dtype="uint16"), origin=(0, 0, 0),
+               tile_index=(0, 0, 0))
+    overview = _canvases(tmp_path, name="overview")
+    overview.write(np.full(TILE, 333, dtype="uint16"), origin=(0, 0, 0),
+                   tile_index=(0, 0, 0))
+
+    _canvases(tmp_path, name="overview", discard_existing_run=True)
+
+    assert _read_level0(prescan.paths[0])[0, 0, 0] == 111, "the prescan was thrown away too"
+    assert _read_level0(deep.paths[0])[0, 0, 0] == 222, (
+        "overview_deep was thrown away along with overview"
+    )
+
+
 @pytest.mark.parametrize(
     ("tile", "step", "wanted"),
     [
@@ -377,6 +697,139 @@ def test_tiles_sharing_a_bundle_survive_being_written_at_once(tmp_path):
         assert (patch == value).all(), (
             f"the tile at x={x0} lost {int((patch != value).sum())} of its "
             f"{patch.size} voxels to a tile sharing its bundle"
+        )
+
+
+def _two_images_by_hand(folder: Path, *, second_chunks) -> TileCanvases:
+    """A run of two images, the second stored differently from the first.
+
+    A run's images are normally stored identically, but nothing guarantees it, and
+    the writer used to take the first image's answer for all of them. These are
+    wired up directly so that the second image can be given a shape of its own.
+    """
+    slots = []
+    for index, chunks in enumerate([(1, 1, 1, 128, 128), second_chunks]):
+        store = folder / f"overview_part{index}.ome.zarr"
+        group = zarr.open_group(str(store), mode="w", zarr_format=3)
+        array = group.create_array(
+            "0", shape=(1, 1, 2, 512, 512), chunks=chunks, dtype="uint16"
+        )
+        slots.append(_Slot(index=index, folder=store, arrays=[array]))
+    return TileCanvases(
+        folder, slots, shape=(1, 1, 2, 512, 512), levels=1,
+        tile_shape=TILE, slot_grid=(1, 2, 1),
+    )
+
+
+def test_every_image_is_asked_how_it_keeps_its_pieces(tmp_path):
+    """The arrangement the writer cannot keep safe is refused wherever it appears.
+
+    A piece that holds two planes lets two tiles at different depths into one file
+    at the same moment, which is why it is refused. Only the first image used to be
+    asked, so a run whose *second* image was like that was accepted — and then,
+    measured before this was fixed, two tiles at different depths into that image
+    lost one of them entirely in 3 of 3 attempts.
+    """
+    with pytest.raises(ValueError, match="more than one moment, colour or plane"):
+        _two_images_by_hand(tmp_path, second_chunks=(1, 1, 2, 128, 128))
+
+
+def test_tiles_are_held_apart_by_the_image_they_land_in(tmp_path):
+    """How large a piece is depends on the image, so each image speaks for itself.
+
+    The two tiles here land in one image whose pieces are 512 voxels wide, so they
+    share a file and have to be written one after the other. The other image in the
+    run keeps 128 voxels in a piece, and taking that figure for both — which is
+    what happened before — let these two go at once and one of them was lost.
+    """
+    import threading
+
+    canvases = _two_images_by_hand(tmp_path, second_chunks=(1, 1, 1, 512, 512))
+    values = [(111, 0), (222, 128)]
+
+    def write(value, x0):
+        # Both into the second image, which is what tile_index (0, 1, 0) chooses.
+        canvases.write(np.full(TILE, value, dtype="uint16"),
+                       origin=(0, 0, x0), tile_index=(0, 1, 0))
+
+    threads = [threading.Thread(target=write, args=pair) for pair in values]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    written = _read_level0(canvases.paths[1])
+    for value, x0 in values:
+        patch = written[:, :TILE[1], x0:x0 + TILE[2]]
+        assert (patch == value).all(), (
+            f"the tile at x={x0} lost {int((patch != value).sum())} of its "
+            f"{patch.size} voxels to a tile sharing its file"
+        )
+
+
+def _several_copies_by_hand(folder: Path, *, pieces) -> TileCanvases:
+    """One image whose copies keep differently sized pieces.
+
+    ``pieces`` gives the piece width of each progressively smaller copy, in that
+    copy's own voxels. Built by hand because :meth:`TileCanvases.create` always
+    uses the same piece size throughout, so it cannot produce this.
+    """
+    store = folder / "overview.ome.zarr"
+    group = zarr.open_group(str(store), mode="w", zarr_format=3)
+    arrays = [
+        group.create_array(
+            str(level),
+            shape=(1, 1, 2, 1024 // 2 ** level, 1024 // 2 ** level),
+            chunks=(1, 1, 1, piece, piece), dtype="uint16",
+        )
+        for level, piece in enumerate(pieces)
+    ]
+    return TileCanvases(
+        folder, [_Slot(index=0, folder=store, arrays=arrays)],
+        shape=(1, 1, 2, 1024, 1024), levels=len(pieces),
+        tile_shape=TILE, slot_grid=(1, 1, 1),
+    )
+
+
+def test_tiles_sharing_a_piece_of_a_full_size_copy_wait_for_each_other(tmp_path):
+    """Each copy of the image is asked about its own pieces, not just the coarsest.
+
+    A tile is written into every copy, so it can share a file with another tile in
+    any of them. It is tempting to hold tiles apart by one figure — the piece of
+    the smallest copy covers the most ground, so surely that covers the rest? It
+    does not, and this is the case that shows why.
+
+    The full-size copy here keeps 64 voxels in a piece and the half-size copy keeps
+    50, which is 100 voxels of specimen. Holding tiles apart in blocks of 100 puts
+    a boundary at voxel 200, and that boundary falls inside the full-size copy's
+    piece covering 192 to 256. So the two tiles below were judged to share nothing
+    and were written at once, and they lost 14336 voxels between them in 20 of 20
+    attempts. Asking each copy about its own pieces has no such gap in it.
+
+    Nothing :meth:`TileCanvases.create` can produce is arranged this way — every
+    geometry it can make was tried, and none is at risk — so this is about the
+    generality the writer claims rather than about the runs it writes today.
+    """
+    import threading
+
+    canvases = _several_copies_by_hand(tmp_path, pieces=(64, 50))
+    values = [(111, 72), (222, 200)]
+
+    def write(value, x0):
+        canvases.write(np.full(TILE, value, dtype="uint16"), origin=(0, 0, x0))
+
+    threads = [threading.Thread(target=write, args=pair) for pair in values]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    written = _read_level0(canvases.paths[0])
+    for value, x0 in values:
+        patch = written[:, :TILE[1], x0:x0 + TILE[2]]
+        assert (patch == value).all(), (
+            f"the tile at x={x0} lost {int((patch != value).sum())} of its "
+            f"{patch.size} voxels to a tile sharing a piece of the full-size copy"
         )
 
 

@@ -62,7 +62,11 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
+import socket
 import threading
+import time
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -172,6 +176,114 @@ def _a_tile_already_written(store: Path) -> Path | None:
     return None
 
 
+# Every image this module writes is a folder whose name ends this way, which is
+# the usual convention for an OME-Zarr image and is what the viewer looks for.
+_IMAGE_SUFFIX = ".ome.zarr"
+
+
+def _refuse_a_name_that_is_not_a_plain_file_name(name: str) -> None:
+    """Stop an acquisition type whose name cannot be part of a file name.
+
+    The name is used twice, and both uses need it to be a plain name sitting in
+    the run's own folder. It becomes the folder name each image is written under,
+    and it is also how the writer recognises which images belong to this
+    acquisition type — the ones it must not empty, and the ones it may throw away
+    when asked to.
+
+    A name that reaches into another folder, such as ``"prescans/overview"``,
+    breaks the second use quietly: the images would be written one folder down,
+    where the check for an already-imaged run does not look, so a run could be
+    emptied without anything being said. Rather than let that happen, such a name
+    is refused here, at the one moment when saying so is still useful.
+    """
+    if not name or name in (".", ".."):
+        raise ValueError(
+            f"{name!r} is not a usable name for an acquisition type. The name "
+            "becomes part of the folder each image is written under, so it needs "
+            "to be something that can be read as a name — 'overview', 'prescan' "
+            "or 'targetscan', say."
+        )
+    separators = {"/", "\\", os.sep, os.altsep} - {None}
+    if any(separator in name for separator in separators):
+        raise ValueError(
+            f"the name {name!r} contains a folder separator, and an acquisition "
+            "type has to be a plain name rather than a path. The images are "
+            "written into the run's own folder, and the check that stops an "
+            "earlier run from being emptied only looks there — so a name that "
+            "reaches into another folder would put the images somewhere that "
+            "check cannot see, and a run could be lost without a word.\n\n"
+            "Give the acquisition type a plain name and choose the folder with "
+            "the folder argument, which is what it is for."
+        )
+
+
+def _images_belonging_to(folder: Path, name: str) -> list[Path]:
+    """The images in ``folder`` that hold this acquisition type's pictures.
+
+    An acquisition type is written either as a single image named after it, or —
+    when a run spreads its tiles over several images to keep the overlap — as a
+    numbered set. So ``overview`` covers ``overview.ome.zarr`` as well as
+    ``overview_part0.ome.zarr`` and its siblings.
+
+    The names are compared as ordinary text, letter by letter. That is worth
+    doing deliberately, because the obvious alternative has a trap in it. An
+    earlier version of this asked the filesystem to find everything matching the
+    pattern ``f"{name}*.ome.zarr"``, and in such a pattern square brackets do not
+    mean square brackets — they mean "any one of the letters inside". A run
+    honestly called ``well[A1]`` therefore matched nothing at all, the writer
+    concluded the folder was empty, and it emptied a run that had already been
+    imaged. A name with a ``*`` in it was worse still: the pattern became
+    invalid and the run stopped with a message about patterns, which says nothing
+    to somebody who was only naming their sample. Comparing text cannot go wrong
+    in either way.
+
+    The comparison is also exact rather than "begins with". A run called ``scan``
+    and a run called ``scan_deep`` are two different acquisition types that sit
+    happily side by side in one folder, and neither may speak for the other's
+    images.
+
+    Returns:
+        The image folders belonging to this name, in a settled order. Empty if
+        there are none, including when the run's folder does not exist yet.
+    """
+    if not folder.is_dir():
+        return []
+    numbered_prefix = f"{name}_part"
+    found = []
+    for entry in folder.iterdir():
+        if not entry.name.endswith(_IMAGE_SUFFIX):
+            continue
+        leaf = entry.name[: -len(_IMAGE_SUFFIX)]
+        if leaf == name:
+            found.append(entry)
+        elif leaf.startswith(numbered_prefix) and leaf[len(numbered_prefix):].isdigit():
+            found.append(entry)
+    return sorted(found)
+
+
+def _throw_away_the_existing_run(folder: Path, name: str) -> None:
+    """Remove every image of this acquisition type, because the caller said to.
+
+    This is what ``discard_existing_run=True`` asks for, and the whole of it has
+    to go. Removing only the images the new arrangement happens to reuse would
+    leave the rest of the old run on disk beside the new one, still holding the
+    old run's pixels — and because the viewer gathers a run's images by their
+    name, the operator would see the two mixed together as though they were one
+    acquisition. Every later declaration in that folder would be refused as well,
+    since those leftovers are themselves an imaged run standing in the way.
+
+    Only images belonging to this name are removed. An overview being thrown away
+    must leave a prescan beside it untouched, and it must also leave alone an
+    acquisition type whose name merely begins the same way, such as
+    ``overview_deep``.
+    """
+    for store in _images_belonging_to(folder, name):
+        if store.is_dir():
+            shutil.rmtree(store)
+        else:
+            store.unlink()
+
+
 def _refuse_to_write_over_a_finished_run(folder: Path, name: str) -> None:
     """Stop a new run from emptying the images an earlier one filled in.
 
@@ -192,7 +304,7 @@ def _refuse_to_write_over_a_finished_run(folder: Path, name: str) -> None:
     """
     already = [
         (store, found)
-        for store in sorted(folder.glob(f"{name}*.ome.zarr"))
+        for store in _images_belonging_to(folder, name)
         if (found := _a_tile_already_written(store)) is not None
     ]
     if not already:
@@ -218,6 +330,274 @@ def _refuse_to_write_over_a_finished_run(folder: Path, name: str) -> None:
         "If the earlier run really is finished with and you mean to throw it "
         "away, say so outright by passing discard_existing_run=True."
     )
+
+
+# -- only one writer at a time ------------------------------------------------
+#
+# The check above notices a run that has already been *imaged*, and that is not
+# quite enough. Two writers can declare the same folder in the same breath,
+# before either has written a single tile, and both are then let through — after
+# which each of them writes into images the other is also writing into.
+#
+# That loses tiles, because everything that keeps a tile safe is remembered by
+# the writer rather than read back from disk. Each writer keeps its own list of
+# where its tiles went, so that a tile arriving at an unplanned position can be
+# placed where it lands on nothing; and each keeps its own list of the pieces of
+# picture being written at this moment, so that two tiles are never halfway
+# through the same piece at once. Neither list can see the other writer's, so two
+# tiles landing in one piece are written over each other and nothing says so.
+#
+# The cure is for a writer to say on disk that it has these images, and for the
+# next one to look. What makes the note trustworthy is that the operating system
+# is asked to mark the file as held for as long as the writer keeps it open: the
+# mark goes away by itself when the writer is closed, and also when its process
+# ends for any reason at all, including a crash or the machine losing power. So a
+# claim can never be left behind to block a run that has every right to start,
+# which is the failing that makes hand-written marker files a nuisance.
+
+
+class _CannotBeMarkedHere(Exception):
+    """The filesystem this run is being written to offers no such marking.
+
+    Some network filesystems do not, and a microscope's data often does live on
+    one. It is not a reason to stop a run, so this is caught and turned into a
+    warning rather than a refusal.
+    """
+
+
+class _WritingClaim:
+    """The note saying that one writer has one acquisition type's images.
+
+    Held for as long as the writer is in use, and let go when it is closed or
+    when the program it belongs to ends.
+    """
+
+    def __init__(self, path: Path, handle) -> None:
+        self.path = path
+        self._handle = handle
+        # Set when a later writer in this same program has taken these images
+        # over. The earlier writer is then no longer allowed to write, because
+        # its record of where its tiles went no longer describes what is on disk.
+        self.handed_over = False
+
+    def let_go(self) -> None:
+        """Give these images up, so that another writer may take them on."""
+        with _CLAIMS_HELD_HERE_LOCK:
+            if _CLAIMS_HELD_HERE.get(self.path) is self:
+                del _CLAIMS_HELD_HERE[self.path]
+        try:
+            # Closing the file is what releases the operating system's mark.
+            self._handle.close()
+        except OSError:
+            pass
+
+    def hand_over(self) -> None:
+        """Give the images to a later writer in this same program."""
+        self.handed_over = True
+        self.let_go()
+
+
+# The claims this program is holding, so that a second declaration in the same
+# notebook or script can be recognised and dealt with kindly rather than refused.
+# The lock can be taken more than once by the same thread, which it needs to be:
+# taking a claim may involve letting an earlier one go.
+_CLAIMS_HELD_HERE: dict[Path, _WritingClaim] = {}
+_CLAIMS_HELD_HERE_LOCK = threading.RLock()
+
+
+def _ask_for_the_mark(handle) -> bool:
+    """Ask the operating system to mark this file as held by us, without waiting.
+
+    Returns:
+        ``True`` if the mark is now ours, ``False`` if somebody else already has
+        it.
+
+    Raises:
+        _CannotBeMarkedHere: if this filesystem does not offer the marking at all,
+            which is not the same as somebody else holding it.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        # Windows has no fcntl and marks files a different way.
+        return _ask_windows_for_the_mark(handle)
+
+    import errno
+
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as why:
+        # These two mean "somebody else has it"; anything else means the
+        # filesystem could not do the marking at all.
+        if why.errno in (errno.EACCES, errno.EAGAIN):
+            return False
+        raise _CannotBeMarkedHere(str(why)) from why
+    return True
+
+
+def _ask_windows_for_the_mark(handle) -> bool:
+    """The same request, made the way Windows makes it.
+
+    Windows does not distinguish "somebody else has this" from "this cannot be
+    done here", so anything going wrong is read as somebody else having it. That
+    is the careful way round: it may occasionally refuse a run it could have
+    allowed, which costs an operator a moment, whereas the other way round costs
+    them tiles.
+    """
+    try:
+        import msvcrt
+    except ImportError as why:  # pragma: no cover - neither Unix nor Windows
+        raise _CannotBeMarkedHere(
+            "this machine offers no way to mark a file as held"
+        ) from why
+    try:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        return False
+    return True
+
+
+def _what_the_claim_says(name: str) -> str:
+    """The words written into the claim file, for whoever finds it.
+
+    Somebody looking through a run's folder should be able to tell what this file
+    is without having to ask, and an operator meeting the refusal should be able
+    to tell which program is in the way.
+    """
+    return (
+        f"A writer has this run's {name!r} images open and is writing tiles into "
+        "them.\n"
+        f"Program {os.getpid()} on {socket.gethostname()}, since "
+        f"{time.strftime('%Y-%m-%d %H:%M:%S')}.\n"
+        "\n"
+        "This file holds no picture and is not part of the acquisition. It only "
+        "keeps\ntwo writers from working on one set of images at the same time, "
+        "which would\nlose tiles. Once the run has finished it is simply a note "
+        "left behind and can\nbe deleted.\n"
+    )
+
+
+def _claim_the_right_to_write(folder: Path, name: str) -> _WritingClaim | None:
+    """Become the one writer of this acquisition type's images.
+
+    Args:
+        folder: the run's folder, which must already exist.
+        name: the acquisition type whose images are being claimed.
+
+    Returns:
+        The claim, which must be let go of when the writer is finished with. It
+        is returned rather than kept here so that its life is exactly the
+        writer's own.
+
+    Raises:
+        ValueError: if another program already has these images open. Waiting for
+            it is not offered, because the two would be writing the same
+            acquisition into the same images and only one of them can be right.
+    """
+    path = folder / f"{name}.writing"
+    with _CLAIMS_HELD_HERE_LOCK:
+        ours_already = _CLAIMS_HELD_HERE.get(path)
+        if ours_already is not None:
+            # A writer in this same program already has these images. That is the
+            # ordinary case of a notebook cell being run a second time, and it is
+            # safe to allow, because we can see the earlier writer and stop it:
+            # it is told it has handed over, so any further tile written through
+            # it is refused loudly instead of being lost quietly. Across programs
+            # we can neither see nor stop the other writer, which is why that
+            # case is refused below.
+            ours_already.hand_over()
+
+        try:
+            # Opened without emptying it, because what another writer put there is
+            # exactly what we may need to read out and pass on.
+            handle = os.fdopen(
+                os.open(path, os.O_RDWR | os.O_CREAT), "r+", encoding="utf-8"
+            )
+        except OSError as why:
+            # A file left by another user, say, that this one is not allowed to
+            # open. Not being able to make the note is no reason to stop an
+            # acquisition, so it is reported and the run goes ahead.
+            _say_it_could_not_be_checked(folder, name, why)
+            return None
+
+        try:
+            held_by_us = _ask_for_the_mark(handle)
+        except _CannotBeMarkedHere as why:
+            _say_it_could_not_be_checked(folder, name, why)
+            held_by_us = True
+
+        if not held_by_us:
+            said = _read_the_claim(handle)
+            handle.close()
+            raise ValueError(
+                f"another program already has this run's {name!r} images open, so "
+                f"this writer cannot have them as well. The note beside them "
+                f"({path.name}) says:\n\n"
+                f"{said}\n"
+                "Two writers must not share one set of images. Each keeps its own "
+                "record of where its tiles went and of which pieces of picture are "
+                "being written at this moment, and neither can see the other's, so "
+                "two tiles landing in one piece are written over each other and "
+                "the loss is silent.\n\n"
+                "If that other program is a notebook or a script you have finished "
+                "with, let it end or close its writer, and declare these images "
+                "again. If it stopped without tidying up there is nothing to clear "
+                "away by hand: the claim belongs to the running program itself and "
+                "goes the moment it does, so declaring again will simply work.\n\n"
+                "If this is meant to be a second, separate run, give it a folder of "
+                "its own. One folder per run is what the rest of this works best "
+                "with."
+            )
+
+        # The note is rewritten rather than added to, so that what a later reader
+        # finds describes the writer that holds the images now. The note is always
+        # far longer than the single byte Windows marks as held, so shortening the
+        # file never disturbs the mark.
+        handle.seek(0)
+        handle.write(_what_the_claim_says(name))
+        handle.truncate()
+        handle.flush()
+        claim = _WritingClaim(path, handle)
+        _CLAIMS_HELD_HERE[path] = claim
+        return claim
+
+
+def _say_it_could_not_be_checked(folder: Path, name: str, why) -> None:
+    """Report that this check could not be made here, and let the run go ahead.
+
+    Some network filesystems do not offer one program a way to reserve a file, and
+    a microscope's data often does live on one. Refusing to write a run over that
+    would be the wrong way round: it would stop acquisitions that are perfectly
+    fine, and an operator worked into a corner tends to find a way past the guard
+    that is worse than the thing it was guarding against. So this is said out loud
+    and the run continues.
+    """
+    warnings.warn(
+        f"it could not be checked whether another program is already writing this "
+        f"run's {name!r} images, because the place they are being written to "
+        f"({folder}) does not let one program reserve a file ({why}). Nothing is "
+        f"wrong with the run itself and it will be written as usual. Do take care "
+        f"that only one notebook or script writes any one run, though, because two "
+        f"writing at once lose tiles with nothing to say so.",
+        stacklevel=4,
+    )
+
+
+def _read_the_claim(handle) -> str:
+    """Whatever the other writer left in its claim file, indented for the message.
+
+    Read defensively: the other writer may not have written its note yet, and the
+    point of the refusal does not depend on being able to name it.
+    """
+    try:
+        handle.seek(0)
+        said = handle.read(4096).strip()
+    except (OSError, UnicodeDecodeError):
+        said = ""
+    if not said:
+        return "  (the note says nothing about who holds them)"
+    return "\n".join(f"  {line}" for line in said.splitlines())
 
 
 def _refuse_pieces_that_hold_several_tiles(pieces) -> None:
@@ -271,8 +651,6 @@ def _warn_if_tiles_straddle_pieces(tile_shape, tile_step, chunk: int, levels: in
     specimen as a piece of the full-size one. Getting this wrong is not dangerous:
     the writer notices and holds the tiles apart. It just means waiting.
     """
-    import warnings
-
     grain = chunk * 2 ** (levels - 1)
     for axis, name in ((1, "y"), (2, "x")):
         if tile_shape[axis] % grain or tile_step[axis] % grain:
@@ -351,6 +729,12 @@ class _Slot:
     # voxels. Kept so that a tile arriving at an unplanned position can be asked
     # "does this land on anything already here?" without reading any image data.
     written: list[tuple[int, int, int, int, int, int]] = field(default_factory=list)
+    # How much of the specimen one file of this image holds, in y and x, for each
+    # of its progressively smaller copies. Worked out once when the writer is made
+    # and used to keep two tiles out of one file at the same moment. It belongs to
+    # the image rather than to the run because each image may be stored
+    # differently, and only tiles going into the *same* image can ever collide.
+    pieces: list[tuple[int, int]] = field(default_factory=list)
 
 
 class TileCanvases:
@@ -364,13 +748,15 @@ class TileCanvases:
 
     def __init__(self, folder: Path, slots: list[_Slot], *, shape: tuple[int, ...],
                  levels: int, tile_shape: tuple[int, int, int],
-                 slot_grid: tuple[int, int, int]) -> None:
+                 slot_grid: tuple[int, int, int],
+                 claim: _WritingClaim | None = None) -> None:
         self.folder = folder
         self._slots = slots
         self._shape = shape
         self._levels = levels
         self._tile_shape = tile_shape
         self._slot_grid = slot_grid
+        self._claim = claim
         # Two tiles being written at the same moment are only safe if they do not
         # share a piece of image: otherwise each reads the piece, adds its own
         # tile to its own copy, and writes the whole thing back, so whichever
@@ -379,17 +765,24 @@ class TileCanvases:
         #
         # Note that this is about sharing a *piece*, not about the tiles
         # overlapping. Two tiles can sit well apart and still fall inside one
-        # piece of image, and that is just as damaging. So a tile's claim is
-        # widened to whole pieces before it is compared with what else is in
-        # progress, and it waits until nothing it shares a piece with is still
-        # being written.
+        # piece of image, and that is just as damaging. So before a tile is
+        # written it says which pieces it is about to touch, and waits until
+        # nothing else in progress is touching any of them.
         #
-        # The pieces of the smallest copy are the ones that matter, because they
-        # cover the most ground: a piece of the half-size copy spans twice as much
-        # of the specimen as a piece of the full-size one. So every level is asked
-        # how large its pieces are, each answer is scaled back up to full-size
-        # voxels, and the largest of them is what tiles are held apart by. That
-        # one claim then covers the writing of every level at once.
+        # A tile is written into every one of the progressively smaller copies, so
+        # it has to say that for each of them separately. It is tempting to
+        # collapse that into one number — the piece of the smallest copy covers the
+        # most ground, so surely holding tiles apart by that much covers the rest?
+        # It does not, and this is worth spelling out because the code used to do
+        # it. Suppose the full-size copy keeps 128 voxels in a piece and the
+        # half-size copy keeps 100, which is 200 voxels of specimen. Holding tiles
+        # apart in blocks of 200 draws a boundary at voxel 200, and that boundary
+        # falls in the middle of the full-size copy's piece covering 128 to 256. So
+        # two tiles either side of it are judged not to share anything, and they
+        # write that one file at the same time. Measured here, a pair of tiles
+        # arranged that way lost 14336 voxels in 20 of 20 attempts. Asking each
+        # copy about its own pieces has no such gap in it, and it also never holds
+        # tiles apart more than the storage actually requires.
         #
         # What counts as "a piece" needs care. Ordinarily it is a chunk, the
         # smallest amount of picture zarr stores as one file. But a zarr image can
@@ -402,17 +795,47 @@ class TileCanvases:
         # four tiles written at once into four chunks of one shard left three of
         # them missing, with nothing reported. Hence: shards where there are any,
         # chunks where there are not.
-        grain_y = grain_x = 1
-        for level, array in enumerate(slots[0].arrays):
-            pieces = array.shards or array.chunks
-            _refuse_pieces_that_hold_several_tiles(pieces)
-            # Counted from the end, so that this does not depend on how many axes
-            # come before the specimen's y and x.
-            grain_y = max(grain_y, pieces[-2] * 2 ** level)
-            grain_x = max(grain_x, pieces[-1] * 2 ** level)
-        self._grain = (grain_y, grain_x)
-        self._busy: list[tuple[int, ...]] = []
+        #
+        # Every image is asked, not only the first. A run's images are usually
+        # stored identically, but nothing here guarantees it, and taking the first
+        # image's answer for all of them let a hand-built run through whose second
+        # image kept two planes in one file: two tiles at different depths were
+        # then written into that file at once and one of them vanished, in 3 of 3
+        # attempts.
+        for slot in slots:
+            slot.pieces = []
+            for array in slot.arrays:
+                pieces = array.shards or array.chunks
+                _refuse_pieces_that_hold_several_tiles(pieces)
+                # Counted from the end, so that this does not depend on how many
+                # axes come before the specimen's y and x.
+                slot.pieces.append((int(pieces[-2]), int(pieces[-1])))
+        self._busy: list[tuple] = []
         self._free = threading.Condition()
+
+    def close(self) -> None:
+        """Let go of these images, so that another writer may take them on.
+
+        Worth calling when a run has finished and the same folder is going to be
+        written again by another program, and harmless otherwise. It does not need
+        to be called for the images themselves to be complete — they are complete
+        and readable throughout — and it happens by itself when the writer falls
+        out of use or the program ends.
+        """
+        claim = getattr(self, "_claim", None)
+        if claim is not None:
+            self._claim = None
+            claim.let_go()
+
+    def __del__(self) -> None:
+        # A writer that is simply forgotten about should still give its images up,
+        # so that the next program to want them is not turned away by a claim
+        # nobody is using. Anything going wrong while the program is shutting down
+        # is not worth reporting.
+        try:
+            self.close()
+        except Exception:  # pragma: no cover - only reachable at shutdown
+            pass
 
     # -- making the images ------------------------------------------------
 
@@ -507,21 +930,29 @@ class TileCanvases:
                 folder that already holds acquired pictures is refused rather
                 than emptied. Set it only when you know what is there and mean
                 to lose it — repeating a test run into the same scratch folder
-                is the usual honest reason.
+                is the usual honest reason. What goes is the whole of that
+                acquisition type, including images an earlier run left behind
+                that this one has no use for; other acquisition types in the same
+                folder are untouched.
 
         Returns:
-            The images, ready to be written into.
+            The images, ready to be written into. When the run is over they can be
+            left as they are; :meth:`close` is only needed if another program is
+            going to write the same run afterwards.
 
         Raises:
-            ValueError: if the tiles overlap, or if this folder already holds an
-                imaged run. A run that overlaps its tiles should keep them
+            ValueError: if the tiles overlap, if this folder already holds an
+                imaged run, or if another program is already writing this
+                acquisition type. A run that overlaps its tiles should keep them
                 separate and be stitched once it is finished, rather than being
                 written into one image as it goes. A folder that already holds
                 acquired pictures should be left alone and the new run given a
                 folder of its own, because declaring the images again empties
-                them.
+                them. And two programs cannot write one acquisition into one set
+                of images, because each would only know about its own tiles.
         """
         folder = Path(folder)
+        _refuse_a_name_that_is_not_a_plain_file_name(name)
         folder.mkdir(parents=True, exist_ok=True)
 
         # Asked before anything is declared, because declaring is what does the
@@ -529,6 +960,15 @@ class TileCanvases:
         # afterwards at which this could still be caught.
         if not discard_existing_run:
             _refuse_to_write_over_a_finished_run(folder, name)
+
+        # Becoming the one writer comes before anything is emptied or thrown away,
+        # for the same reason: if another program is already writing this
+        # acquisition, then its images must be left exactly as they are — and that
+        # holds however firmly this call has asked to discard what is there, since
+        # what is there is somebody's run in progress.
+        claim = _claim_the_right_to_write(folder, name)
+        if discard_existing_run:
+            _throw_away_the_existing_run(folder, name)
 
         if slots is None:
             _refuse_overlapping_tiles(tile_shape, tile_step)
@@ -568,6 +1008,7 @@ class TileCanvases:
             levels=levels,
             tile_shape=tile_shape,
             slot_grid=slot_grid,
+            claim=claim,
         )
 
     # -- writing ----------------------------------------------------------
@@ -610,7 +1051,11 @@ class TileCanvases:
                 declared — either past the edge of the canvas in space, or past
                 the last moment the run declared room for in time. Both mean the
                 same thing: the run was declared smaller than it turned out to be.
+                Also if these images have since been declared again by another
+                writer in this same program, which leaves this one no longer able
+                to say truthfully where anything is.
         """
+        self._check_these_images_are_still_ours()
         depth, height, width = image.shape
         z0, y0, x0 = origin
         footprint = (z0, z0 + depth, y0, y0 + height, x0, x0 + width)
@@ -623,8 +1068,7 @@ class TileCanvases:
         # tiles can never be halfway through the same piece at once.
         region = (
             slot.index, frame, channel, z0, z0 + depth,
-            y0 // self._grain[0], (y0 + height - 1) // self._grain[0],
-            x0 // self._grain[1], (x0 + width - 1) // self._grain[1],
+            self._pieces_this_tile_touches(slot, origin, image.shape),
         )
         with self._free:
             while any(_touches(region, other) for other in self._busy):
@@ -642,6 +1086,53 @@ class TileCanvases:
                 self._busy.remove(region)
                 self._free.notify_all()
         return slot.folder
+
+    def _check_these_images_are_still_ours(self) -> None:
+        """Refuse to write once a later writer has taken these images over.
+
+        This happens when the same program declares the same acquisition twice —
+        a notebook cell run again, most often. Declaring empties the images and
+        the newer writer starts its own record of where tiles have gone, so this
+        older one no longer describes anything that is on disk. Writing through it
+        would place tiles by a record that is out of date, and the loss would be
+        silent, so it is refused instead.
+        """
+        if self._claim is not None and self._claim.handed_over:
+            raise ValueError(
+                "these images have been declared again since this writer was made, "
+                "so this writer has been set aside and cannot write any more. "
+                "Declaring empties the images and starts a fresh record of where "
+                "tiles have gone, and this writer still holds the old one — so a "
+                "tile written through it would be placed by a record that no "
+                "longer matches what is on disk.\n\n"
+                "Use the writer that the most recent declaration returned. If two "
+                "parts of your program each need to write tiles, let them share "
+                "one writer rather than declaring the images twice."
+            )
+
+    def _pieces_this_tile_touches(self, slot: _Slot, origin: tuple[int, int, int],
+                                  shape: tuple[int, int, int]) -> tuple:
+        """Which files of each copy of this image the tile is about to be written into.
+
+        Given for every copy separately, as the first and last piece reached in y
+        and then the same in x, both included. Two tiles that share none of these
+        can safely be written at the same moment; two that share any one of them
+        cannot, because that file is read, changed and written back whole.
+
+        Depth needs no counting here: each piece holds a single plane, which
+        :func:`_refuse_pieces_that_hold_several_tiles` has already made sure of, so
+        comparing the tiles' depths directly is enough.
+        """
+        claimed = []
+        for level, (piece_y, piece_x) in enumerate(slot.pieces):
+            factor = 2 ** level
+            y0, y1 = _where_it_lands(origin[1], shape[1], factor)
+            x0, x1 = _where_it_lands(origin[2], shape[2], factor)
+            claimed.append((
+                y0 // piece_y, (y1 - 1) // piece_y,
+                x0 // piece_x, (x1 - 1) // piece_x,
+            ))
+        return tuple(claimed)
 
     # -- choosing where a tile goes ---------------------------------------
 
@@ -736,8 +1227,12 @@ class TileCanvases:
             if smaller.size == 0:
                 continue
             z0 = origin[0]
-            y0, x0 = origin[1] // factor, origin[2] // factor
-            depth, height, width = smaller.shape
+            depth = smaller.shape[0]
+            # Worked out by the same reckoning that decided which files this tile
+            # would touch, so that the two can never disagree about where it goes.
+            y0, y1 = _where_it_lands(origin[1], image.shape[1], factor)
+            x0, x1 = _where_it_lands(origin[2], image.shape[2], factor)
+            height, width = y1 - y0, x1 - x0
             array = slot.arrays[level]
             # A tile near the far edge can round to just past the end of a smaller
             # copy, so trim rather than fail: the lost row is half a voxel of the
@@ -764,19 +1259,47 @@ def _overlaps(a: tuple[int, ...], b: tuple[int, ...]) -> bool:
     )
 
 
-def _touches(a: tuple[int, ...], b: tuple[int, ...]) -> bool:
-    """Whether two writes in progress would be working on the same piece of image.
+def _where_it_lands(start: int, length: int, factor: int) -> tuple[int, int]:
+    """Where a tile lands in a copy of the image shrunk by ``factor``.
 
-    Each claim is ``(image, frame, channel, z from, z to, then the first and last
-    piece it reaches in y, then the same in x)``. Time, colour and depth each get
-    a piece to themselves, so those simply have to coincide; y and x are counted
-    in whole pieces, and the first and last are both included.
+    Args:
+        start: the tile's low edge along this axis, in full-size voxels.
+        length: how far the tile reaches along this axis, in full-size voxels.
+        factor: how much smaller this copy is — 1 for the full-size one, 2 for the
+            half-size one, and so on.
+
+    Returns:
+        The low and high edge in that copy's own voxels, the high edge not
+        included, in the manner of a Python slice. The high edge is rounded up, so
+        a tile that half fills a voxel of the smaller copy still counts as
+        reaching it — which is right, because writing it is what puts a value
+        there.
     """
-    return (
-        a[0] == b[0] and a[1] == b[1] and a[2] == b[2]
-        and a[3] < b[4] and b[3] < a[4]
-        and a[5] <= b[6] and b[5] <= a[6]
-        and a[7] <= b[8] and b[7] <= a[8]
+    begin = start // factor
+    return begin, begin + max(1, -(-length // factor))
+
+
+def _touches(a: tuple, b: tuple) -> bool:
+    """Whether two writes in progress would be working on the same file.
+
+    Each claim is ``(image, frame, channel, z from, z to, files)``, where
+    ``files`` says, for each progressively smaller copy of that image, the first
+    and last piece the tile reaches in y and then the same in x, both included.
+
+    Time, colour and depth each get a piece to themselves — the writer insists on
+    that — so those simply have to coincide. Across the specimen the copies are
+    asked one at a time, and sharing a piece in any single copy is enough to make
+    two writes wait for each other, because that one file would otherwise be
+    written twice at once and one tile's contribution to it lost.
+    """
+    if a[0] != b[0] or a[1] != b[1] or a[2] != b[2]:
+        return False
+    if not (a[3] < b[4] and b[3] < a[4]):
+        return False
+    return any(
+        mine[0] <= theirs[1] and theirs[0] <= mine[1]
+        and mine[2] <= theirs[3] and theirs[2] <= mine[3]
+        for mine, theirs in zip(a[5], b[5], strict=True)
     )
 
 
