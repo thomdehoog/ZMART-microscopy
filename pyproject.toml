@@ -1,3 +1,54 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zmart-microscopy"
+version = "0.1.0"
+description = "Smart microscopy for the ZMB: instrument drivers, run control, and a viewer for the images a run produces."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+
+# The runtime dependencies are not repeated here: they are read from
+# requirements.txt, which is the pip mirror of the canonical conda environment in
+# environment.yml. Writing the same list down twice is how two copies of it drift
+# apart, and a dependency present in one and missing from the other is exactly the
+# fault that only shows up on somebody else's machine.
+dynamic = ["dependencies"]
+
+# The tools for running the tests, which cannot be read from requirements-dev.txt
+# the same way because that file begins by including requirements.txt, and the
+# reader above understands only plain requirements. They are listed here rather
+# than left out because a fresh checkout should be able to ask for everything it
+# needs to run the suite in one command.
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "playwright>=1.58,<2",
+    "pillow>=10",
+]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools]
+# Named rather than discovered, because this repository holds more than library
+# code: measurement scripts, notebooks, and the viewer's own front end all live
+# here and none of them belong in an install.
+#
+# One honest omission. The viewer's server (`viz_studio/backend`) is a set of
+# loose modules that its scripts and tests reach by adding the folder to the
+# import path, rather than a package you can import after installing. Installing
+# therefore gives you the writer and the run control, and the viewer is still
+# started from inside its own folder -- see viz_studio/README.md. Turning it into
+# a package is worth doing and is not a small change, because a dozen scripts and
+# the whole browser test suite import those modules by bare name.
+packages = ["zmart_storage", "zmart_controller"]
+
 [tool.ruff]
 target-version = "py310"
 line-length = 100
