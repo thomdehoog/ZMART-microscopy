@@ -40,12 +40,21 @@ export const CARRIER_TYPES = [
       { label: "12-well", rows: 3, cols: 4, shape: "round", w: 22.1, h: 22.1, gap: 3.9, corner: 0 },
       { label: "24-well", rows: 4, cols: 6, shape: "round", w: 15.6, h: 15.6, gap: 3.4, corner: 0 },
       { label: "48-well", rows: 6, cols: 8, shape: "round", w: 11.4, h: 11.4, gap: 1.5, corner: 0 },
-      /* Greiner Bio-One, flat bottom. The 9.0 mm pitch is the SLAS footprint
-         standard and holds for any 96-well plate. The 6.6 mm is the well
-         bottom, not the 6.96 mm rim: the flat of the well is the part an
-         objective can reach, which is what this list means by an area. It is
-         the diameter Greiner's published 0.34 cm² growth area comes to, so
-         the area this panel reports can be checked against the catalogue. */
+      /* Greiner Bio-One CELLSTAR, flat bottom, chimney well (655086 / 655090).
+         The 9.0 mm pitch is the ANSI/SLAS footprint standard and holds for any
+         96-well plate.
+
+         The 6.6 mm is derived, not quoted: it is the diameter Greiner's
+         published growth area of 0.34 cm² per well comes to. Greiner publishes
+         the growth area and not a well diameter, and the growth area is the
+         flat of the well — which is both the part an objective can reach and
+         what this list means by an area. Deriving it that way leaves the area
+         this panel reports checkable against the catalogue page.
+
+         Do not "correct" this to a figure off another vendor's drawing. A
+         Corning flat-bottom 96 is 6.86 mm at the rim and 6.35 mm at the flat,
+         which is a different plate; matching it here would quietly describe
+         a plate this lab does not run. */
       { label: "96-well (Greiner)", rows: 8, cols: 12, shape: "round", w: 6.6, h: 6.6, gap: 2.4, corner: 0 },
       { label: "384-well", rows: 16, cols: 24, shape: "round", w: 3.6, h: 3.6, gap: 0.9, corner: 0 },
     ],
