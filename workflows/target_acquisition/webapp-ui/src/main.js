@@ -810,7 +810,10 @@ import carrierWidget from "./widgets/carrier.js";
     for (const t of SETTING_TYPES) {
       const o = document.createElement("option");
       o.value = t.key;
-      o.textContent = t.label;
+      /* The kind names a kind; what is being taken is a preset of it. Composed
+         here rather than stored that way, because the group heading below says
+         "Recorded acquisition presets" off the same label. */
+      o.textContent = `${t.label} preset`;
       kind.append(o);
     }
     kind.value = bar.type;
@@ -868,7 +871,9 @@ import carrierWidget from "./widgets/carrier.js";
       }, 480);
     });
 
-    row.append(kind, name, go, why);
+    /* The name leads, the way it leads a recorded row. It is the thing being
+       filled in; the kind is a choice standing beside it. */
+    row.append(name, kind, go, why);
     return row;
   }
 
