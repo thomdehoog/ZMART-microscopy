@@ -34,17 +34,15 @@ async function record(page, kind, name) {
   await page.waitForTimeout(650);
 }
 
-/** Everything before the sample is touched: session, optics, origin. */
+/** Everything before the sample is touched: session, optics, carrier. */
 async function throughSetup(page) {
   await connect(page);
   await gotoStep(page, "Optical Configuration");
   // recording is the work; there is no button to confirm afterwards
   await record(page, "acquisition", "survey");
   await record(page, "acquisition", "target");
-  for (const name of ["Carrier setup", "Set origin"]) {
-    await gotoStep(page, name);
-    await runStep(page, 900);
-  }
+  await gotoStep(page, "Carrier setup");
+  await runStep(page, 900);
 }
 
 async function placeFocusPoints(page) {
@@ -70,13 +68,13 @@ test.afterEach(async ({ page }) => {
 });
 
 test("the rail carries the workflow's declared steps", async ({ page }) => {
-  await expect(page.locator("#steps .step")).toHaveCount(11);
+  await expect(page.locator("#steps .step")).toHaveCount(10);
   await expect(page.locator(".step.active .step-name")).toHaveText("Connect");
 
   await page.locator("#wf-select").selectOption("overview_only");
-  await expect(page.locator("#steps .step")).toHaveCount(7);
+  await expect(page.locator("#steps .step")).toHaveCount(6);
   await page.locator("#wf-select").selectOption("focus_check");
-  await expect(page.locator("#steps .step")).toHaveCount(7);
+  await expect(page.locator("#steps .step")).toHaveCount(6);
 });
 
 test("a session needs a password before it will open", async ({ page }) => {
@@ -174,18 +172,10 @@ test("the optical settings panel lines up", async ({ page }) => {
       .map((e) => e.getBoundingClientRect());
     const labels = [...document.querySelectorAll(".group-label")]
       .map((e) => round(e.getBoundingClientRect().x));
-    // Whatever opens a row: the recorded name, or the kind selector. Measured
-    // where its text starts rather than where its box does — a bordered field
-    // holds its text a border and a padding inside its own edge, a recorded
-    // name has neither, and the eye lines up the words.
-    const textStart = (e) => {
-      const c = getComputedStyle(e);
-      return round(e.getBoundingClientRect().x
-        + parseFloat(c.borderLeftWidth) + parseFloat(c.paddingLeft));
-    };
+    // whatever opens a row: the fold triangle, or the kind selector
     const starts = [
-      ...[...document.querySelectorAll(".rec-name")].map(textStart),
-      textStart(document.querySelector(".rec-new select")),
+      ...[...document.querySelectorAll(".rec-fold")].map((e) => round(e.getBoundingClientRect().x)),
+      round(document.querySelector(".rec-new select").getBoundingClientRect().x),
     ];
     // whatever closes it: the remove button, or Record
     const ends = [
@@ -294,29 +284,33 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     await expect(page.locator('.step:has-text("Carrier setup")').first()).toBeDisabled();
   });
 
-test("setup holds the base until there is data, then the canvas takes over",
+test("the carrier sets the canvas up, and from then on it is always there",
   async ({ page }) => {
-    // an empty stage is not worth a tab; the configuration is
+    // nothing to draw before the carrier settles where the stage may go
     await expect(page.locator(".tab")).toHaveText(["Setup"]);
     await throughSetup(page);
-    await expect(page.locator(".tab")).toHaveText(["Setup"]);
-    // only what the run has established, plus what is being done now
-    await expect(page.locator(".setup-row")).toHaveCount(1);
-    // a card belongs to its step: standing on Set origin, none of them show
-    await expect(page.locator(".session-card")).toHaveCount(0);
+    await expect(page.locator(".tab"), "the carrier ran, so the canvas exists")
+      .toHaveText(["Canvas", "Setup"]);
+    // Only what the run has established, plus what is being done now. Nothing
+    // up to here owns a row: the session and the carrier have their own cards,
+    // and the focus surface is neither measured nor the step being stood on.
+    await expect(page.locator(".setup-row")).toHaveCount(0);
+    // a card belongs to its step: standing on the carrier, only its card shows
+    await expect(page.locator(".session-card")).toHaveCount(1);
+    await expect(page.locator(".session-title")).toHaveText("Carrier");
     await gotoStep(page, "Connect");
     await expect(page.locator(".session-title"), "and comes back when you return")
       .toHaveText("Session");
     await expect(page.locator(".check-row")).toHaveCount(6);
-    await gotoStep(page, "Set origin");
 
     await placeFocusPoints(page);
-    await expect(page.locator(".tab")).toHaveText(["Setup", "Focus strategy"]);
+    await expect(page.locator(".tab")).toHaveText(["Canvas", "Focus strategy"]);
     await expect(page.locator('.tab[aria-selected="true"]')).toHaveText("Focus strategy");
 
     await runStep(page, 1600);
+    // a step that owns no panel is the canvas alone — setup does not follow it
     await gotoStep(page, "Scan the overview");
-    await expect(page.locator(".tab")).toHaveText(["Setup"]);
+    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
 
     await runStep(page, 3000);
 

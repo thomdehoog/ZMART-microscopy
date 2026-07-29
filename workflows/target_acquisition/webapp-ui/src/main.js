@@ -59,10 +59,9 @@ import {
       name: "Target acquisition",
       blurb: "overview, detect, select, acquire",
       steps: numbered([
-        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: [], mode: "optics" },
-        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
-        { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0) for this run.", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
+        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["setup"], ms: 1900 },
+        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["setup"], mode: "optics" },
+        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: ["setup"], ms: 700, mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "detect", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, note: "1250 cells found", mode: "detect" },
@@ -76,10 +75,9 @@ import {
       name: "Overview only",
       blurb: "no analysis panel",
       steps: numbered([
-        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: [], mode: "optics" },
-        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
-        { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
+        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["setup"], ms: 1900 },
+        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["setup"], mode: "optics" },
+        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: ["setup"], ms: 700, mode: "carrier" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "save", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -89,10 +87,9 @@ import {
       name: "Focus surface check",
       blurb: "calibration run",
       steps: numbered([
-        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: [], ms: 1900 },
-        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: [], mode: "optics" },
-        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
-        { id: "origin", title: "Set origin", why: "Marks the stage where it stands as (0, 0).", btn: "Set origin", panels: [], ms: 600, note: "origin at 0.0, 0.0 µm" },
+        { id: "connect", title: "Connect", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["setup"], ms: 1900 },
+        { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["setup"], mode: "optics" },
+        { id: "carrier", title: "Carrier setup", why: "Tell the run what the sample is mounted in — it decides where the stage may go.", btn: "Apply carrier", panels: ["setup"], ms: 700, mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "save", title: "Write the surface", why: "Fits the plane and records its residual for this objective.", btn: "Write surface", panels: [], ms: 700, note: "residual 1.8 µm · written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -417,17 +414,20 @@ import {
     gallery: { label: "Gallery", panel: "panel-gallery" },
   };
 
-  /* The canvas holds acquired data, so it appears when there is some — before
-     the first tile lands it would be an empty stage, and the setup steps have
-     real state worth showing instead. Everything else belongs to the step you
-     are standing on, so the tab bar is rebuilt each time the active step
-     changes rather than growing forever. */
-  const hasAcquiredData = () => state.tilesShown > 0;
+  /* The carrier is what sets the canvas up: it settles where the stage may go,
+     which is the frame everything afterwards is drawn in. From that point the
+     canvas is the base — the window into the run, there for the rest of it and
+     filling with data rather than appearing once data exists.
+
+     Before it there is no frame to draw, so the setup panel holds the base
+     instead. Everything else belongs to the step being stood on, so the tab
+     bar is rebuilt on every render rather than growing forever. */
+  const canvasReady = () => state.done.has("carrier");
 
   function panelsFor(i) {
-    const own = (step(i).panels || []).filter((p) => p !== "canvas");
-    const base = hasAcquiredData() ? ["canvas"] : ["setup"];
-    return own.length ? [...base, ...own] : base;
+    const base = canvasReady() ? "canvas" : "setup";
+    const own = (step(i).panels || []).filter((p) => p !== base);
+    return [base, ...own];
   }
 
   function focusPanelsFor(i) {
@@ -443,7 +443,6 @@ import {
      its result, anything not yet run shows what it is waiting for. A workflow
      that skips a step simply has no row for it. */
   const SETUP_ROWS = [
-    { step: "origin", name: "Stage origin", waiting: "not set" },
     { step: "focus", name: "Focus surface", waiting: "not measured" },
   ];
 
@@ -1074,20 +1073,6 @@ import {
         ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2);
         ctx.fillStyle = "#16a34a"; ctx.fill();
       }
-    }
-
-    // ---- the origin, which is the one thing step 2 establishes
-    if (state.done.has("origin")) {
-      const [ox, oy] = toScreen(0, 0);
-      ctx.strokeStyle = css("--accent");
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(ox - 9, oy); ctx.lineTo(ox + 9, oy);
-      ctx.moveTo(ox, oy - 9); ctx.lineTo(ox, oy + 9);
-      ctx.stroke();
-      ctx.fillStyle = css("--ink-3");
-      ctx.font = '11px ui-monospace, Consolas, monospace';
-      ctx.fillText("0, 0", ox + 11, oy - 4);
     }
 
     drawScaleBar(ctx, w, h);

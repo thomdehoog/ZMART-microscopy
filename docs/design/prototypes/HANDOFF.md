@@ -47,14 +47,14 @@ resets it to step 1.
 ## What the page is
 
 A left rail of workflow steps, a right side whose panels follow the step.
-Eleven steps in `target_acquisition`:
+Ten steps in `target_acquisition`:
 
-1 Connect · 2 Optical Configuration · 3 Carrier setup · 4 Set origin ·
-5 Focus strategy · 6 Scan the overview · 7 Detect cells · 8 Select cells ·
-9 Acquire and curate · 10 Save the run · 11 Disconnect
+1 Connect · 2 Optical Configuration · 3 Carrier setup · 4 Focus strategy ·
+5 Scan the overview · 6 Detect cells · 7 Select cells · 8 Acquire and curate ·
+9 Save the run · 10 Disconnect
 
 Two other workflows exist to prove the frame is not built around one:
-`overview_only` (7 steps) and `focus_check` (7).
+`overview_only` (6 steps) and `focus_check` (6).
 
 ## Decisions already settled — do not relitigate without asking
 
@@ -66,10 +66,15 @@ Two other workflows exist to prove the frame is not built around one:
 - The **run button lives with the widget it operates**, in an action bar above
   the panel. A step that carries its own button (`ownButton: true`) hides the
   action bar entirely — Connect and Optical Configuration do.
-- **Base panel**: `setup` until the first tile lands, `canvas` after. The
-  canvas holds acquired data only, so before the scan there is nothing to put
-  on it. The tab set is recomputed every render, because the first tile arrives
-  while the operator is standing still.
+- **Base panel**: `setup` until the carrier is applied, `canvas` from then on.
+  The carrier settles where the stage may go, which is the frame everything
+  afterwards is drawn in — so that is the moment there is something to draw.
+  From there the canvas is the window into the run and never goes away; it
+  fills with data rather than appearing once data exists. Later it will load
+  the stage limits from the controller; today it is UI only. The setup steps
+  (Connect, Optical Configuration, Carrier setup) each own the `setup` panel,
+  so walking back to one still shows its card. Every other step is canvas plus
+  whatever it declares. The tab set is recomputed every render.
 - **A panel belongs to its step** and shows only while that step is selected.
   Walk back to Connect and the session and its checks are there again.
 - Step **numbers are derived from position**, never typed.
@@ -94,7 +99,9 @@ Two other workflows exist to prove the frame is not built around one:
   - Adding a kind is one entry in `SETTING_TYPES` — nothing else to touch.
 - The panel's alignment is asserted by a test, not eyeballed: one width, one
   left and right edge, labels flush, every row opening and closing in the same
-  column, both bars the same height when folded.
+  column. The open bar carries the same fields a session does — one rule in
+  the stylesheet serves both — so it stands taller than the line of text a
+  recorded preset is, and its kind, name and Record are all one height.
 
 **Two panels worth understanding**
 
