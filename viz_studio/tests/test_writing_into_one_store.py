@@ -261,15 +261,24 @@ def write_one_tile_at(store, row: int, column: int) -> None:
 
 
 def _how_much_is_drawn(page) -> float:
-    """How far the middle of the picture is from being one flat colour.
+    """How much of the middle of the picture is showing specimen rather than nothing.
 
     Deliberately not a count of chunks the engine says it has. A chunk of unwritten
     canvas is decoded, held and counted as available exactly like a written one — so
     the count does not move when a tile lands, and a test watching it would conclude
     nothing had arrived while the picture in front of it changed. What moves is the
     image, so that is what is measured.
+
+    Nor is it "how far the picture is from being one flat colour", which this used to
+    be. That number does not rise steadily as a run fills the view in — it rises to a
+    half when the specimen covers half of it and then falls back towards nothing as
+    the last of the background disappears. Measured, on four tiles landing one after
+    another: 0.25, 0.50, then 0.25, then 0.00. The third tile therefore looked like a
+    tile that had failed to arrive, when what had actually happened was that the
+    picture was nearly complete. Counting what is lit rises all the way: 0.25, 0.50,
+    0.75, 1.00.
     """
-    return 1.0 - colour_spread(image_middle(page))["dominant_fraction"]
+    return fraction_lit(page)
 
 
 def test_a_store_grows_tile_by_tile_and_each_one_is_seen(browser, built_dist, tmp_path):
