@@ -9,6 +9,8 @@ process.env.PLAYWRIGHT_BROWSERS_PATH ||=
 
 export default defineConfig({
   testDir: "./tests",
+  // tests/unit/**.test.js belongs to vitest; the two runners share a folder
+  testMatch: "**/*.spec.js",
   fullyParallel: false,
   workers: 1,
   reporter: [["list"]],

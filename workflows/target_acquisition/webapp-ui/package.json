@@ -8,11 +8,14 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "playwright test"
+    "test:unit": "vitest run",
+    "test:ui": "playwright test",
+    "test": "vitest run && playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
     "vite": "^8.1.5",
-    "vite-plugin-singlefile": "^2.3.0"
+    "vite-plugin-singlefile": "^2.3.0",
+    "vitest": "^4.1.10"
   }
 }
