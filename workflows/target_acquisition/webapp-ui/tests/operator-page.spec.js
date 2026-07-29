@@ -208,11 +208,12 @@ test("the optical settings panel lines up", async ({ page }) => {
       ...[...document.querySelectorAll(".rec-fold")].map((e) => round(e.getBoundingClientRect().x)),
       round(document.querySelector(".rec-new input").getBoundingClientRect().x),
     ];
-    // whatever closes it: the remove button, or Record
-    const ends = [
-      ...[...document.querySelectorAll(".rec-drop")].map((e) => round(e.getBoundingClientRect().right)),
-      round(document.querySelector(".rec-new button.run").getBoundingClientRect().right),
-    ];
+    /* A recorded row runs the width of its box and closes with the remove
+       button. The open bar does not: its controls sit together at the start
+       and the slack collects after Record, so there is nothing to line the
+       far edge up with. */
+    const ends = [...document.querySelectorAll(".rec-drop")]
+      .map((e) => round(e.getBoundingClientRect().right));
     const heightsOf = (sel) => [...document.querySelectorAll(sel)]
       .map((e) => round(e.getBoundingClientRect().height));
 
@@ -240,7 +241,7 @@ test("the optical settings panel lines up", async ({ page }) => {
   one(seen.rights, "every bar on the same right edge");
   one(seen.labels, "every label on that edge too");
   one(seen.starts, "every row opens in the same column");
-  one(seen.ends, "and closes in the same one");
+  one(seen.ends, "and every recorded row closes in the same one");
   expect(seen.lefts[0], "labels flush with the bars").toBe(seen.labels[0]);
 });
 
