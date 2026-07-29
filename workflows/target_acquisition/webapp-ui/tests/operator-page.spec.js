@@ -25,9 +25,12 @@ async function connect(page, password = "hunter2") {
 
 /** Set the instrument up, name it, record it — the loop the panel is built on. */
 async function record(page, kind, name) {
-  await page.locator(".rec-new select").selectOption(kind);
-  await page.locator(".rec-new input").fill(name);
-  await page.locator(".rec-new button.run").click();
+  const bar = page.locator(".rec-new").last();
+  await bar.locator("select").selectOption(kind);
+  // choosing a kind opens a fresh bar beneath, so the one just used moves up
+  const mine = page.locator(".rec-new").nth(await page.locator(".rec-new").count() - 2);
+  await mine.locator("input").fill(name);
+  await mine.locator("button.run").click();
   await page.waitForTimeout(650);
 }
 
@@ -117,8 +120,8 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
   await expect(page.locator(".rec-row").last()).toContainText("Brenner");
   await expect(page.locator("#action-bar button.run")).toBeEnabled();
 
-  // the empty row stays at the bottom, ready for the next one
-  await expect(page.locator(".rec-new input")).toHaveValue("");
+  // an empty bar is always waiting at the bottom
+  await expect(page.locator(".rec-new").last().locator("input")).toHaveValue("");
 });
 
 test("a recording will not reuse a name", async ({ page }) => {
@@ -126,12 +129,13 @@ test("a recording will not reuse a name", async ({ page }) => {
   await gotoStep(page, "Optical settings");
   await record(page, "acquisition", "survey");
 
-  await page.locator(".rec-new input").fill("survey");
-  await expect(page.locator(".rec-new button.run")).toBeDisabled();
-  await expect(page.locator(".rec-new .session-hint")).toHaveText("that name is already used");
+  const bar = page.locator(".rec-new").last();
+  await bar.locator("input").fill("survey");
+  await expect(bar.locator("button.run")).toBeDisabled();
+  await expect(bar.locator(".session-hint")).toHaveText("that name is already used");
 
-  await page.locator(".rec-new input").fill("");
-  await expect(page.locator(".rec-new button.run"),
+  await bar.locator("input").fill("");
+  await expect(bar.locator("button.run"),
     "and will not take an empty one either").toBeDisabled();
 });
 
