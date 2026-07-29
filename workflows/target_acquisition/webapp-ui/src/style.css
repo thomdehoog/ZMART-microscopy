@@ -567,8 +567,10 @@ canvas.scattercv { cursor: crosshair; }
 .session-hint { font-size: 12.5px; color: var(--ink-3); }
 
 /* The sentence the checks end on. Green, because it is the same answer the
-   marks above it gave, said once in words. */
+   marks above it gave, said once in words. The two names in it were chosen
+   rather than written, so they carry the weight the heading does. */
 .session-done { font-size: 12.5px; color: var(--good); }
+.session-done b { font-weight: 660; }
 
 .check-list { display: flex; flex-direction: column; gap: 1px; }
 /* The whole list arrives with the session, so the rows come in together. What

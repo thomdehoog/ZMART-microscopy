@@ -584,11 +584,17 @@ import carrierWidget from "./widgets/carrier.js";
       card.append(list);
     }
 
-    /* What the checks came to, said once, where they end. */
+    /* What the checks came to, said once, where they end. The microscope and
+       the API stand out of the sentence, being the two things in it that were
+       chosen rather than written. */
     if (connected) {
       const done = document.createElement("div");
       done.className = "session-done";
-      done.textContent = describeConnection(state.session);
+      for (const part of describeConnection(state.session)) {
+        const span = document.createElement(part.name ? "b" : "span");
+        span.textContent = part.text;
+        done.append(span);
+      }
       card.append(done);
     }
 

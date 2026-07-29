@@ -194,13 +194,21 @@ export const describeSession = ({ microscope, api }) => {
  * What an opened session says for itself, once every check has answered. The
  * rail carries the same fact as a label; this is the sentence the checks end
  * on, so the two are worded here rather than in the panel that shows them.
+ *
+ * Returned in pieces, with the two names marked, so whatever shows the
+ * sentence can set them apart from the words around them without slicing a
+ * string it did not write.
  */
 export const describeConnection = ({ microscope, api }) => {
   const scope = MICROSCOPES[microscope];
   const apiDef = scope?.apis?.[api];
-  return scope && apiDef
-    ? `Successfully connected to the ${scope.label} over ${apiDef.label}`
-    : "No session is open";
+  if (!scope || !apiDef) return [{ text: "No session is open" }];
+  return [
+    { text: "Successfully connected to the " },
+    { text: scope.label, name: true },
+    { text: " over " },
+    { text: apiDef.label, name: true },
+  ];
 };
 
 /**
