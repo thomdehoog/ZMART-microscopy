@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry,
-  shapeName, maxRadius, DEFAULT_CARRIER,
+  maxRadius, DEFAULT_CARRIER,
 } from "../../src/lib/carriers.js";
 
 const preset = (typeId, label) =>
@@ -33,7 +33,6 @@ describe("the corner is a ratio, so a well stays round when resized", () => {
   it("and keeps it round at another diameter", () => {
     const c = { ...fromPreset("dish", preset("dish", "35 mm")), w: 12, h: 12 };
     expect(geometry(c).corner).toBeCloseTo(6, 6);
-    expect(shapeName(c)).toBe("Circle");
   });
 
   it("a chamber's softened corner survives a resize as a proportion", () => {
@@ -42,13 +41,6 @@ describe("the corner is a ratio, so a well stays round when resized", () => {
     // 1.5 mm on a 20 x 10 area, whose largest possible radius is 5
     expect(c.cornerRatio).toBeCloseTo(0.3, 6);
     expect(geometry({ ...c, w: 40, h: 20 }).corner).toBeCloseTo(3, 6);
-  });
-
-  it("names the shape from the corner alone", () => {
-    expect(shapeName({ w: 5, h: 5, cornerRatio: 0 })).toBe("Rectangle");
-    expect(shapeName({ w: 5, h: 5, cornerRatio: 0.3 })).toBe("Rounded rect");
-    expect(shapeName({ w: 5, h: 5, cornerRatio: 1 })).toBe("Circle");
-    expect(shapeName({ w: 9, h: 5, cornerRatio: 1 })).toBe("Pill");
   });
 
   it("a full round loses the corners a square would have kept", () => {
@@ -88,10 +80,9 @@ describe("a configuration knows whether it is still a catalogue part", () => {
     expect(DEFAULT_CARRIER.h).toBeCloseTo(6.6, 6);
     expect(g.pitchX).toBeCloseTo(9.0, 6);
     expect(g.pitchY).toBeCloseTo(9.0, 6);
-    // round, and it says so: a full corner on a square area is a circle
+    // round: a full corner on a square area is a circle
     expect(DEFAULT_CARRIER.cornerRatio).toBe(1);
     expect(g.corner).toBeCloseTo(3.3, 6);
-    expect(shapeName(DEFAULT_CARRIER)).toBe("Circle");
     // and it comes back to the growth area Greiner publishes, 0.34 cm²
     expect(g.areaMm2).toBeCloseTo(Math.PI * 3.3 ** 2, 6);
     expect(g.areaMm2 / 100).toBeCloseTo(0.34, 2);

@@ -17,8 +17,7 @@
  */
 
 import {
-  CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry,
-  shapeName, maxRadius,
+  CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
 } from "../lib/carriers.js";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -303,22 +302,18 @@ export default {
     shapeGroup.append(shapeGrid);
     controls.append(shapeGroup);
 
-    /* Where the run's own button goes: after the numbers that decide it and
-       before the summary of what they came to, so applying reads as the end of
-       the editing rather than a footnote under the result. */
+    /* Where the run's own button goes: at the end of the numbers that decide
+       it, so applying reads as the end of the editing.
+
+       Nothing follows it. A panel of totals used to — carrier size, areas,
+       layout, shape — and every one of them was already on screen: the layout
+       is the two boxes above, the shape is the corner control and the drawing
+       beside it, the areas are those two multiplied, and the size is in the
+       rail. Restating the controls under the controls is the panel talking
+       about itself. */
     card.append(el("div", "carrier-action"));
 
-    const stats = el("div", "carrier-stats");
-    card.append(stats);
-
-    function stat(label, value) {
-      const d = el("div", "carrier-stat");
-      d.append(el("span", "carrier-stat-label", label), el("span", "carrier-stat-value", value));
-      return d;
-    }
-
     function sync() {
-      const g = geometry(cfg);
       for (const { i, get, decimals } of inputs) {
         if (document.activeElement === i) continue;
         const v = get();
@@ -332,12 +327,6 @@ export default {
       presets.value = String(matchingPreset(cfg));
       shapeBtn.classList.toggle("round", cfg.cornerRatio >= 0.99);
       for (const i of card.querySelectorAll("input, select, button")) i.disabled = locked;
-      stats.replaceChildren(
-        stat("Carrier", `${g.width.toFixed(1)} × ${g.height.toFixed(1)} mm`),
-        stat("Areas", String(g.areas)),
-        stat("Layout", `${cfg.rows}×${cfg.cols}`),
-        stat("Shape", shapeName(cfg)),
-      );
     }
 
     sync();

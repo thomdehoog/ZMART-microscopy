@@ -141,12 +141,6 @@ export function geometry(config) {
   };
 }
 
-/** What to call this shape, from the corner alone. */
-export function shapeName({ w, h, cornerRatio }) {
-  if (cornerRatio >= 0.99) return w === h ? "Circle" : "Pill";
-  return cornerRatio > 0 ? "Rounded rect" : "Rectangle";
-}
-
 /** One line for the rail: what was configured, without opening the panel. */
 export const describeCarrier = (config) => {
   const g = geometry(config);

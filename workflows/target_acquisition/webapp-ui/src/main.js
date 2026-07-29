@@ -1174,8 +1174,11 @@ import carrierWidget from "./widgets/carrier.js";
       ctx.setLineDash([]);
     }
 
-    // ---- sample bounds
-    {
+    /* ---- sample bounds: the edge of what has been imaged, so it exists once
+       something has been. Drawn from the first tile it was a second square
+       sitting in the plate's corner before any of this had happened, which
+       says the run has a sample somewhere it does not yet have one. */
+    if (shown > 0) {
       const [bx, by] = toScreen(0, 0);
       ctx.strokeStyle = css("--line-strong");
       ctx.lineWidth = 1;

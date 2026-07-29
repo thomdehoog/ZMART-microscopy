@@ -828,18 +828,3 @@ canvas.scattercv { cursor: crosshair; }
 .carrier-shape.round::before { content: "◯"; }
 .carrier-link:disabled, .carrier-shape:disabled, .carrier-reset:disabled { opacity: 0.5; cursor: default; }
 
-/* What the numbers add up to, under the numbers. Two columns, because the
-   column is narrow and four of these in a row would not fit. */
-.carrier-stats {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px;
-  margin-top: auto; padding: 12px 14px;
-  border-top: 1px solid var(--line);
-}
-.carrier-stat { display: flex; flex-direction: column; gap: 1px; }
-.carrier-stat-label {
-  font-size: 9px; font-family: var(--mono); color: var(--ink-3);
-  letter-spacing: 0.04em; text-transform: uppercase;
-}
-.carrier-stat-value {
-  font-size: 12px; font-family: var(--mono); font-weight: 600; color: var(--ink);
-}
