@@ -602,3 +602,19 @@ canvas.scattercv { cursor: crosshair; }
 .rec-new input { font-family: var(--mono); }
 .rec-new button.run { align-self: stretch; }
 .rec-new .session-hint { grid-column: 2 / -1; }
+
+/* ---- one box per setting ------------------------------------------------
+   A recorded setting and the bar waiting to take the next one are two
+   separate objects, so they are two separate boxes. */
+.setup-heading {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 2px 2px 0;
+}
+.setting-box {
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--surface-2); padding: 12px 16px;
+}
+.setting-box.done { border-color: var(--line); }
+.setting-box.open { border-style: dashed; background: transparent; }
+.setting-box .rec-row { border-bottom: none; padding: 0; }
+.setting-box .rec-new { padding-top: 0; }

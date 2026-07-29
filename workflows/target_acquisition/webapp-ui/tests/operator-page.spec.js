@@ -25,12 +25,12 @@ async function connect(page, password = "hunter2") {
 
 /** Set the instrument up, name it, record it — the loop the panel is built on. */
 async function record(page, kind, name) {
-  const bar = page.locator(".rec-new").last();
+  // exactly one bar is open at a time; recording turns it into the record and
+  // opens a fresh one below
+  const bar = page.locator(".setting-box.open");
   await bar.locator("select").selectOption(kind);
-  // choosing a kind opens a fresh bar beneath, so the one just used moves up
-  const mine = page.locator(".rec-new").nth(await page.locator(".rec-new").count() - 2);
-  await mine.locator("input").fill(name);
-  await mine.locator("button.run").click();
+  await bar.locator("input").fill(name);
+  await bar.locator("button.run").click();
   await page.waitForTimeout(650);
 }
 
@@ -120,8 +120,11 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
   await expect(page.locator(".rec-row").last()).toContainText("Brenner");
   await expect(page.locator("#action-bar button.run")).toBeEnabled();
 
-  // an empty bar is always waiting at the bottom
-  await expect(page.locator(".rec-new").last().locator("input")).toHaveValue("");
+  // a recorded setting and the next open bar are separate boxes
+  await expect(page.locator(".setting-box.done")).toHaveCount(3);
+  await expect(page.locator(".setting-box.open"), "and one bar is always waiting")
+    .toHaveCount(1);
+  await expect(page.locator(".setting-box.open").locator("input")).toHaveValue("");
 });
 
 test("a recording will not reuse a name", async ({ page }) => {
@@ -129,7 +132,7 @@ test("a recording will not reuse a name", async ({ page }) => {
   await gotoStep(page, "Optical settings");
   await record(page, "acquisition", "survey");
 
-  const bar = page.locator(".rec-new").last();
+  const bar = page.locator(".setting-box.open");
   await bar.locator("input").fill("survey");
   await expect(bar.locator("button.run")).toBeDisabled();
   await expect(bar.locator(".session-hint")).toHaveText("that name is already used");
