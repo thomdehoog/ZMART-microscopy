@@ -63,7 +63,7 @@ import carrierWidget from "./widgets/carrier.js";
       steps: numbered([
         { id: "connect", title: "Microscope Configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
-        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
+        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "detect", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, note: "1250 cells found", mode: "detect" },
@@ -79,7 +79,7 @@ import carrierWidget from "./widgets/carrier.js";
       steps: numbered([
         { id: "connect", title: "Microscope Configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
-        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
+        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "save", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -91,7 +91,7 @@ import carrierWidget from "./widgets/carrier.js";
       steps: numbered([
         { id: "connect", title: "Microscope Configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical Configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
-        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", btn: "Apply carrier", panels: [], ms: 700, mode: "carrier" },
+        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "save", title: "Write the surface", why: "Fits the plane and records its residual for this objective.", btn: "Write surface", panels: [], ms: 700, note: "residual 1.8 µm · written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -263,6 +263,7 @@ import carrierWidget from "./widgets/carrier.js";
       b.addEventListener("click", () => {
         if (state.running || !reachable) return;
         state.activeIdx = i;
+        if (step(i).id === "carrier") carrierSettled();
         focusPanelsFor(i);
         renderAll();
       });
@@ -376,7 +377,6 @@ import carrierWidget from "./widgets/carrier.js";
       state.done.add(s.id);
       if (s.note) state.notes[s.id] = s.note;
       if (s.id === "connect") state.notes[s.id] = describeSession(state.session);
-      if (s.id === "carrier") state.notes[s.id] = describeCarrier(state.carrier);
       if (s.id === "optics") {
         const n = recordedBars().length;
         state.notes[s.id] = `${n} setting${n === 1 ? "" : "s"} recorded`;
@@ -830,10 +830,28 @@ import carrierWidget from "./widgets/carrier.js";
 
      Mounted once per lock state rather than on every render, because the widget
      keeps its own and rebuilding it would throw away the number being typed. */
+  /* The carrier is settled by being configured, so there is nothing to press:
+     it always holds a valid one, and the operator either accepts what is there
+     or edits it. Standing on the step is the whole of it. Completing is not
+     advancing — the rail still waits for a click to move on.
+
+     It stays editable until something has been done inside the frame, at which
+     point changing it would invalidate what was done. */
+  function carrierSettled() {
+    if (indexOfStep("carrier") < 0) return;
+    state.done.add("carrier");
+    state.notes.carrier = describeCarrier(state.carrier);
+  }
+
+  const carrierLocked = () => {
+    const i = indexOfStep("carrier");
+    return !!state.running || steps().slice(i + 1).some((s) => state.done.has(s.id));
+  };
+
   function renderSide(show) {
     const host = el("canvas-side");
     const on = show === "canvas";
-    const locked = state.done.has("carrier") || !!state.running;
+    const locked = carrierLocked();
     const key = on && `carrier:${locked}`;
     host.hidden = !on;
     if (state.sideMounted === key) return;
@@ -845,9 +863,10 @@ import carrierWidget from "./widgets/carrier.js";
       locked,
       onChange: (next) => {
         state.carrier = next;
+        state.notes.carrier = describeCarrier(next);
         view.fitted = false;
         drawStage();
-        renderActionBar();
+        renderRail();
       },
     });
   }

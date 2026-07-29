@@ -43,8 +43,10 @@ async function throughSetup(page) {
   // recording is the work; there is no button to confirm afterwards
   await record(page, "acquisition", "survey");
   await record(page, "acquisition", "target");
+  // no button here: configuring the carrier is the work, so standing on the
+  // step settles it
   await gotoStep(page, "Carrier configuration");
-  await runStep(page, 900);
+  await page.waitForTimeout(200);
 }
 
 async function placeFocusPoints(page) {
@@ -283,6 +285,10 @@ test("the carrier sets the canvas up, and from then on it is always there",
     await throughSetup(page);
     await expect(page.locator(".tab"), "the run reached the carrier, so the canvas exists")
       .toHaveText(["Canvas"]);
+    await expect(page.locator(".panel.on button.step-run"),
+      "configuring it is the work, so there is nothing to press").toHaveCount(0);
+    await expect(page.locator('.step:has-text("Carrier configuration")').first(),
+      "and standing on it settles it").toHaveClass(/done/);
     // the channel is named over the column it heads, not as a tab you switch to
     await expect(page.locator(".side-tab")).toHaveText("Carrier configuration");
     // the carrier is not a tab of its own: its controls dock beside the drawing
@@ -309,7 +315,7 @@ test("the carrier sets the canvas up, and from then on it is always there",
     await gotoStep(page, "Scan the overview");
     await expect(page.locator(".tab")).toHaveText(["Canvas"]);
     // and the carrier channel is still there, since the frame outlasts the step
-    // that set it: readable for the rest of the run, editable no longer
+    // that set it — locked now, because something has been done inside it
     await expect(page.locator(".carrier-card")).toHaveCount(1);
     await expect(page.locator(".carrier-num").first()).toBeDisabled();
 
