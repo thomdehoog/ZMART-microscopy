@@ -219,7 +219,9 @@ button.run {
 :root[data-theme="dark"] button.run, :root:not([data-theme="light"]) button.run { color: #04121d; }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) button.run { color: #fff; } }
 button.run:hover:enabled { background: var(--accent-deep); }
-button.run:disabled { background: var(--line-strong); color: var(--ink-3); cursor: default; }
+/* Faded, the way every other disabled control here is. A grey slab was the
+   heaviest thing on a bar whose point is the field beside it. */
+button.run:disabled { opacity: 0.4; cursor: default; }
 
 /* ---- right column ---- */
 .stage { display: grid; grid-template-rows: auto auto 1fr; min-width: 0; min-height: 0; }
@@ -502,11 +504,22 @@ canvas.scattercv { cursor: crosshair; }
 .session-form { display: flex; flex-direction: column; gap: 9px; }
 .field { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 12px; }
 .field > span { font-size: 13px; color: var(--ink-2); }
-.field select, .field input {
+/* What a field looks like on this page, said once. The open bar in Optical
+   Configuration asks for the same two things a session does — a choice and a
+   name — so it is the same control, not one that resembles it. */
+.field select, .field input,
+.rec-new select, .rec-new input {
+  --field-border: 1px;
+  --field-pad-x: 9px;
   font: inherit; font-size: 13px; color: var(--ink);
-  background: var(--screen); border: 1px solid var(--line-strong);
-  border-radius: 7px; padding: 7px 9px; width: 100%;
+  background: var(--screen); border: var(--field-border) solid var(--line-strong);
+  border-radius: 7px; padding: 7px var(--field-pad-x); width: 100%;
 }
+/* No ring while a field holds the caret — the caret says so. Said once here,
+   so a session and the open bar behave the same way as well as look it. */
+.field select:focus, .field input:focus,
+.rec-new select:focus, .rec-new input:focus { outline: none; }
+
 .field input { font-family: var(--mono); letter-spacing: 0.08em; }
 .field select:disabled, .field input:disabled { opacity: 0.55; }
 .session-form button.run { align-self: flex-start; margin-top: 3px; }
@@ -584,15 +597,15 @@ canvas.scattercv { cursor: crosshair; }
   background: var(--surface-2); padding: 6px 16px;
 }
 .setting-box.done { border-color: var(--line); }
-.setting-box.open {
-  border-style: dashed; background: transparent; padding-block: 5px;
-}
+.setting-box.open { border-style: dashed; background: transparent; }
 
 .rec-row, .rec-new {
   display: grid; align-items: center; gap: var(--row-gap); min-height: 28px;
 }
 .rec-row { grid-template-columns: var(--fold-col) minmax(120px, 1fr) auto 26px; }
-.rec-new { grid-template-columns: var(--fold-col) 148px minmax(120px, 1fr) auto; }
+/* The kind column is as wide as the kind, so the name field begins where the
+   kind ends rather than after a fixed gap guessed for the longest one. */
+.rec-new { grid-template-columns: var(--fold-col) max-content minmax(120px, 1fr) auto; }
 
 .rec-fold { grid-column: 1; }
 .rec-name, .rec-new select { grid-column: 2; }
@@ -606,12 +619,24 @@ canvas.scattercv { cursor: crosshair; }
   font-family: var(--mono); font-size: 12px; color: var(--ink-2);
   text-align: right; font-variant-numeric: tabular-nums;
 }
+/* The controls sit on the bar rather than in boxes of their own. A bordered
+   field inside a bordered box inside a bordered group is three edges saying
+   the same thing, and it made the one thing being filled in the hardest part
+   to see. Without them the open bar is the line of text it is about to
+   become, and it needs no height of its own to hold them. */
+/* A field's text sits inside its border and padding, so aligning the boxes to
+   the column leaves the words a border-and-padding further right than the
+   recorded name below. The bar is read as words, not as boxes, so the fields
+   hang left by exactly that inset and the two columns of text line up. */
 .rec-new select, .rec-new input {
-  font: inherit; font-size: 13px; color: var(--ink);
-  background: var(--screen); border: 1px solid var(--line-strong);
-  border-radius: 7px; padding: 4px 9px; width: 100%;
+  margin-left: calc(-1 * (var(--field-border) + var(--field-pad-x)));
 }
+
+/* wide enough for its own text and no wider, so the arrow stays next to the
+   kind it belongs to instead of drifting to the end of the column */
+.rec-new select { width: auto; justify-self: start; }
 .rec-new input { font-family: var(--mono); }
+.rec-new input::placeholder { color: var(--ink-3); }
 
 /* Square, so turning it to point down at what it opened moves the glyph and
    not the column. Sized to the column it leads rather than to its own text. */
