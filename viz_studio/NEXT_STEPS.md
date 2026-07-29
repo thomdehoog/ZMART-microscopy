@@ -393,28 +393,42 @@ is the remaining half.
 
 ## Done since the last hand-over
 
-**A run now lengthens in time as moments are recorded, rather than promising them.**
-The writer used to be told how many moments a run would have and would declare that
-many at the start. A run does not know: a timelapse ends when the experiment ends. So
-the store claimed moments that had never been imaged, and the viewer's time slider ran
-out over frames that did not exist — which is the arrangement `DATA_LAYOUT.md` considered
-and rejected, quietly reintroduced. A run now declares one moment, which is what it has
-recorded when it starts, and is lengthened by one as each frame lands. The store
-therefore always says exactly what it holds, and the slider ends where the data ends
-without anything having to count files on disk to find the honest answer.
+**A timelapse declares its length up front and fills it in, exactly as the room in space
+is declared.** This settled in two steps within one session, and the second step reversed
+the first, so it is worth reading as one story rather than as a change of mind.
 
-Lengthening is safe and cheap, and both halves were checked rather than assumed. Safe
-because a piece of image is addressed by its position, so making room at the far end of
-the first axis leaves every piece already written exactly where it was — losing an
-earlier moment would otherwise be silent. Cheap because only a number in the store's
-description changes and no voxel is touched.
+The writer originally took a number of moments and declared that many at the start. That
+was wrong in the way it was being used: the store claimed moments that had never been
+imaged and the time slider ran out over frames that did not exist. The first fix was to
+make the run lengthen itself — declare one moment and raise the length by one as each
+frame lands — so that the store always said exactly what it held.
 
-A time axis is now **always** declared, where before it was left out for a run of a
-single moment. That omission was a workaround for the engine drawing the wrong axes when
-a time axis was present, and that is fixed: the engine is now handed the axes that
-measure distance, whatever else an image has. With the workaround gone, the list of axes
-never changes shape part-way through a run — only a length grows, which is the cheap and
-safe operation.
+That fix treated the symptom. The real fault was that nothing stopped the operator
+reaching a moment that was never imaged, and both halves of *that* are now fixed
+independently: `written_timepoints` counts what has been written and stops the slider
+there, and the viewer opens a timelapse at its first moment rather than half way along.
+Once those exist, a store may declare whatever room it likes and the operator still sees
+only what was recorded — so lengthening bought nothing that was still needed, while
+costing something real. Changing an array's shape changes the key the engine files
+decoded pieces under, so a viewer following the run re-reads the frame on screen every
+time the length moves, once per moment for the whole run.
+
+So a run now declares comfortably more moments than it could record — ten thousand is the
+figure the docstring suggests — and writes into them. A moment nothing was written to
+occupies no space on disk, which is checked rather than assumed: room for ten thousand
+moments costs the same on disk as room for two. A frame past the declared end is refused
+with an error, the same way a tile past the edge of the canvas is, rather than silently
+making room — silently making room would be the lengthening arrangement again, only
+harder to see. `DATA_LAYOUT.md` carries the reversal and why the objection it originally
+recorded is spent.
+
+A time axis is also now **always** declared, where before it was left out for a run of a
+single moment. That omission was a workaround for the engine drawing the wrong axes when a
+time axis was present, and that is fixed: the engine is now handed the axes that measure
+distance, whatever else an image has.
+
+With that workaround gone and the length no longer moving, a store's description does not
+change at all once a run has started. It only gains pieces of image.
 
 **"Nothing has been written yet" is an answer about this moment, not for good.** Counting
 the frames of a timelapse can fail to give a number for two quite different reasons, and
@@ -1308,18 +1322,15 @@ the revision tests, and the cache tests) if you want the shape.
   "still good" with no data. That needs the server to answer conditional requests, which
   it does not today. Only worth it if re-reading during a run ever shows up as a real
   cost — it has not been measured, and on localhost it may never matter.
-- **Decide what `frames=` on `TileCanvases.create` is still for.** A run's images now
-  grow in time as moments are recorded, so nothing needs to say up front how long the
-  run will be. The argument survives that change as the *starting* length and still
-  defaults to one, which is right — but a caller passing `frames=5` gets an image
-  declaring five moments with none of them imaged, which is exactly the arrangement the
-  change was made to remove, now reachable by asking for it. Its docstring still says
-  "how many timepoints to allow for", which invites precisely that. Either drop the
-  argument, or keep it and say plainly that it is for reproducing what an instrument
-  that plans its length up front would write. The viewer copes either way — it opens at
-  the first moment — so this is about not offering our own writer a way back into the
-  shape we rejected. `tests/test_canvas_written_live.py` uses it deliberately for that
-  purpose in one test, which is the only caller that wants it.
+- **Consider whether `frames=` should still default to one.** A timelapse is now expected
+  to declare comfortably more moments than it could record, and the default of one is
+  right only for a run that is not a timelapse at all. Nobody is harmed by it — a run that
+  means to record a timelapse has to say so anyway, and is refused with a clear error if
+  it writes past what it declared — but a default that suits the *other* kind of run is
+  worth a second look once something in `zmart_controller` is actually creating canvases.
+  Note the one reason not to simply default it large: a store declaring ten thousand
+  moments is handed to other OME-Zarr tools too, and those do not count what was written
+  the way our viewer does, so a still image would show them a ten-thousand-frame slider.
 - **Give the folder watcher a way to be switched off.** It exists as a safety net for
   writers that do not announce (see below). A workflow that *does* announce is paying for
   a directory scan a second for nothing.

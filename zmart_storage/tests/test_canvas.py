@@ -268,61 +268,87 @@ def test_spreading_an_overlapping_run_keeps_every_tile(tmp_path):
         )
 
 
-# -- moments, which the run does not know the number of in advance -------------
+# -- moments, declared at the start and filled in ------------------------------
+#
+# Time is declared the way the room in space is: comfortably more than the run
+# could need, and filled in as the experiment goes. What makes that safe is that
+# the viewer counts what has actually been written and stops the time slider
+# there, so an operator is never offered a moment that was never imaged.
 
 
-def test_a_run_starts_one_moment_long(tmp_path):
-    """A run has recorded one moment when it starts, so that is what it says."""
-    canvases = _canvases(tmp_path)
+def test_a_run_declares_the_moments_it_was_given_room_for(tmp_path):
+    """The length in time is what the run asked for, before anything is written."""
+    canvases = _canvases(tmp_path, frames=500)
     array = zarr.open_group(str(canvases.paths[0]), mode="r")["0"]
-    assert array.shape[0] == 1, (
-        f"a run that has recorded one moment declared {array.shape[0]}"
+    assert array.shape[0] == 500, (
+        f"a run declared with room for 500 moments says {array.shape[0]}"
     )
 
 
-def test_the_run_lengthens_as_moments_are_recorded(tmp_path):
-    """Writing a later moment makes room for it rather than being refused.
+def test_declaring_many_moments_costs_almost_nothing_on_disk(tmp_path):
+    """The whole case for declaring generously, checked rather than assumed.
 
-    The store then always says exactly how many moments were recorded, which is
-    what lets the viewer's time slider end where the data ends instead of running
-    out over frames nobody imaged.
+    A moment nothing has been written to occupies no space at all, so a run with
+    room for ten thousand moments is the same size on disk as one with room for
+    two. If this were not true, declaring generously would be a way of filling an
+    operator's disk with emptiness before their experiment had begun.
     """
-    canvases = _canvases(tmp_path)
-    for moment in range(3):
-        canvases.write(np.full(TILE, 1000 + moment, dtype="uint16"),
-                       origin=(0, 0, 0), frame=moment, tile_index=(0, 0, 0))
-        array = zarr.open_group(str(canvases.paths[0]), mode="r")["0"]
-        assert array.shape[0] == moment + 1, (
-            f"after recording {moment + 1} moments the run says {array.shape[0]}"
-        )
+    small = _canvases(tmp_path / "small", frames=2)
+    large = _canvases(tmp_path / "large", frames=10_000)
+    for canvases in (small, large):
+        canvases.write(np.full(TILE, 1234, dtype="uint16"), origin=(0, 0, 0),
+                       frame=0, tile_index=(0, 0, 0))
+
+    def on_disk(canvases):
+        return sum(p.stat().st_size for p in canvases.folder.rglob("*") if p.is_file())
+
+    # A few hundred bytes of difference is the length written into the
+    # descriptions; what must not happen is that it grows with the moments.
+    assert on_disk(large) < on_disk(small) + 4096, (
+        f"room for ten thousand moments cost {on_disk(large) - on_disk(small)} "
+        "bytes more than room for two"
+    )
 
 
-def test_lengthening_leaves_the_moments_already_recorded_alone(tmp_path):
-    """Making room at the end must not disturb anything already written.
+def test_each_moment_keeps_its_own_picture(tmp_path):
+    """One moment's tiles must not appear in another's.
 
-    Safe because a piece of image is addressed by its position, so adding room at
-    the far end of the first axis leaves every piece exactly where it was. Checked
-    rather than trusted, because losing an earlier moment would be silent.
+    Checked rather than trusted, because the two would look identical on screen
+    if the frame index were being dropped somewhere -- an operator stepping
+    through time would see the same picture and take it for a specimen that had
+    not moved.
     """
-    canvases = _canvases(tmp_path)
-    for moment in range(3):
+    canvases = _canvases(tmp_path, frames=50)
+    for moment in (0, 7, 49):
         canvases.write(np.full(TILE, 1000 + moment, dtype="uint16"),
                        origin=(0, 0, 0), frame=moment, tile_index=(0, 0, 0))
 
     array = zarr.open_group(str(canvases.paths[0]), mode="r")["0"]
-    for moment in range(3):
+    for moment in (0, 7, 49):
         recorded = np.asarray(array[moment, 0, :, 0:TILE[1], 0:TILE[2]])
         assert (recorded == 1000 + moment).all(), (
-            f"moment {moment} was disturbed by the ones recorded after it"
+            f"moment {moment} is not showing its own picture"
         )
 
 
-def test_a_moment_that_was_skipped_reads_as_empty(tmp_path):
-    """Room made but never written to is empty, not stale or invented."""
-    canvases = _canvases(tmp_path)
+def test_a_moment_never_written_to_reads_as_empty(tmp_path):
+    """Room declared but never used is empty, not stale or invented."""
+    canvases = _canvases(tmp_path, frames=50)
     canvases.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
                    frame=4, tile_index=(0, 0, 0))
     array = zarr.open_group(str(canvases.paths[0]), mode="r")["0"]
-    assert array.shape[0] == 5
-    assert int(np.asarray(array[2]).max()) == 0
+    assert int(np.asarray(array[2]).max()) == 0, "an unused moment is not empty"
     assert int(np.asarray(array[4, 0, 0, 0, 0])) == 4242
+
+
+def test_a_moment_past_the_declared_room_is_refused(tmp_path):
+    """Running off the end of time is refused the way running off the canvas is.
+
+    Silently making room would put the run back to lengthening itself, and doing
+    it quietly. Saying so lets the operator declare a longer run, which is the
+    only real fix and is free.
+    """
+    canvases = _canvases(tmp_path, frames=3)
+    with pytest.raises(ValueError, match="declared room for"):
+        canvases.write(np.full(TILE, 7, dtype="uint16"), origin=(0, 0, 0),
+                       frame=3, tile_index=(0, 0, 0))

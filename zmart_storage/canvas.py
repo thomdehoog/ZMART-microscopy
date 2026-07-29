@@ -309,8 +309,15 @@ class TileCanvases:
             origin_um: where the low corner of the images sits in stage
                 coordinates. Tile positions given to :meth:`write` are measured
                 from the same zero, so this is usually the low end of stage travel.
-            frames: how many timepoints to allow for. A run that is not a
-                timelapse leaves this at one.
+            frames: how many moments to allow room for. A run that is not a
+                timelapse leaves this at one. A timelapse should declare
+                comfortably more than it could possibly record — ten thousand is
+                a sensible figure and costs nothing, in the same way that the
+                room in space is declared to the stage's whole travel range.
+                Nothing is written to a moment until a frame lands in it, so an
+                unrecorded moment occupies no space on disk at all, and the
+                viewer shows only the moments that were actually imaged. This
+                cannot be raised afterwards, so err on the generous side.
             dtype: the kind of number one voxel is. Use the camera's own — a
                 16-bit camera writes ``uint16`` — because every level of the image
                 must share it and converting would only lose precision.
@@ -414,12 +421,15 @@ class TileCanvases:
 
         Raises:
             ValueError: if the tile would fall outside the room that was
-                declared, which means the canvas was declared too small.
+                declared — either past the edge of the canvas in space, or past
+                the last moment the run declared room for in time. Both mean the
+                same thing: the run was declared smaller than it turned out to be.
         """
         depth, height, width = image.shape
         z0, y0, x0 = origin
         footprint = (z0, z0 + depth, y0, y0 + height, x0, x0 + width)
         self._check_it_fits(footprint)
+        self._check_the_moment_fits(frame)
 
         slot = self._choose(footprint, tile_index)
 
@@ -435,7 +445,6 @@ class TileCanvases:
                 self._free.wait()
             self._busy.append(region)
         try:
-            self._make_room_for(slot, frame)
             at = (frame, channel)
             slot.arrays[0][
                 *at, z0:z0 + depth, y0:y0 + height, x0:x0 + width
@@ -480,32 +489,28 @@ class TileCanvases:
             f"{len(emptiest.written)} tiles)."
         )
 
-    def _make_room_for(self, slot: _Slot, frame: int) -> None:
-        """Lengthen the run by a moment, if this frame is one it has not reached.
+    def _check_the_moment_fits(self, frame: int) -> None:
+        """Refuse a moment the run did not declare room for.
 
-        A run does not know how long it will be, so its images start one moment
-        long and are lengthened as frames arrive. That way the store always says
-        exactly how many moments were recorded, and the viewer's time slider ends
-        where the data ends rather than running out over frames nobody imaged.
-
-        Lengthening is safe and cheap, and both halves of that were measured. It
-        is safe because a piece of image is addressed by its position, so adding
-        room at the far end of the first axis leaves every piece already written
-        exactly where it was — an image declared with two moments and grown to
-        five kept both, accepted a write at the fifth, and read the ones never
-        written as empty. It is cheap because the file describing an image is a
-        few hundred bytes whether it holds one moment or ten thousand; only a
-        number in it changes, and no voxel is touched.
-
-        The one thing to know is that a viewer following the run re-reads the
-        frame it is showing when the length changes, because the engine files
-        decoded pieces under a key that includes the shape. That is bounded to
-        the frame on screen and happens once per new moment.
+        Time is declared at the start and filled in afterwards, exactly as the
+        room in space is, so a frame beyond the declared length is the same kind
+        of mistake as a tile beyond the edge of the canvas and is refused the same
+        way. Declaring generously is what avoids it, and costs practically nothing.
         """
-        if frame < slot.arrays[0].shape[0]:
-            return
-        for array in slot.arrays:
-            array.resize((frame + 1, *array.shape[1:]))
+        moments = self._shape[0]
+        if frame < 0:
+            raise ValueError(
+                "a frame is counted from zero, so there is no moment before the "
+                f"first one; this write asked for {frame}."
+            )
+        if frame >= moments:
+            raise ValueError(
+                f"this tile belongs to moment {frame}, past the {moments} the run "
+                "declared room for. Declare a timelapse with comfortably more "
+                "moments than it could possibly record — unwritten moments cost "
+                "practically nothing, because a moment nothing was written to "
+                "occupies no space on disk at all."
+            )
 
     def _check_it_fits(self, footprint: tuple[int, ...]) -> None:
         z0, z1, y0, y1, x0, x1 = footprint
@@ -607,21 +612,30 @@ def _declare_one(
 ) -> list[zarr.Array]:
     """Write one empty OME-Zarr image and hand back its levels.
 
-    A run that is not a timelapse gets **no time axis at all**, rather than a time
-    axis one frame long. That is not tidiness: the viewer picks which two axes to
-    put on screen from the ones the image declares, and an extra axis of length one
-    is enough to make it choose wrongly — the specimen then appears as a thin band,
-    because depth has been put on screen where height belongs. A single frame is
-    also nothing to offer a time slider for.
+    Every run gets a time axis, whether or not it is a timelapse. That was not
+    always so. The viewer used to pick which axes to put on screen from the first
+    few an image declared, so an extra axis was enough to make it choose wrongly
+    and draw the specimen as a thin band; a run of one moment therefore left the
+    axis out to avoid it. The viewer now chooses the axes that measure distance,
+    whatever else an image has, so the workaround is gone and every run can declare
+    the same five axes. A run of a single moment simply gets no time slider,
+    because one moment is nothing to offer a choice between.
     """
     store.mkdir(parents=True, exist_ok=True)
     group = zarr.open_group(str(store), mode="w", zarr_format=2)
 
-    # A time axis is always declared, and always starts one moment long. It is
-    # never given a length the run has not reached: the length of this axis is a
-    # statement about how many moments were actually recorded, and a store that
-    # claims moments it does not hold leaves the time slider running out over
-    # frames that do not exist. It is raised by one as each frame lands.
+    # A time axis is always declared, and is given its full length here rather than
+    # being lengthened as the run goes. This is the same arrangement as the room in
+    # space: declare comfortably more than the run could need, and fill it in. A
+    # moment nothing has been written to occupies no space on disk, so a generous
+    # length costs only the number written in this description.
+    #
+    # What makes it safe is that the viewer shows only the moments that were
+    # actually imaged: it counts what has been written and stops the time slider
+    # there, so an operator is never offered a frame that does not exist. Without
+    # that counting this arrangement would be a trap, because the engine remembers
+    # "there is nothing here" for a frame looked at too early and does not look
+    # again -- see `written_timepoints` in the viewer's `stores.py`.
     axes = [
         {"name": "t", "type": "time", "unit": "second"},
         {"name": "c", "type": "channel"},
