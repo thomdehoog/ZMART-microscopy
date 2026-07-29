@@ -65,10 +65,14 @@ export default {
 `ctx` carries `{ state, actions, backend }`. Widgets read `state`, call
 `actions` to change it, and the frame re-renders. That is the whole contract.
 
-**The canvas is permanent** and holds acquired data only. Every other widget
-belongs to the step that declared it and is only mounted while that step is
-selected. Planning surfaces — choosing a focus strategy, tuning detection —
-are not acquired data and get their own widgets.
+**The canvas holds acquired data, so it appears when there is some.** Before
+the first tile lands there is nothing to put on a stage, and the setup steps
+have real state worth showing — so **setup** is the base widget until then,
+and the canvas is the base from the first tile onward.
+
+Every other widget belongs to the step that declared it and is only shown
+while that step is selected. Planning surfaces — choosing a focus strategy,
+tuning detection — are not acquired data and get their own widgets.
 
 ## Steps and workflows
 
