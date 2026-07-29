@@ -614,15 +614,9 @@ import {
      Two objects on screen are two objects in the run — a recorded setting and
      the next one waiting to be taken. */
   function renderOpticsCard(host) {
-    const heading = document.createElement("div");
-    heading.className = "setup-heading";
-    heading.innerHTML = '<span class="session-title">Optical settings</span>'
-      + '<span class="session-state"></span>';
-    const n = recordedBars().length;
-    heading.querySelector(".session-state").textContent = n
-      ? `${n} recorded`
-      : "nothing recorded yet";
-    host.append(heading);
+    /* No title and no count. The rail says which step this is, the boxes are
+       the settings, and counting things the operator can see is the panel
+       talking about itself instead of showing the run. */
 
     /* The open bar sits above what has been recorded: it is the thing you are
        doing, and it should not walk further down the panel each time a setting
@@ -645,6 +639,15 @@ import {
 
       const group = document.createElement("div");
       group.className = "setting-group";
+
+      /* The kind names the group, once, instead of being repeated on every row
+         inside it. The column it used to occupy stays empty so a recorded
+         setting still lines up with the open bar's selector. */
+      const label = document.createElement("div");
+      label.className = "group-label";
+      label.textContent = type.label;
+      group.append(label);
+
       for (const bar of mine) {
         const box = document.createElement("div");
         box.className = "setting-box done";
@@ -658,9 +661,9 @@ import {
   function renderRecordedBar(bar) {
     const row = document.createElement("div");
     row.className = "rec-row";
-    row.innerHTML = '<span class="rec-kind"></span><span class="rec-name"></span>'
+    // no kind cell: the group above names it, so the name starts at the left
+    row.innerHTML = '<span class="rec-name"></span>'
       + '<span class="rec-state"></span><button type="button" class="rec-drop">✕</button>';
-    row.querySelector(".rec-kind").textContent = settingType(bar.type).label;
     row.querySelector(".rec-name").textContent = bar.name;
     row.querySelector(".rec-state").textContent = bar.state;
 
@@ -709,8 +712,10 @@ import {
     const why = document.createElement("div");
     why.className = "session-hint";
 
+    const capitalised = (v) => (v ? v[0].toUpperCase() + v.slice(1) : v);
     const taken = (value) =>
-      state.bars.some((b) => b !== bar && b.name.trim() === value);
+      state.bars.some((b) => b !== bar
+        && b.name.trim().toLowerCase() === value.toLowerCase());
 
     // typing must not rebuild the row, or the field loses focus every keystroke
     const check = () => {
@@ -730,7 +735,7 @@ import {
       go.textContent = "reading…";
       // a controller round-trip, not an instant assignment
       setTimeout(() => {
-        bar.name = name.value.trim();
+        bar.name = capitalised(name.value.trim());
         bar.state = sampleState(bar.type, nth);
         ensureOpenBar();
         settingsChanged();

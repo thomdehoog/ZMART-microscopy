@@ -59,11 +59,15 @@ export const SETTING_TYPES = [
   {
     key: "acquisition",
     label: "Acquisition",
+    /* Objective first — magnification, numerical aperture and immersion — then
+       the pixel size it gives, then how many channels. Those are what decide
+       whether a setting can see the thing being looked for. */
     sample: [
-      "5x · 1.30 µm/px · 2 ch · widefield",
-      "63x · 0.10 µm/px · 2 ch · confocal",
-      "10x · 0.65 µm/px · 1 ch · widefield",
-      "100x oil · 0.06 µm/px · 2 ch · confocal",
+      "5x / 0.15 NA dry · 1.30 µm/px · 2 channels",
+      "63x / 1.40 NA oil · 0.10 µm/px · 2 channels",
+      "10x / 0.40 NA dry · 0.65 µm/px · 1 channel",
+      "40x / 1.10 NA water · 0.16 µm/px · 3 channels",
+      "100x / 1.40 NA oil · 0.06 µm/px · 2 channels",
     ],
   },
   {
@@ -103,7 +107,10 @@ export const DEFAULT_CARRIER = "slide";
 export const DEFAULT_SESSION = {
   microscope: "stellaris5",
   api: "cam",
-  password: "",
+  /* Prefilled so the mock can be clicked through without typing. A real build
+     must ship this empty — a default credential is not a convenience, it is a
+     credential everybody has. */
+  password: "demo",
 };
 
 /** The APIs a microscope offers, as [key, {label, detail}] pairs. */
