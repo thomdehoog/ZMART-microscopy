@@ -114,10 +114,13 @@ place in the stack does not need answering. It was measured anyway and the two
 ways of putting a layer out of sight are indistinguishable on screen. There is
 nothing here to work around, so neither lower layer has to be kept switched on.
 
-One caution for anyone extending this. When the lower layer was hidden, the
-engine still reported that it was drawing two layers while the photograph plainly
-showed one. The picture is the verdict and the engine's own count is only a
-diagnosis; this is a small, concrete example of why.
+One caution for anyone extending this. The engine's own count of how many layers
+it was drawing stayed at two throughout — with both shown, with the lower one
+hidden, and with it at nought opacity — while the photographs plainly differ. The
+count may well be counting something different from what it appears to; the
+point is only that it cannot be used to tell whether a layer is contributing
+anything to the picture, and the picture can. That is why every verdict here
+comes from a photograph.
 
 ---
 
