@@ -266,3 +266,53 @@ anything already acquired keeps the ambiguity. And it needs a test that writes a
 genuinely dark tile beside unwritten room and proves the first stays visible while
 the second does not — otherwise the guarantee quietly rots the next time somebody
 tidies the writer.
+
+---
+
+## Nothing is drawn until something is there
+
+Arrived at in conversation on 2026-07-30, **not yet built or measured**. Recorded
+because it is the tidiest answer to three separate problems, and because it inverts
+an assumption the current arrangement makes without ever having chosen it.
+
+Today one layer covers the whole of a run's declared canvas. A run declares
+generously — that is the point, since room nobody writes into costs nothing — so
+that single layer stretches across ground the microscope will never visit, and
+paints it black. Everything else follows from patching over that: the shader that
+turns dark into see-through, the layer stacked underneath so the transparency
+survives, the reserved intensity that separates a dark specimen from empty ground.
+
+The other way round is to draw nothing at all until there is something to draw. Each
+part of the canvas that has been imaged gets its own bounded layer; ground nobody
+has visited has no layer over it, and is therefore see-through because nothing was
+ever painted there. As a run proceeds, regions appear.
+
+**One mechanism settles three things.**
+
+Transparency stops being computed and becomes structural. There is no shader trick
+and nothing to switch off by accident.
+
+Pieces of image are no longer asked for over empty ground. A sparse canvas was
+measured making 250 requests to draw one view, 190 of them for room never imaged —
+roughly three in four wasted. That is the number that decides whether a store on a
+network drive is comfortable or painful.
+
+And "imaged but dark" is no longer ambiguous. A region that was visited has a layer
+over it whether or not its voxels are bright, so a dark specimen stays visible while
+untouched ground stays clear — with no reserved intensity and no convention to
+enforce in the writer.
+
+**What makes it affordable is the coverage record**, which is why this was not
+practical before tonight. The obvious objection is one layer per tile and hundreds
+of tiles, against a viewer that already slows measurably as positions are added.
+But `zmart_storage/coverage.py` joins tiles that touch into regions, so an ordinary
+raster scan is one rectangle that grows rather than two hundred separate ones, and a
+scattered scan is a handful. The number of layers follows the shape of the
+acquisition, not the number of tiles.
+
+**What is unmeasured**, and what this would live or die on: the cost of changing
+layers while somebody is watching. Regions appear and grow throughout a run, and
+every change asks the engine to take on a new bounded source or alter an existing
+one. Neuroglancer will do it; how much it costs each time is unknown, and a long run
+makes that change often. It is close enough to the live-acquisition measurement
+already in this document that the two should be answered together.
