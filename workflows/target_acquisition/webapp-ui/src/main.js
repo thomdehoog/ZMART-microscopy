@@ -1020,6 +1020,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         drawStage();
         renderRail();
       },
+      redraw: drawStage,
     });
   }
 
@@ -1445,14 +1446,33 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     ctx.textAlign = "left";
   }
 
-  // ---- stage interaction: pan, zoom, pick focus points, hover a cell
+  /* ---- stage interaction ------------------------------------------------
+     Which button does what, said once. The left one belongs to whatever is on
+     the canvas: picking a field, dragging it, drawing the next one. The stage
+     itself moves under the right one — and the middle, since a mouse that has
+     it expects that.
+
+     They used to share the left button, which meant a press that missed a
+     field by a pixel dragged the whole picture instead of deselecting. Pan is
+     the rarer thing and the one that is never ambiguous, so it gets a button
+     of its own rather than the fallthrough. */
   let dragging = false, dragMoved = false, lastX = 0, lastY = 0;
 
+  const PAN_BUTTONS = new Set([1, 2]);
+
+  // the right button is a pan here, so it must not also open a menu
+  stageCv.addEventListener("contextmenu", (e) => e.preventDefault());
+
   stageCv.addEventListener("pointerdown", (e) => {
-    if (editorTook("down", e)) { stageCv.setPointerCapture(e.pointerId); return; }
-    dragging = true; dragMoved = false;
-    lastX = e.offsetX; lastY = e.offsetY;
-    stageCv.setPointerCapture(e.pointerId);
+    if (PAN_BUTTONS.has(e.button)) {
+      e.preventDefault();
+      dragging = true; dragMoved = false;
+      lastX = e.offsetX; lastY = e.offsetY;
+      stageCv.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (e.button !== 0) return;
+    if (editorTook("down", e)) stageCv.setPointerCapture(e.pointerId);
   });
 
   stageCv.addEventListener("pointermove", (e) => {
@@ -1501,6 +1521,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     if (e && stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
   };
   stageCv.addEventListener("pointerup", (e) => {
+    if (PAN_BUTTONS.has(e.button)) { endDrag(e); return; }
     if (editorTook("up", e)) {
       if (stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
       renderRail();

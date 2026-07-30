@@ -138,7 +138,7 @@ export default {
    * Mount the channel. Returns the handle the frame keeps while the step is
    * selected: what to draw on top of the plan, and where the pointer went.
    */
-  render(host, { fields, carrier, presets, locked, onChange }) {
+  render(host, { fields, carrier, presets, locked, onChange, redraw }) {
     const ed = {
       tool: "pointer",
       mode: "geometry",
@@ -396,24 +396,33 @@ export default {
         return;
       }
       if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); redo(); return; }
+      /* Selection is drawn on the canvas, so changing it from the keyboard has
+         to say so. A pointer gesture gets a redraw for free — the frame draws
+         whatever the editor answers to — and these do not go through it. */
       if ((e.ctrlKey || e.metaKey) && k === "a") {
         e.preventDefault();
         ed.selected = new Set(ed.fields.map((f) => f.id));
         sync();
+        redraw();
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeSelected(); return; }
-      if (e.key === "Escape") { ed.poly = []; ed.drawing = null; ed.tool = "pointer"; ed.selected = new Set(); sync(); return; }
+      if (e.key === "Escape") {
+        ed.poly = []; ed.drawing = null; ed.tool = "pointer"; ed.selected = new Set();
+        sync();
+        redraw();
+        return;
+      }
       if (ed.mode === "geometry" && !e.ctrlKey && !e.metaKey) {
         const t = TOOLS.find((x) => x.key === (e.key === "." ? "." : k));
-        if (t) { ed.tool = t.id; ed.poly = []; sync(); return; }
+        if (t) { ed.tool = t.id; ed.poly = []; sync(); redraw(); return; }
       }
       const nudge = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
       if (nudge && ed.selected.size) {
         e.preventDefault();
         const d = NUDGE_UM * (e.shiftKey ? 5 : 1);
         commit(ed.fields.map((f) =>
-          (ed.selected.has(f.id) ? move(f, nudge[0] * d, nudge[1] * d) : f)));
+          (ed.selected.has(f.id) && movable(f) ? move(f, nudge[0] * d, nudge[1] * d) : f)));
       }
     };
     const keyup = (e) => { if (e.key === "Shift") ed.shift = false; };
@@ -575,8 +584,22 @@ export default {
        resizing and the marquee go on working on whatever the grid just put
        down. A mode is about what can be made, not about whether what is
        already there can be touched. */
+    /* Everything below the return is a function declaration on purpose. The
+       handle has already been returned by the time control would reach here,
+       so a `const` never gets initialised and the first press throws on the
+       dead zone — twice now. Declarations hoist; nothing else here does. */
     function armed() {
       return ed.mode === "geometry" ? ed.tool : "pointer";
+    }
+
+    /* A grid position is not where somebody put it — it is where the carrier
+       and the grid settings say it is. Dragging one by hand would leave a
+       position claiming to be part of a block it is no longer in, and the next
+       Apply would throw the change away without saying so. So it can be
+       picked, given a different preset and deleted, and it cannot be moved:
+       change the grid, or take it out of the grid by deleting it. */
+    function movable(f) {
+      return f.source !== "grid";
     }
 
     function down(x, y, scale) {
@@ -631,9 +654,12 @@ export default {
       }
       if (hit) {
         if (!ed.selected.has(hit.id)) ed.selected = new Set([hit.id]);
-        ed.drag = { kind: "move", ox: x, oy: y };
-        ed.past = [...ed.past.slice(-(HISTORY - 1)), ed.fields];
-        ed.future = [];
+        // picked either way; only what the grid did not place can be dragged
+        if ([...ed.selected].some((id) => movable(ed.fields.find((f) => f.id === id)))) {
+          ed.drag = { kind: "move", ox: x, oy: y };
+          ed.past = [...ed.past.slice(-(HISTORY - 1)), ed.fields];
+          ed.future = [];
+        }
         sync();
         return true;
       }
@@ -662,7 +688,8 @@ export default {
       if (ed.drag.kind === "move") {
         const dx = x - ed.drag.ox, dy = y - ed.drag.oy;
         ed.drag = { ...ed.drag, ox: x, oy: y };
-        commit(ed.fields.map((f) => (ed.selected.has(f.id) ? move(f, dx, dy) : f)), { history: false });
+        commit(ed.fields.map((f) =>
+          (ed.selected.has(f.id) && movable(f) ? move(f, dx, dy) : f)), { history: false });
         return true;
       }
       if (ed.drag.kind === "rotate") {
