@@ -20,11 +20,23 @@ import { LOOKUP_TABLE_NAMES, layerKey, layersFor } from "./scene.js";
 // stack. 3-D is for reading shape: the same data ray-cast, rotatable.
 const MODES = { flat: "2D", volume: "3D" };
 
-// Neuroglancer names its panels after *display* axes, while an OME-Zarr volume
-// arrives ordered z, y, x. Its "yz" panel is therefore the one showing the
-// image plane with z perpendicular -- the plane you scroll through. Measured,
-// not assumed: in "xy" the wheel steps x.
-const SLICE_LAYOUT = "yz";
+// Which of the engine's named panel layouts the flat view asks for.
+//
+// The engine names its panels after *display* axes -- the first, second and third
+// of the axes it has been handed, not the axes the image calls x, y and z. So
+// this name only means anything alongside the order those axes are handed over
+// in, which is settled in engine.js by `pinTheAxesThatMeasureDistance`. It hands
+// them over width first, then height, then depth. With that order, "xy" puts width
+// across the window running to the right, height down it, and depth into the
+// screen -- the plane the operator scrolls through, drawn the same way round as
+// the specimen.
+//
+// **The two must be changed together.** Either one on its own gives a view that
+// is edge-on or mirrored, and a mirrored view is the dangerous one because it
+// still looks like a good picture. The viewer shipped a mirrored one for months.
+// engine.js sets this out at length, and
+// `tests/test_the_picture_is_not_mirrored.py` measures it off the screen.
+const SLICE_LAYOUT = "xy";
 const VOLUME_LAYOUT = "3d";
 
 // How many unanswered questions in a row before the panel says the server has

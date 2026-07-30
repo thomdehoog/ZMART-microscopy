@@ -79,6 +79,7 @@ and a writer killed without cleanup — and all 29 checks held.
 | L | The viewer could not be started twice, and there was no `--port` | measured. Fixed 2026-07-30 |
 | P | A live run written as OME-Zarr 0.5 stopped growing the moment the page opened | measured: frames 1 then 3 on 0.4, 1 then 1 on 0.5. Fixed 2026-07-30 |
 | Q | A target imaged again at the next moment, or in a second colour, was refused as an overlap | measured. Fixed 2026-07-30 |
+| R | The flat view drew every specimen mirrored left to right, so an operator clicking a well would send the stage to the one on the other side of the plate | measured: brightness across a picture of a ramp ran downhill at 65 grey levels per 100 px, and uphill by the same 65 after the fix. Fixed 2026-07-30; see `CONTROLS.md` §1a |
 
 ---
 

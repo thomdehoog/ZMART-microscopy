@@ -128,6 +128,64 @@ most often and without thinking, and a browser has taught everyone what it does.
 Stepping through the stack keeps the slider it already has, which is better than a
 gesture anyway because it shows you where in the stack you are.
 
+### 1a. And something nobody had noticed: the flat view was mirrored
+
+Not a binding, but it belongs beside them because it is the same kind of fault
+and it was found while testing them. **It has since been put right**, and the
+rest of this section is kept so that nobody undoes it by accident.
+
+The engine draws three chosen axes: one across the window, one down it, one into
+the screen. Which is which follows from the *order* the axes are handed over in
+together with which of the engine's named panel layouts is asked for — and the
+two interact. The viewer used to hand them over in the order an OME-Zarr image
+declares them, depth then height then width, and ask for the layout called `yz`.
+That did put width across the window and height down it, and it looked entirely
+right.
+
+**It also ran width to the left.** Every picture the flat view drew was a mirror
+image of the specimen. Nothing errored, and on a round embryo or a symmetrical
+plate there was nothing whatever to notice — but an operator who picked out the
+well on the left of the screen and sent the stage there sent it to the well on
+the other side of the plate. It is the rotation hazard below in a quieter form,
+and it is the reason that hazard is worth taking as seriously as this document
+does.
+
+**What was changed.** The axes are now handed over the other way round — width,
+then height, then depth — and the layout asked for is the one the engine calls
+`xy`. That puts width across the window running to the right, height down it, and
+depth into the screen, which is the plane an operator scrolls through. Those
+two go together and **must be changed together**: either on its own gives a view
+that is edge-on, with the stack collapsed to a line, or mirrored again. The pair
+of them live in `frontend/src/engine.js`, in
+`pinTheAxesThatMeasureDistance`, and in `frontend/src/App.jsx`, at
+`SLICE_LAYOUT`, and each says so at the other.
+
+**How it is held in place.** `tests/test_the_picture_is_not_mirrored.py` opens a
+small acquisition written dim at one edge and bright at the other, photographs
+the picture, and fails unless the bright edge is drawn on the right. Measured
+across the picture, the brightness ran downhill at 65 grey levels per hundred
+pixels before the change and uphill by the same 65 after it. The same file
+checks separately that dragging carries the picture with the hand, so that the
+mirror can never be "fixed" by reversing the pan gesture instead — that would
+make the viewer feel normal while leaving the picture just as reflected.
+
+One thing that measurement taught, and it is worth knowing before writing
+another: **dragging cannot find this fault.** The engine pans using the same
+axis mapping it draws with, so the picture followed the hand pixel for pixel,
+slope +1.0, both before and after. What tells you which way round a picture is
+must come from something inside the specimen that could not have been reflected
+along with it — here, the order the voxels sit in the file. The original
+measurement in `SANDWICH.md`, section 2, saw the mirror as a slope of −1 only
+because it compared the picture with the operator's own drawing laid over it,
+and that drawing was placed from the store's coordinates directly.
+
+Which handedness a microscopist *should* see remains a decision about the
+instrument rather than about drawing: which way the stage moves relative to the
+camera is a property of the microscope. What is settled here is narrower and
+more important — the viewer no longer flips it silently. If an instrument
+records that its stage runs the other way, that belongs in the acquisition's own
+description, and the viewer should read it from there rather than assume.
+
 ### 2. Rotation is bound four different ways, and probably should not be
 
 Shift + drag, `r`, `e`, and Shift + arrow keys all rotate the view. That is a
