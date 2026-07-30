@@ -841,63 +841,110 @@ canvas.scattercv { cursor: crosshair; }
 
 
 /* ---- the scan fields channel -------------------------------------------
-   The same column the carrier docks in, so the two steps that are about the
-   canvas read as one place rather than two. Its controls are grouped by the
-   question they answer — what to draw with, what it is taken with, and what
-   the grid puts in every area — because the panel is used in that order. */
+   The same column the carrier docks in, laid out the way the design session
+   settled it: the choice of how to say it first, then a group per question,
+   then the shortcuts folded away because they are reference rather than
+   workflow. Colours are this page's own tokens, so the column reads in both
+   surfaces rather than carrying a second palette. */
 .sf-card { display: flex; flex-direction: column; height: 100%; }
-.sf-controls { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.sf-controls { display: flex; flex-direction: column; gap: 10px; padding: 16px 14px; }
 
-.sf-modes { display: flex; gap: 5px; }
+.sf-modes { display: flex; gap: 6px; }
 .sf-mode {
-  flex: 1; font: inherit; font-size: 12px; font-weight: 600;
-  padding: 7px 4px; border-radius: 8px; cursor: pointer;
-  color: var(--ink-3); background: var(--surface-3);
-  border: 1px solid var(--line-strong);
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 10px 6px 8px; cursor: pointer;
+  border: 1.5px solid transparent; border-radius: 10px;
+  background: transparent; color: var(--ink-3); font: inherit;
 }
-.sf-mode.on { color: var(--accent-deep); border-color: var(--accent); background: var(--accent-tint); }
-
-.sf-tools { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
-.sf-tool {
-  height: 34px; display: grid; place-content: center; padding: 0;
-  border: 1px solid var(--line-strong); border-radius: 8px;
-  background: var(--screen); color: var(--ink-2); cursor: pointer;
+.sf-mode:hover { border-color: var(--line); color: var(--ink-2); }
+.sf-mode.on { border-color: var(--accent); background: var(--accent-tint); color: var(--accent-deep); }
+.sf-mode-icon { font-size: 17px; line-height: 20px; }
+.sf-mode-label {
+  font-size: 10px; font-family: var(--mono); font-weight: 500; letter-spacing: 0.04em;
 }
-.sf-tool.on { color: var(--accent-deep); border-color: var(--accent); background: var(--accent-tint); }
-.sf-glyph { font-size: 15px; line-height: 1; }
+.sf-mode.on .sf-mode-label { font-weight: 700; }
 
 .sf-group {
-  display: flex; flex-direction: column; gap: 7px;
-  padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface-3);
 }
 .sf-group[hidden] { display: none; }
-.sf-label, .sf-num-label {
-  font-size: 9px; font-family: var(--mono); color: var(--ink-3);
-  letter-spacing: 0.04em; text-transform: uppercase;
+.sf-group-title {
+  font-size: 11px; font-family: var(--mono); font-weight: 700;
+  color: var(--ink); letter-spacing: 0.03em;
 }
-.sf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
-.sf-grid > .sf-label, .sf-grid > .sf-btn { grid-column: 1 / -1; }
-.sf-num { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.sf-num input, .sf-select {
-  font: inherit; font-size: 12.5px; font-family: var(--mono); color: var(--ink);
-  background: var(--screen); border: 1px solid var(--line-strong);
-  border-radius: 7px; padding: 6px 8px; width: 100%;
-}
-.sf-num input:focus, .sf-select:focus { outline: none; }
 
-.sf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.sf-btn {
-  font: inherit; font-size: 12px; font-weight: 600; color: var(--ink-2);
-  background: var(--screen); border: 1px solid var(--line-strong);
-  border-radius: 7px; padding: 6px 9px; cursor: pointer;
+.sf-tools { display: flex; gap: 6px; }
+.sf-tool {
+  flex: 1; height: 46px; display: grid; place-content: center; padding: 0;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--screen); color: var(--ink-2); cursor: pointer;
 }
-.sf-btn:hover:enabled { color: var(--ink); background: var(--surface-2); }
-.sf-btn:disabled { opacity: 0.45; cursor: default; }
-.sf-primary { color: #fff; background: var(--accent); border-color: var(--accent); }
-:root[data-theme="dark"] .sf-primary, :root:not([data-theme="light"]) .sf-primary { color: #04121d; }
-@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .sf-primary { color: #fff; } }
-.sf-primary:hover:enabled { background: var(--accent-deep); color: #fff; }
+.sf-tool:hover:enabled { color: var(--ink); }
+.sf-tool.on { color: var(--accent-deep); border-color: var(--accent); background: var(--accent-tint); }
+.sf-glyph { font-size: 19px; line-height: 24px; }
+.sf-tool.on .sf-glyph { font-weight: 700; }
+
+.sf-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sf-num { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sf-num-label {
+  font-size: 10px; font-family: var(--mono); font-weight: 600;
+  color: var(--ink-3); letter-spacing: 0.04em;
+}
+.sf-num input {
+  font: inherit; font-size: 12px; font-family: var(--mono); color: var(--ink);
+  background: var(--screen); border: 1px solid var(--line-strong);
+  border-radius: 6px; padding: 0 8px; height: 32px; width: 100%;
+}
+.sf-num input:focus { outline: none; }
+
+/* One press says what the next field is taken with. The dot is the colour it
+   is drawn in, so the canvas needs no legend. */
+.sf-presets { display: flex; flex-direction: column; gap: 6px; }
+.sf-preset {
+  display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px;
+  background: var(--screen); border: 1px solid var(--line-strong);
+  border-radius: 6px; cursor: pointer; font: inherit;
+}
+.sf-preset.on { border-color: var(--accent); background: var(--accent-tint); }
+.sf-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.sf-preset-name {
+  flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis;
+  font-size: 11px; font-family: var(--mono); font-weight: 500; color: var(--ink-2);
+}
+.sf-preset.on .sf-preset-name { font-weight: 700; color: var(--accent-deep); }
+.sf-preset-frame { font-size: 9.5px; font-family: var(--mono); color: var(--ink-3); }
+
+.sf-row { display: flex; gap: 6px; }
+.sf-flat {
+  flex: 1; height: 30px; padding: 0 8px;
+  font: inherit; font-size: 11px; font-family: var(--mono); font-weight: 600;
+  letter-spacing: 0.02em; white-space: nowrap;
+  color: var(--ink-2); background: var(--screen);
+  border: 1px solid var(--line-strong); border-radius: 6px; cursor: pointer;
+}
+.sf-flat:hover:enabled { border-color: var(--accent); color: var(--accent-deep); }
+.sf-flat:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.sf-keys {
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface-3); overflow: hidden;
+}
+.sf-keys-head {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  background: transparent; border: none; cursor: pointer; text-align: left;
+  font: inherit; font-size: 11px; font-family: var(--mono); font-weight: 700;
+  color: var(--ink); letter-spacing: 0.03em;
+}
+.sf-keys-head > span:first-child { flex: 1; }
+.sf-chev { color: var(--ink-3); font-size: 12px; transition: transform 0.15s; }
+.sf-keys.open .sf-chev { transform: rotate(180deg); }
+.sf-keys-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 4px; }
+.sf-keys-body[hidden] { display: none; }
+.sf-key { display: flex; gap: 8px; font-size: 10px; font-family: var(--mono); line-height: 1.5; }
+.sf-key-name { width: 84px; flex: none; color: var(--ink-2); font-weight: 600; }
+.sf-key-what { color: var(--ink-3); }
 
 /* What the plan comes to, at the foot of the column the way the run's own
    results sit at the foot of a panel. */

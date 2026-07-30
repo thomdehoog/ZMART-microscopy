@@ -51,7 +51,7 @@ async function throughFields(page) {
   await throughSetup(page);
   await gotoStep(page, "Initial scanfields");
   await page.locator(".sf-mode[data-mode='grid']").click();
-  await page.locator(".sf-primary").click();
+  await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(300);
 }
 
@@ -401,7 +401,7 @@ test("the canvas belongs to the steps that happen inside it, and to no others",
     await expect(page.locator(".sf-card")).toHaveCount(1);
     await expect(page.locator(".carrier-card")).toHaveCount(0);
     await page.locator(".sf-mode[data-mode='grid']").click();
-    await page.locator(".sf-primary").click();
+    await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(300);
 
     await placeFocusPoints(page);
@@ -439,7 +439,7 @@ test("the grid comes from the carrier, so changing the plate changes the plan",
     await expect(page.locator('.step:has-text("Focus strategy")').first()).toBeDisabled();
 
     await page.locator(".sf-mode[data-mode='grid']").click();
-    await page.locator(".sf-primary").click();
+    await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(300);
     // 96 areas, three by three in each
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
@@ -461,7 +461,7 @@ test("the grid comes from the carrier, so changing the plate changes the plan",
     await page.waitForTimeout(200);
     await gotoStep(page, "Initial scanfields");
     await page.locator(".sf-mode[data-mode='grid']").click();
-    await page.locator(".sf-primary").click();
+    await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(300);
     await expect(page.locator(".sf-readout")).toContainText("54 positions");
   });
@@ -485,10 +485,13 @@ test("a region is drawn on the canvas and covered by its preset's frame",
     expect(Number(readout.match(/^(\d+) position/)[1]),
       "a region the size of several frames takes several tiles").toBeGreaterThan(1);
 
-    // drawing hands the tool back, so the next drag does not draw a second one
-    await expect(page.locator(".sf-tool[data-tool='pointer']")).toHaveClass(/on/);
+    // drawing hands the tool back, so the next drag moves rather than draws a
+    // second one — no tool is armed
+    await expect(page.locator(".sf-tool.on")).toHaveCount(0);
 
-    await page.locator(".sf-card >> text=Undo").click();
+    // undo has no button of its own; the shortcut list is where it is said
+    await page.locator("#stage-canvas").click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press("Control+z");
     await page.waitForTimeout(200);
     await expect(page.locator(".sf-readout")).toContainText("nothing to scan yet");
   });

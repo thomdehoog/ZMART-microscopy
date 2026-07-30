@@ -40,8 +40,8 @@ const TOOLS = [
 ];
 
 const MODES = [
-  { id: "geometry", label: "Geometry", why: "Draw regions over what is there" },
-  { id: "grid", label: "Grid", why: "The same block of positions in every area" },
+  { id: "geometry", glyph: "▭", label: "DRAW", why: "Draw regions over what is there" },
+  { id: "grid", glyph: "⊞", label: "GRID", why: "The same block of positions in every area" },
 ];
 
 /* Screen pixels, not micrometres: a grip is as easy to hit zoomed out as in. */
@@ -175,13 +175,15 @@ export default {
     card.append(controls);
     host.append(card);
 
+    /* Which of the two ways to say it, before anything else, because it
+       decides what the rest of the column is for. */
     const modeRow = el("div", "sf-modes");
     for (const m of MODES) {
       const b = el("button", "sf-mode");
       b.type = "button";
       b.dataset.mode = m.id;
       b.title = m.why;
-      b.append(el("span", null, m.label));
+      b.append(el("span", "sf-mode-icon", m.glyph), el("span", "sf-mode-label", m.label));
       b.addEventListener("click", () => {
         ed.mode = m.id;
         if (m.id !== "geometry") { ed.tool = "pointer"; ed.poly = []; ed.drawing = null; }
@@ -191,8 +193,19 @@ export default {
     }
     controls.append(modeRow);
 
+    const group = (title) => {
+      const g = el("div", "sf-group");
+      g.append(el("div", "sf-group-title", title));
+      controls.append(g);
+      return g;
+    };
+
+    /* Select is not among them. It is where the panel returns after every
+       shape, so a button for it would be a button for the state you are
+       already in — Esc says it too. */
+    const geomGroup = group("Geometries");
     const toolRow = el("div", "sf-tools");
-    for (const t of TOOLS) {
+    for (const t of TOOLS.filter((x) => x.id !== "pointer")) {
       const b = el("button", "sf-tool");
       b.type = "button";
       b.dataset.tool = t.id;
@@ -201,50 +214,37 @@ export default {
       b.addEventListener("click", () => { ed.tool = t.id; ed.poly = []; sync(); });
       toolRow.append(b);
     }
-    controls.append(toolRow);
+    geomGroup.append(toolRow);
 
-    const presetGroup = el("div", "sf-group");
-    presetGroup.append(el("div", "sf-label", "Taken with"));
-    const presetSel = el("select", "sf-select");
-    for (const p of presets) presetSel.append(new Option(`${p.name} · ${p.summary}`, p.id));
-    presetSel.addEventListener("change", () => { ed.presetId = presetSel.value; sync(); });
-    presetGroup.append(presetSel);
-    const assign = el("button", "sf-btn", "Apply to selection");
-    assign.type = "button";
-    assign.addEventListener("click", () => {
-      if (!ed.selected.size) return;
-      commit(ed.fields.map((f) => (ed.selected.has(f.id) ? { ...f, presetId: ed.presetId } : f)));
-    });
-    presetGroup.append(assign);
-    controls.append(presetGroup);
-
-    const gridGroup = el("div", "sf-group sf-grid");
-    gridGroup.append(el("div", "sf-label", "Positions per area"));
-    const num = (label, get, set, min, step) => {
+    const gridGroup = group("Positions per compartment");
+    const gridPair = el("div", "sf-pair");
+    gridGroup.append(gridPair);
+    const num = (label, get, set, min) => {
       const wrap = el("div", "sf-num");
       wrap.append(el("span", "sf-num-label", label));
       const i = document.createElement("input");
       i.type = "number";
-      i.step = String(step);
-      i.min = String(min);
       i.addEventListener("input", () => {
         const v = parseFloat(i.value);
         if (i.value === "" || Number.isNaN(v)) return;
         set(v);
         sync({ keep: i });
       });
-      i.addEventListener("blur", () => { set(Math.max(min, parseFloat(i.value) || min)); sync(); });
+      /* Clamped when the field is left, not while it is being typed in: a 1 on
+         its way to a 1600 is below the floor and would be corrected out from
+         under the operator. */
+      i.addEventListener("blur", () => { set(Math.max(min(), parseFloat(i.value) || min())); sync(); });
       wrap.append(i);
-      gridGroup.append(wrap);
-      return { i, get };
+      gridPair.append(wrap);
+      return { i, get, min };
     };
     const gridInputs = [
-      num("ROWS", () => ed.rows, (v) => { ed.rows = Math.round(v); }, 1, 1),
-      num("COLUMNS", () => ed.cols, (v) => { ed.cols = Math.round(v); }, 1, 1),
-      num("PITCH X (µm)", () => pitch()[0], (v) => { ed.spacingX = v; }, 0, 50),
-      num("PITCH Y (µm)", () => pitch()[1], (v) => { ed.spacingY = v; }, 0, 50),
+      num("ROWS", () => ed.rows, (v) => { ed.rows = Math.max(1, Math.round(v)); }, () => 1),
+      num("COLUMNS", () => ed.cols, (v) => { ed.cols = Math.max(1, Math.round(v)); }, () => 1),
+      num("SPACING X (µm)", () => pitch()[0], (v) => { ed.spacingX = v; }, frameUm),
+      num("SPACING Y (µm)", () => pitch()[1], (v) => { ed.spacingY = v; }, frameUm),
     ];
-    const applyGrid = el("button", "sf-btn sf-primary", "Apply grid");
+    const applyGrid = el("button", "sf-flat sf-apply-grid", "Apply");
     applyGrid.type = "button";
     applyGrid.addEventListener("click", () => {
       const [px, py] = pitch();
@@ -260,42 +260,95 @@ export default {
       commit([...ed.fields.filter((f) => f.source !== "grid"), ...made]);
       ed.selected = new Set();
     });
-    gridGroup.append(applyGrid);
-    controls.append(gridGroup);
+    gridGroup.append(el("div", "sf-row").appendChild(applyGrid).parentElement);
 
-    const editRow = el("div", "sf-row");
-    const mkBtn = (label, fn, cls = "sf-btn") => {
-      const b = el("button", cls, label);
+    /* Every preset the run recorded, as the list it is — one press says what
+       the next field is taken with, and the dot is the colour it will be drawn
+       in, so the canvas and this column agree without a legend. */
+    const presetGroup = group("Acquisition preset");
+    const presetList = el("div", "sf-presets");
+    presetGroup.append(presetList);
+    const presetRows = presets.map((p) => {
+      const b = el("button", "sf-preset");
       b.type = "button";
-      b.addEventListener("click", fn);
-      editRow.append(b);
+      b.dataset.preset = p.id;
+      const dot = el("span", "sf-dot");
+      dot.style.background = presetInk(presets, p.id);
+      b.append(dot, el("span", "sf-preset-name", p.name),
+        el("span", "sf-preset-frame", `${p.frameUm} µm`));
+      b.addEventListener("click", () => { ed.presetId = p.id; sync(); });
+      presetList.append(b);
       return b;
+    });
+    const applyRow = el("div", "sf-row");
+    const applyTo = (which) => {
+      const ids = which === "all" ? new Set(ed.fields.map((f) => f.id)) : ed.selected;
+      if (!ids.size) return;
+      commit(ed.fields.map((f) => (ids.has(f.id) ? { ...f, presetId: ed.presetId } : f)));
     };
-    const undoBtn = mkBtn("Undo", () => {
-      if (!ed.past.length) return;
+    const applySel = el("button", "sf-flat", "Apply to selected");
+    applySel.type = "button";
+    applySel.addEventListener("click", () => applyTo("selection"));
+    const applyAll = el("button", "sf-flat", "Apply to all");
+    applyAll.type = "button";
+    applyAll.addEventListener("click", () => applyTo("all"));
+    applyRow.append(applySel, applyAll);
+    presetGroup.append(applyRow);
+
+    /* Folded away, because the shortcuts are reference rather than workflow —
+       and where a control has no button, this is the only place it is said. */
+    const keysBox = el("div", "sf-keys");
+    const keysHead = el("button", "sf-keys-head");
+    keysHead.type = "button";
+    keysHead.append(el("span", null, "Show controls"), el("span", "sf-chev", "⌄"));
+    const keysBody = el("div", "sf-keys-body");
+    keysBody.hidden = true;
+    for (const [key, what] of [
+      ["Drag", "move — pan on empty"],
+      ["Shift+drag", "circle or square — marquee on empty"],
+      ["Shift+click", "add to selection"],
+      ["Shift+rotate", "45° snap"],
+      ["Wheel", "zoom"],
+      ["Arrows", "nudge — Shift coarse"],
+      ["Ctrl+Z / Y", "undo, redo"],
+      ["Ctrl+A", "select all"],
+      ["Delete", "remove"],
+      ["Esc", "deselect"],
+    ]) {
+      const row = el("div", "sf-key");
+      row.append(el("span", "sf-key-name", key), el("span", "sf-key-what", what));
+      keysBody.append(row);
+    }
+    keysHead.addEventListener("click", () => {
+      keysBody.hidden = !keysBody.hidden;
+      keysBox.classList.toggle("open", !keysBody.hidden);
+    });
+    keysBox.append(keysHead, keysBody);
+    controls.append(keysBox);
+
+    const readout = el("div", "sf-readout");
+    card.append(readout);
+
+    function undo() {
+      if (locked || !ed.past.length) return;
       ed.future = [...ed.future, ed.fields];
       ed.fields = ed.past[ed.past.length - 1];
       ed.past = ed.past.slice(0, -1);
       onChange(ed.fields);
       sync();
-    });
-    const redoBtn = mkBtn("Redo", () => {
-      if (!ed.future.length) return;
+    }
+
+    function redo() {
+      if (locked || !ed.future.length) return;
       ed.past = [...ed.past, ed.fields];
       ed.fields = ed.future[ed.future.length - 1];
       ed.future = ed.future.slice(0, -1);
       onChange(ed.fields);
       sync();
-    });
-    const delBtn = mkBtn("Delete", () => removeSelected());
-    const clearBtn = mkBtn("Clear all", () => { commit([]); ed.selected = new Set(); });
-    controls.append(editRow);
-
-    const readout = el("div", "sf-readout");
-    card.append(readout);
+    }
 
     function removeSelected() {
-      if (!ed.selected.size) return;
+      if (locked || !ed.selected.size) return;
       commit(ed.fields.filter((f) => !ed.selected.has(f.id)));
       ed.selected = new Set();
     }
@@ -303,17 +356,14 @@ export default {
     function sync({ keep = null } = {}) {
       for (const b of modeRow.children) b.classList.toggle("on", b.dataset.mode === ed.mode);
       for (const b of toolRow.children) b.classList.toggle("on", b.dataset.tool === ed.tool);
-      toolRow.hidden = ed.mode !== "geometry";
+      geomGroup.hidden = ed.mode !== "geometry";
       gridGroup.hidden = ed.mode !== "grid";
-      presetSel.value = ed.presetId ?? "";
+      for (const b of presetRows) b.classList.toggle("on", b.dataset.preset === ed.presetId);
       for (const { i, get } of gridInputs) {
         if (i !== keep && document.activeElement !== i) i.value = String(Math.round(get()));
       }
-      undoBtn.disabled = locked || !ed.past.length;
-      redoBtn.disabled = locked || !ed.future.length;
-      delBtn.disabled = locked || !ed.selected.size;
-      clearBtn.disabled = locked || !ed.fields.length;
-      assign.disabled = locked || !ed.selected.size;
+      applySel.disabled = locked || !ed.selected.size;
+      applyAll.disabled = locked || !ed.fields.length;
       applyGrid.disabled = locked;
       for (const c of card.querySelectorAll("button, select, input")) {
         if (locked) c.disabled = true;
@@ -334,9 +384,10 @@ export default {
       const k = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && k === "z") {
         e.preventDefault();
-        (e.shiftKey ? redoBtn : undoBtn).click();
+        (e.shiftKey ? redo : undo)();
         return;
       }
+      if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); redo(); return; }
       if ((e.ctrlKey || e.metaKey) && k === "a") {
         e.preventDefault();
         ed.selected = new Set(ed.fields.map((f) => f.id));
