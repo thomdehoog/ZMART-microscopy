@@ -77,6 +77,8 @@ and a writer killed without cleanup — and all 29 checks held.
 | J | Two nudges, and two full config rebuilds, per position | measured. Fixed 2026-07-30 |
 | K | An announcement arriving during a config fetch was dropped | measured. Fixed 2026-07-30 |
 | L | The viewer could not be started twice, and there was no `--port` | measured. Fixed 2026-07-30 |
+| P | A live run written as OME-Zarr 0.5 stopped growing the moment the page opened | measured: frames 1 then 3 on 0.4, 1 then 1 on 0.5. Fixed 2026-07-30 |
+| Q | A target imaged again at the next moment, or in a second colour, was refused as an overlap | measured. Fixed 2026-07-30 |
 
 ---
 
@@ -201,6 +203,47 @@ asking for another look was written *after* the early return and so was never re
 now written before, the fetch is repeated once when the answer in flight lands, and the note
 is always cleared — it used to be left set and then consumed by an unrelated change.
 
+### P and Q, found by closing the 0.5 gap
+
+The register used to list "0.5 and on-the-fly are never tested together" as a gap that
+could not be closed, because the writer only produced 0.4. It produces either now —
+`TileCanvases.create(..., ome_zarr_version="0.5")` — and writing that test found two faults
+immediately, which is the whole argument for having written it.
+
+**A live run written as 0.5 stopped growing the moment the page opened.** The viewer decides
+whether anything has changed by taking the modification time of the folder that gains an entry
+as each moment is written. It took that to be the resolution level's own folder, `0` inside
+the store, which is right for 0.4. A 0.5 store is built on zarr version 3, which files every
+piece under a folder called `c` inside that one — so a frame landing changed `0/c` and left
+`0` untouched, the answer never moved, and the viewer went on showing the length it read when
+the page opened, for the rest of the session.
+
+    0.4:  frames 1  ->  after two more moments, 3
+    0.5:  frames 1  ->  after two more moments, 1
+
+This is the same shape as fault 6 and in a different place. The frame counting was taught
+about the `c` folder and `library.revision()` was not, because the two work it out separately.
+They now share one function, which is the actual fix — the arrangement that let them drift is
+what caused this.
+
+**A target imaged again at the next moment was refused as an overlap.** When a tile is written
+without saying where it sits in a scan pattern — which is what a workflow choosing its own
+targets does, and which the writer documents as ordinary — the writer asks each image whether
+the tile would land on something already in it. That question compared only *where* the tile
+sat, ignoring which moment and which colour it belonged to. So:
+
+    same place, moments 0 then 1    REFUSED   "writing it would destroy data"
+    same place, colours 0 then 1    REFUSED
+    same place, same moment, twice  REFUSED   (correctly)
+
+It would not destroy anything: an image holds every moment and every colour separately. A
+timelapse of workflow-chosen targets therefore could not be written past its first moment, and
+a two-colour target could not have its second colour written at all. Nothing caught it because
+every existing test passes `tile_index`, which takes the scan-pattern path and never reaches
+the comparison. The moment and the colour are part of the comparison now, and the concurrency
+guard beside it already had them, which is the tell that this was an oversight rather than a
+decision.
+
 ### L. Starting the viewer twice
 
 A port already in use raised an uncaught `OSError` with no advice, and there was no way to ask
@@ -216,17 +259,15 @@ previously yielded `http://127.0.0.1:0`).
 ### The test suite's remaining gaps
 
 These are real and none of them is fixed. They are listed in the order they would hurt.
+Two that were here on 2026-07-29 have since been closed: the newer format is now written by
+`zmart_storage` and tested on the live path (see P and Q above), and the group size that keeps
+a large folder from silently losing positions is now checked against the measured limit on
+every run, with the measurement itself available as an opt-in test — see `TESTING.md`.
 
 - **No test of drawing cost at all.** The regression `NEXT_STEPS.md` calls decisive — a
   thousand positions managing 24 frames in five seconds against 302 for a hundred — would go
   unnoticed. Every performance figure in that document comes from `measure_*.py` scripts that
-  nothing runs.
-- **The silent-position-loss threshold is ~680 and the test guarding it runs at 40**, with the
-  production batch size overridden. Raising the real value back to something unsafe would not
-  fail anything.
-- **0.5 and on-the-fly are never tested together.** Every live test is version 2; the only
-  version 3 browser test runs against finished data. They cannot meet until the writer can
-  produce 0.5.
+  nothing runs. This is now the largest gap left.
 - **Nothing tests the desktop shell.**
 - **Without Chromium, a third of the suite — including every test that looks at a picture —
   skips, and the run still reports green.** CI now installs a browser and fails on an unbuilt
