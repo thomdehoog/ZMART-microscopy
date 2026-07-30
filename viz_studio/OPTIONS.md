@@ -135,8 +135,38 @@ ready to be compared.
    gesture leaves the picture byte-identical. See `CONTROLS.md`.
 4. **Sparseness** — a canvas imaged in a few scattered places shows the operator's
    drawing through the gaps, and shows picture only where picture was written.
-5. **New data** — tiles written into ground the viewer has already looked at appear
-   once `tilesMayHaveLanded()` is called.
+5. **New data arriving while somebody is watching** — the measurement that matters
+   most, because watching a run fill in is what this viewer is *for*. A run that
+   has to be reopened to show what it just acquired is not a smart-microscopy
+   viewer, it is a file browser.
+
+   It is not enough that a tile eventually appears. Every option must be measured
+   on all six of these, with a run genuinely writing throughout:
+
+   - **Does it appear at all**, and what call was needed to make it — nothing on
+     disk announces a new tile, because the images are declared at full size before
+     any tile exists and their description is identical before and after. Both
+     engines are known to need telling: neuroglancer through the cache-invalidation
+     path `frontend/src/engine.js` already uses, and Viv by being handed a fresh
+     loader. Record exactly what each needed.
+   - **What the refresh costs.** How many pieces of image are re-fetched to show
+     one new tile? An option that re-reads the whole view every time a tile lands
+     will not survive a long run, however well it draws.
+   - **Does the picture survive the refresh** — does it flicker, blank, or show a
+     patchwork of two generations? The live-tiles work already met the patchwork
+     case, where a second read started too early left parts of two different planes
+     on screen at once.
+   - **Does the view stay where the operator put it?** A refresh that resets the
+     centre or the zoom is unusable, and it is an easy mistake to make when the
+     way to refresh is to hand the engine a new source.
+   - **How soon after the tile lands does it show**, in seconds.
+   - **Does it keep up?** Not one tile — a long run at a realistic rate, several
+     hundred tiles arriving steadily, with the operator panning and zooming
+     throughout. Report whether the picture keeps pace or falls progressively
+     further behind, and what the drawing rate does over the run.
+
+   Neuroglancer's behaviour here is partly known and Viv's is only known for a
+   short run in a small canvas. Treat both as unmeasured and measure both.
 6. **Requests** — how many pieces of image are asked for to draw one view, and how
    many of those are for ground nobody imaged. Measured with and without the
    coverage record bounding the drawn region.
