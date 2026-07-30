@@ -45,6 +45,40 @@ export function barFor(perPixel, unit) {
 }
 
 /**
+ * The volume panel currently on screen, if that is what is being shown.
+ *
+ * The flat view and the volume view are magnified by two entirely separate
+ * zooms, so which panel is in front of the operator decides which of them the
+ * bar has to read. Returns nothing when the flat view is showing, which is the
+ * ordinary case.
+ */
+function volumePanelOnScreen(viewer) {
+  for (const panel of viewer?.display?.panels || []) {
+    // Told apart by what the panel holds rather than by its class name, because
+    // the built page has those names shortened to a couple of letters and they
+    // change from one build to the next.
+    //
+    // A flat panel *is* one slice through the specimen, and holds a single
+    // `sliceView`. A volume panel draws the specimen in depth and can show
+    // slices inside it, so it holds a collection — `sliceViews` — along with the
+    // projection it is drawn through. That difference is a real one about what
+    // each panel is, so it is a fair thing to recognise them by.
+    if (!("sliceViews" in panel) || "sliceView" in panel) continue;
+    // The zoom is taken from the viewer rather than from the panel, even though
+    // the panel has one too. The panel's is a copy kept in step with the viewer's
+    // a moment afterwards, so reading it here — while responding to the very
+    // change that has not reached it yet — gives the previous value, and the bar
+    // then states the size the specimen was before the operator zoomed. Only the
+    // height is the panel's own to give.
+    const zoom = viewer?.perspectiveNavigationState?.zoomFactor?.value;
+    const height = panel.renderViewport?.logicalHeight;
+    if (typeof zoom !== "number" || !Number.isFinite(height) || height <= 0) continue;
+    return { zoom, height };
+  }
+  return null;
+}
+
+/**
  * Read how much of the specimen one screen pixel covers, right now.
  *
  * This follows Neuroglancer's own reasoning: each axis on screen has a scale (how
@@ -52,6 +86,17 @@ export function barFor(perPixel, unit) {
  * together give the size of a pixel. Only axes measured in a length are of
  * interest — an image with a time axis has a scale for time too, and a bar
  * reading "100 s" says nothing about how big the specimen is.
+ *
+ * **The volume view counts its zoom differently, and getting that wrong states
+ * the wrong size of specimen.** In the flat view the zoom is how much of the
+ * specimen one screen pixel covers. In the volume view the same number counts
+ * across the whole *height of the panel* instead, so it has to be divided by that
+ * height before it means anything per pixel. Reading the flat view's zoom while
+ * the volume was on screen made the bar over-state the specimen by about three
+ * quarters on the demo volume — it read 50 µm where the truth was 28.5 — by a
+ * factor that changed with the height of the window, and it did not move at all
+ * when the operator magnified the volume. A scale bar that is quietly wrong is
+ * worse than none, because a measurement gets read off it and written down.
  */
 function pixelSize(viewer) {
   const navigation = viewer?.navigationState;
@@ -63,7 +108,13 @@ function pixelSize(viewer) {
     displayDimensionScales,
     canonicalVoxelFactors,
   } = render;
-  const zoom = navigation.zoomFactor?.value ?? navigation.relativeDisplayScales?.value;
+  // The same arithmetic the engine does for its own bar in a volume panel:
+  // the perspective zoom divided by the panel's height. See
+  // perspective_view/panel.js, which draws its bar from exactly this.
+  const volume = volumePanelOnScreen(viewer);
+  const zoom = volume
+    ? volume.zoom / volume.height
+    : navigation.zoomFactor?.value ?? navigation.relativeDisplayScales?.value;
   const effective = typeof zoom === "number" ? zoom : null;
   if (effective === null) return null;
   for (let i = 0; i < displayRank; i += 1) {
@@ -104,12 +155,37 @@ export default function ScaleBar({ viewer }) {
           : next,
       );
     };
-    const stopNavigation = viewer.navigationState.changed.add(update);
-    const stopZoom = viewer.navigationState.zoomFactor?.changed?.add(update);
+    // Both views' movements are listened to, because either can be the one on
+    // screen and the bar has to follow whichever it is. Magnifying the volume
+    // moves only the perspective zoom, so without that one the bar would sit
+    // unchanged while the specimen grew — stating a size that was true a moment
+    // ago and is not any more.
+    const stops = [
+      viewer.navigationState.changed.add(update),
+      viewer.navigationState.zoomFactor?.changed?.add(update),
+      viewer.perspectiveNavigationState?.changed?.add(update),
+      viewer.perspectiveNavigationState?.zoomFactor?.changed?.add(update),
+      // Switching between the flat view and the volume swaps which zoom counts,
+      // and changes no navigation state at all.
+      viewer.layout?.changed?.add(update),
+      // And once more whenever the engine draws. This is what catches the things
+      // no single signal announces: switching to the volume builds a new panel,
+      // and the panel's height is only known once it has been laid out and drawn,
+      // so an answer worked out the instant the layout changed is worked out
+      // before there is anything to measure. Recomputing is a few multiplications
+      // and the bar is left alone when the answer has not moved, so this costs
+      // nothing worth counting. It is also how the engine keeps its own bar
+      // truthful.
+      viewer.display?.updateStarted?.add(update),
+    ];
+    // The panel's height is part of the answer in the volume view, so a resized
+    // window changes the bar even when nothing has been navigated.
+    const onResize = () => update();
+    window.addEventListener("resize", onResize);
     update();
     return () => {
-      stopNavigation();
-      if (stopZoom) stopZoom();
+      for (const stop of stops) if (stop) stop();
+      window.removeEventListener("resize", onResize);
     };
   }, [viewer]);
 

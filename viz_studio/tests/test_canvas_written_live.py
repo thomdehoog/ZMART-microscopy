@@ -20,12 +20,20 @@ Three things are checked, and the arrangement is only usable if all three hold:
 3. **Several canvases update independently** — one per acquisition type, which is
    the shape a run actually has.
 
-There is one thing a run must do for any of this to work, and it is not obvious.
-Nothing on disk changes when a tile lands inside a store that is already open:
-same store, same name, same declared shape. The engine has already decoded the
-emptiness that was there before, remembers it with no time limit, and will never
-ask the disk again. So the run has to say that it wrote in place. That is what
-`wrote_image_in_place` is for, and a test below fails without it.
+There is one thing worth understanding before reading these, and it is not
+obvious. Nothing on disk changes when a tile lands inside a store that is already
+open: same store, same name, same declared shape. The engine has already decoded
+the emptiness that was there before, remembers it with no time limit, and will
+never ask the disk again — so something has to tell it to look.
+
+A run can say so outright, by announcing with `wrote_image_in_place`, and that is
+still the best thing to do: it saves the viewer waiting to find out. But it is no
+longer the only way through. A store that the panel already knew about, and that
+had no picture in it, is recognised the moment it gains one, so a plain
+announcement is enough for the first image of an acquisition. That matters because
+a run writing one store per position has no reason to think it wrote anything "in
+place", and an acquisition noticed before its image landed used to stay black for
+the whole session because of it.
 """
 
 from __future__ import annotations
@@ -352,17 +360,31 @@ def test_several_canvases_update_on_the_fly_independently(
         thread.join(timeout=5)
 
 
-def test_without_saying_it_wrote_in_place_the_tile_stays_invisible(
+def test_an_ordinary_announcement_is_enough_to_show_a_tile_written_in_place(
     browser, built_dist, tmp_path
 ):
-    """The trap this arrangement has to be built around, pinned so it stays known.
+    """A plain announcement must be enough, because that is what runs actually send.
 
-    Nothing on disk changes when a tile lands inside an open canvas, so the engine
-    has no reason to look again — it decoded the emptiness earlier and remembers it
-    for as long as the page is open. An ordinary announcement is not enough.
+    This test used to assert the opposite, and it was right to at the time: nothing
+    on disk changes when a tile lands inside an open store, so the engine had no
+    reason to look again — it decoded the emptiness earlier and remembered it for as
+    long as the page stayed open. Only an announcement carrying
+    ``wrote_image_in_place`` cleared that memory.
 
-    If this test ever starts failing, that is good news and means the engine grew a
-    way of noticing on its own. It should be read, not simply deleted.
+    The trouble was that this left a much worse fault standing beside it. An
+    acquisition noticed *before* its image was written — which happens constantly,
+    because the viewer looks the instant a store's description lands, deliberately
+    and by design — went black and stayed black for the whole session. The run had
+    no reason to set that flag: it was writing one store per position, not filling
+    one in place, so from its point of view nothing was written in place at all.
+    The data was fine; reloading the page showed it. Only the open viewer was stuck,
+    with the acquisition listed, its eye open, and nothing drawn.
+
+    So the page now works it out for itself. It hears an announcement, asks what is
+    open, and if the answer is word for word the one it already had, then something
+    moved on disk that no description can show — which is exactly this. The flag
+    still works and is still worth sending, because it saves waiting for that
+    answer; it is simply no longer the only way through.
     """
     run = tmp_path / "run"
     canvas = _a_canvas(run, "overview")
@@ -380,9 +402,10 @@ def test_without_saying_it_wrote_in_place_the_tile_stays_invisible(
             }"""
         )
         page.wait_for_timeout(2500)
-        assert _how_much_is_drawn(page) == pytest.approx(before, abs=0.01), (
-            "the tile appeared without the run saying it wrote in place -- welcome, "
-            "but it means this test no longer describes the engine"
+        after = _how_much_is_drawn(page)
+        assert after > before + 0.02, (
+            "a tile written into an open store did not appear on a plain "
+            f"announcement: {before:.3f} -> {after:.3f}"
         )
     finally:
         page.close()

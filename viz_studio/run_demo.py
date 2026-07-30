@@ -105,6 +105,16 @@ def main(argv: list[str] | None = None) -> int:
         "workflow decides what is shown, so nobody can add an image the "
         "experiment knows nothing about.",
     )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8848,
+        help="which door on this machine the viewer answers on. The default is "
+        "8848. Change it when something else is already using that number — "
+        "another copy of this viewer, or other software on a shared lab PC — "
+        "which otherwise stops the viewer starting at all. Use 0 to let the "
+        "machine pick a free one and print which it chose.",
+    )
     args = parser.parse_args(argv)
 
     dist = _HERE / "frontend" / "dist"
@@ -144,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         narrowed = bool(args.tiles or args.filter_name)
         try:
             open_window(
+                port=args.port,
                 data_dir=parent,
                 store=names,
                 window=window,
@@ -203,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
         write_demo_zarr(store, timepoints=args.timepoints)
     print("Opening the visualization studio (demo mode)...")
     open_window(
+        port=args.port,
         store=store_name,
         window=window,
         depth_samples=args.depth_samples,

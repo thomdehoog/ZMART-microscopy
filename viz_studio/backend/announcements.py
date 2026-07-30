@@ -81,6 +81,10 @@ class Announcements:
         self._listeners: set[queue.SimpleQueue] = set()
         self._lock = threading.Lock()
         self._closed = False
+        # What the disk looked like when the microscope last announced something
+        # itself. The folder watcher reads this so that it does not repeat an
+        # announcement that has already been made; see :meth:`already_told_about`.
+        self._already_told: object | None = None
 
     def listen(self) -> queue.SimpleQueue:
         """Start listening. Returns the queue to read messages from."""
@@ -98,7 +102,9 @@ class Announcements:
         with self._lock:
             self._listeners.discard(waiting)
 
-    def say_something_changed(self, *, image_written_in_place: bool = False) -> int:
+    def say_something_changed(
+        self, *, image_written_in_place: bool = False, covering: object | None = None
+    ) -> int:
         """Tell every open page to ask again. Returns how many were told.
 
         The count is worth returning: an acquisition script that announces a
@@ -112,13 +118,45 @@ class Announcements:
         true and asking for it would make the viewer fetch the current view again for
         nothing. See ``IMAGE_WRITTEN_IN_PLACE`` above for why the viewer cannot work
         this out on its own.
+
+        Pass ``covering`` — what the disk looks like at this moment — when the
+        announcement comes from the microscope rather than from the folder
+        watcher. It is how the two are kept from saying the same thing twice; see
+        :meth:`already_told_about`.
         """
         message = IMAGE_WRITTEN_IN_PLACE if image_written_in_place else SOMETHING_CHANGED
         with self._lock:
+            if covering is not None:
+                self._already_told = covering
             listeners = list(self._listeners)
         for waiting in listeners:
             waiting.put(message)
         return len(listeners)
+
+    def already_told_about(self) -> object | None:
+        """What the disk looked like when the microscope last announced something.
+
+        The folder watcher compares this with what it sees. If they match, the
+        change it has just noticed is the very one the microscope already
+        announced, and saying so again would only make every open page ask the
+        same expensive question twice.
+
+        That mattered more than a wasted question. Writing one acquisition
+        produced both the run's own announcement and, within a second, the watcher
+        noticing the same write — so every position cost two full rebuilds of the
+        answer, on a question that takes over a second once a folder holds a few
+        thousand acquisitions. Worse, the second announcement arrived when nothing
+        on disk had moved since the first, which is the signal the viewer uses to
+        decide that image has been written into a store it already has open. It
+        would then throw away everything it had fetched and fetch it again, once
+        per position, for no reason at all.
+
+        Only an announcement made by the microscope records anything here. The
+        watcher's own announcements do not, so a folder being filled by software
+        that has never heard of this viewer is still watched exactly as before.
+        """
+        with self._lock:
+            return self._already_told
 
     def close(self) -> None:
         """Let every listener go, so their threads can finish.
@@ -191,6 +229,19 @@ class FolderWatcher:
                 # is not a reason to stop watching for the rest of the session.
                 now = last
             if last is not None and now != last:
-                self._announcements.say_something_changed()
+                # Unless the microscope has already said this itself. Both
+                # mechanisms see the same write, and announcing it twice made every
+                # open page ask the same expensive question twice per position --
+                # and, because nothing on disk had moved between the two, the
+                # second announcement looked exactly like image being written into
+                # a store already open, so the viewer threw away everything it had
+                # fetched and fetched it again.
+                #
+                # Compared by what the disk says rather than by counting
+                # announcements, so that a change landing *after* the microscope
+                # spoke is still noticed: the disk has moved on from what was
+                # announced, the two no longer match, and the watcher says so.
+                if now != self._announcements.already_told_about():
+                    self._announcements.say_something_changed()
             last = now
             self._stop.wait(self._every)

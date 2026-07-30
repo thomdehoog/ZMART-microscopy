@@ -83,6 +83,18 @@ A few things worth knowing:
 - **Put the controls on the left** with `--panel-side left`, if that side is easier
   to reach at your microscope.
 - **Show the selection list** with `--select` if you want to mark places.
+- **If the viewer will not start, it is usually the port.** The viewer answers on
+  8848, and it cannot start if something else on the machine is already using that
+  number — most often a copy of the viewer you left open. It will say so and
+  suggest what to do. To run a second one alongside the first, or to get past
+  other software that has taken 8848, give it another number:
+
+  ```
+  python run_demo.py --data /path/to/your/run --port 8849
+  ```
+
+  Any free number between 1024 and 65535 will do, and `--port 0` lets the machine
+  pick one for you and prints which it chose.
 
 ## Try the demo (no microscope needed)
 

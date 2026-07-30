@@ -670,25 +670,10 @@ class TestTheNumberIsOneAPersonWouldWrite:
 
 
 # --------------------------------------------------------------------------
-# A fault found while writing this, and not yet fixed
+# The volume view, where the bar means something different
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason="in the 3-D view the bar states the scale of the flat view instead. "
-           "Everything above is about the single-plane view, where the bar is "
-           "right. Pressing 3D swaps that panel for the volume rendering, which "
-           "the drawing engine magnifies with a second, separate zoom -- and the "
-           "bar goes on reading the first one. On the demo volume it therefore "
-           "over-states the specimen by about three quarters (0.35 um to a pixel "
-           "where the volume is really drawn at 0.20), by a factor that also "
-           "depends on the height of the window, and it does not move at all when "
-           "the operator zooms the volume. The fix is for pixelSize() in "
-           "ScaleBar.jsx to notice which panel is on screen and, for the volume, "
-           "read perspectiveNavigationState's zoom divided by the panel's height, "
-           "which is what the engine's own scale bar does.",
-    strict=True,
-)
 def test_the_bar_is_honest_in_the_volume_view_too(viewer_page, demo_voxel_metres):
     """The bar must mean the same thing when the operator turns the volume on.
 

@@ -336,11 +336,20 @@ async function keepHandingOver() {
  * again if they scroll back, which is the price, and it is a fair one.
  *
  * **When this is called matters as much as what it does**, and the rule is narrow on
- * purpose: only when an announcement has arrived and the scene turned out to be
- * completely unchanged — nothing added, nothing grown. That combination means something
- * on disk moved that no description can show, which is precisely a tile landing inside a
- * store already open. When a position arrives or a timelapse lengthens, the scene does
- * change, this is not called, and nothing already fetched is thrown away.
+ * purpose. There are exactly two occasions, both in App.jsx:
+ *
+ * 1. A run announced that it wrote image into a store already open, by sending
+ *    `wrote_image_in_place`. It is the only one who knows, so it is believed.
+ * 2. An acquisition that the panel already knew about, and that had no picture in it at
+ *    all, has just gained one — seen as a store going from having no histogram and no
+ *    count of moments to having them.
+ *
+ * An earlier attempt used a wider rule: an announcement arrived and the answer came back
+ * completely unchanged. That reads well and is wrong in practice. Redundant announcements
+ * are ordinary — the microscope and the folder watcher both see the same write — so it
+ * fired on every one of them, and measured, that cost a refetch of the whole view on
+ * every position arrival. When a position arrives or a timelapse lengthens, this is not
+ * called, and nothing already fetched is thrown away.
  *
  * Returns how many sources were asked, so a test can tell "it was asked and nothing
  * happened" from "it was never asked".

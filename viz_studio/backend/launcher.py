@@ -76,10 +76,13 @@ def open_window(
     native window cannot be opened. ``data_dir``/``store`` point the viewer at
     any OME-Zarr store; leaving them unset opens the demo volume.
 
-    ``watch`` keeps looking in that folder for images written after it was opened,
-    which is what makes an acquisition appear during a run. Turn it off when a
-    particular selection of images was asked for, or the ones left out would come
-    back on the next look.
+    ``port`` is which door on this machine the viewer answers on. Passing ``0``
+    asks the machine to pick a free one, which is the thing to do when 8848 is
+    already taken and you do not mind which is used instead.
+
+    ``live`` is what keeps the viewer looking in the folder for images written
+    after it was opened, which is what makes an acquisition appear during a run.
+    Turn it off for data that has finished, and nothing is looked for again.
     """
     # The viewer's "open" button needs a folder chooser, and only Python can show
     # one: a page in a browser cannot be handed a path on the machine. This hands
@@ -111,7 +114,11 @@ def open_window(
         kwargs["data_dir"] = data_dir
     server = make_server(port, **kwargs)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{port}"
+    # Asked of the server rather than built from the number passed in. The two
+    # agree for an ordinary port and disagree exactly when it matters: ``port=0``
+    # means "any free one", and the address built from the argument was then
+    # http://127.0.0.1:0, which leads nowhere.
+    url = f"http://127.0.0.1:{server.server_address[1]}"
 
     if not _webview2_present():
         print(
