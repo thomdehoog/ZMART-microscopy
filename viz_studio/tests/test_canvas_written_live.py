@@ -108,7 +108,48 @@ def _how_much_is_drawn(page) -> float:
     return float((pixels.max(axis=2) > 40).mean())
 
 
+# The engine's own account of how far it has got with the view in front of it:
+# how many pieces of image that view needs, and how many of them it has fetched
+# and decoded. Everything the first view needs having arrived is as close as the
+# engine comes to saying "I have finished drawing for now".
+#
+# Everywhere else in this file the engine's numbers are deliberately *not*
+# trusted, for the reason the module docstring gives: an unwritten piece of canvas
+# is decoded and counted exactly like a written one, so this number cannot tell
+# you whether a tile landed. That is precisely what makes it the right thing to
+# wait on here. It says the first draw is done without making any claim about what
+# is in the picture, which leaves the photograph to say that.
+_FIRST_DRAW_IS_DONE = """() => {
+  let layers = 0, needed = 0, available = 0;
+  for (const m of window.zmartViewer.layerManager.managedLayers)
+    for (const rl of (m.layer?.renderLayers) || []) {
+      layers += 1;
+      const p = rl.layerChunkProgressInfo;
+      if (p) { needed += p.numVisibleChunksNeeded; available += p.numVisibleChunksAvailable; }
+    }
+  return layers > 0 && available > 0 && available >= needed;
+}"""
+
+
 def _open_the_viewer(browser, built_dist, folder: Path, store: str):
+    """A viewer open on ``folder``, which has finished drawing whatever is there.
+
+    Waiting for the first draw to finish is what makes the "this canvas started
+    out empty" controls below mean anything, and it is worth saying why, because
+    it is the one piece of waiting in this file that has to be on the engine
+    rather than on the picture.
+
+    Those controls photograph the panel and insist it is one flat colour. A viewer
+    that has not finished its first draw yet is also one flat colour — so with a
+    fixed three-second pause and nothing else, a control meant to prove "the
+    canvas really was blank" would be satisfied just as happily by "the viewer had
+    not got round to drawing yet". The two cases it exists to tell apart would
+    look identical, and every later measurement would be resting on it.
+
+    So the engine is asked first, and only then is the photograph taken. The
+    engine is a fair judge of *when* to look; it is not a fair judge of what is
+    there, which is the job the pixels do.
+    """
     server = make_server(port=0, data_dir=folder, site_dir=built_dist,
                          store=store, live=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -117,7 +158,12 @@ def _open_the_viewer(browser, built_dist, folder: Path, store: str):
     page.goto(f"http://127.0.0.1:{server.server_address[1]}",
               wait_until="domcontentloaded")
     page.wait_for_function("() => window.zmartViewer !== undefined", timeout=60_000)
-    page.wait_for_timeout(3000)
+    page.wait_for_function(_FIRST_DRAW_IS_DONE, timeout=90_000)
+    # Having the pieces is a step ahead of having painted with them, and the
+    # painting happens on the engine's own schedule rather than ours. A short
+    # settle covers that gap. It is short because the waiting above has already
+    # done the part that takes an unpredictable length of time.
+    page.wait_for_timeout(1500)
     return server, thread, page
 
 

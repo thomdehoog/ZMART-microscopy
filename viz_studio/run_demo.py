@@ -126,7 +126,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.data:
         from stores import discover, prefer_filter, select_tiles
 
-        parent, names = discover(args.data)
+        try:
+            parent, names = discover(args.data)
+        except OSError as unreadable:
+            print(f"That folder could not be read: {unreadable}")
+            return 1
         if args.tiles:
             names = select_tiles(names, [int(t) for t in args.tiles.split(",")])
         names = prefer_filter(names, args.filter_name)
@@ -138,20 +142,45 @@ def main(argv: list[str] | None = None) -> int:
         # A narrowed selection must stay narrowed: if the folder were still being
         # watched, the tiles and filters deliberately left out would reappear.
         narrowed = bool(args.tiles or args.filter_name)
-        open_window(
-            data_dir=parent,
-            store=names,
-            window=window,
-            depth_samples=args.depth_samples,
-            chrome=args.chrome,
-            # A narrowed selection must stay narrowed, so watching is off: were the
-            # folder still being looked at, the tiles and filters deliberately left
-            # out would reappear.
-            live=not narrowed and not args.static,
-            allow_selection=args.select,
-            panel_side=args.panel_side,
-            allow_open=not args.no_open_button,
-        )
+        try:
+            open_window(
+                data_dir=parent,
+                store=names,
+                window=window,
+                depth_samples=args.depth_samples,
+                chrome=args.chrome,
+                # A narrowed selection must stay narrowed, so watching is off: were
+                # the folder still being looked at, the tiles and filters
+                # deliberately left out would reappear.
+                live=not narrowed and not args.static,
+                allow_selection=args.select,
+                panel_side=args.panel_side,
+                allow_open=not args.no_open_button,
+            )
+        except ValueError as refused:
+            # The viewer declines to open a folder holding more than one acquisition
+            # — an overview and a target scan are two pictures, not one — and it
+            # names the stores in each so that the answer is to open one of them.
+            # That message was written for the person at the microscope, so it is
+            # printed as it stands. Before this, it arrived as a Python traceback
+            # with the message buried at the bottom, which tells a biologist
+            # nothing about what to do next.
+            #
+            # The refusal itself belongs where it is, in library.py: that is the
+            # piece that knows what it found, and it has to be able to say no to
+            # whoever asked, whether that is this command or a running experiment.
+            # What belongs here, at the front door, is turning it into something
+            # readable.
+            print(f"\n{refused}")
+            print(
+                "\nPoint --data at one of the stores listed above to open that "
+                "acquisition on its own, for example:\n"
+                f'    python run_demo.py --data "{parent / names[0]}"\n'
+                "While the folder is being watched, the rest of that acquisition "
+                "joins it as it is written, and a different acquisition appearing "
+                "in the folder is given its own heading."
+            )
+            return 1
         return 0
 
     if args.timepoints < 1:

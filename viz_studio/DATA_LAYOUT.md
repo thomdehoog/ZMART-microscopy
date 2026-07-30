@@ -247,8 +247,13 @@ conversion when you decide a particular run deserves it.
 Everything the viewer needs from a store, in one place, so a writer can be built
 against it. Each item is either measured or read out of the engine's own source.
 
-**The format.** Zarr version 2, inside an OME-NGFF 0.4 image. The viewer asks the
-engine for `zarr2` explicitly, so a version 3 store will not open.
+**The format.** What our own writer produces is zarr version 2 inside an OME-NGFF 0.4
+image, which is what the mesoSPIM writes and what every other tool reads without
+argument. What the *viewer* accepts is wider: zarr version 2 and version 3, OME-Zarr
+0.4 and 0.5, and sharded stores, with the right reader chosen per store from what is
+on disk rather than by asking the engine to work it out. So a version 3 store opens,
+its axis units are repaired if they are spelled the way microscopists spell them, and
+how far a timelapse has got is read across all the ways version 3 names its pieces.
 
 **The axes.** `t, c, z, y, x`, in that order, each named in the `multiscales` block.
 Fewer is fine — a store with no time axis simply gets no time slider — but the order
@@ -824,14 +829,30 @@ grows, and they are cheap to ask for.
 
 ---
 
-## Decision 2: a timelapse grows its own length
+## Decision 2: time is a dimension inside the store, declared up front
 
-Time is a dimension *inside* the store's array, not a set of separate stores. When a
-frame is written, the array's shape is raised by one and the frame goes into the new
-slot.
+Time is a dimension *inside* the store's array, not a set of separate stores. That much
+has never changed and is the whole of what this decision settles.
 
-So the store always says what it actually holds. That is what makes the time slider
-honest: it ends where the data ends, and nothing has to hide frames that do not exist.
+**How long the array is has been decided twice, and the second answer is the one that
+holds.** The section below is kept as it was written, because the reasoning in it is
+worth reading and because a document that quietly rewrites its own history teaches
+nobody anything. But read it knowing the conclusion was reversed: a run now declares
+room for comfortably more moments than it could record and fills them in, exactly as
+the room in space is declared. The reversal, and why the objection recorded below
+against declaring up front turned out to be spent, is set out under "A timelapse
+declares its length up front and fills it in" earlier in this document.
+
+The short version of why. The objection to declaring generously was that the store
+would then claim frames it does not have, and something would have to stop the operator
+reaching them. That something now exists and is tested: the viewer reads how far the
+images on disk reach and stops the time slider there, and it opens a timelapse at its
+first moment rather than half way along. Meanwhile growing the array had a cost that
+does not go away — changing an array's shape changes the key the engine files decoded
+pieces under, so a viewer following the run re-reads the frame on screen once per new
+moment, for the whole length of the run.
+
+What follows is the original reasoning, unedited.
 
 ### Why not declare a generous ceiling instead
 

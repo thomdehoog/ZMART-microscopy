@@ -471,24 +471,75 @@ class TestHalfWrittenAndBroken:
         assert len(channels(half)) == 1
         assert written_timepoints(half) is None
 
-    @pytest.mark.parametrize(
-        "attrs",
-        [
-            '{"multiscales": null}',
-            '{"multiscales": [{"axes": null, "datasets": null}]}',
-            '{"multiscales": [{"axes": [1, 2, 3]}]}',
-            '{"multiscales": [{}], "omero": {"channels": "not a list"}}',
+    # Five ways a description can be wrong while still being valid JSON, and the
+    # axes each one leaves genuinely readable. A file caught mid-write gives the
+    # first sort of damage; a foreign instrument or a hand-edited description gives
+    # the rest, and all of them turn up in practice.
+    #
+    # What each case is expected to *answer* is written down, because "reading it
+    # did not raise" is not the property that matters. A reader that quietly
+    # returned nothing at all would satisfy that, and returning nothing here is not
+    # a small loss: a store described as having no channels gets no row in the
+    # panel, so the acquisition simply disappears from the viewer with nothing on
+    # screen to explain where it went. That is the failure this is really guarding
+    # against, and only an expectation can catch it.
+    _MALFORMED = {
+        "multiscales is null rather than a list": (
+            '{"multiscales": null}', []),
+        "the axes and datasets are both null": (
+            '{"multiscales": [{"axes": null, "datasets": null}]}', []),
+        "the axes are bare numbers rather than named entries": (
+            '{"multiscales": [{"axes": [1, 2, 3]}]}', []),
+        "the omero channels are a string rather than a list": (
+            '{"multiscales": [{}], "omero": {"channels": "not a list"}}', []),
+        "a dataset with no path, so the array cannot be found": (
             '{"multiscales": [{"axes": [{"name": "c"}], "datasets": [{"path": null}]}]}',
-        ],
+            ["c"]),
+    }
+
+    @pytest.mark.parametrize(
+        ("attrs", "axes"), list(_MALFORMED.values()), ids=list(_MALFORMED)
     )
-    def test_nonsense_metadata_is_survived(self, tmp_path, attrs):
-        """Whatever is in the file, reading it must not take the viewer down."""
+    def test_nonsense_metadata_is_survived(self, tmp_path, attrs, axes):
+        """Whatever is in the file, the viewer gives a safe answer rather than falling over.
+
+        Surviving is the least of it. Each of these has a right answer, and the
+        right answer is always the cautious one: report what the file really says,
+        claim nothing it does not, and never let a damaged description cost the
+        operator the acquisition.
+        """
         store = tmp_path / "overview_pos001.ome.zarr"
         store.mkdir(exist_ok=True)
         (store / ".zattrs").write_text(attrs, encoding="utf-8")
-        axis_names(store)
-        channels(store)
-        written_timepoints(store)
+
+        # Only the axes the file genuinely names. Inventing one would put a slider
+        # on screen for a dimension the image does not have; dropping one that is
+        # named would hide a dimension it does. The last case names a channel axis
+        # and nothing else, so that is exactly what comes back.
+        assert axis_names(store) == axes, (
+            "a damaged description was read as declaring axes it does not"
+        )
+
+        # There is still exactly one row in the panel, named after the file and
+        # left greyscale. Named after the file because that is genuinely all we
+        # know about this store, and greyscale because nothing in it told us a
+        # colour. One row rather than none is the part that matters: the operator
+        # can still see the acquisition and look at it.
+        found = channels(store)
+        assert len(found) == 1, (
+            f"a damaged description produced {len(found)} rows in the panel rather "
+            "than the one row that keeps the acquisition visible"
+        )
+        assert found[0]["name"] == "overview_pos001"
+        assert found[0]["color"] is None
+
+        # And nothing pretends to know how far a timelapse has got. ``None`` means
+        # "put no limit on the time slider", which is the honest answer when the
+        # description cannot be read — a guessed number would either hide moments
+        # that exist or offer moments that never will.
+        assert written_timepoints(store) is None, (
+            "a length was claimed for a store whose description cannot be read"
+        )
 
     def test_the_config_survives_a_folder_of_rubbish(self, tmp_path, serving):
         good = write_store(
@@ -609,6 +660,27 @@ class TestManyAtOnce:
         finally:
             conn.close()
 
+    def _reply_to(self, port, path: str) -> tuple[int, dict[str, str]]:
+        """The status and every header the server answers a plain GET with.
+
+        More than the one header, because whether a browser may keep something is
+        not settled by ``Cache-Control`` on its own. Handed a last-modified time or
+        an expiry instead, a browser will work out a lifetime for itself and stop
+        asking — so a test about what may be kept has to be able to see all of
+        them, not just the obvious one. The names are lowered because HTTP does not
+        care about their case and a test should not either.
+        """
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=PATIENCE)
+        try:
+            conn.request("GET", path)
+            response = conn.getresponse()
+            response.read()
+            return response.status, {
+                name.lower(): value for name, value in response.getheaders()
+            }
+        finally:
+            conn.close()
+
     def _one_written_piece(self, tmp_path):
         return write_store(
             tmp_path / "overview_pos001.ome.zarr",
@@ -646,15 +718,46 @@ class TestManyAtOnce:
 
         Most of a sparse or half-finished acquisition answers "nothing here", and
         that answer must not be kept by anyone — otherwise a region imaged five
-        minutes from now would go on reading as empty. Checked in the finished
-        mode, which is the one that keeps anything at all, so the absence is being
-        distinguished from a piece that *would* be kept rather than from a mode
-        that keeps nothing either way.
+        minutes from now would go on reading as empty, and the operator would be
+        looking at a hole in their data with nothing on screen to say it had since
+        been filled in.
+
+        Checked in the finished mode, which is the only one that lets the browser
+        keep anything at all. That is what gives the check its meaning: the written
+        piece next door in this very same server is handed over with permission to
+        keep it for a year, so a missing piece coming back without that permission
+        is a decision about the missing piece rather than about the mode the server
+        happens to be running in.
         """
         store = self._one_written_piece(tmp_path)
         port = serving(store.name, live=False)
-        missing = self._cache_header(port, f"/data/0/{store.name}/0/9.9.9.9")
-        assert missing is None or "no-store" in missing or "no-cache" in missing, missing
+
+        # The contrast first, so the absence below can be attributed to something.
+        # This is the keeping mode, and a piece that does exist is indeed offered
+        # to be kept.
+        status, headers = self._reply_to(port, f"/data/0/{store.name}/0/0.0.0.0")
+        assert status == 200
+        assert "immutable" in headers.get("cache-control", ""), headers
+
+        status, headers = self._reply_to(port, f"/data/0/{store.name}/0/9.9.9.9")
+        # A piece that was never imaged is the ordinary case rather than an error,
+        # and it is answered plainly and briefly. Worth asserting, because a reply
+        # that never reached this part of the server at all would also come back
+        # without permission to keep anything, and would prove nothing.
+        assert status == 404, f"expected the ordinary empty answer, got {status}"
+        assert headers.get("content-length") == "0", headers
+
+        # Nothing offers to keep it — and, just as importantly, nothing lets the
+        # browser decide for itself how long to keep it. That second half is worth
+        # spelling out: an empty answer is one a browser is allowed to hold on to,
+        # and handed a last-modified time or an expiry it will work out a lifetime
+        # of its own and stop asking. So what is asserted is that the reply carries
+        # none of the four things it could do that with.
+        for keepable in ("cache-control", "expires", "last-modified", "etag"):
+            assert keepable not in headers, (
+                f"the empty answer carries {keepable!r}, which a browser can use to "
+                f"go on believing a region is empty after it has been imaged: {headers}"
+            )
 
 
 # --------------------------------------------------------------------------
