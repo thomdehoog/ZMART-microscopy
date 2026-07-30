@@ -73,7 +73,7 @@ from pathlib import Path
 import numpy as np
 import zarr
 
-from .coverage import COVERAGE_FOLDER, Recorder
+from .coverage import Recorder, forget_the_record_of
 
 # The default colours for the usual excitation wavelengths, matching what the
 # viewer uses elsewhere, so a run written here looks the same as one read from a
@@ -237,20 +237,13 @@ def _a_tile_already_written(store: Path) -> Path | None:
     because a finished run can hold millions of pieces and the answer is the same
     either way.
 
-    The image's record of where it has been imaged is passed over. That folder is
-    made when the images are declared, before a single tile has been acquired, so
-    counting it as picture would make every freshly declared image look like a run
-    that had already happened — and the writer would then refuse to let anybody
-    write into it.
-
     Returns:
         The path of a piece of acquired picture, or ``None`` if this image holds
         nothing but its description.
     """
     if not store.exists():
         return None
-    for here, folders, files in os.walk(store):
-        folders[:] = [name for name in folders if name != COVERAGE_FOLDER]
+    for here, _, files in os.walk(store):
         for name in files:
             if name not in _DESCRIPTION_FILES:
                 return Path(here) / name
@@ -952,7 +945,7 @@ class TileCanvases:
         # covered instead of the far larger room the run declared.
         for slot in slots:
             slot.record = Recorder(
-                slot.folder, canvas_shape=shape, tile_shape=tile_shape
+                folder, slot.folder.name, canvas_shape=shape, tile_shape=tile_shape
             )
 
     def close(self) -> None:
@@ -1170,6 +1163,15 @@ class TileCanvases:
         claim = _claim_the_right_to_write(folder, name)
         if discard_existing_run:
             _throw_away_the_existing_run(folder, name)
+        # Declaring the images empties them, so whatever an earlier attempt at
+        # this acquisition recorded about where it had imaged is no longer true
+        # and has to go with them. Done for every declaration rather than only for
+        # a discarded run, because an earlier attempt that declared its images and
+        # then stopped before acquiring anything is allowed through the check
+        # above and would otherwise leave its record behind — including, if it
+        # spread its tiles over more images than this run will, records naming
+        # images that are about to stop existing.
+        forget_the_record_of(folder, name)
 
         if slots is None:
             _refuse_overlapping_tiles(tile_shape, tile_step)
