@@ -1412,7 +1412,10 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     const { x, y } = toCarrier(e.offsetX, e.offsetY);
     const took = state.editor.pointer(kind, { x, y, shift: e.shiftKey, scale: view.scale });
     if (took) drawStage();
-    return took;
+    /* Only a true means the editor claimed the event. Anything else it answers
+       is "the picture changed" — the pointer moved over a field — and the
+       canvas still gets to say where the stage is under the cursor. */
+    return took === true;
   }
 
   function drawScaleBar(ctx, w, h, scale = view.scale) {
@@ -1501,7 +1504,11 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     }
     endDrag(e);
   });
-  stageCv.addEventListener("pointerleave", (e) => { endDrag(e); stageTip.classList.remove("on"); });
+  stageCv.addEventListener("pointerleave", (e) => {
+    editorTook("leave", e);
+    endDrag(e);
+    stageTip.classList.remove("on");
+  });
 
   stageCv.addEventListener("wheel", (e) => {
     e.preventDefault();

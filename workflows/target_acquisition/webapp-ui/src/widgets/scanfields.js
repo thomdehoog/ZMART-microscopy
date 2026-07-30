@@ -44,6 +44,14 @@ const MODES = [
   { id: "grid", glyph: "⊞", label: "GRID", why: "The same block of positions in every area" },
 ];
 
+/* How a field is drawn, and how it says it is being talked about. Twice the
+   line and no dash: a shape under the pointer or in the selection is the same
+   shape, so it should not change into a different kind of drawing — it should
+   get heavier. Dashes read as provisional, which is what the marquee and the
+   shape being dragged out actually are. */
+const FIELD_W = 1.6;
+const MARKED_W = FIELD_W * 2;
+
 /* Screen pixels, not micrometres: a grip is as easy to hit zoomed out as in. */
 const HIT_PX = 12;
 const CLOSE_PX = 18;
@@ -119,7 +127,7 @@ export default {
         continue;
       }
       ctx.strokeStyle = ink;
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = FIELD_W;
       traceField(ctx, f, toScreen);
       ctx.stroke();
     }
@@ -423,19 +431,21 @@ export default {
       /** Grips, marquee and the shape being drawn — the editing, not the plan. */
       drawChrome(ctx, { toScreen, scale }) {
         ctx.save();
+        /* Marked means selected or under the pointer, and both look the same:
+           pointing at a shape and having picked it are the same claim about
+           which one is being talked about, so clicking should not change how
+           it reads — only what happens next. */
         for (const f of ed.fields) {
-          if (!ed.selected.has(f.id)) continue;
-          ctx.strokeStyle = "#0284c7";
-          ctx.lineWidth = 2;
-          ctx.setLineDash([4, 3]);
+          if (!ed.selected.has(f.id) && ed.hover !== f.id) continue;
+          ctx.strokeStyle = presetInk(presets, f.presetId);
+          ctx.lineWidth = MARKED_W;
           if (isPointLike(f.type)) {
             const [x, y] = toScreen(f.x, f.y);
-            ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.stroke();
           } else {
             traceField(ctx, f, toScreen);
             ctx.stroke();
           }
-          ctx.setLineDash([]);
         }
 
         const only = single();
@@ -505,6 +515,11 @@ export default {
         if (kind === "down") return down(x, y, scale);
         if (kind === "move") return moveTo(x, y, scale);
         if (kind === "up") return up();
+        if (kind === "leave") {
+          const had = ed.hover;
+          ed.hover = null;
+          return had ? "redraw" : false;
+        }
         return false;
       },
     };
@@ -619,7 +634,15 @@ export default {
         ed.drawing = { ...ed.drawing, cx: x, cy: y };
         return true;
       }
-      if (!ed.drag) return false;
+      if (!ed.drag) {
+        /* Nothing is being dragged, so this is only the pointer passing over.
+           Say the picture changed without claiming the event: the canvas still
+           wants to report where the stage is under the cursor. */
+        const over = hitField(x, y, scale)?.id ?? null;
+        if (over === ed.hover) return false;
+        ed.hover = over;
+        return "redraw";
+      }
 
       if (ed.drag.kind === "move") {
         const dx = x - ed.drag.ox, dy = y - ed.drag.oy;
