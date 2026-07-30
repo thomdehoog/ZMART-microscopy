@@ -1,0 +1,1292 @@
+{
+ "window": {
+  "width": 900,
+  "height": 700
+ },
+ "margin_css_px": 40,
+ "the control: both layers in one canvas": {
+  "arrangement": "one-canvas",
+  "follow": "presented",
+  "density": 1.0,
+  "band was cut at, in a still photograph's pixels": 40.0,
+  "at_rest": {
+   "left": 41.0,
+   "right": 41.0,
+   "top": 41.0,
+   "bottom": 41.0
+  },
+  "at_rest_unevenness": 0.0,
+  "at_rest_photograph": "control-at-rest.png",
+  "panning": {
+   "samples": 75,
+   "photographs": 123,
+   "closed": 0,
+   "left": 1.0,
+   "right": 1.0,
+   "top": 1.0,
+   "bottom": 1.0,
+   "unevenness": 0.0,
+   "widest_seen": {
+    "left": 41.0,
+    "right": 41.0,
+    "top": 41.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 41.0,
+    "right": 41.0,
+    "top": 41.0,
+    "bottom": 41.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     82.0,
+     82.0
+    ],
+    "down": [
+     82.0,
+     82.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 41,
+   "photograph": "control-panning-worst.png"
+  },
+  "zooming": {
+   "samples": 27,
+   "photographs": 27,
+   "closed": 0,
+   "left": 1.0,
+   "right": 1.0,
+   "top": 1.0,
+   "bottom": 1.0,
+   "unevenness": 0.0,
+   "widest_seen": {
+    "left": 41.0,
+    "right": 41.0,
+    "top": 41.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 40.0,
+    "right": 40.0,
+    "top": 40.0,
+    "bottom": 40.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     80.0,
+     82.0
+    ],
+    "down": [
+     80.0,
+     82.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 9,
+   "photograph": "control-zooming-worst.png"
+  },
+  "thrown about": {
+   "samples": 126,
+   "photographs": 147,
+   "closed": 0,
+   "left": 1.0,
+   "right": 1.0,
+   "top": 1.0,
+   "bottom": 1.0,
+   "unevenness": 0.0,
+   "widest_seen": {
+    "left": 41.0,
+    "right": 41.0,
+    "top": 41.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 41.0,
+    "right": 41.0,
+    "top": 41.0,
+    "bottom": 41.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     82.0,
+     82.0
+    ],
+    "down": [
+     82.0,
+     82.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 49,
+   "photograph": "control-thrown-about-worst.png"
+  }
+ },
+ "the sandwich, sheet following the pointer": {
+  "arrangement": "sandwich",
+  "follow": "pointer",
+  "density": 1.0,
+  "band was cut at, in a still photograph's pixels": 40.0,
+  "at_rest": {
+   "left": 40.0,
+   "right": 41.0,
+   "top": 40.0,
+   "bottom": 41.0
+  },
+  "at_rest_unevenness": 1.0,
+  "at_rest_photograph": "pointer-at-rest.png",
+  "panning": {
+   "samples": 82,
+   "photographs": 126,
+   "closed": 0,
+   "left": 5.0,
+   "right": 6.0,
+   "top": 0.0,
+   "bottom": 1.0,
+   "unevenness": 11.0,
+   "widest_seen": {
+    "left": 40.0,
+    "right": 46.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 35.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     81.0,
+     81.0
+    ],
+    "down": [
+     81.0,
+     81.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 42,
+   "photograph": "pointer-panning-worst.png"
+  },
+  "zooming": {
+   "samples": 45,
+   "photographs": 48,
+   "closed": 3,
+   "left": 35.0,
+   "right": 35.0,
+   "top": 35.0,
+   "bottom": 35.0,
+   "unevenness": 2.0,
+   "widest_seen": {
+    "left": 74.0,
+    "right": 75.0,
+    "top": 74.0,
+    "bottom": 75.0
+   },
+   "narrowest_seen": {
+    "left": 5.0,
+    "right": 6.0,
+    "top": 5.0,
+    "bottom": 6.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     11.0,
+     149.0
+    ],
+    "down": [
+     11.0,
+     149.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 16,
+   "photograph": "pointer-zooming-worst.png"
+  },
+  "thrown about": {
+   "samples": 129,
+   "photographs": 150,
+   "closed": 0,
+   "left": 12.0,
+   "right": 13.0,
+   "top": 0.0,
+   "bottom": 1.0,
+   "unevenness": 25.0,
+   "widest_seen": {
+    "left": 52.0,
+    "right": 53.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 28.0,
+    "right": 29.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     81.0,
+     81.0
+    ],
+    "down": [
+     81.0,
+     81.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 50,
+   "photograph": "pointer-thrown-about-worst.png"
+  }
+ },
+ "the sandwich, sheet following the engine's last frame": {
+  "arrangement": "sandwich",
+  "follow": "presented",
+  "density": 1.0,
+  "band was cut at, in a still photograph's pixels": 40.0,
+  "at_rest": {
+   "left": 40.0,
+   "right": 41.0,
+   "top": 40.0,
+   "bottom": 41.0
+  },
+  "at_rest_unevenness": 1.0,
+  "at_rest_photograph": "presented-at-rest.png",
+  "panning": {
+   "samples": 73,
+   "photographs": 120,
+   "closed": 0,
+   "left": 0.0,
+   "right": 1.0,
+   "top": 0.0,
+   "bottom": 1.0,
+   "unevenness": 1.0,
+   "widest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     81.0,
+     81.0
+    ],
+    "down": [
+     81.0,
+     81.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 40,
+   "photograph": "presented-panning-worst.png"
+  },
+  "zooming": {
+   "samples": 30,
+   "photographs": 30,
+   "closed": 0,
+   "left": 1.0,
+   "right": 1.0,
+   "top": 1.0,
+   "bottom": 1.0,
+   "unevenness": 2.0,
+   "widest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 39.0,
+    "right": 40.0,
+    "top": 39.0,
+    "bottom": 40.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     79.0,
+     81.0
+    ],
+    "down": [
+     79.0,
+     81.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 10,
+   "photograph": "presented-zooming-worst.png"
+  },
+  "thrown about": {
+   "samples": 127,
+   "photographs": 147,
+   "closed": 0,
+   "left": 0.0,
+   "right": 1.0,
+   "top": 0.0,
+   "bottom": 1.0,
+   "unevenness": 1.0,
+   "widest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     81.0,
+     81.0
+    ],
+    "down": [
+     81.0,
+     81.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 49,
+   "photograph": "presented-thrown-about-worst.png"
+  }
+ },
+ "which way the specimen faces": {
+  "as the viewer does it": {
+   "frames": 30,
+   "frames_with_an_edge_on_the_surface": 30,
+   "moved the sheet by": 168.0,
+   "moved the picture by": 168.0,
+   "which way": -1.0,
+   "worst gap between what it says and what it drew": 359.5,
+   "worst gap between what it was asked and what it says": 0.0,
+   "photograph": "facing-as-the-viewer-does-it.png"
+  },
+  "width running to the right": {
+   "frames": 30,
+   "frames_with_an_edge_on_the_surface": 30,
+   "moved the sheet by": 168.0,
+   "moved the picture by": 168.0,
+   "which way": 1.0,
+   "worst gap between what it says and what it drew": 0.5,
+   "worst gap between what it was asked and what it says": 0.0,
+   "photograph": "facing-width-running-to-the-right.png"
+  }
+ },
+ "a constant offset, if there is one": {
+  "at_each_magnification": [
+   {
+    "voxels_per_pixel": 8.0,
+    "sides": {
+     "left": 40.0,
+     "right": 40.0,
+     "top": 40.0,
+     "bottom": 40.0
+    },
+    "left minus right": 0.0,
+    "top minus bottom": 0.0,
+    "in voxels, across": 0.0
+   },
+   {
+    "voxels_per_pixel": 6.0,
+    "sides": {
+     "left": 39.0,
+     "right": 40.0,
+     "top": 39.0,
+     "bottom": 40.0
+    },
+    "left minus right": -1.0,
+    "top minus bottom": -1.0,
+    "in voxels, across": -3.0
+   },
+   {
+    "voxels_per_pixel": 4.0,
+    "sides": {
+     "left": 39.0,
+     "right": 41.0,
+     "top": 40.0,
+     "bottom": 40.0
+    },
+    "left minus right": -2.0,
+    "top minus bottom": 0.0,
+    "in voxels, across": -4.0
+   },
+   {
+    "voxels_per_pixel": 3.0,
+    "sides": {
+     "left": 40.0,
+     "right": 41.0,
+     "top": 40.0,
+     "bottom": 41.0
+    },
+    "left minus right": -1.0,
+    "top minus bottom": -1.0,
+    "in voxels, across": -1.5
+   },
+   {
+    "voxels_per_pixel": 2.0,
+    "sides": {
+     "left": 39.0,
+     "right": 41.0,
+     "top": 39.0,
+     "bottom": 40.0
+    },
+    "left minus right": -2.0,
+    "top minus bottom": -1.0,
+    "in voxels, across": -2.0
+   }
+  ]
+ },
+ "latency, unbounded": {
+  "bounded": false,
+  "coverage": true,
+  "at": {
+   "0": {
+    "requests": 256,
+    "found": 9,
+    "missing": 247,
+    "at_once": 6,
+    "seconds": 0.4745538070001203,
+    "rounds": 143,
+    "delay_ms": 0.0,
+    "wall_seconds": 0.534,
+    "rounds_by_arithmetic": 42.7,
+    "predicted_seconds": 0.0
+   },
+   "2": {
+    "requests": 256,
+    "found": 9,
+    "missing": 247,
+    "at_once": 6,
+    "seconds": 0.5437174940016121,
+    "rounds": 68,
+    "delay_ms": 2.0,
+    "wall_seconds": 0.624,
+    "rounds_by_arithmetic": 42.7,
+    "predicted_seconds": 0.085
+   },
+   "20": {
+    "requests": 256,
+    "found": 9,
+    "missing": 247,
+    "at_once": 6,
+    "seconds": 1.2533037529992725,
+    "rounds": 47,
+    "delay_ms": 20.0,
+    "wall_seconds": 1.312,
+    "rounds_by_arithmetic": 42.7,
+    "predicted_seconds": 0.853
+   }
+  }
+ },
+ "latency, bounded to the imaged tiles": {
+  "bounded": true,
+  "coverage": true,
+  "at": {
+   "0": {
+    "requests": 25,
+    "found": 9,
+    "missing": 16,
+    "at_once": 6,
+    "seconds": 0.07012794300135283,
+    "rounds": 13,
+    "delay_ms": 0.0,
+    "wall_seconds": 0.148,
+    "rounds_by_arithmetic": 4.2,
+    "predicted_seconds": 0.0
+   },
+   "2": {
+    "requests": 25,
+    "found": 9,
+    "missing": 16,
+    "at_once": 6,
+    "seconds": 0.0582853800005978,
+    "rounds": 5,
+    "delay_ms": 2.0,
+    "wall_seconds": 0.155,
+    "rounds_by_arithmetic": 4.2,
+    "predicted_seconds": 0.008
+   },
+   "20": {
+    "requests": 25,
+    "found": 9,
+    "missing": 16,
+    "at_once": 6,
+    "seconds": 0.15485140200144087,
+    "rounds": 5,
+    "delay_ms": 20.0,
+    "wall_seconds": 0.209,
+    "rounds_by_arithmetic": 4.2,
+    "predicted_seconds": 0.083
+   }
+  }
+ },
+ "a stall, with the sheet locked to the engine": {
+  "0": {
+   "follow": "presented",
+   "delay_ms": 0,
+   "gesture_seconds": 3.12,
+   "frames": 42,
+   "frames_that_changed": 39,
+   "longest_freeze_seconds": 0.679,
+   "the mouse moved (browser pixels)": 200,
+   "the picture moved while it was on screen (photograph pixels)": 120.0,
+   "photographs where the picture was still filling in": "17 of 42",
+   "registration, on the frames where the picture was whole": {
+    "samples": 25,
+    "photographs": 25,
+    "closed": 0,
+    "left": 0.0,
+    "right": 1.0,
+    "top": 0.0,
+    "bottom": 1.0,
+    "unevenness": 1.0,
+    "widest_seen": {
+     "left": 40.0,
+     "right": 41.0,
+     "top": 40.0,
+     "bottom": 41.0
+    },
+    "narrowest_seen": {
+     "left": 40.0,
+     "right": 41.0,
+     "top": 40.0,
+     "bottom": 41.0
+    },
+    "opposite sides added up to": {
+     "across": [
+      81.0,
+      81.0
+     ],
+     "down": [
+      81.0,
+      81.0
+     ],
+     "when whole and lined up, both stay at": 80.0
+    }
+   },
+   "requests": {
+    "requests": 271,
+    "found": 27,
+    "missing": 244,
+    "at_once": 6,
+    "seconds": 3.53985256300075,
+    "rounds": 186,
+    "delay_ms": 0.0
+   }
+  },
+  "20": {
+   "follow": "presented",
+   "delay_ms": 20,
+   "gesture_seconds": 3.11,
+   "frames": 42,
+   "frames_that_changed": 41,
+   "longest_freeze_seconds": 0.604,
+   "the mouse moved (browser pixels)": 200,
+   "the picture moved while it was on screen (photograph pixels)": 120.0,
+   "photographs where the picture was still filling in": "17 of 42",
+   "registration, on the frames where the picture was whole": {
+    "samples": 25,
+    "photographs": 25,
+    "closed": 0,
+    "left": 0.0,
+    "right": 1.0,
+    "top": 0.0,
+    "bottom": 1.0,
+    "unevenness": 1.0,
+    "widest_seen": {
+     "left": 40.0,
+     "right": 41.0,
+     "top": 40.0,
+     "bottom": 41.0
+    },
+    "narrowest_seen": {
+     "left": 40.0,
+     "right": 41.0,
+     "top": 40.0,
+     "bottom": 41.0
+    },
+    "opposite sides added up to": {
+     "across": [
+      81.0,
+      81.0
+     ],
+     "down": [
+      81.0,
+      81.0
+     ],
+     "when whole and lined up, both stay at": 80.0
+    }
+   },
+   "requests": {
+    "requests": 514,
+    "found": 45,
+    "missing": 469,
+    "at_once": 6,
+    "seconds": 10.489324269999997,
+    "rounds": 286,
+    "delay_ms": 20.0
+   }
+  },
+  "200": {
+   "follow": "presented",
+   "delay_ms": 200,
+   "gesture_seconds": 2.33,
+   "frames": 41,
+   "frames_that_changed": 38,
+   "longest_freeze_seconds": 0.643,
+   "the mouse moved (browser pixels)": 200,
+   "the picture moved while it was on screen (photograph pixels)": 120.0,
+   "photographs where the picture was still filling in": "28 of 41",
+   "registration, on the frames where the picture was whole": {
+    "samples": 13,
+    "photographs": 13,
+    "closed": 0,
+    "left": 0.0,
+    "right": 1.0,
+    "top": 0.0,
+    "bottom": 1.0,
+    "unevenness": 1.0,
+    "widest_seen": {
+     "left": 40.0,
+     "right": 41.0,
+     "top": 40.0,
+     "bottom": 41.0
+    },
+    "narrowest_seen": {
+     "left": 40.0,
+     "right": 41.0,
+     "top": 40.0,
+     "bottom": 41.0
+    },
+    "opposite sides added up to": {
+     "across": [
+      81.0,
+      81.0
+     ],
+     "down": [
+      81.0,
+      81.0
+     ],
+     "when whole and lined up, both stay at": 80.0
+    }
+   },
+   "requests": {
+    "requests": 721,
+    "found": 63,
+    "missing": 658,
+    "at_once": 6,
+    "seconds": 19.40380042900142,
+    "rounds": 391,
+    "delay_ms": 200.0
+   }
+  }
+ },
+ "a stall, with the compromise": {
+  "0": {
+   "follow": "compromise",
+   "delay_ms": 0,
+   "gesture_seconds": 2.74,
+   "frames": 42,
+   "frames_that_changed": 41,
+   "longest_freeze_seconds": 0.661,
+   "the mouse moved (browser pixels)": 200,
+   "the picture moved while it was on screen (photograph pixels)": 120.0,
+   "photographs where the picture was still filling in": "16 of 42",
+   "registration, on the frames where the picture was whole": {
+    "samples": 26,
+    "photographs": 26,
+    "closed": 0,
+    "left": 2.0,
+    "right": 2.0,
+    "top": 2.0,
+    "bottom": 2.0,
+    "unevenness": 2.0,
+    "widest_seen": {
+     "left": 42.0,
+     "right": 42.0,
+     "top": 42.0,
+     "bottom": 42.0
+    },
+    "narrowest_seen": {
+     "left": 40.0,
+     "right": 41.0,
+     "top": 42.0,
+     "bottom": 42.0
+    },
+    "opposite sides added up to": {
+     "across": [
+      81.0,
+      84.0
+     ],
+     "down": [
+      84.0,
+      84.0
+     ],
+     "when whole and lined up, both stay at": 80.0
+    }
+   },
+   "requests": {
+    "requests": 970,
+    "found": 81,
+    "missing": 889,
+    "at_once": 6,
+    "seconds": 22.194704333000118,
+    "rounds": 554,
+    "delay_ms": 0.0
+   },
+   "worst_sliver_px": 6.0,
+   "typical_sliver_px": 2.0,
+   "sliver_photograph": "stall-compromise-0-sliver.png"
+  },
+  "20": {
+   "follow": "compromise",
+   "delay_ms": 20,
+   "gesture_seconds": 2.66,
+   "frames": 42,
+   "frames_that_changed": 41,
+   "longest_freeze_seconds": 0.659,
+   "the mouse moved (browser pixels)": 200,
+   "the picture moved while it was on screen (photograph pixels)": 120.0,
+   "photographs where the picture was still filling in": "17 of 42",
+   "registration, on the frames where the picture was whole": {
+    "samples": 25,
+    "photographs": 25,
+    "closed": 0,
+    "left": 2.0,
+    "right": 2.0,
+    "top": 2.0,
+    "bottom": 2.0,
+    "unevenness": 2.0,
+    "widest_seen": {
+     "left": 42.0,
+     "right": 42.0,
+     "top": 42.0,
+     "bottom": 42.0
+    },
+    "narrowest_seen": {
+     "left": 40.0,
+     "right": 41.0,
+     "top": 42.0,
+     "bottom": 42.0
+    },
+    "opposite sides added up to": {
+     "across": [
+      81.0,
+      84.0
+     ],
+     "down": [
+      84.0,
+      84.0
+     ],
+     "when whole and lined up, both stay at": 80.0
+    }
+   },
+   "requests": {
+    "requests": 1213,
+    "found": 99,
+    "missing": 1114,
+    "at_once": 6,
+    "seconds": 28.226161184000375,
+    "rounds": 632,
+    "delay_ms": 20.0
+   },
+   "worst_sliver_px": 6.0,
+   "typical_sliver_px": 2.0,
+   "sliver_photograph": "stall-compromise-20-sliver.png"
+  },
+  "200": {
+   "follow": "compromise",
+   "delay_ms": 200,
+   "gesture_seconds": 2.44,
+   "frames": 42,
+   "frames_that_changed": 41,
+   "longest_freeze_seconds": 0.666,
+   "the mouse moved (browser pixels)": 200,
+   "the picture moved while it was on screen (photograph pixels)": 120.0,
+   "photographs where the picture was still filling in": "26 of 42",
+   "registration, on the frames where the picture was whole": {
+    "samples": 16,
+    "photographs": 16,
+    "closed": 0,
+    "left": 2.0,
+    "right": 2.0,
+    "top": 2.0,
+    "bottom": 2.0,
+    "unevenness": 2.0,
+    "widest_seen": {
+     "left": 42.0,
+     "right": 42.0,
+     "top": 42.0,
+     "bottom": 42.0
+    },
+    "narrowest_seen": {
+     "left": 40.0,
+     "right": 41.0,
+     "top": 42.0,
+     "bottom": 42.0
+    },
+    "opposite sides added up to": {
+     "across": [
+      81.0,
+      84.0
+     ],
+     "down": [
+      84.0,
+      84.0
+     ],
+     "when whole and lined up, both stay at": 80.0
+    }
+   },
+   "requests": {
+    "requests": 1426,
+    "found": 117,
+    "missing": 1309,
+    "at_once": 6,
+    "seconds": 36.75235709300068,
+    "rounds": 716,
+    "delay_ms": 200.0
+   },
+   "worst_sliver_px": 6.0,
+   "typical_sliver_px": 2.0,
+   "sliver_photograph": "stall-compromise-200-sliver.png"
+  }
+ },
+ "with a run writing to the same disk": {
+  "arrangement": "sandwich",
+  "follow": "presented",
+  "density": 1.0,
+  "band was cut at, in a still photograph's pixels": 40.0,
+  "at_rest": {
+   "left": 40.0,
+   "right": 41.0,
+   "top": 40.0,
+   "bottom": 41.0
+  },
+  "at_rest_unevenness": 1.0,
+  "at_rest_photograph": "while-writing-at-rest.png",
+  "panning": {
+   "samples": 74,
+   "photographs": 123,
+   "closed": 0,
+   "left": 0.0,
+   "right": 1.0,
+   "top": 0.0,
+   "bottom": 1.0,
+   "unevenness": 1.0,
+   "widest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     81.0,
+     81.0
+    ],
+    "down": [
+     81.0,
+     81.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 41,
+   "photograph": "while-writing-panning-worst.png"
+  },
+  "zooming": {
+   "samples": 30,
+   "photographs": 30,
+   "closed": 0,
+   "left": 1.0,
+   "right": 1.0,
+   "top": 1.0,
+   "bottom": 1.0,
+   "unevenness": 2.0,
+   "widest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 39.0,
+    "right": 40.0,
+    "top": 39.0,
+    "bottom": 40.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     79.0,
+     81.0
+    ],
+    "down": [
+     79.0,
+     81.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 10,
+   "photograph": "while-writing-zooming-worst.png"
+  },
+  "thrown about": {
+   "samples": 124,
+   "photographs": 144,
+   "closed": 0,
+   "left": 0.0,
+   "right": 1.0,
+   "top": 0.0,
+   "bottom": 1.0,
+   "unevenness": 1.0,
+   "widest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     81.0,
+     81.0
+    ],
+    "down": [
+     81.0,
+     81.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 48,
+   "photograph": "while-writing-thrown-about-worst.png"
+  },
+  "tiles_written_meanwhile": 1070
+ },
+ "does it notice new data arriving": {
+  "lit_at_first": 0.024,
+  "lit_without_being_told": 0.024,
+  "lit_after_letting_go": 0.0715,
+  "sources_asked_to_let_go": 3,
+  "photographs": [
+   "new-data-before.png",
+   "new-data-without-telling-it.png",
+   "new-data-after-letting-go.png"
+  ]
+ },
+ "a screen that is not one real pixel to a browser pixel": {
+  "arrangement": "sandwich",
+  "follow": "presented",
+  "density": 1.5,
+  "band was cut at, in a still photograph's pixels": 60.0,
+  "at_rest": {
+   "left": 60.0,
+   "right": 61.0,
+   "top": 60.0,
+   "bottom": 61.0
+  },
+  "at_rest_unevenness": 1.0,
+  "at_rest_photograph": "density-1.5-at-rest.png",
+  "panning": {
+   "samples": 74,
+   "photographs": 120,
+   "closed": 0,
+   "left": 0.0,
+   "right": 1.0,
+   "top": 0.0,
+   "bottom": 1.0,
+   "unevenness": 1.0,
+   "widest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     81.0,
+     81.0
+    ],
+    "down": [
+     81.0,
+     81.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 40,
+   "photograph": "density-1.5-panning-worst.png"
+  },
+  "zooming": {
+   "samples": 30,
+   "photographs": 30,
+   "closed": 0,
+   "left": 1.0,
+   "right": 1.0,
+   "top": 1.0,
+   "bottom": 1.0,
+   "unevenness": 2.0,
+   "widest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 39.0,
+    "right": 40.0,
+    "top": 39.0,
+    "bottom": 40.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     79.0,
+     81.0
+    ],
+    "down": [
+     79.0,
+     81.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 10,
+   "photograph": "density-1.5-zooming-worst.png"
+  },
+  "thrown about": {
+   "samples": 126,
+   "photographs": 147,
+   "closed": 0,
+   "left": 0.0,
+   "right": 1.0,
+   "top": 0.0,
+   "bottom": 1.0,
+   "unevenness": 1.0,
+   "widest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "narrowest_seen": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "opposite sides added up to": {
+    "across": [
+     81.0,
+     81.0
+    ],
+    "down": [
+     81.0,
+     81.0
+    ],
+    "when whole and lined up, both stay at": 80.0
+   },
+   "band was cut at, in these pixels": 40.0,
+   "worst slant": 0.0,
+   "frames": 49,
+   "photograph": "density-1.5-thrown-about-worst.png"
+  },
+  "canvas_sizes": {
+   "sheet": {
+    "width": 1350,
+    "height": 1050,
+    "css": 900
+   },
+   "engine": {
+    "width": 900,
+    "height": 700,
+    "css": 900
+   }
+  },
+  "density_the_page_sees": 1.5,
+  "after_resize": {
+   "band was cut at, in these pixels": 60.0,
+   "margins": {
+    "left": 60.0,
+    "right": 61.0,
+    "top": 60.0,
+    "bottom": 61.0
+   },
+   "unevenness": 1.0,
+   "canvas_sizes": {
+    "sheet": {
+     "width": 1650,
+     "height": 930,
+     "css": 1100
+    },
+    "engine": {
+     "width": 1100,
+     "height": 620,
+     "css": 1100
+    }
+   },
+   "photograph": "density-1.5-after-resize.png"
+  }
+ },
+ "only the two gestures move the view": {
+  "allowed": {
+   "drag pans": {
+    "image edge moved by": 120.0,
+    "margins stayed even": 1.0,
+    "photograph": "gestures-after-pan.png"
+   },
+   "wheel zooms": {
+    "image grew from": 244.0,
+    "to": 603.0,
+    "margins stayed even": 2.0,
+    "photograph": "gestures-after-zoom.png"
+   }
+  },
+  "removed": {
+   "shift and drag (used to rotate)": {
+    "view unchanged": true,
+    "mean difference in the photograph": 0.0
+   },
+   "the r key (used to rotate)": {
+    "view unchanged": true,
+    "mean difference in the photograph": 0.0
+   },
+   "the e key (used to rotate)": {
+    "view unchanged": true,
+    "mean difference in the photograph": 0.0
+   },
+   "shift and the arrow keys (used to tilt)": {
+    "view unchanged": true,
+    "mean difference in the photograph": 0.0
+   },
+   "ctrl and the wheel (used to zoom)": {
+    "view unchanged": true,
+    "mean difference in the photograph": 0.0
+   },
+   "the right button (used to recentre)": {
+    "view unchanged": true,
+    "mean difference in the photograph": 0.0
+   },
+   "the arrow keys (used to step sideways)": {
+    "view unchanged": true,
+    "mean difference in the photograph": 0.0
+   }
+  },
+  "what the page counted": {
+   "refused": {
+    "shiftDrag": 1,
+    "rightButton": 1,
+    "ctrlWheel": 5,
+    "keys": 14
+   },
+   "accepted": {
+    "drags": 1,
+    "wheels": 5
+   }
+  }
+ },
+ "and the checks can fail": {
+  "lined up": {
+   "margins along the middle cut": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "unevenness along the middle cut": 1.0,
+   "slant across the three cuts": 0.0
+  },
+  "hole moved 2 browser pixels": {
+   "margins": {
+    "left": 38.0,
+    "right": 43.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "unevenness": 5.0,
+   "photograph": "can-fail-nudged-2.png"
+  },
+  "hole moved 8 browser pixels": {
+   "margins": {
+    "left": 32.0,
+    "right": 49.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "unevenness": 17.0,
+   "photograph": "can-fail-nudged-8.png"
+  },
+  "view turned 2 degrees": {
+   "margins along the middle cut": {
+    "left": 40.0,
+    "right": 41.0,
+    "top": 40.0,
+    "bottom": 41.0
+   },
+   "unevenness along the middle cut": 1.0,
+   "slant across the three cuts": 5.0,
+   "photograph": "can-fail-turned-2.png"
+  },
+  "view turned 15 degrees": {
+   "margins along the middle cut": {
+    "left": 35.0,
+    "right": 35.0,
+    "top": 34.0,
+    "bottom": 36.0
+   },
+   "unevenness along the middle cut": 2.0,
+   "slant across the three cuts": 44.0,
+   "photograph": "can-fail-turned-15.png"
+  }
+ }
+}

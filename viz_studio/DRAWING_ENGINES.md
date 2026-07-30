@@ -140,6 +140,23 @@ says it has written something — none of that is tied to which engine draws. So
 project tests: look at the picture, and prove the test can fail. That rule was learned the hard
 way here and applies to any engine.
 
+## Since measured: the engine can also go *underneath*
+
+This document weighs one engine against another for the flat view. There is a
+third possibility it does not consider, and it has since been measured: keep
+neuroglancer for the flat view too, but put it in a canvas of its own
+**underneath** the application's, with holes cut in the drawing above wherever
+the image should show. That avoids every embedding problem listed at the top of
+this file, because nothing has to be embedded — the engine keeps its own page
+furniture and the application simply lies over it.
+
+It works, under one discipline: the application's drawing must be repainted from
+the frame the engine has just finished rather than the instant the mouse moves.
+The numbers, the photographs and the costs are in `SANDWICH.md`.
+
+Two of the embedding problems above were met again while measuring it, and two
+more were found and added to the list there.
+
 ## Not decided
 
 Whether the existing interface — the layer panel, the sliders, the scale bar — is ported to

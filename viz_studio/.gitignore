@@ -1,6 +1,13 @@
 # Node dependencies and the built page are generated, not source.
 frontend/node_modules/
 frontend/dist/
+sandwich/page/node_modules/
+sandwich/page/dist/
+
+# What `sandwich/measure.py` writes: the little acquisitions it makes for
+# itself, and the results of one run. The photographs worth keeping are copied
+# into sandwich/photographs/ by hand and are in the repository.
+sandwich/results/
 
 # The demo volume is generated on first run.
 backend/demo_store/

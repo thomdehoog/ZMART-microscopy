@@ -137,7 +137,28 @@ drawing over it and nothing reports that it has.
 ## What is still open
 
 None of the above depends on which engine draws the image, which is the point of
-writing it down now. What is still being decided is whether the engine draws
-*inside* the application's canvas as another layer, or *underneath* it as a second
-canvas with holes cut in the layers above. That is task #23, and the measurement
-is whether the two stay locked together while the view is moved.
+writing it down now. What was still being decided when this was written is
+whether the engine draws *inside* the application's canvas as another layer, or
+*underneath* it as a second canvas with holes cut in the layers above.
+
+**That has now been measured, and the answer is in `SANDWICH.md`.** The short
+version: drawing the image underneath does hold registration, provided the
+application's own drawing is repainted from the frame the engine has just
+finished rather than the moment the mouse moves. Repainted from the mouse, the
+picture really does slide out from under the outlines, by up to seventy screen
+pixels. Repainted from the engine's last frame, the two are indistinguishable
+from being drawn in a single canvas.
+
+Two things found while measuring it belong here as well as there, because they
+are about this stack rather than about which engine draws it:
+
+- **Unimaged ground must be drawn as nothing rather than as black.** A run
+  declares far more room than it fills, and a piece nobody has imaged reads back
+  as nought — exactly like a piece of genuinely dark specimen. Drawn plainly it
+  becomes a solid black rectangle sitting over the operator's plan, hiding the
+  tiles they laid out for a place the microscope has not been to yet. Drawn with
+  nothing there, the plan shows through, which is what the table above says
+  should happen. It is two lines in the shader.
+- **The flat view as this project configures it draws the specimen mirrored left
+  to right**, and nothing reports it. That breaks the rule at the bottom of this
+  file just as thoroughly as a rotation would. See `SANDWICH.md`, section 2.
