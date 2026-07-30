@@ -516,14 +516,13 @@ class Recorder:
             written=datetime.now(timezone.utc).isoformat(),
         )
         line = (json.dumps(tile.as_written(), separators=(",", ":")) + "\n").encode("utf-8")
-        if True:
+        with self._lock:
             if self._handle is None:
                 return
-            # BROKEN ON PURPOSE: the naive design -- read the whole record, add a
-            # line, write it back.
-            here = self._folder / TILES_FILE
-            was = here.read_bytes()
-            here.write_bytes(was + line)
+            # One call, one whole line. Handing the operating system the finished
+            # line in a single piece is what stops two tiles landing at the same
+            # moment from producing one line spliced out of both.
+            os.write(self._handle, line)
             self._blocks.append(tile.region)
             self._frames.add(tile.frame)
             self._channels.add(tile.channel)
