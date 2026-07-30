@@ -101,12 +101,22 @@ jobs:
         # image being evicted under pressure from the other browsers. Measured on
         # four cores, three parallel runs produced four different failures and
         # every one of them passed when run on its own.
+        #
+        # ZMART_REQUIRE_BROWSER is what makes this job mean something. Everything
+        # above installs a browser and builds the page, and until now none of it
+        # was *checked*: if Chromium failed to launch, or the build silently
+        # produced nothing, the tests that look at pixels would skip and the job
+        # would report a comfortable green having never drawn anything. That is
+        # about a third of the suite, and it is the third that catches a picture
+        # which is silently absent. With this set, a run that did not look at the
+        # pixels fails and says why.
+        env:
+          ZMART_REQUIRE_BROWSER: '1'
         run: python -m pytest viz_studio/tests --tb=short -rs
 
       - name: Say what did not run
-        # A skipped test is not a failure, but a suite that quietly stops looking
-        # at pixels is indistinguishable from one that looked and was satisfied.
-        # Printing the reasons puts that in the log where somebody reading a green
-        # run can still see it.
+        # Anything else skipped is not a failure -- a real acquisition through
+        # ZMART_TEST_STORE, or a GPU this runner does not have -- but it is worth
+        # putting in the log where somebody reading a green run can still see it.
         if: always()
         run: echo "See the 'short test summary info' above for anything skipped and why."

@@ -96,6 +96,42 @@ measured on the acquisition PC. The margin the ordinary run checks against stays
 at the smaller, more cautious number for exactly this reason: a viewer that is
 safe on the slowest machine is safe everywhere.
 
+## Making a run fail if it never looked at a picture
+
+About a third of this suite opens a real browser and reads the pixels it drew, and
+that third is the only part that catches the fault this project keeps meeting: a
+picture that is silently absent, with every piece fetched, every layer built, and
+the engine reporting itself perfectly content.
+
+If the browser cannot launch, or the page was never built, all of those tests skip
+— and the run reports the same comfortable green as one that looked and was
+satisfied. On a laptop without Node that is exactly right. On a machine that is
+*supposed* to draw, it is the suite quietly stopping doing the one thing it is for.
+
+So on such a machine, set:
+
+```
+ZMART_REQUIRE_BROWSER=1 python run_tests.py
+```
+
+and a run where the pixel tests did not happen ends as a failure, saying which of
+the two reasons it was. The project's own CI sets it, which is what makes that job
+mean anything. Leave it unset on a plain checkout and nothing changes.
+
+## Keeping an eye on whether the viewer still draws quickly
+
+`tests/test_the_drawing_keeps_up.py` measures how much of its own drawing rate the
+viewer keeps when ten times as many positions are open. It is a comparison rather
+than a number, so it means the same thing on a laptop and on the microscope PC — if
+the whole machine is slow, both halves are slow and the ratio does not move.
+
+There are two tests in it and they say different things. One holds the line where
+the viewer is today, so that a further slide is noticed. The other states the rate
+that is actually wanted and is **expected to fail**, because the viewer pays a cost
+per position on every frame and that is not fixed — `NEXT_STEPS.md` records the
+cause and why the fix is an architectural change. The day somebody does fix it, that
+test will start passing, the run will say so, and the marker should come off.
+
 ## Confirming the GPU is really being used
 
 The clearest single check:
