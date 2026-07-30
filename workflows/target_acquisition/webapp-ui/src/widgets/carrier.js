@@ -18,6 +18,7 @@
 
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
+  centres,
 } from "../lib/carriers.js";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -103,14 +104,14 @@ export default {
     ctx.strokeStyle = colour;
     ctx.globalAlpha = 0.8;
     ctx.lineWidth = Math.min(1.2, Math.max(0.4, aw * 0.02));
-    for (let r = 0; r < config.rows; r++) {
-      for (let c = 0; c < config.cols; c++) {
-        const [x, y] = toScreen(c * g.pitchX * MM_UM, r * g.pitchY * MM_UM);
-        ctx.beginPath();
-        ctx.roundRect(x, y, aw, ah, rad);
-        if (fill) ctx.fill();
-        ctx.stroke();
-      }
+    // from the same centres anything placing positions inside an area reads,
+    // so the drawing and the positions cannot land in different places
+    for (const a of centres(config)) {
+      const [x, y] = toScreen((a.x - config.w / 2) * MM_UM, (a.y - config.h / 2) * MM_UM);
+      ctx.beginPath();
+      ctx.roundRect(x, y, aw, ah, rad);
+      if (fill) ctx.fill();
+      ctx.stroke();
     }
     ctx.restore();
   },

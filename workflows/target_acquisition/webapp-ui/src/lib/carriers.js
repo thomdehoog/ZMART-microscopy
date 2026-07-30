@@ -141,6 +141,28 @@ export function geometry(config) {
   };
 }
 
+/**
+ * The centre of every imageable area, in millimetres from the carrier's own
+ * zero, row-major.
+ *
+ * One owner for where an area is. The canvas draws the carrier from this and
+ * anything placing positions inside it reads the same list, so a scan field
+ * and the well it is meant to be in cannot disagree. Centres rather than
+ * corners because that is what a position is placed relative to — dividing the
+ * carrier's width evenly would land them off by half a gap at every edge.
+ */
+export function centres(config) {
+  const { rows, cols, w, h } = config;
+  const { pitchX, pitchY } = geometry(config);
+  const out = [];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      out.push({ row, col, x: col * pitchX + w / 2, y: row * pitchY + h / 2 });
+    }
+  }
+  return out;
+}
+
 /** One line for the rail: what was configured, without opening the panel. */
 export const describeCarrier = (config) => {
   const g = geometry(config);

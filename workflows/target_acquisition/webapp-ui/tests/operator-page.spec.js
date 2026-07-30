@@ -46,6 +46,15 @@ async function throughSetup(page) {
   await page.waitForTimeout(200);
 }
 
+/** ...and the scan fields, which is what opens the steps that touch the sample. */
+async function throughFields(page) {
+  await throughSetup(page);
+  await gotoStep(page, "Initial scanfields");
+  await page.locator(".sf-mode[data-mode='grid']").click();
+  await page.locator(".sf-primary").click();
+  await page.waitForTimeout(300);
+}
+
 async function placeFocusPoints(page) {
   await gotoStep(page, "Focus strategy");
   const box = await page.locator("#focus-canvas").boundingBox();
@@ -69,13 +78,17 @@ test.afterEach(async ({ page }) => {
 });
 
 test("the rail carries the workflow's declared steps", async ({ page }) => {
-  await expect(page.locator("#steps .step")).toHaveCount(10);
+  await expect(page.locator("#steps .step")).toHaveCount(11);
   await expect(page.locator(".step.active .step-name")).toHaveText("Microscope configuration");
+  // the fields are said before the focus that keeps them sharp and the scan
+  // that visits them, because both of those are about positions that exist
+  await expect(page.locator(".step-name").nth(3)).toHaveText("Initial scanfields");
+  await expect(page.locator(".step-name").nth(4)).toHaveText("Focus strategy");
 
   await page.locator("#wf-select").selectOption("overview_only");
-  await expect(page.locator("#steps .step")).toHaveCount(6);
+  await expect(page.locator("#steps .step")).toHaveCount(7);
   await page.locator("#wf-select").selectOption("focus_check");
-  await expect(page.locator("#steps .step")).toHaveCount(6);
+  await expect(page.locator("#steps .step")).toHaveCount(7);
 });
 
 test("a session needs a password before it will open", async ({ page }) => {
@@ -379,6 +392,18 @@ test("the canvas belongs to the steps that happen inside it, and to no others",
     await gotoStep(page, "Carrier configuration");
     await expect(page.locator(".tab")).toHaveText(["Canvas"]);
 
+    /* The channel belongs to the step standing in it. Scan fields are about
+       the canvas the way the carrier is, so they take the same column and the
+       heading says whose it is — rather than a second column beside it holding
+       controls for a step nobody is on. */
+    await gotoStep(page, "Initial scanfields");
+    await expect(page.locator(".side-tab")).toHaveText("Initial scanfields");
+    await expect(page.locator(".sf-card")).toHaveCount(1);
+    await expect(page.locator(".carrier-card")).toHaveCount(0);
+    await page.locator(".sf-mode[data-mode='grid']").click();
+    await page.locator(".sf-primary").click();
+    await page.waitForTimeout(300);
+
     await placeFocusPoints(page);
     await expect(page.locator(".tab")).toHaveText(["Canvas", "Focus strategy"]);
     await expect(page.locator('.tab[aria-selected="true"]')).toHaveText("Focus strategy");
@@ -387,11 +412,16 @@ test("the canvas belongs to the steps that happen inside it, and to no others",
     // a step that owns no panel is the canvas alone — setup does not follow it
     await gotoStep(page, "Scan the overview");
     await expect(page.locator(".tab")).toHaveText(["Canvas"]);
-    // and the carrier channel is still there, since the frame outlasts the step
-    // that set it — locked now, because something has been done inside it
+    // and no channel, because no step is standing in it: the canvas keeps the
+    // whole width for the picture that is about to fill it
+    await expect(page.locator("#canvas-side")).toBeHidden();
+    // walking back to the carrier brings its controls back, locked now,
+    // because something has been done inside the frame it set
+    await gotoStep(page, "Carrier configuration");
     await expect(page.locator(".carrier-card")).toHaveCount(1);
     await expect(page.locator(".carrier-num").first()).toBeDisabled();
 
+    await gotoStep(page, "Scan the overview");
     await runStep(page, 3000);
 
     await gotoStep(page, "Focus strategy");
@@ -399,8 +429,72 @@ test("the canvas belongs to the steps that happen inside it, and to no others",
       .toHaveText(["Canvas", "Focus strategy"]);
   });
 
+test("the grid comes from the carrier, so changing the plate changes the plan",
+  async ({ page }) => {
+    await throughSetup(page);
+    await gotoStep(page, "Initial scanfields");
+    // nothing to scan yet, so the step is not done and the next one is shut
+    await expect(page.locator('.step:has-text("Initial scanfields")').first())
+      .not.toHaveClass(/done/);
+    await expect(page.locator('.step:has-text("Focus strategy")').first()).toBeDisabled();
+
+    await page.locator(".sf-mode[data-mode='grid']").click();
+    await page.locator(".sf-primary").click();
+    await page.waitForTimeout(300);
+    // 96 areas, three by three in each
+    await expect(page.locator(".sf-readout")).toContainText("864 positions");
+    await expect(page.locator('.step:has-text("Initial scanfields")').first())
+      .toHaveClass(/done/);
+
+    /* And the carrier stops being editable, because these positions were
+       placed relative to areas that must not move out from under them. */
+    await gotoStep(page, "Carrier configuration");
+    await expect(page.locator(".carrier-preset")).toBeDisabled();
+
+    /* A different plate is a different plan. The same three-by-three grid on
+       six areas is 54 positions, not 864 — the count is read off the carrier
+       rather than typed beside it. */
+    await page.locator("#restart-btn").click();
+    await connect(page);
+    await gotoStep(page, "Carrier configuration");
+    await page.locator(".carrier-preset").selectOption({ label: "6-well" });
+    await page.waitForTimeout(200);
+    await gotoStep(page, "Initial scanfields");
+    await page.locator(".sf-mode[data-mode='grid']").click();
+    await page.locator(".sf-primary").click();
+    await page.waitForTimeout(300);
+    await expect(page.locator(".sf-readout")).toContainText("54 positions");
+  });
+
+test("a region is drawn on the canvas and covered by its preset's frame",
+  async ({ page }) => {
+    await throughSetup(page);
+    await gotoStep(page, "Initial scanfields");
+    const box = await page.locator("#stage-canvas").boundingBox();
+
+    await page.locator(".sf-tool[data-tool='rectangle']").click();
+    await page.mouse.move(box.x + box.width * 0.35, box.y + box.height * 0.35);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.55, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+
+    // one region, and the positions covering it are the tiles the preset takes
+    await expect(page.locator(".sf-readout")).toContainText("1 region");
+    const readout = await page.locator(".sf-readout").innerText();
+    expect(Number(readout.match(/^(\d+) position/)[1]),
+      "a region the size of several frames takes several tiles").toBeGreaterThan(1);
+
+    // drawing hands the tool back, so the next drag does not draw a second one
+    await expect(page.locator(".sf-tool[data-tool='pointer']")).toHaveClass(/on/);
+
+    await page.locator(".sf-card >> text=Undo").click();
+    await page.waitForTimeout(200);
+    await expect(page.locator(".sf-readout")).toContainText("nothing to scan yet");
+  });
+
 test("one walk of the whole run", async ({ page }) => {
-  await throughSetup(page);
+  await throughFields(page);
 
   await placeFocusPoints(page);
   await runStep(page, 1600);

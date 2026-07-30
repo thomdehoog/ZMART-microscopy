@@ -839,3 +839,69 @@ canvas.scattercv { cursor: crosshair; }
 .carrier-shape.round::before { content: "◯"; }
 .carrier-link:disabled, .carrier-shape:disabled, .carrier-reset:disabled { opacity: 0.5; cursor: default; }
 
+
+/* ---- the scan fields channel -------------------------------------------
+   The same column the carrier docks in, so the two steps that are about the
+   canvas read as one place rather than two. Its controls are grouped by the
+   question they answer — what to draw with, what it is taken with, and what
+   the grid puts in every area — because the panel is used in that order. */
+.sf-card { display: flex; flex-direction: column; height: 100%; }
+.sf-controls { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+
+.sf-modes { display: flex; gap: 5px; }
+.sf-mode {
+  flex: 1; font: inherit; font-size: 12px; font-weight: 600;
+  padding: 7px 4px; border-radius: 8px; cursor: pointer;
+  color: var(--ink-3); background: var(--surface-3);
+  border: 1px solid var(--line-strong);
+}
+.sf-mode.on { color: var(--accent-deep); border-color: var(--accent); background: var(--accent-tint); }
+
+.sf-tools { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.sf-tool {
+  height: 34px; display: grid; place-content: center; padding: 0;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--screen); color: var(--ink-2); cursor: pointer;
+}
+.sf-tool.on { color: var(--accent-deep); border-color: var(--accent); background: var(--accent-tint); }
+.sf-glyph { font-size: 15px; line-height: 1; }
+
+.sf-group {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface-3);
+}
+.sf-group[hidden] { display: none; }
+.sf-label, .sf-num-label {
+  font-size: 9px; font-family: var(--mono); color: var(--ink-3);
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.sf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.sf-grid > .sf-label, .sf-grid > .sf-btn { grid-column: 1 / -1; }
+.sf-num { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.sf-num input, .sf-select {
+  font: inherit; font-size: 12.5px; font-family: var(--mono); color: var(--ink);
+  background: var(--screen); border: 1px solid var(--line-strong);
+  border-radius: 7px; padding: 6px 8px; width: 100%;
+}
+.sf-num input:focus, .sf-select:focus { outline: none; }
+
+.sf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.sf-btn {
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--ink-2);
+  background: var(--screen); border: 1px solid var(--line-strong);
+  border-radius: 7px; padding: 6px 9px; cursor: pointer;
+}
+.sf-btn:hover:enabled { color: var(--ink); background: var(--surface-2); }
+.sf-btn:disabled { opacity: 0.45; cursor: default; }
+.sf-primary { color: #fff; background: var(--accent); border-color: var(--accent); }
+:root[data-theme="dark"] .sf-primary, :root:not([data-theme="light"]) .sf-primary { color: #04121d; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .sf-primary { color: #fff; } }
+.sf-primary:hover:enabled { background: var(--accent-deep); color: #fff; }
+
+/* What the plan comes to, at the foot of the column the way the run's own
+   results sit at the foot of a panel. */
+.sf-readout {
+  margin-top: auto; padding: 12px 14px; border-top: 1px solid var(--line);
+  font-size: 12px; font-family: var(--mono); color: var(--ink-2);
+}

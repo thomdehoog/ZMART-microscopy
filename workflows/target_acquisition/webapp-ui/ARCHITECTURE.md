@@ -82,6 +82,13 @@ surfaces are not acquired data and get their own widgets.
 A panel need not be a tab. Something that *is* the canvas rather than an
 alternative to it takes the channel beside it instead: see the carrier below.
 
+**The channel belongs to the step standing in it.** Two steps own one — the
+carrier is what the canvas is drawing, the scan fields are what is being drawn
+on it — and both dock into the same column, with the heading saying whose it
+is. One column rather than two, because a second would take width from the
+picture to show controls for a step nobody is on. A step with no side widget
+gives the canvas the whole width.
+
 ## Steps and workflows
 
 A step is data plus one function:
@@ -125,13 +132,15 @@ tree matches the picture.
 
 | part | state |
 |---|---|
-| `lib/carriers.js` | built, unit-tested, **used by the app and by `widgets/carrier.js`** |
+| `lib/carriers.js` | built, unit-tested, **used by the app, `widgets/carrier.js` and the scan-field grid** |
+| `lib/scanfields.js` | built, unit-tested, **used by `widgets/scanfields.js`** |
 | `lib/microscopes.js` | used by the app |
 | `lib/surface.js`, `sweep.js`, `sample.js`, `rng.js` | built, unit-tested, **not yet imported by the app** |
 | `backend/mock.js` | built, **not yet imported by the app** |
 | `frame/steps.js` | built, unit-tested; only `numbered()` is used |
 | `workflows/` | built, unit-tested, **not yet imported and now stale** |
 | `widgets/carrier.js` | built, used — the first widget, and the shape the rest should follow |
+| `widgets/scanfields.js` | built, used — the geometry editor and the grid, in the same channel |
 | `src/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
 **Widget extraction has started, from the outside in.** `widgets/carrier.js` is
@@ -145,9 +154,9 @@ beside the picture (`#canvas-side`) and it exports `drawOn(ctx, …)` to put the
 carrier on the stage itself. Controls and drawing are in the one file because
 they are one subject — change what a carrier is and a single place follows.
 
-The channel is not a menu for one step. The frame outlasts the step that set
-it, so it stays readable for the rest of the run and stops being editable once
-applied.
+The channel belongs to whichever step owns it, and `widgets/scanfields.js` is
+the second to. It stops being editable once something later has been done —
+positions placed against areas that must not move out from under them.
 
 One rule it establishes, which the next widget should keep: **a widget redraws
 itself.** Asking the frame to rebuild the panel on every change destroys the
