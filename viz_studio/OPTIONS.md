@@ -215,3 +215,54 @@ see by rebuilding is a difference you will not see at all.
 It is not three finished products. Each needs to be good enough that the comparison
 is about the approach rather than about unfinished wiring, and no better. Anything
 one option has that the others do not is a reason to distrust the result.
+
+---
+
+## Telling "imaged and dark" from "never visited"
+
+Decided in conversation on 2026-07-30, **not yet built**. Recorded here because it
+is the last thing standing between the layer stack above and doing what an operator
+would expect.
+
+The problem. Making unimaged room see-through works by looking at how bright a
+voxel is: nothing there, so let the layer beneath show through. But a place that
+genuinely *was* imaged and came back black looks exactly the same to that test, so
+it disappears too — and a viewer that hides a dark specimen is worse than one that
+never hid anything.
+
+The fix is one line in the writer, just before a tile is written:
+
+```python
+image = np.maximum(image, 1)
+```
+
+Zarr fills room that was never written with zero. The ambiguity exists only because
+acquired data is *also* allowed to be zero. Take that away and nought means "nobody
+has been here" — exactly, always — while anything at all means "somebody looked,
+and this is what they saw". The test the shader already makes, `v > 0.0`, stops
+being a guess about brightness and becomes a true statement about coverage.
+
+What it costs is the single value zero as a real intensity: one level out of the
+65,536 a camera can record, and the one meaning "darker than nothing". A camera
+sits at an offset of a hundred counts or so, so nothing an instrument produces is
+lost. Only an image that has already had its background taken off could contain a
+true zero, and there the zero was noise rather than signal.
+
+Why not something cleverer. A sentinel such as 65535 fails because saturated
+pixels genuinely reach it. A wider or signed type works and doubles the storage.
+The engine does know which pieces of image were never written — a missing piece is
+fetched, not found, and filled in — but that knowledge never reaches the shader, so
+it is present and unreachable. And a shader cannot read a second layer, so the
+record of where tiles were imaged cannot be consulted while drawing.
+
+The one genuinely different approach is to stop asking the pixels at all: use that
+record to give the engine one bounded layer per imaged region, so unimaged ground
+has no layer over it and is see-through because nothing is drawn there. That is
+exact and needs no convention — but it trades one layer for many, and this viewer
+already has a measured fault where cost grows with the number of positions.
+
+**Two things to know before doing it.** It applies only to tiles written afterwards;
+anything already acquired keeps the ambiguity. And it needs a test that writes a
+genuinely dark tile beside unwritten room and proves the first stays visible while
+the second does not — otherwise the guarantee quietly rots the next time somebody
+tidies the writer.
