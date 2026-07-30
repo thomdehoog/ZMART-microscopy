@@ -20,18 +20,24 @@ without the argument.
 shrunk-down copies, and its place on the stage as a `translation` in its own metadata.
 Masks live inside the store they describe, under `labels/`. Folders stay flat — there
 is no container folder per acquisition type, because the engine cannot see one and
-something of ours would have to list its contents anyway.
+something of ours would have to list its contents anyway. A run written into one declared
+canvas keeps one more thing beside its images, in a `zmart-coverage/` folder: a note of
+where it actually imaged, because a generously declared canvas says nothing at all about
+which parts of it hold picture.
 
 **How things grow.** A new position is a new store. A new frame is written into the
 store that already exists, into room declared for it at the start — so a store gains
 pieces of image but never changes its declared shape. A new mask is a folder under
 `labels/`. Nothing that is already being read ever changes shape.
 
-**On screen.** Rows are gathered under their acquisition type, one row per channel — and
-a mask is simply another row, drawn with its own controls. Every position of one
-acquisition type feeds the same row, and they become one picture because the engine
-places each by its translation. What the panel shows is therefore acquisition types and
-channels; the fact that a position is a separate folder never surfaces.
+**On screen.** Rows are gathered under the dataset that one load produced, one row per
+channel — and a mask is simply another row, drawn with its own controls. A dataset is one
+acquisition, so every position of it feeds the same row, and they become one picture
+because the engine places each by its translation. What the panel shows is therefore
+acquisitions and channels; the fact that a position is a separate folder never surfaces.
+Two acquisition types side by side on screen means two loads, one heading each. This
+document used to say the panel gathered rows by acquisition type on its own, working that
+out from the store names; Decision 3 sets out what replaced it and why.
 
 **How much to open.** Whatever the operator asked for. Point it at a folder and it opens the
 folder; the viewer never decides to show less than it was given. What that asks of the
@@ -229,7 +235,10 @@ conversion when you decide a particular run deserves it.
   origin.
 - **Keep the pyramid shallow for small tiles.** Each resolution level is another
   small file the viewer must read before drawing. A 256-pixel tile does not need
-  four levels; one or two is plenty, and it cuts the reading proportionally.
+  four levels; one or two is plenty, and it cuts the reading proportionally. Note
+  that this is advice about *small* images, and it reverses for a canvas covering
+  the whole stage — see "A pyramid, and let it reach a small top" below, where the
+  right number is worked out from how wide the image is rather than being fixed.
 - **File the pieces in folders, not side by side in one directory.** In zarr terms
   that means `dimension_separator: "/"`, so a piece lands at `0/3/1/8/0/0` rather
   than being named `0/3.1.8.0.0`. Neuroglancer reads both, and this was checked
@@ -283,6 +292,52 @@ slow.
 measures brightness from and what the engine draws when zoomed out, so it should be
 small enough to read quickly — a few megabytes at most. A store with no pyramid still
 opens, but it will be slow to open and coarse views will fetch full-resolution data.
+
+**How many levels: enough that the smallest is about a thousand voxels across.** This is
+the number to work out rather than to fix, and it matters more than it sounds, so it is
+worth setting out what happens when it is wrong.
+
+The viewer reads the **whole** of the smallest copy, for every colour, before it draws
+anything at all — and it does that again at every zoom, with no progressive reveal, so the
+operator watches a blank screen until it has all arrived. What they wait for is the number
+of *pieces* that copy is stored in rather than the number of bytes: each piece costs a few
+milliseconds of the browser's own bookkeeping whatever its size, and a browser will only
+ask for about six at a time. Measured against the viewer on stores written here, opening a
+view costs `2 × ceil(coarsest width ÷ piece)² × colours` requests, which predicted every
+measurement exactly.
+
+A canvas the width of a stage is some fifty times wider than a single camera tile, so a
+number of levels that suits the tile leaves the canvas nowhere near a small top. With
+256-voxel pieces, and counting one colour:
+
+| a canvas 100 000 voxels across | smallest copy | requests before it draws |
+|---|---|---|
+| 3 levels — what a single camera tile wants | 25 000 voxels | **roughly 19 000** |
+| 8 levels — what the rule below gives it | 781 voxels | **about 30** |
+
+Six levels sit between the two, leaving the smallest copy 3 125 voxels across: several
+seconds of waiting rather than a fraction of one. And every one of these figures is per
+colour, because the smallest copy is read again for each of them.
+
+So the writer chooses the number from the room a run declared: keep halving the wider of y
+and x until the smallest copy is about a thousand voxels across, never fewer than three
+levels and never more than ten. Three is a floor so that an ordinary tile-sized image is no
+worse off than before. Ten is a ceiling because every extra level is real work on every tile
+that arrives, and over-declaring the room is encouraged everywhere else in this document —
+so a generous declaration must not be able to make writing slow. Ten levels shrink an image
+by five hundred and twelve times, which brings even a canvas half a million voxels across
+down to about a thousand; no stage travels that far.
+
+Halving happens in whole steps, so in practice the smallest copy lands somewhere between
+half of a thousand voxels and a thousand. Stopping at about five hundred rather than going
+further is deliberate: below that a copy has stopped being an overview of the specimen and
+become a thumbnail, and the reading it saves is no longer worth the writing it costs on
+every tile.
+
+`copies_for_a_canvas` in `zmart_storage/canvas.py` is the rule, and `zmart_storage/fuse.py`
+follows the same one when it joins a finished run into a single picture, because that
+picture is read in exactly the same way. A writer with a reason of its own can still state a
+number outright and it is used as asked.
 
 **An `omero` block** naming each channel, giving it a colour, and giving a starting
 brightness window. The viewer honours all three, so an acquisition arrives looking
@@ -498,10 +553,20 @@ discover it later from a picture that looks subtly wrong — see
 **What follows for the tile size.** Since there is no overlap, the step can be chosen freely,
 and it should be chosen so that a tile is a whole number of pieces of image. Then no two
 tiles ever land in the same piece, and they can be written at the same moment with no waiting
-at all. The size to divide into is `chunk × 2^(levels−1)` — the piece of the *smallest* copy,
-which covers the most ground. With 256-voxel pieces and three levels that is 1024, so a
-2048-voxel tile works and a 1500-voxel one does not. Getting it wrong is not dangerous, only
+at all. Each smaller copy doubles the ground one piece covers — `chunk × 2^(level)` — so with
+256-voxel pieces a 2048-voxel tile is a whole number of pieces up to the fourth copy, and a
+1500-voxel one is not a whole number of anything. Getting it wrong is not dangerous, only
 slower, and the writer says so when it happens.
+
+There is a limit to how far that can be carried, and the writer stays quiet about it on
+purpose. On a canvas the width of a stage the copies keep halving until there are eight or
+more of them, so a piece of the coarsest copy covers thirty thousand voxels — far more than
+any camera tile. No tile size can divide into that, so tiles landing in one coarse piece are
+always written in turn. It is worth knowing and it is not worth saying at the operator: they
+cannot act on it, and the cost is small by construction, since each copy holds a quarter of
+the data of the one above it. Sixteen contending tiles were measured no slower than sixteen
+that never met. So the writer compares a tile only against the largest piece it could
+actually line up with, and advice an operator can follow is the only kind it gives.
 
 ### If a run must keep its overlap: several images, deliberately
 
@@ -766,6 +831,61 @@ The cost of the default is otherwise honest and small: an experiment covering on
 of the stage gets a canvas larger than it needed, so it opens zoomed further out than
 ideal and its first brightness measurement is taken from a sparser picture. An experiment
 that cares can say so and get something tighter. One that does not care still works.
+
+### Where the run actually imaged, written down beside the images
+
+Declaring far more room than a run will fill is the whole trick of this section, and it
+leaves one thing missing: a picture-frame with no note of which parts of it hold a picture.
+Nothing in the image itself can say. A piece of a canvas that nobody has written to reads
+back as zeros, and so does a piece of specimen that was imaged and turned out to be dark —
+which makes "did we cover that region?" a question the data cannot answer.
+
+So a run now writes down where it has been, as it goes. Beside the images, not inside them,
+in one folder of its own:
+
+```
+run_2026-07-26/
+  overview.ome.zarr/            the pictures, untouched
+  zmart-coverage/
+    overview.ome.zarr/
+      tiles.jsonl               one line per tile, in the order they landed
+      regions.json              the same thing summarised, for a browser to read in one go
+```
+
+**`tiles.jsonl` is only ever added to.** A line is written when a tile's voxels are safely
+on disk, and nothing already written is ever touched again. That matters because several
+threads write tiles at once: a file that each tile read and rewrote would lose lines exactly
+the way two tiles sharing one zarr chunk lose picture, with whichever writer finishes second
+saving a copy that never contained the other's line. Each line is handed to the operating
+system in one piece, so two tiles landing together cannot splice one line out of both.
+
+**`regions.json`** is the same coverage boiled down to a list of rectangles, with touching
+ones joined up, so an ordinary raster of several hundred tiles comes back as one rectangle
+rather than several hundred. It is rebuilt at most once a second and replaced in a single
+step, so a viewer reading it mid-run sees the whole of the old summary or the whole of the
+new one and never half of either.
+
+**Why beside the images rather than inside them.** Anything at all added inside an
+`.ome.zarr` folder makes zarr complain the moment a program asks the image what it contains,
+and a viewer that has never heard of this record should not have to explain that warning to
+its user. And the viewer decides whether a live run has changed by looking at when each
+folder was last touched, so a summary rewritten every second *inside* an image folder would
+have looked, once a second, like the acquisition itself changing.
+
+**What it is for, measured.** A viewer asks for pieces across the whole declared canvas,
+because the declaration is all it has to go on — and over a sparse run three quarters of
+those requests were for room nothing had ever been written to. Bounding the asking with this
+record was measured taking a redraw from **256 requests to 25**. What the record does is make
+that possible; which front end takes it up, and how, is a separate question and not settled
+here. It also separates "we have not been there yet" from "we went there and it was dark",
+which is the question an operator checking coverage is actually asking.
+
+The record is an addition rather than standard metadata, because OME-NGFF has nothing that
+says which parts of an array hold data and neither does zarr. It is kept deliberately out of
+the way: a folder with a name nothing else uses, not one byte of any image changed, and a
+viewer that has never heard of it opens the run exactly as before. `zmart_storage/coverage.py`
+has the whole of it, and `imaged_regions` reads it back.
+
 ### What this buys
 
 The viewer receives one multiscale image per acquisition type and lets Neuroglancer
@@ -971,11 +1091,11 @@ just above for the second half.
 The viewer's panel is organised the way the experiment is:
 
 ```
-overview                        an acquisition type — a group
+overview                        one acquisition — a group, from one load
   ├─ structure                  a channel — one row, with colour, contrast, opacity
   ├─ marker-a                   another channel
   └─ nuclei                     a segmentation mask — a row of a different kind
-targetscan
+targetscan                      a second acquisition, so a second group
   ├─ marker-a
   └─ cells
 ```
@@ -983,6 +1103,44 @@ targetscan
 Underneath, Neuroglancer's own layer list is flat — it has no notion of a group or
 a sub-layer. So the grouping is presentation, drawn by our panel; the engine
 receives one layer per channel and draws it. We organise, it renders.
+
+### What decides that a group is a group
+
+**One load produces exactly one group, however many stores it spans**, and the picture
+above is therefore two loads rather than one folder sorted into two headings. That is a
+change from what this section originally described, and the reasoning is worth having.
+
+The viewer used to work the grouping out from the names on disk: the text before a store's
+first underscore was read as its acquisition type, and stores were gathered by it. It
+mostly worked, because a driver names its output `overview_pos001` and `targetscan_cell042`
+— but it made what an operator saw a property of a naming convention. A folder whose stores
+did not share a prefix silently became several groups, and a run that invented a kind of
+scan and named it its own way was shown wrongly through no fault of its own.
+
+**What belongs with what is now read from inside the stores.** Two stores are pieces of one
+acquisition unless they positively disagree about the size of one voxel, or about the
+channel names they declare internally. The voxel size is the magnification the microscope
+actually used and cannot be anything else, whereas a folder can be renamed by anybody. A
+store that declares neither has said nothing to disagree with, and is accepted.
+
+Two things follow, and they are answers to the same question asked at two different moments.
+
+- **At the door**, a folder holding more than one acquisition is refused, with the stores in
+  each named, so the answer is to open one of them instead. It is nearly always a folder
+  chosen one level too high, and there is somebody waiting to be told.
+- **Half an hour into a run**, a store that appears in a watched folder and turns out to be a
+  different acquisition is given a group of its own, headed by the kind of scan its name
+  suggests. There is nobody left to refuse to: the request that would have carried the
+  refusal finished long ago. Declining would leave the target scan — usually the very thing
+  the run was done for — absent from the screen with nothing saying why.
+
+Both agree on the thing that matters, which is that two acquisitions are never merged into
+one row. Merged, they would share a single set of controls: no heading of its own for the
+target scan, no eye to hide the overview and look at it, one brightness taken from
+whichever arrived first, and closing either one closing both.
+
+The code is `library.py` — `_acquisition_of`, `_same_acquisition`, `_one_acquisition_only`
+and `_place` — and `viz_studio/ARCHITECTURE.md` section 3 states the rule this satisfies.
 
 Each channel row is one Neuroglancer layer reading the store and pinned to that
 channel. The channel's **name and colour come from the store's own description**
@@ -1111,10 +1269,13 @@ deliberate. Better to be slow and honest than quick and economical with the trut
 not narrow things down, then narrowing them down has to be easy, obvious, and available
 before the loading starts:
 
-- **Opening one acquisition type rather than a folder.** The panel already closes by
-  acquisition type; choosing at the moment of opening is the other half of that and is what
-  makes the whole thing workable. Somebody who wants their overview should be able to say so
-  and get it in a moment, without waiting for the target scans they were not going to look at.
+- **Opening one acquisition rather than a folder.** The panel already closes a whole
+  acquisition at a time; choosing at the moment of opening is the other half of that and is
+  what makes the whole thing workable. Somebody who wants their overview should be able to
+  say so and get it in a moment, without waiting for the target scans they were not going to
+  look at. Part of this has since arrived from an unexpected direction: a folder holding more
+  than one acquisition is now refused at the door, with the stores in each of them named, so
+  the operator is at least told what is there and which of them to ask for. See Decision 3.
 - **Saying what something will cost before doing it.** "This folder holds 40 000 positions"
   is worth showing, because it lets the operator decide rather than guess. A viewer that
   appears frozen and a viewer that is working through what it was asked for look identical,
@@ -1199,9 +1360,10 @@ for it — a fallback that is always running is not a safety net, it is the desi
 
 **Decided, and written above:** one store per position with its place in its own metadata,
 for runs that keep their tiles; one image written into as the run goes, for runs that do not
-need the overlap back, which is what we are aiming for; a timelapse that grows its own
-length; one data type per image; how the layer list is organised; how much is open being the
-operator's choice and never the viewer's; and what caching follows from all of it.
+need the overlap back, which is what we are aiming for; a timelapse that declares its length
+up front and fills it in, which reversed an earlier decision to grow it a frame at a time —
+see Decision 2; one data type per image; how the layer list is organised; how much is open
+being the operator's choice and never the viewer's; and what caching follows from all of it.
 
 **Built and tested:** reading acquisition types, positions and channels from what is on
 disk; the panel with grouped rows, one shared set of display settings, colour maps and
@@ -1215,9 +1377,17 @@ That sounds obvious and was not there: the viewer spent weeks opening on an empt
 rectangle with three hundred tests passing, because every one of them asked the engine
 about itself and an engine can hold all its data and still draw nothing.
 
-**Not built:** a writer. The mesoSPIM writes its own OME-Zarr today and our driver copies
-frame files rather than writing zarr, so where the writer belongs — a conversion step, or
-a change to what the driver writes — is still open.
+**Built since this said it was not:** a writer. `zmart_storage/canvas.py` declares a run's
+images up front and writes each tile into its place as it arrives, keeping the smaller
+copies in step, refusing a run whose tiles overlap, and holding two tiles apart when they
+would otherwise land in one piece of image at the same moment. `zmart_storage/fuse.py` joins
+a spread run back into a single picture afterwards, and `zmart_storage/coverage.py` records
+where the run actually imaged.
+
+What is genuinely still open is **where the writer belongs in the pipeline**, which is a
+different question. The mesoSPIM writes its own OME-Zarr today and our driver copies the
+frame files it produced, so this is either a conversion step after acquisition or a change
+to what the driver writes, and that has not been decided.
 
 **Settled since this was written:** the specimen does appear on screen. The slice view
 was drawing only its own background because the magnification had been fixed before the

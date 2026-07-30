@@ -9,6 +9,7 @@ look next, and that cost is the one real argument against the arrangement.
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -19,7 +20,7 @@ import zarr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from zmart_storage.canvas import Channel, TileCanvases
+from zmart_storage.canvas import Channel, TileCanvases, copies_for_a_canvas
 from zmart_storage.fuse import fuse
 
 TILE = (2, 128, 128)
@@ -217,6 +218,118 @@ def test_joining_beside_the_run_is_what_works(tmp_path):
 
     picture = _planes(zarr.open_group(str(joined), mode="r")["0"])
     assert (picture[:, :TILE[1], :TILE[2]] == 4242).all()
+
+
+# -- how many smaller copies the joined picture keeps -------------------------
+#
+# Anything showing one of these images reads the whole of the *smallest* copy,
+# for every colour, before it draws anything at all. So the number of copies is
+# what somebody waits through when a view opens, and on a picture as wide as a
+# stage a fixed three of them is far too few: the smallest copy is still tens of
+# thousands of voxels across, which is tens of thousands of pieces to fetch
+# before the first picture appears.
+#
+# The writer already chooses the number from how much room a run declared. These
+# check that joining a run afterwards arrives at the same answer, because the two
+# produce images that are read in exactly the same way and there is no reason for
+# them to disagree.
+
+
+def _copy_shapes(store: Path) -> list[tuple[int, int]]:
+    """How wide every progressively smaller copy of an image is, in y and x.
+
+    Read from the image on disk, level by level, so that these tests describe the
+    picture somebody would open rather than the request that produced it.
+    """
+    group = zarr.open_group(str(store), mode="r")
+    shapes = []
+    level = 0
+    while str(level) in group:
+        shape = group[str(level)].shape
+        shapes.append((int(shape[-2]), int(shape[-1])))
+        level += 1
+    return shapes
+
+
+# Wide enough that the rule asks for more than the three copies this used to keep,
+# and thin enough that the whole thing is quick to write and join in a test. A real
+# stage is wider still, which only makes the difference larger.
+WIDE = 6000
+
+
+def _a_wide_run(folder: Path) -> Path:
+    """A run declared as wide as a stage, with one tile imaged in the corner."""
+    canvases = TileCanvases.create(
+        folder,
+        name="overview",
+        canvas_shape=(2, 256, WIDE),
+        tile_shape=(2, 256, 256), tile_step=(2, 256, 256),
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488")],
+        chunk=256,
+    )
+    canvases.write(np.full((2, 256, 256), 1234, dtype="uint16"),
+                   origin=(0, 0, 0), tile_index=(0, 0, 0))
+    canvases.close()
+    return folder
+
+
+def test_the_joined_picture_keeps_as_many_copies_as_its_width_asks_for(tmp_path):
+    """A wide joined picture keeps halving until it is small enough to open.
+
+    Three copies of a picture six thousand voxels across leave the smallest one
+    fifteen hundred voxels across, and everything reading it fetches the whole of
+    that before drawing. Halving once more brings it under a thousand, which is
+    where the waiting stops being noticeable.
+    """
+    run = _a_wide_run(tmp_path / "run")
+    joined = fuse(run, tmp_path / "run_joined.ome.zarr", chunk=256)
+
+    shapes = _copy_shapes(joined)
+    assert len(shapes) == copies_for_a_canvas((1, 256, WIDE)), (
+        f"the joined picture kept {len(shapes)} copies, where a run of the same "
+        f"width written by the writer would keep "
+        f"{copies_for_a_canvas((1, 256, WIDE))}"
+    )
+    coarsest = max(shapes[-1])
+    assert coarsest <= 1024, (
+        f"the smallest copy of the joined picture is {coarsest} voxels across, "
+        f"which is more than can be fetched before it draws; the copies are {shapes}"
+    )
+
+
+def test_the_joined_picture_describes_every_copy_it_wrote(tmp_path):
+    """The description has to name each copy, or a reader never sees the rest.
+
+    A picture whose ``multiscales`` block lists three copies while four sit on
+    disk is not half right — the fourth is invisible, so the wait the extra copy
+    was written to save is paid anyway.
+    """
+    run = _a_wide_run(tmp_path / "run")
+    joined = fuse(run, tmp_path / "run_joined.ome.zarr", chunk=256)
+
+    described = json.loads((joined / ".zattrs").read_text(encoding="utf-8"))
+    named = [entry["path"] for entry in described["multiscales"][0]["datasets"]]
+    on_disk = [str(level) for level in range(len(_copy_shapes(joined)))]
+    assert named == on_disk, (
+        f"the description names copies {named} while {on_disk} are on disk"
+    )
+
+
+def test_asking_the_joiner_for_a_number_of_copies_outright_is_still_obeyed(tmp_path):
+    """Choosing a sensible number by default must not take the choice away.
+
+    Somebody joining a run to match a picture made elsewhere, or measuring what a
+    particular depth costs, can still say how many copies they want, and that
+    answer wins over anything worked out from the size.
+    """
+    run = _a_wide_run(tmp_path / "run")
+    joined = fuse(run, tmp_path / "run_joined.ome.zarr", chunk=256, levels=2)
+
+    shapes = _copy_shapes(joined)
+    assert len(shapes) == 2, (
+        f"two copies were asked for outright and {len(shapes)} were written"
+    )
 
 
 # -- what analysis pays ------------------------------------------------------

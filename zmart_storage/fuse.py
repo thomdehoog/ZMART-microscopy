@@ -51,6 +51,8 @@ from pathlib import Path
 import numpy as np
 import zarr
 
+from .canvas import copies_for_a_canvas
+
 
 def fuse(
     run: str | Path,
@@ -58,7 +60,7 @@ def fuse(
     *,
     where_they_meet: str = "blend",
     chunk: int = 256,
-    levels: int = 3,
+    levels: int | None = None,
 ) -> Path:
     """Join a run's images into a single OME-Zarr image.
 
@@ -75,7 +77,12 @@ def fuse(
             where two tiles recorded the same place. See the note at the top of
             this module.
         chunk: how large a piece of the joined image should be, in y and x.
-        levels: how many progressively smaller copies to keep.
+        levels: how many progressively smaller copies to keep. These are what let
+            a large picture feel light when it is zoomed out, and normally this is
+            left out so that the number can be worked out from how large the
+            joined image turns out to be — the same rule the writer follows while
+            a run is going, described below. Give a number here if you have a
+            reason to, and it is used exactly as asked.
 
     Returns:
         The path of the joined image.
@@ -106,6 +113,30 @@ def fuse(
     groups = [zarr.open_group(str(path), mode="r") for path in sources]
     first = groups[0]["0"]
     shape, dtype = first.shape, first.dtype
+
+    # How many progressively smaller copies the joined picture should keep, when
+    # the caller has not said. This follows the same rule the writer uses while a
+    # run is going -- see :func:`zmart_storage.canvas.copies_for_a_canvas` -- and
+    # it is worth saying why, because joining is a different path and the two
+    # could easily have drifted apart.
+    #
+    # The reason they should not is that what is done with the answer is
+    # identical. Anything showing one of these images reads the whole of the
+    # smallest copy, for every colour, before it draws anything at all, and it
+    # does that again at every zoom. A joined picture as wide as a stage keeping
+    # only three copies leaves that smallest copy some twenty-five thousand
+    # voxels across, which is roughly nineteen thousand pieces to fetch before
+    # the first picture appears; letting the halving continue until the smallest
+    # copy is about a thousand voxels brings the same view down to about thirty.
+    # The joined picture is the one meant to be kept, archived and looked at for
+    # years, so if either path deserves to open quickly it is this one.
+    #
+    # Only the last two axes are the specimen's y and x, whatever an image
+    # declares in front of them, and those are the only axes the copies shrink.
+    # The depth handed over here is therefore a placeholder that the rule does
+    # not look at.
+    if levels is None:
+        levels = copies_for_a_canvas((1, shape[-2], shape[-1]))
 
     joined = zarr.open_group(str(into), mode="w", zarr_format=2)
     # One piece per plane in every axis except the last two, whatever those axes
@@ -264,7 +295,15 @@ def _fade_towards_the_edges(has: np.ndarray) -> np.ndarray:
 
 
 def _write_smaller_copies(group, full, levels: int, chunk: int) -> None:
-    """Build the progressively smaller copies from the finished full-size one."""
+    """Build the progressively smaller copies from the finished full-size one.
+
+    Each copy is read out of the full-size picture rather than out of the copy
+    above it, so a deeper pyramid means a few more passes over the whole image.
+    That is worth knowing but it is not worth avoiding here: this runs once, when
+    the run is over and nobody is waiting at the microscope, whereas the writer
+    pays for its copies on every tile that lands. The cost of keeping more of them
+    therefore falls in the one place where it is cheapest to pay.
+    """
     for level in range(1, levels):
         factor = 2 ** level
         shape = (*full.shape[:-2],
