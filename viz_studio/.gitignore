@@ -14,3 +14,8 @@ backend/_check/
 
 # What measure_cold_open.py writes out for comparing two runs.
 cold_open_*.json
+
+# The options harness borrows the viewer's packages through a link made at build
+# time, and builds into its own dist. Both are generated.
+options/node_modules
+options/harness/dist/

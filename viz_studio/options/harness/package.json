@@ -1,0 +1,9 @@
+{
+  "name": "zmart-options-harness",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "node use-the-viewers-packages.mjs && node ../../frontend/precompile-workers.mjs && vite build && node place-async-worker.mjs"
+  }
+}
