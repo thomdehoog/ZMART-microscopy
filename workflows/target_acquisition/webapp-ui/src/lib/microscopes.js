@@ -55,97 +55,112 @@ export const MICROSCOPES = {
  * offers whatever is in it and always leaves an empty row at the bottom.
  * `sample` stands in for the controller read that a real backend would do.
  */
+/**
+ * A reading is a summary and the detail behind it, composed from what the
+ * controller reports rather than written out twice.
+ *
+ * The frame is the case that matters: it is the pixel count times the pixel
+ * size, so it is worked out here and carried as a number. Anything that has to
+ * lay tiles out needs that number, and a number living only inside a sentence
+ * meant for reading is a number nothing can use — which is how the overview
+ * tile size came to be typed a second time somewhere else.
+ */
+const acquisition = ({ summary, objective, pixelUm, framePx, channels, zStack }) => {
+  const frameUm = Math.round(framePx * pixelUm);
+  return {
+    summary, pixelUm, framePx, frameUm,
+    detail: [
+      ["Objective", objective],
+      ["Pixel size", `${pixelUm.toFixed(2)} µm`],
+      ["Frame", `${framePx} × ${framePx} px · ${frameUm} × ${frameUm} µm`],
+      ...channels.map((c, i) => [`Channel ${i + 1}`, c]),
+      ["Z stack", zStack],
+    ],
+  };
+};
+
+/* An autofocus runs through an objective like anything else, so it reports the
+   same summary and the same frame an acquisition does. Its detail carries the
+   sweep instead of a stack. */
+const autofocus = ({ summary, objective, pixelUm, framePx, channel, metric, range, steps }) => {
+  const frameUm = Math.round(framePx * pixelUm);
+  return {
+    summary, pixelUm, framePx, frameUm,
+    detail: [
+      ["Objective", objective],
+      ["Channel", channel],
+      ["Frame", `${framePx} × ${framePx} px · ${frameUm} × ${frameUm} µm`],
+      ["Metric", metric],
+      ["Range", range],
+      ["Steps", steps],
+    ],
+  };
+};
+
 export const SETTING_TYPES = [
   {
     key: "acquisition",
     label: "Acquisition",
-    /* A reading is a summary and the detail behind it. The summary is the
-       objective and the channel count — what decides whether a preset can see
-       the thing being looked for. The detail is everything the controller
-       read, for when the summary is not enough to trust it. */
     readings: [
-      {
+      acquisition({
         summary: "5x / 0.15 NA dry · 2 channels",
-        detail: [
-          ["Objective", "HC PL FLUOTAR 5x / 0.15 NA dry"],
-          ["Pixel size", "1.30 µm"],
-          ["Frame", "2048 × 2048 px · 2662 × 2662 µm"],
-          ["Channel 1", "DAPI · 405 nm · 50 ms · gain 1.0"],
-          ["Channel 2", "GFP · 488 nm · 120 ms · gain 1.2"],
-          ["Z stack", "off"],
-        ],
-      },
-      {
+        objective: "HC PL FLUOTAR 5x / 0.15 NA dry",
+        pixelUm: 1.30, framePx: 2048,
+        channels: ["DAPI · 405 nm · 50 ms · gain 1.0", "GFP · 488 nm · 120 ms · gain 1.2"],
+        zStack: "off",
+      }),
+      acquisition({
         summary: "63x / 1.40 NA oil · 2 channels",
-        detail: [
-          ["Objective", "HC PL APO 63x / 1.40 NA oil"],
-          ["Pixel size", "0.10 µm"],
-          ["Frame", "1024 × 1024 px · 102 × 102 µm"],
-          ["Channel 1", "DAPI · 405 nm · 30 ms · gain 1.0"],
-          ["Channel 2", "GFP · 488 nm · 80 ms · gain 1.5"],
-          ["Z stack", "11 planes · 0.50 µm"],
-        ],
-      },
-      {
+        objective: "HC PL APO 63x / 1.40 NA oil",
+        pixelUm: 0.10, framePx: 1024,
+        channels: ["DAPI · 405 nm · 30 ms · gain 1.0", "GFP · 488 nm · 80 ms · gain 1.5"],
+        zStack: "11 planes · 0.50 µm",
+      }),
+      acquisition({
         summary: "10x / 0.40 NA dry · 1 channel",
-        detail: [
-          ["Objective", "HC PL APO 10x / 0.40 NA dry"],
-          ["Pixel size", "0.65 µm"],
-          ["Frame", "2048 × 2048 px · 1331 × 1331 µm"],
-          ["Channel 1", "GFP · 488 nm · 60 ms · gain 1.0"],
-          ["Z stack", "off"],
-        ],
-      },
-      {
+        objective: "HC PL APO 10x / 0.40 NA dry",
+        pixelUm: 0.65, framePx: 2048,
+        channels: ["GFP · 488 nm · 60 ms · gain 1.0"],
+        zStack: "off",
+      }),
+      acquisition({
         summary: "40x / 1.10 NA water · 3 channels",
-        detail: [
-          ["Objective", "HC PL APO 40x / 1.10 NA water"],
-          ["Pixel size", "0.16 µm"],
-          ["Frame", "1024 × 1024 px · 164 × 164 µm"],
-          ["Channel 1", "DAPI · 405 nm · 40 ms · gain 1.0"],
-          ["Channel 2", "GFP · 488 nm · 90 ms · gain 1.3"],
-          ["Channel 3", "mCherry · 561 nm · 150 ms · gain 1.6"],
-          ["Z stack", "21 planes · 0.30 µm"],
+        objective: "HC PL APO 40x / 1.10 NA water",
+        pixelUm: 0.16, framePx: 1024,
+        channels: [
+          "DAPI · 405 nm · 40 ms · gain 1.0",
+          "GFP · 488 nm · 90 ms · gain 1.3",
+          "mCherry · 561 nm · 150 ms · gain 1.6",
         ],
-      },
+        zStack: "21 planes · 0.30 µm",
+      }),
     ],
   },
   {
     key: "autofocus",
     label: "Autofocus",
-    /* An autofocus runs through an objective like anything else, so it reports
-       the same summary an acquisition does. Its detail carries the sweep. */
     readings: [
-      {
+      autofocus({
         summary: "10x / 0.40 NA dry · 1 channel",
-        detail: [
-          ["Objective", "HC PL APO 10x / 0.40 NA dry"],
-          ["Channel", "GFP · 488 nm · 20 ms · gain 1.0"],
-          ["Metric", "Brenner gradient"],
-          ["Range", "±30 µm"],
-          ["Steps", "61 · 1.0 µm apart"],
-        ],
-      },
-      {
+        objective: "HC PL APO 10x / 0.40 NA dry",
+        pixelUm: 0.65, framePx: 2048,
+        channel: "GFP · 488 nm · 20 ms · gain 1.0",
+        metric: "Brenner gradient", range: "±30 µm", steps: "61 · 1.0 µm apart",
+      }),
+      autofocus({
         summary: "5x / 0.15 NA dry · 1 channel",
-        detail: [
-          ["Objective", "HC PL FLUOTAR 5x / 0.15 NA dry"],
-          ["Channel", "GFP · 488 nm · 30 ms · gain 1.0"],
-          ["Metric", "DCT energy"],
-          ["Range", "±60 µm"],
-          ["Steps", "41 · 3.0 µm apart"],
-        ],
-      },
-      {
+        objective: "HC PL FLUOTAR 5x / 0.15 NA dry",
+        pixelUm: 1.30, framePx: 2048,
+        channel: "GFP · 488 nm · 30 ms · gain 1.0",
+        metric: "DCT energy", range: "±60 µm", steps: "41 · 3.0 µm apart",
+      }),
+      autofocus({
         summary: "20x / 0.75 NA dry · 1 channel",
-        detail: [
-          ["Objective", "HC PL APO 20x / 0.75 NA dry"],
-          ["Channel", "DAPI · 405 nm · 15 ms · gain 1.0"],
-          ["Metric", "Brenner gradient"],
-          ["Range", "±15 µm"],
-          ["Steps", "31 · 1.0 µm apart"],
-        ],
-      },
+        objective: "HC PL APO 20x / 0.75 NA dry",
+        pixelUm: 0.33, framePx: 2048,
+        channel: "DAPI · 405 nm · 15 ms · gain 1.0",
+        metric: "Brenner gradient", range: "±15 µm", steps: "31 · 1.0 µm apart",
+      }),
     ],
   },
 ];

@@ -15,24 +15,18 @@ not be correct about physics.
 1. Read `workflows/target_acquisition/webapp-ui/ARCHITECTURE.md`, then the
    rest of this. Get the page running and click through it — most of what
    follows is easier to see than to read.
-2. **Say what you would do and why before changing anything.** The first work
-   is below, but check the reading against what is actually on screen.
+2. **Say what you would do and why before changing anything.** Check the
+   reading against what is actually on screen.
 
-**Define prescan.** Asked for in the last session and not built: a step after
-Carrier configuration where the overview positions are defined. "Pre-scan" is
-the working name, chosen so it would not be argued about yet.
+**The step that defines the overview positions is built.** It is step 4,
+Initial scanfields: a geometry editor and a grid mode in the channel beside the
+canvas, ported from `06_scanfields.jsx`. The grid reads the carrier's area
+centres, so the plate decides the plan.
 
-Nothing beyond the name was specified. The shape that fits what is already
-there is a second channel beside the canvas — like the carrier's — with the
-chosen positions drawn on the plate, since the canvas is already the view and
-a panel that is *about* the canvas belongs next to it rather than on a tab.
-That is a guess. Ask before building it.
-
-While you are in there, two things sitting under it are placeholders rather
-than decisions, and prescan is the step that will care: the carrier is pinned
-to the stage origin (top left), and the synthetic sample is still a 7×5 tile
-grid unrelated to the carrier, so the scan area sits in the plate's corner
-instead of inside a well.
+**What is still a placeholder.** The synthetic sample is a 7×5 tile grid at the
+carrier's own zero, unrelated to what the scan fields say — so a scan lands in
+the plate's corner rather than where the fields are. Wiring the sample to the
+fields is the obvious next piece, and it is what makes step 6 honest.
 
 ## Where it is
 
@@ -65,8 +59,8 @@ cd workflows/target_acquisition/webapp-ui
 
 npm run dev        # http://127.0.0.1:5174 — hot reload
 npm run build      # one self-contained file -> ../workflow/webapp/static/
-npm run test:unit  # vitest, 63 tests, ~0.2 s
-npm run test:ui    # playwright, 14 tests, ~60 s
+npm run test:unit  # vitest, 86 tests, ~0.3 s
+npm run test:ui    # playwright, 18 tests, ~70 s
 python dev_window.py   # the page in a native pywebview window, still hot-reloading
 ```
 
@@ -78,12 +72,12 @@ resets it to step 1.
 A left rail of workflow steps, a right side whose panels follow the step.
 Ten steps in `target_acquisition`:
 
-1 Microscope Configuration · 2 Optical Configuration · 3 Carrier configuration ·
-4 Focus strategy · 5 Scan the overview · 6 Detect cells · 7 Select cells ·
-8 Acquire and curate · 9 Save the run · 10 Disconnect
+1 Microscope configuration · 2 Optical configuration · 3 Carrier configuration ·
+4 Initial scanfields · 5 Focus strategy · 6 Scan the overview · 7 Detect cells ·
+8 Select cells · 9 Acquire and curate · 10 Save the run · 11 Disconnect
 
 Two other workflows exist to prove the frame is not built around one:
-`overview_only` (6 steps) and `focus_check` (6).
+`overview_only` (7 steps) and `focus_check` (7).
 
 ## Decisions already settled — do not relitigate without asking
 
@@ -117,10 +111,13 @@ Two other workflows exist to prove the frame is not built around one:
 - **A tab is always drawn, even alone**, because it names what is loaded —
   Microscope configuration, Optical configuration, Canvas. It said "Setup" for
   every step once, and then hiding it lost nothing.
-- **The channel beside the canvas is headed, not tabbed.** "Carrier
-  configuration" sits at the right end of the tab row, over the column it
-  heads, styled exactly as a selected tab and permanently in that state —
-  there is nothing to switch to.
+- **The channel beside the canvas is headed, not tabbed**, and **it belongs to
+  the step standing in it**. Carrier configuration owns it on step 3, Initial
+  scanfields on step 4; the heading sits at the right end of the tab row over
+  the column it heads, styled exactly as a selected tab, because it names whose
+  controls those are rather than offering a switch. One column, not two: a
+  second would take width from the picture to hold controls for a step nobody
+  is on. A step with no side widget gives the canvas the whole width.
 - **A panel belongs to its step** and shows only while that step is selected.
   Walk back to Connect and the session and its checks are there again.
 - Step **numbers are derived from position**, never typed.
@@ -248,8 +245,10 @@ moving design get redrawn. Take a panel out when it stops moving.
 
 ## Open questions — ask, do not invent
 
-- Which preset the scan uses and which the acquisition uses. The old
-  survey/target pairing was dropped with the picker; nothing replaced it.
+- Which preset the *acquisition* uses. The scan side is answered: a scan field
+  names the preset it is taken with, and the tiles covering it are that
+  preset's frame — which is now a number on the reading rather than words
+  inside its detail line. Nothing yet says which preset step 9 images cells at.
 - **Where the carrier sits on the stage** is centred in the travel, and that is
   a default rather than an answer: the real offset comes from calibrating
   against a plate actually on the stage. `carrierOriginUm()` is the one line

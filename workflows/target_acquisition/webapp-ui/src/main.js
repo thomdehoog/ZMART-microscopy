@@ -7,6 +7,7 @@ import {
 } from "./lib/microscopes.js";
 import { DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
 import carrierWidget from "./widgets/carrier.js";
+import scanfieldsWidget from "./widgets/scanfields.js";
 
 (() => {
   "use strict";
@@ -65,6 +66,7 @@ import carrierWidget from "./widgets/carrier.js";
         { id: "connect", title: "Microscope configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
         { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
+        { id: "scanfields", title: "Initial scanfields", why: "Say where on the carrier the overview is taken — a block in every area, or regions drawn by hand.", panels: [], mode: "scanfields" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "detect", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, note: "1250 cells found", mode: "detect" },
@@ -81,6 +83,7 @@ import carrierWidget from "./widgets/carrier.js";
         { id: "connect", title: "Microscope configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
         { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
+        { id: "scanfields", title: "Initial scanfields", why: "Say where on the carrier the overview is taken — a block in every area, or regions drawn by hand.", panels: [], mode: "scanfields" },
         { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
         { id: "save", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -93,6 +96,7 @@ import carrierWidget from "./widgets/carrier.js";
         { id: "connect", title: "Microscope configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
         { id: "optics", title: "Optical configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
         { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
+        { id: "scanfields", title: "Initial scanfields", why: "Say where on the carrier the overview is taken — a block in every area, or regions drawn by hand.", panels: [], mode: "scanfields" },
         { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
         { id: "save", title: "Write the surface", why: "Fits the plane and records its residual for this objective.", btn: "Write surface", panels: [], ms: 700, note: "residual 1.8 µm · written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
@@ -146,7 +150,7 @@ import carrierWidget from "./widgets/carrier.js";
   function startingBars() {
     const recorded = DEMO_PRESETS.map(({ name, type, nth }) => {
       const reading = sampleReading(type, nth);
-      return { type, name, state: reading.summary, detail: reading.detail };
+      return { type, name, state: reading.summary, detail: reading.detail, frameUm: reading.frameUm };
     });
     return [...recorded, { type: SETTING_TYPES[0].key, name: "" }];
   }
@@ -156,6 +160,8 @@ import carrierWidget from "./widgets/carrier.js";
     recordings: [],
     bars: startingBars(),
     carrier: { ...DEFAULT_CARRIER },
+    fields: [],
+    editor: null,
     checks: [],
     wf: "target_acquisition",
     activeIdx: 0,
@@ -210,7 +216,7 @@ import carrierWidget from "./widgets/carrier.js";
       activeIdx: 0, done: new Set(), running: null, notes: {},
       recordings: [],
       bars: startingBars(),
-      carrier: { ...DEFAULT_CARRIER }, checks: [],
+      carrier: { ...DEFAULT_CARRIER }, fields: [], checks: [],
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
       detect: newDetect(), detected: new Set(),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], verdicts: {},
@@ -274,6 +280,7 @@ import carrierWidget from "./widgets/carrier.js";
         if (state.running || !reachable) return;
         state.activeIdx = i;
         if (step(i).id === "carrier") carrierSettled();
+        if (step(i).id === "scanfields") scanfieldsSettled();
         focusPanelsFor(i);
         renderAll();
       });
@@ -874,6 +881,7 @@ import carrierWidget from "./widgets/carrier.js";
         bar.name = capitalised(name.value.trim());
         bar.state = reading.summary;
         bar.detail = reading.detail;
+        bar.frameUm = reading.frameUm;
         ensureOpenBar();
         settingsChanged();
         renderSetup();
@@ -912,27 +920,87 @@ import carrierWidget from "./widgets/carrier.js";
     return !!state.running || steps().slice(i + 1).some((s) => state.done.has(s.id));
   };
 
+  /* The channel belongs to the step standing in it.
+
+     Both steps that own one are about the canvas rather than beside it — the
+     carrier is what the canvas is drawing, the scan fields are what is being
+     drawn on it — so each docks its controls in the same column and the
+     heading says which. One column, because two would take the picture's width
+     to show controls for a step nobody is on. */
+  const SIDE_WIDGETS = { carrier: carrierWidget, scanfields: scanfieldsWidget };
+
+  const sideWidget = () => SIDE_WIDGETS[step(state.activeIdx).id] ?? null;
+
+  const scanfieldsLocked = () => {
+    const i = indexOfStep("scanfields");
+    return !!state.running || (i >= 0 && steps().slice(i + 1).some((s) => state.done.has(s.id)));
+  };
+
   function renderSide(show) {
     const host = el("canvas-side");
-    const on = show === "canvas";
-    const locked = carrierLocked();
-    const key = on && `carrier:${locked}`;
-    host.hidden = !on;
+    const widget = show === "canvas" ? sideWidget() : null;
+    host.hidden = !widget;
+    const locked = widget?.id === "carrier" ? carrierLocked() : scanfieldsLocked();
+    const key = widget && `${widget.id}:${locked}`;
     if (state.sideMounted === key) return;
     state.sideMounted = key;
+    state.editor?.destroy?.();
+    state.editor = null;
     host.textContent = "";
-    if (!on) return;
-    carrierWidget.render(host, {
-      config: state.carrier,
+    if (!widget) return;
+
+    if (widget.id === "carrier") {
+      widget.render(host, {
+        config: state.carrier,
+        locked,
+        onChange: (next) => {
+          state.carrier = next;
+          state.notes.carrier = describeCarrier(next);
+          view.fitted = false;
+          drawStage();
+          renderRail();
+        },
+      });
+      return;
+    }
+
+    state.editor = widget.render(host, {
+      fields: state.fields,
+      carrier: state.carrier,
+      presets: recordedPresets(),
       locked,
       onChange: (next) => {
-        state.carrier = next;
-        state.notes.carrier = describeCarrier(next);
-        view.fitted = false;
+        state.fields = next;
+        scanfieldsSettled();
         drawStage();
         renderRail();
       },
     });
+  }
+
+  /* What a scan field can be taken with: the presets this run recorded, in the
+     order they were taken. A field names one rather than carrying a frame of
+     its own, so changing what a preset is changes what the plan covers. */
+  const recordedPresets = () => recordedBars().map((b, i) => ({
+    id: `preset${i}`,
+    name: b.name,
+    summary: b.state,
+    frameUm: b.frameUm,
+  }));
+
+  /* Drawing fields is the work, the way recording and configuring are: the
+     step is done once there is something to scan, and undone again if the last
+     field is removed. */
+  function scanfieldsSettled() {
+    if (indexOfStep("scanfields") < 0) return;
+    const positions = scanfieldsWidget.plan(state.fields, recordedPresets()).length;
+    if (positions) {
+      state.done.add("scanfields");
+      state.notes.scanfields = `${positions} position${positions === 1 ? "" : "s"}`;
+    } else {
+      state.done.delete("scanfields");
+      delete state.notes.scanfields;
+    }
   }
 
   /* A card belongs to its step and shows while you are standing on it —
@@ -1003,16 +1071,19 @@ import carrierWidget from "./widgets/carrier.js";
     }
 
     /* The channel beside the canvas is named where it sits, at the right end
-       of the same row and over the column it heads. Not a tab: there is
-       nothing to switch to, it is always beside the canvas. */
-    if (shownPanel() === "canvas") {
+       of the same row and over the column it heads. Not a tab: it is not an
+       alternative to the canvas, it is the controls for what the canvas is
+       showing — so it says whose controls those are rather than offering a
+       switch. */
+    const owner = shownPanel() === "canvas" ? sideWidget() : null;
+    if (owner) {
       const side = document.createElement("span");
       side.className = "side-tab";
       /* The name is its own element: it carries the rule under it, so that
          rule is as wide as the word the way a tab's is, rather than as wide
          as the channel this stands over. */
       const label = document.createElement("span");
-      label.textContent = carrierWidget.label;
+      label.textContent = owner.label;
       side.append(label);
       host.append(side);
     }
@@ -1262,7 +1333,41 @@ import carrierWidget from "./widgets/carrier.js";
       }
     }
 
+    /* The plan, under whatever the run has since produced: it is what the run
+       was told to do, so it stays readable once the tiles start landing on top
+       of it. Dimmed once the scan has begun, because by then the images are
+       the answer and this is only the question. */
+    scanfieldsWidget.drawOn(ctx, {
+      fields: state.fields, presets: recordedPresets(),
+      toScreen: place, scale: view.scale, dim: shown > 0,
+    });
+
+    // and the editing itself only while somebody is standing in it
+    if (sideWidget()?.id === "scanfields") {
+      state.editor?.drawChrome(ctx, { toScreen: place, scale: view.scale });
+    }
+
     drawScaleBar(ctx, w, h);
+  }
+
+  /* Carrier coordinates for the editor: it places fields inside the carrier,
+     so it is handed where the pointer is in that frame rather than where it is
+     on the stage. */
+  function toCarrier(px, py) {
+    const [wx, wy] = toWorld(px, py);
+    const [ox, oy] = carrierOriginUm();
+    return { x: wx - ox, y: wy - oy };
+  }
+
+  /* The editor sees the pointer first and says whether it took it. Only what
+     it turns down pans or picks, so drawing a region does not drag the stage
+     out from under the shape being drawn. */
+  function editorTook(kind, e) {
+    if (sideWidget()?.id !== "scanfields" || !state.editor) return false;
+    const { x, y } = toCarrier(e.offsetX, e.offsetY);
+    const took = state.editor.pointer(kind, { x, y, shift: e.shiftKey, scale: view.scale });
+    if (took) drawStage();
+    return took;
   }
 
   function drawScaleBar(ctx, w, h, scale = view.scale) {
@@ -1290,6 +1395,7 @@ import carrierWidget from "./widgets/carrier.js";
   let dragging = false, dragMoved = false, lastX = 0, lastY = 0;
 
   stageCv.addEventListener("pointerdown", (e) => {
+    if (editorTook("down", e)) { stageCv.setPointerCapture(e.pointerId); return; }
     dragging = true; dragMoved = false;
     lastX = e.offsetX; lastY = e.offsetY;
     stageCv.setPointerCapture(e.pointerId);
@@ -1297,6 +1403,7 @@ import carrierWidget from "./widgets/carrier.js";
   });
 
   stageCv.addEventListener("pointermove", (e) => {
+    if (!dragging && editorTook("move", e)) return;
     if (dragging) {
       const dx = e.offsetX - lastX, dy = e.offsetY - lastY;
       if (Math.abs(dx) + Math.abs(dy) > 2) dragMoved = true;
@@ -1341,7 +1448,14 @@ import carrierWidget from "./widgets/carrier.js";
     stageCv.classList.remove("dragging");
     if (e && stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
   };
-  stageCv.addEventListener("pointerup", (e) => endDrag(e));
+  stageCv.addEventListener("pointerup", (e) => {
+    if (editorTook("up", e)) {
+      if (stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
+      renderRail();
+      return;
+    }
+    endDrag(e);
+  });
   stageCv.addEventListener("pointerleave", (e) => { endDrag(e); stageTip.classList.remove("on"); });
 
   stageCv.addEventListener("wheel", (e) => {
