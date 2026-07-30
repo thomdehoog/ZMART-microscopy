@@ -1,0 +1,926 @@
+{
+  "1. does a layer underneath give the layer above its transparency back": {
+    "with a layer underneath": {
+      "photograph": "1-with-a-layer-underneath.png",
+      "layers the engine says it drew": 2,
+      "read": {
+        "where the upper layer was written": {
+          "rgb": [
+            255,
+            0,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            322
+          ]
+        },
+        "where nobody imaged": {
+          "rgb": [
+            0,
+            255,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            578
+          ]
+        },
+        "well outside both": {
+          "rgb": [
+            48,
+            96,
+            160
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            44
+          ]
+        }
+      }
+    },
+    "with the lower layer taken away": {
+      "photograph": "1-with-the-lower-layer-taken-away.png",
+      "layers the engine says it drew": 1,
+      "read": {
+        "where the upper layer was written": {
+          "rgb": [
+            255,
+            0,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            322
+          ]
+        },
+        "where nobody imaged": {
+          "rgb": [
+            48,
+            96,
+            160
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            578
+          ]
+        },
+        "well outside both": {
+          "rgb": [
+            48,
+            96,
+            160
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            44
+          ]
+        }
+      }
+    },
+    "broken on purpose: the upper layer made opaque": {
+      "photograph": "1-broken-upper-layer-opaque.png",
+      "read": {
+        "where the upper layer was written": {
+          "rgb": [
+            255,
+            0,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            322
+          ]
+        },
+        "where nobody imaged": {
+          "rgb": [
+            255,
+            0,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            578
+          ]
+        },
+        "well outside both": {
+          "rgb": [
+            48,
+            96,
+            160
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            44
+          ]
+        }
+      }
+    }
+  },
+  "1b. what switching the lower layer off does": {
+    "both layers shown": {
+      "photograph": "1b-both-shown.png",
+      "layers the engine says it drew": 2,
+      "read": {
+        "where the upper layer was written": {
+          "rgb": [
+            255,
+            0,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            322
+          ]
+        },
+        "where nobody imaged": {
+          "rgb": [
+            0,
+            255,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            578
+          ]
+        },
+        "well outside both": {
+          "rgb": [
+            48,
+            96,
+            160
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            44
+          ]
+        }
+      }
+    },
+    "the lower layer hidden": {
+      "photograph": "1b-lower-layer-hidden.png",
+      "layers the engine says it drew": 2,
+      "read": {
+        "where the upper layer was written": {
+          "rgb": [
+            255,
+            0,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            322
+          ]
+        },
+        "where nobody imaged": {
+          "rgb": [
+            48,
+            96,
+            160
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            578
+          ]
+        },
+        "well outside both": {
+          "rgb": [
+            48,
+            96,
+            160
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            44
+          ]
+        }
+      }
+    },
+    "the lower layer left loaded at nought opacity": {
+      "photograph": "1b-lower-layer-zero-opacity.png",
+      "layers the engine says it drew": 2,
+      "read": {
+        "where the upper layer was written": {
+          "rgb": [
+            255,
+            0,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            322
+          ]
+        },
+        "where nobody imaged": {
+          "rgb": [
+            48,
+            96,
+            160
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            578
+          ]
+        },
+        "well outside both": {
+          "rgb": [
+            48,
+            96,
+            160
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            44
+          ]
+        }
+      }
+    }
+  },
+  "1c. can several layers show different rectangles of one store": {
+    "two layers pointing at one store": {
+      "photograph": "1c-two-layers-one-store.png",
+      "layers the engine says it drew": 2,
+      "read": {
+        "over the store": {
+          "rgb": [
+            255,
+            0,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            450
+          ]
+        },
+        "well outside it": {
+          "rgb": [
+            48,
+            96,
+            160
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            44
+          ]
+        }
+      }
+    },
+    "one store, two layers, one moved sideways": {
+      "photograph": "1c-one-store-two-places.png",
+      "read": {
+        "where the unmoved layer is": {
+          "rgb": [
+            0,
+            255,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            275
+          ]
+        },
+        "where the moved layer should be": {
+          "rgb": [
+            255,
+            0,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            625
+          ]
+        },
+        "between the two": {
+          "rgb": [
+            48,
+            96,
+            160
+          ],
+          "spread": 0.0,
+          "at": [
+            350,
+            450
+          ]
+        }
+      }
+    },
+    "attempts at showing only part of a store": {
+      "a bound written onto the output axes": {
+        "what happened": "accepted",
+        "photograph": "1c-a-bound-written-onto-the-output-axes.png",
+        "read": {
+          "inside the rectangle asked for": {
+            "rgb": [
+              0,
+              255,
+              0
+            ],
+            "spread": 0.0,
+            "at": [
+              194,
+              294
+            ]
+          },
+          "outside it, still inside the store": {
+            "rgb": [
+              0,
+              255,
+              0
+            ],
+            "spread": 0.0,
+            "at": [
+              519,
+              619
+            ]
+          }
+        }
+      },
+      "asking for a subsource that would be a rectangle": {
+        "what happened": "accepted",
+        "photograph": "1c-asking-for-a-subsource-that-would-be-a-r.png",
+        "read": {
+          "inside the rectangle asked for": {
+            "rgb": [
+              48,
+              96,
+              160
+            ],
+            "spread": 0.0,
+            "at": [
+              194,
+              294
+            ]
+          },
+          "outside it, still inside the store": {
+            "rgb": [
+              48,
+              96,
+              160
+            ],
+            "spread": 0.0,
+            "at": [
+              519,
+              619
+            ]
+          }
+        }
+      }
+    }
+  },
+  "2. does a coarse layer land correctly against a fine one": {
+    "as the two stores describe themselves": {
+      "photograph": "2-coarse-against-fine.png",
+      "borders": {
+        "across the middle": {
+          "read": true,
+          "how far the two middles are apart, um": 5.0,
+          "border before the fine square, um": 165.0,
+          "border after the fine square, um": 155.0,
+          "how uneven, um": 10.0,
+          "fine square across, um": 557.5,
+          "coarse square across, um": 877.5,
+          "one photograph pixel is, um": 2.5
+        },
+        "down the middle": {
+          "read": true,
+          "how far the two middles are apart, um": 5.0,
+          "border before the fine square, um": 165.0,
+          "border after the fine square, um": 155.0,
+          "how uneven, um": 10.0,
+          "fine square across, um": 557.5,
+          "coarse square across, um": 877.5,
+          "one photograph pixel is, um": 2.5
+        },
+        "what it should be, um": 160.0
+      }
+    },
+    "broken on purpose: the corner written down 100 um wrong": {
+      "photograph": "2-broken-corner-100um-wrong.png",
+      "borders": {
+        "across the middle": {
+          "read": true,
+          "how far the two middles are apart, um": 105.0,
+          "border before the fine square, um": 265.0,
+          "border after the fine square, um": 55.0,
+          "how uneven, um": 210.0,
+          "fine square across, um": 557.5,
+          "coarse square across, um": 877.5,
+          "one photograph pixel is, um": 2.5
+        },
+        "down the middle": {
+          "read": true,
+          "how far the two middles are apart, um": 5.0,
+          "border before the fine square, um": 165.0,
+          "border after the fine square, um": 155.0,
+          "how uneven, um": 10.0,
+          "fine square across, um": 557.5,
+          "coarse square across, um": 877.5,
+          "one photograph pixel is, um": 2.5
+        },
+        "what it should be, um": 160.0
+      }
+    },
+    "the same, with the coarse layer twice as coarse": {
+      "photograph": "2-twice-as-coarse.png",
+      "coarse voxel, um": 20.0,
+      "half a coarse voxel less half a fine one, um": 9.82,
+      "borders": {
+        "across the middle": {
+          "read": true,
+          "how far the two middles are apart, um": 10.0,
+          "border before the fine square, um": 170.0,
+          "border after the fine square, um": 150.0,
+          "how uneven, um": 20.0,
+          "fine square across, um": 557.5,
+          "coarse square across, um": 877.5,
+          "one photograph pixel is, um": 2.5
+        },
+        "down the middle": {
+          "read": true,
+          "how far the two middles are apart, um": 10.0,
+          "border before the fine square, um": 170.0,
+          "border after the fine square, um": 150.0,
+          "how uneven, um": 20.0,
+          "fine square across, um": 557.5,
+          "coarse square across, um": 877.5,
+          "one photograph pixel is, um": 2.5
+        },
+        "what it should be, um": 160.0
+      }
+    }
+  },
+  "3. the whole stack": {
+    "the whole carrier, part acquired": {
+      "photograph": "3-carrier-wide.png"
+    },
+    "part acquired": {
+      "photograph": "3-part-acquired.png",
+      "tiles written": 5,
+      "tiles planned": 12,
+      "read": {
+        "tile 0,0": {
+          "was imaged": true,
+          "colour": [
+            76,
+            76,
+            76
+          ],
+          "how varied": 13.9
+        },
+        "tile 0,1": {
+          "was imaged": true,
+          "colour": [
+            138,
+            138,
+            138
+          ],
+          "how varied": 11.1
+        },
+        "tile 0,2": {
+          "was imaged": true,
+          "colour": [
+            133,
+            133,
+            133
+          ],
+          "how varied": 10.2
+        },
+        "tile 0,3": {
+          "was imaged": true,
+          "colour": [
+            86,
+            86,
+            86
+          ],
+          "how varied": 5.3
+        },
+        "tile 1,0": {
+          "was imaged": true,
+          "colour": [
+            112,
+            112,
+            112
+          ],
+          "how varied": 10.8
+        },
+        "tile 1,1": {
+          "was imaged": false,
+          "colour": [
+            48,
+            96,
+            160
+          ],
+          "how varied": 0.0
+        },
+        "tile 1,2": {
+          "was imaged": false,
+          "colour": [
+            48,
+            96,
+            160
+          ],
+          "how varied": 0.0
+        },
+        "tile 1,3": {
+          "was imaged": false,
+          "colour": [
+            48,
+            96,
+            160
+          ],
+          "how varied": 0.0
+        },
+        "tile 2,0": {
+          "was imaged": false,
+          "colour": [
+            17,
+            199,
+            56
+          ],
+          "how varied": 76.4
+        },
+        "tile 2,1": {
+          "was imaged": false,
+          "colour": [
+            48,
+            96,
+            160
+          ],
+          "how varied": 0.0
+        },
+        "tile 2,2": {
+          "was imaged": false,
+          "colour": [
+            48,
+            96,
+            160
+          ],
+          "how varied": 0.0
+        },
+        "tile 2,3": {
+          "was imaged": false,
+          "colour": [
+            48,
+            96,
+            160
+          ],
+          "how varied": 0.0
+        }
+      }
+    },
+    "fully acquired": {
+      "photograph": "3-fully-acquired.png",
+      "tiles written": 12,
+      "read": {
+        "tile 0,0": {
+          "was imaged": true,
+          "colour": [
+            76,
+            76,
+            76
+          ],
+          "how varied": 13.9
+        },
+        "tile 0,1": {
+          "was imaged": true,
+          "colour": [
+            138,
+            138,
+            138
+          ],
+          "how varied": 11.1
+        },
+        "tile 0,2": {
+          "was imaged": true,
+          "colour": [
+            133,
+            133,
+            133
+          ],
+          "how varied": 10.2
+        },
+        "tile 0,3": {
+          "was imaged": true,
+          "colour": [
+            86,
+            86,
+            86
+          ],
+          "how varied": 5.3
+        },
+        "tile 1,0": {
+          "was imaged": true,
+          "colour": [
+            112,
+            112,
+            112
+          ],
+          "how varied": 10.8
+        },
+        "tile 1,1": {
+          "was imaged": true,
+          "colour": [
+            77,
+            77,
+            77
+          ],
+          "how varied": 13.6
+        },
+        "tile 1,2": {
+          "was imaged": true,
+          "colour": [
+            139,
+            139,
+            139
+          ],
+          "how varied": 10.9
+        },
+        "tile 1,3": {
+          "was imaged": true,
+          "colour": [
+            133,
+            133,
+            133
+          ],
+          "how varied": 10.1
+        },
+        "tile 2,0": {
+          "was imaged": true,
+          "colour": [
+            86,
+            86,
+            86
+          ],
+          "how varied": 4.9
+        },
+        "tile 2,1": {
+          "was imaged": true,
+          "colour": [
+            111,
+            111,
+            111
+          ],
+          "how varied": 10.8
+        },
+        "tile 2,2": {
+          "was imaged": true,
+          "colour": [
+            152,
+            152,
+            152
+          ],
+          "how varied": 5.1
+        },
+        "tile 2,3": {
+          "was imaged": true,
+          "colour": [
+            109,
+            109,
+            109
+          ],
+          "how varied": 14.5
+        }
+      }
+    }
+  },
+  "4. what the plate actually costs": {
+    "flat colour, keeping the smaller copies": {
+      "name": "flat-with-pyramid",
+      "patterned": false,
+      "pyramid": true,
+      "seconds": 97.0,
+      "bytes": 3332413,
+      "files": 1701,
+      "voxels": 110080000,
+      "megabytes": 3.33,
+      "bytes per million voxels": 30273
+    },
+    "flat colour, full size only": {
+      "name": "flat-no-pyramid",
+      "patterned": false,
+      "pyramid": false,
+      "seconds": 95.13,
+      "bytes": 1955763,
+      "files": 1135,
+      "voxels": 110080000,
+      "megabytes": 1.96,
+      "bytes per million voxels": 17767
+    },
+    "a patterned background, keeping the smaller copies": {
+      "name": "patterned-with-pyramid",
+      "patterned": true,
+      "pyramid": true,
+      "seconds": 97.15,
+      "bytes": 13689201,
+      "files": 2301,
+      "voxels": 110080000,
+      "megabytes": 13.69,
+      "bytes per million voxels": 124357
+    },
+    "a patterned background, full size only": {
+      "name": "patterned-no-pyramid",
+      "patterned": true,
+      "pyramid": false,
+      "seconds": 96.11,
+      "bytes": 9827745,
+      "files": 1704,
+      "voxels": 110080000,
+      "megabytes": 9.83,
+      "bytes per million voxels": 89278
+    }
+  },
+  "5. does a pattern survive being shrunk down": {
+    "a line every millimetre (a physical period)": {
+      "the pattern repeats every, um": 1000.0,
+      "copies kept": 7,
+      "first copy in which it can no longer be made out": null,
+      "copy by copy": [
+        {
+          "level": 0,
+          "voxels across": 8192,
+          "share of it bright": 0.117,
+          "how much it varies": 962.5,
+          "picture of this copy": "5-physicalgrid-level-0.png",
+          "one voxel of this copy is, um": 10.0
+        },
+        {
+          "level": 1,
+          "voxels across": 4096,
+          "share of it bright": 0.117,
+          "how much it varies": 962.5,
+          "picture of this copy": "5-physicalgrid-level-1.png",
+          "one voxel of this copy is, um": 20.0
+        },
+        {
+          "level": 2,
+          "voxels across": 2048,
+          "share of it bright": 0.154,
+          "how much it varies": 1082.1,
+          "picture of this copy": "5-physicalgrid-level-2.png",
+          "one voxel of this copy is, um": 40.0
+        },
+        {
+          "level": 3,
+          "voxels across": 1024,
+          "share of it bright": 0.154,
+          "how much it varies": 1082.1,
+          "picture of this copy": "5-physicalgrid-level-3.png",
+          "one voxel of this copy is, um": 80.0
+        },
+        {
+          "level": 4,
+          "voxels across": 512,
+          "share of it bright": 0.154,
+          "how much it varies": 1082.1,
+          "picture of this copy": "5-physicalgrid-level-4.png",
+          "one voxel of this copy is, um": 160.0
+        },
+        {
+          "level": 5,
+          "voxels across": 256,
+          "share of it bright": 0.157,
+          "how much it varies": 1092.3,
+          "picture of this copy": "5-physicalgrid-level-5.png",
+          "one voxel of this copy is, um": 320.0
+        },
+        {
+          "level": 6,
+          "voxels across": 128,
+          "share of it bright": 0.164,
+          "how much it varies": 1112.2,
+          "picture of this copy": "5-physicalgrid-level-6.png",
+          "one voxel of this copy is, um": 640.0
+        }
+      ]
+    },
+    "a line every four voxels (a period with no physical meaning)": {
+      "the pattern repeats every, um": 40.0,
+      "copies kept": 7,
+      "first copy in which it can no longer be made out": 2,
+      "copy by copy": [
+        {
+          "level": 0,
+          "voxels across": 8192,
+          "share of it bright": 0.75,
+          "how much it varies": 1299.0,
+          "picture of this copy": "5-voxelgrid-level-0.png",
+          "one voxel of this copy is, um": 10.0
+        },
+        {
+          "level": 1,
+          "voxels across": 4096,
+          "share of it bright": 0.75,
+          "how much it varies": 1299.0,
+          "picture of this copy": "5-voxelgrid-level-1.png",
+          "one voxel of this copy is, um": 20.0
+        },
+        {
+          "level": 2,
+          "voxels across": 2048,
+          "share of it bright": 1.0,
+          "how much it varies": 0.0,
+          "picture of this copy": "5-voxelgrid-level-2.png",
+          "one voxel of this copy is, um": 40.0
+        },
+        {
+          "level": 3,
+          "voxels across": 1024,
+          "share of it bright": 1.0,
+          "how much it varies": 0.0,
+          "picture of this copy": "5-voxelgrid-level-3.png",
+          "one voxel of this copy is, um": 80.0
+        },
+        {
+          "level": 4,
+          "voxels across": 512,
+          "share of it bright": 1.0,
+          "how much it varies": 0.0,
+          "picture of this copy": "5-voxelgrid-level-4.png",
+          "one voxel of this copy is, um": 160.0
+        },
+        {
+          "level": 5,
+          "voxels across": 256,
+          "share of it bright": 1.0,
+          "how much it varies": 0.0,
+          "picture of this copy": "5-voxelgrid-level-5.png",
+          "one voxel of this copy is, um": 320.0
+        },
+        {
+          "level": 6,
+          "voxels across": 128,
+          "share of it bright": 1.0,
+          "how much it varies": 0.0,
+          "picture of this copy": "5-voxelgrid-level-6.png",
+          "one voxel of this copy is, um": 640.0
+        }
+      ]
+    }
+  },
+  "6. the ambiguity that is not yet fixed": {
+    "as an operator would see it": {
+      "photograph": "6-as-the-operator-sees-it.png",
+      "how much of the plate shows through": {
+        "in the dark part of the tile that WAS imaged": 0.071,
+        "in room beside it that was NEVER written": 0.049
+      },
+      "read": {
+        "the faint blob inside the imaged tile": {
+          "rgb": [
+            0,
+            0,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            252,
+            352
+          ]
+        }
+      }
+    },
+    "the same, with the writer's own record of where it looked drawn over it": {
+      "photograph": "6-with-the-footprint-marked.png",
+      "how much of the plate shows through": {
+        "in the dark part of the tile that WAS imaged": 0.046,
+        "in room beside it that was NEVER written": 0.049
+      },
+      "read": {
+        "the faint blob inside the imaged tile": {
+          "rgb": [
+            0,
+            0,
+            0
+          ],
+          "spread": 0.0,
+          "at": [
+            252,
+            352
+          ]
+        }
+      }
+    }
+  }
+}

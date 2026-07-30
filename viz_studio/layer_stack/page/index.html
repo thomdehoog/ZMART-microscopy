@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ZMART layer-stack probe</title>
+    <style>
+      /* The page is deliberately bare. Anything drawn here that was not asked
+         for would be an extra colour inside the photographs, and several of
+         these measurements tell one layer from another by colour alone. */
+      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; }
+      #stack { position: absolute; inset: 0; }
+      /* The engine fills the window. Unlike the sandwich probe there is nothing
+         drawn on top of it here: every layer under test is a layer *inside* the
+         engine, which is the arrangement `LAYERS.md` describes and the thing
+         being measured. */
+      #engine { position: absolute; inset: 0; z-index: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="stack">
+      <div id="engine"></div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
