@@ -56,6 +56,46 @@ There is also a set of tests that run against a specific real mesoSPIM transfer
 on the lab's network share (`tests/test_real_mesospim_data.py`). They skip
 wherever that drive is not mounted, and run on the acquisition PC where it is.
 
+## Finding the limit on how many positions a browser will carry
+
+One test is left out of an ordinary run because it takes many minutes rather
+than seconds. It is worth knowing about, because it measures the number the
+viewer's safety margin is built on.
+
+A folder of more than roughly six hundred and eighty positions used to draw only
+part of the specimen and say nothing at all about the rest — the browser starts
+refusing requests once too many are waiting, and a refused request looks to the
+drawing engine like a position that cannot be read. The viewer now hands the
+positions over in groups and lets each group finish, which keeps the queue short
+enough that nothing is refused.
+
+That protection is only as good as the size of a group, so two things guard it.
+The ordinary run checks that the size the viewer ships with still leaves room
+beneath the measured limit — that one is instant and it is what fails if somebody
+raises the number. The measurement itself is opt-in:
+
+```
+ZMART_FIND_THE_LIMIT=1 python run_tests.py -s -k finds_the_limit
+```
+
+It turns the pacing off and opens folders of increasing size until positions
+start going missing, narrowing down until it has the boundary, and then opens a
+folder well past that limit with the pacing on to confirm every position still
+arrives. The `-s` is worth having: it prints what it found at each step.
+
+Run it when the browser is updated, when the viewer moves to a different drawing
+engine, or when somebody wants to raise the group size.
+
+**The answer depends on the machine, and by a lot.** Run on the sandbox this
+project's tests are developed on, the browser carried four thousand positions
+unpaced without losing a single one — the search never found a limit at all,
+where the figure the viewer's margin is built on is six hundred and eighty. Both
+numbers are real; they are simply different machines. So a run of this test tells
+you about *that* machine, and the figure worth trusting for the lab is the one
+measured on the acquisition PC. The margin the ordinary run checks against stays
+at the smaller, more cautious number for exactly this reason: a viewer that is
+safe on the slowest machine is safe everywhere.
+
 ## Confirming the GPU is really being used
 
 The clearest single check:
