@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ZMART sandwich probe</title>
+    <style>
+      /* The page itself is deliberately bare. Anything drawn here that was not
+         asked for would be a fourth colour in the photographs, and the margin
+         test tells its three colours apart by colour alone. */
+      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; }
+      #stack { position: absolute; inset: 0; }
+      /* The engine's own surface, underneath. It is positioned rather than
+         simply filling the window so that it can be given only part of the
+         window to draw in — which is what bounding the drawn region to the
+         ground a run actually imaged comes to. */
+      /* The two lines that matter here are `z-index` and `pointer-events`, and
+         both were learned the hard way.
+
+         The engine builds a small tree of its own elements inside this one, and
+         some of them carry a stacking order of their own. Left alone, those
+         escape into the page's own stacking order and end up *above* anything
+         placed after them — so the operator's sheet was painted over the image
+         perfectly while every click and drag was quietly caught by the engine's
+         panel underneath it. Giving this element a stacking order of its own
+         keeps the engine's insides inside it.
+
+         And the engine must not receive gestures at all: in this arrangement the
+         sheet on top is the only thing that interprets them, so the engine is
+         made transparent to the mouse rather than merely covered by something. */
+      #engine { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+                z-index: 0; pointer-events: none; }
+      /* The operator's sheet, exactly on top and catching every gesture. */
+      #sheet { position: absolute; inset: 0; width: 100%; height: 100%;
+               z-index: 10; touch-action: none; }
+      /* The control: one canvas holding both layers. */
+      #one-canvas { position: absolute; inset: 0; width: 100%; height: 100%;
+                    display: none; touch-action: none; }
+    </style>
+  </head>
+  <body>
+    <div id="stack">
+      <div id="engine"></div>
+      <canvas id="sheet"></canvas>
+      <canvas id="one-canvas"></canvas>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

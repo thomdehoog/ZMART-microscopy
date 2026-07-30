@@ -128,6 +128,32 @@ most often and without thinking, and a browser has taught everyone what it does.
 Stepping through the stack keeps the slider it already has, which is better than a
 gesture anyway because it shows you where in the stack you are.
 
+### 1a. And something nobody had noticed: the flat view is mirrored
+
+Not a binding, but it belongs beside them because it is the same kind of fault
+and it was found while testing them.
+
+The engine draws three chosen axes: one across the window, one down it, one into
+the screen. Which is which follows from the *order* the axes are handed over in
+together with which of the engine's named layouts is asked for — and the two
+interact. This viewer hands them over as depth, height, width and asks for the
+layout called `yz`, which does put width across the window and height down it and
+looks entirely right.
+
+**It also runs width to the left.** Measured by dragging and watching where the
+picture went: the drawing over the image moved 168 pixels one way and the picture
+moved 168 pixels the other. Handing the axes over width-first and asking for the
+layout called `xy` instead makes them move together. The figures are in
+`SANDWICH.md`, section 2.
+
+This has not been changed here, because which handedness a microscopist should
+see is a decision about the instrument rather than about drawing, and it wants
+somebody who knows the stage to make it. But it must be made. A mirrored plate
+view is still a perfectly good picture — nothing errors, and on a round specimen
+there is nothing to notice — and the operator who clicks the left-hand well and
+drives the stage there is driving it to the wrong one. It is the rotation hazard
+below, in a quieter form.
+
 ### 2. Rotation is bound four different ways, and probably should not be
 
 Shift + drag, `r`, `e`, and Shift + arrow keys all rotate the view. That is a
@@ -149,7 +175,16 @@ somebody actually needs it.
 Because rotation is gone, a test has to prove it is gone. An unbound gesture looks
 exactly like a gesture nobody tried, so without a check that Shift and drag leaves
 the view untouched, this quietly comes back the next time the bindings are
-edited.
+edited. There is now such a check —
+`viz_studio/tests/test_the_margins_stay_even.py` — and it turns the view on
+purpose to prove it would notice.
+
+One thing that check taught, worth knowing before writing another: **a rotation of
+a couple of degrees is nearly invisible to the obvious measurement.** A square
+turned two degrees is almost exactly as wide across its middle as it was, so
+anything reading a single line through the centre reports nothing wrong at all.
+What catches it is reading the same edge along several lines and comparing them
+with each other. See `SANDWICH.md`, section 9.
 
 ### 3. Zoom should anchor on the pointer
 
