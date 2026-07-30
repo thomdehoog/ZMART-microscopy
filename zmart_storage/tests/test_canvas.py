@@ -1023,3 +1023,87 @@ def test_a_moment_past_the_declared_room_is_refused(tmp_path):
     with pytest.raises(ValueError, match="declared room for"):
         canvases.write(np.full(TILE, 7, dtype="uint16"), origin=(0, 0, 0),
                        frame=3, tile_index=(0, 0, 0))
+
+
+# --------------------------------------------------------------------------
+# A tile is only in the way of another in the same moment and the same colour
+# --------------------------------------------------------------------------
+#
+# These guard a fault that made a whole way of running an experiment impossible.
+# When a tile is written without saying where it sits in a scan pattern -- which is
+# what a workflow choosing its own targets does, and which the writer documents as
+# perfectly ordinary -- the writer asks each image whether the tile would land on
+# something already in it. That question used to compare only *where* the tile sat,
+# ignoring which moment and which colour it belonged to.
+#
+# So imaging a target and then imaging the same target again at the next moment was
+# refused, with a message saying the second would destroy the first. It would not:
+# an image holds every moment separately, and the two land in different slices of
+# it. A timelapse of workflow-chosen targets therefore could not be written past its
+# first moment, and a two-colour target could not have its second colour written at
+# all.
+#
+# Nothing caught it because every existing test passes ``tile_index``, which takes
+# the scan-pattern path and never reaches the comparison at all.
+
+
+def _targets(folder: Path) -> TileCanvases:
+    """A run with two colours and room for several moments."""
+    return TileCanvases.create(
+        folder,
+        name="targetscan",
+        canvas_shape=(2, 640, 640),
+        tile_shape=TILE,
+        tile_step=BUTTED_UP,
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488"), Channel("561")],
+        frames=10,
+        levels=2,
+        chunk=64,
+    )
+
+
+def test_the_same_target_can_be_imaged_again_at_the_next_moment(tmp_path):
+    """A timelapse of chosen targets, which is the ordinary way of watching one."""
+    canvases = _targets(tmp_path / "run")
+    for moment in (0, 1, 2):
+        canvases.write(
+            np.full(TILE, 1000 + moment, dtype="uint16"), origin=(0, 0, 0), frame=moment
+        )
+
+    array = zarr.open_group(str(canvases.paths[0]), mode="r")["0"]
+    for moment in (0, 1, 2):
+        recorded = np.asarray(array[moment, 0, :, 0:TILE[1], 0:TILE[2]])
+        assert (recorded == 1000 + moment).all(), (
+            f"moment {moment} did not keep its own picture"
+        )
+    canvases.close()
+
+
+def test_the_same_target_can_be_imaged_in_a_second_colour(tmp_path):
+    canvases = _targets(tmp_path / "run")
+    for colour in (0, 1):
+        canvases.write(
+            np.full(TILE, 2000 + colour, dtype="uint16"), origin=(0, 0, 0), channel=colour
+        )
+
+    array = zarr.open_group(str(canvases.paths[0]), mode="r")["0"]
+    for colour in (0, 1):
+        recorded = np.asarray(array[0, colour, :, 0:TILE[1], 0:TILE[2]])
+        assert (recorded == 2000 + colour).all(), (
+            f"colour {colour} did not keep its own picture"
+        )
+    canvases.close()
+
+
+def test_the_same_place_twice_in_one_moment_is_still_refused(tmp_path):
+    """The check must still do the job it was written for.
+
+    Without this the two tests above could be satisfied by removing the check
+    altogether, which would let a run quietly destroy its own tiles.
+    """
+    canvases = _targets(tmp_path / "run")
+    canvases.write(np.full(TILE, 1, dtype="uint16"), origin=(0, 0, 0))
+    with pytest.raises(ValueError, match="overlaps something already written"):
+        canvases.write(np.full(TILE, 2, dtype="uint16"), origin=(0, 0, 0))
+    canvases.close()
