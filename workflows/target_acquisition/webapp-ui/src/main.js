@@ -13,47 +13,86 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   "use strict";
 
   /* ============================================================
-     synthetic sample — deterministic, so the mock looks the same
-     every load. Geometry is in stage micrometres throughout.
+     the synthetic sample
      ============================================================ */
-  const TILE_UM = 2662;          // 2048 px at 1.3 µm/px, a 5x overview tile
-  const COLS = 7, ROWS = 5;
-  const W_UM = COLS * TILE_UM, H_UM = ROWS * TILE_UM;
+  /* Deterministic, so the mock looks the same every load and can be argued
+     about. Carrier micrometres throughout — the same frame the scan fields and
+     the carrier's areas are in.
+
+     Two things, and the split is the point. Tissue belongs to the plate: soft
+     patches spread over the carrier, there whether or not anybody looks. Cells
+     belong to the plan: the run only knows about what it imaged, so they are
+     generated inside the tiles the scan fields ask for. Look somewhere else
+     and a different sample comes back, which is the honest behaviour — before
+     this the sample was a 7 by 5 block in the corner and the plan could not
+     move it. */
+  const TARGET_CELLS = 1250;
+  const AREA_LO = 60, AREA_HI = 400;
 
   function makeRng(seed) {
     let s = seed >>> 0;
     return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
   }
 
-  const rnd = makeRng(20260728);
+  let sample = { tissue: [], cells: [], bounds: null };
 
-  const blobs = Array.from({ length: 6 }, () => ({
-    x: (0.12 + 0.76 * rnd()) * W_UM,
-    y: (0.12 + 0.76 * rnd()) * H_UM,
-    r: (0.10 + 0.13 * rnd()) * W_UM,
-  }));
+  function tissueFor(carrier) {
+    const rnd = makeRng(20260728);
+    const [w, h] = carrierWidget.extentUm(carrier);
+    return Array.from({ length: 7 }, () => ({
+      x: (0.08 + 0.84 * rnd()) * w,
+      y: (0.08 + 0.84 * rnd()) * h,
+      r: (0.10 + 0.16 * rnd()) * Math.min(w, h),
+    }));
+  }
 
   function density(x, y) {
     let d = 0;
-    for (const b of blobs) {
+    for (const b of sample.tissue) {
       const dx = x - b.x, dy = y - b.y;
       d += Math.exp(-(dx * dx + dy * dy) / (2 * b.r * b.r));
     }
     return Math.min(1, d);
   }
 
-  // cells live where there is tissue
-  const cells = [];
-  for (let i = 0; cells.length < 1250 && i < 24000; i++) {
-    const x = rnd() * W_UM, y = rnd() * H_UM;
-    const d = density(x, y);
-    if (rnd() > d * 0.92) continue;
-    const area = 62 + 330 * Math.pow(rnd(), 1.7);
-    const intensity = Math.max(0.02, Math.min(1, 0.18 + 0.62 * d + 0.22 * (rnd() - 0.5)));
-    cells.push({ id: cells.length + 1, x, y, area, intensity, r: Math.sqrt(area / Math.PI) });
+  /* Rebuilt whenever the plan or the plate changes, because either changes
+     what there is to find. A cell remembers which tile it was imaged in, so
+     tuning detection on one tile is a question the sample can answer. */
+  function rebuildSample() {
+    state.plan = scanfieldsWidget.plan(state.fields, recordedPresets());
+    sample = { tissue: tissueFor(state.carrier), cells: [], bounds: null };
+    if (!state.plan.length) return;
+
+    const rnd = makeRng(90210);
+    const per = TARGET_CELLS / state.plan.length;
+    const cells = [];
+    let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+
+    state.plan.forEach((t, tile) => {
+      const half = t.frameUm / 2;
+      xMin = Math.min(xMin, t.x - half); xMax = Math.max(xMax, t.x + half);
+      yMin = Math.min(yMin, t.y - half); yMax = Math.max(yMax, t.y + half);
+      const d = density(t.x, t.y);
+      // a rich patch comes back crowded and a bare one nearly empty, rather
+      // than every tile returning the same handful
+      const n = Math.round(per * (0.15 + 1.85 * d));
+      for (let i = 0; i < n; i++) {
+        const area = 62 + 330 * Math.pow(rnd(), 1.7);
+        cells.push({
+          id: cells.length + 1, tile,
+          x: t.x + (rnd() - 0.5) * t.frameUm,
+          y: t.y + (rnd() - 0.5) * t.frameUm,
+          area,
+          intensity: Math.max(0.02, Math.min(1, 0.18 + 0.62 * d + 0.22 * (rnd() - 0.5))),
+          r: Math.sqrt(area / Math.PI),
+        });
+      }
+    });
+    sample.cells = cells;
+    sample.bounds = { xMin, yMin, xMax, yMax };
   }
 
-  const AREA_LO = 60, AREA_HI = 400;
+  const cellsInTile = (tile) => sample.cells.filter((c) => c.tile === tile);
 
   /* ============================================================
      workflow declarations — the whole point of the selector box
@@ -68,8 +107,8 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
         { id: "scanfields", title: "Initial scanfields", why: "Say where on the carrier the overview is taken — a block in every area, or regions drawn by hand.", panels: [], mode: "scanfields" },
         { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
-        { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
-        { id: "detect", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, note: "1250 cells found", mode: "detect" },
+        { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, mode: "scan" },
+        { id: "detect", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, mode: "detect" },
         { id: "select", title: "Select cells", why: "Gate the cells worth imaging — drag a box on the plot, or pick them on the canvas.", btn: "Confirm selection", panels: ["analysis"], ms: 600, mode: "select" },
         { id: "acquire", title: "Acquire and curate", why: "Images the selected cells at target magnification and collects your verdicts.", btn: "Acquire selection", panels: ["gallery"], ms: 2200, mode: "targets" },
         { id: "save", title: "Save the run", why: "Writes the report, the layout picture and your verdicts beside the images.", btn: "Save results", panels: [], ms: 800, note: "report + layout written" },
@@ -84,7 +123,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         { id: "optics", title: "Optical configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
         { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
         { id: "scanfields", title: "Initial scanfields", why: "Say where on the carrier the overview is taken — a block in every area, or regions drawn by hand.", panels: [], mode: "scanfields" },
-        { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, note: "35 / 35 tiles", mode: "scan" },
+        { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, mode: "scan" },
         { id: "save", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
       ]),
@@ -133,7 +172,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       cellprob: 0,
       thresh: 0.35,
       minArea: 80,
-      tile: { col: 3, row: 2 },
+      tile: 0,
       tested: false,
     };
   }
@@ -161,6 +200,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     bars: startingBars(),
     carrier: { ...DEFAULT_CARRIER },
     fields: [],
+    plan: [],
     editor: null,
     checks: [],
     wf: "target_acquisition",
@@ -216,7 +256,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       activeIdx: 0, done: new Set(), running: null, notes: {},
       recordings: [],
       bars: startingBars(),
-      carrier: { ...DEFAULT_CARRIER }, fields: [], checks: [],
+      carrier: { ...DEFAULT_CARRIER }, fields: [], plan: [], checks: [],
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
       detect: newDetect(), detected: new Set(),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], verdicts: {},
@@ -381,7 +421,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
     if (s.mode === "scan") {
       state.tilesShown = 0;
-      const total = COLS * ROWS;
+      const total = state.plan.length;
       const tick = () => {
         const t = Math.min(1, (performance.now() - started) / s.ms);
         state.tilesShown = Math.round(t * total);
@@ -414,10 +454,10 @@ import scanfieldsWidget from "./widgets/scanfields.js";
           : `reusing ${PREVIOUS_SURFACES[f.reuse].label}`;
         renderFocusToolbar(); drawTrace();
       }
-      if (s.mode === "scan") { state.tilesShown = COLS * ROWS; }
+      if (s.mode === "scan") { state.tilesShown = state.plan.length; }
       if (s.mode === "detect") {
         // the settings proven on one tile, now applied to every tile
-        state.detected = new Set(cells.filter(detects).map((c) => c.id));
+        state.detected = new Set(sample.cells.filter(detects).map((c) => c.id));
         state.cellsShown = true;
         state.notes[s.id] = `${state.detected.size} cells · ${ALGOS[state.detect.algo].label}`;
       }
@@ -798,6 +838,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       state.bars = state.bars.filter((b) => b !== bar);
       ensureOpenBar();
       settingsChanged();
+      scanfieldsSettled();
       renderSetup();
       renderAll();
     });
@@ -884,6 +925,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         bar.frameUm = reading.frameUm;
         ensureOpenBar();
         settingsChanged();
+        scanfieldsSettled();
         renderSetup();
         renderAll();
       }, 480);
@@ -956,6 +998,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         onChange: (next) => {
           state.carrier = next;
           state.notes.carrier = describeCarrier(next);
+          // the tissue is spread over the plate, so a different plate is a
+          // different sample even before the plan moves
+          rebuildSample();
           view.fitted = false;
           drawStage();
           renderRail();
@@ -983,6 +1028,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      its own, so changing what a preset is changes what the plan covers. */
   const recordedPresets = () => recordedBars().map((b, i) => ({
     id: `preset${i}`,
+    kind: b.type,
     name: b.name,
     summary: b.state,
     frameUm: b.frameUm,
@@ -992,8 +1038,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      step is done once there is something to scan, and undone again if the last
      field is removed. */
   function scanfieldsSettled() {
+    rebuildSample();
     if (indexOfStep("scanfields") < 0) return;
-    const positions = scanfieldsWidget.plan(state.fields, recordedPresets()).length;
+    const positions = state.plan.length;
     if (positions) {
       state.done.add("scanfields");
       state.notes.scanfields = `${positions} position${positions === 1 ? "" : "s"}`;
@@ -1195,9 +1242,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   const toScreen = (x, y) => [x * view.scale + view.tx, y * view.scale + view.ty];
   const toWorld = (px, py) => [(px - view.tx) / view.scale, (py - view.ty) / view.scale];
 
-  function tileTexture(ctx, col, row, place) {
-    const [sx, sy] = place(col * TILE_UM, row * TILE_UM);
-    const sz = TILE_UM * view.scale;
+  function tileTexture(ctx, tile, place) {
+    const [sx, sy] = place(tile.x - tile.frameUm / 2, tile.y - tile.frameUm / 2);
+    const sz = tile.frameUm * view.scale;
 
     // tile ground with a gentle per-tile vignette — the flat-field seam
     // an operator actually sees in a stitched overview
@@ -1247,21 +1294,19 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     const shown = Math.max(state.tilesShown, 0);
     if (showTiles && shown > 0) {
       ctx.save();
-      for (let i = 0; i < shown; i++) {
-        const row = Math.floor(i / COLS);
-        const col = row % 2 === 0 ? i % COLS : COLS - 1 - (i % COLS); // serpentine, like the stage
-        tileTexture(ctx, col, row, place);
-      }
-      // tissue, clipped to what has been scanned
+      const done = state.plan.slice(0, shown);
+      for (const t of done) tileTexture(ctx, t, place);
+      /* Tissue is drawn inside the tiles that have been taken, because an
+         image is the only way the run knows it is there. */
       ctx.globalCompositeOperation = "lighter";
-      for (const b of blobs) {
-        const [bx, by] = place(b.x, b.y);
-        const br = b.r * view.scale;
-        const rowsDone = Math.ceil(shown / COLS);
-        if (b.y > rowsDone * TILE_UM + b.r * 0.4) continue;
+      for (const t of done) {
+        const d = density(t.x, t.y);
+        if (d < 0.02) continue;
+        const [bx, by] = place(t.x, t.y);
+        const br = (t.frameUm * 0.75) * view.scale;
         const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-        if (ch0) { g.addColorStop(0, "rgba(34,211,238,0.30)"); }
-        g.addColorStop(0.55, ch1 ? "rgba(245,158,11,0.13)" : "rgba(34,211,238,0.10)");
+        if (ch0) g.addColorStop(0, `rgba(34,211,238,${0.34 * d})`);
+        g.addColorStop(0.55, ch1 ? `rgba(245,158,11,${0.16 * d})` : `rgba(34,211,238,${0.12 * d})`);
         g.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
@@ -1269,15 +1314,14 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       ctx.restore();
     }
 
-    // ---- scan frontier
-    if (state.running === "scan" && showTiles) {
-      const row = Math.floor(shown / COLS);
-      const col = row % 2 === 0 ? shown % COLS : COLS - 1 - (shown % COLS);
-      const [fx, fy] = place(col * TILE_UM, row * TILE_UM);
+    // ---- scan frontier: the tile the stage is standing on
+    if (state.running === "scan" && showTiles && state.plan[shown]) {
+      const t = state.plan[shown];
+      const [fx, fy] = place(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
       ctx.strokeStyle = css("--accent");
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 4]);
-      ctx.strokeRect(fx, fy, TILE_UM * view.scale, TILE_UM * view.scale);
+      ctx.strokeRect(fx, fy, t.frameUm * view.scale, t.frameUm * view.scale);
       ctx.setLineDash([]);
     }
 
@@ -1285,11 +1329,12 @@ import scanfieldsWidget from "./widgets/scanfields.js";
        something has been. Drawn from the first tile it was a second square
        sitting in the plate's corner before any of this had happened, which
        says the run has a sample somewhere it does not yet have one. */
-    if (shown > 0) {
-      const [bx, by] = place(0, 0);
+    if (shown > 0 && sample.bounds) {
+      const b = sample.bounds;
+      const [bx, by] = place(b.xMin, b.yMin);
       ctx.strokeStyle = css("--line-strong");
       ctx.lineWidth = 1;
-      ctx.strokeRect(bx, by, W_UM * view.scale, H_UM * view.scale);
+      ctx.strokeRect(bx, by, (b.xMax - b.xMin) * view.scale, (b.yMax - b.yMin) * view.scale);
     }
 
     // ---- cells
@@ -1298,7 +1343,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       ctx.fillStyle = css("--mark-context");
       ctx.globalAlpha = 0.55;
       ctx.beginPath();
-      for (const c of cells) {
+      for (const c of sample.cells) {
         if (!state.detected.has(c.id) || state.gated.has(c.id)) continue;
         const [x, y] = place(c.x, c.y);
         if (x < -8 || y < -8 || x > w + 8 || y > h + 8) continue;
@@ -1310,7 +1355,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
       // gated cells — ringed, so identity is not carried by colour alone
       const gr = Math.max(3, 4.2 * Math.sqrt(view.scale / 0.03));
-      for (const c of cells) {
+      for (const c of sample.cells) {
         if (!state.gated.has(c.id)) continue;
         const [x, y] = place(c.x, c.y);
         if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
@@ -1323,7 +1368,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     // ---- acquired targets
     if (showTargets && state.acquired.length) {
       for (const id of state.acquired) {
-        const c = cells[id - 1];
+        const c = sample.cells[id - 1];
         const [x, y] = place(c.x, c.y);
         const rr = Math.max(7, 9 * Math.sqrt(view.scale / 0.03));
         ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
@@ -1424,7 +1469,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     if (state.cellsShown && el("lay-cells").checked) {
       const [ox, oy] = carrierOriginUm();
       let best = 12 / view.scale;
-      for (const c of cells) {
+      for (const c of sample.cells) {
         if (!state.detected.has(c.id)) continue;
         const d = Math.hypot(c.x + ox - wx, c.y + oy - wy);
         if (d < best) { best = d; hit = c; }
@@ -1481,7 +1526,14 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   const focusTip = el("focus-tip");
 
   // ground truth the "microscope" would measure, so picked points behave
-  const trueZ = (x, y) => -412 + 96 * (x / W_UM - 0.5) + 61 * (y / H_UM - 0.5);
+  /* The sample is not flat and not level: a gentle tilt across the plate. Over
+     the carrier's own extent, so it is the same surface wherever the plan
+     decides to look at it. */
+  const carrierSpan = () => carrierWidget.extentUm(state.carrier);
+  const trueZ = (x, y) => {
+    const [w, h] = carrierSpan();
+    return -412 + 96 * (x / w - 0.5) + 61 * (y / h - 0.5);
+  };
 
   const STRATEGIES = {
     plane: {
@@ -1523,7 +1575,10 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
   function surfaceZ(m, x, y) {
     if (!m) return 0;
-    if (m.kind === "affine") return m.a * (x / W_UM - 0.5) + m.b * (y / H_UM - 0.5) + m.c;
+    if (m.kind === "affine") {
+      const [w, h] = carrierSpan();
+      return m.a * (x / w - 0.5) + m.b * (y / h - 0.5) + m.c;
+    }
     if (m.kind === "constant") return m.c;
     if (m.kind === "plane") return m.c0 * (x - m.x0) + m.c1 * (y - m.y0) + m.c2;
     const u = (x - m.x0) / m.scale, v = (y - m.y0) / m.scale;
@@ -1675,29 +1730,52 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   function fitFocusView() {
     const w = focusCv.cssW || 800, h = focusCv.cssH || 600;
     const pad = 26;
-    const s = Math.min((w - 2 * pad) / W_UM, (h - 2 * pad) / H_UM);
+    const b = planBox();
+    const bw = b.xMax - b.xMin, bh = b.yMax - b.yMin;
+    const s = Math.min((w - 2 * pad) / bw, (h - 2 * pad) / bh);
     fview.scale = s;
-    fview.tx = (w - W_UM * s) / 2;
-    fview.ty = (h - H_UM * s) / 2;
+    fview.tx = (w - bw * s) / 2 - b.xMin * s;
+    fview.ty = (h - bh * s) / 2 - b.yMin * s;
     fview.fitted = true;
   }
 
   const fToScreen = (x, y) => [x * fview.scale + fview.tx, y * fview.scale + fview.ty];
   const fToWorld = (px, py) => [(px - fview.tx) / fview.scale, (py - fview.ty) / fview.scale];
 
+  /* What the focus panel frames: the positions the run is going to visit, or
+     the whole carrier while there are none. */
+  function planBox() {
+    if (sample.bounds) return sample.bounds;
+    const [w, h] = carrierSpan();
+    return { xMin: 0, yMin: 0, xMax: w, yMax: h };
+  }
+
+  /* The position under the pointer, if it is over one. A list of positions has
+     no rows and columns to index into, so it is asked by distance. */
+  function nearestPosition(x, y) {
+    let best = null;
+    state.plan.forEach((t, i) => {
+      const half = t.frameUm / 2;
+      if (x < t.x - half || x > t.x + half || y < t.y - half || y > t.y + half) return;
+      const d = Math.hypot(t.x - x, t.y - y);
+      if (!best || d < best.d) best = { t, i, d };
+    });
+    return best;
+  }
+
   const FIELD_W = 148, FIELD_H = 108;
   const fieldCv = document.createElement("canvas");
   fieldCv.width = FIELD_W; fieldCv.height = FIELD_H;
 
-  function paintSurface(surf, zLo, zHi) {
+  function paintSurface(surf, zLo, zHi, box) {
     const fctx = fieldCv.getContext("2d");
     const img = fctx.createImageData(FIELD_W, FIELD_H);
     const span = zHi - zLo || 1;
     let k = 0;
     for (let j = 0; j < FIELD_H; j++) {
-      const y = ((j + 0.5) / FIELD_H) * H_UM;
+      const y = box.yMin + ((j + 0.5) / FIELD_H) * (box.yMax - box.yMin);
       for (let i = 0; i < FIELD_W; i++) {
-        const x = ((i + 0.5) / FIELD_W) * W_UM;
+        const x = box.xMin + ((i + 0.5) / FIELD_W) * (box.xMax - box.xMin);
         const c = viridis((surfaceZ(surf, x, y) - zLo) / span);
         img.data[k++] = c[0]; img.data[k++] = c[1]; img.data[k++] = c[2]; img.data[k++] = 255;
       }
@@ -1720,6 +1798,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     const showSurface = surf && (f.strategy !== "plane" || f.applied);
 
     // predicted z range across the sample, for the ramp and its legend
+    const box = planBox();
     let zLo = 0, zHi = 1;
     if (showSurface) {
       // a spline can bulge between its points, so sample the field rather than
@@ -1727,7 +1806,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       zLo = Infinity; zHi = -Infinity;
       for (let j = 0; j <= 12; j++) {
         for (let i = 0; i <= 16; i++) {
-          const z = surfaceZ(surf, (i / 16) * W_UM, (j / 12) * H_UM);
+          const z = surfaceZ(surf,
+            box.xMin + (i / 16) * (box.xMax - box.xMin),
+            box.yMin + (j / 12) * (box.yMax - box.yMin));
           if (z < zLo) zLo = z;
           if (z > zHi) zHi = z;
         }
@@ -1737,9 +1818,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
     // ---- the surface, as one continuous field rather than tile blocks
     if (showSurface) {
-      const [sx0, sy0] = fToScreen(0, 0);
-      const sw = W_UM * fview.scale, sh = H_UM * fview.scale;
-      paintSurface(surf, zLo, zHi);
+      const [sx0, sy0] = fToScreen(box.xMin, box.yMin);
+      const sw = (box.xMax - box.xMin) * fview.scale, sh = (box.yMax - box.yMin) * fview.scale;
+      paintSurface(surf, zLo, zHi, planBox());
       ctx.save();
       ctx.globalAlpha = 0.82;
       ctx.imageSmoothingEnabled = true;
@@ -1749,25 +1830,24 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     }
 
     // ---- the positions, exactly as the software reports them
-    for (let row = 0; row < ROWS; row++) {
-      for (let col = 0; col < COLS; col++) {
-        const [tx, ty] = fToScreen(col * TILE_UM, row * TILE_UM);
-        const sz = TILE_UM * fview.scale;
-        ctx.strokeStyle = showSurface ? "rgba(255,255,255,0.30)" : css("--line-strong");
-        ctx.lineWidth = 1;
-        ctx.strokeRect(tx + 0.5, ty + 0.5, sz - 1, sz - 1);
-      }
+    /* The positions themselves, as the scan fields laid them out. This panel
+       works on the list the run is going to drive, not on a grid of its own. */
+    for (const t of state.plan) {
+      const [tx, ty] = fToScreen(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
+      const sz = t.frameUm * fview.scale;
+      ctx.strokeStyle = showSurface ? "rgba(255,255,255,0.30)" : css("--line-strong");
+      ctx.lineWidth = 1;
+      if (sz < 2) { ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(tx, ty, 2, 2); continue; }
+      ctx.strokeRect(tx + 0.5, ty + 0.5, sz - 1, sz - 1);
     }
 
     if (f.strategy === "auto") {
       ctx.fillStyle = css("--ink-3");
       ctx.font = '11px ui-monospace, Consolas, monospace';
       ctx.textAlign = "center";
-      for (let row = 0; row < ROWS; row++) {
-        for (let col = 0; col < COLS; col++) {
-          const [tx, ty] = fToScreen((col + 0.5) * TILE_UM, (row + 0.5) * TILE_UM);
-          if (TILE_UM * fview.scale > 34) ctx.fillText("AF", tx, ty + 4);
-        }
+      for (const t of state.plan) {
+        const [tx, ty] = fToScreen(t.x, t.y);
+        if (t.frameUm * fview.scale > 34) ctx.fillText("AF", tx, ty + 4);
       }
       ctx.textAlign = "left";
     }
@@ -1845,15 +1925,16 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       return;
     }
     const [wx, wy] = fToWorld(e.offsetX, e.offsetY);
-    const col = Math.floor(wx / TILE_UM), row = Math.floor(wy / TILE_UM);
-    if (col >= 0 && col < COLS && row >= 0 && row < ROWS) {
+    const near = nearestPosition(wx, wy);
+    if (near) {
+      const { t, i } = near;
       focusTip.classList.add("on");
       const surf = focusSurface();
       const showSurface = surf && (state.focus.strategy !== "plane" || state.focus.applied);
       focusTip.innerHTML =
-        `<b>position</b> r${row + 1}c${col + 1}<br>` +
-        `<b>centre</b> ${(((col + 0.5) * TILE_UM) / 1000).toFixed(2)}, ${(((row + 0.5) * TILE_UM) / 1000).toFixed(2)} mm` +
-        (showSurface ? `<br><b>z</b> ${surfaceZ(surf, (col + 0.5) * TILE_UM, (row + 0.5) * TILE_UM).toFixed(1)} µm` : "");
+        `<b>position</b> ${i + 1} of ${state.plan.length}<br>` +
+        `<b>centre</b> ${(t.x / 1000).toFixed(2)}, ${(t.y / 1000).toFixed(2)} mm` +
+        (showSurface ? `<br><b>z</b> ${surfaceZ(surf, t.x, t.y).toFixed(1)} µm` : "");
       focusTip.style.left = `${Math.min(e.offsetX + 14, focusCv.cssW - 190)}px`;
       focusTip.style.top = `${Math.max(6, e.offsetY - 62)}px`;
     } else {
@@ -1868,7 +1949,8 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     const f = state.focus;
     if (f.strategy !== "plane" || f.applied) return;
     const [wx, wy] = fToWorld(e.offsetX, e.offsetY);
-    if (wx < 0 || wy < 0 || wx > W_UM || wy > H_UM) return;
+    const b = planBox();
+    if (wx < b.xMin || wy < b.yMin || wx > b.xMax || wy > b.yMax) return;
     const near = f.points.findIndex((p) => Math.hypot(p.x - wx, p.y - wy) < 9 / fview.scale);
     if (near >= 0) f.points.splice(near, 1);
     else f.points.push({ x: wx, y: wy, z: null });
@@ -2428,7 +2510,8 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         drawFocus();
       });
     } else if (f.strategy === "auto") {
-      add(`<span class="hint">${COLS * ROWS} positions × ~4 s ≈ ${Math.round(COLS * ROWS * 4 / 60)} min added to the scan</span>`);
+      const n = state.plan.length;
+      add(`<span class="hint">${n} position${n === 1 ? "" : "s"} × ~4 s ≈ ${Math.max(1, Math.round((n * 4) / 60))} min added to the scan</span>`);
     } else if (f.strategy === "reuse") {
       const opts = Object.entries(PREVIOUS_SURFACES)
         .map(([k, v]) => `<option value="${k}">${v.label}</option>`).join("");
@@ -2493,10 +2576,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     return c.intensity >= d.thresh && c.area >= d.minArea;
   }
 
-  const cellsInTile = (col, row) => cells.filter((c) =>
-    c.x >= col * TILE_UM && c.x < (col + 1) * TILE_UM
-    && c.y >= row * TILE_UM && c.y < (row + 1) * TILE_UM);
-
   // golden-angle hues, so neighbouring labels never share a colour
   const labelColour = (id, a = 1) => `hsla(${(id * 137.508) % 360}, 68%, 58%, ${a})`;
 
@@ -2510,31 +2589,37 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     ctx.fillStyle = css("--surface-3");
     ctx.fillRect(0, 0, w, h);
 
+    const tile = state.plan[d.tile];
+    if (!tile) return;
+    const frame = tile.frameUm;
     const pad = 18;
-    const s = Math.min((w - 2 * pad) / TILE_UM, (h - 2 * pad) / TILE_UM);
-    const ox = (w - TILE_UM * s) / 2, oy = (h - TILE_UM * s) / 2;
-    const X = (x) => ox + (x - d.tile.col * TILE_UM) * s;
-    const Y = (y) => oy + (y - d.tile.row * TILE_UM) * s;
+    const s = Math.min((w - 2 * pad) / frame, (h - 2 * pad) / frame);
+    const ox = (w - frame * s) / 2, oy = (h - frame * s) / 2;
+    const X = (x) => ox + (x - (tile.x - frame / 2)) * s;
+    const Y = (y) => oy + (y - (tile.y - frame / 2)) * s;
 
     ctx.save();
     ctx.beginPath();
-    ctx.rect(ox, oy, TILE_UM * s, TILE_UM * s);
+    ctx.rect(ox, oy, frame * s, frame * s);
     ctx.clip();
 
     ctx.fillStyle = "#05090e";
-    ctx.fillRect(ox, oy, TILE_UM * s, TILE_UM * s);
-    for (const b of blobs) {
-      const g = ctx.createRadialGradient(X(b.x), Y(b.y), 0, X(b.x), Y(b.y), b.r * s);
-      g.addColorStop(0, "rgba(34,211,238,0.26)");
-      g.addColorStop(0.6, "rgba(34,211,238,0.09)");
+    ctx.fillRect(ox, oy, frame * s, frame * s);
+    {
+      // the tissue this tile happens to sit on, at the brightness it was found
+      const dens = density(tile.x, tile.y);
+      const cx = X(tile.x), cy = Y(tile.y), rr = frame * 0.8 * s;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rr);
+      g.addColorStop(0, `rgba(34,211,238,${0.30 * dens})`);
+      g.addColorStop(0.6, `rgba(34,211,238,${0.10 * dens})`);
       g.addColorStop(1, "rgba(34,211,238,0)");
       ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), b.r * s, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.fill();
     }
 
     // objects are drawn larger than life: at 5x a cell is a couple of pixels,
     // and the point of this view is to judge the labels
-    const inTile = cellsInTile(d.tile.col, d.tile.row);
+    const inTile = cellsInTile(d.tile);
     for (const c of inTile) {
       const rr = Math.max(5, c.r * s * 2.4);
       const found = d.tested && detects(c);
@@ -2553,7 +2638,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
     ctx.strokeStyle = css("--line-strong");
     ctx.lineWidth = 1;
-    ctx.strokeRect(ox + 0.5, oy + 0.5, TILE_UM * s - 1, TILE_UM * s - 1);
+    ctx.strokeRect(ox + 0.5, oy + 0.5, frame * s - 1, frame * s - 1);
     drawScaleBar(ctx, w, h, s);
   }
 
@@ -2562,7 +2647,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     for (const b of el("detect-algo").querySelectorAll("button")) {
       b.setAttribute("aria-checked", String(b.dataset.algo === d.algo));
     }
-    el("tile-label").textContent = `r${d.tile.row + 1}c${d.tile.col + 1}`;
+    el("tile-label").textContent = `${d.tile + 1} / ${state.plan.length}`;
 
     const host = el("detect-params");
     host.textContent = "";
@@ -2600,9 +2685,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
     const out = el("detect-readout");
     if (d.tested) {
-      const inTile = cellsInTile(d.tile.col, d.tile.row);
+      const inTile = cellsInTile(d.tile);
       const found = inTile.filter(detects).length;
-      out.textContent = `${found} of ${inTile.length} objects on r${d.tile.row + 1}c${d.tile.col + 1}`;
+      out.textContent = `${found} of ${inTile.length} objects at position ${d.tile + 1}`;
     } else {
       out.textContent = ALGOS[d.algo].blurb;
     }
@@ -2619,9 +2704,8 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   for (const [id, step] of [["tile-prev", -1], ["tile-next", 1]]) {
     el(id).addEventListener("click", () => {
       const d = state.detect;
-      let n = d.tile.row * COLS + d.tile.col + step;
-      n = (n + COLS * ROWS) % (COLS * ROWS);
-      d.tile = { col: n % COLS, row: Math.floor(n / COLS) };
+      const total = state.plan.length || 1;
+      d.tile = (d.tile + step + total) % total;
       d.tested = false;
       renderDetectToolbar(); drawTilePreview(); renderActionBar();
     });
@@ -2679,7 +2763,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     ctx.fillStyle = css("--mark-context");
     ctx.globalAlpha = 0.5;
     ctx.beginPath();
-    for (const c of cells) {
+    for (const c of sample.cells) {
       if (!state.detected.has(c.id) || state.gated.has(c.id)) continue;
       const x = sx(c.area, w), y = sy(c.intensity, h);
       ctx.moveTo(x + 2, y); ctx.arc(x, y, 2, 0, Math.PI * 2);
@@ -2689,7 +2773,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
     // gated points — larger and ringed as well as coloured
     const acquired = new Set(state.acquired);
-    for (const c of cells) {
+    for (const c of sample.cells) {
       if (!state.gated.has(c.id)) continue;
       const x = sx(c.area, w), y = sy(c.intensity, h);
       const isAcq = acquired.has(c.id);
@@ -2736,7 +2820,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     }
     if (!state.cellsShown) return;
     let hit = null, best = 9;
-    for (const c of cells) {
+    for (const c of sample.cells) {
       if (!state.detected.has(c.id)) continue;
       const d = Math.hypot(sx(c.area, w) - e.offsetX, sy(c.intensity, h) - e.offsetY);
       if (d < best) { best = d; hit = c; }
@@ -2770,7 +2854,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
   function applyGate(g) {
     state.gate = g;
-    state.gated = new Set(cells
+    state.gated = new Set(sample.cells
       .filter((c) => state.detected.has(c.id)
         && c.area >= g.aLo && c.area <= g.aHi && c.intensity >= g.iLo && c.intensity <= g.iHi)
       .map((c) => c.id));
@@ -2827,7 +2911,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     const host = el("pairs");
     host.textContent = "";
     state.acquired.forEach((id, i) => {
-      const cell = cells[id - 1];
+      const cell = sample.cells[id - 1];
       const card = document.createElement("div");
       card.className = "pair";
 
@@ -2895,6 +2979,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   renderFocusToolbar();
   renderDetectToolbar();
   settingsChanged();
+  rebuildSample();
   focusPanelsFor(0);
   renderAll();
 })();

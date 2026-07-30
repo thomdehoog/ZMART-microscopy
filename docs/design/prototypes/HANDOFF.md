@@ -23,10 +23,11 @@ Initial scanfields: a geometry editor and a grid mode in the channel beside the
 canvas, ported from `06_scanfields.jsx`. The grid reads the carrier's area
 centres, so the plate decides the plan.
 
-**What is still a placeholder.** The synthetic sample is a 7×5 tile grid at the
-carrier's own zero, unrelated to what the scan fields say — so a scan lands in
-the plate's corner rather than where the fields are. Wiring the sample to the
-fields is the obvious next piece, and it is what makes step 6 honest.
+**The sample follows the plan.** Tissue belongs to the plate — soft patches
+over the carrier, there whether or not anybody looks. Cells belong to the plan:
+they are generated inside the tiles the fields ask for, so the run only knows
+about what it imaged. Move the fields and a different sample comes back. The
+scan, the focus map and the tile detection is tuned on all read the same list.
 
 ## Where it is
 
