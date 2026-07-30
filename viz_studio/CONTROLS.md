@@ -82,7 +82,31 @@ nothing and removes a set of traps. The reasoning is written out in full in
 
 ---
 
-## Three decisions to make, and what I would choose
+## The decision that has been made
+
+**In the flat view there are exactly two ways to move around, and nothing else.**
+
+| Gesture | What it does |
+| --- | --- |
+| Drag with the mouse | Pan the view |
+| Turn the scroll wheel | Zoom in and out |
+
+Everything else that could change where you are or which way you are facing is
+removed: rotating by Shift and drag, rotating with `r` and `e`, tilting with
+Shift and the arrow keys, stepping through z on the plain wheel, zooming with
+Ctrl and the wheel, recentring with the right button, and the arrow, comma, full
+stop and bracket keys.
+
+Moving through the stack and through time is not taken away — it moves to the
+sliders the interface already draws, where it is visible and labelled, rather than
+living on a gesture an operator has to know about.
+
+Two gestures is a deliberate choice rather than a minimal one. An operator at a
+microscope should be able to sit down and move around without being taught, and
+every extra gesture is one more thing that can be triggered by accident. The
+sections below explain what each removal is protecting.
+
+## The three questions this settles, and why it settles them that way
 
 These are the places where the defaults are defensible for the engine's original
 audience and wrong for ours. None of them is difficult to change; all of them are
@@ -99,13 +123,10 @@ notch is exactly right. But this viewer already has a z slider down the right-ha
 side, so stepping through the stack has a home of its own, whereas zooming has
 nowhere else to live.
 
-**Recommendation: bind the plain wheel to zoom, and keep Ctrl + wheel bound to
-zoom as well** so that anybody who learned the old way is not punished. Stepping
-through z stays available on the slider, on `,` and `.`, and on Shift + wheel if
-we want to keep a mouse gesture for it.
-
-Whatever is decided, decide it deliberately, because the wheel is the gesture an
-operator makes most often and without thinking.
+**Decided: the plain wheel zooms.** The wheel is the gesture an operator makes
+most often and without thinking, and a browser has taught everyone what it does.
+Stepping through the stack keeps the slider it already has, which is better than a
+gesture anyway because it shows you where in the stack you are.
 
 ### 2. Rotation is bound four different ways, and probably should not be
 
@@ -120,13 +141,15 @@ same frame. A rotated view breaks that correspondence completely, and the failur
 is silent: nothing errors, the picture simply stops lining up with the drawing
 over it. Shift + drag is an easy gesture to make by accident.
 
-**Recommendation: unbind rotation in the flat view.** If a rotated view is wanted
-later it can come back as a deliberate control with the overlay rotated to match,
-which is a much larger piece of work than a binding.
+**Decided: rotation is removed from the flat view.** If a rotated view is wanted
+later it comes back as a deliberate control, with the drawing over it rotated to
+match — which is real work rather than a binding, and worth doing properly when
+somebody actually needs it.
 
-If it is kept, then `z` — snap back to the axes — becomes an important control
-rather than a curiosity, and it needs to be visible in the interface rather than
-hidden on a key.
+Because rotation is gone, a test has to prove it is gone. An unbound gesture looks
+exactly like a gesture nobody tried, so without a check that Shift and drag leaves
+the view untouched, this quietly comes back the next time the bindings are
+edited.
 
 ### 3. Zoom should anchor on the pointer
 
