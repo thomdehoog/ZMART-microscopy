@@ -37,6 +37,7 @@ import pytest
 import stores
 import zarr
 from library import Library
+from pixels import colour_spread, fraction_lit, image_middle
 from server import make_server
 from stores import (
     axis_names,
@@ -49,12 +50,36 @@ from stores import (
 )
 
 
-def _ome(*, unit="micrometer", channels=("488", "561")):
+# How wide the full-resolution copy of these stores is, in voxels.
+#
+# Large enough that the specimen fills a fair share of the window when it is drawn,
+# which the end-to-end test at the foot of this file depends on. That test asks
+# whether there is really a picture on screen, and it does so by looking at the
+# variety of colour in the middle of the view. A specimen that occupies only a few
+# per cent of the window leaves almost all of that middle showing background, so the
+# few colours of the specimen are lost in it and a perfectly good picture measures as
+# a flat one. At sixty-four voxels across, half a micrometre each, the specimen was
+# thirty microns wide and did exactly that.
+#
+# It has to stay a whole number of the chunks it is divided into at every resolution,
+# because a bundle has to hold whole chunks. Two hundred and fifty-six halves twice
+# to sixty-four and divides by the chunk width of thirty-two at each step, so three
+# resolution copies fit without a remainder.
+_WIDEST = 256
+
+
+def _ome(*, unit="micrometer", channels=("488", "561"), levels=1):
     """The OME-Zarr 0.5 description of a ``t, c, z, y, x`` image.
 
     ``unit`` is how the spatial axes spell their unit. The format asks for
     ``micrometer`` and the engine refuses a store that says anything else, so writing
     ``um`` here is how a store from a foreign instrument is imitated.
+
+    ``levels`` is how many resolution copies the image has. One is the default, which
+    is all the tests about reading metadata need. Each further copy is half as wide
+    and half as tall as the one before it, so its voxels are twice the size — which is
+    exactly what the scale here has to say, because that number is how the viewer
+    knows the copies are pictures of the same specimen rather than different ones.
     """
     return {
         "version": "0.5",
@@ -69,11 +94,15 @@ def _ome(*, unit="micrometer", channels=("488", "561")):
                 ],
                 "datasets": [
                     {
-                        "path": "0",
+                        "path": str(level),
                         "coordinateTransformations": [
-                            {"type": "scale", "scale": [1.0, 1.0, 2.0, 0.5, 0.5]}
+                            {
+                                "type": "scale",
+                                "scale": [1.0, 1.0, 2.0, 0.5 * 2**level, 0.5 * 2**level],
+                            }
                         ],
                     }
+                    for level in range(levels)
                 ],
             }
         ],
@@ -81,22 +110,88 @@ def _ome(*, unit="micrometer", channels=("488", "561")):
     }
 
 
-def _v3_store(path, *, channels=("488", "561"), shards=None, unit="micrometer", describes=None):
+def _specimen(wide: int, channels: int) -> np.ndarray:
+    """Image data with structure in it, so a drawn picture cannot look like a blank one.
+
+    This matters more than it sounds, and it is the reason this function exists at
+    all. An image filled with one value everywhere is a single flat colour on screen,
+    and a single flat colour is exactly what an empty panel is — so with an even fill
+    there is no measurement that can tell a picture that was drawn from a picture that
+    was not. Any test claiming a store "actually draws" would have nothing to look at.
+
+    So the specimen is given a brightness that climbs across the image with a bright
+    line every eighth row, in the manner of ``_a_tile`` in
+    ``test_canvas_written_live.py``. That gives a drawn picture many different values
+    and plenty of variation, and leaves an undrawn panel with neither.
+    """
+    ramp = np.linspace(600, 3800, wide, dtype=np.float32)
+    plane = np.tile(ramp, (wide, 1))
+    plane[::8, :] = 3900
+    return np.broadcast_to(plane, (1, channels, 4, wide, wide)).astype(np.uint16)
+
+
+def _v3_store(
+    path,
+    *,
+    channels=("488", "561"),
+    shards=None,
+    unit="micrometer",
+    describes=None,
+    levels=1,
+    structure=False,
+):
     """An OME-Zarr 0.5 store: zarr v3, metadata under ``ome`` in ``zarr.json``.
 
     ``channels`` says how many channels the *array* really holds. ``describes``, where
     it is given, is what the ``omero`` block claims instead — which is how a store
     whose description has drifted from its own array is written, and that does happen.
+
+    ``levels`` is how many resolution copies to write, and ``structure`` asks for
+    image data with variation in it rather than one value everywhere. Both default to
+    what the metadata tests want — one copy, evenly filled, written in a moment — and
+    both are turned on by the end-to-end test at the foot of this file, which is the
+    one that has to be able to look at the picture and see something in it.
     """
-    shape = (1, len(channels), 4, 64, 64)
-    chunks = (1, 1, 2, 32, 32)
     group = zarr.open_group(str(path), mode="w", zarr_format=3)
-    array = group.create_array(
-        "0", shape=shape, chunks=chunks, shards=shards, dtype="uint16"
+    for level in range(levels):
+        wide = _WIDEST >> level
+        across = min(32, wide)
+        shape = (1, len(channels), 4, wide, wide)
+        array = group.create_array(
+            str(level),
+            shape=shape,
+            chunks=(1, 1, 2, across, across),
+            # A shard packs a whole resolution copy into one file, so its shape has
+            # to shrink along with the copy it belongs to — a shard must be a whole
+            # number of chunks. At the full-resolution copy this is the same shape
+            # the callers asking for a shard have always passed.
+            shards=(1, 1, 4, wide, wide) if shards else None,
+            dtype="uint16",
+        )
+        array[:] = (
+            _specimen(wide, len(channels))
+            if structure
+            else np.full(shape, 1200, dtype=np.uint16)
+        )
+    group.attrs.update(
+        {"ome": _ome(unit=unit, channels=describes or channels, levels=levels)}
     )
-    array[:] = np.full(shape, 1200, dtype=np.uint16)
-    group.attrs.update({"ome": _ome(unit=unit, channels=describes or channels)})
     return path
+
+
+# The brightness range the structured specimen above should be shown over. It is
+# stated when the server is started rather than left to be worked out, and the
+# reason is worth writing down because it is a real limitation rather than a
+# preference: the viewer's contrast measurement reads a store's pixels through the
+# version 2 layout only, so on an OME-Zarr 0.5 store it finds nothing, reports no
+# histogram, and falls back to the full range of the data type. The specimen then
+# comes out uniformly saturated, and a picture that is uniformly anything cannot be
+# told apart from a blank one.
+#
+# That measurement gap is its own defect and wants its own fix. Stating the range
+# here keeps this test measuring the thing it is named for — whether sharded version
+# 3 image data reaches the screen — instead of quietly failing over something else.
+_SPECIMEN_WINDOW = (500.0, 4000.0)
 
 
 def _v2_store(path):
@@ -616,11 +711,39 @@ def test_a_sharded_version_3_store_reaches_the_renderer(tmp_path, built_dist, br
 
     Nothing else in the suite would catch a wrong scheme being emitted, because
     every other fixture is version 2 and ``|zarr2:`` is right for those.
+
+    This is the test the whole aim of reading OME-Zarr 0.5 rests on, so it looks at
+    the picture. It used to ask the engine whether it was happy — had every piece
+    it wanted, reported no errors — and then stop there, which is the one question
+    that cannot catch the failure this project keeps meeting: pieces fetched,
+    layers built, the engine perfectly content, and nothing on screen. Only a
+    photograph can tell those apart, so a photograph is taken.
+
+    The store is written with ``structure`` and with several resolution copies, and
+    neither is decoration. The other tests in this file read metadata, so an evenly
+    filled single copy is all they need and it is quick to write. This one has to be
+    able to *see* the image, and an even fill cannot be seen — one value everywhere
+    is one flat colour, which is precisely what an empty panel is, so no measurement
+    could tell the two apart. The several copies are there because they are the
+    reason sharding is wanted in the first place: the case this whole file is about
+    is a run of many positions at several resolutions, and a fixture with one
+    resolution is not that case.
     """
     folder = tmp_path / "run"
     folder.mkdir()
-    _v3_store(folder / "overview_pos001.ome.zarr", shards=(1, 1, 4, 64, 64))
-    server = make_server(port=0, data_dir=folder, store=["overview_pos001.ome.zarr"], live=False)
+    _v3_store(
+        folder / "overview_pos001.ome.zarr",
+        shards=(1, 1, 4, 64, 64),
+        levels=3,
+        structure=True,
+    )
+    server = make_server(
+        port=0,
+        data_dir=folder,
+        store=["overview_pos001.ome.zarr"],
+        live=False,
+        window=_SPECIMEN_WINDOW,
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     page = browser.new_page(viewport={"width": 900, "height": 700})
@@ -650,6 +773,54 @@ def test_a_sharded_version_3_store_reaches_the_renderer(tmp_path, built_dist, br
                }"""
         )
         assert errors == []
+
+        # The verdict. Everything above was preparation: the engine saying it has
+        # what it needs is how we know when to look, and no load errors is how we
+        # know it did not give up. Neither of them says a pixel reached the screen,
+        # and a version 3 store that loads perfectly and draws nothing is exactly
+        # the shape of failure this file exists to prevent.
+        #
+        # What is measured is how much of the view is lit, not how much variety of
+        # colour is in it, and the difference matters enough to explain. A store like
+        # this one arrives as a single channel with no colour of its own, so the
+        # viewer draws it as a white silhouette: bright where there is specimen, dark
+        # where there is not, and — as things stand — much the same brightness
+        # throughout, because the contrast this store is given does not reach the
+        # drawing at all. Measured: the picture comes out one flat white shape
+        # whatever brightness range the server is told to use, which is a fault in
+        # its own right and is written down in NEXT_STEPS.md.
+        #
+        # So variety of colour would be the wrong question here. It is the right
+        # question for the demo volume, which has three coloured channels, and
+        # `assert_something_was_drawn` is calibrated for exactly that. Asking it here
+        # would fail on a picture that is perfectly present and perfectly visible.
+        # How much of the view is lit answers what this test actually needs to know,
+        # and the control below is what gives that number its meaning.
+        lit = fraction_lit(page)
+        spread = colour_spread(image_middle(page))
+        assert lit > 0.05, (
+            "the sharded version 3 store put nothing on screen: only "
+            f"{lit:.1%} of the middle of the view is above the background, {spread}"
+        )
+        print(f"\n  sharded v3 on screen: {lit:.2%} of the middle lit, {spread}")
+
+        # The control, which is what stops the check above from quietly becoming an
+        # assertion that cannot fail. Our own buttons and the scale bar sit on top of
+        # the image and would supply variety of their own, so a measurement that had
+        # drifted onto those would go on passing with the specimen gone. The
+        # magnification is therefore pushed until the image is far smaller than a
+        # single pixel — the very fault ``test_render_acceptance`` reproduces on
+        # purpose — and the picture has to go flat with it. The zoom is multiplied
+        # rather than set to a fixed number, so this does not depend on what units
+        # this store's axes happen to be in.
+        page.evaluate("() => { window.zmartViewer.navigationState.zoomFactor.value *= 1e6; }")
+        page.wait_for_timeout(2500)
+        blanked = fraction_lit(page)
+        assert blanked < lit / 4, (
+            "shrinking the image to far less than one pixel across left the picture "
+            f"as bright as before ({lit:.2%} then {blanked:.2%}), so what was being "
+            "measured was never the specimen"
+        )
     finally:
         page.close()
         server.shutdown()

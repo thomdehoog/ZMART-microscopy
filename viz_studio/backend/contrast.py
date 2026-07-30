@@ -20,6 +20,15 @@ Two sources of truth, in order:
 A percentile rather than min/max because one hot pixel would otherwise stretch
 the ramp and darken everything else — exactly the failure this is here to fix.
 
+Both work on any store the viewer can open, whichever generation of the format
+wrote it. That is worth saying because it was not always true: while this module
+looked for a ``.zattrs`` file only, which is where OME-Zarr 0.4 keeps a store's
+description, an OME-Zarr 0.5 store came back as unreadable and was shown over the
+whole range of its data type with no histogram at all. Since 0.5 is the format this
+project is aiming at, that meant the format we most want to support was the one
+that opened on a guess. The description is now read through ``stores``, which knows
+every place the format has kept it.
+
 The known limit: signal sparser than the top 0.1% of voxels sits above the
 percentile and comes out saturated rather than scaled. That is a deliberate
 trade — an over-bright image can be corrected by eye and by ``--range``, a black
@@ -28,8 +37,18 @@ one looks like a broken viewer.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
+# Where a store keeps its description depends on which version of the format wrote
+# it, and ``stores`` already knows every place it has ever been kept: at the top of
+# a ``.zattrs`` for OME-Zarr 0.4, under an ``ome`` key for 0.5, and nested inside
+# ``zarr.json`` for a zarr version 3 store. Reading it through that one function
+# means the brightness measurement works on all of them, and — more importantly —
+# that it keeps working when the format moves again, because there is one place to
+# teach rather than two. It is spelled with a leading underscore to say "this is
+# internal to the viewer's backend", which it is; this module is part of the same
+# backend and is a fair caller of it.
+from stores import _read_attrs_at
 
 LOW_PERCENTILE = 1.0
 HIGH_PERCENTILE = 99.9
@@ -148,17 +167,26 @@ def _samples(store: Path):
     not finite are dropped here rather than in each caller: a stray "not a
     number" left in would otherwise make every percentile come out as "not a
     number" too, and the window would silently be nonsense.
+
+    The description is read through ``stores``, which is what lets this work on an
+    OME-Zarr 0.5 store as well as on a 0.4 one. That is not a small detail: 0.5 is
+    the format this project is aiming at, and while this function looked only for a
+    ``.zattrs`` file, a store written that way came back as "could not be read".
+    The consequence was quiet rather than loud — such a store opened with a window
+    covering the whole range of a 16-bit camera, which draws real data as a flat
+    saturated shape, and with no histogram for the panel to draw or for the Auto
+    button to work from.
     """
     import numpy as np
     import zarr
 
     try:
-        attrs = json.loads((store / ".zattrs").read_text(encoding="utf-8"))
+        attrs = _read_attrs_at(store)
         level = _coarsest_level_path(attrs)
         if level is None:
             return None
         data = _sample(zarr.open_group(str(store), mode="r")[level])
-    except (OSError, KeyError, ValueError, MemoryError, json.JSONDecodeError):
+    except (OSError, KeyError, ValueError, MemoryError):
         return None
     values = np.asarray(data, dtype=np.float64).ravel()
     values = values[np.isfinite(values)]
@@ -267,11 +295,11 @@ def display_window(store: str | Path, *, volumetric: bool = False) -> tuple[floa
     """
     store = Path(store)
     if not volumetric:
-        try:
-            attrs = json.loads((store / ".zattrs").read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return 0.0, 65535.0
-        declared = _omero_window(attrs)
+        # Read through ``stores`` so that a window declared by an OME-Zarr 0.5
+        # store is honoured too, rather than only one written the 0.4 way. A store
+        # that cannot be read at all simply describes nothing, and the measurement
+        # below then falls back on its own.
+        declared = _omero_window(_read_attrs_at(store))
         if declared is not None:
             return declared
 

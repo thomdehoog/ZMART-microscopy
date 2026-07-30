@@ -19,6 +19,16 @@ The second is that folders come and go. Each opened folder is given a small numb
 and the images inside it are addressed as ``/data/<number>/<store>``. The number is
 never reused once a folder is closed, so a chunk request still in flight when the
 operator closed something cannot land on whatever was opened next.
+
+There is a third thing, which follows from the first two. A folder that is being
+watched is looked in again and again while a run writes into it, so what is open
+does not only change when the operator says so. Most of what appears is another
+position of the acquisition already on screen and simply joins it. But a run also
+produces more than one kind of scan — an overview, then a target scan of something
+found in it — and those two are not one picture. So each open dataset knows what
+kind of acquisition it is, and a store that is not part of it is opened as a dataset
+of its own rather than quietly added. :meth:`Library._look_again` explains why that
+is the answer here, and why opening such a folder from scratch is refused instead.
 """
 
 from __future__ import annotations
@@ -65,6 +75,19 @@ def _described_at(folder: Path) -> str:
     return "-"
 
 
+def _without_format_suffix(name: str) -> str:
+    """A store's name with the format's suffixes taken off.
+
+    So that what the operator reads is ``overview`` rather than
+    ``overview.ome.zarr``: the suffix says which file format this is, which they
+    already know and did not ask to be reminded of on every heading.
+    """
+    for suffix in (".ome.zarr", ".zarr"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
 def _named_for(path: Path, parent: Path) -> str:
     """What to call the dataset a load produced.
 
@@ -73,10 +96,91 @@ def _named_for(path: Path, parent: Path) -> str:
     ``overview`` rather than ``overview.ome.zarr``.
     """
     del parent  # kept in the signature: what was chosen is the whole answer here
-    for suffix in (".ome.zarr", ".zarr"):
-        if path.name.endswith(suffix):
-            return path.name[: -len(suffix)]
-    return path.name
+    return _without_format_suffix(path.name)
+
+
+def _acquisition_type_in(store_name: str) -> str:
+    """The kind of scan a store's name says it is — ``targetscan``, ``overview``.
+
+    A run names each output after the scan it came from and then the position:
+    ``targetscan_cell042``, ``overview_pos001``. So the text in front of the first
+    underscore is the kind of scan, and it is what an operator would call it out
+    loud. A run that writes one image per kind of scan has no position to strip and
+    answers with the whole name, which is the same answer by a shorter road.
+
+    This is used for one thing only: a heading, when the viewer has had to open a
+    dataset on its own while a run was being watched. What actually belongs with
+    what is read from inside the stores instead (see :func:`_acquisition_of`),
+    because a folder's name can be changed by anyone and this one may well not
+    follow the convention at all.
+    """
+    stem = _without_format_suffix(store_name)
+    front, _, _position = stem.partition("_")
+    return front or stem
+
+
+# What kind of acquisition a store is: how large one of its voxels is, and the
+# channels it names inside itself where it names any (``None`` where it holds a
+# single channel and so has no list to give). Written down here under one name
+# because it appears in several places below, and "a voxel size together with
+# perhaps some channel names" is a mouthful to repeat.
+Acquisition = tuple[tuple[float, ...], tuple[str, ...] | None]
+
+
+def _acquisition_of(root: Path, name: str) -> Acquisition:
+    """What kind of acquisition one store says it is, read from the store itself.
+
+    Both parts come from inside the store rather than from its name. That is the
+    point: a folder can be renamed by anybody, whereas the voxel size is the
+    magnification the microscope actually used and cannot be anything else.
+
+    Either part may be missing, and that is not held against the store — see
+    :func:`_same_acquisition`, which treats "did not say" as matching anything.
+    """
+    declared = declared_channels(root / name)
+    return voxel_size(root / name), tuple(declared) if declared is not None else None
+
+
+def _same_acquisition(one: Acquisition | None, other: Acquisition | None) -> bool:
+    """Whether two stores can be pieces of the same acquisition.
+
+    They can unless they positively disagree, which is the same generosity
+    :func:`_one_acquisition_only` shows a folder being opened. A store that declares
+    no voxel size, or that holds one channel and so declares no channel list, has
+    said nothing there is anything to disagree with. Only a real difference — two
+    magnifications, or two different sets of named channels — makes them two
+    acquisitions, because only a real difference means they are not one picture.
+    """
+    if one is None or other is None:
+        return True
+    size_here, channels_here = one
+    size_there, channels_there = other
+    if size_here and size_there and size_here != size_there:
+        return False
+    if channels_here is not None and channels_there is not None:
+        if channels_here != channels_there:
+            return False
+    return True
+
+
+def _kind_of_acquisition(root: Path, names: list[str]) -> Acquisition | None:
+    """What kind of acquisition a dataset is, from the first of its stores that says.
+
+    One store is enough, because a dataset is one acquisition and that was checked
+    when it was opened. Asking all of them would also be slow in a way that matters:
+    with tens of thousands of positions open, re-reading every one of them each time
+    the folder is looked at is the kind of cost that has made this viewer feel frozen
+    before.
+
+    ``None`` means not one of the stores declared anything to go on, which happens
+    with a store that carries no voxel size in its description. Nothing is inferred
+    from that; the dataset simply has nothing to compare newcomers against.
+    """
+    for name in names:
+        found = _acquisition_of(root, name)
+        if found[0] or found[1] is not None:
+            return found
+    return None
 
 
 @dataclass
@@ -87,8 +191,13 @@ class Dataset:
     be drawn as one picture — the engine places each by the position recorded
     inside it. What makes them one thing is not their names but what they are: an
     overview and a target scan of the same specimen are different acquisitions
-    because they were taken at different magnifications, and that is checked when
-    the dataset is opened rather than inferred afterwards.
+    because they were taken at different magnifications, and that is read from the
+    stores rather than inferred from anything about them.
+
+    It is checked when the dataset is opened, and again for each store that appears
+    afterwards in a folder being watched. A store that turns out to be a different
+    acquisition becomes a dataset of its own instead of joining this one; see
+    :meth:`Library._look_again`.
     """
 
     number: int
@@ -100,6 +209,13 @@ class Dataset:
     # Whether to keep looking in the folder for stores that appear after it was
     # opened. See the note on ``open``.
     watch: bool = field(default=True)
+    # What kind of acquisition this is, as its own stores declare it: the voxel size
+    # they were taken at, and the channels they name inside themselves where they
+    # name any. It is read once, when the dataset is opened, and it is what a store
+    # appearing later is compared against to decide whether it is another piece of
+    # this picture or a different acquisition altogether. ``None`` means none of the
+    # stores said, in which case nothing can be told apart and nothing is.
+    acquisition: Acquisition | None = field(default=None)
 
 
 def _one_acquisition_only(root: Path, names: list[str]) -> None:
@@ -109,6 +225,12 @@ def _one_acquisition_only(root: Path, names: list[str]) -> None:
     something it was pointed at. It is not the silent absence Decision 5 forbids:
     what is refused is named, with the stores in each acquisition listed, so the
     answer is to open one of them rather than to wonder what happened.
+
+    This is the answer *at the door*, where somebody is waiting to be told. A second
+    acquisition that appears later, in a folder already being watched, is met with
+    nobody there to tell — so it is given a dataset of its own instead of being
+    refused into silence. :meth:`Library._look_again` sets out why the two moments
+    are answered differently, and what they agree on.
     """
     families: dict[tuple, list[str]] = {}
     for name in names:
@@ -174,6 +296,19 @@ class Library:
         # has no way to understand. Everything guarded here is short and reads no
         # image data, so waiting for it costs nothing worth measuring.
         self._lock = threading.RLock()
+        # The stores the operator has closed, as (folder, store name). A watched
+        # folder is looked in again and again while a run writes into it, so without
+        # this an acquisition closed during the run would be found a second later
+        # and put straight back on screen: the eye and the close button would look
+        # broken, and there would be nothing the operator could do about it.
+        #
+        # Only the exact stores that were closed are remembered, and that is
+        # deliberate. A *new* position, imaged after the operator closed what was
+        # there, is data that has just arrived and is shown. Holding it back because
+        # something like it was closed earlier would leave the operator looking at
+        # part of their specimen with nothing on screen to say so, which is the one
+        # failure this viewer exists to avoid.
+        self._let_go: set[tuple[Path, str]] = set()
 
     # -- opening and closing ---------------------------------------------
 
@@ -218,6 +353,10 @@ class Library:
         _one_acquisition_only(root, list(chosen))
         watched = watch if watch is not None else (names is None)
         with self._lock:
+            # Asking for something says plainly that it is wanted, so this undoes
+            # any earlier closing of it: otherwise a store closed once could never
+            # be opened again for the rest of the session.
+            self._let_go.difference_update((root, store) for store in chosen)
             number = self._next
             self._next += 1
             self._datasets[number] = Dataset(
@@ -228,6 +367,7 @@ class Library:
                 channels=_channels_of(root, list(chosen)),
                 live=bool(watched),
                 watch=bool(watched),
+                acquisition=_kind_of_acquisition(root, list(chosen)),
             )
         return number
 
@@ -248,7 +388,13 @@ class Library:
 
     def _close(self, number: int) -> bool:
         """Stop serving a dataset, with the lock already held."""
-        return self._datasets.pop(number, None) is not None
+        closed = self._datasets.pop(number, None)
+        if closed is None:
+            return False
+        # Remembered, so that a folder still being watched does not find these again
+        # a moment later and put them back on screen. See the note in ``__init__``.
+        self._let_go.update((closed.root, name) for name in closed.stores)
+        return True
 
     def close_group(self, group: str, *, folder: int | None = None) -> list[tuple[int, Path, str]]:
         """Close a dataset by the name the panel shows it under.
@@ -285,50 +431,171 @@ class Library:
         A watched folder is looked at again here, which is what lets an acquisition
         written during a run turn up in the viewer on its own. Images named when the
         folder was opened keep their place at the front, so the order does not
-        rearrange itself as new ones arrive; anything that has since been removed
-        from disk quietly drops out.
+        rearrange itself as new ones arrive. Nothing is ever taken away by a look —
+        only the operator closes things — for the reason set out in
+        :meth:`_look_again`.
+
+        Where a new store goes is decided in :meth:`_look_again`. Most of the time it
+        is another position of the acquisition already open and joins it. A store
+        that is a *different* acquisition — a target scan landing in the folder an
+        overview is being written to — is opened as a dataset of its own, so that it
+        arrives with its own heading, its own eye and its own brightness instead of
+        disappearing into the row beside it.
         """
         with self._lock:
-            open_now = [(dataset.number, dataset.root, list(dataset.stores), dataset.watch)
-                        for dataset in self.datasets()]
-        out = []
-        for number, root, names, watched in open_now:
-            if watched:
-                # Looking in the folder is the one slow thing here, so it is done
-                # without the lock held: a folder on a network share can take a
-                # moment to answer, and no other request should wait on that.
-                names = self._present(root, names)
-                with self._lock:
-                    found = self._datasets.get(number)
-                    if found is not None:
-                        found.stores = names
-            out.extend((number, root, name) for name in names)
-        return out
+            # One look per folder rather than one per dataset. Two datasets can be
+            # open on the same folder, and looking in it once for each of them would
+            # cost twice as much and, worse, let each of them take what belongs to
+            # the other.
+            watched: list[Path] = []
+            for dataset in self.datasets():
+                if dataset.watch and dataset.root not in watched:
+                    watched.append(dataset.root)
+        for root in watched:
+            self._look_again(root)
+        with self._lock:
+            return [
+                (dataset.number, dataset.root, name)
+                for dataset in self.datasets()
+                for name in dataset.stores
+            ]
 
-    def _present(self, root: Path, known: list[str]) -> list[str]:
-        """What is in a watched folder now: what was there, plus whatever is new.
+    def _look_again(self, root: Path) -> None:
+        """Look in a watched folder and place whatever has appeared in it.
 
-        Only additions are taken. An image is never dropped for having gone missing,
-        which is deliberate: a folder on a network share can look empty for a moment
-        when the share hiccups, and losing half the screen because of that would be
-        far worse than briefly listing something whose files have genuinely gone. A
-        store that really has been deleted simply stops answering for its pieces,
-        and the operator can close it.
+        Nothing is ever dropped for having gone missing, which is deliberate: a
+        folder on a network share can look empty for a moment when the share
+        hiccups, and losing half the screen because of that would be far worse than
+        briefly listing a store whose files have genuinely gone. A store that really
+        has been deleted simply stops answering for its pieces, and the operator can
+        close it.
+
+        **Where a newcomer goes.** A run writes its positions one after another, and
+        each is another piece of the picture already on screen, so it joins the
+        dataset it belongs to. But a run also produces more than one kind of scan —
+        an overview at five micrometres to a voxel, then a target scan of something
+        found in it at a third of one — and those two are not one picture. Merged
+        into one row they would share a single set of controls: no heading for the
+        target scan, no eye to hide the overview and look at it, one brightness taken
+        from whichever arrived first, and closing either one closing both. The
+        operator would have no way even to tell that the target scan was open. So a
+        store that is not part of any acquisition already open is opened here as a
+        dataset of its own.
+
+        **Why this differs from opening such a folder from scratch,** which is
+        refused outright by :func:`_one_acquisition_only`. The two agree on the thing
+        that matters — two acquisitions are never merged into one row — and differ
+        only in what happens next, because the two moments are not alike. At the door
+        there is an operator waiting for an answer, so the viewer can decline and say
+        "open one of them instead"; and it should, because a folder holding two
+        acquisitions is usually a folder chosen one level too high. Half an hour into
+        a run there is nobody to answer: the request that would have carried a
+        refusal finished long ago, and the page has no way of asking for one
+        acquisition out of a folder even if it were told to. Declining there would
+        leave the target scan — usually the very thing the run was done for — absent
+        from the screen with nothing anywhere saying why. Showing it under its own
+        heading is the honest answer, and it is one the operator can see.
         """
         try:
             _, found = discover(root)
         except OSError:
             # A folder that has become unreadable mid-run is not a reason to lose
             # what is already on screen.
-            return known
-        # Asked of a set rather than of the list. "Is this name already known?" is a
-        # question asked once per image found, and answering it by walking the list of
-        # images already known costs a little more each time the folder grows -- which,
-        # in a folder of tens of thousands of positions, becomes the slowest thing the
-        # viewer does: measured at fifteen seconds a look, and it is looked at whenever
-        # anything is announced.
-        already = set(known)
-        return known + [name for name in found if name not in already]
+            return
+        with self._lock:
+            spoken_for = self._spoken_for(root)
+        unknown = [name for name in found if name not in spoken_for]
+        if not unknown:
+            return
+        # Working out what kind of acquisition a store is means reading its small
+        # description file, so it is done without the lock held: a folder on a
+        # network share can take a moment to answer, and no other request should wait
+        # on that. Only genuinely new stores are read, so for almost every look this
+        # costs nothing at all.
+        kinds = {name: _acquisition_of(root, name) for name in unknown}
+        with self._lock:
+            # Asked again with the lock held: several requests can be looking in the
+            # same folder at once, and another one may have placed these stores while
+            # this one was reading their descriptions.
+            spoken_for = self._spoken_for(root)
+            for name in unknown:
+                if name in spoken_for:
+                    continue
+                self._place(root, name, kinds[name])
+                spoken_for.add(name)
+
+    def _spoken_for(self, root: Path) -> set[str]:
+        """The stores in a folder that are already accounted for. With the lock held.
+
+        Either some open dataset holds the store, or the operator has closed it and
+        it is not to be brought back on the viewer's own initiative.
+
+        Answered as a set rather than by looking through each dataset's list of
+        stores, and that matters more than it looks. "Is this name already known?" is
+        asked once per store found in the folder, and answering it by walking a list
+        costs a little more each time the folder grows — which, in a folder of tens of
+        thousands of positions, becomes the slowest thing the viewer does: measured at
+        fifteen seconds a look, on a question asked whenever anything is announced.
+        """
+        spoken = {name for folder, name in self._let_go if folder == root}
+        for dataset in self._datasets.values():
+            if dataset.root == root:
+                spoken.update(dataset.stores)
+        return spoken
+
+    def _place(self, root: Path, name: str, kind: Acquisition) -> None:
+        """Put a store that has just appeared where it belongs. With the lock held.
+
+        It joins the oldest watched dataset of this folder that it could be a piece
+        of, which during a run is the acquisition being written. Where there is none
+        it becomes a dataset of its own — see :meth:`_look_again` for why that, and
+        not a refusal, is the answer while a folder is being watched.
+        """
+        for number in sorted(self._datasets):
+            dataset = self._datasets[number]
+            if dataset.root != root or not dataset.watch:
+                continue
+            if _same_acquisition(dataset.acquisition, kind):
+                dataset.stores.append(name)
+                if dataset.acquisition is None and (kind[0] or kind[1] is not None):
+                    # The dataset was opened before any of its stores said what they
+                    # were, which happens when a folder is opened the instant its
+                    # first store becomes readable. This is the first chance to know.
+                    dataset.acquisition = kind
+                return
+        number = self._next
+        self._next += 1
+        self._datasets[number] = Dataset(
+            number=number,
+            root=root,
+            name=self._heading_for(root, name, number),
+            stores=[name],
+            channels=_channels_of(root, [name]),
+            # It arrived in a folder that is still being written, so it is treated as
+            # live and watched in its own right: its own further positions will land
+            # in the same folder and should join it rather than start again.
+            live=True,
+            watch=True,
+            acquisition=kind,
+        )
+
+    def _heading_for(self, root: Path, store_name: str, number: int) -> str:
+        """What to call a dataset the viewer opened on its own. With the lock held.
+
+        The kind of scan from the store's name — "targetscan" — because that is what
+        the operator would call it. It has to differ from every other heading in the
+        same folder: two headings reading the same thing leave the operator unable to
+        tell which is which, and closing one of them would close both. So where the
+        obvious name is taken the store's full name is used, and failing that the
+        dataset's own number, which is unique for the life of the session.
+        """
+        taken = {dataset.name for dataset in self._datasets.values() if dataset.root == root}
+        kind = _acquisition_type_in(store_name)
+        whole = _without_format_suffix(store_name)
+        for candidate in (kind, whole, f"{kind} ({number})", f"{whole} ({number})"):
+            if candidate not in taken:
+                return candidate
+        return f"{whole} ({number})"
 
     def revision(self) -> str:
         """A short summary of the open folders that changes when their contents do.
