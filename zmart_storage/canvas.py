@@ -73,6 +73,8 @@ from pathlib import Path
 import numpy as np
 import zarr
 
+from .coverage import COVERAGE_FOLDER, Recorder
+
 # The default colours for the usual excitation wavelengths, matching what the
 # viewer uses elsewhere, so a run written here looks the same as one read from a
 # mesoSPIM. A wavelength that is not listed is drawn white rather than guessed at.
@@ -235,13 +237,20 @@ def _a_tile_already_written(store: Path) -> Path | None:
     because a finished run can hold millions of pieces and the answer is the same
     either way.
 
+    The image's record of where it has been imaged is passed over. That folder is
+    made when the images are declared, before a single tile has been acquired, so
+    counting it as picture would make every freshly declared image look like a run
+    that had already happened — and the writer would then refuse to let anybody
+    write into it.
+
     Returns:
         The path of a piece of acquired picture, or ``None`` if this image holds
         nothing but its description.
     """
     if not store.exists():
         return None
-    for here, _, files in os.walk(store):
+    for here, folders, files in os.walk(store):
+        folders[:] = [name for name in folders if name != COVERAGE_FOLDER]
         for name in files:
             if name not in _DESCRIPTION_FILES:
                 return Path(here) / name
@@ -853,6 +862,12 @@ class _Slot:
     # the image rather than to the run because each image may be stored
     # differently, and only tiles going into the *same* image can ever collide.
     pieces: list[tuple[int, int]] = field(default_factory=list)
+    # Where this image's record of what it has imaged is kept. See
+    # :mod:`zmart_storage.coverage`: the list above lives only in this writer's
+    # memory and is gone the moment the program ends, whereas the record is on
+    # disk and is what lets a viewer, or an operator the next morning, ask which
+    # parts of the canvas hold picture.
+    record: Recorder | None = None
 
 
 class TileCanvases:
@@ -930,6 +945,15 @@ class TileCanvases:
                 slot.pieces.append((int(pieces[-2]), int(pieces[-1])))
         self._busy: list[tuple] = []
         self._free = threading.Condition()
+        # Each image keeps its own note of where it has been imaged, beside the
+        # pictures. Nothing about the acquisition depends on it, and the run goes
+        # ahead unchanged if it cannot be kept — but with it, anything reading the
+        # store afterwards can bound itself to the ground the run actually
+        # covered instead of the far larger room the run declared.
+        for slot in slots:
+            slot.record = Recorder(
+                slot.folder, canvas_shape=shape, tile_shape=tile_shape
+            )
 
     def close(self) -> None:
         """Let go of these images, so that another writer may take them on.
@@ -939,7 +963,15 @@ class TileCanvases:
         to be called for the images themselves to be complete — they are complete
         and readable throughout — and it happens by itself when the writer falls
         out of use or the program ends.
+
+        It also brings each image's record of what it imaged fully up to date and
+        marks the run as finished. That record is written as the run goes, so it
+        is complete whether or not this is ever called; what closing adds is the
+        last second of it and the note saying the run is over.
         """
+        for slot in getattr(self, "_slots", []):
+            if slot.record is not None:
+                slot.record.finish()
         claim = getattr(self, "_claim", None)
         if claim is not None:
             self._claim = None
@@ -1255,6 +1287,17 @@ class TileCanvases:
             ] = image
             self._write_smaller_copies(slot, image, origin, channel, frame)
             slot.written.append(occupied)
+            # Written down only now, with the tile's voxels safely on disk, so
+            # that the record can never claim ground where a write that failed
+            # part way through left nothing.
+            if slot.record is not None:
+                slot.record.remember(
+                    frame=frame,
+                    channel=channel,
+                    origin=origin,
+                    shape=image.shape,
+                    tile_index=tile_index,
+                )
         finally:
             with self._free:
                 self._busy.remove(region)
