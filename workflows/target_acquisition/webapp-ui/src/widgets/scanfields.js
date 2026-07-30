@@ -471,7 +471,7 @@ export default {
         }
 
         if (ed.drawing) {
-          const g = previewOf(ed.drawing, ed.tool, ed.shift);
+          const g = previewOf(ed.drawing, armed(), ed.shift);
           if (g) {
             ctx.strokeStyle = "#0284c7"; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
             traceField(ctx, g, toScreen);
@@ -549,7 +549,7 @@ export default {
 
     function hitHandle(x, y, scale) {
       const f = single();
-      if (!f || ed.tool !== "pointer" || isPointLike(f.type)) return null;
+      if (!f || armed() !== "pointer" || isPointLike(f.type)) return null;
       const near = HIT_PX / scale;
       const grip = rotationGrip(f, scale);
       if (Math.hypot(x - grip.x, y - grip.y) < near) return { kind: "rotate", field: f };
@@ -563,10 +563,18 @@ export default {
       return null;
     }
 
-    function down(x, y, scale) {
-      if (ed.mode === "grid") return false;
+    /* Which tool is armed. Only the drawing mode arms one — the other mode
+       hides the tools rather than disabling the canvas, so selecting, moving,
+       resizing and the marquee go on working on whatever the grid just put
+       down. A mode is about what can be made, not about whether what is
+       already there can be touched. */
+    function armed() {
+      return ed.mode === "geometry" ? ed.tool : "pointer";
+    }
 
-      if (ed.tool === "polygon") {
+    function down(x, y, scale) {
+      const tool = armed();
+      if (tool === "polygon") {
         if (ed.poly.length >= 3) {
           const d = Math.hypot(x - ed.poly[0].x, y - ed.poly[0].y) * scale;
           if (d < CLOSE_PX) {
@@ -583,14 +591,14 @@ export default {
         return true;
       }
 
-      if (ed.tool === "point") {
+      if (tool === "point") {
         const f = { id: nextId(), type: "point", presetId: ed.presetId, x, y };
         commit([...ed.fields, f]);
         ed.selected = new Set([f.id]);
         return true;
       }
 
-      if (ed.tool !== "pointer") {
+      if (tool !== "pointer") {
         ed.drawing = { sx: x, sy: y, cx: x, cy: y };
         return true;
       }
@@ -678,7 +686,7 @@ export default {
         return true;
       }
       if (ed.drawing) {
-        const g = previewOf(ed.drawing, ed.tool, ed.shift);
+        const g = previewOf(ed.drawing, armed(), ed.shift);
         ed.drawing = null;
         if (g) {
           const f = { ...g, id: nextId(), presetId: ed.presetId };
