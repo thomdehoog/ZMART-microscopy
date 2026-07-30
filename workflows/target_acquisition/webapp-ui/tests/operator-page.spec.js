@@ -501,6 +501,52 @@ test("grid mode hides the drawing tools without freezing the canvas",
     expect(after, "fewer positions than before").toBeLessThan(before);
   });
 
+test("a grid position can be picked and dropped, but not dragged off its grid",
+  async ({ page }) => {
+    await throughFields(page);
+    await gotoStep(page, "Initial scanfields");
+    const box = await page.locator("#stage-canvas").boundingBox();
+    const shot = () => page.locator("#stage-canvas").screenshot();
+
+    /* Where it is, is what the carrier and the grid settings say. Dragging one
+       by hand would leave a position claiming to be in a block it had left,
+       and the next Apply would silently undo it.
+
+       Compared with nothing selected at either end: picking one is supposed to
+       change the picture — that is the heavier outline — and this is asking
+       whether it moved, not whether anything happened. */
+    const idle = async () => {
+      // nothing selected and nothing under the pointer, or the heavier outline
+      // that hover draws would answer for the question being asked
+      await page.keyboard.press("Escape");
+      await page.mouse.move(box.x + box.width * 0.02, box.y + box.height * 0.97);
+      await page.waitForTimeout(250);
+      return shot();
+    };
+    const before = await idle();
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.62, box.y + box.height * 0.62, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    expect(Buffer.compare(before, await idle()) === 0,
+      "back at rest the positions are where they were").toBe(true);
+
+    // arrow keys will not move one either — same reason
+    await page.keyboard.press("Control+a");
+    await page.waitForTimeout(200);
+    const selected = await shot();
+    for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(250);
+    expect(Buffer.compare(selected, await shot()) === 0, "nudge leaves it alone").toBe(true);
+
+    // but it is a field like any other to pick and to throw away
+    await expect(page.locator(".sf-flat", { hasText: "Apply to selected" })).toBeEnabled();
+    await page.keyboard.press("Delete");
+    await page.waitForTimeout(250);
+    await expect(page.locator(".sf-readout")).toContainText("nothing to scan yet");
+  });
+
 test("a region is drawn on the canvas and covered by its preset's frame",
   async ({ page }) => {
     await throughSetup(page);
