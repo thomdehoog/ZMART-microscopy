@@ -10,6 +10,7 @@ src/
   frame/        the shell: rail, action bar, tabs, run state, step ordering.
   widgets/      the panels on the right. One file each.
   workflows/    step lists. Compose, do not invent.
+  live/         acquired data drawn from the run's own images, as it is written.
 ```
 
 ## The rule that keeps it honest
@@ -141,6 +142,7 @@ tree matches the picture.
 | `workflows/` | built, unit-tested, **not yet imported and now stale** |
 | `widgets/carrier.js` | built, used — the first widget, and the shape the rest should follow |
 | `widgets/scanfields.js` | built, used — the geometry editor and the grid, in the same channel |
+| `live/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
 | `src/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
 **Widget extraction has started, from the outside in.** `widgets/carrier.js` is
@@ -180,6 +182,30 @@ mode switch in favour of calling `step.run(ctx)`. Every line worth editing
 while iterating on design stays where it is. Until that is done, **treat
 `main.js` as the source of truth and the modules as a proposal** — and if you
 change a rule, change it in both.
+
+## Acquired data: `live/`
+
+Everything else on this page is a rehearsal — a synthetic sample, a stage that
+moves on a timer. `live/overview.js` is not: given the address of a run, it draws
+the OME-Zarr images the microscope is writing, and reads them again as tiles
+land, so the scan step shows the overview appearing rather than a count.
+
+It is drawn by Viv's layers on deck.gl, deliberately not by Viv's ready-made
+React viewers: those own the whole drawing surface and the whole layout, which is
+the opposite of what a panel inside this page can allow. Several acquisitions can
+be drawn at once — a survey underneath, the target scan over it — which is the
+shape the writer already produces, one image per acquisition type.
+
+Two properties of it are worth knowing before changing anything, and both are
+written out at length in the file:
+
+- **Nothing on disk announces a saved tile.** The images are declared at their
+  full size before any of them exists, so their description never changes. The
+  picture is told by the scan step, and it re-reads the run rather than waiting
+  to be notified.
+- **Viv draws an unimaged part of the canvas as solid black**, not as nothing.
+  A shader extension in the same file makes the dark parts see-through, which is
+  what allows an acquisition to be a layer over anything else.
 
 ## Tests
 

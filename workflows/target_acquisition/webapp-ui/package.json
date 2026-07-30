@@ -17,5 +17,20 @@
     "vite": "^8.1.5",
     "vite-plugin-singlefile": "^2.3.0",
     "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@deck.gl/core": "9.3.7",
+    "@deck.gl/geo-layers": "9.3.7",
+    "@deck.gl/layers": "9.3.7",
+    "@luma.gl/constants": "9.3.6",
+    "@luma.gl/core": "9.3.6",
+    "@luma.gl/engine": "9.3.6",
+    "@luma.gl/shadertools": "9.3.6",
+    "@luma.gl/webgl": "9.3.6",
+    "@math.gl/core": "4.1.0",
+    "@vivjs/extensions": "0.22.0",
+    "@vivjs/layers": "0.22.0",
+    "@vivjs/loaders": "0.22.0",
+    "@vivjs/views": "0.22.0"
   }
 }

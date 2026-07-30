@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ZMART operator page</title>
+  <!-- A browser asks for /favicon.ico on its own if a page names no icon, and
+       nothing here serves one, so it fails and the failure is reported to the
+       page as an error. That is noise in the console during a run and it fails
+       the browser tests, which quite reasonably treat any error as a fault. The
+       icon is written into the page rather than kept as a file because the whole
+       page is built into a single file that Python hands out. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f172a'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%2338bdf8' stroke-width='3'/%3E%3C/svg%3E">
 </head>
 <body>
 
@@ -40,6 +47,12 @@
         <div class="canvas-body">
           <div class="plot-host">
             <canvas class="plot stagecv" id="stage-canvas"></canvas>
+            <!-- The overview as it is being acquired, drawn from the images the
+                 run is writing. It covers the plan while the scan is the thing
+                 being looked at, and is only there at all when the page was
+                 given a run to watch. -->
+            <canvas class="plot livecv" id="overview-canvas" hidden></canvas>
+            <div class="live-note" id="overview-note" hidden></div>
             <div class="tip" id="stage-tip"></div>
           </div>
           <!-- a step whose work is about the frame itself docks its controls
@@ -59,6 +72,14 @@
             <span style="font-weight:600;color:var(--ink-3)">Channels</span>
             <label><input type="checkbox" id="ch-0" checked> <span class="swatch" style="background:#22d3ee"></span> ch1</label>
             <label><input type="checkbox" id="ch-1" checked> <span class="swatch" style="background:#f59e0b"></span> ch2</label>
+          </div>
+          <!-- Only there when the run being watched was taken as a stack: a
+               single-plane overview has no depth to step through. -->
+          <div class="group" id="overview-depth" hidden>
+            <span style="font-weight:600;color:var(--ink-3)">Plane</span>
+            <input type="range" id="overview-plane" min="0" max="0" value="0"
+                   aria-label="which plane of the stack to show">
+            <span class="readout" id="overview-plane-readout">1 / 1</span>
           </div>
           <div class="sep"></div>
           <button class="ghost" id="fit-btn">Fit</button>
