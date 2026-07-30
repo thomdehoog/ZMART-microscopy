@@ -12,6 +12,8 @@
  *   run      the current run state, to read
  *   update   (patch, note?) — merge state, optionally set this step's result
  *   note     (text) — set this step's result line
+ *   picture  the acquired overview on screen, when the page is watching a run.
+ *            A step that produces image data tells it so; see `scanOverview`.
  */
 
 export const connect = {
@@ -66,14 +68,29 @@ export const focusStrategy = {
   },
 };
 
+/* The count is the smaller half of what this step reports. The other half is the
+   picture: the overview drawn from the images the run is writing, filling in
+   position by position, so the operator can see that the sample is where it was
+   meant to be and that the focus held — neither of which a count can say.
+
+   Each position reported is also the moment to read the run again. Nothing on
+   disk announces a saved tile: the images are declared at their full size before
+   any of them exists, and a tile is written into room already reserved for it,
+   so their description is identical before and after. Somebody therefore has to
+   go and look, and the scan reporting a position is the one moment when there is
+   certainly something new to see. `live/overview.js` decides how often to
+   actually look and explains why. */
 export const scanOverview = {
   id: "scan",
   title: "Scan the overview",
   why: "Drives the stage through every position, stitching tiles as they are saved.",
   button: "Scan overview",
-  run: async ({ backend, update, note }) => {
+  run: async ({ backend, update, note, picture }) => {
     note(await backend.scanOverview({
-      onProgress: (n, total) => update({ tiles: n }, `${n} / ${total} tiles`),
+      onProgress: (n, total) => {
+        update({ tiles: n }, `${n} / ${total} tiles`);
+        picture?.tileMayHaveLanded();
+      },
     }));
   },
 };

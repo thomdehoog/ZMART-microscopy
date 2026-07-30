@@ -131,6 +131,46 @@ describe("workflows compose the catalogue rather than restating it", () => {
   });
 });
 
+describe("the scan step reports both a count and a picture", () => {
+  const scan = WORKFLOWS.target_acquisition.steps.find((s) => s.id === "scan");
+
+  /* Nothing on disk announces a saved tile — the images are declared at their
+     full size before any of them exists — so the picture only learns that there
+     is more to see when the step says so. This is that wiring, and it is worth a
+     test because it is invisible: everything still looks right if the picture is
+     never told, right up until the operator watches a scan and nothing appears. */
+  it("tells the picture on every position the scan reports", async () => {
+    const seen = [];
+    const looks = [];
+    await scan.run({
+      backend: {
+        async scanOverview({ onProgress }) {
+          onProgress(1, 3); onProgress(2, 3); onProgress(3, 3);
+          return "3 / 3 tiles";
+        },
+      },
+      update: (patch, note) => seen.push([patch.tiles, note]),
+      note: () => {},
+      picture: { tileMayHaveLanded: () => looks.push(true) },
+    });
+
+    expect(seen).toEqual([[1, "1 / 3 tiles"], [2, "2 / 3 tiles"], [3, "3 / 3 tiles"]]);
+    expect(looks.length, "one for each position saved").toBe(3);
+  });
+
+  it("runs perfectly well with no picture to tell, which is the usual case", async () => {
+    const notes = [];
+    await scan.run({
+      backend: {
+        async scanOverview({ onProgress }) { onProgress(1, 1); return "1 / 1 tiles"; },
+      },
+      update: () => {},
+      note: (text) => notes.push(text),
+    });
+    expect(notes).toEqual(["1 / 1 tiles"]);
+  });
+});
+
 describe("the backend seam", () => {
   it("detection uses one rule for a tile and for the sample", () => {
     const settings = { algo: "cellpose", diameter: 18, cellprob: 0 };

@@ -463,6 +463,27 @@ canvas.stagecv { cursor: default; }
 canvas.stagecv.over-field { cursor: pointer; }
 canvas.scattercv { cursor: crosshair; }
 
+/* The acquired overview lies over the plan, in the same place and at the same
+   size, because it is the same square of stage seen for real rather than a
+   second view of it. It is dark, the way an unimaged region is, so a canvas
+   with nothing written into it yet looks empty rather than looking broken.
+
+   The `hidden` attribute needs saying again here: the rule above gives every
+   canvas in this panel `display: block`, and that would otherwise keep showing
+   a canvas the page had asked to put away. */
+canvas.livecv { position: absolute; inset: 0; background: #05070d; }
+canvas.livecv[hidden] { display: none; }
+
+/* What the picture is doing, said quietly in the corner of it: which run is
+   open, or why it could not be. */
+.live-note {
+  position: absolute; left: 10px; bottom: 10px; z-index: 6; max-width: 70%;
+  background: rgba(5, 7, 13, 0.72); color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 7px;
+  padding: 5px 9px; font-size: 11px; font-family: var(--mono);
+}
+.live-note[hidden] { display: none; }
+
 .tip {
   position: absolute; pointer-events: none; z-index: 5;
   background: var(--screen); border: 1px solid var(--line-strong); border-radius: 7px;

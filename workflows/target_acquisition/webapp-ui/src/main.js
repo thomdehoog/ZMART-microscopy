@@ -426,6 +426,13 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         const t = Math.min(1, (performance.now() - started) / s.ms);
         state.tilesShown = Math.round(t * total);
         state.notes[s.id] = `${state.tilesShown} / ${total} tiles`;
+        /* Each position the scan reports is a reason to read the run again,
+           because the tile it just saved is new picture that nothing on disk
+           announces — the images were declared at their full size before any of
+           them existed, so their description is the same before and after a tile
+           lands. The picture decides how often to actually look; see
+           `live/overview.js`, which explains why. */
+        liveOverview.tileMayHaveLanded();
         drawStage(); renderAll();
         if (t < 1) raf = requestAnimationFrame(tick);
       };
@@ -1151,6 +1158,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     renderSide(show);
     renderStepAction(show);
     if (SETUP_CARDS[show]) renderSetup(show);
+    // The acquired overview lies over the plan while the scan is what is being
+    // looked at, so which of the two is on screen follows the step.
+    liveOverview.showFor(step(state.activeIdx), show);
     if (show === "canvas") { sizeCanvas(stageCv); drawStage(); }
     if (show === "detect") { renderDetectToolbar(); drawTilePreview(); }
     if (show === "focus") { renderFocusToolbar(); drawFocus(); drawTrace(); }
@@ -1189,6 +1199,163 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   }
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  /* ============================================================
+     the overview being acquired — the real picture, when there is one
+     ============================================================ */
+  /* Everything else on this page is a rehearsal: a synthetic sample, a stage
+     that moves on a timer. This one thing is not. Given the address of a run
+     that a microscope is writing, the scan step draws that run — the same
+     OME-Zarr images `zmart_storage` writes, read as they are being written — so
+     the operator watches the overview appear tile by tile instead of watching a
+     counter.
+
+     It is asked for rather than assumed, with `?overview=<address of the run>`
+     on the page's own address, for two reasons. A page opened without one has no
+     run to watch and should not go looking for one; and the drawing engine is a
+     large thing to load, so it is fetched only when there is something for it to
+     draw. The demo run in `live_overview_demo.py` prints the address to use. */
+  /* Which acquisitions to draw, from the bottom up. `?overview=` is the one that
+     matters and is usually the only one; `?targets=` names a second acquisition
+     to be drawn over it.
+
+     Two of them is the shape a real run has. The writer keeps one image per
+     acquisition type, so a low-power map of the whole carrier is one image and
+     the high-power scan of the targets picked out of it is another. They cover
+     the same ground, so drawing one over the other shows where in the sample
+     each target came from — which is a question the operator asks constantly and
+     cannot answer from two pictures side by side. */
+  const ACQUISITIONS = (() => {
+    const asked = new URLSearchParams(location.search);
+    return [asked.get("overview"), asked.get("targets")].filter(Boolean);
+  })();
+  const RUN_TO_WATCH = ACQUISITIONS[0] ?? null;
+
+  /* What colour to paint the room the run declared, underneath the picture, as
+     six hex digits — `?ground=1e3a5f`. Left out, nothing is drawn underneath and
+     an unimaged part of the canvas is simply dark.
+
+     This is worth having because a run declares far more room than it images,
+     and painting that room says where the picture is going to appear. It is also
+     how the tests ask a question the design rests on: whether the parts of the
+     image nobody has imaged let what is beneath them show through. */
+  const GROUND = (() => {
+    const asked = new URLSearchParams(location.search).get("ground");
+    if (!asked || !/^[0-9a-f]{6}$/i.test(asked)) return null;
+    return [0, 2, 4].map((at) => parseInt(asked.slice(at, at + 2), 16));
+  })();
+
+  /* Whether the dark parts of the picture should be see-through — `?seethrough=1`.
+     Off unless asked for, because it makes a place that was imaged and came back
+     black look exactly like a place nobody has visited, and during a run those
+     are two different things worth telling apart. `live/overview.js` explains
+     what it does and why it has to exist. */
+  const SEE_THROUGH = new URLSearchParams(location.search).get("seethrough") === "1";
+
+  const liveOverview = (() => {
+    const cv = el("overview-canvas");
+    const note = el("overview-note");
+    const depthBox = el("overview-depth");
+    const planeSlider = el("overview-plane");
+    const planeReadout = el("overview-plane-readout");
+    let picture = null;      // the drawing, once the run has been opened
+    let opening = false;
+    let showing = false;
+    let heartbeat = null;
+
+    const say = (text) => { note.hidden = !text; note.textContent = text ?? ""; };
+
+    /* Opened the first time it is needed, and kept afterwards. Opening reads the
+       run's description over the network, so it is not something to do on every
+       render — and re-opening would throw away where the operator had panned to. */
+    async function open() {
+      if (picture || opening) return;
+      opening = true;
+      try {
+        const { showOverview } = await import("./live/overview.js");
+        picture = await showOverview(cv, {
+          stores: ACQUISITIONS, onStatus: say, ground: GROUND, seeThrough: SEE_THROUGH,
+        });
+        /* Left where a test can reach it. Nothing on the page reads this: what
+           matters about a picture is what is on the screen, and a viewer that
+           reports itself perfectly loaded while drawing nothing is exactly the
+           failure this is meant to catch. */
+        window.__liveOverview = picture;
+        picture.lookAgain();
+        offerTheDepth();
+      } catch (e) {
+        say(`the run at ${RUN_TO_WATCH} could not be opened — ${e.message}`);
+      } finally {
+        opening = false;
+      }
+    }
+
+    /* A run taken one plane at a time has no depth to step through, so the
+       control for it is only there when there is something to choose. Stepping
+       reads that plane alone — each plane is stored separately — so moving the
+       slider costs the same as looking at the first one. */
+    function offerTheDepth() {
+      const depth = picture?.depth ?? 1;
+      depthBox.hidden = depth < 2;
+      if (depth < 2) return;
+      planeSlider.max = String(depth - 1);
+      planeSlider.value = String(picture.plane);
+      sayWhichPlane();
+    }
+
+    const sayWhichPlane = () => {
+      // Counted from one on screen, because a plane is a thing an operator
+      // counts, not an offset into an array.
+      planeReadout.textContent = `${(picture?.plane ?? 0) + 1} / ${picture?.depth ?? 1}`;
+    };
+
+    planeSlider.addEventListener("input", () => {
+      picture?.showPlane(Number(planeSlider.value));
+      sayWhichPlane();
+    });
+
+    return {
+      /** Whether this page was given a run to watch at all. */
+      watching: !!RUN_TO_WATCH,
+
+      get showing() { return showing; },
+
+      /* The acquired picture belongs to the step that acquires it. Standing on
+         the scan is what brings it up, and stepping away puts the plan back —
+         the plan is what the other steps are about. */
+      showFor(step, panel) {
+        const wants = !!RUN_TO_WATCH && panel === "canvas" && step.mode === "scan";
+        // Only the change is acted on. Framing the overview again on every
+        // render would undo the operator's panning a few times a second.
+        if (wants === showing) return;
+        showing = wants;
+        cv.hidden = !wants;
+        note.hidden = !wants || !note.textContent;
+        depthBox.hidden = !wants || (picture?.depth ?? 1) < 2;
+        clearInterval(heartbeat);
+        heartbeat = null;
+        if (!wants) return;
+        open().then(() => picture?.fit());
+        /* And while it is on screen, it reads the run every second whether or
+           not anything has told it to.
+
+           This is not belt and braces. The scan on this page is a rehearsal that
+           finishes after a couple of seconds, while a real acquisition takes as
+           long as it takes — so the tiles that land after the rehearsal has
+           stopped reporting are exactly the ones a picture driven only by the
+           step would miss. A run stops changing when it is over, and reading a
+           finished run again simply draws the same picture, so the cost of this
+           when there is nothing new is a handful of requests a second. */
+        heartbeat = setInterval(() => picture?.tileMayHaveLanded(), 1500);
+      },
+
+      /** A position has been saved, so there may be more picture to read. */
+      tileMayHaveLanded() { picture?.tileMayHaveLanded(); },
+
+      /** Frame the whole overview again, for the Fit button. */
+      fit() { picture?.fit(); },
+    };
+  })();
 
   /* ============================================================
      the stage viewer — one projection, layers on top
@@ -1545,7 +1712,13 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     drawStage();
   }, { passive: false });
 
-  el("fit-btn").addEventListener("click", () => { fitView(); drawStage(); });
+  /* Fit frames whichever picture is on show. While the acquired overview is
+     covering the plan, it is the thing being looked at, so it is the thing that
+     gets framed. */
+  el("fit-btn").addEventListener("click", () => {
+    if (liveOverview.showing) { liveOverview.fit(); return; }
+    fitView(); drawStage();
+  });
   for (const id of ["lay-tiles", "lay-cells", "lay-targets", "ch-0", "ch-1"]) {
     el(id).addEventListener("change", drawStage);
   }
