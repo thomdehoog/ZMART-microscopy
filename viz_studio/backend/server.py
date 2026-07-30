@@ -49,7 +49,7 @@ from pathlib import Path
 # startup instead of on the first request an operator makes.
 import announcements as announcements_mod
 from announcements import Announcements, FolderWatcher
-from contrast import intensity_histogram, measure
+from contrast import coarsest_level_is_written, intensity_histogram, measure
 from library import Library
 from stores import (
     axis_names,
@@ -565,10 +565,23 @@ class _Handler(SimpleHTTPRequestHandler):
         in_place = bool(
             isinstance(payload, dict) and payload.get("wrote_image_in_place")
         )
+        # What the disk looks like as this announcement is made. The folder watcher
+        # compares it with what it sees a moment later, so that the write the
+        # microscope has just told us about is not announced a second time when the
+        # watcher notices the same thing. See announcements.already_told_about.
+        covering = None
+        try:
+            if self._library is not None:
+                covering = self._library.revision()
+        except Exception:
+            # Reading the folder is only an optimisation here. Failing to read it
+            # means the watcher may repeat this announcement, which is wasteful and
+            # harmless -- never a reason to refuse the announcement itself.
+            covering = None
         self._send_json(
             {
                 "told": self._announcements.say_something_changed(
-                    image_written_in_place=in_place
+                    image_written_in_place=in_place, covering=covering
                 )
             }
         )
@@ -879,6 +892,13 @@ def make_server(
     # how a row is shown, not of every position on the row -- so on a large run
     # there are a handful of entries here rather than tens of thousands.
     measured: dict[str, dict] = {}
+    # The measurements above that were taken before the run had finished writing,
+    # and so are worth taking again once it has. They are kept and used in the
+    # meantime -- they are honest readings of the pixels that existed at the time,
+    # and far better than making the operator wait -- but they are not the final
+    # answer, because they were measured from a larger copy of the image that
+    # covers less of the specimen at once, or from no picture at all.
+    provisional: set[str] = set()
     # Measuring a store means reading pixels. Two requests arriving together --
     # the page loading while the refresh poll fires, or a second window opening --
     # would otherwise both do that work for the same store.
@@ -896,24 +916,61 @@ def make_server(
         acquisition clears it.
         """
         for number, _, name in closed:
-            measured.pop(f"{number}/{name}", None)
+            # A store holding several channels leaves one entry per channel, under
+            # keys ending in the channel's number, so every entry belonging to this
+            # store goes rather than only the one with the bare name.
+            stem = f"{number}/{name}"
+            for key in [k for k in measured if k == stem or k.startswith(f"{stem}/c")]:
+                measured.pop(key, None)
+                provisional.discard(key)
 
-    def describe(root_number: int, root: Path, name: str, label: str, coloured: bool) -> dict:
-        key = f"{root_number}/{name}"
-        if key in measured:
-            return {**measured[key], "name": label}
+    def describe(
+        root_number: int, root: Path, name: str, label: str, coloured: bool,
+        channel: int | None = None,
+    ) -> dict:
+        # The channel belongs in the key. A store holding several channels is
+        # measured once per channel, because one window covering all of them
+        # leaves a faint channel with its whole useful range in the bottom
+        # hundredth of its slider -- and sharing one entry between them is
+        # precisely how that used to happen.
+        key = f"{root_number}/{name}" if channel is None else f"{root_number}/{name}/c{channel}"
+        remembered = measured.get(key)
+        if remembered is not None and (
+            key not in provisional
+            # Taken before the run had finished writing. The numbers are good
+            # enough to show, so they are used again unless the store has since
+            # gained the whole-field copy that would make them final. Asked
+            # before the lock below is taken, and by looking at a folder rather
+            # than at any picture, so the ordinary case of "still writing,
+            # nothing new" costs a directory listing and no waiting at all.
+            or not _worth_measuring_again(root / name)
+        ):
+            return {**remembered, "name": label}
         with measuring:
-            if key in measured:
-                return {**measured[key], "name": label}
-            return _measure(key, root_number, root, name, label, coloured)
+            remembered = measured.get(key)
+            if remembered is not None and key not in provisional:
+                return {**remembered, "name": label}
+            return _measure(key, root_number, root, name, label, coloured, channel)
 
-    def _measure(key, root_number, root, name, label, coloured) -> dict:
+    def _worth_measuring_again(store: Path) -> bool:
+        """Has the store gained the whole-field copy it was missing?
+
+        Cheap on purpose: it looks at a folder rather than reading any picture,
+        so asking it on every answer costs nothing. Only when it says yes is the
+        expensive measurement done a second time.
+        """
+        try:
+            return coarsest_level_is_written(store)
+        except OSError:
+            return False
+
+    def _measure(key, root_number, root, name, label, coloured, channel=None) -> dict:
         """Read one store's pixels and work out how it should first be shown.
 
         This is the expensive part of answering "what is open" — everything else
         only reads the small files that describe a store, while this reads image
-        data. It is therefore done once per store and the answer kept, which is
-        what the ``measured`` record above is for.
+        data. It is therefore done once per store and channel, and the answer
+        kept, which is what the ``measured`` record above is for.
 
         Both windows are worked out here and travel together, so switching between
         the plane and the volume is instant: the page already holds what each view
@@ -927,10 +984,15 @@ def make_server(
             found = {
                 "window": window,
                 "volumeWindow": window,
-                "histogram": intensity_histogram(root / name),
+                "histogram": intensity_histogram(root / name, channel=channel),
+                # A window the operator asked for on the command line is their
+                # decision and does not improve by being measured again, but the
+                # histogram beside it is still read from the picture, so it is
+                # worth revisiting on the same terms as any other.
+                "settled": coarsest_level_is_written(root / name),
             }
         else:
-            found = measure(root / name)
+            found = measure(root / name, channel=channel)
         flat, volume = found["window"], found["volumeWindow"]
         color = channel_color(name) if coloured else None
         described = {
@@ -951,8 +1013,19 @@ def make_server(
         # (it draws saturated white), and either would be remembered for the rest of
         # the session. So a measurement with nothing behind it is used once and not
         # kept, and the next look measures again.
+        #
+        # The same care is needed for a measurement that *did* see pixels but not
+        # all of them. During a run the whole-field copy of the image is the last
+        # thing written, so an early measurement is taken from a larger copy that
+        # covers less of the specimen. That reading is honest and is shown, but it
+        # is marked as one to take again -- cheaply, by looking at a folder rather
+        # than reading pixels -- once the run has finished writing.
         if found["histogram"] is not None:
             measured[key] = described
+            if found.get("settled"):
+                provisional.discard(key)
+            else:
+                provisional.add(key)
         return {**described, "name": label}
 
     # The answer to "what is open", kept against the revision it was built for.
@@ -1064,7 +1137,13 @@ def make_server(
                     # thousand measurements to fill in one row. It is the reason
                     # a large finished folder took the best part of an hour to
                     # open; see NEXT_STEPS.md for the figures.
-                    base = describe(root_number, root, name, label, coloured=len(present) > 1)
+                    # Measured for this channel and no other. Where the store keeps
+                    # its channels in separate files, ``index`` is None and the
+                    # whole store already is the one channel.
+                    base = describe(
+                        root_number, root, name, label,
+                        coloured=len(present) > 1, channel=index,
+                    )
                     merged[key] = {
                         **base,
                         # A list of this row's own, so that extending it below
@@ -1197,13 +1276,35 @@ def make_server(
         announcements=told,
         forget_measurements=forget_measurements,
     )
-    return _Server(("127.0.0.1", port), handler)
+    try:
+        return _Server(("127.0.0.1", port), handler)
+    except OSError as why:
+        # Almost always "that door is already in use" -- a viewer already open, or
+        # some other program on this machine holding the same number. Left as it
+        # came, this reached the operator as a bare OSError with a number in it and
+        # no suggestion of what to do, and on a lab PC where something else owns
+        # 8848 the viewer simply could not be started at all.
+        told.close()
+        raise OSError(
+            f"the viewer could not start on port {port}: {why}\n\n"
+            "That usually means something else on this machine is already using "
+            f"it — most often another copy of this viewer. Either close that one, "
+            "or start this one on a different port:\n\n"
+            "    python run_demo.py --port 8849\n\n"
+            "Any number between 1024 and 65535 that nothing else is using will do, "
+            "and --port 0 lets the machine choose a free one for you and prints "
+            "which it picked."
+        ) from why
 
 
 def serve(port: int = 8848) -> None:
     """Run the server until interrupted. The viewer page will be at ``/``."""
     server = make_server(port)
-    print(f"ZMART Viz Studio serving on http://127.0.0.1:{port}")
+    # Asked of the server rather than taken from the number passed in. They are
+    # the same for an ordinary port, and quite different for port 0 -- which means
+    # "any free one" and would otherwise be printed as the useless
+    # http://127.0.0.1:0.
+    print(f"ZMART Viz Studio serving on http://127.0.0.1:{server.server_address[1]}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

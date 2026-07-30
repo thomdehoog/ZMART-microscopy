@@ -130,6 +130,47 @@ async function loadTargets() {
 }
 
 /**
+ * Did an acquisition that was already on screen, but had nothing in it, just gain
+ * its first image?
+ *
+ * This is the signal behind a fault that cost an operator a whole session. The
+ * viewer notices an acquisition the instant its *description* lands, which is the
+ * earliest possible moment and is deliberate — waiting would mean a run appearing
+ * in the panel some seconds after it started. But at that moment there is no
+ * picture behind it yet. The engine looks, finds nothing, and remembers that with
+ * no time limit; so when the image arrived a moment later the panel went on
+ * showing black, for as long as the page stayed open. The acquisition was listed,
+ * its eye was open, and nothing said why it was empty. Reloading the page showed
+ * the data perfectly, which is the tell: only the open viewer was stuck.
+ *
+ * The engine has a way to be told to forget what it has decoded, and the question
+ * is when to use it. Doing so on every announcement is far too blunt — it throws
+ * away everything fetched, and during a run announcements arrive constantly, so a
+ * position arriving would cost a refetch of the whole view. What is wanted is the
+ * narrow case: a store the panel already knew about, which had no measurable
+ * picture in it, and now has one.
+ *
+ * That transition is visible in the answer the server gives. A store with nothing
+ * written yet has no histogram — there were no pixels to measure — and no count of
+ * moments. Once an image lands, both appear. A store arriving for the first time
+ * is not this: it was not there before, so the engine has decoded nothing for it
+ * and has nothing to forget.
+ */
+function anyStoreGainedItsFirstImage(previous, loaded) {
+  if (!previous) return false;
+  const before = new Map(
+    (previous.layers || []).map((spec) => [`${spec.group}/${spec.name}`, spec]),
+  );
+  return (loaded.layers || []).some((spec) => {
+    const was = before.get(`${spec.group}/${spec.name}`);
+    if (!was) return false; // newly arrived, so nothing has been decoded for it
+    const hadNothing = was.histogram == null && was.frames == null;
+    const hasSomethingNow = spec.histogram != null || spec.frames != null;
+    return hadNothing && hasSomethingNow;
+  });
+}
+
+/**
  * The application shell, and the single owner of what the viewer shows.
  *
  * <NeuroglancerView> mounts the engine and hands back the `viewer`; everything
@@ -194,6 +235,11 @@ export default function App() {
   // and the time slider would never reach the new frame.
   const rereadWanted = React.useRef(false);
 
+  // Set when an announcement arrives while the viewer is already part way through
+  // asking what is open. The answer on its way was prepared before that
+  // announcement, so one more question is asked when it lands.
+  const missedWhileAsking = React.useRef(false);
+
   // Take on a new set of images -- at startup, and again whenever something is
   // opened or closed. Anything still open keeps the colour, contrast and opacity
   // the operator gave it: having those quietly reset because a second run was
@@ -205,13 +251,17 @@ export default function App() {
     // Nothing came back: the server could not be reached. Whatever is on screen
     // stays there — an experiment half-watched is better than a blank panel — and
     // the poll below is what says so out loud.
-    if (!loaded) return;
+    if (!loaded) return "unchanged";
     const previous = applied.current;
     // Nothing actually different, so leave everything alone. This matters more
     // than it looks: the viewer asks whether anything has changed several times a
     // second, and without this check an identical answer would still count as new
     // and send the whole picture round again.
-    if (previous && JSON.stringify(previous) === JSON.stringify(loaded)) return;
+    //
+    // What changed is also reported back, because the caller needs it in order to
+    // decide whether the engine has to be told to look at the disk again.
+    if (previous && JSON.stringify(previous) === JSON.stringify(loaded)) return "unchanged";
+    const outcome = anyStoreGainedItsFirstImage(previous, loaded) ? "gained-image" : "changed";
     applied.current = loaded;
 
     // Match each channel now open to the same channel before, so the colour,
@@ -251,6 +301,7 @@ export default function App() {
         groups.map((name) => [name, current[name] || { visible: true, opacity: 1 }]),
       ),
     );
+    return outcome;
   }, []);
 
   // Ask the server what is open, and take it on.
@@ -259,19 +310,60 @@ export default function App() {
   // sounds: on a folder of several thousand positions the answer is genuinely
   // expensive, and two of them racing at startup was measurably slower for no
   // benefit at all.
+  //
+  // It answers with what came of asking, which the caller needs in order to
+  // decide whether the engine has to be told to look at the disk again:
+  //
+  //   "gained-image" an acquisition already on screen, which had nothing in it,
+  //                  now has a picture -- see anyStoreGainedItsFirstImage
+  //   "changed"      something else about the scene is different, and is applied
+  //   "unchanged"    the answer was identical to the one already in hand
+  //   "unreachable"  the server did not answer
   const catchUp = React.useCallback(async () => {
     // Not while one is already outstanding. Several announcements can arrive
     // close together at the start of a run, and a browser allows only six
     // connections to one address -- a queue of expensive questions would leave
     // the engine unable to fetch a single piece of image until they finished.
-    if (asking.current) return;
+    //
+    // The announcement is remembered rather than dropped. Three arriving during
+    // one slow answer used to produce one question and no catching up at all:
+    // the note asking for another look was written *after* this line, so it was
+    // never reached. Mostly the answer in flight was current anyway, because it
+    // reads the disk when it is asked rather than when it was requested -- but
+    // not always, and "mostly" is not a thing to rely on during somebody's
+    // experiment.
+    if (asking.current) {
+      missedWhileAsking.current = true;
+      return "busy";
+    }
     asking.current = true;
-    rereadWanted.current = true;
-    const loaded = await fetchConfig().finally(() => {
+    let outcome = "unchanged";
+    try {
+      // Asked again if an announcement arrived while the previous answer was on
+      // its way. At most one extra question per burst, because the note is
+      // cleared at the top of each turn rather than at the end.
+      do {
+        missedWhileAsking.current = false;
+        rereadWanted.current = true;
+        const loaded = await fetchConfig();
+        if (!loaded) {
+          setStoreNotice("Could not reach the server. Is it still running?");
+          return "unreachable";
+        }
+        // The strongest thing seen across the turns below is what is reported, so
+        // that an acquisition gaining its picture is not lost behind a second,
+        // duller answer that arrived while this one was being applied.
+        const said = applyConfig(loaded);
+        if (said === "gained-image") outcome = "gained-image";
+        else if (said === "changed" && outcome !== "gained-image") outcome = "changed";
+      } while (missedWhileAsking.current);
+    } finally {
       asking.current = false;
-    });
-    if (loaded) applyConfig(loaded);
-    else setStoreNotice("Could not reach the server. Is it still running?");
+      // Never left set. A note still lying there when the next unrelated change
+      // came along was read as though it belonged to that change.
+      missedWhileAsking.current = false;
+    }
+    return outcome;
   }, [applyConfig]);
 
   // The targets drawn in a previous session, read once. The images are not read
@@ -316,9 +408,7 @@ export default function App() {
     // we do not yet know which mode we are in.
     if (!shouldListen) return undefined;
     let stop = false;
-    const askAgain = () => {
-      if (!stop) catchUp();
-    };
+    const askAgain = async () => (stop ? "busy" : catchUp());
 
     const listener = new EventSource("/api/events");
     // Any message at all means "ask again", so both the named event and anything
@@ -333,15 +423,30 @@ export default function App() {
     // showing the emptiness it settled on earlier and never look again.
     //
     // Anything else, including a message with no detail at all, just means "ask again".
-    const heard = (event) => {
+    const heard = async (event) => {
       let said = null;
       try {
         said = event.data ? JSON.parse(event.data) : null;
       } catch {
         said = null; // not readable, so treat it as a plain "something changed"
       }
-      if (said?.imageWrittenInPlace && engine.current) letGoOfDecodedPieces(engine.current);
-      askAgain();
+      if (said?.imageWrittenInPlace && engine.current) {
+        // Said outright, so there is no need to wait and find out.
+        letGoOfDecodedPieces(engine.current);
+        askAgain();
+        return;
+      }
+      const outcome = await askAgain();
+      // An acquisition that was already on screen, and had nothing in it, now has
+      // a picture. The engine has already decided that store is empty and will
+      // never ask the disk again, so it has to be told to forget — otherwise the
+      // panel goes on showing black for as long as the page stays open, with the
+      // acquisition listed and its eye open and nothing saying why.
+      //
+      // Narrow on purpose. A position arriving, or a timelapse lengthening, is not
+      // this, so nothing already fetched is thrown away in the far commoner case.
+      // See anyStoreGainedItsFirstImage above for why this particular signal.
+      if (outcome === "gained-image" && engine.current) letGoOfDecodedPieces(engine.current);
     };
 
     listener.addEventListener("changed", heard);

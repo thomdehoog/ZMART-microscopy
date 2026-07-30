@@ -65,24 +65,59 @@ _PROGRESS_JS = """() => {
 # GPU acceleration   (gpu_browser fixture lives in conftest.py)
 # --------------------------------------------------------------------------
 
+# Draw something with WebGL 2 and read back what was drawn.
+#
+# This is what makes the test below able to fail. Asking the card for its name
+# only proves a name was reported; it says nothing about whether the card can
+# actually draw, and a machine whose driver is broken or whose WebGL 2 has been
+# blocked answers that question just as cheerfully as a healthy one. Clearing to
+# a known colour and reading the pixel back proves the whole path works, and
+# WebGL 2 specifically, which is what the engine requires.
+_DRAWS_JS = """() => {
+  const c = document.createElement('canvas');
+  c.width = 8; c.height = 8;
+  const gl = c.getContext('webgl2');
+  if (!gl) return {ok: false, why: 'WebGL 2 is not available'};
+  gl.clearColor(0, 1, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  const pixel = new Uint8Array(4);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+  if (gl.isContextLost()) return {ok: false, why: 'the WebGL context was lost'};
+  return {ok: true, pixel: Array.from(pixel)};
+}"""
+
+
 def test_webgl_is_hardware_accelerated(gpu_browser):
-    """WebGL is driven by a real GPU, not a software rasteriser.
+    """WebGL is driven by a real GPU, and that GPU can actually draw.
 
     Skips (rather than fails) on a machine without a card, so this same test is
     quiet in CI and meaningful on the microscope PC.
+
+    The second half is what makes this worth running. It used to skip when the
+    renderer was missing and then assert that the renderer was present — so it
+    could only skip or pass, whatever the machine did, while ``TESTING.md``
+    advertised it as the clearest single check that the GPU is in use. Now the
+    card is asked to draw and the result is read back, which a card that reports a
+    name but cannot render will fail.
     """
     page = gpu_browser.new_page()
     try:
         page.set_content("<canvas></canvas>")
         renderer = page.evaluate(_RENDERER_JS)
+        if not renderer:
+            pytest.skip("WebGL is unavailable in this browser")
+        if any(s in renderer.lower() for s in _SOFTWARE_RENDERERS):
+            pytest.skip(f"software WebGL renderer ({renderer}) — no GPU on this machine")
+        drew = page.evaluate(_DRAWS_JS)
     finally:
         page.close()
-    if not renderer:
-        pytest.skip("WebGL is unavailable in this browser")
-    if any(s in renderer.lower() for s in _SOFTWARE_RENDERERS):
-        pytest.skip(f"software WebGL renderer ({renderer}) — no GPU on this machine")
+
     print(f"\nWebGL renderer: {renderer}")   # visible with `pytest -s`
-    assert renderer, "the GPU reported an empty renderer string"
+    assert drew["ok"], f"{renderer} reports a GPU but cannot draw: {drew.get('why')}"
+    assert drew["pixel"] == [0, 255, 0, 255], (
+        f"{renderer} drew {drew['pixel']} where a plain green fill was asked for, "
+        "so what reaches the screen is not what the viewer asked to be drawn"
+    )
 
 
 # --------------------------------------------------------------------------

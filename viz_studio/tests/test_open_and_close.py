@@ -371,6 +371,13 @@ def test_finished_data_opens_no_listening_connection(browser, built_dist, demo_s
     and no reason to hold a connection open waiting for it. The data is still
     fetched once, because until something has been loaded there is a viewer with
     nothing in it.
+
+    This test used to collect every request to the listening address into a list
+    and then never look at it. A viewer holding a connection open for ever on
+    finished data passed, which is precisely the thing it is named after. The
+    server is asked as well as the browser, because the two can disagree — a page
+    that has gone away is only discovered when something is next written to it, so
+    the count the server keeps is the one an announcement would actually reach.
     """
     import threading
 
@@ -380,14 +387,51 @@ def test_finished_data_opens_no_listening_connection(browser, built_dist, demo_s
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     page = browser.new_page()
-    asked = []
-    page.on("request", lambda r: asked.append(r.url) if "/api/events" in r.url else None)
+    started: list[str] = []
+    settled: list[str] = []
+    page.on("request", lambda r: started.append(r.url) if "/api/events" in r.url else None)
+    page.on(
+        "requestfinished", lambda r: settled.append(r.url) if "/api/events" in r.url else None
+    )
+    page.on(
+        "requestfailed", lambda r: settled.append(r.url) if "/api/events" in r.url else None
+    )
     try:
         page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
         page.wait_for_timeout(3000)
         # It may open one before the first answer says the data is finished; what
-        # it must not do is keep one.
+        # it must not do is keep one. A held connection is a request that never
+        # comes back, so what says it was let go is that every one that started
+        # has since finished.
+        assert len(started) - len(settled) == 0, (
+            f"{len(started) - len(settled)} listening connection(s) still open on "
+            "finished data — the viewer is waiting to be told about changes that "
+            "cannot happen"
+        )
+        # And the server comes to agree that nobody is listening.
+        #
+        # Asked more than once on purpose. A page that has gone away is only
+        # discovered when something is next written to it — that is how the
+        # connection breaks — so the first announcement after the page let go is
+        # what clears the listener rather than what reports on it. A viewer that
+        # really were holding the connection open would answer 1 every time and
+        # this would still fail, which is the point.
+        announce = """async () => {
+             const r = await fetch('/api/announce', {method: 'POST'});
+             return (await r.json()).told;
+           }"""
+        told = page.evaluate(announce)
+        for _ in range(10):
+            if told == 0:
+                break
+            page.wait_for_timeout(200)
+            told = page.evaluate(announce)
+        assert told == 0, (
+            f"the server still thought {told} page(s) were listening after "
+            "repeated announcements, so a connection is genuinely being held open "
+            "on data that cannot change"
+        )
         assert page.evaluate("() => window.zmartConfig.live") is False
         # And it is genuinely showing the data, not merely quiet.
         assert page.evaluate("() => window.zmartConfig.layers.length") == 3

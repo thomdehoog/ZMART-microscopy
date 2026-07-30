@@ -700,6 +700,27 @@ def written_timepoints(store: Path) -> int | None:
     Zarr version 3 spells both of those slightly differently — it usually puts a
     ``c`` in front of every piece — and :func:`_count_frames` reads all of the
     spellings. Nothing above changes for a version 3 store; only the names do.
+
+    **Three limits, written down because they will otherwise surprise somebody.**
+    None of them can lose data, and all three come from the same decision: the
+    answer is read from what is on disk, and the disk is trusted.
+
+    - *The answer is not held down by the length the store declared.* A stray
+      folder called ``9999`` sitting in a store that declared room for ten moments
+      gives ten thousand. Nothing here checks the two against each other. What
+      keeps the slider sensible is that it clamps to the store's declared length
+      itself — see ``AxisSlider.jsx`` — so an impossible number never reaches the
+      operator. It is worth knowing that this is where the safety comes from,
+      because a second reader of this function would not get it for free.
+    - *An empty leftover moment still counts as reach.* A frame folder left behind
+      by an earlier run, holding nothing, is indistinguishable from a moment that
+      was imaged and came out black. Both are counted, so the slider runs out to
+      the leftover and the moments there draw as nothing.
+    - *Freshness is exact equality on the folder's modification time.* The answer
+      is kept and re-used until that time changes. A folder replaced by a shorter
+      one carrying an identical timestamp — which ``cp -a`` from an archive does —
+      keeps the old, longer answer for the rest of the session. Touching the
+      folder, or reopening the viewer, puts it right.
     """
     names = axis_names(store)
     if "t" not in names or names.index("t") != 0:
