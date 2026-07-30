@@ -428,6 +428,13 @@ export default {
         window.removeEventListener("keyup", keyup);
       },
 
+      /* Is the pointer over something it could pick? Only true while nothing
+         is being dragged: once a field is held, whether it was pickable is no
+         longer the question. */
+      overField() {
+        return !!ed.hover && !ed.drag && !ed.drawing && !ed.marquee;
+      },
+
       /** Grips, marquee and the shape being drawn — the editing, not the plan. */
       drawChrome(ctx, { toScreen, scale }) {
         ctx.save();
