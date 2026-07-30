@@ -2,6 +2,18 @@
 frontend/node_modules/
 frontend/dist/
 
+# The same for the two measurement probes, which build a page of their own.
+# The layer-stack probe's node_modules is a link to the sandwich probe's, so
+# that one install serves both; neither belongs in the repository.
+sandwich/page/node_modules/
+sandwich/page/dist/
+layer_stack/page/node_modules/
+layer_stack/page/dist/
+
+# The little acquisitions the layer-stack measurements are written against, if
+# somebody leaves them beside the results rather than in a folder of their own.
+layer_stack/photographs/stores/
+
 # The demo volume is generated on first run.
 backend/demo_store/
 
