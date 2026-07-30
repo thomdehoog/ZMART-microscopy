@@ -34,8 +34,21 @@ really is an image.
 What is written, and where
 --------------------------
 
-Inside each image folder — beside the pictures rather than mixed in with them —
-this module keeps a small folder called ``zmart-coverage`` holding two files.
+A run's folder gains one extra folder called ``zmart-coverage``, sitting beside
+the images rather than inside any of them, with a folder within it named after
+each image::
+
+    run/
+      overview.ome.zarr/          the pictures, untouched
+      targetscan.ome.zarr/
+      zmart-coverage/
+        overview.ome.zarr/
+          tiles.jsonl
+          regions.json
+        targetscan.ome.zarr/
+          ...
+
+Two files, with different jobs.
 
 ``tiles.jsonl``
     One line for every tile that was successfully written, in the order the
@@ -59,6 +72,28 @@ same corner that :meth:`zmart_storage.canvas.TileCanvases.write` measures a
 tile's ``origin`` from. Nothing here repeats the voxel size or the position on
 the stage, because the image's own OME-Zarr description already carries those
 and two copies of one number are one copy too many.
+
+Why beside the images and not inside them
+-----------------------------------------
+
+Putting the record inside each ``.ome.zarr`` folder would have been tidier to
+look at, and it was tried first. Two measurements sent it outside instead.
+
+The first is about readers. Anything at all that is added inside an image folder
+— a file or a folder, whatever it is called — makes zarr complain the moment a
+program asks an image what it contains: ``Object at zmart-coverage is not
+recognized as a component of a Zarr hierarchy``. The image still opens and every
+picture still reads, so nothing is broken, but a viewer that has never heard of
+this record should not have to explain a warning about it to its user. Outside
+the images there is nothing for zarr to have an opinion about.
+
+The second is about the viewer watching a live run. It decides whether anything
+has changed by looking at when each folder was last touched, and adding a file to
+a folder counts as touching it. A summary rewritten every second inside an image
+folder would therefore have looked, once a second, like the acquisition itself
+having changed, and the viewer would have rebuilt its whole description of the
+run each time — which on a folder holding a few thousand acquisitions takes over
+a second by itself. One folder deeper, the rewriting is invisible to that check.
 
 Why the record is kept this way
 -------------------------------
@@ -112,14 +147,16 @@ chosen for *analysis* rather than the ground a run covered.
 
 So this is written as an addition rather than as standard metadata, and it is
 kept deliberately out of the way. It goes in a folder of its own with a name
-nothing else uses, and not one byte of the OME-Zarr description changes. A viewer
-that has never heard of it opens the image exactly as it did before.
+nothing else uses, not one byte of any image changes, and nothing is added inside
+an image folder at all. A viewer that has never heard of it opens the images
+exactly as it did before.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 import time
 import warnings
@@ -128,9 +165,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-# The folder each image keeps its coverage record in, and the two files inside
-# it. These names are part of the agreement with anything that reads the record,
-# including the browser, so they are written down once here.
+# The folder a run keeps its coverage record in, sitting beside the images, and
+# the two files each image's record is written into. These names are part of the
+# agreement with anything that reads the record, including the browser, so they
+# are written down once here.
 COVERAGE_FOLDER = "zmart-coverage"
 TILES_FILE = "tiles.jsonl"
 REGIONS_FILE = "regions.json"
@@ -174,6 +212,44 @@ def acquisition_of(image_name: str) -> str:
     if marker and tail.isdigit():
         return head
     return leaf
+
+
+def where_the_record_is(run: str | Path, image: str) -> Path:
+    """The folder holding one image's coverage record.
+
+    Args:
+        run: the run's own folder, the one the images sit in.
+        image: the name of the image folder, such as ``"overview.ome.zarr"``.
+
+    Returns:
+        The folder the record for that image is kept in. It sits beside the
+        images rather than inside them, for the reasons given at the top of this
+        module.
+    """
+    return Path(run) / COVERAGE_FOLDER / image
+
+
+def forget_the_record_of(run: str | Path, acquisition: str) -> None:
+    """Throw away the coverage record of one acquisition type.
+
+    Declaring a run's images empties them, so whatever an earlier run wrote there
+    is no longer true and its record must go with it. Only this acquisition
+    type's record is removed: a run's folder holds an overview, a prescan and a
+    targetscan side by side, and declaring one of them must leave the others
+    exactly as they are.
+
+    Args:
+        run: the run's own folder.
+        acquisition: the acquisition type whose record should go, such as
+            ``"overview"``. A run that spread the same acquisition over several
+            numbered images has all of their records removed together.
+    """
+    kept = Path(run) / COVERAGE_FOLDER
+    if not kept.is_dir():
+        return
+    for child in kept.iterdir():
+        if child.is_dir() and acquisition_of(child.name) == acquisition:
+            shutil.rmtree(child, ignore_errors=True)
 
 
 @dataclass(frozen=True, order=True)
@@ -364,13 +440,13 @@ class Recorder:
     stopped by a note about itself failing to be written.
     """
 
-    def __init__(self, store: Path, *, canvas_shape, tile_shape) -> None:
-        self.store = Path(store)
-        self.image = self.store.name
-        self.acquisition = acquisition_of(self.image)
+    def __init__(self, run: Path, image: str, *, canvas_shape, tile_shape) -> None:
+        self.run = Path(run)
+        self.image = image
+        self.acquisition = acquisition_of(image)
         self._canvas_shape = tuple(int(n) for n in canvas_shape)
         self._tile_shape = tuple(int(n) for n in tile_shape)
-        self._folder = self.store / COVERAGE_FOLDER
+        self._folder = where_the_record_is(self.run, image)
         self._blocks: list[Region] = []
         self._frames: set[int] = set()
         self._channels: set[int] = set()
@@ -628,7 +704,7 @@ def imaged_regions(path: str | Path) -> Coverage:
         matters to an operator checking whether a region was covered.
     """
     path = Path(path)
-    folders = _images_with_a_record(path)
+    folders = _records_under(path)
     if not folders:
         return Coverage(recorded=False)
 
@@ -637,9 +713,9 @@ def imaged_regions(path: str | Path) -> Coverage:
     frames: set[int] = set()
     channels: set[int] = set()
     finished = True
-    for store in folders:
-        summary = _read_the_summary(store / COVERAGE_FOLDER / REGIONS_FILE)
-        its_tiles = _read_the_tiles(store / COVERAGE_FOLDER / TILES_FILE)
+    for kept in folders:
+        summary = _read_the_summary(kept / REGIONS_FILE)
+        its_tiles = _read_the_tiles(kept / TILES_FILE)
         if its_tiles is not None:
             tiles.extend(its_tiles)
             blocks.extend(tile.region for tile in its_tiles)
@@ -663,24 +739,25 @@ def imaged_regions(path: str | Path) -> Coverage:
         frames=sorted(frames),
         channels=sorted(channels),
         run_finished=finished,
-        images=[store.name for store in folders],
+        images=[kept.name for kept in folders],
     )
 
 
-def _images_with_a_record(path: Path) -> list[Path]:
-    """The image folders under ``path`` that keep a coverage record.
+def _records_under(path: Path) -> list[Path]:
+    """The record folders to read, given either a run folder or one image.
 
-    ``path`` may be one image or a whole run folder, and both are ordinary things
-    to be handed, so both are accepted rather than one being insisted on.
+    Both are ordinary things to be handed — a viewer opens a run, while something
+    working on a single acquisition has only that image's path — so both are
+    accepted rather than one being insisted on.
     """
     if (path / COVERAGE_FOLDER).is_dir():
-        return [path]
-    if not path.is_dir():
-        return []
-    return sorted(
-        child for child in path.iterdir()
-        if child.is_dir() and (child / COVERAGE_FOLDER).is_dir()
-    )
+        # A whole run: every image in it that has a record.
+        return sorted(
+            child for child in (path / COVERAGE_FOLDER).iterdir() if child.is_dir()
+        )
+    # One image, whose record sits beside it under its parent's record folder.
+    one = where_the_record_is(path.parent, path.name)
+    return [one] if one.is_dir() else []
 
 
 def _read_the_summary(path: Path) -> dict | None:
