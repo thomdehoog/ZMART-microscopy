@@ -806,9 +806,34 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
  * specimen. Seconds do not, and an axis with no unit does not. That is the same
  * test the scale bar uses, for the same reason.
  *
- * Only *which* axes are drawn is changed here, never the order they are drawn in.
- * Handing them over in a different order was tried and draws the specimen edge-on;
- * the engine's own sense of which way round they go was right all along.
+ * The *order* they are handed over in matters as much as which ones they are, and
+ * it cannot be chosen on its own. The engine decides what goes across the window,
+ * what goes down it and what goes into the screen from two things together: the
+ * order of this list, and which of its named panel layouts the viewer asks for.
+ * The layout is chosen in `App.jsx`, next to `SLICE_LAYOUT`, and the two are a
+ * matched pair. Change one without the other and the view comes out either
+ * edge-on — looking at the specimen from the side, so a stack of planes collapses
+ * to a line — or mirrored left to right, which is the quieter and more dangerous
+ * of the two because the picture still looks perfectly healthy.
+ *
+ * The order used here is the reverse of the order the image declares. An OME-Zarr
+ * image lists its distance axes slowest-changing first, which is depth, then
+ * height, then width; reversing that gives width, height, depth, and asking for
+ * the layout `App.jsx` calls `xy` then puts width across the window running to the
+ * right, height down it, and depth into the screen — the plane the operator
+ * scrolls through. That is the specimen the right way round.
+ *
+ * This was not always so. The viewer used to hand the axes over in the declared
+ * order and ask for the layout called `yz`, which also put width across and height
+ * down and looked entirely right, but ran width towards the *left*: every picture
+ * was a mirror image of the specimen, and nothing said so. It is measured, from
+ * the picture rather than from anything the engine reports about itself, in
+ * `tests/test_the_picture_is_not_mirrored.py`.
+ *
+ * Note that none of this reads an axis by name. Which axes are drawn comes from
+ * their unit, and which way round they go comes from the order the image declares
+ * them in — so an image whose axes are called something other than z, y and x is
+ * treated exactly the same way.
  *
  * An image declaring fewer than two such axes is left completely alone. We would
  * have nothing better to offer than the engine's own choice, and replacing a
@@ -819,6 +844,11 @@ function pinTheAxesThatMeasureDistance(viewer) {
   if (!space?.names) return;
   const distances = space.names.filter((_, at) => space.units?.[at] === "m");
   if (distances.length < 2) return;
+  // Width first, depth last. The image declares its distance axes the other way
+  // round -- depth, height, width -- so reversing them is what puts width across
+  // the window and depth into the screen, which is what the `xy` layout asked for
+  // in App.jsx expects. The two belong together; see the note above.
+  const facing = distances.slice(0, 3).reverse();
   const current = viewer.navigationState.pose.displayDimensions.value;
   // Left alone when it is already right. Handing the engine the same answer it
   // already had is not free: it counts as a change, and everything downstream
@@ -827,12 +857,12 @@ function pinTheAxesThatMeasureDistance(viewer) {
   const showing = Array.from(current?.displayDimensionIndices ?? [])
     .filter((at) => at >= 0)
     .map((at) => space.names[at]);
-  if (showing.length === distances.slice(0, 3).length
-      && showing.every((name, at) => name === distances[at])) {
+  if (showing.length === facing.length
+      && showing.every((name, at) => name === facing[at])) {
     return;
   }
   try {
-    viewer.navigationState.pose.displayDimensions.restoreState(distances.slice(0, 3));
+    viewer.navigationState.pose.displayDimensions.restoreState(facing);
   } catch {
     // An engine that will not take them leaves the view as it was rather than
     // leaving the page broken. This runs while an operator is waiting for their

@@ -41,16 +41,22 @@ recorded further along an axis is drawn further along that axis, and that a
 coarser acquisition takes up proportionally more room. Those statements survive
 any zoom, so they can be asserted firmly instead of loosely.
 
-One finding along the way is worth knowing, because it looks like a fault and is
-not one. In the flat view the picture is a mirror image left to right: the axis
-the data calls x increases towards the *left* of the screen. That is the engine's
-own convention for the plane this viewer shows, it applies to the pixels inside a
-single tile exactly as it applies to the placement of tiles, and so a mosaic still
-assembles seamlessly. It does mean that "the tile with the larger x is drawn
-further left", which reads oddly until you know why. The test below that cares
-about direction therefore takes its bearings from the image itself rather than
-from an assumption about which way the screen runs — see
-``test_a_tile_further_along_the_stage_is_drawn_further_along_the_picture``.
+One finding along the way is worth knowing, because for a while it was written
+down here as a curiosity and it was in fact a fault. The flat view used to draw
+the picture as a mirror image left to right: the axis the data calls x increased
+towards the *left* of the screen. It applied to the pixels inside a single tile
+exactly as it applied to the placement of tiles, so a mosaic still assembled
+seamlessly and nothing here noticed — but every picture an operator looked at was
+reflected. That has been put right; ``CONTROLS.md`` §1a says what was changed and
+``test_the_picture_is_not_mirrored.py`` keeps it that way.
+
+The tests below were written before it was, and they are deliberately left as
+they were. The one that cares about direction takes its bearings from the image
+itself rather than from an assumption about which way the screen runs — see
+``test_a_tile_further_along_the_stage_is_drawn_further_along_the_picture`` — and
+that remains the right way to write a test about metadata, because it asks only
+that the placing of tiles agrees with the pixels inside them. Which way round the
+screen itself is drawn is a separate question, and it now has a file of its own.
 """
 
 from __future__ import annotations
@@ -502,13 +508,13 @@ def test_a_tile_further_along_the_stage_is_drawn_further_along_the_picture(
     picture would still be bright and still be made of tiles, so nothing else in
     this suite would notice.
 
-    Saying "further along" needs a reference, and the awkward part is that the
-    screen cannot supply one. The flat view is mirrored left to right — the axis
-    the data calls x runs towards the left of the screen — which is the engine's
-    own convention for the plane this viewer shows, not something the viewer chose.
-    Asserting "the larger x is drawn further right" would therefore fail on a
-    perfectly correct viewer, and asserting the opposite would bake a screen
-    convention into a test about metadata.
+    Saying "further along" needs a reference, and this test is careful not to
+    borrow one from the screen. Whether the axis the data calls x runs to the
+    right or to the left is a question about how the view is set up, and it is
+    asked and answered elsewhere — in ``test_the_picture_is_not_mirrored.py``,
+    which is where it belongs. Baking either answer in here would mean this test
+    started failing the day somebody changed the view, for a reason that has
+    nothing to do with the translations it is actually about.
 
     So the reference comes from the image itself. The first tile is filled with a
     gradient that grows along its *own* x axis, from dim at its first voxel to

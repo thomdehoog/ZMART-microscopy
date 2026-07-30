@@ -128,9 +128,19 @@ ready to be compared.
    slightly larger hole cut over it; the four margins stay even while the view is
    panned, zoomed and thrown about. Reported as worst unevenness in any one frame,
    in screen pixels.
-2. **Handedness** — drag the picture and check it moves the way the drag went. The
-   slope must be **+1.0**. A mirrored view was shipped for months because nothing
-   asked this.
+2. **Handedness** — open an acquisition written dim at one edge and bright at the
+   other, and check the bright edge is drawn on the right. A mirrored view was
+   shipped for months because nothing asked this; see `CONTROLS.md` §1a and
+   `tests/test_the_picture_is_not_mirrored.py`, which measures it.
+
+   Do not settle for dragging the picture and watching which way it goes. That
+   was the obvious check and it cannot find this fault: an engine pans using the
+   same axis mapping it draws with, so the picture follows the hand pixel for
+   pixel whichever way round it is drawn — measured at a slope of +1.0 both
+   before the mirror was fixed and after. It is still worth checking, because a
+   view that slides against the hand is unusable, but it is a separate question.
+   Only something asymmetric *inside* the specimen can say which way round the
+   picture is.
 3. **Two gestures and no more** — drag pans, the wheel zooms, and every other
    gesture leaves the picture byte-identical. See `CONTROLS.md`.
 4. **Sparseness** — a canvas imaged in a few scattered places shows the operator's
