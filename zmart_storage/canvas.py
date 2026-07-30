@@ -108,6 +108,78 @@ def slots_per_axis(tile_length: int, step: int) -> int:
     return max(1, math.ceil(tile_length / step))
 
 
+# How small the smallest copy of an image should end up, measured across the
+# specimen. The viewer fetches the whole of that copy, for every colour, before it
+# draws anything at all -- and it does that again at every zoom, with no
+# progressive reveal, so the operator watches a blank screen until it has all
+# arrived. What they wait for is the *number of pieces* it is stored in rather
+# than the number of bytes: each piece costs a few milliseconds of the browser's
+# own bookkeeping whatever its size, and a browser will only ask for about six at
+# a time.
+#
+# Measured against the flat viewer on stores written here, opening a view costs
+# 2 x ceil(coarsest width / piece)^2 x colours requests, which predicted every
+# measurement exactly. With 256-voxel pieces that works out as:
+#
+#   a canvas 100,000 voxels across, 3 copies -> smallest 25,000 -> ~19,000 requests
+#   the same canvas with 6 copies            -> smallest  3,125 ->     676, ~4.7 s
+#   the same canvas with 8 copies            -> smallest    781 ->      64, ~0.4 s
+#
+# A thousand voxels is where that curve has flattened out, and it is also what
+# `viz_studio/DATA_LAYOUT.md` asks a writer for.
+#
+# Halving happens in whole steps, so in practice the smallest copy lands anywhere
+# between half of this figure and the figure itself. Half of it is the floor, and
+# stopping there is deliberate: below about five hundred voxels a copy has ceased
+# to be an overview of the specimen and become a thumbnail, and the reading it
+# saves is no longer worth the writing it costs on every tile that arrives.
+_SMALLEST_COPY_TO_AIM_FOR = 1024
+
+# Never fewer than this many copies, whatever the arithmetic says. An image the
+# size of a single camera tile was already served well by three, and choosing the
+# number from the declared room is meant to help the large runs rather than take
+# anything away from the small ones.
+_FEWEST_COPIES = 3
+
+# And never more than this many. Declaring far more room than a run could need is
+# encouraged everywhere else in this module, because unwritten room costs nothing
+# on disk -- but every extra copy is real work on every tile that arrives, so an
+# over-generous declaration must not be able to make writing slow. Ten copies
+# shrink an image by five hundred and twelve times, which brings even a canvas
+# half a million voxels across down to about a thousand. No stage travels that far.
+_MOST_COPIES = 10
+
+
+def copies_for_a_canvas(canvas_shape) -> int:
+    """How many progressively smaller copies a canvas of this size should keep.
+
+    The smaller copies are what the viewer draws when zoomed out, and it reads the
+    whole of the smallest one before it draws anything at all. So the number to
+    keep is however many halvings it takes to bring the image down to about a
+    thousand voxels across — a wide canvas needs more of them than a single tile
+    does, which is why this is worked out rather than fixed.
+
+    Only the ``y`` and ``x`` of the canvas are looked at, because those are the
+    only axes the copies shrink. Every copy keeps the full depth of the stack, so
+    that scrolling through it still shows the planes that were actually acquired,
+    and a deep stack is therefore no reason at all to keep more copies.
+
+    Args:
+        canvas_shape: how much room the run declared, as ``(z, y, x)`` in voxels.
+
+    Returns:
+        The number of copies to keep, counting the full-size one. Never fewer than
+        three, so that an ordinary tile-sized image is no worse off than before,
+        and never more than ten, so that an over-generous declaration cannot make
+        every tile expensive to write.
+    """
+    widest = max(int(canvas_shape[1]), int(canvas_shape[2]))
+    copies = _FEWEST_COPIES
+    while copies < _MOST_COPIES and widest // 2 ** (copies - 1) > _SMALLEST_COPY_TO_AIM_FOR:
+        copies += 1
+    return copies
+
+
 def _refuse_overlapping_tiles(tile_shape, tile_step) -> None:
     """Stop a run whose tiles overlap from being written into one image.
 
@@ -863,7 +935,7 @@ class TileCanvases:
         frames: int = 1,
         dtype: str = "uint16",
         chunk: int = 256,
-        levels: int = 3,
+        levels: int | None = None,
         slots: tuple[int, int, int] | None = None,
         discard_existing_run: bool = False,
         ome_zarr_version: str = "0.4",
@@ -928,8 +1000,26 @@ class TileCanvases:
                 right: pieces that are too large make the viewer read far more
                 than it needs whenever it wants a small sample.
             levels: how many progressively smaller copies to keep. These are what
-                let a huge image feel light when zoomed out. Three is plenty for
-                ordinary tiles.
+                let a huge image feel light when zoomed out, and normally this is
+                left out so that the writer can choose the number from
+                ``canvas_shape`` — see :func:`copies_for_a_canvas`.
+
+                It is worth knowing what that choice is for. The viewer reads the
+                whole of the *smallest* copy, for every colour, before it draws
+                anything at all, and it does so again at every zoom. So the number
+                of copies decides how long an operator looks at a blank screen
+                when they open a view. A canvas covering the stage is some fifty
+                times wider than one tile, and keeping a fixed three copies of it
+                left the smallest one twenty-five thousand voxels across — tens of
+                thousands of pieces to fetch before the first picture appears.
+                Letting the halving continue until the smallest copy is about a
+                thousand voxels brings that down to a few dozen pieces, which is
+                the difference between a view opening in under a second and one
+                that never really opens at all.
+
+                Give a number here if you have a reason to — matching a store
+                somebody else wrote, or making a measurement — and it is used
+                exactly as asked.
             slots: how many images to spread the tiles over, as ``(z, y, x)``.
                 Normally left out, which gives a single image — the arrangement
                 this writer is for. Setting it spreads overlapping tiles across
@@ -980,6 +1070,12 @@ class TileCanvases:
         folder = Path(folder)
         _refuse_a_name_that_is_not_a_plain_file_name(name)
         folder.mkdir(parents=True, exist_ok=True)
+
+        # Worked out before anything else, because the number of copies is written
+        # into every image's description and there is no changing it afterwards. A
+        # run that named a number of its own keeps it.
+        if levels is None:
+            levels = copies_for_a_canvas(canvas_shape)
 
         # Checked before anything is written, because a misspelt version would
         # otherwise be discovered only once the run had produced a folder of

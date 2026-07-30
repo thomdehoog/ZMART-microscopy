@@ -1107,3 +1107,219 @@ def test_the_same_place_twice_in_one_moment_is_still_refused(tmp_path):
     with pytest.raises(ValueError, match="overlaps something already written"):
         canvases.write(np.full(TILE, 2, dtype="uint16"), origin=(0, 0, 0))
     canvases.close()
+
+
+# -- how many smaller copies a canvas gets ------------------------------------
+#
+# The viewer fetches the whole of the smallest copy, for every colour, before it
+# draws anything at all, and it does that again at every zoom. So the number of
+# pieces that copy is stored in is what an operator waits through when a view
+# opens, and the way to keep the wait short is to let the copies keep halving
+# until the smallest one is only about a thousand voxels across.
+#
+# A fixed number of copies cannot do that, because a canvas covering the whole
+# stage is fifty times wider than a single tile. The tests below are about the
+# writer choosing the number for itself from the room that was declared, and they
+# read the answer from the arrays that are actually on disk rather than from the
+# argument that was passed in -- so they check what a run really got.
+
+
+def _copy_shapes(store: Path) -> list[tuple[int, int]]:
+    """How wide every progressively smaller copy of an image is, in y and x.
+
+    Read from the store itself, level by level, so that these tests describe the
+    run somebody would open rather than the request that produced it.
+    """
+    group = zarr.open_group(str(store), mode="r")
+    shapes = []
+    level = 0
+    while str(level) in group:
+        shape = group[str(level)].shape
+        shapes.append((int(shape[-2]), int(shape[-1])))
+        level += 1
+    return shapes
+
+
+def _a_canvas_this_wide(folder: Path, width: int, **kwargs) -> TileCanvases:
+    """A run declared ``width`` voxels across the specimen, with ordinary tiles.
+
+    Two thousand voxels is an everyday camera tile and 256 is the everyday piece
+    size, so the only thing that changes between these tests is how much room the
+    run declared -- which is exactly the thing the number of copies should follow.
+    """
+    return TileCanvases.create(
+        folder,
+        name="overview",
+        canvas_shape=(2, width, width),
+        tile_shape=(2, 2048, 2048),
+        tile_step=(2, 2048, 2048),
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488")],
+        chunk=256,
+        **kwargs,
+    )
+
+
+def test_a_tile_sized_canvas_still_gets_the_copies_it_got_before(tmp_path):
+    """A small run must not come out of this with less than it had.
+
+    An image the size of one camera tile was already served well by three copies,
+    and the point of choosing the number from the declared room is to help the
+    large runs -- not to take anything away from the small ones. So three is a
+    floor rather than a starting point.
+    """
+    canvases = _a_canvas_this_wide(tmp_path / "run", 2048)
+    shapes = _copy_shapes(canvases.paths[0])
+    assert len(shapes) >= 3, (
+        f"a tile-sized canvas used to get three smaller copies and now gets "
+        f"{len(shapes)}, which would make ordinary tiles worse than before"
+    )
+    canvases.close()
+
+
+def test_a_stage_sized_canvas_gets_enough_copies_to_open_quickly(tmp_path):
+    """The whole reason for the change, asked of the arrays on disk.
+
+    A hundred thousand voxels is about what a stage can travel across the
+    specimen. With a fixed three copies the smallest is still twenty-five
+    thousand voxels across, which is tens of thousands of pieces for the viewer
+    to fetch before it draws its first picture. Letting the halving continue
+    until the smallest copy is about a thousand voxels brings that down to a few
+    dozen pieces.
+    """
+    canvases = _a_canvas_this_wide(tmp_path / "run", 100_000)
+    shapes = _copy_shapes(canvases.paths[0])
+    coarsest = max(shapes[-1])
+    assert coarsest <= 1024, (
+        f"the smallest copy of a stage-sized canvas is {coarsest} voxels across, "
+        f"which is far more than the viewer can fetch before it draws; the copies "
+        f"are {shapes}"
+    )
+    canvases.close()
+
+
+def test_asking_for_a_number_of_copies_outright_is_still_obeyed(tmp_path):
+    """Choosing a sensible number by default must not take the choice away.
+
+    A run with a reason of its own -- a measurement, or a store being written to
+    match one somebody else made -- can still say how many copies it wants, and
+    that answer wins over anything worked out from the declared room.
+    """
+    canvases = _a_canvas_this_wide(tmp_path / "run", 100_000, levels=2)
+    shapes = _copy_shapes(canvases.paths[0])
+    assert len(shapes) == 2, (
+        f"the run asked for two smaller copies outright and got {len(shapes)}"
+    )
+    canvases.close()
+
+
+def test_the_copies_stop_halving_before_they_become_too_small(tmp_path):
+    """There is a floor, and the halving stops at it rather than going past.
+
+    Halving is done in whole steps, so the smallest copy can land anywhere
+    between about five hundred and about a thousand voxels across. Five hundred
+    is the floor: below that the copy stops being a useful overview of the
+    specimen and starts being a thumbnail, and the reading it saves is no longer
+    worth the writing it costs on every tile.
+
+    A canvas of a little over four thousand voxels is the tightest case there is.
+    It is just past the point where a fourth copy is called for, so that fourth
+    copy lands exactly on the floor -- and a fifth would fall well below it.
+    """
+    for width in (4_100, 20_000, 100_000, 1_000_000):
+        canvases = _a_canvas_this_wide(tmp_path / f"run_{width}", width)
+        coarsest = max(_copy_shapes(canvases.paths[0])[-1])
+        assert coarsest >= 512, (
+            f"a canvas {width} voxels across was shrunk down to {coarsest}, which "
+            f"is smaller than a useful overview of the specimen"
+        )
+        canvases.close()
+
+    canvases = _a_canvas_this_wide(tmp_path / "tightest", 4_100)
+    coarsest = max(_copy_shapes(canvases.paths[0])[-1])
+    assert coarsest <= 1024, (
+        f"a canvas of 4100 voxels should have been halved once more than a "
+        f"tile-sized one, leaving {coarsest} voxels rather than stopping early"
+    )
+    canvases.close()
+
+
+def test_a_wildly_large_declaration_cannot_ask_for_endless_copies(tmp_path):
+    """Over-declaring the room is encouraged, so it must not become expensive.
+
+    Every copy is more to write on every single tile, so the number cannot be
+    allowed to follow an unreasonable declaration upwards without limit. Ten
+    copies shrink an image by five hundred times, which is more than enough for
+    any stage that exists; beyond that the writer simply stops adding them.
+    """
+    canvases = _a_canvas_this_wide(tmp_path / "run", 10_000_000)
+    shapes = _copy_shapes(canvases.paths[0])
+    assert len(shapes) == 10, (
+        f"a canvas declared absurdly large asked for {len(shapes)} smaller "
+        f"copies, and the writer is meant to stop at ten"
+    )
+    canvases.close()
+
+
+def test_a_tile_still_arrives_whole_in_the_coarsest_copy(tmp_path):
+    """More copies must not mean a broken one.
+
+    Each smaller copy is filled in as the tile is written, by taking every second
+    voxel of the one before it, and each of them has to be told where in itself
+    the tile lands. Adding copies makes that arithmetic reach much further -- the
+    smallest copy of a stage-sized canvas shrinks the picture by a hundred and
+    twenty-eight times -- so it is worth reading a tile back from the smallest
+    copy and checking that it really is there, in the right place, with the right
+    numbers in it.
+    """
+    canvases = _a_canvas_this_wide(tmp_path / "run", 100_000)
+    shapes = _copy_shapes(canvases.paths[0])
+    assert max(shapes[-1]) <= 1024, (
+        "this test is only meaningful on a canvas whose copies were allowed to "
+        f"keep halving, and these stopped at {shapes[-1]}"
+    )
+
+    tile, at_y, at_x = (2, 2048, 2048), 2048, 4096
+    canvases.write(
+        np.full(tile, 4321, dtype="uint16"),
+        origin=(0, at_y, at_x),
+        tile_index=(0, 1, 2),
+    )
+
+    factor = 2 ** (len(shapes) - 1)
+    coarsest = zarr.open_group(str(canvases.paths[0]), mode="r")[str(len(shapes) - 1)]
+    patch = np.asarray(coarsest[
+        0, 0, :,
+        at_y // factor:(at_y + tile[1]) // factor,
+        at_x // factor:(at_x + tile[2]) // factor,
+    ])
+    assert patch.size > 0, "the tile occupies nothing at all in the smallest copy"
+    assert (patch == 4321).all(), (
+        f"the tile does not read back whole from the smallest copy: "
+        f"{int((patch != 4321).sum())} of {patch.size} voxels are something else"
+    )
+    canvases.close()
+
+
+def test_a_deeper_pyramid_makes_the_writer_warn_about_ordinary_tiles(tmp_path):
+    """A consequence worth knowing about, pinned here so it is not a surprise.
+
+    The writer keeps two tiles from being written into the same file at the same
+    moment, and it warns when the tile size makes that happen often. The size it
+    measures against is the piece of the *smallest* copy, because that piece
+    covers the most ground -- and every extra copy doubles it.
+
+    With three copies and 256-voxel pieces that ground was 1024 voxels, which an
+    ordinary 2048-voxel camera tile divides into neatly, so nothing was said. On
+    a stage-sized canvas there are now eight copies, the ground is 32768 voxels,
+    and no camera tile divides into that. So the warning now appears on large
+    runs where it did not before.
+
+    It is telling the truth: tiles landing in one piece of the smallest copy
+    really are written one after another rather than side by side. But the size
+    it suggests instead is far larger than any camera, so the advice cannot be
+    followed, and that is worth revisiting separately.
+    """
+    with pytest.warns(UserWarning, match="does not divide into whole pieces"):
+        canvases = _a_canvas_this_wide(tmp_path / "run", 100_000)
+    canvases.close()
