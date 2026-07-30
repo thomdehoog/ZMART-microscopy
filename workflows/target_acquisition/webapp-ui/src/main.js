@@ -1408,9 +1408,15 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      it turns down pans or picks, so drawing a region does not drag the stage
      out from under the shape being drawn. */
   function editorTook(kind, e) {
-    if (sideWidget()?.id !== "scanfields" || !state.editor) return false;
+    if (sideWidget()?.id !== "scanfields" || !state.editor) {
+      stageCv.classList.remove("over-field");
+      return false;
+    }
     const { x, y } = toCarrier(e.offsetX, e.offsetY);
     const took = state.editor.pointer(kind, { x, y, shift: e.shiftKey, scale: view.scale });
+    // after the editor has been told, not before, or the cursor answers for
+    // where the pointer was last time rather than where it is
+    stageCv.classList.toggle("over-field", !!state.editor.overField());
     if (took) drawStage();
     /* Only a true means the editor claimed the event. Anything else it answers
        is "the picture changed" — the pointer moved over a field — and the
@@ -1447,7 +1453,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     dragging = true; dragMoved = false;
     lastX = e.offsetX; lastY = e.offsetY;
     stageCv.setPointerCapture(e.pointerId);
-    stageCv.classList.add("dragging");
   });
 
   stageCv.addEventListener("pointermove", (e) => {
@@ -1493,7 +1498,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   const endDrag = (e) => {
     if (!dragging) return;
     dragging = false;
-    stageCv.classList.remove("dragging");
     if (e && stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
   };
   stageCv.addEventListener("pointerup", (e) => {

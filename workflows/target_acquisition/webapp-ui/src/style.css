@@ -452,8 +452,15 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 
 .plot-host { position: relative; min-height: 0; }
 canvas.plot { display: block; width: 100%; height: 100%; touch-action: none; }
-canvas.stagecv { cursor: grab; }
-canvas.stagecv.dragging { cursor: grabbing; }
+/* No grabbing hand. The canvas is a picture that happens to pan, not a sheet
+   of paper being shoved about, and a hand on it says the panning is the point
+   when the point is what is drawn.
+
+   The cursor answers one question instead: is there something here to pick.
+   So it changes over a field and nowhere else — not while one is being
+   dragged, because by then the question is already answered. */
+canvas.stagecv { cursor: default; }
+canvas.stagecv.over-field { cursor: pointer; }
 canvas.scattercv { cursor: crosshair; }
 
 .tip {
