@@ -208,10 +208,30 @@ def test_window_is_ordered_and_inside_the_data_range(tmp_path):
 
 
 def test_all_zero_volume_does_not_crash_and_stays_visible(tmp_path):
+    """A picture of pure nothing is read as one nothing has been written to yet.
+
+    This used to answer with the one-count window (0, 1), measured from the zeros
+    themselves. It now answers with the whole range of the camera, because a store
+    holding only zeros is indistinguishable on disk from a store nobody has written
+    to: zarr saves no file for a piece that holds only the fill value, so both
+    leave an empty folder behind.
+
+    Reading it as "nothing written yet" is deliberate and is the kinder of the two
+    mistakes. During a run it is almost always true — an acquisition is noticed the
+    moment its description lands, before any picture exists — and the answer is
+    then taken again once something is written. Reading it the other way was what
+    made a live run open at (0, 1) and *stay* there for the rest of the session,
+    with a blank histogram and an Auto button that restored the same nonsense.
+
+    Nothing an operator sees changes for a genuinely blank acquisition: zeros draw
+    black under either window. What it costs is that such a store is measured again
+    on each look rather than once, which is a few directory listings and no reading
+    of pixels.
+    """
     store = write_store(tmp_path / "z.ome.zarr", np.zeros((4, 8, 8), dtype=np.uint16))
     low, high = display_window(store)
-    assert high > low                                   # the one-count fallback, not a blank ramp
-    assert (low, high) == (0.0, 1.0)
+    assert high > low                                   # a usable ramp, not a blank one
+    assert (low, high) == (0.0, 65535.0)
 
 
 def test_uniform_volume_falls_back_to_a_one_count_window(tmp_path):
