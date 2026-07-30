@@ -725,10 +725,19 @@ class _Slot:
     index: int
     folder: Path
     arrays: list[zarr.Array]
-    # The footprint of every tile written here, as (z0, z1, y0, y1, x0, x1) in
+    # Every tile written here, as (frame, channel, z0, z1, y0, y1, x0, x1) in
     # voxels. Kept so that a tile arriving at an unplanned position can be asked
     # "does this land on anything already here?" without reading any image data.
-    written: list[tuple[int, int, int, int, int, int]] = field(default_factory=list)
+    #
+    # The moment and the colour are part of it, and leaving them out was a fault.
+    # Two tiles at the same place in different moments do not share a single voxel
+    # -- they are different slices of the image -- and neither do two colours of
+    # the same place. Without them, a run that images a target and then images it
+    # again at the next moment was refused as though the second would destroy the
+    # first, so a timelapse of targets chosen by the workflow could not be written
+    # past its first moment, and a two-colour target could not have its second
+    # colour written at all.
+    written: list[tuple[int, ...]] = field(default_factory=list)
     # How much of the specimen one file of this image holds, in y and x, for each
     # of its progressively smaller copies. Worked out once when the writer is made
     # and used to keep two tiles out of one file at the same moment. It belongs to
@@ -857,6 +866,7 @@ class TileCanvases:
         levels: int = 3,
         slots: tuple[int, int, int] | None = None,
         discard_existing_run: bool = False,
+        ome_zarr_version: str = "0.4",
     ) -> TileCanvases:
         """Declare the images for a run, before anything has been imaged.
 
@@ -934,6 +944,22 @@ class TileCanvases:
                 acquisition type, including images an earlier run left behind
                 that this one has no use for; other acquisition types in the same
                 folder are untouched.
+            ome_zarr_version: which generation of the OME-Zarr format to write,
+                ``"0.4"`` or ``"0.5"``.
+
+                ``"0.4"`` is the default because it is what almost everything can
+                read today. ``"0.5"`` is the newer standard, and it is where the
+                format is going — this viewer reads it fully, and being able to
+                write it is what lets a live run be checked against the format the
+                project is aiming at rather than only against the one it started
+                with.
+
+                Nothing an operator sees changes. The same axes are declared, the
+                tiles are spread over images in the same way, and a run written
+                either way looks identical once it is open. What differs is where
+                the store keeps its description and how the pieces of image are
+                named on disk. Choose ``"0.5"`` when everything that will read the
+                run understands it, and ``"0.4"`` when you are not sure.
 
         Returns:
             The images, ready to be written into. When the run is over they can be
@@ -954,6 +980,16 @@ class TileCanvases:
         folder = Path(folder)
         _refuse_a_name_that_is_not_a_plain_file_name(name)
         folder.mkdir(parents=True, exist_ok=True)
+
+        # Checked before anything is written, because a misspelt version would
+        # otherwise be discovered only once the run had produced a folder of
+        # images in a format nobody asked for.
+        if ome_zarr_version not in ("0.4", "0.5"):
+            raise ValueError(
+                f"{ome_zarr_version!r} is not a version of OME-Zarr this writer "
+                "produces. Use '0.4', which almost everything can read, or '0.5', "
+                "which is the newer standard this viewer is aiming at."
+            )
 
         # Asked before anything is declared, because declaring is what does the
         # damage: the images are emptied as they are made, so there is no moment
@@ -998,6 +1034,7 @@ class TileCanvases:
                 voxel_size_um=voxel_size_um,
                 origin_um=origin_um,
                 channel_blocks=[c.described(depth_max) for c in channels],
+                ome_zarr_version=ome_zarr_version,
             )
             slots.append(_Slot(index=index, folder=store, arrays=arrays))
 
@@ -1062,7 +1099,11 @@ class TileCanvases:
         self._check_it_fits(footprint)
         self._check_the_moment_fits(frame)
 
-        slot = self._choose(footprint, tile_index)
+        # What was written, in full: where in space, and in which moment and colour.
+        # A tile is only in the way of another if it is in the same moment and the
+        # same colour as well as the same place.
+        occupied = (frame, channel, *footprint)
+        slot = self._choose(occupied, tile_index)
 
         # Hold back until nothing sharing a piece of image is mid-write, so two
         # tiles can never be halfway through the same piece at once.
@@ -1080,7 +1121,7 @@ class TileCanvases:
                 *at, z0:z0 + depth, y0:y0 + height, x0:x0 + width
             ] = image
             self._write_smaller_copies(slot, image, origin, channel, frame)
-            slot.written.append(footprint)
+            slot.written.append(occupied)
         finally:
             with self._free:
                 self._busy.remove(region)
@@ -1136,8 +1177,14 @@ class TileCanvases:
 
     # -- choosing where a tile goes ---------------------------------------
 
-    def _choose(self, footprint: tuple[int, ...], tile_index) -> _Slot:
-        """Which image this tile belongs in, so that it overwrites nothing."""
+    def _choose(self, occupied: tuple[int, ...], tile_index) -> _Slot:
+        """Which image this tile belongs in, so that it overwrites nothing.
+
+        ``occupied`` is ``(frame, channel, z0, z1, y0, y1, x0, x1)`` — where the
+        tile lands, and in which moment and colour. All three matter: the same
+        place in a later moment, or in another colour, is a different part of the
+        image and nothing is in its way.
+        """
         if tile_index is not None:
             # A scan pattern deals tiles out in rotation, so neighbours always
             # land in different images and no checking is needed at all.
@@ -1152,7 +1199,7 @@ class TileCanvases:
         # arithmetic on a list of rectangles, so it costs nothing to speak of and
         # touches no image data.
         for slot in self._slots:
-            if not any(_overlaps(footprint, other) for other in slot.written):
+            if not any(_overlaps(occupied, other) for other in slot.written):
                 return slot
         # Every image is occupied here, which a normal overlap cannot cause. Rather
         # than silently destroy a tile, put it in the emptiest image and say so.
@@ -1251,11 +1298,20 @@ class TileCanvases:
 
 
 def _overlaps(a: tuple[int, ...], b: tuple[int, ...]) -> bool:
-    """Whether two tile footprints share any voxel at all."""
+    """Whether two written tiles share any voxel at all.
+
+    Each is ``(frame, channel, z0, z1, y0, y1, x0, x1)``. The moment and the colour
+    have to match before the position is even worth comparing: an image holds every
+    moment and every colour separately, so the same square of specimen imaged at a
+    later moment, or through a different filter, lands somewhere else entirely and
+    destroys nothing.
+    """
+    if a[0] != b[0] or a[1] != b[1]:
+        return False
     return (
-        a[0] < b[1] and b[0] < a[1]
-        and a[2] < b[3] and b[2] < a[3]
+        a[2] < b[3] and b[2] < a[3]
         and a[4] < b[5] and b[4] < a[5]
+        and a[6] < b[7] and b[6] < a[7]
     )
 
 
@@ -1318,6 +1374,7 @@ def _declare_one(
     voxel_size_um: tuple[float, float, float],
     origin_um: tuple[float, float, float],
     channel_blocks: list[dict],
+    ome_zarr_version: str = "0.4",
 ) -> list[zarr.Array]:
     """Write one empty OME-Zarr image and hand back its levels.
 
@@ -1331,7 +1388,15 @@ def _declare_one(
     because one moment is nothing to offer a choice between.
     """
     store.mkdir(parents=True, exist_ok=True)
-    group = zarr.open_group(str(store), mode="w", zarr_format=2)
+    # Which generation of the format to write. The two differ in more than a number:
+    # 0.4 is built on zarr version 2 and keeps a store's description in a separate
+    # ``.zattrs`` file beside the image, while 0.5 is built on zarr version 3, which
+    # keeps it inside ``zarr.json`` under an ``ome`` key and files the pieces of the
+    # image under a folder called ``c``. Everything else here -- the axes, the
+    # ordering, the sizes, the way tiles are spread over images -- is the same for
+    # both, so a run written either way behaves identically once it is open.
+    newer = ome_zarr_version == "0.5"
+    group = zarr.open_group(str(store), mode="w", zarr_format=3 if newer else 2)
 
     # A time axis is always declared, and is given its full length here rather than
     # being lengthened as the run goes. This is the same arrangement as the room in
@@ -1373,7 +1438,14 @@ def _declare_one(
             # Pieces filed in folders rather than side by side in one directory.
             # A long run otherwise puts millions of files in a single folder,
             # which most filesystems handle badly.
-            chunk_key_encoding={"name": "v2", "separator": "/"},
+            #
+            # Version 3 already does this of its own accord -- it files every piece
+            # under a folder called ``c`` and separates the rest with slashes -- so
+            # it is left to its own naming and only version 2 has to be asked.
+            # Asking version 3 for the version 2 naming would work, but it would
+            # produce a store that looks like neither generation and would be a
+            # small surprise to anything else reading it.
+            **({} if newer else {"chunk_key_encoding": {"name": "v2", "separator": "/"}}),
         ))
         datasets.append({
             "path": str(level),
@@ -1384,20 +1456,38 @@ def _declare_one(
             }],
         })
 
-    (store / ".zattrs").write_text(json.dumps({
-        "multiscales": [{
-            "version": "0.4",
-            "axes": axes,
-            "datasets": datasets,
-            # Where this image sits in the world. Every image in a run shares the
-            # same corner, which is what makes them line up on screen.
-            "coordinateTransformations": [{
-                "type": "translation",
-                "translation": [0.0, 0.0,
-                                origin_um[0], origin_um[1], origin_um[2]],
-            }],
+    multiscale = {
+        "axes": axes,
+        "datasets": datasets,
+        # Where this image sits in the world. Every image in a run shares the
+        # same corner, which is what makes them line up on screen.
+        "coordinateTransformations": [{
+            "type": "translation",
+            "translation": [0.0, 0.0,
+                            origin_um[0], origin_um[1], origin_um[2]],
         }],
-        "omero": {"channels": channel_blocks},
-    }, indent=2), encoding="utf-8")
+    }
+
+    if newer:
+        # In 0.5 the description lives inside the store's own ``zarr.json``, under an
+        # ``ome`` key, and the version is stated once for the whole block rather than
+        # on each multiscale. Written through zarr's own attributes rather than by
+        # replacing the file, because that file also holds what zarr needs in order
+        # to recognise the store at all -- writing over it by hand would leave an
+        # image nothing could open.
+        group.attrs.update({
+            "ome": {
+                "version": "0.5",
+                "multiscales": [multiscale],
+                "omero": {"channels": channel_blocks},
+            }
+        })
+    else:
+        # In 0.4 it is a file of its own beside the image, and each multiscale
+        # carries the version itself.
+        (store / ".zattrs").write_text(json.dumps({
+            "multiscales": [{"version": "0.4", **multiscale}],
+            "omero": {"channels": channel_blocks},
+        }, indent=2), encoding="utf-8")
 
     return arrays

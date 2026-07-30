@@ -40,7 +40,13 @@ from pathlib import Path
 
 from dataclasses import dataclass, field
 
-from stores import channel_of, declared_channels, discover, voxel_size
+from stores import (
+    _moments_folder,
+    channel_of,
+    declared_channels,
+    discover,
+    voxel_size,
+)
 
 # The small files that say "this folder is an image, and here is its shape". A
 # store is only recognisable once one of these is readable, so these are the
@@ -665,11 +671,28 @@ class Library:
             )
             # An acquisition already open gains frames as the run goes on, and that
             # happens inside it -- so its own folder does not change and the marks
-            # above would miss it. The folder holding the full-resolution image is
-            # the one that moves when a frame is written, so that gets a look too.
+            # above would miss it. The folder that gains an entry as each moment is
+            # written therefore gets a look too.
+            #
+            # *Which* folder that is has to be asked rather than assumed, and this
+            # is where it went wrong. It used to be taken as the resolution level's
+            # own folder, ``0`` inside the store, which is right for OME-Zarr 0.4.
+            # A 0.5 store is built on zarr version 3, which files every piece under
+            # a folder called ``c`` inside that one -- so a frame landing changed
+            # ``0/c`` and left ``0`` untouched, this answer never moved, and the
+            # viewer went on showing the length it read when the page opened. A
+            # timelapse watched live simply stopped growing, for the rest of the
+            # session, on the format this project is aiming at.
+            #
+            # It is asked through the same function the frame counting uses, which
+            # is the point: the two were taught separately and one of them was
+            # missed. Its answer is remembered against the description file's own
+            # modification time, so this costs a couple of extra glances at
+            # something the operating system already knows and no file reading at
+            # all after the first look.
             for name in names:
                 try:
-                    marks.append(str((root / name / "0").stat().st_mtime_ns))
+                    marks.append(str(_moments_folder(root / name / "0").stat().st_mtime_ns))
                 except OSError:
                     marks.append("?")
         # What is returned is a short fingerprint of all that rather than the marks
