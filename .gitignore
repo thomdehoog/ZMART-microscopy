@@ -33,3 +33,8 @@ workflows/target_acquisition/*_worked*.ipynb
 # What `run_webapp.py --demo` writes: images, reports and the run journal of a
 # simulated run. Regenerated on every demo, never part of the repository.
 workflows/target_acquisition/zmart_demo_run/
+
+# Where a background agent puts its own checkout of this repository while it
+# works on a branch of its own. It is a copy of the project, not part of it, and
+# it disappears when the agent finishes.
+.claude/worktrees/
