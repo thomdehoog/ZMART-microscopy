@@ -711,27 +711,64 @@ def _refuse_pieces_that_hold_several_tiles(pieces) -> None:
     )
 
 
+def _grain_a_tile_of_this_size_could_meet(tile_length: int, chunk: int, levels: int) -> int:
+    """The largest piece of image a tile this size could line up with.
+
+    Each smaller copy doubles the ground one piece of image covers: a piece of the
+    half-size copy spans twice as much specimen as a piece of the full-size one. On
+    a canvas the width of the whole stage the writer now keeps eight or more
+    copies, so the coarsest piece can cover thirty thousand voxels — far more than
+    any camera tile. Asking a two-thousand-voxel tile to be a whole number of those
+    is asking for something no microscope can give.
+
+    So the comparison stops at whichever piece the tile could actually match. What
+    is left is advice an operator can follow, which is the only kind worth giving.
+
+    Args:
+        tile_length: how many voxels the camera tile covers along this axis.
+        chunk: how many voxels one piece of the full-size image covers.
+        levels: how many progressively smaller copies the run keeps.
+
+    Returns:
+        A piece size in voxels: ``chunk`` doubled as far as it can go without
+        passing either the tile or the coarsest copy the run keeps.
+    """
+    coarsest = chunk * 2 ** (levels - 1)
+    grain = chunk
+    while grain * 2 <= min(coarsest, tile_length):
+        grain *= 2
+    return grain
+
+
 def _warn_if_tiles_straddle_pieces(tile_shape, tile_step, chunk: int, levels: int) -> None:
     """Point out a tile size that makes concurrent writing needlessly slow.
 
     Two tiles can only be written at the same moment if they do not share a piece
     of image. When a tile is a whole number of pieces and the stage steps by that
     same number, they never do, and tiles can be written as fast as they arrive.
+    Getting this wrong is not dangerous: the writer notices and holds the tiles
+    apart. It just means waiting.
 
-    The size that matters is the piece of the *smallest* copy, because that covers
-    the most ground — a piece of the quarter-size copy spans four times as much
-    specimen as a piece of the full-size one. Getting this wrong is not dangerous:
-    the writer notices and holds the tiles apart. It just means waiting.
+    One thing this deliberately stays quiet about. The coarsest copies of a wide
+    canvas are stored in pieces larger than any camera tile, so tiles landing in
+    the same one are always written in turn, and no tile size can change that. It
+    is worth knowing but it is not worth saying at the operator, for two reasons.
+    They cannot act on it — the number of copies is the writer's decision, taken
+    from how much room the run declared. And the cost is small by construction:
+    each copy holds a quarter of the data of the one above it, so what the writer
+    holds apart in the coarse copies is a small fraction of the work, and writing
+    sixteen contending tiles was measured no slower than sixteen that never met.
+    A warning nobody can act on only teaches people to stop reading warnings.
     """
-    grain = chunk * 2 ** (levels - 1)
     for axis, name in ((1, "y"), (2, "x")):
+        grain = _grain_a_tile_of_this_size_could_meet(tile_shape[axis], chunk, levels)
         if tile_shape[axis] % grain or tile_step[axis] % grain:
             nearest = max(grain, round(tile_shape[axis] / grain) * grain)
             warnings.warn(
                 f"a tile of {tile_shape[axis]} voxels in {name}, stepped "
                 f"{tile_step[axis]}, does not divide into whole pieces of image "
-                f"({grain} voxels, which is {chunk} across {levels} levels of "
-                f"shrunk-down copies). Tiles will sometimes share a piece, and "
+                f"(the pieces that a tile this size could line up with are "
+                f"{grain} voxels across). Tiles will sometimes share a piece, and "
                 f"the writer then has to write those one after another rather "
                 f"than at the same time. Nothing is lost, but a tile of "
                 f"{nearest} voxels would avoid the wait.",
