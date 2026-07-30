@@ -1,14 +1,13 @@
 # What is broken, and how we know
 
-Written 2026-07-29, at the end of a session that set out to check whether the tests were
+Begun 2026-07-29, at the end of a session that set out to check whether the tests were
 testing what they claimed. They were not, and looking properly turned up fifteen real faults.
-This document is the hand-over for that work.
+Brought up to date 2026-07-30, when the rest of them were fixed.
 
 **Read the evidence column before acting on anything here.** Everything marked *measured*
 has a reproduction that was run and whose output is quoted. Everything marked *reasoned* is a
 hypothesis and should be treated as unproven until somebody runs it — three claims that
-looked certain this session dissolved the moment they were measured, including several of
-mine.
+looked certain dissolved the moment they were measured, including several of mine.
 
 A note on how these were found, because it decides where to look next. Not one of them was
 found by the test suite. They were found by writing a test that had to *look at the picture*,
@@ -25,260 +24,199 @@ reporting itself perfectly content, and nothing on screen. Waiting on engine sta
 *when* to photograph is right. Using it as the verdict is what let almost everything below
 ship. `tests/pixels.py` says this already; the suite did not follow it.
 
-**Prove a test can fail, in the test itself.** The strongest tests written this session hide
+**Prove a test can fail, in the test itself.** The strongest tests written here hide
 or blank the thing under test and assert the measurement falls — `assert blanked < lit / 4`.
 That proof re-runs forever, unlike an assurance in a report that nobody reads twice.
 
 ---
 
-## Fixed and pushed
+## Fixed
 
-On `claude/time-axis-storage-trso2u`, all with tests that fail without the fix.
+Every one of these has a test that fails without its fix. Where the fix arrived in a later
+session than the fault, the commit is named.
+
+### The writer
 
 | | fault | evidence |
 | --- | --- | --- |
 | 1 | Declaring a run over one already imaged destroyed it and reported success | measured: a tile of 4242 read back as 0 |
 | 2 | Bundled pieces lost tiles written at the same moment | measured: `[0,0,0,44]` of `[11,22,33,44]` |
-| 3 | A channel given no brightness range got a full 16-bit one, so real data opened almost black | measured: opens at (230,393) not (0,65535) |
 | 4 | Re-running into the same folder kept the old, longer frame count | measured: 5 then 2, was 5 then 5 |
+| 9 | The time axis was declared, then reversed to declare up front and fill in | see `DATA_LAYOUT.md` |
+| E | The guard against overwriting a run was defeated by the acquisition's name — `well[A1]` and `GFP[488]` were read as patterns, matched nothing, and the run was destroyed | measured: 4242 became 0. Fixed in `347624b` |
+| F | `fuse()` destroyed the run it was about to read, then died with `KeyError: 'multiscales'` | measured. Fixed in `347624b` |
+| N | Two writers could claim one folder and lose each other's tiles, 10 times out of 10; `discard_existing_run` left orphan images holding the old run's pixels; the bundling grain was read from the first image only | measured. Fixed in `347624b` |
+
+The writer's guards were re-attacked independently on 2026-07-30 — names containing
+`[`, `]`, `*` and `?`, joining a run into itself through a symlink, two processes racing,
+and a writer killed without cleanup — and all 29 checks held.
+
+### Reading a store
+
+| | fault | evidence |
+| --- | --- | --- |
+| 3 | A channel given no brightness range got a full 16-bit one, so real data opened almost black | measured: opens at (230,393) not (0,65535) |
 | 5 | A gap in the frames hid every frame past it — including an all-black frame, since zarr writes no piece for one | measured: `{0,7}` gave 1; 7 frames with the 4th black gave 3 |
 | 6 | Frame counting could not read OME-Zarr 0.5 at all, on three of the four ways version 3 names its pieces | measured: 1000 declared / 3 imaged gave "I cannot say" |
 | 7 | The axis-unit repair, which exists for foreign instruments, silently stopped working on version 3 | measured: `um` left unrepaired |
 | 8 | The channel count fell back to trusting the description on version 3 | measured: 3 layers for a 2-channel array |
-| 9 | The time axis was declared, then reversed to declare up front and fill in | see `DATA_LAYOUT.md` |
+| M | The limits of the frame count were not written down anywhere | now recorded in `written_timepoints`; see below |
+| O | `README.md` and `stores.py` described grouping by filename, a design that had been replaced | fixed in `d196c46` |
+
+### What reaches the screen
+
+| | fault | evidence |
+| --- | --- | --- |
+| B | Brightness never reached the picture for a flat-colour layer: the shader put it all into transparency, which the engine discards for the bottom-most picture | measured: windows (500,4000) and (0,60000) gave byte-identical pictures. Fixed in `d196c46` |
+| G | A second kind of scan arriving mid-run was silently swallowed into the first | measured: a target scan became a fourth position of the overview. Fixed in `d196c46` |
+| A | An acquisition met before its image was on disk never drew, all session | measured. Fixed 2026-07-30 |
+| C | A window measured before the whole-field copy was written stuck at (0, 1) | measured. Fixed 2026-07-30 |
+| D | Keyboard shortcuts reached past our interface and trapped the operator | measured. Fixed 2026-07-30 |
+| H | Every channel of a multi-channel store shared one window, histogram and Auto | measured. Fixed 2026-07-30 |
+| I | The scale bar stated the wrong size in the 3-D view | measured. Fixed 2026-07-30 |
+| J | Two nudges, and two full config rebuilds, per position | measured. Fixed 2026-07-30 |
+| K | An announcement arriving during a config fetch was dropped | measured. Fixed 2026-07-30 |
+| L | The viewer could not be started twice, and there was no `--port` | measured. Fixed 2026-07-30 |
 
 ---
 
-## Confirmed and unfixed
+## The five fixed on 2026-07-30, in more detail
 
-These are the work. Ordered by how badly each hurts an operator.
+These were the ones left standing, and each is worth a paragraph because the reasoning
+matters more than the diff.
 
-### A. An acquisition met before its image is on disk never draws, all session
-*measured.* Severe. Realtime.
+### A. An acquisition met before its image is on disk
 
-The library notices a store the instant its description lands, which is the earliest possible
-moment and was deliberate. The engine then reads its pieces, finds nothing, and remembers
-that with no time limit. When the image arrives, an ordinary `POST /api/announce` — the one
-the README documents — does **not** clear that memory, because only `wrote_image_in_place`
-does, and a run writing one store per position has no reason to send that flag.
+The viewer notices a store the instant its description lands, which is the earliest possible
+moment and is deliberate. The engine then reads its pieces, finds nothing, and remembers that
+with no time limit — so when the image arrived the panel went on showing black, with the
+acquisition listed, its eye open, and nothing saying why. Only the open viewer was stuck:
+reloading the page showed the data perfectly.
 
-    described, no image yet:            distinct 1, spread 0.0
-    image written + plain announce:     distinct 1, spread 0.0     <- still blank
-    after wrote_image_in_place:         distinct 2, spread 91.3
-    a freshly opened page, same server: distinct 2, spread 91.3     <- the data is fine
+An ordinary `POST /api/announce` did not clear that memory. Only `wrote_image_in_place` did,
+and a run writing one store per position has no reason to send it — from its point of view
+nothing was written in place.
 
-Only the open viewer is stuck. The operator sees the acquisition listed, the eye open, and
-black where the specimen should be, with nothing saying why.
+**The fix is a narrow signal rather than a blunt one.** The first thing tried was "an
+announcement arrived and the answer came back identical, so something moved that no
+description can show". That is the rule `engine.js` already documented, and it is wrong in
+practice: redundant announcements are unavoidable with two independent notification
+mechanisms, and each one then threw away everything fetched. Measured, that cost a refetch of
+the whole view on every position arrival.
 
-### B. Brightness never reaches the picture for a single flat-colour layer
-*measured, mechanism traced to the line.* Severe. **A regression introduced this session.**
+What is used instead is the transition itself. A store with nothing written yet has no
+histogram — there were no pixels to measure — and no count of moments. When a store the panel
+*already knew about* gains either, its picture has just arrived and the engine is told to
+forget what it decoded. A store arriving for the first time is not this: nothing has been
+decoded for it, so there is nothing to forget.
 
-Our flat-colour shader puts all the brightness into **alpha**:
-`emitRGBA(vec4(1.0, 1.0, 1.0, normalized()))`. Neuroglancer disables GL blending for the
-bottom-most cross-section image layer, so the framebuffer receives `RGB=(1,1,1)` verbatim and
-alpha survives only as a binary "is this background?" test. The result is pure white wherever
-the layer covers the view, at every setting.
-
-    window (500, 4000)  -> distinct 2, dominant 0.6087, spread 124.4
-    window (0, 60000)   -> distinct 2, dominant 0.6087, spread 124.4   identical
-
-Corroborated arithmetically: a strictly two-colour 0/255 image with fraction *p* of one
-colour has standard deviation `255·sqrt(p(1-p))`, which for p=0.6087 predicts **124.45**
-against **124.45** observed. The picture is exactly {0,255} — no gradient at all.
-
-Introduced by `eb7ffdb`, which moved intensity from RGB into alpha so that unimaged ground
-would be transparent and rows could be seen together. That aim is right and must be kept. Its
-stated justification — that the engine multiplies colour by alpha before drawing — is false
-for the bottom layer. It is true for layers above it and true for the 3-D path, which is why
-the volume view and the lookup-table shader are unaffected, and why nobody noticed.
-
-**A fix is in progress**: intensity back into RGB, alpha as a coverage mask. An analysis
-recommended `blend = "additive"` instead and I overruled it, because `DATA_LAYOUT.md` records
-a measured decision that overlapping tiles are drawn one on top of another and not blended,
-"so the picture looks exactly as it would have if a single image had been used". Additive
-would sum overlaps into bright seams. Do not ship `vec4(rgb*v, v)` either: neuroglancer's
-default blend is straight, not premultiplied, so that form darkens upper layers as `v²`.
-
-### C. A window measured before the coarsest level is written sticks at (0, 1)
-*measured.* Severe. Realtime. **Independent of B** — a second cause of the same symptom.
+### C. A window measured before the whole-field copy exists
 
     coarsest level empty   -> window (0.0, 1.0)      histogram bins used 1
     coarsest level written -> window (328.0, 3196.0) histogram bins used 64
 
-`measure()` reads the *coarsest* pyramid level, which is the **last** thing a pyramid writer
-writes, so this hits ordinary live runs rather than only an empty store. The guard meant to
-prevent it — "only remember the answer if the histogram is not null" — never fires, because
-zarr returns missing pieces as the fill value and so produces a perfectly good histogram of
-one bar. The answer is then cached for the session: the operator gets `BLACK 0`, `WHITE 1`, a
-blank histogram, and an `Auto` button that restores the same nonsense.
+The brightness is measured from the smallest copy of the image, which covers the whole field
+and is cheap. A writer produces that copy **last**, so for the whole of a run it is the one
+thing not yet there — this hit ordinary live runs, not only empty stores.
 
-### D. Keyboard shortcuts reach past our interface and trap the operator
-*measured.* Severe.
+The guard meant to prevent it ("only remember the answer if the histogram is not null") never
+fired, because zarr does not report an unwritten piece as missing: it hands back the fill
+value, so an untouched copy reads as a flawless picture of pure black and produces a perfectly
+good histogram of one bar.
 
-`setDefaultInputEventBindings` installs neuroglancer's whole key map. **Space splits the
-drawing area into four panels and there is no way back**, because clicking "2D" while already
-in 2-D changes no state and so re-runs nothing. It needs no click first — the engine's element
-holds focus on load.
+Two changes. Whether a copy has been written is now asked of the **folder on disk**, which can
+tell "never written" from "written and dark" where the numbers cannot. And a measurement taken
+before the whole-field copy exists is marked as one to take again, so it is used now — it is an
+honest reading of the pixels that existed — and replaced once the run has finished writing.
+The re-check is a directory listing, not a read of pixels, so it is affordable on every answer.
+
+### D. Keyboard shortcuts reaching past our interface
 
     fresh load:      layout "yz",         1 panel
     press space:     layout "4panel-alt", 4 panels
     click 2D:        layout "4panel-alt", 4 panels    <- no way back
     click 3D then 2D: layout "yz",        1 panel     <- the only escape
 
-Siblings: digits `1`–`9` hide a channel while the panel's eye still reads open, leaving the
-eye one click out of phase so the operator's first click appears to do nothing; `b`, `a` and
-`v` restore the engine's own scale bars, axis lines and bounds box; `s` switches slices off in
-3-D; `o` adds an orthographic projection.
+`setDefaultInputEventBindings` installs three tables: two belonging to the image panels, and
+one **global** table of single unmodified letters and digits. Only the global one was the
+problem, and every action in it belongs to an interface this viewer hides. It is now simply
+not installed; the panel tables, which are what pan, zoom, rotate and step through z, are
+installed by hand.
 
-This is exactly the trap `engine-chrome.css` was written to prevent. **That stylesheet is
-fine** — all three selectors still match in neuroglancer 2.41.2 and the elements are hidden.
-The hole is the keyboard.
+Twelve of the fourteen tests written for this fail against the old build, which is the proof
+they are worth keeping. One that could not fail was deleted rather than left as false cover:
+`n` reaches the engine's "add a layer" dialog only through its layer panel, and this viewer is
+built with that panel switched off, so the key does nothing either way.
 
-### E. The guard against overwriting a run is defeated by the acquisition's name
-*measured.* Severe. **A hole in a fix committed this session** (`db13b1c`), so the fix must
-land on top rather than amend it.
+### H. Every channel sharing one window
 
-The guard globs on the name without escaping it, so square brackets are read as a character
-class and match nothing:
+Brightness was measured per *store*, so a store with a channel axis got one measurement over
+all its channels and handed it to every channel's row. On a store whose first channel peaks at
+1200 and whose second at 39800, both rows got the pair's window — leaving the faint channel's
+entire useful range inside about one pixel of its slider, the precise state the slider exists
+to prevent.
 
-    name 'overview'   second declaration refused        tile safe
-    name 'well[A1]'   second declaration ALLOWED   ->   4242 became 0   DESTROYED
-    name 'GFP[488]'   second declaration ALLOWED   ->   4242 became 0   DESTROYED
+It is measured per channel now, and the remembered answer is keyed by channel as well as by
+store. **This had to land with B**, and did: while both channels drew saturated the fault was
+invisible, and fixing the shader alone would have made the faint channel *invisible* rather
+than merely flat — which would have looked like a new fault caused by a fix.
 
-`name` is the acquisition type the caller supplies, so these are names somebody will type.
-A name containing `*` is worse in a different way: the *first* declaration dies with a
-pathlib error that says nothing about names. **A fix is in progress.**
+### I. The scale bar in the 3-D view
 
-### F. `fuse()` destroys the run it is about to read
-*measured.* Severe. **A fix is in progress.**
+    what the bar claimed (50 µm over 143 px):  3.50e-7 m per pixel
+    what the volume was really drawn at:       1.99e-7 m per pixel
 
-`fuse(run, run/"overview.ome.zarr")` opens the target with `mode="w"`, wiping the source it
-is reading, then dies with `KeyError: 'multiscales'`. The run is gone and the joined image was
-never written. The docstring's "Replaced if it already exists" is thin cover for replacing the
-run's own data.
+It read 50 µm where the truth was 28.5, by a factor that also varied with the height of the
+window, and it did not move at all when the operator magnified the volume.
 
-### G. A second acquisition type arriving during a run is silently swallowed
-*measured.* Severe. **A fix is in progress.**
+The two views count their zoom differently: in the flat view it is how much of the specimen
+one screen pixel covers, and in the volume view the same number counts across the whole height
+of the panel. The bar read the flat view's zoom in both.
 
-Opening a folder holding two acquisition types is refused, deliberately and with a
-well-written message. But stores discovered *later* are added with no such check, so:
+Two things were needed beyond the arithmetic, and both cost a round of measurement to find.
+The volume panel cannot be recognised by its class name — the built page shortens those to a
+couple of letters — so it is recognised by holding a *collection* of slices rather than being
+one. And the panel keeps its own copy of the zoom which is brought into step a moment after
+the viewer's, so reading it while responding to the change that has not reached it yet gave
+the previous value and the bar stated the size the specimen was a moment ago. The zoom is
+taken from the viewer and only the height from the panel.
 
-    at start:                      ['run/Ch488 x1']
-    after two more positions:      ['run/Ch488 x3']
-    after a target scan lands:     ['run/Ch488 x4']   <- merged
+The strict xfail that asserted the right behaviour did its job: it failed the moment the fix
+landed, and the marker has been removed.
 
-Three overviews at 5×2×2 µm and a target scan at 1×0.3×0.3 µm become one row in one engine
-layer. Worse than the documented shared-controls limitation: there is no heading, no row and
-no eye for the target scan at all. The operator cannot tell it is open, cannot hide the
-overview to look at it, and closing one closes both. Also, opening such a folder at startup
-raises the refusal as an uncaught error, so a biologist gets a Python traceback instead of the
-message written for them.
+### J and K, together
 
-### H. Every channel of a multi-channel store shares one window, histogram and Auto
-*measured.* High, for Stellaris data.
+Writing one store produced both the run's announcement and, within a second, the folder
+watcher noticing the same write — two full config rebuilds per position, on a question that
+takes over a second once a folder holds a few thousand acquisitions. Worse once A was fixed:
+the second announcement arrived when nothing had moved since the first.
 
-Brightness is measured per *store*, so a store with a channel axis gets one measurement
-computed over all channels and handed to every channel's row. On a store where channel 0
-peaks at 1200 and channel 1 at 39800, both rows get 800–33739. The faint channel's whole
-useful range sits in the bottom 1.2 % of its window and about one pixel of its slider — the
-precise state the slider's own docstring says was fixed. Its histogram is the mixture's, and
-`Auto` restores the same wrong answer.
+The microscope's announcement now records what the disk looked like as it was made, and the
+watcher stays quiet when what it sees is that same thing. Compared by what the disk says
+rather than by counting announcements, so a change landing *after* the microscope spoke is
+still noticed.
 
-**This must land together with B.** Today both channels draw saturated, which masks it.
-Fixing the shader alone will make the faint channel *invisible* rather than merely flat, and
-that will look like a new fault caused by a fix.
+Separately, an announcement arriving during a config fetch was dropped, because the note
+asking for another look was written *after* the early return and so was never reached. It is
+now written before, the fetch is repeated once when the answer in flight lands, and the note
+is always cleared — it used to be left set and then consumed by an unrelated change.
 
-### I. The scale bar states the wrong size in the 3-D view
-*measured.* High — scientific consequence.
+### L. Starting the viewer twice
 
-    what the bar claims (50 µm over 143 px):  3.50e-7 m per pixel
-    what the volume is really drawn at:       1.99e-7 m per pixel
-
-So it reads **50 µm where the truth is 28.5 µm**, over-stating by about 1.76×, by a factor
-that also varies with window height. And it does not move: magnifying the volume 20× left the
-label identical. `pixelSize()` reads the cross-section zoom; the volume panel is magnified by
-a separate perspective zoom which the engine divides by the panel height, and the bar uses
-neither. The single-plane view is correct and now tested.
-
-A **strict** xfail asserts the right behaviour, so the suite will fail the moment this is
-fixed and the marker must come off.
-
-### J. Two nudges, and two full config rebuilds, per position
-*measured.* Medium — cost.
-
-Writing one store produces both the run's announcement and, within a second, the folder
-watcher noticing the same write. With a page attached that is two `/api/config` answers per
-position, on a question the code's own comment says takes over a second for five thousand
-acquisitions. In-place writes into an open store do not double, because they do not move the
-revision.
-
-### K. An announcement arriving during a config fetch is dropped
-*measured, consequence smaller than it looks.* Medium.
-
-Three announcements during one slow fetch produced one fetch and no catch-up, because the
-recovery flag is set *after* the early return. But in live mode the folder watcher re-nudges
-within a second for anything that moves the revision, and the fetch in flight reads the disk
-at request time, so the answer is current. The genuinely unrecoverable case is a change the
-watcher cannot see. Separately, the recovery flag is left set indefinitely and is then
-consumed by an unrelated change.
-
-### L. The viewer cannot be started twice, and there is no `--port`
-*measured.* Medium.
-
-A port already in use raises an uncaught `OSError` with no advice, and `run_demo.py` exposes
-no way to choose another — so on a lab PC where 8848 is taken the viewer cannot be started at
-all. `launcher.open_window` also documents a `watch` parameter it does not have, and builds
-its URL from the port *argument* rather than the server's real address, so `port=0` yields
-`http://127.0.0.1:0`.
-
-### M. Limitations in the frame counting that are not written down
-*measured.* Low, but they will surprise somebody.
-
-The answer is not bounded by the declared length: a stray folder `9999` in a store declaring
-ten moments gives 10000. Safety comes entirely from the slider clamping in `AxisSlider.jsx`.
-An empty leftover frame folder counts as reach. And freshness is equality on the folder's
-modification time, so a folder replaced by a shorter one with an identical timestamp — `cp -a`
-from an archive — keeps the old, longer answer.
-
-### N. Writer limitations found by attacking the fixes
-*measured.* Medium. **Fixes in progress.**
-
-Two processes declaring the same folder before the first tile lands are both accepted and then
-lose voxels, 10 times out of 10 — the simultaneous version of the case the guard was written
-for. `discard_existing_run` leaves orphan images still holding the old run's pixels, which the
-viewer shows mixed into the new run and which then block later declarations. The concurrency
-grain is read from the first image only, so a hand-built run whose second image keeps a whole
-plane in one file loses tiles. And the grain across resolutions is a maximum where it needs to
-be a common multiple — *not* reachable through `create()` today, brute-forced across
-everything it can produce, so the shipped writer is safe and only the comment's claimed
-generality is wrong.
-
-### O. Documentation describing a design that was replaced
-*measured.* Low, actively misleading. **A fix is in progress.**
-
-`README.md` and `stores.py` still describe grouping by filename, which was replaced by
-one-load-one-dataset — and a folder shaped the way they describe is now refused.
+A port already in use raised an uncaught `OSError` with no advice, and there was no way to ask
+for another — so on a lab PC where 8848 is taken the viewer could not be started at all.
+There is now a `--port`, the refusal explains itself and suggests the way out, and the address
+printed is the one the server actually got rather than the one it was asked for (`port=0`
+previously yielded `http://127.0.0.1:0`).
 
 ---
 
-## The test suite itself
+## Still open
 
-Two tests **cannot fail at what they claim**, both verified:
+### The test suite's remaining gaps
 
-- `test_open_and_close.py` `test_finished_data_opens_no_listening_connection` installs a
-  request listener, collects every `/api/events` request into a list, and then never asserts
-  on it. A viewer holding a connection open forever on finished data passes. Its live
-  counterpart does assert, so this is a lost assertion rather than a choice.
-- `test_gpu_realdata.py` `test_webgl_is_hardware_accelerated` skips when the renderer is
-  falsy and then asserts the renderer is truthy. It can only skip or pass — while
-  `TESTING.md` advertises it as the clearest single check that the GPU is in use.
+These are real and none of them is fixed. They are listed in the order they would hurt.
 
-Gaps that matter more than the weak tests:
-
-- **Nothing asserted that a tile is drawn where its translation says.** The only assertion
-  touching `translation` checks the transform exists *in the file*. If the viewer stacked
-  every position at the origin, or swapped two axes, the suite passed. Placement was since
-  measured to *work*; it was simply unguarded. A test is being written.
 - **No test of drawing cost at all.** The regression `NEXT_STEPS.md` calls decisive — a
   thousand positions managing 24 frames in five seconds against 302 for a hundred — would go
   unnoticed. Every performance figure in that document comes from `measure_*.py` scripts that
@@ -289,11 +227,25 @@ Gaps that matter more than the weak tests:
 - **0.5 and on-the-fly are never tested together.** Every live test is version 2; the only
   version 3 browser test runs against finished data. They cannot meet until the writer can
   produce 0.5.
-- **Nothing tests the desktop shell**, and nothing tests that the engine's own interface stays
-  switched off (see D).
-- **Without Chromium, 124 tests — a third of the suite, including every test that looks at a
-  picture — skip, and the run still reports green.** CI now installs a browser and fails on an
-  unbuilt page, but nothing fails when the pixel tests simply do not run.
+- **Nothing tests the desktop shell.**
+- **Without Chromium, a third of the suite — including every test that looks at a picture —
+  skips, and the run still reports green.** CI now installs a browser and fails on an unbuilt
+  page, but nothing fails when the pixel tests simply do not run.
+
+### Known limits, written down rather than fixed
+
+- **The frame count is not bounded by the length the store declared.** A stray folder `9999`
+  in a store declaring ten moments gives ten thousand; what keeps the slider sensible is that
+  it clamps to the declared length itself, in `AxisSlider.jsx`. An empty leftover frame folder
+  counts as reach. And freshness is exact equality on the folder's modification time, so a
+  folder replaced by a shorter one with an identical timestamp — `cp -a` from an archive —
+  keeps the old, longer answer until the viewer is reopened. All three are now recorded in
+  `written_timepoints`.
+- **A brightness measurement taken mid-run is taken from a larger copy of the image**, which
+  covers less of the specimen at once than the whole-field copy does. It is replaced by the
+  full measurement once the run has finished writing. The reading is good, not final.
+- **The viewer's server is honestly not an installable package.** It is loose modules reached
+  through the import path, and `pyproject.toml` says so rather than implying otherwise.
 
 ---
 
@@ -308,20 +260,23 @@ Each cost real time to check, so the next session should not spend it again.
   "opacity does nothing" was the test harness failing React's value tracker, not a defect.
 - **`letGoOfDecodedPieces` firing unconditionally does not stop the picture filling in.**
   Eight tiles at 200 ms apart went 0.000 → 0.250 → 0.496 → 0.746 → 0.992, and still reached
-  0.992 with no gap at all. Its docstring claims a narrower rule than the code implements,
-  which is worth correcting, but the behaviour is sound.
+  0.992 with no gap at all.
 - **The mesoSPIM shape is handled well**: six sibling per-tile-per-channel stores, no `omero`,
   no channel axis, two correct rows, and the translations honoured with tiles placed side by
   side.
 - **The 2-D/3-D round trip loses nothing**, and odd folders — empty, non-zarr, a plain file, a
   missing path, a half-written store — are all answered plainly.
 - **An invlerp with no range does not default to (0,1) on integer data.** It defaults to the
-  type's full range. That hypothesis was mine and it was wrong; see B for what is actually
+  type's full range. That hypothesis was mine and it was wrong; see B for what was actually
   happening.
+- **"Announcement arrived and nothing changed" is not a usable signal for a store gaining its
+  picture.** It is the rule `engine.js` documented and it looks right, but redundant
+  announcements are ordinary and it fires on every one of them. Measured: a refetch of the
+  whole view per position arrival. See A for what is used instead.
 
 ---
 
-## Judgements made this session, so they can be argued with
+## Judgements made, so they can be argued with
 
 - **Frame counting reports how far the images reach, not how many moments were written.**
   Where a moment in the middle holds nothing, the empty ones between are offered and draw
@@ -331,6 +286,12 @@ Each cost real time to check, so the next session should not spend it again.
   in the same session. `DATA_LAYOUT.md` keeps both the original reasoning and the reversal.
 - **Sharding stays out of the writer** until the exclusivity unit is right, because unsharded
   is verified correct and sharded silently loses tiles.
-- **Intensity goes back into RGB rather than making layers additive** (see B).
-- **The viewer's server is honestly not an installable package.** It is loose modules reached
-  through the import path, and `pyproject.toml` says so rather than implying otherwise.
+- **Intensity goes into RGB rather than making layers additive.** An analysis recommended
+  `blend = "additive"` and it was overruled, because `DATA_LAYOUT.md` records a measured
+  decision that overlapping tiles are drawn one on top of another and not blended, "so the
+  picture looks exactly as it would have if a single image had been used". Additive would sum
+  overlaps into bright seams. `vec4(rgb*v, v)` is also wrong: neuroglancer's default blend is
+  straight, not premultiplied, so that form darkens upper layers as `v²`.
+- **A brightness measurement is shown before it is final.** The alternative is to show nothing
+  until the run finishes writing, which would mean an operator watching a run seeing no
+  histogram and no sensible window for its whole length.
