@@ -466,6 +466,41 @@ test("the grid comes from the carrier, so changing the plate changes the plan",
     await expect(page.locator(".sf-readout")).toContainText("54 positions");
   });
 
+test("grid mode hides the drawing tools without freezing the canvas",
+  async ({ page }) => {
+    await throughFields(page);
+    await gotoStep(page, "Initial scanfields");
+    // still in grid mode, where there is nothing to draw with
+    await expect(page.locator(".sf-mode[data-mode='grid']")).toHaveClass(/on/);
+    await expect(page.locator(".sf-tools")).toBeHidden();
+    await expect(page.locator(".sf-readout")).toContainText("864 positions");
+
+    /* What the grid put down is still a set of fields, so it can be picked,
+       added to and thrown away — a mode says what can be made, not whether
+       what is already there can be touched. */
+    const box = await page.locator("#stage-canvas").boundingBox();
+    const at = (fx, fy) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+
+    // shift-drag on empty stage marquees a block of positions
+    const a = at(0.34, 0.24), b = at(0.46, 0.36);
+    await page.keyboard.down("Shift");
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(b.x, b.y, { steps: 10 });
+    await page.mouse.up();
+    await page.keyboard.up("Shift");
+    await page.waitForTimeout(200);
+    await expect(page.locator(".sf-flat", { hasText: "Apply to selected" }),
+      "a selection exists, so it can be given a preset").toBeEnabled();
+
+    // and Delete takes them out of the plan
+    const before = Number((await page.locator(".sf-readout").innerText()).match(/^(\d+)/)[1]);
+    await page.keyboard.press("Delete");
+    await page.waitForTimeout(200);
+    const after = Number((await page.locator(".sf-readout").innerText()).match(/^(\d+)/)[1]);
+    expect(after, "fewer positions than before").toBeLessThan(before);
+  });
+
 test("a region is drawn on the canvas and covered by its preset's frame",
   async ({ page }) => {
     await throughSetup(page);
