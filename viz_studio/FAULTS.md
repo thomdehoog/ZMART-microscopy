@@ -259,19 +259,27 @@ previously yielded `http://127.0.0.1:0`).
 ### The test suite's remaining gaps
 
 These are real and none of them is fixed. They are listed in the order they would hurt.
-Two that were here on 2026-07-29 have since been closed: the newer format is now written by
-`zmart_storage` and tested on the live path (see P and Q above), and the group size that keeps
-a large folder from silently losing positions is now checked against the measured limit on
-every run, with the measurement itself available as an opt-in test — see `TESTING.md`.
+Three that were here on 2026-07-29 have since been closed. The newer format is now written by
+`zmart_storage` and tested on the live path (see P and Q above). The group size that keeps a
+large folder from silently losing positions is checked against the measured limit on every
+run, with the measurement itself available as an opt-in test. And a run that never looked at
+a picture no longer reports green on a machine that was supposed to draw: setting
+`ZMART_REQUIRE_BROWSER=1` — which CI now does — fails the run and says whether it was the
+browser or the build that was missing. Verified both ways: exit 1 with the page hidden, exit 0
+without the variable, so a plain checkout stays green. See `TESTING.md` for all three.
 
-- **No test of drawing cost at all.** The regression `NEXT_STEPS.md` calls decisive — a
-  thousand positions managing 24 frames in five seconds against 302 for a hundred — would go
-  unnoticed. Every performance figure in that document comes from `measure_*.py` scripts that
-  nothing runs. This is now the largest gap left.
+- **The viewer pays a cost per position on every frame, and it is not fixed.** This is no
+  longer an untested gap — it is now a measured, guarded fault. `test_the_drawing_keeps_up.py`
+  measures how much of its own drawing rate the viewer keeps at ten times the positions:
+  measured on this sandbox at 40%, 35%, 38% over three runs, where twenty positions manage
+  about 125 frames in three seconds and two hundred manage about 50. It was first found far
+  worse, at 24 frames in five seconds against 302 for a hundred positions.
+
+  Two tests hold it. One fails if it slides further than it has already. The other states the
+  rate actually wanted and is a **strict xfail**, so the day the architectural fix lands — the
+  engine holding fewer positions, as `NEXT_STEPS.md` sets out — the suite says so and the
+  marker comes off. This is the largest fault still open.
 - **Nothing tests the desktop shell.**
-- **Without Chromium, a third of the suite — including every test that looks at a picture —
-  skips, and the run still reports green.** CI now installs a browser and fails on an unbuilt
-  page, but nothing fails when the pixel tests simply do not run.
 
 ### Known limits, written down rather than fixed
 

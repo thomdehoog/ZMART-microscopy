@@ -12,6 +12,7 @@ a machine that is supposed to be able to render.
 
 from __future__ import annotations
 
+import os
 import socket
 import sys
 import threading
@@ -22,6 +23,28 @@ import pytest
 
 _VIZ_ROOT = Path(__file__).resolve().parent.parent
 _BACKEND = _VIZ_ROOT / "backend"
+
+# Set this on any machine that is supposed to be able to draw — a CI runner, the
+# microscope PC — and the run *fails* if the tests that look at pixels did not run,
+# rather than skipping them and reporting a comfortable green.
+#
+# It exists because the two outcomes are indistinguishable from the outside. About
+# a third of this suite opens a real browser and reads the picture it drew, and
+# that third is the only part that catches the fault this project keeps meeting: a
+# picture that is silently absent, with every piece fetched, every layer built, and
+# the engine reporting itself perfectly content. If the browser cannot launch or
+# the page was never built, all of those skip, and the run says "passed" — which is
+# worse than no run at all, because somebody believes it.
+#
+# It is opt-in rather than the default so that a plain checkout on somebody's
+# laptop still goes green without a browser, which is the promise TESTING.md makes.
+REQUIRE_BROWSER = "ZMART_REQUIRE_BROWSER"
+
+# Why the pixel tests could not run, filled in by the fixtures below as they give
+# up. Collected rather than raised on the spot because the answer is only wanted
+# once, at the end, and because the first fixture to give up is not necessarily the
+# most useful thing to report.
+_why_the_pixels_were_not_looked_at: list[str] = []
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
@@ -65,6 +88,9 @@ def built_dist() -> Path:
     to answer questions about the wrong program.
     """
     if not (_DIST / "index.html").exists():
+        _why_the_pixels_were_not_looked_at.append(
+            "the viewer page has not been built (frontend/dist/index.html is missing)"
+        )
         pytest.skip(
             "frontend/dist is not built — run "
             "`npm --prefix frontend install && npm --prefix frontend run build`"
@@ -118,7 +144,11 @@ def _playwright():
     each opening its own — otherwise a second launch fails with an asyncio-loop
     error. Skips (rather than errors) where playwright is not installed.
     """
-    pw_api = pytest.importorskip("playwright.sync_api", reason="playwright is not installed")
+    try:
+        import playwright.sync_api as pw_api
+    except ImportError:
+        _why_the_pixels_were_not_looked_at.append("playwright is not installed")
+        pytest.skip("playwright is not installed")
     with pw_api.sync_playwright() as pw:
         yield pw
 
@@ -135,6 +165,7 @@ def browser(_playwright):
     try:
         launched = _playwright.chromium.launch(args=gl_args)
     except Exception as exc:
+        _why_the_pixels_were_not_looked_at.append(f"no usable Chromium: {exc}")
         pytest.skip(f"no usable Chromium: {exc}")
     try:
         yield launched
@@ -199,3 +230,40 @@ def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Fail a run that never looked at a picture, where it was supposed to.
+
+    A skipped test is not a failure, and on a bare checkout that is exactly right —
+    somebody without Node or a browser has simply not set that part up, and there is
+    nothing wrong with their machine. But on a machine that *is* meant to draw, the
+    same skip is the suite quietly stopping doing the one thing it is here for, and
+    it reports the same comfortable green either way.
+
+    So where ``ZMART_REQUIRE_BROWSER`` is set, "the pixel tests did not run" ends the
+    run as a failure and says why. Reported here rather than as a test of its own
+    because the question is only answerable once everything has been tried: a browser
+    that launches and then dies halfway through is worth catching too, and no check
+    made at the start would see it.
+    """
+    if not os.environ.get(REQUIRE_BROWSER):
+        return
+    if not _why_the_pixels_were_not_looked_at:
+        return
+
+    reasons = "\n".join(f"  - {why}" for why in dict.fromkeys(_why_the_pixels_were_not_looked_at))
+    print(
+        f"\n{REQUIRE_BROWSER} is set, so this machine is supposed to be able to draw "
+        "— but the tests that look at the picture did not run:\n"
+        f"{reasons}\n\n"
+        "About a third of this suite opens a real browser and reads the pixels it "
+        "drew, and that third is the only part that catches a picture which is "
+        "silently absent. A run without it reports green while never having drawn "
+        "anything.\n\n"
+        "Either put right whatever is listed above, or unset "
+        f"{REQUIRE_BROWSER} if this machine genuinely cannot draw."
+    )
+    # 1 is pytest's own code for "tests failed", which is what this is: the suite
+    # did not do what this machine promised it would.
+    session.exitstatus = 1
