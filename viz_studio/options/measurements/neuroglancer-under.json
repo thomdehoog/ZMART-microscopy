@@ -1,0 +1,312 @@
+{
+  "option": "neuroglancer-under",
+  "measured": "2026-07-30 23:32",
+  "0. can a surface underneath be seen": {
+    "question": "with a colour painted behind the engine's canvas and a different colour set as the engine's own background, which does an operator see over ground nobody imaged?",
+    "shares of the window": {
+      "behind the engine (green)": 0.0,
+      "the engine's own background (blue)": 0.9702,
+      "acquired picture (near white)": 0.0298
+    },
+    "photograph": "showing-through.png",
+    "answer": "nothing behind the engine's canvas shows through. Over ground nobody imaged an operator sees the engine's own background (97% of the window) and none of the colour painted behind it. A surface underneath the engine cannot be seen at all, so the operator's carrier and tiles have to be drawn on the surface ABOVE the engine, with holes cut where the run's coverage record says there is picture.",
+    "a surface underneath is usable": false,
+    "and the check can fail": {
+      "what was broken": "the option's own drawing surfaces were hidden, so that only the colour painted behind them was left on screen",
+      "shares of the window": {
+        "behind the engine (green)": 1.0,
+        "the engine's own background (blue)": 0.0,
+        "acquired picture (near white)": 0.0
+      },
+      "the counting noticed": true,
+      "photograph": "showing-through-can-fail.png"
+    }
+  },
+  "1. registration": {
+    "at rest": {
+      "left": 40.0,
+      "right": 41.0,
+      "top": 40.0,
+      "bottom": 41.0
+    },
+    "at rest, unevenness": 1.0,
+    "band was cut at, in a still photograph's pixels": 40.0,
+    "photograph at rest": "registration-at-rest.png",
+    "panning": {
+      "samples": 76,
+      "photographs": 123,
+      "closed": 0,
+      "left": 0.0,
+      "right": 1.0,
+      "top": 0.0,
+      "bottom": 1.0,
+      "unevenness": 1.0,
+      "widest_seen": {
+        "left": 40.0,
+        "right": 41.0,
+        "top": 40.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 40.0,
+        "right": 41.0,
+        "top": 40.0,
+        "bottom": 41.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          81.0,
+          81.0
+        ],
+        "down": [
+          81.0,
+          81.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 41,
+      "photograph": "registration-panning-worst.png"
+    },
+    "zooming": {
+      "samples": 48,
+      "photographs": 48,
+      "closed": 0,
+      "left": 1.0,
+      "right": 1.0,
+      "top": 1.0,
+      "bottom": 1.0,
+      "unevenness": 2.0,
+      "widest_seen": {
+        "left": 40.0,
+        "right": 41.0,
+        "top": 40.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 39.0,
+        "right": 40.0,
+        "top": 39.0,
+        "bottom": 40.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          79.0,
+          81.0
+        ],
+        "down": [
+          79.0,
+          81.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 16,
+      "photograph": "registration-zooming-worst.png"
+    },
+    "thrown about": {
+      "samples": 126,
+      "photographs": 147,
+      "closed": 0,
+      "left": 0.0,
+      "right": 1.0,
+      "top": 0.0,
+      "bottom": 1.0,
+      "unevenness": 1.0,
+      "widest_seen": {
+        "left": 40.0,
+        "right": 41.0,
+        "top": 40.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 40.0,
+        "right": 41.0,
+        "top": 40.0,
+        "bottom": 41.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          81.0,
+          81.0
+        ],
+        "down": [
+          81.0,
+          81.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 49,
+      "photograph": "registration-thrown-about-worst.png"
+    },
+    "and the check can fail": {
+      "the hole moved 0 browser pixels": {
+        "unevenness": 1.0,
+        "noticed": false,
+        "photograph": "registration-can-fail-nudged-0.png"
+      },
+      "the hole moved 2 browser pixels": {
+        "unevenness": 5.0,
+        "noticed": true,
+        "photograph": "registration-can-fail-nudged-2.png"
+      },
+      "the hole moved 8 browser pixels": {
+        "unevenness": 17.0,
+        "noticed": true,
+        "photograph": "registration-can-fail-nudged-8.png"
+      }
+    }
+  },
+  "2. handedness": {
+    "photograph": "handedness.png",
+    "brightness across the picture, grey levels per hundred pixels": 91.5,
+    "the bright edge is drawn on the right": true,
+    "and dragging carries the picture with the hand": {
+      "the hand moved (browser pixels)": 120,
+      "the picture moved (browser pixels)": 120.0,
+      "slope": 1.0
+    }
+  },
+  "3. two gestures and no more": {
+    "dragging pans": {
+      "the hand moved (browser pixels)": 120,
+      "the edge of the picture moved (browser pixels)": 120.0,
+      "the margins stayed even": 1.0
+    },
+    "the plain wheel zooms": {
+      "the picture went from (photograph pixels)": 244,
+      "to": 503,
+      "the margins stayed even": 2.0
+    },
+    "the gestures that were removed": {
+      "shift and drag (used to rotate)": "unchanged, byte for byte",
+      "the r key (used to rotate)": "unchanged, byte for byte",
+      "the e key (used to rotate)": "unchanged, byte for byte",
+      "shift and the arrow keys (used to tilt)": "unchanged, byte for byte",
+      "ctrl and the wheel (used to zoom)": "unchanged, byte for byte",
+      "the right button (used to recentre)": "unchanged, byte for byte",
+      "the arrow keys (used to step sideways)": "unchanged, byte for byte",
+      "the comma and full stop keys (used to step through the stack)": "unchanged, byte for byte",
+      "the bracket keys (used to step through time)": "unchanged, byte for byte"
+    },
+    "what the page counted": {
+      "refused": {
+        "shiftDrag": 1,
+        "rightButton": 1,
+        "ctrlWheel": 3,
+        "keys": 22
+      },
+      "accepted": {
+        "drags": 1,
+        "wheels": 4
+      }
+    }
+  },
+  "4. sparseness": {
+    "places the run imaged": 5,
+    "share of the window showing acquired picture": 0.0152,
+    "share showing the operator's own drawing": 0.9848,
+    "the picture shows": true,
+    "the operator's plan shows through the gaps": true,
+    "photograph": "sparseness.png"
+  },
+  "5. new data arriving while somebody is watching": {
+    "does it appear at all": {
+      "share of the window showing picture, at first": 0.0953,
+      "after eight more tiles were written, without being told": 0.0953,
+      "and after telling it": 0.2726,
+      "what was needed": "viewer.tilesMayHaveLanded(), which asks the engine to let go of the pieces of image it has already decoded. Nothing less works: the engine remembers every piece including the ones it found empty, with no time limit, so a tile written into ground it has already looked at is not slow to appear \u2014 it is never fetched again at all.",
+      "holders of decoded image asked": 3,
+      "it appeared": true,
+      "photographs": [
+        "new-data-before.png",
+        "new-data-without-telling-it.png",
+        "new-data-after-telling-it.png"
+      ]
+    },
+    "what the refresh costs": {
+      "pieces of image re-fetched to show the new tiles": 4,
+      "of which held picture": 3,
+      "seconds": 0.0,
+      "note": "only the pieces actually on screen are asked for again, so this follows the size of the window rather than the size of the specimen. Anything the operator had scrolled past is dropped and fetched again if they scroll back."
+    },
+    "does the picture survive the refresh": {
+      "frames the screen changed during the refresh": 3,
+      "the least the picture ever showed during it": 0.0,
+      "it settled at": 0.2726,
+      "seconds before the picture was back to half of that": 0.15,
+      "what the window showed, frame by frame": [
+        0.2726,
+        0.0,
+        0.1839
+      ],
+      "note": "letting go of every decoded piece is a complete redraw, so the picture does go away and come back rather than being replaced in place. What matters is how long the gap lasts and whether two generations are ever on screen at once, which is what the least-showed figure would reveal as a value between the two."
+    },
+    "does the view stay where the operator put it": {
+      "the centre moved (\u00b5m)": 0.0,
+      "the zoom changed (\u00b5m per screen pixel)": 0.0,
+      "the edge of the picture moved (photograph pixels)": 0.0
+    },
+    "how soon after the tile lands does it show": {
+      "seconds": 0.35,
+      "it showed": true,
+      "share of the window showing picture, before": 0.2726,
+      "and after": 0.2964,
+      "note": "the clock starts when the tile is safely on disk and stops when the window is measurably brighter than it was. It includes the time spent photographing, so it is an upper bound rather than a best case."
+    },
+    "does it keep up": {
+      "tiles written during the measurement": 460,
+      "frames a second, round by round": [
+        5.2,
+        6.0,
+        6.0,
+        6.0,
+        6.0,
+        6.0
+      ],
+      "seconds a round took": [
+        2.5,
+        2.5,
+        2.5,
+        2.5,
+        2.5,
+        2.5
+      ],
+      "the drawing rate held up": true
+    }
+  },
+  "6. requests": {
+    "unbounded": {
+      "requests to redraw the view": 117,
+      "of which found picture": 9,
+      "of which were for ground nobody imaged": 108,
+      "how many the browser held at once": 6,
+      "rounds of waiting": 67,
+      "seconds": 0.13
+    },
+    "bounded to the imaged ground": {
+      "requests to redraw the view": 25,
+      "of which found picture": 9,
+      "of which were for ground nobody imaged": 16,
+      "how many the browser held at once": 6,
+      "rounds of waiting": 7,
+      "seconds": 0.03
+    }
+  },
+  "7. drawing rate with many positions": {
+    "20 positions": {
+      "frames that changed, in three seconds": 57,
+      "frames a second": 18.9,
+      "rectangles the page was drawing": 20
+    },
+    "200 positions": {
+      "frames that changed, in three seconds": 47,
+      "frames a second": 13.0,
+      "rectangles the page was drawing": 200
+    }
+  }
+}
