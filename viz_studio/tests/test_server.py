@@ -525,3 +525,66 @@ class TestClosingGivesTheMemoryBack:
         closed = library.close_group("targetscan", folder=number)
         assert [name for _, _, name in closed] == ["targetscan_cell001.ome.zarr"]
         assert [root for _, root, _ in closed] == [data.resolve()]
+
+
+def test_the_record_of_where_a_run_imaged_is_reachable_from_the_page(tmp_path):
+    """A browser must be able to fetch the coverage record with one plain request.
+
+    ``zmart_storage`` writes down which parts of a run's canvas actually hold
+    picture, so that the viewer can stop asking for the far larger room the run
+    merely declared. That is only useful if the page can read it, and the page
+    can only read what this server hands out — it has no way to list a folder and
+    go looking. So the record has to sit at a path the page can work out for
+    itself from the run it already knows about, and this checks that it does.
+    """
+    import sys
+    from pathlib import Path
+
+    import numpy as np
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from zmart_storage import Channel, TileCanvases
+
+    run = tmp_path / "run"
+    canvases = TileCanvases.create(
+        run,
+        name="overview",
+        canvas_shape=(2, 2048, 2048),
+        tile_shape=(2, 128, 128),
+        tile_step=(2, 128, 128),
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488")],
+        levels=2,
+        chunk=64,
+    )
+    for col in range(3):
+        canvases.write(np.full((2, 128, 128), 1000 + col, "uint16"),
+                       origin=(0, 0, col * 128), tile_index=(0, 0, col))
+    canvases.close()
+
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "index.html").write_text("<!doctype html><title>page</title>", encoding="utf-8")
+    server = make_server(port=0, data_dir=run, site_dir=site)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        status, _, body = request(
+            port, "/data/0/zmart-coverage/overview.ome.zarr/regions.json"
+        )
+        assert status == 200
+        summary = json.loads(body)
+        assert summary["regions"] == [{"z": [0, 2], "y": [0, 128], "x": [0, 384]}]
+        assert summary["tiles_written"] == 3
+
+        # And the tile-by-tile record beside it, for anything wanting the detail.
+        status, _, body = request(
+            port, "/data/0/zmart-coverage/overview.ome.zarr/tiles.jsonl"
+        )
+        assert status == 200
+        lines = [json.loads(line) for line in body.decode().splitlines() if line.strip()]
+        assert [line["origin"]["x"] for line in lines] == [0, 128, 256]
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
