@@ -14,7 +14,9 @@ against.
 
 from __future__ import annotations
 
+import re
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -1151,12 +1153,10 @@ def _a_canvas_this_wide(folder: Path, width: int, **kwargs) -> TileCanvases:
         folder,
         name="overview",
         canvas_shape=(2, width, width),
-        tile_shape=(2, 2048, 2048),
-        tile_step=(2, 2048, 2048),
         voxel_size_um=(2.0, 0.35, 0.35),
         channels=[Channel("488")],
         chunk=256,
-        **kwargs,
+        **{"tile_shape": (2, 2048, 2048), "tile_step": (2, 2048, 2048), **kwargs},
     )
 
 
@@ -1301,25 +1301,47 @@ def test_a_tile_still_arrives_whole_in_the_coarsest_copy(tmp_path):
     canvases.close()
 
 
-def test_a_deeper_pyramid_makes_the_writer_warn_about_ordinary_tiles(tmp_path):
-    """A consequence worth knowing about, pinned here so it is not a surprise.
+def test_a_deeper_pyramid_does_not_warn_about_an_ordinary_camera_tile(tmp_path):
+    """A wide run must not greet the operator with advice they cannot take.
 
     The writer keeps two tiles from being written into the same file at the same
-    moment, and it warns when the tile size makes that happen often. The size it
-    measures against is the piece of the *smallest* copy, because that piece
-    covers the most ground -- and every extra copy doubles it.
+    moment, and it warns when the tile size makes that happen often. That warning
+    is useful only while the operator can do something about it.
 
-    With three copies and 256-voxel pieces that ground was 1024 voxels, which an
-    ordinary 2048-voxel camera tile divides into neatly, so nothing was said. On
-    a stage-sized canvas there are now eight copies, the ground is 32768 voxels,
-    and no camera tile divides into that. So the warning now appears on large
-    runs where it did not before.
+    Every smaller copy doubles the ground one piece of image covers, so on a
+    stage-sized canvas -- which now keeps eight copies rather than three -- the
+    coarsest piece covers thirty-two thousand voxels. No camera tile divides into
+    that, and none ever will. Measuring against it would put a warning on every
+    large run suggesting a tile size no microscope can produce, which is how
+    people learn to stop reading warnings.
 
-    It is telling the truth: tiles landing in one piece of the smallest copy
-    really are written one after another rather than side by side. But the size
-    it suggests instead is far larger than any camera, so the advice cannot be
-    followed, and that is worth revisiting separately.
+    So the comparison stops at the largest piece a tile this size could actually
+    line up with. Two thousand voxels is an everyday camera tile and it is a whole
+    number of 256-voxel pieces, so a wide run says nothing.
     """
-    with pytest.warns(UserWarning, match="does not divide into whole pieces"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
         canvases = _a_canvas_this_wide(tmp_path / "run", 100_000)
     canvases.close()
+
+
+def test_an_awkward_tile_is_still_pointed_out_on_a_wide_run(tmp_path):
+    """And the warning must not have been quietened into uselessness.
+
+    A tile of 1500 voxels is not a whole number of 256-voxel pieces however many
+    copies the run keeps, so this is the case the operator genuinely can act on
+    and it still has to be said -- with a size they could actually set the camera
+    to, rather than one in the tens of thousands.
+    """
+    with pytest.warns(UserWarning, match="does not divide into whole pieces") as said:
+        canvases = _a_canvas_this_wide(
+            tmp_path / "run", 100_000,
+            tile_shape=(2, 1500, 1500), tile_step=(2, 1500, 1500),
+        )
+    canvases.close()
+    suggested = int(re.search(r"a tile of (\d+) voxels would avoid",
+                              str(said[0].message)).group(1))
+    assert suggested <= 4096, (
+        f"the writer suggested a tile of {suggested} voxels, which is far larger "
+        f"than any camera -- advice nobody can follow"
+    )
