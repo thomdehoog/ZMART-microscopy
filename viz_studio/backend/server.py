@@ -869,11 +869,23 @@ def make_server(
         library.open(
             Path(spec.get("path", data_dir)),
             names=spec.get("stores"),
-            # Only one dataset may watch, and only when it did not pick particular
-            # stores. Two datasets watching the same folder would each absorb the
-            # other's images on the next look: closing one would have it rediscovered
-            # moments later by its neighbour, and an operator who opened one
-            # acquisition out of a mixed folder would find the rest arriving anyway.
+            # Whether to keep looking in this folder once it has been opened.
+            #
+            # A load that named particular stores is not watched, because naming
+            # them is how somebody says "this much and no more", and looking in the
+            # folder again would quietly add what they left out. The one exception
+            # is the single load the viewer was started on: that folder is the run
+            # being worked on, and a position or an acquisition written into it
+            # while the viewer is open is the whole point of watching at all.
+            #
+            # This restriction used to be justified here by a hazard that no longer
+            # exists — two datasets open on one folder each taking the other's
+            # images on the next look, and a store the operator had closed being
+            # rediscovered moments later by its neighbour. Neither can happen now: a
+            # watched folder is looked in once however many datasets are open on it,
+            # a store that appears is given to exactly one of them according to what
+            # it says it is, and anything the operator closed is remembered as
+            # closed. See ``_look_again`` and ``_place`` in library.py.
             watch=live and (len(wanted) == 1 or spec.get("stores") is None),
             name=spec.get("name"),
         )
