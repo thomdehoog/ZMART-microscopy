@@ -37,9 +37,11 @@ reason. Three things decide what runs:
 - **Always.** The data-reading tests (finding channels in a store, choosing a
   contrast window, serving chunks safely) need only Python with numpy and zarr.
   These run everywhere.
-- **When the page is built.** The browser tests load the real viewer and check
-  that pixels actually reach the renderer. `run_tests.py` builds the page for
-  you; without Node.js they skip.
+- **When the page is built, and a browser can be started.** The browser tests
+  load the real viewer and check that pixels actually reach the renderer.
+  `run_tests.py` builds the page for you; without Node.js they skip. They also
+  need a Chromium, and the suite goes to some trouble to find one — see
+  "Finding a browser this machine already has" below.
 - **When a GPU / real data is present.** Two tests only make sense on a real
   machine, and live in `tests/test_gpu_realdata.py`:
   - `test_webgl_is_hardware_accelerated` — confirms a graphics card, not
@@ -96,6 +98,34 @@ measured on the acquisition PC. The margin the ordinary run checks against stays
 at the smaller, more cautious number for exactly this reason: a viewer that is
 safe on the slowest machine is safe everywhere.
 
+## Finding a browser this machine already has
+
+Playwright downloads its own Chromium and will only launch that one exact build.
+That is usually fine, and it is why `run_tests.py` offers to fetch it for you. But
+some machines cannot download one — a lab PC behind a policy that blocks it, or a
+container that ships a browser of its own — and on those machines Playwright
+refuses to start the perfectly good Chromium sitting right there, because its build
+number is not the one it expected.
+
+The consequence is worse than an error would be. Every test that looks at the
+picture skips, and the run goes green having never drawn a pixel.
+
+So before giving up, the suite looks for a Chromium the machine already has. It
+searches wherever `PLAYWRIGHT_BROWSERS_PATH` points, and `/opt/pw-browsers`, and
+takes the newest build it finds. No build number is written down anywhere, so this
+keeps working as browsers are updated. Playwright's own browser is still tried
+first, so nothing changes on an ordinary machine.
+
+If that search picks the wrong one, or finds nothing on a machine you know has a
+browser, name the one you want:
+
+```
+ZMART_CHROMIUM=/path/to/chrome python run_tests.py
+```
+
+Naming a file that does not exist means "there is no browser here", which is a
+useful way to see for yourself what a browser-less machine gets.
+
 ## Making a run fail if it never looked at a picture
 
 About a third of this suite opens a real browser and reads the pixels it drew, and
@@ -103,20 +133,43 @@ that third is the only part that catches the fault this project keeps meeting: a
 picture that is silently absent, with every piece fetched, every layer built, and
 the engine reporting itself perfectly content.
 
-If the browser cannot launch, or the page was never built, all of those tests skip
-— and the run reports the same comfortable green as one that looked and was
-satisfied. On a laptop without Node that is exactly right. On a machine that is
-*supposed* to draw, it is the suite quietly stopping doing the one thing it is for.
+If no browser can be started, or the page was never built, all of those tests skip
+— and the run would otherwise report the same comfortable green as one that looked
+and was satisfied. On a laptop without Node that is exactly right; on a machine
+that is *supposed* to draw, it is the suite quietly stopping doing the one thing it
+is for.
 
-So on such a machine, set:
+Two things guard that, and the first applies everywhere. **Any** run in which the
+picture was not looked at ends with a banner saying so:
+
+```
+================================ NO PICTURE WAS LOOKED AT ================================
+41 tests that open a real browser and read the pixels it drew were skipped.
+Why:
+  - no usable Chromium on this machine: BrowserType.launch: Executable doesn't exist at …
+…
+```
+
+The run is still green, because a plain checkout is allowed to be missing a
+browser. But nobody can now read that green as "the viewer draws correctly", which
+is the whole point.
+
+The second is for machines that really should be able to draw — a CI runner, the
+microscope PC. On those, set:
 
 ```
 ZMART_REQUIRE_BROWSER=1 python run_tests.py
 ```
 
-and a run where the pixel tests did not happen ends as a failure, saying which of
-the two reasons it was. The project's own CI sets it, which is what makes that job
-mean anything. Leave it unset on a plain checkout and nothing changes.
+and a run where the pixel tests did not happen **fails**, saying why. The project's
+own CI sets it, which is what makes that job mean anything. Leave it unset on a
+plain checkout and the run still passes, banner and all.
+
+Both halves are themselves tested, in `tests/test_the_run_says_when_it_never_drew.py`.
+Those tests start a second pytest on a machine arranged to look as though it has no
+browser at all, and check that the banner appears, that the plain run still passes,
+and that the strict one fails. A safeguard nobody has watched work is only a
+comment.
 
 ## Keeping an eye on whether the viewer still draws quickly
 

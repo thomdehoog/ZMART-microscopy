@@ -209,6 +209,14 @@ commands above, or Chromium will download fine and then fail to start with
 set PLAYWRIGHT_BROWSERS_PATH=C:\some\allowed\path\ms-playwright
 ```
 
+If the machine already has a Chromium and you would rather use that one — because
+the download is blocked, or the browser it wants is not the one that is there —
+name it and both the check above and the test suite will use it:
+
+```bash
+set ZMART_CHROMIUM=C:\some\allowed\path\chrome.exe
+```
+
 ## What is here
 
 | Path | What it is |
