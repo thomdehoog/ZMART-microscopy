@@ -142,6 +142,16 @@ def _level_holds_pixels(level: Path) -> bool:
     Looking at the folder can tell them apart, because a piece that was never
     written leaves no file behind. So the test is simply whether the folder holds
     anything besides the few small files that describe the image.
+
+    **One case this cannot separate, and it is worth knowing.** A picture that is
+    entirely zero writes no files either — zarr saves nothing for a piece holding
+    only the fill value — so an image of pure nothing looks exactly like an image
+    nobody has written to. It is read as the latter, which is the kinder mistake
+    of the two: during a run that is almost always what it really is, and the
+    answer is then taken again once something lands. The cost of being wrong is
+    that a genuinely blank acquisition is measured again on each look rather than
+    once, which is a few directory listings and no reading of pixels at all. Such
+    a store draws black either way, so nothing an operator sees depends on it.
     """
     holder = _moments_folder(level)
     try:
