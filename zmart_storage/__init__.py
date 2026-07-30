@@ -11,6 +11,6 @@ into a small, fixed number of large OME-Zarr images rather than one image per
 position. The reasoning behind that is written out at the top of that module.
 """
 
-from .canvas import Channel, TileCanvases, slots_per_axis
+from .canvas import Channel, TileCanvases, copies_for_a_canvas, slots_per_axis
 
-__all__ = ["Channel", "TileCanvases", "slots_per_axis"]
+__all__ = ["Channel", "TileCanvases", "copies_for_a_canvas", "slots_per_axis"]
