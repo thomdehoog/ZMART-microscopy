@@ -154,8 +154,10 @@ def fuse(
 
     joined = zarr.open_group(str(into), mode="w", zarr_format=2)
     # One piece per plane in every axis except the last two, whatever those axes
-    # happen to be -- a run of a single moment has no time axis, so the number of
-    # them is not fixed.
+    # happen to be. Counting from the end rather than the front is what lets this
+    # join an image somebody else wrote: this writer always declares the same five
+    # axes, but nothing obliges an OME-Zarr image to, and only the last two are
+    # ever the specimen's y and x.
     full = joined.create_array(
         "0", shape=shape,
         chunks=(*(1,) * (len(shape) - 2), chunk, chunk), dtype=dtype,
@@ -167,7 +169,7 @@ def fuse(
     # machine rather than only on the one with the most memory in the building.
     for at in np.ndindex(*shape[:-2]):
         planes = [np.asarray(g["0"][at]) for g in groups]
-        full[at] = _join(planes, where_they_meet, dtype)
+        full[at] = _join_the_planes(planes, where_they_meet, dtype)
 
     _write_smaller_copies(joined, full, levels, chunk)
     _describe(into, sources[0], levels)
@@ -251,7 +253,7 @@ def _refuse_to_write_the_joined_image_into_the_run(
 # -- deciding what to do where two tiles recorded the same place ---------------
 
 
-def _join(planes: list[np.ndarray], how: str, dtype) -> np.ndarray:
+def _join_the_planes(planes: list[np.ndarray], how: str, dtype) -> np.ndarray:
     """Combine the same plane from each of the run's images into one.
 
     A voxel is empty in every image but the one whose tile covered it, so most of
@@ -362,8 +364,9 @@ def _describe(into: Path, like: Path, levels: int) -> None:
             "coordinateTransformations": [{
                 "type": "scale",
                 # Only y and x shrink between levels, and they are the last two
-                # axes whatever else the image declares -- a run of a single
-                # moment has no time axis, so counting from the front would break.
+                # axes whatever else the image declares. Counted from the end for
+                # the same reason as above: an image written elsewhere may not
+                # declare the five axes this writer does.
                 "scale": [*scale[:-2], scale[-2] * factor, scale[-1] * factor],
             }],
         })

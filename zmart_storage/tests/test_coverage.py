@@ -531,7 +531,7 @@ def test_every_line_survives_tiles_written_all_at_once(tmp_path):
 
 
 def test_a_line_can_only_ever_be_added_to_the_end_of_the_record(tmp_path):
-    """The file is opened so that nothing already written can be moved or replaced.
+    """Nothing already in the record can be moved or written over by a later line.
 
     This is the half of the record's safety that the test above cannot show. With
     the recorder's lock held, even a record that read the whole file and wrote it
@@ -540,26 +540,40 @@ def test_a_line_can_only_ever_be_added_to_the_end_of_the_record(tmp_path):
 
     What "always add to the end" buys is that the safety does not rest on the lock
     being right. The operating system puts each line at the end of the file itself,
-    whatever offset anybody thought they were at, so a line that is already on disk
+    whatever offset the writer believed it was at, so a line that is already on disk
     cannot be overwritten by a later one. That is what makes the record of a run
     that was cut short trustworthy: whatever reached the disk stayed there.
 
-    Asked of the open file rather than of the source, so it is the real handle
-    being checked.
+    It is shown here by putting a line into the file from outside, in between two
+    tiles. A writer that kept its own place in the file would carry on from where it
+    left off and lay the next tile's line straight over that one; a writer that
+    always adds to the end cannot, whatever it believed its place to be. Nothing
+    real writes to this file but the recorder — the line from outside is simply the
+    plainest way to move the end of the file behind the writer's back.
     """
-    fcntl = pytest.importorskip(
-        "fcntl", reason="only Unix marks a file this way; Windows differs"
-    )
-
     canvases = _canvases(tmp_path)
-    (recorder,) = [slot.record for slot in canvases._slots]
-    how_it_was_opened = fcntl.fcntl(recorder._handle, fcntl.F_GETFL)
+    canvases.write(_a_tile(1), origin=(0, 0, 0), tile_index=(0, 0, 0))
 
-    assert how_it_was_opened & os.O_APPEND, (
-        "the record is not opened in 'always add to the end' mode, so two lines "
-        "could be placed at the same spot in the file and one of them lost"
-    )
+    from_somewhere_else = '{"note": "put here by something other than the writer"}'
+    with (_record_folder(tmp_path) / TILES_FILE).open("a", encoding="utf-8") as also:
+        also.write(from_somewhere_else + "\n")
+
+    canvases.write(_a_tile(2), origin=(0, 0, 128), tile_index=(0, 0, 1))
     canvases.close()
+
+    lines = (_record_folder(tmp_path) / TILES_FILE).read_text(
+        encoding="utf-8"
+    ).splitlines()
+    assert len(lines) == 3, (
+        f"three lines went into the record and {len(lines)} came back, so one of "
+        f"them was written over rather than added after the others"
+    )
+    assert lines[1] == from_somewhere_else, (
+        "the line already on disk was overwritten by the tile that followed it, "
+        "which means the record is not opened in 'always add to the end' mode"
+    )
+    assert json.loads(lines[0])["origin"]["x"] == 0
+    assert json.loads(lines[2])["origin"]["x"] == 128
 
 
 def test_the_record_matches_the_picture_after_writing_at_once(tmp_path):
@@ -733,6 +747,17 @@ def test_the_images_are_byte_for_byte_what_they_were_before(tmp_path, version, m
     The same run is written twice — once keeping the record, once with the
     recording replaced by something that does nothing at all. If keeping the
     record altered so much as one byte of one image, the two would differ.
+
+    This test names ``Recorder`` inside the writer, which is a thing tests should
+    normally avoid: it means the test has to be adjusted if that class is ever
+    renamed or moved. It is done deliberately here, and the reason is worth
+    knowing before anybody loosens it. What has to be compared is a run written
+    *without any record at all*, and the writer offers no way to ask for one —
+    quite rightly, since nobody acquiring data would want it. Removing the record
+    from a finished run afterwards would prove nothing, because the question is
+    whether keeping it changed anything *while the run was going*. So the only
+    honest way to produce the second run is to reach in and replace the recorder,
+    and this test is expected to be kept in step with that name.
     """
     import zmart_storage.canvas as canvas_module
 
@@ -788,6 +813,13 @@ def test_the_viewer_reads_the_run_exactly_as_it_did_before(tmp_path):
     Comparing against a copy of the run with the record deleted is what makes
     this evidence rather than reassurance: whatever the viewer says about one, it
     has to say about the other.
+
+    One thing to know if this ever fails: it is the only test here that reads the
+    viewer's own code, so a change in ``viz_studio/backend`` can turn it red
+    without anything in the writer having moved. That is the price of asking the
+    real reader rather than an imitation of one, and the answer is usually worth
+    it — but when this test alone fails, look at what the viewer changed before
+    looking at the record.
     """
     backend = Path(__file__).resolve().parents[2] / "viz_studio" / "backend"
     sys.path.insert(0, str(backend))

@@ -239,7 +239,7 @@ def _refuse_overlapping_tiles(tile_shape, tile_step) -> None:
 _DESCRIPTION_FILES = {".zarray", ".zattrs", ".zgroup", ".zmetadata", "zarr.json"}
 
 
-def _a_tile_already_written(store: Path) -> Path | None:
+def _a_picture_already_written(store: Path) -> Path | None:
     """The first piece of acquired picture found inside ``store``, if there is one.
 
     An image that has been declared but never written to contains only its own
@@ -253,10 +253,9 @@ def _a_tile_already_written(store: Path) -> Path | None:
 
     Returns:
         The path of a piece of acquired picture, or ``None`` if this image holds
-        nothing but its description.
+        nothing but its description — which is also the answer for a folder that
+        is not there at all, since walking one simply finds nothing.
     """
-    if not store.exists():
-        return None
     for here, _, files in os.walk(store):
         for name in files:
             if name not in _DESCRIPTION_FILES:
@@ -405,7 +404,7 @@ def _refuse_to_write_over_a_finished_run(folder: Path, name: str) -> None:
     already = [
         (store, found)
         for store in _images_belonging_to(folder, name)
-        if (found := _a_tile_already_written(store)) is not None
+        if (found := _a_picture_already_written(store)) is not None
     ]
     if not already:
         return
@@ -989,7 +988,6 @@ class TileCanvases:
         self._slots = slots
         self._shape = shape
         self._levels = levels
-        self._tile_shape = tile_shape
         self._slot_grid = slot_grid
         self._claim = claim
 
@@ -1250,7 +1248,9 @@ class TileCanvases:
         depth_max = int(np.iinfo(np.dtype(dtype)).max)
 
         total = slot_grid[0] * slot_grid[1] * slot_grid[2]
-        slots: list[_Slot] = []
+        # Named apart from the ``slots`` argument on purpose: that one says how
+        # many images to make, and this one is the images themselves.
+        made: list[_Slot] = []
         for index in range(total):
             # One image per acquisition type, named after it, so the viewer can
             # group what it finds the way the experiment is organised. Only a run
@@ -1270,11 +1270,11 @@ class TileCanvases:
                 channel_blocks=[c.described(depth_max) for c in channels],
                 ome_zarr_version=ome_zarr_version,
             )
-            slots.append(_Slot(index=index, folder=store, arrays=arrays))
+            made.append(_Slot(index=index, folder=store, arrays=arrays))
 
         return cls(
             folder,
-            slots,
+            made,
             shape=(frames, len(channels), *canvas_shape),
             levels=levels,
             tile_shape=tile_shape,
@@ -1689,6 +1689,72 @@ def _declare_one(
         {"name": "x", "type": "space", "unit": "micrometer"},
     ]
 
+    arrays, datasets = _make_the_copies(
+        group,
+        canvas_shape=canvas_shape,
+        frames=frames,
+        channels=channels,
+        dtype=dtype,
+        chunk=chunk,
+        levels=levels,
+        voxel_size_um=voxel_size_um,
+        newer=newer,
+    )
+
+    multiscale = {
+        "axes": axes,
+        "datasets": datasets,
+        # Where this image sits in the world. Every image in a run shares the
+        # same corner, which is what makes them line up on screen.
+        "coordinateTransformations": [{
+            "type": "translation",
+            "translation": [0.0, 0.0,
+                            origin_um[0], origin_um[1], origin_um[2]],
+        }],
+    }
+
+    _write_the_description(store, group, multiscale, channel_blocks, newer=newer)
+    return arrays
+
+
+def _make_the_copies(
+    group, *,
+    canvas_shape: tuple[int, int, int],
+    frames: int,
+    channels: int,
+    dtype: str,
+    chunk: int,
+    levels: int,
+    voxel_size_um: tuple[float, float, float],
+    newer: bool,
+) -> tuple[list[zarr.Array], list[dict]]:
+    """Make the full-size image and each progressively smaller copy of it.
+
+    The copies are what the viewer draws when it is zoomed out. Each one is half
+    the width and half the height of the one before it, and every one of them
+    keeps the full depth of the stack, because scrolling through a stack should
+    show the planes that were really acquired.
+
+    Nothing is written into them here. Declaring an image of this size costs a
+    few hundred bytes of description and no picture at all, which is what makes
+    it reasonable to declare the stage's whole travel range up front.
+
+    Args:
+        group: the zarr group the copies are made in, which is one image.
+        canvas_shape: how much room the run declared, as ``(z, y, x)`` in voxels.
+        frames: how many moments to allow room for.
+        channels: how many colours of light the run records.
+        dtype: the kind of number one voxel is, such as ``"uint16"``.
+        chunk: how large one piece of image is, in y and x.
+        levels: how many copies to make, counting the full-size one.
+        voxel_size_um: how large one voxel is, as ``(z, y, x)`` in microns.
+        newer: ``True`` when writing OME-Zarr 0.5, which files the pieces of an
+            image its own way, ``False`` for 0.4.
+
+    Returns:
+        The copies themselves, largest first, and the block of description that
+        names each one and says how much ground its voxels cover.
+    """
     arrays, datasets = [], []
     for level in range(levels):
         factor = 2 ** level
@@ -1722,23 +1788,36 @@ def _declare_one(
             "path": str(level),
             "coordinateTransformations": [{
                 "type": "scale",
+                # Only the height and the width of a voxel double from one copy to
+                # the next. Its depth stays as it was, because no plane is ever
+                # dropped.
                 "scale": [1.0, 1.0, voxel_size_um[0],
                           voxel_size_um[1] * factor, voxel_size_um[2] * factor],
             }],
         })
+    return arrays, datasets
 
-    multiscale = {
-        "axes": axes,
-        "datasets": datasets,
-        # Where this image sits in the world. Every image in a run shares the
-        # same corner, which is what makes them line up on screen.
-        "coordinateTransformations": [{
-            "type": "translation",
-            "translation": [0.0, 0.0,
-                            origin_um[0], origin_um[1], origin_um[2]],
-        }],
-    }
 
+def _write_the_description(
+    store: Path, group, multiscale: dict, channel_blocks: list[dict], *, newer: bool
+) -> None:
+    """Record what this image is, in the place the chosen generation keeps it.
+
+    This is the one part of writing an image that the two generations of OME-Zarr
+    genuinely disagree about, so it is kept here on its own rather than left in
+    the middle of building the arrays. Everything the description *says* is the
+    same either way; only where it is written down differs.
+
+    Args:
+        store: the image folder, which version 0.4 writes a file beside.
+        group: the zarr group the arrays were made in, which version 0.5 keeps
+            its description inside.
+        multiscale: the block describing the axes, the progressively smaller
+            copies and where the image sits in the world.
+        channel_blocks: one block per colour of light, saying how it should first
+            appear on screen.
+        newer: ``True`` for version 0.5, ``False`` for 0.4.
+    """
     if newer:
         # In 0.5 the description lives inside the store's own ``zarr.json``, under an
         # ``ome`` key, and the version is stated once for the whole block rather than
@@ -1760,5 +1839,3 @@ def _declare_one(
             "multiscales": [{"version": "0.4", **multiscale}],
             "omero": {"channels": channel_blocks},
         }, indent=2), encoding="utf-8")
-
-    return arrays
