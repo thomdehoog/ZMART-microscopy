@@ -26,7 +26,7 @@
  *
  * ## What this file does differently from `frontend/src/engine.js`
  *
- * Five things, and each one is fixing something that made the older integration
+ * Six things, and each one is fixing something that made the older integration
  * awkward rather than being a matter of taste.
  *
  * 1. **Nothing lives in a module variable.** The older engine module keeps the
@@ -67,6 +67,14 @@
  *    "Keeping the picture on screen while it is being fetched again" explains
  *    both the fault and what the engine does and does not give us to fix it
  *    with.
+ *
+ * 6. **The picture is placed where the store says it is.** Our writer says where
+ *    an image sits by giving the corner of its first voxel; the engine reads the
+ *    same description as giving the middle of it, and so drew every acquisition
+ *    half a voxel early — about half a screen pixel at an ordinary
+ *    magnification, and four screen pixels when zoomed in to eight times full
+ *    resolution. `countFromTheCornerOfTheVoxelRatherThanItsMiddle` puts that
+ *    right, and says plainly what part of it a viewer cannot put right.
  */
 
 import "neuroglancer/unstable/util/polyfills.js";
@@ -194,6 +202,11 @@ export async function openViewer(element, options = {}) {
     paint: null,
     stopFollowing: null,
     watchSize: null,
+    // How to stop listening for an acquisition's data arriving. Kept so that
+    // closing the viewer really lets go of everything; see
+    // `countFromTheCornerOfTheVoxelRatherThanItsMiddle` for what the listening
+    // is for.
+    stopWatchingTheSources: null,
     // The pieces of picture that have been superseded but are still on screen,
     // one set of piece names per source the engine reads from. See
     // `keepShowingThePictureWhileTheNewOneArrives` for what they are for; the
@@ -486,6 +499,18 @@ async function start(own, acquisitions) {
   await whenTheAxesAreKnown(own.viewer);
   pinTheAxesThatMeasureDistance(own.viewer);
   startTimeAtTheFirstMoment(own.viewer);
+  countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
+  // A page may open several acquisitions at once, and they do not all arrive
+  // together — the axes become known as soon as the first of them is read, so a
+  // second one may still be on its way. Each layer is therefore looked at again
+  // whenever its source changes. Looking twice costs nothing: the second look
+  // finds the engine already counting from the corner of a voxel and leaves it
+  // alone, which is why this cannot creep half a voxel further with each pass.
+  own.stopWatchingTheSources = own.rows
+    .map((row) => row.managed?.layer?.dataSourcesChanged?.add(
+      () => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own),
+    ))
+    .filter(Boolean);
   // The engine chooses a starting magnification the first moment it believes it
   // knows what space the picture lives in, and for a moment that is an empty
   // space in which one voxel is one metre. Clearing it now makes it choose
@@ -820,6 +845,84 @@ function startTimeAtTheFirstMoment(viewer) {
   position.value = moved;
 }
 
+/**
+ * Put the picture where the store says it is, rather than half a voxel before it.
+ *
+ * An image has to say where in the specimen its first voxel sits, and there are
+ * two ways of saying it. The writer in this project gives the **corner** of that
+ * voxel: an image of one-micrometre voxels beginning at nought has its first
+ * voxel covering the ground from 0 µm to 1 µm, and the coverage record beside it
+ * counts the same way. The description the writer leaves in the store is read by
+ * neuroglancer under the other convention, in which the number given is the
+ * **middle** of the first voxel — so the engine places the whole image half a
+ * voxel earlier than the writer meant. That is not carelessness on the engine's
+ * part. The file format's own text says middles, and our writer says corners
+ * without ever writing it down, so each is being reasonable about a description
+ * that does not say.
+ *
+ * Half a voxel sounds like nothing, and at the magnification the engine chooses
+ * for itself it very nearly is: it comes to about half a screen pixel, because
+ * the engine picks whichever stored resolution puts roughly one voxel in one
+ * pixel. Zoom in past the finest resolution, though, and half a voxel keeps its
+ * size in the specimen while a screen pixel shrinks. Measured on this page at
+ * eight times full resolution, the edge of the picture sat four screen pixels
+ * away from where the operator's drawing put it — which is exactly the moment an
+ * operator is asking whether a tile's picture really landed inside the square
+ * they laid out.
+ *
+ * So the layer is moved back by half a voxel, and two things make that a
+ * conversion between two stated conventions rather than a fudge. It is half a
+ * voxel *of the image*, not a number of screen pixels tuned on one machine, so
+ * it holds at every magnification and on a screen of any density. And it is
+ * applied only where the engine has said, in `voxelCenterAtIntegerCoordinates`,
+ * that it is counting from the middle of a voxel; an image it has read the other
+ * way round is left exactly as it is, which also means running this twice can do
+ * no harm.
+ *
+ * Only the two axes drawn on the window are moved. Depth and time choose which
+ * plane and which moment an operator is looking at rather than where anything is
+ * drawn, and shifting those by half a step would change which plane `setPlane`
+ * hands back without lining anything up.
+ *
+ * **What this does not cure.** The engine takes its half a voxel off every
+ * stored resolution separately, so a coarse level of the pyramid is placed half
+ * of *its own* voxel early — one and a half micrometres for a four-micrometre
+ * level built from one-micrometre data. Only the finest level can be corrected
+ * from here: the coarser ones are placed once, while the description is being
+ * read, and are out of reach afterwards. So a view zoomed a long way out is
+ * still up to half a screen pixel out, and a view zoomed in is exact. The
+ * complete cure is for the writer to say which convention it means, by giving
+ * each resolution in `zmart_storage/canvas.py` a translation of half its own
+ * voxel; that would also line the resolutions up with one another, which they
+ * are not today.
+ */
+function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
+  const space = own.viewer.navigationState.position.coordinateSpace.value;
+  const shown = axesOnScreen(own.viewer);
+  const drawnAcrossTheWindow = new Set(
+    [space?.names?.[shown.across], space?.names?.[shown.down]].filter(Boolean),
+  );
+  if (!drawnAcrossTheWindow.size) return;
+  for (const row of own.rows) {
+    const placing = row.managed?.layer?.dataSources?.[0]?.loadState?.transform;
+    if (!placing) continue;
+    const placed = placing.value;
+    const { rank, outputSpace } = placed;
+    const moved = Float64Array.from(placed.transform);
+    let anythingMoved = false;
+    for (let axis = 0; axis < rank; axis += 1) {
+      if (!drawnAcrossTheWindow.has(outputSpace?.names?.[axis])) continue;
+      if (!outputSpace.bounds?.voxelCenterAtIntegerCoordinates?.[axis]) continue;
+      // Where the image sits is the last column of the matrix, and one unit
+      // along an axis is one voxel of the finest stored resolution — so half a
+      // voxel is simply a half.
+      moved[rank * (rank + 1) + axis] += 0.5;
+      anythingMoved = true;
+    }
+    if (anythingMoved) placing.value = { ...placed, transform: moved };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Micrometres in, micrometres out
 // ---------------------------------------------------------------------------
@@ -1123,6 +1226,8 @@ function handleFor(own) {
       own.watchSize?.disconnect();
       own.stopFollowing?.();
       own.stopHoldingOn?.();
+      for (const stop of own.stopWatchingTheSources || []) stop();
+      own.stopWatchingTheSources = null;
       own.paint = null;
       for (const row of own.rows) {
         if (row.managed) deleteLayer(row.managed);
