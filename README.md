@@ -76,6 +76,18 @@ copied afterwards and the viewer holds the same few images from the first moment
 `zmart_storage` is the writer that does this. When it has written a tile, the run
 says so, and the picture fills in on screen without the page reloading.
 
+**Tiles have to butt up: the stage steps by a whole tile, and a run whose tiles
+would overlap is refused when the images are declared.** Everything goes into one
+image per acquisition type, and an image holds a single value per voxel, so an
+overlapping tile would simply replace part of the one before it with nothing about
+the picture to show for it. What that costs is real and worth knowing: microscopists
+often acquire with a little overlap so that the two recordings of the shared strip
+can afterwards be compared to work out where the stage *actually* put each tile.
+Without overlap there is no such comparison, so a seam left by a stage that is
+slightly off stays there. That is the accepted trade — resolving overlap properly
+needs a real stitcher, this project has none, and a half-kept overlap that nobody
+ever resolves would cost storage and complication for no correction at all.
+
 The writer can produce either generation of the OME-Zarr format, chosen with its
 `ome_zarr_version` argument. It writes `0.4` unless you ask otherwise, because that
 is what almost every other tool can read today; `0.5` is the newer standard and is
