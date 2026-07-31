@@ -24,9 +24,10 @@ self-report this project has learned not to trust.
 
 Everything is bound to this machine only.
 
-This began as ``viz_studio/sandwich/probe_server.py`` on the sandwich-probe
-branch and is kept close to it on purpose, so that a number measured then and a
-number measured now are comparable.
+This began as ``viz_studio/sandwich/probe_server.py``, which is not on this
+branch but on ``claude/sandwich-probe``, commit ``1277e30``. It is kept close to
+it on purpose, so that a number measured then and a number measured now are
+comparable.
 """
 
 from __future__ import annotations

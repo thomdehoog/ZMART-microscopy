@@ -380,6 +380,11 @@ def _share_of_the_window_that_is(picture, colour: str) -> float:
         is_it = (green > 120) & (red < 90) & (blue < 90)
     elif colour == "blue":
         is_it = (blue > 120) & (red < 90) & (green < 90)
+    elif colour == "near white":
+        # The acquired picture. It is the only near-white thing on screen in the
+        # arrangements this file photographs, so counting it says how much
+        # picture an operator can see.
+        is_it = (red > 150) & (green > 150) & (blue > 150)
     else:
         raise ValueError(f"nothing here knows how to count {colour!r}")
     return float(is_it.mean())
@@ -408,13 +413,23 @@ def test_an_option_is_honest_about_the_bottom_layer(harness_page, option):
     things underneath would make the whole comparison a lie.
 
     So this checks the claim against the picture, both ways round. An option that
-    says yes must show a colour drawn beneath; an option that says no must show
-    none of it, and must give a reason a page can put in front of somebody.
+    says yes must show a colour drawn beneath **and must still be drawing the
+    acquired picture on top of it**; an option that says no must show none of the
+    colour, and must give a reason a page can put in front of somebody.
+
+    That second half of the "yes" is the part that does the work, and it was
+    added after it was shown to be needed. One option was deliberately changed to
+    put the bottom layer at the *end* of its list of layers instead of the
+    beginning — that is, to draw it over the picture rather than under it — and
+    this test passed, because the colour still filled the window. What gave it
+    away was the acquired picture: it went from 2.95% of the window to nothing at
+    all, because the colour had covered it. Drawing the bottom slot on top is
+    exactly the fake `contract.md` §4a forbids, so the test now looks for it.
 
     The same colour is then drawn in the *top* slot, and every option must show it
-    filling the window. That is what makes the reading mean "which slot" rather
-    than "which colour": without it, a viewer whose drawing never ran at all would
-    pass the "no" half of this test perfectly.
+    filling the window and hiding the picture. That is what makes the reading mean
+    "which slot" rather than "which colour": without it, a viewer whose drawing
+    never ran at all would pass the "no" half of this test perfectly.
     """
     harness_page.option = option
     # Unbounded on purpose. With the drawn region kept to the imaged ground, the
@@ -432,16 +447,38 @@ def test_an_option_is_honest_about_the_bottom_layer(harness_page, option):
         f"which engine it is talking to; this one answered {claims!r}"
     )
 
+    # How much acquired picture there is to begin with, with the page drawing
+    # nothing at all. Everything below is compared against this.
+    _draw_in_the_slots(harness_page, under="nothing", over="nothing")
+    picture_to_begin_with = _share_of_the_window_that_is(
+        harness_page.photograph(), "near white"
+    )
+    assert picture_to_begin_with > 0.005, (
+        "there was no acquired picture in the window before anything was drawn, "
+        "so this check cannot tell a bottom layer from a layer painted over the "
+        f"picture: only {picture_to_begin_with:.4f} of the window was picture"
+    )
+
     _draw_in_the_slots(harness_page, under="a colour", over="nothing")
-    beneath = _share_of_the_window_that_is(harness_page.photograph(), "green")
+    under_picture = harness_page.photograph()
+    beneath = _share_of_the_window_that_is(under_picture, "green")
+    picture_left_beneath = _share_of_the_window_that_is(under_picture, "near white")
 
     _draw_in_the_slots(harness_page, under="nothing", over="a colour")
-    above = _share_of_the_window_that_is(harness_page.photograph(), "green")
+    over_picture = harness_page.photograph()
+    above = _share_of_the_window_that_is(over_picture, "green")
+    picture_left_above = _share_of_the_window_that_is(over_picture, "near white")
 
     assert above > 0.9, (
         "the same colour drawn in the top slot did not fill the window, so this "
         "check cannot tell whether the colour was ever drawn at all: it covered "
         f"{above:.4f} of the window"
+    )
+    assert picture_left_above < picture_to_begin_with / 2, (
+        "the same colour drawn in the top slot did not hide the acquired "
+        "picture, so this check cannot tell the two slots apart at all: the "
+        f"picture went from {picture_to_begin_with:.4f} of the window to "
+        f"{picture_left_above:.4f}"
     )
     if claims:
         assert beneath > 0.5, (
@@ -449,6 +486,14 @@ def test_an_option_is_honest_about_the_bottom_layer(harness_page, option):
             f"there covered only {beneath:.4f} of the window while the same "
             f"colour drawn on top covered {above:.4f}. Either the bottom slot is "
             "not reaching the screen or the claim is wrong."
+        )
+        assert picture_left_beneath > picture_to_begin_with / 2, (
+            f"{option} says it draws beneath the picture, but the drawing "
+            "covered the picture rather than sitting under it: the acquired "
+            f"picture went from {picture_to_begin_with:.4f} of the window to "
+            f"{picture_left_beneath:.4f}. A drawing that hides the picture is on "
+            "top of it, whatever slot it was handed to — see contract.md §4a, "
+            "which forbids exactly this."
         )
     else:
         assert beneath < 0.02, (

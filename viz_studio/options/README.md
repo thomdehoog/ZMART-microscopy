@@ -9,10 +9,48 @@ options/
   contract.md              the interface, restated beside the code — read this first
   RESULTS.md               the table, one column per option
   harness/                 the page that drives any option, and the shapes it draws
-  neuroglancer-under/      option A: the engine underneath, the operator's drawing on top
+  neuroglancer-under/      option A: neuroglancer underneath, the operator's drawing on top
+  viv-under/               option B: Viv and deck.gl underneath, the same way up
+  viv-inside/              option C: one canvas, with Viv's layers and the operator's in it
   measure/                 the suite, run against each option in turn
   measurements/            what the last run produced: photographs and full readings
 ```
+
+## How the three are laid out inside
+
+The three `viewer.js` files are written to the same plan, so that reading one
+after another is easy and a difference between them stands out. Each has its
+sections in this order, with the same headings:
+
+| | |
+| --- | --- |
+| `openViewer` | the one thing the file exports, and what it refuses |
+| the surfaces | two canvases for A and B, one for C |
+| opening the acquisitions | addresses, voxel sizes, and where to look first |
+| the little program that runs on the graphics card | how stored numbers become colour |
+| what the engine is asked to draw | the layers, and what is deliberately not asked for |
+| micrometres in, micrometres out | the one place an engine's own units are converted |
+| the operator's own drawing | where the page's two drawing functions are called |
+| going back to the store | what "a tile may have arrived" comes to for this engine |
+| the handle | everything a page may call, and nothing else |
+
+Option A has no "what the engine is asked to draw" section of its own, because
+neuroglancer builds its layers from the description it is handed rather than from
+a list this file makes each frame; that happens inside `start`.
+
+**Two of the files share code by copying it.** Five helpers are word for word the
+same in `neuroglancer-under/viewer.js` and `viv-under/viewer.js`, because those
+two are the same arrangement with a different engine in the middle and the parts
+that are not about the engine have to stay identical. Copies can drift, so each
+file says which five they are and asks that both be changed together.
+
+Putting them in one shared module instead would be the obvious cure, and it has
+not been done, because it is a real decision rather than a tidy-up. A shared
+module means one edit changes two columns of the results table at once, which is
+exactly the kind of silent coupling this comparison exists to avoid — the numbers
+would move together and nobody would know whether that was the engines or the
+shared file. If the comparison is ever settled and one option is chosen, sharing
+becomes plainly right; while all three are being weighed, the copies are honest.
 
 ## Running it
 
@@ -33,8 +71,11 @@ python viz_studio/options/measure/run.py --option all
 ```
 
 It writes photographs and a full set of readings into `measurements/`, and brings
-the table in `RESULTS.md` up to date. It takes about two minutes per option on a
-machine with no graphics card.
+the table in `RESULTS.md` up to date. It takes about three minutes per option on a
+machine with no graphics card. Rather more than half a minute of that is
+measurement 7, which takes its reading five times over and reports the middle one
+— a single reading of the drawing rate is worth very little, and `RESULTS.md`
+says why under row 7.
 
 ## Looking at it yourself
 
