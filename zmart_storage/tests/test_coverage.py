@@ -323,41 +323,7 @@ def test_a_run_with_no_record_answers_no_rather_than_pretending(tmp_path):
     assert found.was_imaged(0, 0, 0) is False  # and ``recorded`` is how you tell
 
 
-# -- several images, and reading one of them ---------------------------------
-
-
-def test_a_run_spread_over_several_images_is_gathered_together(tmp_path):
-    """A run keeping its overlap writes several images, and coverage covers them all."""
-    canvases = TileCanvases.create(
-        tmp_path,
-        name="overview",
-        canvas_shape=(2, 2048, 2048),
-        tile_shape=TILE,
-        tile_step=(2, 112, 112),
-        voxel_size_um=(2.0, 0.35, 0.35),
-        channels=[Channel("488")],
-        levels=2,
-        chunk=64,
-        slots=(1, 2, 2),
-    )
-    for row in range(2):
-        for col in range(2):
-            canvases.write(_a_tile(1000 + row * 2 + col),
-                           origin=(0, row * 112, col * 112),
-                           tile_index=(0, row, col))
-    canvases.close()
-
-    kept = sorted(p.name for p in (tmp_path / COVERAGE_FOLDER).iterdir())
-    assert kept == [f"overview_part{n}.ome.zarr" for n in range(4)]
-
-    whole_run = imaged_regions(tmp_path)
-    assert len(whole_run.tiles) == 4
-    assert whole_run.regions == [Region(0, 2, 0, 240, 0, 240)]
-
-    just_one = imaged_regions(tmp_path / "overview_part0.ome.zarr")
-    assert len(just_one.tiles) == 1
-    assert just_one.tiles[0].image == "overview_part0.ome.zarr"
-    assert just_one.tiles[0].acquisition == "overview"
+# -- several acquisition types, and reading one of them -----------------------
 
 
 def test_each_acquisition_type_keeps_its_own_record(tmp_path):
@@ -394,44 +360,25 @@ def test_declaring_a_run_again_throws_the_old_record_away(tmp_path):
     assert lines[0]["origin"] == {"z": 0, "y": 512, "x": 512}
 
 
-def test_declaring_a_run_again_forgets_the_images_it_no_longer_has(tmp_path):
-    """A run redeclared with fewer images must not leave the extra records behind.
+def test_declaring_a_run_again_leaves_no_trace_of_where_the_old_one_imaged(tmp_path):
+    """Read back through the summary, a redeclared run must claim only its own ground.
 
-    A run that keeps the overlap between its tiles spreads them over several
-    numbered images, and each of those gets a record of its own. Declaring the same
-    acquisition again as a single image throws the numbered images away — but their
-    records live in a folder beside the images, which nothing else touches, so
-    unless they are removed on purpose they stay there describing a run that is no
-    longer on disk.
+    The test above checks the line-by-line record. This one asks the same question
+    of :func:`imaged_regions`, which is the way anything else finds out where a run
+    imaged, and it is a genuinely separate risk: the short summary is a file of its
+    own that is rewritten rather than added to, so a stale one left in place would
+    keep describing the run that was thrown away.
 
-    What that costs is worth spelling out, because it is not merely untidy. Reading
-    the coverage of the run would report tiles belonging to images the operator
-    cannot open, and would claim as imaged a stretch of canvas the new run has
-    never been near. A viewer bounding its work to "where the picture is" would
-    then keep asking for a region that holds nothing at all.
+    What that would cost is worth spelling out, because it is not merely untidy. The
+    coverage would claim as imaged a stretch of canvas the new run has never been
+    near, and a viewer bounding its work to "where the picture is" would keep
+    asking for a region that holds nothing at all.
     """
-    spread = TileCanvases.create(
-        tmp_path,
-        name="overview",
-        canvas_shape=(2, 2048, 2048),
-        tile_shape=TILE,
-        tile_step=(2, 112, 112),
-        voxel_size_um=(2.0, 0.35, 0.35),
-        channels=[Channel("488")],
-        levels=2,
-        chunk=64,
-        slots=(1, 2, 2),
-    )
-    for row in range(2):
-        for col in range(2):
-            spread.write(_a_tile(1000 + row * 2 + col),
-                         origin=(0, 1024 + row * 112, 1024 + col * 112),
-                         tile_index=(0, row, col))
-    spread.close()
-    assert len(list((tmp_path / COVERAGE_FOLDER).iterdir())) == 4
+    first = _canvases(tmp_path)
+    first.write(_a_tile(1000), origin=(0, 1024, 1024))
+    first.close()
+    assert imaged_regions(tmp_path).regions == [Region(0, 2, 1024, 1152, 1024, 1152)]
 
-    # The same acquisition again, this time as a single image, so the four
-    # numbered images the first run wrote are thrown away.
     again = _canvases(tmp_path, discard_existing_run=True)
     again.write(_a_tile(7), origin=(0, 0, 0), tile_index=(0, 0, 0))
     again.close()

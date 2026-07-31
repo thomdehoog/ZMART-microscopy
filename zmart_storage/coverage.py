@@ -31,6 +31,38 @@ And a second front end being designed needs to know which parts of its own
 drawing to cut away, so that the image underneath shows through only where there
 really is an image.
 
+Ask the record, never the brightness
+------------------------------------
+
+This is what the record is *for*: it answers "was this imaged?" as a written fact,
+so that nothing has to work the answer out from how bright the voxels are. That
+distinction is the whole point, and it is worth being firm about, because reading
+the brightness looks so nearly right that it keeps being proposed.
+
+It is not right, and the reason is the detector. On an ordinary camera the numbers
+sit on top of an electrical offset of a hundred counts or so, so a reading of
+exactly nought never happens and it is tempting to treat nought as a spare value
+meaning "nobody has been here". But a photon-counting detector reports the number
+of photons that arrived, and at low light **nought is a perfectly ordinary
+measurement**: it means none arrived during that exposure, which is exactly the
+kind of reading such a detector exists to make. Somewhere in every faint specimen
+there are voxels that were genuinely looked at and genuinely counted nothing.
+
+So a test on brightness quietly turns real measurements into "never visited", and
+it does so hardest in the low-light quantitative work where the answer matters
+most. The same reasoning rules out the other half of the idea — having the writer
+raise every nought to one so that nought could be reserved. That would fabricate a
+count the instrument never recorded, and altering an operator's measurements is
+the one thing a writer must never do, however small the alteration and however
+convenient the guarantee.
+
+The record has neither problem. It is written from what the run *did* rather than
+from what the pixels say, so it is equally true for a bright specimen, a dark one
+and an empty field of view, and not one voxel has to be touched to keep it. Where
+a reader can reach the record, that is the answer to use. Where it cannot — an
+image written by something else, or a run older than the record — the honest
+report is "I cannot say", which is what :attr:`Coverage.recorded` is for.
+
 What is written, and where
 --------------------------
 
@@ -178,18 +210,13 @@ REGIONS_FILE = "regions.json"
 # plainly instead of misreading it.
 RECORD_VERSION = 1
 
-# How a run names its images: the usual ending of an OME-Zarr image folder, and
-# what goes between an acquisition type's name and its number when one
-# acquisition has to be spread over several images.
-#
-# Both are repeated here rather than shared, so that this module can work out
-# which acquisition an image belongs to without reaching up into ``canvas`` —
-# which imports this one, so the borrowing could only go the wrong way. They have
-# to agree with the same two names in ``canvas``, and a run written with one
-# spelling and read with the other would look like a folder full of unrelated
-# acquisitions.
+# The usual ending of an OME-Zarr image folder. It is repeated here rather than
+# shared, so that this module can work out which acquisition an image belongs to
+# without reaching up into ``canvas`` — which imports this one, so the borrowing
+# could only go the wrong way. It has to agree with the same name in ``canvas``,
+# and a run written with one spelling and read with the other would look like a
+# folder full of unrelated acquisitions.
 _IMAGE_SUFFIX = ".ome.zarr"
-_PART_MARKER = "_part"
 
 # How often the short summary is rebuilt while a run is going. A live viewer
 # reads it to decide which parts of the canvas are worth asking for, so being a
@@ -204,25 +231,18 @@ _HOW_OFTEN_TO_REBUILD_SECONDS = 1.0
 def acquisition_of(image_name: str) -> str:
     """Which acquisition type an image folder belongs to, from its name alone.
 
-    A run writes one image per acquisition type, named after it — ``overview``
-    becomes ``overview.ome.zarr``. A run that has to keep the overlap between its
-    tiles spreads the same acquisition over several numbered images instead, so
-    ``overview_part0.ome.zarr`` and its siblings all belong to ``overview`` too.
+    A run writes one image per acquisition type, named after it, so ``overview``
+    becomes ``overview.ome.zarr``.
 
     Args:
         image_name: the name of the image folder, such as ``"overview.ome.zarr"``.
 
     Returns:
-        The acquisition type's own name, with the ending and any part number
-        taken off.
+        The acquisition type's own name, with the ending taken off.
     """
-    leaf = image_name
-    if leaf.endswith(_IMAGE_SUFFIX):
-        leaf = leaf[: -len(_IMAGE_SUFFIX)]
-    head, marker, tail = leaf.rpartition(_PART_MARKER)
-    if marker and tail.isdigit():
-        return head
-    return leaf
+    if image_name.endswith(_IMAGE_SUFFIX):
+        return image_name[: -len(_IMAGE_SUFFIX)]
+    return image_name
 
 
 def where_the_record_is(run: str | Path, image: str) -> Path:
@@ -243,7 +263,7 @@ def where_the_record_is(run: str | Path, image: str) -> Path:
 def forget_the_record_of(run: str | Path, acquisition: str) -> None:
     """Throw away the coverage record of one acquisition type.
 
-    Declaring a run's images empties them, so whatever an earlier run wrote there
+    Declaring a run's image empties it, so whatever an earlier run wrote there
     is no longer true and its record must go with it. Only this acquisition
     type's record is removed: a run's folder holds an overview, a prescan and a
     targetscan side by side, and declaring one of them must leave the others
@@ -252,8 +272,7 @@ def forget_the_record_of(run: str | Path, acquisition: str) -> None:
     Args:
         run: the run's own folder.
         acquisition: the acquisition type whose record should go, such as
-            ``"overview"``. A run that spread the same acquisition over several
-            numbered images has all of their records removed together.
+            ``"overview"``.
     """
     kept = Path(run) / COVERAGE_FOLDER
     if not kept.is_dir():

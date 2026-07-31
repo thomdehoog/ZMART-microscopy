@@ -1,4 +1,4 @@
-"""Writing a tiled run into a small, fixed number of OME-Zarr images.
+"""Writing a tiled run into one large OME-Zarr image per acquisition type.
 
 Why this exists
 ---------------
@@ -11,56 +11,66 @@ own test rig, one tile arriving took 0.1 seconds when 25 tiles were open, 0.3
 seconds at 100, and 3.7 seconds at 225. The trend does not survive a run of a
 few thousand.
 
-The way out is to stop giving the viewer one image per position. Instead the run
-writes into a **small, fixed number of large images** whose size is declared
-before any imaging begins. Neuroglancer then has a handful of things to keep
-track of no matter how big the run gets, and a tile arriving costs nothing at
-all to notice, because the image's description never changes — only chunks of
-picture appear underneath it.
+The way out is to stop giving the viewer one image per position. Instead each
+acquisition type — the overview, the prescan, the targetscan — writes into **one
+large image** whose size is declared before any imaging begins. The viewer then
+has a handful of things to keep track of no matter how big the run gets, and a
+tile arriving costs nothing at all to notice, because the image's description
+never changes — only chunks of picture appear underneath it.
 
 Declaring a large image up front is affordable because a piece of an image only
 occupies disk once something writes to it. An image can honestly declare the
 whole stage travel range and occupy almost nothing until it is filled in.
 
-Why more than one image: keeping the overlap
---------------------------------------------
+Tiles must not overlap, and what that costs
+-------------------------------------------
 
-Tiles are usually acquired with a little overlap — commonly ten or fifteen per
-cent — so that the two views of the shared strip can later be compared and the
-true alignment worked out. That comparison is what corrects the small errors the
-stage makes, and it can only be done once every tile exists, because a good
-alignment is solved for all tiles at once rather than pair by pair.
+One image holds exactly one value per voxel. So if two tiles cover the same
+ground, the second to arrive simply replaces the strip they share, and the first
+recording of that strip is gone at the moment of writing — silently, because the
+picture that results looks perfectly ordinary.
 
-But a single image holds exactly one value per voxel. So if overlapping tiles
-are written into one image, the second one to arrive overwrites the shared strip
-and the comparison can never be made. The data is gone at the moment of writing.
+This writer therefore asks for an acquisition whose tiles butt up against one
+another: the stage steps by a whole tile, so no two tiles ever cover the same
+voxel and nothing is ever written over. A run whose tiles would overlap is
+refused when the images are declared, rather than being allowed to lose data
+quietly as it goes.
 
-The fix is to use a few images instead of one, and to place each tile in an image
-where it does not touch anything already written there. Neighbouring tiles then
-land in *different* images, so nothing is ever overwritten and every pixel the
-camera recorded is still on disk, at full resolution, in its correct place.
+It is worth being plain about what is given up, because the choice is a real one.
+Many microscopists deliberately acquire with ten or fifteen per cent overlap, and
+the reason is that the two recordings of a shared strip can afterwards be compared
+to work out where the stage *actually* put each tile, as opposed to where it
+reported putting it. That comparison is how the small errors a stage makes get
+corrected.
 
-How many images that takes is small and fixed. Two tiles placed two steps apart
-do not touch each other as long as a step is at least half a tile wide — which is
-true for any overlap up to fifty per cent. So two "slots" per axis is enough:
-four images for a run tiled in y and x, eight if it is also tiled in z. It never
-grows with the number of tiles, which is the whole point.
+Without overlap there is no such comparison to make. A tile is written at the
+position the stage reported, and if the stage was slightly off then the seam
+between two tiles is slightly wrong — permanently, because nothing on disk holds
+the information that would let it be put right later.
+
+That is the accepted trade here, and it is accepted because the alternative is not
+free either. Keeping overlap means taking on a debt that has to be settled
+afterwards: either by acquiring in a pattern that keeps overlapping tiles out of
+one another's way and joining them up later, or by running a real stitcher that
+solves the alignment of every tile at once. Neither of those exists in this
+project, and a half-kept overlap — recorded but never resolved — would be the
+worst of both, costing storage and complication for a correction nobody ever
+makes. If stage accuracy ever becomes the limiting factor for an experiment here,
+the honest answer is to bring in a stitcher, not to start keeping overlap in the
+hope that one appears.
 
 What you get on screen
 ----------------------
 
-The viewer reads all of the images together and draws them in their proper places,
-so the specimen looks like one picture. Where tiles overlap, one image is drawn on
-top of another — nothing is blended — so the picture looks exactly as it would
-have if a single image had been used. The difference is that the covered pixels
-still exist and can be read back, which is what keeps a proper alignment possible
-later on.
+The viewer opens one image per acquisition type and draws it in its proper place
+on the stage, so the specimen looks like one picture — which it is. Tiles appear
+inside it as they land, and nothing about the image's description changes as the
+run goes, which is what lets the viewer keep up with a long acquisition.
 """
 
 from __future__ import annotations
 
 import json
-import math
 import os
 import shutil
 import socket
@@ -76,36 +86,12 @@ import zarr
 
 from .coverage import Recorder, forget_the_record_of
 
-# -- how many images a run needs, and how many copies of each -----------------
+# -- how many copies of an image a run keeps ----------------------------------
 #
-# Both of these are decided once, before any imaging begins, and neither can be
-# changed afterwards without declaring the images again. So they are worked out
-# from what the run says about itself rather than left to a fixed number that
-# happens to suit one size of experiment.
-
-
-def slots_per_axis(tile_length: int, step: int) -> int:
-    """How many images are needed along one axis so that tiles never collide.
-
-    Tiles placed ``step`` apart, each ``tile_length`` long, overlap their
-    immediate neighbours. If we deal them out to several images in rotation, two
-    tiles in the same image end up further apart, and past a certain separation
-    they stop touching altogether.
-
-    That separation is what this works out. With a ten per cent overlap the
-    answer is two; it only becomes three if tiles overlap by more than half their
-    own width, which a tiled acquisition does not do.
-
-    Args:
-        tile_length: how many voxels one tile spans along this axis.
-        step: how many voxels the stage moves between neighbouring tiles.
-
-    Returns:
-        The number of images needed along this axis, always at least one.
-    """
-    if step <= 0:
-        raise ValueError("the step between tiles must be a positive number of voxels")
-    return max(1, math.ceil(tile_length / step))
+# Decided once, before any imaging begins, and it cannot be changed afterwards
+# without declaring the image again. So it is worked out from what the run says
+# about itself rather than left to a fixed number that happens to suit one size
+# of experiment.
 
 
 # How small the smallest copy of an image should end up, measured across the
@@ -180,24 +166,27 @@ def copies_for_a_canvas(canvas_shape) -> int:
     return copies
 
 
-# -- the rule: tiles that overlap must not share one image ---------------------
+# -- the rule: tiles must not overlap ------------------------------------------
 
 
 def _refuse_overlapping_tiles(tile_shape, tile_step) -> None:
-    """Stop a run whose tiles overlap from being written into one image.
+    """Stop a run whose tiles would overlap before any of it is written.
 
     This is the rule the whole arrangement rests on, so it is checked once at the
     start rather than discovered later from a picture that looks slightly wrong.
 
-    One image holds one value per voxel, so where two tiles overlap the second to
-    arrive replaces the first and the shared strip is gone. That is fine when
-    there is no shared strip, and it is a real loss when there is — because the
-    two recordings of it are exactly what a stitcher compares in order to work out
-    where the stage actually put each tile.
+    One image holds one value per voxel, so where two tiles cover the same ground
+    the second to arrive replaces the first and the strip they shared is gone.
+    Nothing reports it and nothing about the picture looks unusual, which is what
+    makes it worth refusing outright: an operator would have no way of noticing
+    that part of every tile had been quietly thrown away.
 
-    So a run that overlaps its tiles should keep them as separate images while it
-    runs, and be stitched into one picture once it has finished and the alignment
-    can be solved. That is a different path, not a variation on this one.
+    Resolving overlap properly needs machinery this project does not have — either
+    an acquisition pattern that keeps overlapping tiles out of one another's way
+    until they can be joined up, or a real stitcher that solves the alignment of
+    every tile at once. Rather than half-support it, this writer asks for an
+    acquisition whose tiles butt up. The module's opening notes say what that
+    costs.
     """
     axes = ("z", "y", "x")
     overlapping = [
@@ -209,14 +198,16 @@ def _refuse_overlapping_tiles(tile_shape, tile_step) -> None:
         return
     described = ", ".join(f"{by} voxels in {axis}" for axis, by in overlapping)
     raise ValueError(
-        f"these tiles overlap ({described}), and overlapping tiles must not be "
-        "written into one image as the run goes: the second tile to arrive would "
-        "replace the strip it shares with the first, and the two recordings of "
-        "that strip are what a stitcher needs.\n\n"
-        "Either acquire without overlap — step the stage by the whole tile — or "
-        "keep the tiles as separate images while the run goes and stitch them "
-        "into one picture afterwards, once every tile exists and the alignment "
-        "can be solved."
+        f"these tiles overlap ({described}), and this writer does not support an "
+        "overlapping acquisition. Everything goes into one image, which holds a "
+        "single value per voxel, so the second tile to arrive would replace the "
+        "strip it shares with the first — quietly, and with nothing about the "
+        "picture to show for it.\n\n"
+        "Acquire without overlap: step the stage by the whole tile, so that "
+        f"tile_step is at least {tuple(int(n) for n in tile_shape)} voxels. Making "
+        "the overlap useful instead would need either a checkerboard acquisition "
+        "pattern or a proper stitcher to solve the alignment afterwards, and "
+        "neither of those is part of this project."
     )
 
 
@@ -267,18 +258,6 @@ def _a_picture_already_written(store: Path) -> Path | None:
 # the usual convention for an OME-Zarr image and is what the viewer looks for.
 _IMAGE_SUFFIX = ".ome.zarr"
 
-# What goes between an acquisition type's name and the number, when a run has to
-# spread one acquisition over several images to keep the overlap between its
-# tiles. So ``overview`` becomes ``overview_part0.ome.zarr`` and its siblings.
-#
-# This is used both for naming those images and for recognising them again
-# afterwards, and it is written once here so that the two cannot drift apart.
-# :func:`zmart_storage.coverage.acquisition_of` takes the same name back off an
-# image, and it has to agree with this — the two modules keep their own copy
-# because ``coverage`` is the lower of the pair and must not reach up into this
-# one.
-_PART_MARKER = "_part"
-
 
 def _refuse_a_name_that_is_not_a_plain_file_name(name: str) -> None:
     """Stop an acquisition type whose name cannot be part of a file name.
@@ -319,10 +298,11 @@ def _refuse_a_name_that_is_not_a_plain_file_name(name: str) -> None:
 def _images_belonging_to(folder: Path, name: str) -> list[Path]:
     """The images in ``folder`` that hold this acquisition type's pictures.
 
-    An acquisition type is written either as a single image named after it, or —
-    when a run spreads its tiles over several images to keep the overlap — as a
-    numbered set. So ``overview`` covers ``overview.ome.zarr`` as well as
-    ``overview_part0.ome.zarr`` and its siblings.
+    One acquisition type is one image, named after it, so ``overview`` covers
+    ``overview.ome.zarr`` and nothing else. A list comes back rather than a single
+    path because a folder may hold none — a run that has not been declared yet —
+    and because the callers are all asking "is there anything of this name here?"
+    rather than "where is it?".
 
     The names are compared as ordinary text, letter by letter. That is worth
     doing deliberately, because the obvious alternative has a trap in it. An
@@ -347,31 +327,22 @@ def _images_belonging_to(folder: Path, name: str) -> list[Path]:
     """
     if not folder.is_dir():
         return []
-    numbered_prefix = f"{name}{_PART_MARKER}"
-    found = []
-    for entry in folder.iterdir():
-        if not entry.name.endswith(_IMAGE_SUFFIX):
-            continue
-        leaf = entry.name[: -len(_IMAGE_SUFFIX)]
-        if leaf == name:
-            found.append(entry)
-        elif leaf.startswith(numbered_prefix) and leaf[len(numbered_prefix):].isdigit():
-            found.append(entry)
+    found = [
+        entry for entry in folder.iterdir()
+        if entry.name == f"{name}{_IMAGE_SUFFIX}"
+    ]
     return sorted(found)
 
 
 def _throw_away_the_existing_run(folder: Path, name: str) -> None:
-    """Remove every image of this acquisition type, because the caller said to.
+    """Remove this acquisition type's image, because the caller said to.
 
-    This is what ``discard_existing_run=True`` asks for, and the whole of it has
-    to go. Removing only the images the new arrangement happens to reuse would
-    leave the rest of the old run on disk beside the new one, still holding the
-    old run's pixels — and because the viewer gathers a run's images by their
-    name, the operator would see the two mixed together as though they were one
-    acquisition. Every later declaration in that folder would be refused as well,
-    since those leftovers are themselves an imaged run standing in the way.
+    This is what ``discard_existing_run=True`` asks for. Declaring the images
+    empties them anyway, so removing the old one first mainly means the new run
+    starts from a genuinely clean folder rather than from whatever the old one
+    left in it.
 
-    Only images belonging to this name are removed. An overview being thrown away
+    Only the image belonging to this name is removed. An overview being thrown away
     must leave a prescan beside it untouched, and it must also leave alone an
     acquisition type whose name merely begins the same way, such as
     ``overview_deep``.
@@ -396,7 +367,7 @@ def _refuse_to_write_over_a_finished_run(folder: Path, name: str) -> None:
     restarted after a crash, or a run repeated with the same folder name all lead
     here, and the loss is silent and complete.
 
-    Only the images belonging to this ``name`` are looked at. One run's folder
+    Only the image belonging to this ``name`` is looked at. One run's folder
     holds each of its acquisition types side by side — an overview, a prescan, a
     targetscan — and each is declared in its own call, so a folder that already
     holds an imaged overview must still accept a prescan being declared beside it.
@@ -409,13 +380,9 @@ def _refuse_to_write_over_a_finished_run(folder: Path, name: str) -> None:
     if not already:
         return
     store, found = already[0]
-    others = (
-        "" if len(already) == 1
-        else f" ({len(already)} images in this folder have been imaged into)"
-    )
     raise ValueError(
         f"there is already an imaged run in this folder: {store.name} holds "
-        f"acquired pictures{others}, for example {found.relative_to(folder)}. "
+        f"acquired pictures, for example {found.relative_to(folder)}. "
         "Declaring the images again would empty them, and everything that run "
         "acquired would be gone with nothing to say so — which is why this is "
         "refused rather than done.\n\n"
@@ -565,13 +532,13 @@ def _what_the_claim_says(name: str) -> str:
     to tell which program is in the way.
     """
     return (
-        f"A writer has this run's {name!r} images open and is writing tiles into "
-        "them.\n"
+        f"A writer has this run's {name!r} image open and is writing tiles into "
+        "it.\n"
         f"Program {os.getpid()} on {socket.gethostname()}, since "
         f"{time.strftime('%Y-%m-%d %H:%M:%S')}.\n"
         "\n"
         "This file holds no picture and is not part of the acquisition. It only "
-        "keeps\ntwo writers from working on one set of images at the same time, "
+        "keeps\ntwo writers from working on one image at the same time, "
         "which would\nlose tiles. Once the run has finished it is simply a note "
         "left behind and can\nbe deleted.\n"
     )
@@ -582,7 +549,7 @@ def _claim_the_right_to_write(folder: Path, name: str) -> _WritingClaim | None:
 
     Args:
         folder: the run's folder, which must already exist.
-        name: the acquisition type whose images are being claimed.
+        name: the acquisition type whose image is being claimed.
 
     Returns:
         The claim, which must be let go of when the writer is finished with. It
@@ -590,15 +557,15 @@ def _claim_the_right_to_write(folder: Path, name: str) -> _WritingClaim | None:
         writer's own.
 
     Raises:
-        ValueError: if another program already has these images open. Waiting for
+        ValueError: if another program already has this image open. Waiting for
             it is not offered, because the two would be writing the same
-            acquisition into the same images and only one of them can be right.
+            acquisition into the same image and only one of them can be right.
     """
     path = folder / f"{name}.writing"
     with _CLAIMS_HELD_HERE_LOCK:
         ours_already = _CLAIMS_HELD_HERE.get(path)
         if ours_already is not None:
-            # A writer in this same program already has these images. That is the
+            # A writer in this same program already has this image. That is the
             # ordinary case of a notebook cell being run a second time, and it is
             # safe to allow, because we can see the earlier writer and stop it:
             # it is told it has handed over, so any further tile written through
@@ -630,17 +597,17 @@ def _claim_the_right_to_write(folder: Path, name: str) -> _WritingClaim | None:
             said = _read_the_claim(handle)
             handle.close()
             raise ValueError(
-                f"another program already has this run's {name!r} images open, so "
-                f"this writer cannot have them as well. The note beside them "
+                f"another program already has this run's {name!r} image open, so "
+                f"this writer cannot have it as well. The note beside it "
                 f"({path.name}) says:\n\n"
                 f"{said}\n"
-                "Two writers must not share one set of images. Each keeps its own "
+                "Two writers must not share one image. Each keeps its own "
                 "record of where its tiles went and of which pieces of picture are "
                 "being written at this moment, and neither can see the other's, so "
                 "two tiles landing in one piece are written over each other and "
                 "the loss is silent.\n\n"
                 "If that other program is a notebook or a script you have finished "
-                "with, let it end or close its writer, and declare these images "
+                "with, let it end or close its writer, and declare this image "
                 "again. If it stopped without tidying up there is nothing to clear "
                 "away by hand: the claim belongs to the running program itself and "
                 "goes the moment it does, so declaring again will simply work.\n\n"
@@ -748,11 +715,11 @@ def _refuse_pieces_that_hold_several_tiles(pieces) -> None:
     )
 
 
-def _measure_the_pieces_of(slots: list[_Slot]) -> None:
-    """Ask every image how much specimen it keeps in one file, and refuse the rest.
+def _measure_the_pieces_of(image: _Image) -> None:
+    """Ask the image how much specimen it keeps in one file, and refuse the rest.
 
     This is worked out once, when the writer is made, and it is what lets the
-    writer keep two tiles out of one file later on. Three things about it were each
+    writer keep two tiles out of one file later on. Two things about it were each
     found by a measurement rather than by reasoning, so they are written down here.
 
     **Every copy of an image is asked, not only the smallest.** A tile is written
@@ -779,29 +746,21 @@ def _measure_the_pieces_of(slots: list[_Slot]) -> None:
     3.1.6, four tiles written at once into four chunks of one bundle left three of
     them missing, with nothing reported.
 
-    **Every image is asked, not only the first.** A run's images are usually stored
-    identically, but nothing here guarantees it. Taking the first image's answer
-    for all of them let a hand-built run through whose second image kept two planes
-    in one file, and two tiles at different depths were then written into that file
-    at once and one of them vanished, in 3 of 3 attempts.
-
     Args:
-        slots: the images this run writes into. Each one is given the size of a
-            piece of each of its copies, in voxels of specimen across ``y`` and
-            ``x``.
+        image: the image this run writes into. It is given the size of a piece of
+            each of its copies, in voxels of specimen across ``y`` and ``x``.
 
     Raises:
-        ValueError: if any image bundles several moments, colours or planes into
+        ValueError: if the image bundles several moments, colours or planes into
             one piece, which is an arrangement the writer cannot keep safe.
     """
-    for slot in slots:
-        slot.pieces = []
-        for array in slot.arrays:
-            pieces = array.shards or array.chunks
-            _refuse_pieces_that_hold_several_tiles(pieces)
-            # Counted from the end, so that this does not depend on how many axes
-            # come before the specimen's y and x.
-            slot.pieces.append((int(pieces[-2]), int(pieces[-1])))
+    image.pieces = []
+    for array in image.arrays:
+        pieces = array.shards or array.chunks
+        _refuse_pieces_that_hold_several_tiles(pieces)
+        # Counted from the end, so that this does not depend on how many axes
+        # come before the specimen's y and x.
+        image.pieces.append((int(pieces[-2]), int(pieces[-1])))
 
 
 def _grain_a_tile_of_this_size_could_meet(tile_length: int, chunk: int, levels: int) -> int:
@@ -938,10 +897,9 @@ class Channel:
 
 
 @dataclass
-class _Slot:
-    """One of the images tiles are dealt into, and what has been put in it."""
+class _Image:
+    """The image a run writes into, and what has been put in it so far."""
 
-    index: int
     folder: Path
     arrays: list[zarr.Array]
     # Every tile written here, as (frame, channel, z0, z1, y0, y1, x0, x1) in
@@ -959,9 +917,7 @@ class _Slot:
     written: list[tuple[int, ...]] = field(default_factory=list)
     # How much of the specimen one file of this image holds, in y and x, for each
     # of its progressively smaller copies. Worked out once when the writer is made
-    # and used to keep two tiles out of one file at the same moment. It belongs to
-    # the image rather than to the run because each image may be stored
-    # differently, and only tiles going into the *same* image can ever collide.
+    # and used to keep two tiles out of one file at the same moment.
     pieces: list[tuple[int, int]] = field(default_factory=list)
     # Where this image's record of what it has imaged is kept. See
     # :mod:`zmart_storage.coverage`: the list above lives only in this writer's
@@ -972,30 +928,32 @@ class _Slot:
 
 
 class TileCanvases:
-    """A run's images, declared up front and filled in as tiles arrive.
+    """One acquisition type's image, declared up front and filled in as tiles arrive.
 
     Make one at the start of a run with :meth:`create`, then call :meth:`write`
-    once per acquired tile. Nothing needs to be finalised at the end — the images
-    are complete and readable throughout, which is what lets the viewer watch a
+    once per acquired tile. Nothing needs to be finalised at the end — the image
+    is complete and readable throughout, which is what lets the viewer watch a
     run as it happens.
+
+    A run that records more than one acquisition type — an overview and a
+    targetscan, say — makes one of these per type, and their images sit side by
+    side in the run's folder.
     """
 
-    def __init__(self, folder: Path, slots: list[_Slot], *, shape: tuple[int, ...],
+    def __init__(self, folder: Path, image: _Image, *, shape: tuple[int, ...],
                  levels: int, tile_shape: tuple[int, int, int],
-                 slot_grid: tuple[int, int, int],
                  claim: _WritingClaim | None = None) -> None:
         self.folder = folder
-        self._slots = slots
+        self._image = image
         self._shape = shape
         self._levels = levels
-        self._slot_grid = slot_grid
         self._claim = claim
 
-        # How much specimen one file of each image holds. This is what lets the
+        # How much specimen one file of the image holds. This is what lets the
         # writer keep two tiles out of one file at the same moment. Why it is
         # measured the way it is takes some explaining, so the explanation lives
         # with the function that does it.
-        _measure_the_pieces_of(slots)
+        _measure_the_pieces_of(image)
 
         # The tiles being written at this very moment, and the means of waiting
         # for one of them. See :meth:`_while_nothing_else_holds_these_pieces` for
@@ -1003,40 +961,39 @@ class TileCanvases:
         self._busy: list[tuple] = []
         self._free = threading.Condition()
 
-        # Each image keeps its own note of where it has been imaged, beside the
-        # pictures. Nothing about the acquisition depends on it, and the run goes
-        # ahead unchanged if it cannot be kept — but with it, anything reading the
-        # store afterwards can bound itself to the ground the run actually
-        # covered instead of the far larger room the run declared.
-        for slot in slots:
-            slot.record = Recorder(
-                folder, slot.folder.name, canvas_shape=shape, tile_shape=tile_shape
-            )
+        # The image keeps a note of where it has been imaged, beside the pictures.
+        # Nothing about the acquisition depends on it, and the run goes ahead
+        # unchanged if it cannot be kept — but with it, anything reading the store
+        # afterwards can bound itself to the ground the run actually covered
+        # instead of the far larger room the run declared.
+        image.record = Recorder(
+            folder, image.folder.name, canvas_shape=shape, tile_shape=tile_shape
+        )
 
     def close(self) -> None:
-        """Let go of these images, so that another writer may take them on.
+        """Let go of this image, so that another writer may take it on.
 
         Worth calling when a run has finished and the same folder is going to be
         written again by another program, and harmless otherwise. It does not need
-        to be called for the images themselves to be complete — they are complete
-        and readable throughout — and it happens by itself when the writer falls
-        out of use or the program ends.
+        to be called for the image itself to be complete — it is complete and
+        readable throughout — and it happens by itself when the writer falls out
+        of use or the program ends.
 
-        It also brings each image's record of what it imaged fully up to date and
+        It also brings the image's record of what it imaged fully up to date and
         marks the run as finished. That record is written as the run goes, so it
         is complete whether or not this is ever called; what closing adds is the
         last second of it and the note saying the run is over.
         """
-        for slot in getattr(self, "_slots", []):
-            if slot.record is not None:
-                slot.record.finish()
+        image = getattr(self, "_image", None)
+        if image is not None and image.record is not None:
+            image.record.finish()
         claim = getattr(self, "_claim", None)
         if claim is not None:
             self._claim = None
             claim.let_go()
 
     def __del__(self) -> None:
-        # A writer that is simply forgotten about should still give its images up,
+        # A writer that is simply forgotten about should still give its image up,
         # so that the next program to want them is not turned away by a claim
         # nobody is using. Anything going wrong while the program is shutting down
         # is not worth reporting.
@@ -1063,11 +1020,10 @@ class TileCanvases:
         dtype: str = "uint16",
         chunk: int = 256,
         levels: int | None = None,
-        slots: tuple[int, int, int] | None = None,
         discard_existing_run: bool = False,
         ome_zarr_version: str = "0.4",
     ) -> TileCanvases:
-        """Declare the images for a run, before anything has been imaged.
+        """Declare the image for an acquisition, before anything has been imaged.
 
         Nothing here is expensive: declaring a large image writes a few hundred
         bytes of description and no picture at all. Space is taken only as tiles
@@ -1075,7 +1031,7 @@ class TileCanvases:
         the run could possibly need than to risk running out.
 
         Args:
-            folder: where to put the images. Created if it is not there yet.
+            folder: where to put the image. Created if it is not there yet.
                 This is the run's own folder, and every acquisition type in the
                 run writes its image into it side by side.
             name: what to call this image, which should be the acquisition type
@@ -1102,13 +1058,16 @@ class TileCanvases:
                 needs no generosity: a run knows the stack it asked for.
             tile_shape: the size of one acquired tile, as ``(z, y, x)`` in voxels.
             tile_step: how far the stage moves between neighbouring tiles, as
-                ``(z, y, x)`` in voxels. Together with ``tile_shape`` this is what
-                decides how many images are needed to keep the overlap.
+                ``(z, y, x)`` in voxels. This must be at least as large as
+                ``tile_shape`` along every axis, so that neighbouring tiles butt
+                up rather than overlapping. A smaller step is refused, because
+                everything goes into one image and the second tile of an
+                overlapping pair would silently replace part of the first.
             voxel_size_um: how large one voxel is, as ``(z, y, x)`` in microns.
                 This is what makes the scale bar and the measurements truthful.
             channels: the colours of light being recorded, in the order they
                 appear along the channel axis.
-            origin_um: where the low corner of the images sits in stage
+            origin_um: where the low corner of the image sits in stage
                 coordinates. Tile positions given to :meth:`write` are measured
                 from the same zero, so this is usually the low end of stage travel.
             frames: how many moments to allow room for. A run that is not a
@@ -1147,20 +1106,13 @@ class TileCanvases:
                 Give a number here if you have a reason to — matching a store
                 somebody else wrote, or making a measurement — and it is used
                 exactly as asked.
-            slots: how many images to spread the tiles over, as ``(z, y, x)``.
-                Normally left out, which gives a single image — the arrangement
-                this writer is for. Setting it spreads overlapping tiles across
-                several images so that none is written over; see the note on
-                overlap at the top of this module for when that is worth doing.
             discard_existing_run: whether to throw away a run that has already
                 been imaged into this folder. Normally left alone, and then a
                 folder that already holds acquired pictures is refused rather
                 than emptied. Set it only when you know what is there and mean
                 to lose it — repeating a test run into the same scratch folder
-                is the usual honest reason. What goes is the whole of that
-                acquisition type, including images an earlier run left behind
-                that this one has no use for; other acquisition types in the same
-                folder are untouched.
+                is the usual honest reason. Only this acquisition type's image
+                goes; other acquisition types in the same folder are untouched.
             ome_zarr_version: which generation of the OME-Zarr format to write,
                 ``"0.4"`` or ``"0.5"``.
 
@@ -1171,28 +1123,28 @@ class TileCanvases:
                 project is aiming at rather than only against the one it started
                 with.
 
-                Nothing an operator sees changes. The same axes are declared, the
-                tiles are spread over images in the same way, and a run written
-                either way looks identical once it is open. What differs is where
-                the store keeps its description and how the pieces of image are
-                named on disk. Choose ``"0.5"`` when everything that will read the
-                run understands it, and ``"0.4"`` when you are not sure.
+                Nothing an operator sees changes. The same axes are declared and a
+                run written either way looks identical once it is open. What
+                differs is where the store keeps its description and how the
+                pieces of image are named on disk. Choose ``"0.5"`` when
+                everything that will read the run understands it, and ``"0.4"``
+                when you are not sure.
 
         Returns:
-            The images, ready to be written into. When the run is over they can be
-            left as they are; :meth:`close` is only needed if another program is
+            The image, ready to be written into. When the run is over it can be
+            left as it is; :meth:`close` is only needed if another program is
             going to write the same run afterwards.
 
         Raises:
-            ValueError: if the tiles overlap, if this folder already holds an
-                imaged run, or if another program is already writing this
-                acquisition type. A run that overlaps its tiles should keep them
-                separate and be stitched once it is finished, rather than being
-                written into one image as it goes. A folder that already holds
-                acquired pictures should be left alone and the new run given a
-                folder of its own, because declaring the images again empties
-                them. And two programs cannot write one acquisition into one set
-                of images, because each would only know about its own tiles.
+            ValueError: if the tiles would overlap, if this folder already holds
+                an imaged run, or if another program is already writing this
+                acquisition type. Overlapping tiles are refused because everything
+                goes into one image, so the second of an overlapping pair would
+                replace part of the first with nothing to say so. A folder that
+                already holds acquired pictures should be left alone and the new
+                run given a folder of its own, because declaring the image again
+                empties it. And two programs cannot write one acquisition into one
+                image, because each would only know about its own tiles.
         """
         folder = Path(folder)
         _refuse_a_name_that_is_not_a_plain_file_name(name)
@@ -1228,57 +1180,42 @@ class TileCanvases:
         claim = _claim_the_right_to_write(folder, name)
         if discard_existing_run:
             _throw_away_the_existing_run(folder, name)
-        # Declaring the images empties them, so whatever an earlier attempt at
-        # this acquisition recorded about where it had imaged is no longer true
-        # and has to go with them. Done for every declaration rather than only for
-        # a discarded run, because an earlier attempt that declared its images and
+        # Declaring the image empties it, so whatever an earlier attempt at this
+        # acquisition recorded about where it had imaged is no longer true and has
+        # to go with it. Done for every declaration rather than only for a
+        # discarded run, because an earlier attempt that declared its image and
         # then stopped before acquiring anything is allowed through the check
-        # above and would otherwise leave its record behind — including, if it
-        # spread its tiles over more images than this run will, records naming
-        # images that are about to stop existing.
+        # above and would otherwise leave its record behind.
         forget_the_record_of(folder, name)
 
-        if slots is None:
-            _refuse_overlapping_tiles(tile_shape, tile_step)
-            slot_grid = (1, 1, 1)
-        else:
-            slot_grid = slots
+        _refuse_overlapping_tiles(tile_shape, tile_step)
         _warn_if_tiles_straddle_pieces(tile_shape, tile_step, chunk, levels)
 
         depth_max = int(np.iinfo(np.dtype(dtype)).max)
 
-        total = slot_grid[0] * slot_grid[1] * slot_grid[2]
-        # Named apart from the ``slots`` argument on purpose: that one says how
-        # many images to make, and this one is the images themselves.
-        made: list[_Slot] = []
-        for index in range(total):
-            # One image per acquisition type, named after it, so the viewer can
-            # group what it finds the way the experiment is organised. Only a run
-            # that spreads its tiles needs more than one, and those are numbered.
-            leaf = name if total == 1 else f"{name}{_PART_MARKER}{index}"
-            store = folder / f"{leaf}.ome.zarr"
-            arrays = _declare_one(
-                store,
-                canvas_shape=canvas_shape,
-                frames=frames,
-                channels=len(channels),
-                dtype=dtype,
-                chunk=chunk,
-                levels=levels,
-                voxel_size_um=voxel_size_um,
-                origin_um=origin_um,
-                channel_blocks=[c.described(depth_max) for c in channels],
-                ome_zarr_version=ome_zarr_version,
-            )
-            made.append(_Slot(index=index, folder=store, arrays=arrays))
+        # One image per acquisition type, named after it, so the viewer can group
+        # what it finds the way the experiment is organised.
+        store = folder / f"{name}{_IMAGE_SUFFIX}"
+        arrays = _declare_one(
+            store,
+            canvas_shape=canvas_shape,
+            frames=frames,
+            channels=len(channels),
+            dtype=dtype,
+            chunk=chunk,
+            levels=levels,
+            voxel_size_um=voxel_size_um,
+            origin_um=origin_um,
+            channel_blocks=[c.described(depth_max) for c in channels],
+            ome_zarr_version=ome_zarr_version,
+        )
 
         return cls(
             folder,
-            made,
+            _Image(folder=store, arrays=arrays),
             shape=(frames, len(channels), *canvas_shape),
             levels=levels,
             tile_shape=tile_shape,
-            slot_grid=slot_grid,
             claim=claim,
         )
 
@@ -1286,8 +1223,13 @@ class TileCanvases:
 
     @property
     def paths(self) -> list[Path]:
-        """Where each image lives, in the order the viewer should be given them."""
-        return [slot.folder for slot in self._slots]
+        """Where this acquisition type's image lives.
+
+        A list of one, because that is the shape the viewer is handed a run in:
+        it opens a list of image folders, and a run's several acquisition types
+        each contribute one.
+        """
+        return [self._image.folder]
 
     def write(
         self,
@@ -1298,7 +1240,7 @@ class TileCanvases:
         frame: int = 0,
         tile_index: tuple[int, int, int] | None = None,
     ) -> Path:
-        """Put one acquired tile into whichever image has room for it.
+        """Put one acquired tile into the image.
 
         Args:
             image: the tile's voxels, shaped ``(z, y, x)``.
@@ -1307,11 +1249,15 @@ class TileCanvases:
             channel: which colour of light this tile was recorded in, as its
                 position along the channel axis.
             frame: which timepoint it belongs to.
-            tile_index: the tile's place in the scan pattern, as
-                ``(z, y, x)`` counts. A raster scan knows this and it makes the
-                choice of image immediate. A target picked by the workflow does
-                not, and leaving it out is fine — the writer then checks the
-                tile against what each image already holds.
+            tile_index: the tile's place in the scan pattern, as ``(z, y, x)``
+                counts. A raster scan knows this, and giving it here does two
+                things: it is written into the coverage record, so afterwards you
+                can ask which square of the pattern a tile came from, and it tells
+                the writer that this tile came from a pattern whose tiles butt up,
+                so nothing needs checking before it is written. A target picked by
+                the workflow has no place in a pattern, and leaving this out is
+                fine — the writer then checks the tile against what it has already
+                put down.
 
         Returns:
             The image the tile was written into, which is useful mainly for
@@ -1322,11 +1268,13 @@ class TileCanvases:
                 declared — either past the edge of the canvas in space, or past
                 the last moment the run declared room for in time. Both mean the
                 same thing: the run was declared smaller than it turned out to be.
-                Also if these images have since been declared again by another
-                writer in this same program, which leaves this one no longer able
-                to say truthfully where anything is.
+                Also if the tile would land on ground already imaged in this
+                moment and colour, and if this image has since been declared again
+                by another writer in this same program, which leaves this one no
+                longer able to say truthfully where anything is.
         """
         self._check_these_images_are_still_ours()
+        picture = self._image
         depth, height, width = image.shape
         z0, y0, x0 = origin
         footprint = (z0, z0 + depth, y0, y0 + height, x0, x0 + width)
@@ -1337,33 +1285,34 @@ class TileCanvases:
         # A tile is only in the way of another if it is in the same moment and the
         # same colour as well as the same place.
         occupied = (frame, channel, *footprint)
-        slot = self._choose(occupied, tile_index)
+        if tile_index is None:
+            self._check_nothing_is_already_here(occupied)
 
         with self._while_nothing_else_holds_these_pieces(
-            slot, origin, image.shape, frame=frame, channel=channel
+            origin, image.shape, frame=frame, channel=channel
         ):
             at = (frame, channel)
-            slot.arrays[0][
+            picture.arrays[0][
                 *at, z0:z0 + depth, y0:y0 + height, x0:x0 + width
             ] = image
-            self._write_smaller_copies(slot, image, origin, channel, frame)
-            slot.written.append(occupied)
+            self._write_smaller_copies(image, origin, channel, frame)
+            picture.written.append(occupied)
             # Written down only now, with the tile's voxels safely on disk, so
             # that the record can never claim ground where a write that failed
             # part way through left nothing.
-            if slot.record is not None:
-                slot.record.remember(
+            if picture.record is not None:
+                picture.record.remember(
                     frame=frame,
                     channel=channel,
                     origin=origin,
                     shape=image.shape,
                     tile_index=tile_index,
                 )
-        return slot.folder
+        return picture.folder
 
     @contextmanager
     def _while_nothing_else_holds_these_pieces(
-        self, slot: _Slot, origin: tuple[int, int, int],
+        self, origin: tuple[int, int, int],
         shape: tuple[int, int, int], *, frame: int, channel: int,
     ):
         """Wait until no other tile is part way through the files this one needs.
@@ -1385,8 +1334,8 @@ class TileCanvases:
         behind it.
         """
         holding = (
-            slot.index, frame, channel, origin[0], origin[0] + shape[0],
-            self._pieces_this_tile_touches(slot, origin, shape),
+            frame, channel, origin[0], origin[0] + shape[0],
+            self._pieces_this_tile_touches(origin, shape),
         )
         with self._free:
             while any(_touches(holding, other) for other in self._busy):
@@ -1400,10 +1349,10 @@ class TileCanvases:
                 self._free.notify_all()
 
     def _check_these_images_are_still_ours(self) -> None:
-        """Refuse to write once a later writer has taken these images over.
+        """Refuse to write once a later writer has taken this image over.
 
         This happens when the same program declares the same acquisition twice —
-        a notebook cell run again, most often. Declaring empties the images and
+        a notebook cell run again, most often. Declaring empties the image and
         the newer writer starts its own record of where tiles have gone, so this
         older one no longer describes anything that is on disk. Writing through it
         would place tiles by a record that is out of date, and the loss would be
@@ -1411,20 +1360,20 @@ class TileCanvases:
         """
         if self._claim is not None and self._claim.handed_over:
             raise ValueError(
-                "these images have been declared again since this writer was made, "
+                "this image has been declared again since this writer was made, "
                 "so this writer has been set aside and cannot write any more. "
-                "Declaring empties the images and starts a fresh record of where "
+                "Declaring empties the image and starts a fresh record of where "
                 "tiles have gone, and this writer still holds the old one — so a "
                 "tile written through it would be placed by a record that no "
                 "longer matches what is on disk.\n\n"
                 "Use the writer that the most recent declaration returned. If two "
                 "parts of your program each need to write tiles, let them share "
-                "one writer rather than declaring the images twice."
+                "one writer rather than declaring the image twice."
             )
 
-    def _pieces_this_tile_touches(self, slot: _Slot, origin: tuple[int, int, int],
+    def _pieces_this_tile_touches(self, origin: tuple[int, int, int],
                                   shape: tuple[int, int, int]) -> tuple:
-        """Which files of each copy of this image the tile is about to be written into.
+        """Which files of each copy of the image the tile is about to be written into.
 
         Given for every copy separately, as the first and last piece reached in y
         and then the same in x, both included. Two tiles that share none of these
@@ -1436,7 +1385,7 @@ class TileCanvases:
         comparing the tiles' depths directly is enough.
         """
         claimed = []
-        for level, (piece_y, piece_x) in enumerate(slot.pieces):
+        for level, (piece_y, piece_x) in enumerate(self._image.pieces):
             factor = 2 ** level
             y0, y1 = _where_it_lands(origin[1], shape[1], factor)
             x0, x1 = _where_it_lands(origin[2], shape[2], factor)
@@ -1446,42 +1395,37 @@ class TileCanvases:
             ))
         return tuple(claimed)
 
-    # -- choosing where a tile goes ---------------------------------------
+    # -- refusing a tile that would land on one already written -------------
 
-    def _choose(self, occupied: tuple[int, ...], tile_index) -> _Slot:
-        """Which image this tile belongs in, so that it overwrites nothing.
+    def _check_nothing_is_already_here(self, occupied: tuple[int, ...]) -> None:
+        """Refuse a tile that would be written over ground already imaged.
 
         ``occupied`` is ``(frame, channel, z0, z1, y0, y1, x0, x1)`` — where the
         tile lands, and in which moment and colour. All three matter: the same
         place in a later moment, or in another colour, is a different part of the
         image and nothing is in its way.
-        """
-        if tile_index is not None:
-            # A scan pattern deals tiles out in rotation, so neighbours always
-            # land in different images and no checking is needed at all.
-            zc, yc, xc = self._slot_grid
-            index = ((tile_index[0] % zc) * yc + (tile_index[1] % yc)) * xc + (
-                tile_index[2] % xc
-            )
-            return self._slots[index]
 
-        # A tile the workflow chose has no place in a pattern, so ask each image
-        # in turn whether this tile would land on anything already in it. This is
-        # arithmetic on a list of rectangles, so it costs nothing to speak of and
-        # touches no image data.
-        for slot in self._slots:
-            if not any(_overlaps(occupied, other) for other in slot.written):
-                return slot
-        # Every image is occupied here, which a normal overlap cannot cause. Rather
-        # than silently destroy a tile, put it in the emptiest image and say so.
-        emptiest = min(self._slots, key=lambda s: len(s.written))
+        This is asked only of a tile with no place in a scan pattern — a target
+        the workflow chose for itself. A raster's tiles butt up by the rule the
+        images were declared under, so they cannot land on one another, and
+        checking every one of them against every tile before it would make a long
+        run steadily slower for an answer that is known in advance.
+
+        The check is arithmetic on a list of rectangles the writer already holds
+        in memory, so it costs nothing to speak of and touches no image data.
+        """
+        if not any(_overlaps(occupied, other) for other in self._image.written):
+            return
         raise ValueError(
-            "this tile overlaps something already written in every image, so "
-            "writing it would destroy data. This happens when tiles overlap by "
-            "more than half their width, or when many targets were chosen very "
-            "close together. Declare the run with more images to make room "
-            f"(there are currently {len(self._slots)}, the emptiest holding "
-            f"{len(emptiest.written)} tiles)."
+            "this tile lands on ground that has already been imaged in this "
+            "moment and this colour, and writing it would replace what is there. "
+            "The image holds one value per voxel, so the earlier recording would "
+            "be gone with nothing to say so — which is why this is refused rather "
+            "than done.\n\n"
+            "This happens when two targets are chosen close enough together that "
+            "their fields of view meet. Space the targets at least a tile apart, "
+            "or record the second one in another moment or another colour, where "
+            "it has room of its own."
         )
 
     def _check_the_moment_fits(self, frame: int) -> None:
@@ -1513,20 +1457,20 @@ class TileCanvases:
         if z0 < 0 or y0 < 0 or x0 < 0:
             raise ValueError(
                 "this tile sits before the low corner of the declared room. The "
-                "images can be made larger, but only outward, so the corner has to "
+                "image can be made larger, but only outward, so the corner has to "
                 "be at or below the lowest position the run will ever visit."
             )
         if z1 > limits[0] or y1 > limits[1] or x1 > limits[2]:
             raise ValueError(
                 f"this tile reaches to {(z1, y1, x1)} voxels, past the declared "
-                f"room of {limits}. Declare the images with the stage's whole "
+                f"room of {limits}. Declare the image with the stage's whole "
                 "travel range so this cannot happen — unwritten room costs "
                 "practically nothing on disk."
             )
 
     # -- the smaller copies -----------------------------------------------
 
-    def _write_smaller_copies(self, slot: _Slot, image: np.ndarray,
+    def _write_smaller_copies(self, image: np.ndarray,
                               origin: tuple[int, int, int],
                               channel: int, frame: int) -> None:
         """Fill in this tile's part of each progressively smaller copy.
@@ -1551,7 +1495,7 @@ class TileCanvases:
             y0, y1 = _where_it_lands(origin[1], image.shape[1], factor)
             x0, x1 = _where_it_lands(origin[2], image.shape[2], factor)
             height, width = y1 - y0, x1 - x0
-            array = slot.arrays[level]
+            array = self._image.arrays[level]
             # A tile near the far edge can round to just past the end of a smaller
             # copy, so trim rather than fail: the lost row is half a voxel of the
             # coarsest view, which nothing can see.
@@ -1609,9 +1553,9 @@ def _where_it_lands(start: int, length: int, factor: int) -> tuple[int, int]:
 def _touches(a: tuple, b: tuple) -> bool:
     """Whether two writes in progress would be working on the same file.
 
-    Each claim is ``(image, frame, channel, z from, z to, files)``, where
-    ``files`` says, for each progressively smaller copy of that image, the first
-    and last piece the tile reaches in y and then the same in x, both included.
+    Each claim is ``(frame, channel, z from, z to, files)``, where ``files`` says,
+    for each progressively smaller copy of the image, the first and last piece the
+    tile reaches in y and then the same in x, both included.
 
     Time, colour and depth each get a piece to themselves — the writer insists on
     that — so those simply have to coincide. Across the specimen the copies are
@@ -1619,14 +1563,14 @@ def _touches(a: tuple, b: tuple) -> bool:
     two writes wait for each other, because that one file would otherwise be
     written twice at once and one tile's contribution to it lost.
     """
-    if a[0] != b[0] or a[1] != b[1] or a[2] != b[2]:
+    if a[0] != b[0] or a[1] != b[1]:
         return False
-    if not (a[3] < b[4] and b[3] < a[4]):
+    if not (a[2] < b[3] and b[2] < a[3]):
         return False
     return any(
         mine[0] <= theirs[1] and theirs[0] <= mine[1]
         and mine[2] <= theirs[3] and theirs[2] <= mine[3]
-        for mine, theirs in zip(a[5], b[5], strict=True)
+        for mine, theirs in zip(a[4], b[4], strict=True)
     )
 
 
@@ -1664,7 +1608,7 @@ def _declare_one(
     # ``.zattrs`` file beside the image, while 0.5 is built on zarr version 3, which
     # keeps it inside ``zarr.json`` under an ``ome`` key and files the pieces of the
     # image under a folder called ``c``. Everything else here -- the axes, the
-    # ordering, the sizes, the way tiles are spread over images -- is the same for
+    # ordering, the sizes, the way a tile is written -- is the same for
     # both, so a run written either way behaves identically once it is open.
     newer = ome_zarr_version == "0.5"
     group = zarr.open_group(str(store), mode="w", zarr_format=3 if newer else 2)
