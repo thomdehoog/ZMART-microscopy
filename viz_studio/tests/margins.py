@@ -26,6 +26,24 @@ with no graphics card: software rendering changes *when* a frame appears, so it
 changes how often a measurement can be taken, but a margin that is uneven within
 a single photograph is the fault itself and slowness cannot invent one.
 
+**How small a disagreement this can see, which is not nothing.** Everything here
+is counted in whole pixels of a photograph, so half a pixel is the finest thing
+it could ever resolve — and against an engine that draws a hard edge it is
+coarser than that. Some engines fade the edge of the picture across the last
+pixel and some do not. Where the edge is faded, that half-lit pixel is neither
+"image" nor "background" by the tests below, so it is skipped on both sides and
+the two margins stay equal. Where the edge is hard, the block of picture always
+begins and ends on a whole pixel, and if the true edge happens to fall half way
+across one, no amount of correct registration can centre a block of whole pixels
+inside the hole: one margin comes out a pixel wider than the one opposite.
+
+So **a reading of one, on an engine with a hard edge, means "these two agree to
+within half a screen pixel" and not "these two disagree"**. It was demonstrated
+rather than assumed: with the hole moved half a pixel away from where it belongs,
+the same reading came out even. `viz_studio/options/RESULTS.md` tells the story
+under measurement 1. Readings of two and more are real, which is why the checks
+that use this allow one and no more.
+
 **On the colours.** The measurement needs to tell four things apart in a
 photograph: the image, the background of whatever draws it, the layer on top,
 and — where a test uses one — something the operator has drawn that is supposed

@@ -1,12 +1,12 @@
 {
   "option": "neuroglancer-under",
-  "measured": "2026-07-31 07:54",
+  "measured": "2026-07-31 08:46",
   "0. can a surface underneath be seen": {
     "question": "with a colour painted behind the engine's canvas and a different colour set as the engine's own background, which does an operator see over ground nobody imaged?",
     "shares of the window": {
       "behind the engine (green)": 0.0,
-      "the engine's own background (blue)": 0.9702,
-      "acquired picture (near white)": 0.0298
+      "the engine's own background (blue)": 0.9703,
+      "acquired picture (near white)": 0.0297
     },
     "photograph": "showing-through.png",
     "answer": "nothing behind the engine's canvas shows through. Over ground nobody imaged an operator sees the engine's own background (97% of the window) and none of the colour painted behind it. A surface underneath the engine cannot be seen at all, so in a sandwich the operator's carrier and tiles have to be drawn on the surface ABOVE the engine, with holes cut where the run's coverage record says there is picture. This is a fact about one canvas placed behind another, and it does not carry over to layers stacked inside the engine, where a lower layer does show through the layer above it; see viz_studio/LAYER_STACK.md, on the branch claude/layer-stack-probe.",
@@ -70,14 +70,14 @@
       "photograph": "registration-panning-worst.png"
     },
     "zooming": {
-      "samples": 51,
-      "photographs": 51,
+      "samples": 54,
+      "photographs": 54,
       "closed": 0,
       "left": 1.0,
       "right": 1.0,
       "top": 1.0,
       "bottom": 1.0,
-      "unevenness": 2.0,
+      "unevenness": 1.0,
       "widest_seen": {
         "left": 40.0,
         "right": 41.0,
@@ -103,7 +103,7 @@
       },
       "band was cut at, in these pixels": 40.0,
       "worst slant across three cuts": 0.0,
-      "frames": 17,
+      "frames": 18,
       "photograph": "registration-zooming-worst.png"
     },
     "thrown about": {
@@ -255,18 +255,18 @@
       "seconds": 0.3,
       "it showed": true,
       "share of the window showing picture, before": 0.2726,
-      "and after": 0.2964,
+      "and after": 0.2966,
       "note": "the clock starts when the tile is safely on disk and stops when the window is measurably brighter than it was. It includes the time spent photographing, so it is an upper bound rather than a best case."
     },
     "does it keep up": {
-      "tiles written during the measurement": 476,
+      "tiles written during the measurement": 465,
       "frames a second, round by round": [
         5.2,
         5.6,
         5.2,
-        5.2,
-        5.2,
-        5.2
+        5.6,
+        5.6,
+        5.6
       ],
       "seconds a round took": [
         2.5,
@@ -285,27 +285,27 @@
       "of which found picture": 9,
       "of which were for ground nobody imaged": 108,
       "how many the browser held at once": 6,
-      "rounds of waiting": 54,
-      "seconds": 0.13
+      "rounds of waiting": 58,
+      "seconds": 0.15
     },
     "bounded to the imaged ground": {
       "requests to redraw the view": 25,
       "of which found picture": 9,
       "of which were for ground nobody imaged": 16,
-      "how many the browser held at once": 6,
-      "rounds of waiting": 14,
+      "how many the browser held at once": 5,
+      "rounds of waiting": 11,
       "seconds": 0.03
     }
   },
   "7. drawing rate with many positions": {
     "20 positions": {
-      "frames that changed, in three seconds": 89,
-      "frames a second": 25.1,
+      "frames that changed, in three seconds": 78,
+      "frames a second": 24.8,
       "rectangles the page was drawing": 20
     },
     "200 positions": {
-      "frames that changed, in three seconds": 69,
-      "frames a second": 19.5,
+      "frames that changed, in three seconds": 58,
+      "frames a second": 19.2,
       "rectangles the page was drawing": 200
     }
   }

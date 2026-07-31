@@ -93,11 +93,11 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 
 | | neuroglancer-under | viv-inside | viv-under |
 | --- | --- | --- | --- |
-| *measured* | 2026-07-31 07:54 | 2026-07-31 07:56 | 2026-07-31 07:57 |
+| *measured* | 2026-07-31 08:46 | 2026-07-31 07:56 | 2026-07-31 07:57 |
 | **0. Can a surface underneath the engine be seen?** | **no** | yes | yes |
 | **1. Registration** — worst unevenness at rest (screen px) | 1.0 | 0.0 | 0.0 |
 |   … while panning | 1.0 | 0.0 | 0.0 |
-|   … while zooming | 2.0 | 0.0 | 0.0 |
+|   … while zooming | 1.0 | 0.0 | 0.0 |
 |   … thrown about | 1.0 | 0.0 | 0.0 |
 |   … with the hole moved 8 px on purpose (must be large) | 17.0 | 16.0 | 16.0 |
 | **2. Handedness** — brightness across the picture (levels per 100 px) | 91.5 | 91.5 | 91.5 |
@@ -114,14 +114,14 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 |   … what the window showed while it refreshed | [0.2726, 0.2726, 0.2726] | [0.2734, 0.2734, 0.2734] | [0.2734, 0.2734, 0.2734, 0.2734] |
 | **5d. The view stays put** — centre moved (µm) | 0.0 | 0 | 0.0 |
 | **5e. How soon a tile shows** (seconds) | 0.3 | 0.38 | 0.13 |
-| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 5.2 | 5.2 → 4.8 | 5.2 → 5.2 |
-|   … tiles written meanwhile | 476 | 470 | 484 |
+| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 5.6 | 5.2 → 4.8 | 5.2 → 5.2 |
+|   … tiles written meanwhile | 465 | 470 | 484 |
 | **6. Requests** — to redraw one view, unbounded | 117 | 826 | 432 |
 |   … of those, for ground nobody imaged | 108 | 781 | 396 |
 |   … bounded by the coverage record | 25 | 36 | 100 |
 |   … of those, for ground nobody imaged | 16 | 0 | 64 |
-| **7. Drawing rate** — frames a second at 20 positions | 25.1 | 12.7 | 26.1 |
-|   … at 200 positions | 19.5 | 10.9 | 18.1 |
+| **7. Drawing rate** — frames a second at 20 positions | 24.8 | 12.7 | 26.1 |
+|   … at 200 positions | 19.2 | 10.9 | 18.1 |
 
 <!-- end of the generated table -->
 
@@ -137,13 +137,36 @@ other answer: with the option's own surfaces hidden, the colour behind filled
 around it; the band between them is read on all four sides, along three cuts, in
 every frame of a live recording. The right answer is "unchanged", so the number
 is the worst unevenness within any *single* photograph — which cannot be
-explained away by the two layers having been photographed a moment apart. One
-pixel is the measurement's own floor, from the hole falling on fractional pixel
-positions.
+explained away by the two layers having been photographed a moment apart.
 
 The last row of that group is the red evidence. Moving the hole two pixels reads
 5, and eight pixels reads 17, on the same page with nothing else changed. A check
 that has never been seen to fail is not evidence of anything.
+
+**The one pixel option A reads at rest is this measurement's own floor against
+this engine, and nothing in the viewer can drive it to nought.** It was chased
+down properly rather than assumed, and the cause is worth knowing, because it
+says what the number can and cannot tell you.
+
+Neuroglancer's picture has a hard edge. A screen pixel either shows picture or it
+does not, with nothing in between, so the block of picture on the screen always
+begins and ends on a whole pixel. The two Viv options fade their edge across the
+last pixel instead, and the reading — which counts only pixels that are
+definitely one thing or definitely the other — skips that half-lit pixel on
+*both* sides, which is the whole reason they come out even. At the magnification
+this measurement uses, the edge of the imaged square falls exactly half way
+across a pixel, and there a block of whole pixels simply cannot sit centred in
+the hole: whichever way the engine rounds, one margin comes out a pixel wider
+than the one opposite.
+
+That is measured, not argued. The hole can be moved by a fraction of a pixel, so
+it was: nudged half a pixel to the left — deliberately put in the wrong place —
+the two margins across the window came out **even, 40 and 40**, where they read
+40 and 41 with the hole where it belongs; nudged half a pixel to the right they
+read 39 and 41. A number that improves when you break the thing it is measuring
+has reached the end of what it can resolve. So option A's 1 should be read as
+"the two agree to within half a screen pixel", which is also all that the two
+zeros mean.
 
 **2. Handedness.** The picture runs uphill to the right at 91 grey levels per
 hundred pixels, which is the specimen the way round it really is. The separate
@@ -218,7 +241,7 @@ and drawing in one should differ.
 
 ---
 
-## Two surprises worth passing on
+## Four surprises worth passing on
 
 **Following the pointer did not come apart, on this machine.** `SANDWICH.md`
 records that repainting the operator's drawing on every mouse move rather than
@@ -248,3 +271,62 @@ draws brings the same measurement back to **1**.
 That had not been seen before because the earlier probe never bounded the drawn
 region while measuring registration. It is worth knowing for option B: if it
 resizes its drawing surface for any reason, the same fault is waiting.
+
+**The picture was sitting half a voxel from where the store says it is, and the
+margin measurement could not see it.** This came out of chasing the pixel above,
+and it is the more useful of the two things that chase turned up.
+
+An image has to say where in the specimen its first voxel sits, and there are two
+ways of saying it: the **corner** of that voxel, which is what our writer means
+and what the coverage record counts in, or its **middle**, which is what the
+OME-Zarr text says and therefore what neuroglancer assumes. Nothing in the store
+says which of the two it means, so both are being reasonable — and the engine
+placed every acquisition half a voxel before where the operator's drawing put it.
+
+Half a voxel comes to about half a screen pixel at the magnification an engine
+chooses for itself, because it picks whichever stored resolution puts roughly one
+voxel in one pixel. That is exactly the size of the floor described above, which
+is why the margin measurement, taken at one magnification, could never have found
+it. Zoom in past the finest stored resolution, though, and half a voxel keeps its
+size in the specimen while a screen pixel shrinks: measured at eight times full
+resolution, the edge of the picture sat **four screen pixels** from where the
+drawing put it, and it would be eight at sixteen times. That is precisely the
+moment an operator is asking whether a tile's picture really landed inside the
+square they laid out.
+
+`neuroglancer-under/viewer.js` now moves the layer back by half a voxel — half a
+voxel *of the image*, not a number of pixels tuned on one screen, and only where
+the engine has said it is counting from the middle of a voxel. Measured after:
+the edge of the picture lands exactly where the drawing puts it at full
+resolution (0.000 µm, from 0.500 µm), and the margin reading **while zooming came
+down from 2 to 1**, stable across three runs each way. The reading at rest did
+not move, for the reason given above, and nothing else in the table moved either.
+
+**It is only half cured, and the rest belongs to the writer.** The engine takes
+its half a voxel off each stored resolution separately, so a four-micrometre
+level is placed two micrometres early where the one-micrometre level is placed
+half a micrometre early — which also means the resolutions within one pyramid do
+not line up with each other. Only the finest can be put right from the viewer,
+because the coarser ones are placed once, while the store's description is being
+read, and are out of reach afterwards. The complete cure is for
+`zmart_storage/canvas.py` to say which convention it means, by giving each
+resolution a translation of half its own voxel. Nothing in Viv's packages
+mentions `coordinateTransformations` at all, so options B and C — which already
+place the picture from the corner — should not notice the change.
+
+**A dense screen costs sharpness and a little registration, but not scale.**
+Neuroglancer sizes its canvas in browser pixels and lets the browser scale it up,
+which `SANDWICH.md` §7 records as a loss of sharpness. Measured here at a screen
+density of 1.5 and of 2, the margins came out 60 / 61 and 79 / 81 real pixels
+against a band cut at 60 and 80. Opposite sides therefore add up to within a
+single real pixel of twice the band at every density — and a picture drawn at the
+wrong *size* could not do that, because the square is 245 browser pixels across
+and an error in scale would grow with it. So **the picture is the right size, and
+only the grid its edge can land on is coarser**: the finest step at which the
+engine can place it is one browser pixel rather than one real pixel. Options B
+and C, which do size their canvas in real pixels, read 0 at every density.
+
+What that means for an operator on a dense laptop screen is a seam between the
+picture and their own drawing that can sit up to one real pixel out at a density
+of 2 — a hairline, and not the much larger error a genuine disagreement about
+the size of the window would have caused.
