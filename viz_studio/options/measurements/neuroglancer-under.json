@@ -1,6 +1,6 @@
 {
   "option": "neuroglancer-under",
-  "measured": "2026-07-31 08:46",
+  "measured": "2026-07-31 11:27",
   "0. can a surface underneath be seen": {
     "question": "with a colour painted behind the engine's canvas and a different colour set as the engine's own background, which does an operator see over ground nobody imaged?",
     "shares of the window": {
@@ -20,6 +20,37 @@
       },
       "the counting noticed": true,
       "photograph": "showing-through-can-fail.png"
+    }
+  },
+  "0b. is the bottom layer beneath the picture": {
+    "question": "with one flat colour drawn in the bottom slot and nothing in the top, does an operator see that colour over ground nobody imaged?",
+    "what the option says of itself": {
+      "drawsUnder": false,
+      "because": "neuroglancer forces the whole of its canvas opaque at the end of every frame, so nothing placed behind it is ever seen. Anything that has to sit beneath the picture on this engine has to go inside the engine as a layer of its own, which means it must be written to the store first and cannot change while somebody is watching."
+    },
+    "with the colour in the bottom slot": {
+      "shares of the window": {
+        "behind the engine (green)": 0.0,
+        "the engine's own background (blue)": 0.9703,
+        "acquired picture (near white)": 0.0297
+      },
+      "the colour was seen": false,
+      "photograph": "beneath-the-picture.png"
+    },
+    "the bottom layer is genuinely beneath the picture": false,
+    "answer": "no. A colour drawn in the bottom slot is seen nowhere at all: over ground nobody imaged an operator sees the engine's own background (97% of the window) instead. The drawing is made, on a surface genuinely behind the engine's canvas, and the engine covers it. This option says so itself, as viewer.drawsUnder, rather than drawing the same thing on top with holes cut in it \u2014 which would look identical while doing something quite different underneath.",
+    "and the check can fail": {
+      "what was changed": "the same flat colour was drawn in the top slot instead of the bottom one, with everything else on the page left exactly as it was",
+      "with the colour in the top slot": {
+        "shares of the window": {
+          "behind the engine (green)": 1.0,
+          "the engine's own background (blue)": 0.0,
+          "acquired picture (near white)": 0.0
+        },
+        "the colour was seen": true,
+        "photograph": "beneath-can-fail-on-top.png"
+      },
+      "the counting noticed": true
     }
   },
   "1. registration": {
@@ -70,8 +101,8 @@
       "photograph": "registration-panning-worst.png"
     },
     "zooming": {
-      "samples": 54,
-      "photographs": 54,
+      "samples": 48,
+      "photographs": 48,
       "closed": 0,
       "left": 1.0,
       "right": 1.0,
@@ -103,7 +134,7 @@
       },
       "band was cut at, in these pixels": 40.0,
       "worst slant across three cuts": 0.0,
-      "frames": 18,
+      "frames": 16,
       "photograph": "registration-zooming-worst.png"
     },
     "thrown about": {
@@ -160,6 +191,30 @@
         "photograph": "registration-can-fail-nudged-8.png"
       }
     }
+  },
+  "1b. registration of the bottom layer": {
+    "what the option says of itself": false,
+    "band was cut at, in a still photograph's pixels": 40.0,
+    "photograph at rest": "bottom-registration-at-rest.png",
+    "at rest": {
+      "why": "the layer on top was not found outside the band"
+    },
+    "at rest, unevenness": "not applicable",
+    "panning": {
+      "unevenness": "not applicable"
+    },
+    "zooming": {
+      "unevenness": "not applicable"
+    },
+    "thrown about": {
+      "unevenness": "not applicable"
+    },
+    "and the check can fail": {
+      "the ring moved 8 browser pixels": {
+        "unevenness": "not applicable"
+      }
+    },
+    "note": "there was no bottom layer on screen to measure. The page drew one and the option painted it, on a surface genuinely beneath the picture; the engine's own canvas covers it completely. See measurement 0b, which asks that question directly, and viewer.drawsUnder, which is how a page finds it out without having to know which engine it is talking to."
   },
   "2. handedness": {
     "photograph": "handedness.png",
@@ -231,16 +286,15 @@
     "what the refresh costs": {
       "pieces of image re-fetched to show the new tiles": 4,
       "of which held picture": 3,
-      "seconds": 0.0,
+      "seconds": 0.01,
       "note": "only the pieces actually on screen are asked for again, so this follows the size of the window rather than the size of the specimen. Anything the operator had scrolled past is fetched again if and when they scroll back to it."
     },
     "does the picture survive the refresh": {
-      "frames the screen changed during the refresh": 3,
+      "frames the screen changed during the refresh": 2,
       "the least the picture ever showed during it": 0.2726,
       "it settled at": 0.2726,
-      "seconds before the picture was back to half of that": 0.08,
+      "seconds before the picture was back to half of that": 0.12,
       "what the window showed, frame by frame": [
-        0.2726,
         0.2726,
         0.2726
       ],
@@ -252,20 +306,20 @@
       "the edge of the picture moved (photograph pixels)": 0.0
     },
     "how soon after the tile lands does it show": {
-      "seconds": 0.3,
+      "seconds": 0.37,
       "it showed": true,
       "share of the window showing picture, before": 0.2726,
       "and after": 0.2966,
       "note": "the clock starts when the tile is safely on disk and stops when the window is measurably brighter than it was. It includes the time spent photographing, so it is an upper bound rather than a best case."
     },
     "does it keep up": {
-      "tiles written during the measurement": 465,
+      "tiles written during the measurement": 438,
       "frames a second, round by round": [
         5.2,
         5.6,
         5.2,
-        5.6,
-        5.6,
+        5.2,
+        5.2,
         5.6
       ],
       "seconds a round took": [
@@ -284,28 +338,28 @@
       "requests to redraw the view": 117,
       "of which found picture": 9,
       "of which were for ground nobody imaged": 108,
-      "how many the browser held at once": 6,
-      "rounds of waiting": 58,
-      "seconds": 0.15
+      "how many the browser held at once": 5,
+      "rounds of waiting": 76,
+      "seconds": 0.23
     },
     "bounded to the imaged ground": {
       "requests to redraw the view": 25,
       "of which found picture": 9,
       "of which were for ground nobody imaged": 16,
-      "how many the browser held at once": 5,
-      "rounds of waiting": 11,
-      "seconds": 0.03
+      "how many the browser held at once": 4,
+      "rounds of waiting": 13,
+      "seconds": 0.04
     }
   },
   "7. drawing rate with many positions": {
     "20 positions": {
-      "frames that changed, in three seconds": 78,
-      "frames a second": 24.8,
+      "frames that changed, in three seconds": 57,
+      "frames a second": 18.0,
       "rectangles the page was drawing": 20
     },
     "200 positions": {
-      "frames that changed, in three seconds": 58,
-      "frames a second": 19.2,
+      "frames that changed, in three seconds": 38,
+      "frames a second": 11.2,
       "rectangles the page was drawing": 200
     }
   }

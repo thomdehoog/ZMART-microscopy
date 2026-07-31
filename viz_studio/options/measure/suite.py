@@ -1,5 +1,5 @@
-"""The seven measurements every option has to pass, written to run against any of
-them by name.
+"""The measurements every option has to pass, written to run against any of them
+by name.
 
 `viz_studio/OPTIONS.md` lists them and says why each one is there. Nothing below
 mentions an engine, and nothing below asks the page which option it is driving:
@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np  # noqa: E402
 
+import beneath  # noqa: E402
 import showing_through  # noqa: E402
 from drive import GESTURES, MARGIN_CSS_PX, Recording, pan_steadily  # noqa: E402
 from margins import (  # noqa: E402
@@ -58,6 +59,25 @@ def can_a_surface_underneath_be_seen(harness) -> dict:
     found = showing_through.measure(harness)
     found["and the check can fail"] = showing_through.check_it_can_fail(harness)
     return found
+
+
+# ---------------------------------------------------------------------------
+# 0b. Is the bottom layer of the canvas genuinely beneath the picture?
+# ---------------------------------------------------------------------------
+
+
+def is_the_bottom_layer_beneath_the_picture(harness) -> dict:
+    """The question above, asked of the slot an application actually uses.
+
+    Measurement 0 asks whether a colour painted on the *box* shows through the
+    engine's canvas, which is a fact about the engine. This one asks whether the
+    bottom slot of the interface — `drawUnder(paint)`, the thing an application
+    writes against — really puts an application's own drawing beneath the
+    picture. They are the same physics and they can still come apart, because an
+    option could implement the slot and then not honour it. `beneath.py` says how
+    it is measured and how it is shown able to give the other answer.
+    """
+    return beneath.measure(harness)
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +163,117 @@ def _registration_can_fail(harness) -> dict:
             ),
         }
     harness.believes("window.harness.nudgeTheHole(0)")
+    return broken
+
+
+# ---------------------------------------------------------------------------
+# 1b. Registration of the bottom layer
+# ---------------------------------------------------------------------------
+
+# What is said instead of a number when there is no bottom layer on screen to
+# measure. Said in words rather than reported as nought, because nought would
+# read as "perfectly lined up" and the truth is "there was nothing there". Kept
+# to two words so that the results table stays readable; the full explanation
+# goes in the reading's own "note", where there is room for it.
+NOT_APPLICABLE = "not applicable"
+
+
+def registration_of_the_bottom_layer(harness) -> dict:
+    """Does the layer *beneath* the picture stay locked to it while the view moves?
+
+    A bottom layer that sits underneath but drifts as the operator pans is worse
+    than no bottom layer at all, because it looks right standing still and wrong
+    the moment it is used. Being beneath the picture and staying locked to it are
+    two separate promises, and this measures the second.
+
+    It is the same instrument as measurement 1 and the same program reads it,
+    `viz_studio/tests/margins.py`, with nothing changed. Only the shape moves: a
+    rectangle of colour is drawn *beneath* the picture a little way outside the
+    imaged square, so a cut across the photograph meets the ring, a band of
+    background, the picture, a band of background and the ring again — exactly the
+    four things measurement 1 reads, in exactly that order. The right answer is
+    again "unchanged": the two bands equal, and equal in every frame of a live
+    recording of a real gesture.
+
+    An option whose engine cannot show anything beneath its canvas shows none of
+    the ring, and this says so in words rather than reporting a number. That is
+    the honest reading — there was nothing on screen to measure, which is not the
+    same as a measurement of nought.
+    """
+    # The engine's background is set to the same saturated blue measurement 1
+    # uses, because the band between the picture and the ring has to be a colour
+    # the reading can name. In a finished viewer it matches the page exactly and
+    # the seam cannot be seen; it differs here so that it can be measured.
+    harness.open(store="square", draw="none", background="#0000ff")
+    harness.believes(
+        "window.harness.drawInTheSlots("
+        "{under: 'the margin ring', over: 'nothing'})"
+    )
+    harness.believes("window.harness.reset()")
+    harness.settle(tries=20)
+    still = harness.photograph()
+    at_rest = margins_around_the_hole(still)
+    found = {
+        "what the option says of itself": harness.believes(
+            "window.harness.drawsUnder"
+        ),
+        "band was cut at, in a still photograph's pixels": round(
+            harness.nominal(still), 1
+        ),
+        "photograph at rest": harness.save_frame(
+            still, "bottom-registration-at-rest"
+        ),
+    }
+    if not at_rest.found:
+        found["at rest"] = {"why": at_rest.why}
+        found["at rest, unevenness"] = NOT_APPLICABLE
+        for name in GESTURES:
+            found[name] = {"unevenness": NOT_APPLICABLE}
+        found["and the check can fail"] = {
+            "the ring moved 8 browser pixels": {"unevenness": NOT_APPLICABLE}
+        }
+        found["note"] = (
+            "there was no bottom layer on screen to measure. The page drew one "
+            "and the option painted it, on a surface genuinely beneath the "
+            "picture; the engine's own canvas covers it completely. See "
+            "measurement 0b, which asks that question directly, and "
+            "viewer.drawsUnder, which is how a page finds it out without having "
+            "to know which engine it is talking to."
+        )
+        return found
+
+    found["at rest"] = at_rest.sides
+    found["at rest, unevenness"] = at_rest.unevenness
+    for name, gesture in GESTURES.items():
+        found[name] = _margins_through_a_gesture(
+            harness, gesture, f"bottom-registration-{name.replace(' ', '-')}-worst"
+        )
+    found["and the check can fail"] = _bottom_registration_can_fail(harness)
+    return found
+
+
+def _bottom_registration_can_fail(harness) -> dict:
+    """Put the ring beneath the picture in the wrong place, and watch it show.
+
+    Exactly the breakage measurement 1 uses, applied to the other slot. Nothing
+    else on the page changes, so whatever the reading then reports is it noticing
+    a disagreement that really is there — which is the only way to know it would
+    notice a real one.
+    """
+    broken = {}
+    for pixels in (0, 2, 8):
+        harness.believes(f"window.harness.nudgeTheGroundBeneath({pixels})")
+        harness.settle(tries=10)
+        picture = harness.photograph()
+        reading = margins_around_the_hole(picture)
+        broken[f"the ring moved {pixels} browser pixels"] = {
+            "unevenness": reading.unevenness if reading.found else None,
+            "noticed": bool(reading.found and reading.unevenness > 2),
+            "photograph": harness.save_frame(
+                picture, f"bottom-registration-can-fail-nudged-{pixels}"
+            ),
+        }
+    harness.believes("window.harness.nudgeTheGroundBeneath(0)")
     return broken
 
 
@@ -816,7 +947,13 @@ EVERYTHING = {
     "0. can a surface underneath be seen": lambda h, d: (
         can_a_surface_underneath_be_seen(h)
     ),
+    "0b. is the bottom layer beneath the picture": lambda h, d: (
+        is_the_bottom_layer_beneath_the_picture(h)
+    ),
     "1. registration": lambda h, d: registration(h),
+    "1b. registration of the bottom layer": lambda h, d: (
+        registration_of_the_bottom_layer(h)
+    ),
     "2. handedness": lambda h, d: handedness(h),
     "3. two gestures and no more": lambda h, d: two_gestures_and_no_more(h),
     "4. sparseness": lambda h, d: sparseness(h),

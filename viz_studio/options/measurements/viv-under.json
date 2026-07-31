@@ -1,6 +1,6 @@
 {
   "option": "viv-under",
-  "measured": "2026-07-31 07:57",
+  "measured": "2026-07-31 11:16",
   "0. can a surface underneath be seen": {
     "question": "with a colour painted behind the engine's canvas and a different colour set as the engine's own background, which does an operator see over ground nobody imaged?",
     "shares of the window": {
@@ -20,6 +20,37 @@
       },
       "the counting noticed": true,
       "photograph": "showing-through-can-fail.png"
+    }
+  },
+  "0b. is the bottom layer beneath the picture": {
+    "question": "with one flat colour drawn in the bottom slot and nothing in the top, does an operator see that colour over ground nobody imaged?",
+    "what the option says of itself": {
+      "drawsUnder": true,
+      "because": "a deck.gl canvas is cleared to nothing rather than to a colour, so wherever the picture has not been drawn, whatever is behind the canvas shows through it."
+    },
+    "with the colour in the bottom slot": {
+      "shares of the window": {
+        "behind the engine (green)": 0.9695,
+        "the engine's own background (blue)": 0.0,
+        "acquired picture (near white)": 0.0295
+      },
+      "the colour was seen": true,
+      "photograph": "beneath-the-picture.png"
+    },
+    "the bottom layer is genuinely beneath the picture": true,
+    "answer": "yes. A colour drawn in the bottom slot fills 97% of the window, so the application's own drawing really does sit beneath the picture and an operator sees it wherever the picture has not been written.",
+    "and the check can fail": {
+      "what was changed": "the same flat colour was drawn in the top slot instead of the bottom one, with everything else on the page left exactly as it was",
+      "with the colour in the top slot": {
+        "shares of the window": {
+          "behind the engine (green)": 1.0,
+          "the engine's own background (blue)": 0.0,
+          "acquired picture (near white)": 0.0
+        },
+        "the colour was seen": true,
+        "photograph": "beneath-can-fail-on-top.png"
+      },
+      "the counting noticed": true
     }
   },
   "1. registration": {
@@ -161,6 +192,146 @@
       }
     }
   },
+  "1b. registration of the bottom layer": {
+    "what the option says of itself": true,
+    "band was cut at, in a still photograph's pixels": 40.0,
+    "photograph at rest": "bottom-registration-at-rest.png",
+    "at rest": {
+      "left": 41.0,
+      "right": 41.0,
+      "top": 41.0,
+      "bottom": 41.0
+    },
+    "at rest, unevenness": 0.0,
+    "panning": {
+      "samples": 75,
+      "photographs": 123,
+      "closed": 0,
+      "left": 1.0,
+      "right": 1.0,
+      "top": 1.0,
+      "bottom": 1.0,
+      "unevenness": 0.0,
+      "widest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          82.0,
+          82.0
+        ],
+        "down": [
+          82.0,
+          82.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 41,
+      "photograph": "bottom-registration-panning-worst.png"
+    },
+    "zooming": {
+      "samples": 48,
+      "photographs": 48,
+      "closed": 0,
+      "left": 1.0,
+      "right": 1.0,
+      "top": 1.0,
+      "bottom": 1.0,
+      "unevenness": 0.0,
+      "widest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 40.0,
+        "right": 40.0,
+        "top": 40.0,
+        "bottom": 40.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          80.0,
+          82.0
+        ],
+        "down": [
+          80.0,
+          82.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 16,
+      "photograph": "bottom-registration-zooming-worst.png"
+    },
+    "thrown about": {
+      "samples": 126,
+      "photographs": 147,
+      "closed": 0,
+      "left": 1.0,
+      "right": 1.0,
+      "top": 1.0,
+      "bottom": 1.0,
+      "unevenness": 0.0,
+      "widest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          82.0,
+          82.0
+        ],
+        "down": [
+          82.0,
+          82.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 49,
+      "photograph": "bottom-registration-thrown-about-worst.png"
+    },
+    "and the check can fail": {
+      "the ring moved 0 browser pixels": {
+        "unevenness": 0.0,
+        "noticed": false,
+        "photograph": "bottom-registration-can-fail-nudged-0.png"
+      },
+      "the ring moved 2 browser pixels": {
+        "unevenness": 4.0,
+        "noticed": true,
+        "photograph": "bottom-registration-can-fail-nudged-2.png"
+      },
+      "the ring moved 8 browser pixels": {
+        "unevenness": 16.0,
+        "noticed": true,
+        "photograph": "bottom-registration-can-fail-nudged-8.png"
+      }
+    }
+  },
   "2. handedness": {
     "photograph": "handedness.png",
     "brightness across the picture, grey levels per hundred pixels": 91.5,
@@ -238,7 +409,7 @@
       "frames the screen changed during the refresh": 4,
       "the least the picture ever showed during it": 0.2734,
       "it settled at": 0.2734,
-      "seconds before the picture was back to half of that": 0.1,
+      "seconds before the picture was back to half of that": 0.18,
       "what the window showed, frame by frame": [
         0.2734,
         0.2734,
@@ -253,21 +424,21 @@
       "the edge of the picture moved (photograph pixels)": 0.0
     },
     "how soon after the tile lands does it show": {
-      "seconds": 0.13,
+      "seconds": 0.22,
       "it showed": true,
       "share of the window showing picture, before": 0.2734,
       "and after": 0.2972,
       "note": "the clock starts when the tile is safely on disk and stops when the window is measurably brighter than it was. It includes the time spent photographing, so it is an upper bound rather than a best case."
     },
     "does it keep up": {
-      "tiles written during the measurement": 484,
+      "tiles written during the measurement": 441,
       "frames a second, round by round": [
         5.2,
-        5.6,
         5.2,
         5.2,
         5.2,
-        5.2
+        5.2,
+        5.6
       ],
       "seconds a round took": [
         2.5,
@@ -286,27 +457,27 @@
       "of which found picture": 36,
       "of which were for ground nobody imaged": 396,
       "how many the browser held at once": 6,
-      "rounds of waiting": 250,
-      "seconds": 2.15
+      "rounds of waiting": 291,
+      "seconds": 3.36
     },
     "bounded to the imaged ground": {
       "requests to redraw the view": 100,
       "of which found picture": 36,
       "of which were for ground nobody imaged": 64,
-      "how many the browser held at once": 6,
-      "rounds of waiting": 55,
-      "seconds": 0.37
+      "how many the browser held at once": 5,
+      "rounds of waiting": 70,
+      "seconds": 0.72
     }
   },
   "7. drawing rate with many positions": {
     "20 positions": {
-      "frames that changed, in three seconds": 87,
-      "frames a second": 26.1,
+      "frames that changed, in three seconds": 57,
+      "frames a second": 16.0,
       "rectangles the page was drawing": 20
     },
     "200 positions": {
-      "frames that changed, in three seconds": 58,
-      "frames a second": 18.1,
+      "frames that changed, in three seconds": 37,
+      "frames a second": 12.1,
       "rectangles the page was drawing": 200
     }
   }

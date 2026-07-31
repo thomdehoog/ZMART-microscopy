@@ -34,6 +34,15 @@
  *    measurement shows is that this engine *would allow* the simpler
  *    arrangement, which is a real advantage of it and is reported as one.
  *
+ *    Since then that advantage has been made usable rather than merely reported.
+ *    The interface now has a slot for the bottom layer of
+ *    `viz_studio/THE_CANVAS.md` — `drawUnder(paint)`, written exactly like
+ *    `drawOver(paint)` — and this option honours it with a third canvas behind
+ *    the engine's. `viewer.drawsUnder` is `true` here, and it is a measured
+ *    answer rather than a claim: a colour drawn in that slot fills the window
+ *    through the engine's canvas, where on option A the same drawing is seen
+ *    nowhere at all.
+ *
  * 2. **Room the microscope never visited would otherwise be painted black.**
  *    Viv's colouring ends by writing the picture out fully opaque, so a canvas
  *    declared to the reach of the stage arrives as a large black rectangle with
@@ -132,7 +141,10 @@ const UM_PER_UNIT = {
  *                   of the window is worth asking the engine to draw.
  *   `background`    the page colour, as CSS text. Painted on the box itself; the
  *                   engine paints no background of its own, so there is no seam.
- *   `onViewChanged` called with `{ centre, zoom }` whenever the view settles.
+ *   `onViewChanged` called whenever the view settles, with the same record
+ *                   `whereThingsAreDrawn()` gives back: the centre and zoom in
+ *                   micrometres, the size of the box, and `project`/`unproject`
+ *                   for placing ordinary HTML elements in the same coordinates.
  * @returns {Promise<Viewer>} the handle; see `../contract.md` for what it offers.
  *
  * It can fail in two ways worth knowing about. An address without a scheme is
@@ -189,6 +201,13 @@ export async function openViewer(element, options = {}) {
     engineCanvas: null,
     overlay: null,
     context: null,
+    // The surface the application's own drawing goes on when it is meant to sit
+    // *beneath* the picture, and the drawing function for it. Both stay empty
+    // until a page actually asks for a bottom layer, so a page that never uses
+    // one costs exactly what it did before there was one.
+    beneath: null,
+    beneathContext: null,
+    paintBeneath: null,
     deck: null,
     view: null,
     // One entry per acquisition, each holding the pyramid of readers, how large
@@ -209,7 +228,9 @@ export async function openViewer(element, options = {}) {
     // How much drawing has actually happened. Kept because a measurement has to
     // be able to tell "the drawing never moved" from "the drawing moved to the
     // wrong place", and on screen those look identical.
-    counted: { overlayPaints: 0, enginePaints: 0, letGoes: 0, lastAsked: 0 },
+    counted: {
+      overlayPaints: 0, groundPaints: 0, enginePaints: 0, letGoes: 0, lastAsked: 0,
+    },
     destroyed: false,
   };
 
@@ -254,7 +275,10 @@ function buildTheTwoSurfaces(own) {
   Object.assign(own.engineHost.style, {
     position: "absolute",
     inset: "0",
-    zIndex: "0",
+    // One above the surface the bottom layer goes on, and one below the
+    // operator's own. The three numbers are the three layers of
+    // `viz_studio/THE_CANVAS.md`, in order, written down in one place.
+    zIndex: "1",
     pointerEvents: "none",
   });
 
@@ -276,7 +300,7 @@ function buildTheTwoSurfaces(own) {
     inset: "0",
     width: "100%",
     height: "100%",
-    zIndex: "1",
+    zIndex: "2",
     // Without this a drag on a touchpad scrolls the page instead of panning the
     // view, and the two gestures stop being the only two.
     touchAction: "none",
@@ -327,8 +351,46 @@ function fitTheSurfaces(own) {
   const height = own.element.clientHeight;
   own.overlay.width = Math.max(1, Math.round(width * density));
   own.overlay.height = Math.max(1, Math.round(height * density));
+  if (own.beneath) {
+    own.beneath.width = own.overlay.width;
+    own.beneath.height = own.overlay.height;
+  }
   own.size = { width, height, density };
   fitTheEngineToItsPatch(own);
+}
+
+/**
+ * Lay down the surface the bottom layer is drawn on, the first time a page asks
+ * for one.
+ *
+ * It goes behind the engine's canvas, which is where the bottom layer of
+ * `viz_studio/THE_CANVAS.md` belongs, and here it is genuinely seen: a deck.gl
+ * canvas is cleared to nothing rather than to a colour, so wherever the picture
+ * has not been drawn, what is behind shows through. That is the one place this
+ * engine differs from neuroglancer in a way that decides what can be built
+ * rather than how well it performs.
+ *
+ * Made only when it is wanted. A page that never draws beneath the picture never
+ * gets a third surface, never clears one every frame, and pays nothing for a
+ * layer it is not using.
+ */
+function makeTheSurfaceBeneath(own) {
+  if (own.beneath) return;
+  own.beneath = document.createElement("canvas");
+  own.beneath.className = "zmart-ground-beneath";
+  Object.assign(own.beneath.style, {
+    position: "absolute",
+    inset: "0",
+    width: "100%",
+    height: "100%",
+    zIndex: "0",
+    pointerEvents: "none",
+  });
+  // Put in first, so it is behind both the engine and the operator's drawing
+  // however the browser happens to resolve the stacking order.
+  own.element.insertBefore(own.beneath, own.element.firstChild);
+  own.beneathContext = own.beneath.getContext("2d");
+  fitTheSurfaces(own);
 }
 
 /**
@@ -584,7 +646,11 @@ async function start(own, acquisitions) {
       // with. It is built in rather than left to the page, so a page cannot get
       // it wrong.
       repaint(own);
-      if (own.onViewChanged) own.onViewChanged(readTheView(own));
+      // The whole placement rather than only the centre and the zoom, so that a
+      // page keeping ordinary HTML elements over or under the canvas can move
+      // them in the same instant the picture moved. See `whereThingsAreDrawn` on
+      // the handle for what it is for.
+      if (own.onViewChanged) own.onViewChanged(howThingsArePlaced(own));
     },
     onError: (why) => {
       // Said out loud rather than swallowed. A drawing engine that has quietly
@@ -887,35 +953,68 @@ function writeTheView(own, asked) {
 // ---------------------------------------------------------------------------
 
 /**
- * Repaint the operator's canvas from the view the engine has just drawn with.
+ * How the canvas is placed on the screen at this instant.
  *
- * The page's own drawing function is handed everything it needs to place a shape
- * in micrometres and nothing that would let it ask the engine a question, which
- * is what keeps the same drawing code working over every option.
+ * One record, worked out in one place, and used for three things: the frame each
+ * of the page's two drawings is handed, the announcement when the view settles,
+ * and the answer to `whereThingsAreDrawn()`. Keeping them the same object is what
+ * makes an ordinary HTML element positioned from `project` land in exactly the
+ * same place as a shape drawn with it.
+ *
+ * `project` turns micrometres into browser pixels from the top-left of the box;
+ * `unproject` goes the other way, which is what a click or a drag needs.
  */
-function repaint(own) {
-  if (!own.paint || !own.context || own.destroyed) return;
+function howThingsArePlaced(own) {
   const { width, height, density } = own.size;
   const view = readTheView(own);
-  const context = own.context;
-  context.setTransform(density, 0, 0, density, 0, 0);
-  context.clearRect(0, 0, width, height);
-  own.paint({
+  return {
     centre: view.centre,
     zoom: view.zoom,
     width,
     height,
-    context,
-    coverage: own.coverage,
-    // Micrometres to screen pixels, for this frame. Everything the page draws
-    // goes through this one function, so there is exactly one place where the
-    // conversion between the operator's coordinates and the screen can be wrong.
+    density,
     project: (x, y) => ({
       x: width / 2 + (x - view.centre.x) / view.zoom,
       y: height / 2 + (y - view.centre.y) / view.zoom,
     }),
-  });
-  own.counted.overlayPaints += 1;
+    unproject: (x, y) => ({
+      x: view.centre.x + (x - width / 2) * view.zoom,
+      y: view.centre.y + (y - height / 2) * view.zoom,
+    }),
+  };
+}
+
+/**
+ * Repaint the page's own drawings from the view the engine has just drawn with.
+ *
+ * Both slots are painted from the same instant: the ground beneath the picture
+ * first and the operator's marks above it second, each with the same view, the
+ * same size and the same conversion from micrometres to screen pixels. That is
+ * what makes all three layers move together.
+ *
+ * Each drawing function is handed everything it needs to place a shape in
+ * micrometres and nothing that would let it ask the engine a question, which is
+ * what keeps one piece of drawing code working over every option.
+ */
+function repaint(own) {
+  if (own.destroyed) return;
+  const { width, height, density } = own.size;
+  const placed = howThingsArePlaced(own);
+  const frameFor = (context) => ({ ...placed, context, coverage: own.coverage });
+  if (own.paintBeneath && own.beneathContext) {
+    const context = own.beneathContext;
+    context.setTransform(density, 0, 0, density, 0, 0);
+    context.clearRect(0, 0, width, height);
+    own.paintBeneath(frameFor(context));
+    own.counted.groundPaints += 1;
+  }
+  if (own.paint && own.context) {
+    const context = own.context;
+    context.setTransform(density, 0, 0, density, 0, 0);
+    context.clearRect(0, 0, width, height);
+    own.paint(frameFor(context));
+    own.counted.overlayPaints += 1;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1070,6 +1169,69 @@ function handleFor(own) {
     },
 
     /**
+     * The application's own drawing, beneath the picture.
+     *
+     * The same shape of function as `drawOver`, called at the same moments with
+     * the same frame, so a page writes the two the same way. Hand over `null` to
+     * say there is nothing beneath, and no surface is laid down at all.
+     *
+     * On this engine it is genuinely seen. A deck.gl canvas is cleared to
+     * nothing rather than to a colour, so wherever the picture has not been
+     * drawn — which on a run in progress is most of the window — what is behind
+     * shows through. `drawsUnder` is `true` here.
+     */
+    drawUnder(paint) {
+      own.paintBeneath = paint;
+      if (paint) makeTheSurfaceBeneath(own);
+      repaint(own);
+    },
+
+    /**
+     * Whether a drawing handed to `drawUnder` really ends up beneath the
+     * picture, where an operator can see it.
+     *
+     * `true` here, and measured rather than assumed: with one colour painted
+     * behind this engine's canvas and another set as the engine's own
+     * background, an operator saw 96.95% of the colour behind and none of the
+     * engine's background over ground nobody had imaged.
+     */
+    drawsUnder: true,
+
+    /** Why, in a sentence a page can show to whoever is looking at it. */
+    drawsUnderBecause:
+      "a deck.gl canvas is cleared to nothing rather than to a colour, so " +
+      "wherever the picture has not been drawn, whatever is behind the canvas " +
+      "shows through it.",
+
+    /**
+     * Where the canvas is looking, in a form good enough to place an ordinary
+     * HTML element in micrometres.
+     *
+     * The two drawing slots take a function and give back a flat picture, which
+     * is right for shapes that must stay locked to the specimen — and it is why
+     * they stay locked as well as they do. But a drawing context cannot hold an
+     * HTML element, so a label pinned to a tile, a menu, a handle with its own
+     * event listeners, anything with a life of its own, has to be an ordinary
+     * element positioned over or under the canvas.
+     *
+     * This is what lets an application do that in the canvas's own coordinate
+     * system. `project(x, y)` turns micrometres into browser pixels measured
+     * from the top-left of the box the viewer was opened inside, which is
+     * exactly what `left` and `top` want; `unproject` goes back, which is what a
+     * click needs. The same record is handed to `onViewChanged` every time the
+     * view settles, so an element can be moved in the same instant the picture
+     * moved rather than a frame later.
+     *
+     * Which side of the canvas such an element may go on is not a free choice,
+     * and it is the same question `drawsUnder` answers: above the canvas works
+     * on every option, below it only where the engine's canvas lets what is
+     * behind it show through, as this one does.
+     */
+    whereThingsAreDrawn() {
+      return howThingsArePlaced(own);
+    },
+
+    /**
      * "Go and look, a tile may have arrived."
      *
      * Returns how many copies of the image, across the whole pyramid and every
@@ -1113,12 +1275,15 @@ function handleFor(own) {
       own.destroyed = true;
       own.watchSize?.disconnect();
       own.paint = null;
+      own.paintBeneath = null;
       own.deck?.finalize();
       own.deck = null;
       own.images = [];
       own.rows = [];
       own.engineHost?.remove();
       own.overlay?.remove();
+      own.beneath?.remove();
+      own.beneath = null;
     },
 
     /**
