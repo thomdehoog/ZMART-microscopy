@@ -1,6 +1,6 @@
 {
   "option": "viv-inside",
-  "measured": "2026-07-31 07:19",
+  "measured": "2026-07-31 07:56",
   "0. can a surface underneath be seen": {
     "question": "with a colour painted behind the engine's canvas and a different colour set as the engine's own background, which does an operator see over ground nobody imaged?",
     "shares of the window": {
@@ -33,8 +33,8 @@
     "band was cut at, in a still photograph's pixels": 40.0,
     "photograph at rest": "registration-at-rest.png",
     "panning": {
-      "samples": 90,
-      "photographs": 144,
+      "samples": 83,
+      "photographs": 135,
       "closed": 0,
       "left": 1.0,
       "right": 1.0,
@@ -66,12 +66,12 @@
       },
       "band was cut at, in these pixels": 40.0,
       "worst slant across three cuts": 0.0,
-      "frames": 48,
+      "frames": 45,
       "photograph": "registration-panning-worst.png"
     },
     "zooming": {
-      "samples": 54,
-      "photographs": 54,
+      "samples": 60,
+      "photographs": 60,
       "closed": 0,
       "left": 1.0,
       "right": 1.0,
@@ -103,12 +103,12 @@
       },
       "band was cut at, in these pixels": 40.0,
       "worst slant across three cuts": 0.0,
-      "frames": 18,
+      "frames": 20,
       "photograph": "registration-zooming-worst.png"
     },
     "thrown about": {
-      "samples": 141,
-      "photographs": 162,
+      "samples": 128,
+      "photographs": 150,
       "closed": 0,
       "left": 1.0,
       "right": 1.0,
@@ -140,7 +140,7 @@
       },
       "band was cut at, in these pixels": 40.0,
       "worst slant across three cuts": 0.0,
-      "frames": 54,
+      "frames": 50,
       "photograph": "registration-thrown-about-worst.png"
     },
     "and the check can fail": {
@@ -219,8 +219,8 @@
       "share of the window showing picture, at first": 0.0961,
       "after eight more tiles were written, without being told": 0.0961,
       "and after telling it": 0.2734,
-      "what was needed": "viewer.tilesMayHaveLanded(), which asks the engine to let go of the pieces of image it has already decoded. Nothing less works: the engine remembers every piece including the ones it found empty, with no time limit, so a tile written into ground it has already looked at is not slow to appear \u2014 it is never fetched again at all.",
-      "holders of decoded image asked": 3,
+      "what was needed": "viewer.tilesMayHaveLanded({coverage}), which sends the option back to the store to read what is there now. Nothing less works: every one of these viewers remembers what it has already read, including the places it found empty, with no time limit \u2014 so a tile written into ground it has already looked at is not slow to appear, it is never fetched again at all. How an option goes back is its own business and the page never knows: two of them open a fresh reader on the store, and the third tells the drawing engine's background worker to read its resolution levels again.",
+      "readers sent back to the store": 3,
       "it appeared": true,
       "photographs": [
         "new-data-before.png",
@@ -232,19 +232,19 @@
       "pieces of image re-fetched to show the new tiles": 3,
       "of which held picture": 3,
       "seconds": 0.0,
-      "note": "only the pieces actually on screen are asked for again, so this follows the size of the window rather than the size of the specimen. Anything the operator had scrolled past is dropped and fetched again if they scroll back."
+      "note": "only the pieces actually on screen are asked for again, so this follows the size of the window rather than the size of the specimen. Anything the operator had scrolled past is fetched again if and when they scroll back to it."
     },
     "does the picture survive the refresh": {
       "frames the screen changed during the refresh": 3,
       "the least the picture ever showed during it": 0.2734,
       "it settled at": 0.2734,
-      "seconds before the picture was back to half of that": 0.18,
+      "seconds before the picture was back to half of that": 0.11,
       "what the window showed, frame by frame": [
         0.2734,
         0.2734,
         0.2734
       ],
-      "note": "letting go of every decoded piece is a complete redraw, so the picture does go away and come back rather than being replaced in place. What matters is how long the gap lasts and whether two generations are ever on screen at once, which is what the least-showed figure would reveal as a value between the two."
+      "note": "all three options are meant to keep the picture already on screen while the store is read again, and to exchange it only once the new picture is ready to draw. So the right answer here is a flat line at the settled share. A reading of nought means the old picture was let go of before the new one had arrived, which on a run in progress is a window that flashes empty every few seconds; a run of values between the two would mean two generations of the data were on screen at once."
     },
     "does the view stay where the operator put it": {
       "the centre moved (\u00b5m)": 0,
@@ -252,7 +252,7 @@
       "the edge of the picture moved (photograph pixels)": 0.0
     },
     "how soon after the tile lands does it show": {
-      "seconds": 0.35,
+      "seconds": 0.38,
       "it showed": true,
       "share of the window showing picture, before": 0.2734,
       "and after": 0.2972,
@@ -263,10 +263,10 @@
       "frames a second, round by round": [
         5.2,
         5.2,
-        5.6,
-        5.6,
         5.2,
-        5.2
+        5.6,
+        6.0,
+        4.8
       ],
       "seconds a round took": [
         2.5,
@@ -281,31 +281,31 @@
   },
   "6. requests": {
     "unbounded": {
-      "requests to redraw the view": 720,
+      "requests to redraw the view": 826,
       "of which found picture": 45,
-      "of which were for ground nobody imaged": 675,
+      "of which were for ground nobody imaged": 781,
       "how many the browser held at once": 6,
-      "rounds of waiting": 436,
-      "seconds": 2.52
+      "rounds of waiting": 449,
+      "seconds": 2.43
     },
     "bounded to the imaged ground": {
       "requests to redraw the view": 36,
       "of which found picture": 36,
       "of which were for ground nobody imaged": 0,
       "how many the browser held at once": 4,
-      "rounds of waiting": 21,
-      "seconds": 0.14
+      "rounds of waiting": 23,
+      "seconds": 0.1
     }
   },
   "7. drawing rate with many positions": {
     "20 positions": {
-      "frames that changed, in three seconds": 47,
-      "frames a second": 13.3,
+      "frames that changed, in three seconds": 46,
+      "frames a second": 12.7,
       "rectangles the page was drawing": 20
     },
     "200 positions": {
-      "frames that changed, in three seconds": 36,
-      "frames a second": 10.5,
+      "frames that changed, in three seconds": 37,
+      "frames a second": 10.9,
       "rectangles the page was drawing": 200
     }
   }

@@ -8,8 +8,8 @@ engine where it thinks it is. An engine can report itself perfectly satisfied
 while drawing nothing at all, and it can equally report the right position while
 presenting an older frame. What reaches the screen is the only thing an operator
 sees, so it is the only thing measured. The handful of things this file *does*
-ask the page are the means to make something happen — move the view, let go of
-what has been decoded, count a gesture that was refused — never the answer to
+ask the page are the means to make something happen — move the view, send the
+viewer back to the store, count a gesture that was refused — never the answer to
 the question being asked.
 
 **A gesture is recorded rather than sampled.** Asking for a photograph makes the

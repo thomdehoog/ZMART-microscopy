@@ -26,7 +26,7 @@
  *
  * ## What this file does differently from `frontend/src/engine.js`
  *
- * Four things, and each one is fixing something that made the older integration
+ * Five things, and each one is fixing something that made the older integration
  * awkward rather than being a matter of taste.
  *
  * 1. **Nothing lives in a module variable.** The older engine module keeps the
@@ -59,6 +59,14 @@
  *    engine and catches every gesture, so the engine's defaults — the plain
  *    wheel stepping through the stack, four different ways to rotate — can never
  *    fire. `CONTROLS.md` explains why each of those had to go.
+ *
+ * 5. **The picture stays on screen while new tiles are being fetched.** Told
+ *    that a tile may have landed, the engine on its own throws away everything
+ *    it has already decoded, so the window goes empty and fills back in — every
+ *    few seconds, all through a run. That is fixed here, and the section
+ *    "Keeping the picture on screen while it is being fetched again" explains
+ *    both the fault and what the engine does and does not give us to fix it
+ *    with.
  */
 
 import "neuroglancer/unstable/util/polyfills.js";
@@ -186,6 +194,16 @@ export async function openViewer(element, options = {}) {
     paint: null,
     stopFollowing: null,
     watchSize: null,
+    // The pieces of picture that have been superseded but are still on screen,
+    // one set of piece names per source the engine reads from. See
+    // `keepShowingThePictureWhileTheNewOneArrives` for what they are for; the
+    // short version is that they are the picture an operator is looking at
+    // while its replacement is being fetched, and letting go of them is exactly
+    // the thing that used to make the window flash empty.
+    superseded: new Map(),
+    // How to put the engine's own handling of arriving pieces back the way it
+    // was. Called when the viewer closes.
+    stopHoldingOn: null,
     // How many times the operator's drawing has been repainted, and how many
     // frames the engine has announced. Kept because a measurement has to be
     // able to tell "the drawing never moved" from "the drawing moved to the
@@ -494,6 +512,129 @@ async function start(own, acquisitions) {
     repaint(own);
     if (own.onViewChanged) own.onViewChanged(readTheView(own));
   });
+
+  // -- and the rule that keeps the picture on screen during a refresh -------
+  keepShowingThePictureWhileTheNewOneArrives(own);
+}
+
+// ---------------------------------------------------------------------------
+// Keeping the picture on screen while it is being fetched again
+// ---------------------------------------------------------------------------
+//
+// This section exists because of one thing an operator sees, so it is worth
+// describing that first and the machinery second.
+//
+// While a run is going, the viewer is told every few seconds that a tile may
+// have landed. Each time, it has to make the engine go back to the store,
+// because nothing on disk announces a new tile — see `tilesMayHaveLanded` below
+// for why. Left to itself, the engine handles that by throwing away every piece
+// of picture it had already decoded and starting again from nothing, so the
+// window went completely empty for about a sixth of a second and then filled
+// back in. Measured: the share of the window holding picture read
+// 0.2726 → 0.0000 → 0.1839 across a single refresh. On a real acquisition that
+// is a flash of empty screen every few seconds, at exactly the moment the
+// operator is watching most closely, and it reads as the viewer breaking rather
+// than as the viewer working.
+//
+// **What the engine does and does not offer.** The only instruction the engine's
+// background worker accepts on this subject is "let go of everything you decoded
+// from this source", and a source here is one whole resolution level of one
+// acquisition — there is nothing finer. So the newly imaged ground cannot be
+// singled out: the refetching really is all-or-nothing, and that part is not
+// ours to change.
+//
+// What *is* ours to change is the picture on screen while the refetching
+// happens. The pieces the operator is looking at live in two places at once: the
+// worker's copy, which is what the instruction above throws away, and the
+// browser's own copy already uploaded to the graphics card, which is what is
+// actually drawn. The engine throws both away together, and only the first of
+// those two is necessary. So this keeps the second: the picture already on the
+// screen stays on the screen, and each piece of it is exchanged for its
+// replacement at the moment that replacement finishes downloading. Nothing is
+// ever drawn from two generations of the data at once, because the exchange
+// happens one piece at a time and each piece is whole.
+
+/**
+ * Keep every piece of picture already on screen until its replacement arrives.
+ *
+ * The engine's worker and the page talk to each other in short messages, one per
+ * piece of picture: "here is a fresh piece", "that piece has gone". Among them
+ * is one message with no piece named at all, which means "let go of everything
+ * you decoded from this source" — and that single message is the whole of the
+ * blank. This intercepts exactly that one message and answers it by remembering
+ * what was on screen instead of clearing it.
+ *
+ * Two things then have to be tidied up, and both are done here rather than left
+ * to chance.
+ *
+ * A piece that is kept has to be let go of at the moment its replacement lands,
+ * or the graphics card would quietly hold two copies of the same picture for
+ * ever. A replacement announces itself by arriving under a name that is already
+ * in use, which is what the second half of this function watches for.
+ *
+ * And a piece that is kept but never asked for again — ground the operator has
+ * scrolled away from, which the engine has no reason to fetch a second time —
+ * is let go of when the *next* refresh comes round, in `tilesMayHaveLanded`.
+ * That bounds what is being held to a single refresh's worth of scenery.
+ */
+function keepShowingThePictureWhileTheNewOneArrives(own) {
+  const queue = own.viewer?.chunkManager?.chunkQueueManager;
+  if (!queue || typeof queue.applyChunkUpdate !== "function") return;
+  const asTheEngineWouldHave = queue.applyChunkUpdate.bind(queue);
+
+  queue.applyChunkUpdate = (message) => {
+    const source = queue.rpc.get(message.source);
+    if (source === undefined) return asTheEngineWouldHave(message);
+
+    // "Let go of everything you decoded from this source." It is the only
+    // message that names no piece, and `message.promise` tells it apart from the
+    // one other message that names none — a direct request for a piece's
+    // contents, which is a question rather than an instruction.
+    if (message.promise === undefined && message.id === undefined) {
+      let holding = own.superseded.get(source);
+      if (holding === undefined) {
+        holding = new Set();
+        own.superseded.set(source, holding);
+      }
+      for (const piece of source.chunks.keys()) holding.add(piece);
+      // Nothing on screen changed, and saying so is not a white lie: every piece
+      // the engine was drawing a moment ago is still there to be drawn.
+      return false;
+    }
+
+    // A replacement for a piece that is still on screen. Letting go of the old
+    // one here, rather than leaving it to be overwritten, is what returns its
+    // room on the graphics card.
+    if (message.new && source.chunks.has(message.id)) {
+      source.deleteChunk(message.id);
+      own.superseded.get(source)?.delete(message.id);
+    }
+    return asTheEngineWouldHave(message);
+  };
+
+  own.stopHoldingOn = () => {
+    delete queue.applyChunkUpdate;
+    own.superseded.clear();
+  };
+}
+
+/**
+ * Let go of the pieces kept through the last refresh that were never replaced.
+ *
+ * A piece is replaced during a refresh if the engine wants to draw it, which
+ * means everything the operator is actually looking at is exchanged within that
+ * one refresh. What is left over is scenery: ground that was on screen at some
+ * point and is not now. Holding it costs room on the graphics card that the
+ * engine no longer knows about, so it is let go of when the next refresh comes
+ * round, and the picture on screen does not change when it goes.
+ */
+function letGoOfWhatWasAlreadyReplaced(own) {
+  for (const [source, holding] of own.superseded) {
+    for (const piece of holding) {
+      if (source.chunks.has(piece)) source.deleteChunk(piece);
+    }
+  }
+  own.superseded.clear();
 }
 
 /**
@@ -914,20 +1055,27 @@ function handleFor(own) {
      * has already looked at is not "slow to appear", it is never fetched again
      * at all.
      *
-     * The pieces live in a background worker, and this sends word to that worker
-     * to drop them. What comes back is fetched afresh.
+     * The decoded pieces live in a background worker, and this sends word to
+     * that worker to read them again. **The picture on screen is not disturbed
+     * while that happens**: every piece the operator can see stays exactly where
+     * it is and is exchanged for its replacement at the moment that replacement
+     * finishes downloading. The section above
+     * `keepShowingThePictureWhileTheNewOneArrives` says how, and why it had to be
+     * done that way rather than by asking the engine for something finer: the
+     * engine's worker has no instruction narrower than "read this whole
+     * resolution level again", so the newly imaged ground cannot be singled out.
      *
      * What it costs: only the pieces actually on screen are asked for again,
      * because the engine fetches what it needs to draw and nothing else. That
      * number follows the size of the window rather than the size of the
      * specimen, so it is the same on forty terabytes as on forty megabytes.
-     * Anything the operator had scrolled past is dropped and fetched again if
-     * they scroll back, which is the price and it is a fair one.
+     * Anything the operator had scrolled past is fetched again if they scroll
+     * back to it, which is the price and it is a fair one.
      *
-     * Returns how many holders of decoded image were asked, so that a
-     * measurement can tell "it was asked and nothing happened" from "it was
-     * never asked" — two failures that look identical on screen and have quite
-     * different causes.
+     * Returns how many of the engine's readers were sent back to the store, so
+     * that a measurement can tell "it was asked and nothing happened" from "it
+     * was never asked" — two failures that look identical on screen and have
+     * quite different causes.
      */
     tilesMayHaveLanded({ coverage } = {}) {
       // A newer coverage record, when the caller has one.
@@ -950,6 +1098,11 @@ function handleFor(own) {
           && Boolean(coverage.regions?.length);
         if (own.wanted) writeTheView(own, own.wanted);
       }
+      // Anything still being held from the last refresh is scenery the operator
+      // has moved away from, so this is the moment to let it go. It happens
+      // before the readers are sent back to the store rather than after, so that
+      // the pieces about to be kept are not swept away along with it.
+      letGoOfWhatWasAlreadyReplaced(own);
       const shared = own.viewer.chunkManager?.rpc?.objects;
       if (!shared) return 0;
       let asked = 0;
@@ -969,6 +1122,7 @@ function handleFor(own) {
       own.destroyed = true;
       own.watchSize?.disconnect();
       own.stopFollowing?.();
+      own.stopHoldingOn?.();
       own.paint = null;
       for (const row of own.rows) {
         if (row.managed) deleteLayer(row.managed);

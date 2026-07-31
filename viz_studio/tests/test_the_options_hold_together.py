@@ -365,3 +365,145 @@ def test_the_margins_stay_even_and_the_check_can_fail(harness_page, option):
         "check did not notice, so it is not measuring anything: "
         f"{broken.sides if broken.found else broken.why}"
     )
+
+
+def _share_of_the_window_showing_picture(picture) -> float:
+    """What fraction of the window is showing acquired picture rather than page.
+
+    The same reading measurement 5 takes, kept the same on purpose so that a
+    number here and a number in ``options/measurements/`` mean the same thing.
+    Acquired picture is bright and the page behind it is dark, so counting the
+    pixels that are lit at all answers "how much picture is on screen" well
+    enough to see a window go empty.
+    """
+    return float((np.asarray(picture).max(axis=2) > 60).mean())
+
+
+def _watch_the_window_through_a_refresh(harness, seconds: float = 2.0):
+    """Tell the viewer to go and look, and read the window all the way through.
+
+    The window is read two ways at once, and both are needed. A live recording
+    reports the frames the browser was going to composite anyway, which is what
+    an operator would really have seen; photographing in a loop makes the browser
+    produce a fresh frame and wait for it, which samples far more often. On its
+    own the recording caught a gap of a sixth of a second only about half the
+    time, and a check that notices a fault half the time is not a check.
+
+    Returns what the viewer said it sent back to the store, and every reading
+    taken while the refresh ran its course.
+    """
+    from drive import Recording
+
+    seen = []
+    with Recording(harness.page) as recording:
+        asked = harness.believes("window.harness.tilesMayHaveLanded()")
+        until = time.perf_counter() + seconds
+        while time.perf_counter() < until:
+            seen.append(_share_of_the_window_showing_picture(harness.photograph()))
+    seen.extend(
+        _share_of_the_window_showing_picture(picture)
+        for _, picture in recording.pictures()
+    )
+    return asked, seen
+
+
+@pytest.mark.parametrize("option", EVERY_OPTION)
+def test_the_picture_does_not_blink_when_new_tiles_are_announced(
+    harness_page, measurement_data, option
+):
+    """Telling the viewer that a tile may have landed must not empty the window.
+
+    This guards a fault that was real and is easy to bring back. A run in
+    progress tells the viewer to go and look for new tiles every few seconds, and
+    if going to look means letting go of the picture already on screen, the
+    operator watching their acquisition fill in sees the window flash empty and
+    come back, over and over, at exactly the moment they are watching most
+    closely. It reads as the viewer breaking rather than as the viewer working.
+    Measured on option A before it was fixed, the share of the window holding
+    picture went 0.2726 → 0.0000 → 0.1839 across a single refresh.
+
+    Two things are asserted together, and the second is what makes the first
+    worth anything. The window must never dip while the refresh happens **and**
+    the tile written a moment before must actually appear. Without the second
+    half, the easiest way to pass this check would be to stop looking for new
+    tiles at all, which is the opposite of a fix.
+
+    The refresh is asked for twice rather than once, because the fault shows on
+    every refresh and two goes leave no room for a gap to fall between two
+    readings.
+    """
+    import acquisitions
+
+    from zmart_storage import Channel, TileCanvases
+
+    # A run of its own, so that writing into it while this check watches cannot
+    # disturb the acquisitions the other checks in this file read.
+    tile = 512
+    canvases = TileCanvases.create(
+        measurement_data,
+        name="blinking",
+        canvas_shape=(1, 2048, 2048),
+        tile_shape=(1, tile, tile),
+        tile_step=(1, tile, tile),
+        voxel_size_um=(1.0, 1.0, 1.0),
+        channels=[Channel(name="probe", color="FFFFFF", window=(0, 4095))],
+        discard_existing_run=True,
+    )
+    try:
+        for row in range(2):
+            for column in range(2):
+                canvases.write(
+                    acquisitions._a_tile(1, tile, tile, row * 2 + column),
+                    origin=(0, row * tile, column * tile),
+                    tile_index=(0, row, column),
+                )
+
+        harness_page.option = option
+        harness_page.open(store="blinking", draw="none")
+        harness_page.believes("window.harness.reset()")
+        harness_page.settle(tries=20)
+        settled = _share_of_the_window_showing_picture(harness_page.photograph())
+        assert settled > 0.02, (
+            "there was no picture on screen to begin with, so this check could "
+            f"not have seen it go away: only {settled:.4f} of the window was lit"
+        )
+
+        # A tile into ground the viewer has already looked at and found empty,
+        # which is the case that has to be told about: nothing on disk announces
+        # a new tile, and the description of the images is identical before and
+        # after one lands.
+        canvases.write(
+            acquisitions._a_tile(1, tile, tile, 7),
+            origin=(0, 0, 2 * tile),
+            tile_index=(0, 0, 2),
+        )
+        time.sleep(0.5)
+
+        seen: list[float] = []
+        for _ in range(2):
+            asked, readings = _watch_the_window_through_a_refresh(harness_page)
+            seen.extend(readings)
+        harness_page.settle(tries=20)
+        afterwards = _share_of_the_window_showing_picture(harness_page.photograph())
+    finally:
+        canvases.close()
+
+    assert seen, "nothing was read from the window at all, so this check looked at nothing"
+    # A tenth of the picture is far more than the difference between two
+    # photographs of a still window and far less than any real gap: the fault
+    # being guarded against took the whole window, not a tenth of it.
+    assert min(seen) >= 0.9 * settled, (
+        "the window emptied while the viewer was going to look for new tiles. It "
+        f"was showing {settled:.4f} of a window of picture beforehand and fell to "
+        f"{min(seen):.4f} during the refresh, over {len(seen)} readings."
+    )
+    # And the half that stops "never look again" from passing as a fix.
+    assert asked, (
+        "the viewer reported that it sent nothing back to the store, so the "
+        "window staying put proves nothing: it may simply never have looked."
+    )
+    assert afterwards > settled * 1.15, (
+        "the tile written during this check never appeared, so a window that "
+        f"stayed put is not a fix: {settled:.4f} of the window was showing "
+        f"picture before and {afterwards:.4f} afterwards."
+    )

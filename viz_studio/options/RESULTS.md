@@ -3,13 +3,13 @@
 The table below is the answer to `viz_studio/OPTIONS.md`. One column per option,
 one row per question, every number taken from a photograph of the screen.
 
-Measured 2026-07-30. **So far only option A has been built**, so the table has one
-column; the other two fill in beside it as they are written, by running the same
-program with a different word:
+All three options have now been built and measured, so the table has three
+columns. Each column is rewritten by running the same program with a different
+word, and the date at the top of each says when it was last taken:
 
 ```
 npm --prefix viz_studio/options/harness run build
-python viz_studio/options/measure/run.py --option viv-under
+python viz_studio/options/measure/run.py --option all
 ```
 
 The photographs behind every number are in `measurements/<option>/`, and the full
@@ -93,7 +93,7 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 
 | | neuroglancer-under | viv-inside | viv-under |
 | --- | --- | --- | --- |
-| *measured* | 2026-07-30 23:32 | 2026-07-31 07:05 | 2026-07-31 07:09 |
+| *measured* | 2026-07-31 07:54 | 2026-07-31 07:56 | 2026-07-31 07:57 |
 | **0. Can a surface underneath the engine be seen?** | **no** | yes | yes |
 | **1. Registration** — worst unevenness at rest (screen px) | 1.0 | 0.0 | 0.0 |
 |   … while panning | 1.0 | 0.0 | 0.0 |
@@ -108,20 +108,20 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 | **4. Sparseness** — share of the window showing picture | 0.0152 | 0.0153 | 0.0153 |
 |   … the operator's plan shows through the gaps | yes | yes | yes |
 | **5a. New data appears at all** | yes | yes | yes |
-|   … holders of decoded image it had to be asked to let go of | 3 | 3 | 3 |
+|   … readers the option had to send back to the store | 3 | 3 | 3 |
 | **5b. What the refresh costs** — pieces re-fetched | 4 | 3 | 4 |
-| **5c. The picture survives the refresh** — seconds before it is back | 0.15 | 0.19 | 0.09 |
-|   … what the window showed while it refreshed | [0.2726, 0.0, 0.1839] | [0.2734, 0.2734, 0.2734, 0.2734] | [0.2734, 0.2734, 0.2734] |
+| **5c. The picture survives the refresh** — seconds before it is back | 0.08 | 0.11 | 0.1 |
+|   … what the window showed while it refreshed | [0.2726, 0.2726, 0.2726] | [0.2734, 0.2734, 0.2734] | [0.2734, 0.2734, 0.2734, 0.2734] |
 | **5d. The view stays put** — centre moved (µm) | 0.0 | 0 | 0.0 |
-| **5e. How soon a tile shows** (seconds) | 0.35 | 0.37 | 0.36 |
-| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 6.0 | 5.2 → 5.6 | 5.2 → 5.2 |
-|   … tiles written meanwhile | 460 | 449 | 478 |
-| **6. Requests** — to redraw one view, unbounded | 117 | 845 | 432 |
-|   … of those, for ground nobody imaged | 108 | 800 | 396 |
+| **5e. How soon a tile shows** (seconds) | 0.3 | 0.38 | 0.13 |
+| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 5.2 | 5.2 → 4.8 | 5.2 → 5.2 |
+|   … tiles written meanwhile | 476 | 470 | 484 |
+| **6. Requests** — to redraw one view, unbounded | 117 | 826 | 432 |
+|   … of those, for ground nobody imaged | 108 | 781 | 396 |
 |   … bounded by the coverage record | 25 | 36 | 100 |
 |   … of those, for ground nobody imaged | 16 | 0 | 64 |
-| **7. Drawing rate** — frames a second at 20 positions | 18.9 | 13.0 | 19.3 |
-|   … at 200 positions | 13.0 | 7.1 | 11.8 |
+| **7. Drawing rate** — frames a second at 20 positions | 25.1 | 12.7 | 26.1 |
+|   … at 200 positions | 19.5 | 10.9 | 18.1 |
 
 <!-- end of the generated table -->
 
@@ -168,25 +168,40 @@ written, the operator's plan everywhere else.
   already looked at and found empty. **Nothing appeared** — the share of the
   window showing picture did not move at all, from 0.0953 to 0.0953. Not slow: no
   request was made, ever. What made it appear was one call,
-  `tilesMayHaveLanded({coverage})`, which asks the engine to let go of the pieces
-  of image it has decoded; three holders were asked, and the share went to 0.2726.
+  `tilesMayHaveLanded({coverage})`, which sends the option back to the store to
+  read what is there now; three readers were sent back, and the share went to
+  0.2726. How an option goes back differs and the page never knows: the two Viv
+  options open a fresh reader on the store, and option A tells neuroglancer's
+  background worker to read its three resolution levels again.
 - *What the refresh costs.* Four pieces of image re-fetched, three of which held
   picture. That number follows the size of the window rather than the size of the
   specimen, because the engine asks for what it needs to draw and nothing else.
-- *Does the picture survive it.* No, and it is honest to say so. Letting go of
-  everything decoded is a complete redraw, so the window went to nothing and
-  filled back in — the frames read 0.27, then 0.00, then 0.18. It was back to
-  half of what it settled at in **0.15 seconds**. There was no patchwork of two
-  generations: the readings are either the old picture, nothing, or the new one
-  filling in, never a stable mixture of both.
+- *Does the picture survive it.* Yes, in all three, and the readings are flat:
+  option A held 0.2726 in every frame of the refresh and the other two held
+  0.2734. That is what it should look like — the picture already on screen is
+  kept and exchanged piece by piece only once each replacement is ready to draw,
+  so there is neither a gap nor a patchwork of two generations on screen at once.
+
+  It is worth recording that **option A did not start out this way**, because the
+  fault it had is the one to watch for in any engine. Left to itself neuroglancer
+  answers "go and look again" by throwing away every piece of picture it has
+  already decoded, so the window read 0.2726, then **0.0000**, then 0.1839 across
+  a single refresh: on a run in progress, a flash of empty screen every few
+  seconds at exactly the moment the operator is watching most closely. The
+  adapter now keeps the browser's own copy of each piece on the screen and swaps
+  it for its replacement at the moment that replacement lands; the engine offers
+  nothing narrower than "read this whole resolution level again", so the fetching
+  is unchanged and only the picture on screen is held.
+  `tests/test_the_options_hold_together.py` has the check that stops it coming
+  back, and that check was shown going red against the fault.
 - *Does the view stay put.* Yes, exactly: the centre moved 0.0 µm, the zoom did
   not change, and the edge of the picture on screen moved 0.0 photograph pixels.
-- *How soon.* 0.35 seconds from the tile being safely on disk to the window being
+- *How soon.* 0.30 seconds from the tile being safely on disk to the window being
   measurably brighter, which includes the time spent photographing and is
   therefore an upper bound rather than a best case.
-- *Does it keep up.* 460 tiles written during the measurement while the view was
+- *Does it keep up.* 476 tiles written during the measurement while the view was
   panned and zoomed throughout, with a refresh in every round. The drawing rate
-  went 5.2 → 6.0 → 5.2 → 6.0 → 6.0 → 6.0 frames a second: flat, not falling.
+  went 5.2 → 5.6 → 5.2 → 5.2 → 5.2 → 5.2 frames a second: flat, not falling.
 
 **6. Requests.** On the sparse canvas — a large declared room with a small imaged
 patch, which is the shape a real run has — a complete redraw cost **117 requests,
@@ -195,8 +210,8 @@ same redraw cost **25, of which 16 were wasted**. Almost the whole cost of a
 redraw is asking about ground the microscope has never been to, and the record is
 what stops it.
 
-**7. Drawing rate.** 18.9 frames a second with twenty tile rectangles on the
-operator's canvas and 13.0 with two hundred — a real cost, and one that will look
+**7. Drawing rate.** 25.1 frames a second with twenty tile rectangles on the
+operator's canvas and 19.5 with two hundred — a real cost, and one that will look
 different on a machine with a graphics card. It is the number to compare against
 the single-canvas option, because that is exactly where drawing in two surfaces
 and drawing in one should differ.
