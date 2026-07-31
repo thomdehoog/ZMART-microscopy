@@ -29,7 +29,12 @@ GRID = 5
 
 
 def _planes(array) -> np.ndarray:
-    """The image as (z, y, x), stepping past whatever leading axes it declares."""
+    """The image as (z, y, x), stepping past whatever leading axes it declares.
+
+    Counted from the end, because only the last three axes are ever the specimen
+    itself and these tests are about the picture rather than about how it is
+    indexed.
+    """
     return np.asarray(array[(0,) * (array.ndim - 3)])
 
 
@@ -122,6 +127,41 @@ def test_blending_only_changes_the_shared_strips(tmp_path):
     picture = _planes(zarr.open_group(str(joined), mode="r")["0"])
     # Well inside the first tile, past where any neighbour reaches.
     assert (picture[:, 8:100, 8:100] == 1000).all()
+
+
+def test_blending_really_does_mix_the_two_recordings(tmp_path):
+    """Where two tiles meet, a blended picture holds neither one's number alone.
+
+    This is the plainest thing "blend" promises, and it was worth writing down
+    separately because nothing else here noticed when it stopped happening. The
+    test above asks what blending does *away* from a join, which "first" and
+    "mean" satisfy just as well; and it needs SciPy, so on a machine without it
+    the option was not exercised at all. Measured before this test existed,
+    quietly turning every request for "blend" into "first" left the whole suite
+    green.
+
+    Deliberately asked in a way that does not need SciPy. With it, the two tiles
+    fade into one another across the strip; without it, blending falls back to a
+    plain average, which the module says outright. Either way the shared strip
+    holds a number that came from both recordings rather than from one, and that
+    is what is checked here. How the fade itself is shaped is the test above.
+
+    The strip chosen is the one shared by the tiles in the first column of rows 0
+    and 1, which recorded 1000 and 1005. Staying left of x=112 keeps the next
+    column of tiles out of it, so exactly two recordings meet here.
+    """
+    _a_run(tmp_path / "run")
+    joined = fuse(tmp_path / "run", tmp_path / "joined.ome.zarr",
+                  where_they_meet="blend", levels=2, chunk=64)
+
+    picture = _planes(zarr.open_group(str(joined), mode="r")["0"])
+    shared = picture[:, 116:124, 8:100]
+    mixed = set(np.unique(shared).tolist()) - {1000, 1005}
+    assert mixed, (
+        f"the strip shared by the tiles that recorded 1000 and 1005 came back "
+        f"holding only {sorted(set(np.unique(shared).tolist()))}, so blending kept "
+        f"one recording whole instead of mixing the two"
+    )
 
 
 def test_the_overlap_is_still_there_to_be_compared(tmp_path):

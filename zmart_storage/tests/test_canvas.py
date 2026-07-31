@@ -25,7 +25,7 @@ import zarr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from zmart_storage.canvas import Channel, TileCanvases, _Slot, slots_per_axis
+from zmart_storage.canvas import Channel, TileCanvases, slots_per_axis
 
 # Tiles 128 voxels across. With 64-voxel pieces and two levels of shrunk-down
 # copies, a whole piece is 128 voxels -- so a tile is exactly one piece and tiles
@@ -74,9 +74,11 @@ def _write_a_grid(canvases: TileCanvases, step=BUTTED_UP) -> dict[tuple[int, int
 def _read_level0(store: Path) -> np.ndarray:
     """The full-resolution image as (z, y, x), whatever leading axes it declares.
 
-    A run of a single moment has no time axis, so the number of indexes to step
-    past before reaching the planes is not fixed. Counting from the end keeps the
-    tests honest about that instead of assuming a shape.
+    The writer declares five axes today — time, colour, and then the specimen's
+    depth, height and width — but the tests below are about where a tile lands
+    rather than about how many axes come before it. Counting from the end says
+    that plainly, and it means these tests keep working if the description ever
+    gains or loses an axis in front.
     """
     array = zarr.open_group(str(store), mode="r")["0"]
     return np.asarray(array[(0,) * (array.ndim - 3)])
@@ -445,13 +447,25 @@ def test_a_place_that_cannot_be_reserved_gets_a_warning_and_not_a_refusal(
     operator worked into a corner finds a way past the guard that is worse than
     what it was guarding against. So the check says out loud that it could not be
     made, and the run goes ahead.
+
+    The share is imitated at the place the operating system would answer, by
+    having the reserving call itself report that no locks are available — which
+    is the answer a share with no lock manager gives. Asking at that level rather
+    than replacing the writer's own function is deliberate: it exercises the whole
+    path an operator would meet, including the writer's reading of what went
+    wrong, and it does not have to be rewritten every time the code around it is
+    tidied up.
     """
-    from zmart_storage import canvas as canvas_module
+    import errno
 
-    def cannot(_handle):
-        raise canvas_module._CannotBeMarkedHere("this share does not offer it")
+    fcntl = pytest.importorskip(
+        "fcntl", reason="only Unix reserves a file this way; Windows differs"
+    )
 
-    monkeypatch.setattr(canvas_module, "_ask_for_the_mark", cannot)
+    def no_locks_available(*_args, **_kwargs):
+        raise OSError(errno.ENOLCK, "no locks available")
+
+    monkeypatch.setattr(fcntl, "flock", no_locks_available)
 
     with pytest.warns(UserWarning, match="could not be checked"):
         canvases = _canvases(tmp_path)
@@ -594,7 +608,21 @@ def test_the_smaller_copies_are_filled_in_as_tiles_arrive(tmp_path):
 
     level1 = zarr.open_group(str(canvases.paths[0]), mode="r")["1"]
     half = np.asarray(level1[(0,) * (level1.ndim - 3)])
-    assert half[:, 0:64, 64:128].max() == 4242
+    # The whole of the tile's place in the half-size copy, not merely some of it.
+    # Asking only whether 4242 appears anywhere in that block would be answered by
+    # a single voxel, and a copy filled in one row at a time would pass.
+    landed = half[:, 0:64, 64:128]
+    assert (landed == 4242).all(), (
+        f"{int((landed != 4242).sum())} of {landed.size} voxels of the tile's "
+        f"place in the half-size copy were never filled in"
+    )
+    # And nothing was put anywhere else: a copy written at the wrong place would
+    # still hold the right numbers, simply not where the tile was.
+    outside = half.copy()
+    outside[:, 0:64, 64:128] = 0
+    assert outside.max() == 0, (
+        "the half-size copy holds picture outside where the tile landed"
+    )
 
 
 def test_a_tile_beyond_the_declared_room_is_refused(tmp_path):
@@ -649,10 +677,20 @@ def test_tiles_written_at_once_do_not_corrupt_each_other(tmp_path):
 # that held tiles apart by the small piece would let them through. `create` does
 # not bundle anything today, so these images are built by hand, which is also how
 # they would arrive if bundling were switched on later.
+#
+# Building one by hand means naming `_Slot`, which belongs to the writer's insides,
+# and there is no way round that today: `create` cannot produce these arrangements,
+# and handing the writer arrays somebody else made is not something it offers in
+# public. Each of the three helpers below therefore borrows `_Slot` where it needs
+# it, rather than the whole file borrowing it at the top. That way, if the class is
+# ever renamed, only these three tests say so — instead of every test in this file
+# failing to load at once and hiding whatever else might have broken.
 
 
 def _built_by_hand(folder: Path, *, chunks, shards) -> TileCanvases:
     """One image with pieces of a chosen size, wired up to the writer directly."""
+    from zmart_storage.canvas import _Slot
+
     store = folder / "overview.ome.zarr"
     group = zarr.open_group(str(store), mode="w", zarr_format=3)
     array = group.create_array(
@@ -709,6 +747,8 @@ def _two_images_by_hand(folder: Path, *, second_chunks) -> TileCanvases:
     the writer used to take the first image's answer for all of them. These are
     wired up directly so that the second image can be given a shape of its own.
     """
+    from zmart_storage.canvas import _Slot
+
     slots = []
     for index, chunks in enumerate([(1, 1, 1, 128, 128), second_chunks]):
         store = folder / f"overview_part{index}.ome.zarr"
@@ -776,6 +816,8 @@ def _several_copies_by_hand(folder: Path, *, pieces) -> TileCanvases:
     copy's own voxels. Built by hand because :meth:`TileCanvases.create` always
     uses the same piece size throughout, so it cannot produce this.
     """
+    from zmart_storage.canvas import _Slot
+
     store = folder / "overview.ome.zarr"
     group = zarr.open_group(str(store), mode="w", zarr_format=3)
     arrays = [
