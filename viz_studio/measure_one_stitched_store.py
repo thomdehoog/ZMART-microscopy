@@ -1,22 +1,27 @@
-"""What does one stitched image cost to open, next to the same data as separate tiles?
+"""What does one whole-specimen image cost to open, next to the same data as separate tiles?
 
-The viewer can be pointed at a specimen in two shapes. Today it is given one store per
-position — one small OME-Zarr for every place the microscope visited — and every one of
-them has to be read before the picture is complete. The alternative, for data that is
-finished, is to fuse them into a single OME-Zarr with its own pyramid: one store that
-stands for the whole specimen.
+The viewer can be pointed at a specimen in two shapes. One is a store per position — one
+small OME-Zarr for every place the microscope visited — and every one of them has to be
+read before the picture is complete. The other is a single OME-Zarr with its own pyramid:
+one store that stands for the whole specimen, with every position written into its place
+inside it.
 
-`NEXT_STEPS.md` records the case for the second as a decision, and records that nobody
-had measured it. This measures the *viewing* half of it. The making half — how long
-stitching takes and how much disk it needs — is a separate question and is not answered
-here.
+The second shape is the one this project aims for, and it is reached by writing into it
+from the start rather than by joining a finished folder together afterwards. `zmart_storage`
+declares the image before the first tile is taken and the microscope writes each tile
+straight into its place, so the single store exists from the very first tile. Copying a
+finished run into one image is a different route to the same shape, and it is not offered
+here — `DATA_LAYOUT.md`, Decision 1b, sets out why.
 
-The comparison is deliberately unfair in the stitched image's favour, and that is the
-point. The mosaic is a few hundred tiny positions; the stitched store declares itself to
-be a specimen of eight by eight by eight tiles, which at the sizes people actually
-acquire is several hundred gigabytes. If the large one still opens faster than the small
-one, the cost has nothing to do with how much data there is and everything to do with how
-many separate stores it is spread across.
+This measures the *viewing* half of the question: what one store is worth to the person
+watching, in how quickly the specimen reaches the screen and how smoothly it then draws.
+
+The comparison is deliberately unfair in the single store's favour, and that is the point.
+The mosaic is a few hundred tiny positions; the whole-specimen store declares itself to be
+a specimen of eight by eight by eight tiles, which at the sizes people actually acquire is
+several hundred gigabytes. If the large one still opens faster than the small one, the cost
+has nothing to do with how much data there is and everything to do with how many separate
+stores it is spread across.
 
 Both stores here are synthetic, which is what makes the comparison controlled — and
 also what makes it easy to dismiss, since a declared store written sparsely is not the
@@ -26,9 +31,9 @@ alongside them, and it appears as a third row in the same table with the same co
     ZMART_REAL_STORE=/path/to/acquisition.ome.zarr python measure_one_stitched_store.py
     python measure_one_stitched_store.py /path/to/acquisition.ome.zarr
 
-Measured this way on a real 75 GB fused acquisition (1×2×833×4613×4734, uint16, six
-levels, zstd): it opened in about three seconds and then drew at the full frame rate,
-with a nudge of the contrast costing nothing measurable — while eight hundred tiny
+Measured this way on a real 75 GB acquisition held as one image (1×2×833×4613×4734,
+uint16, six levels, zstd): it opened in about three seconds and then drew at the full
+frame rate, with a nudge of the contrast costing nothing measurable — while eight hundred tiny
 separate positions, a small fraction of the data, took nineteen seconds to open and then
 managed eighteen frames in five seconds. That is the finding in one line: the cost is the
 number of stores, not the amount of data.
@@ -68,8 +73,8 @@ from server import make_server  # noqa: E402
 TILES, TILE = 8, 512
 FULL = TILES * TILE
 
-# How the fused store is cut up. Chunks that are one plane thick are what a slice viewer
-# wants: showing one plane reads only that plane, rather than dragging in a cube of
+# How the whole-specimen store is cut up. Chunks that are one plane thick are what a slice
+# viewer wants: showing one plane reads only that plane, rather than dragging in a cube of
 # depth that will not be shown. The pyramid halves in each direction until the whole
 # specimen is a handful of chunks, which is what makes zooming out cheap.
 CHUNK = 512
@@ -326,7 +331,7 @@ def main() -> int:
         try:
             write_stitched(one / "overview_whole.ome.zarr")
             rows.append(look(pw, one, ["overview_whole.ome.zarr"],
-                             f"one stitched store, {FULL}³ voxels"))
+                             f"one whole-specimen store, {FULL}³ voxels"))
         finally:
             shutil.rmtree(one, ignore_errors=True)
 
@@ -362,7 +367,7 @@ def main() -> int:
               f"{row['drawingLayers']:>12} {row['frames']:>10}")
     print()
     print(
-        "The stitched store describes a far larger specimen than the mosaic and is\n"
+        "The one whole-specimen store describes far more data than the mosaic and is\n"
         "expected to open faster all the same. What costs the viewer is the number of\n"
         "separate stores, not the amount of data behind them."
     )

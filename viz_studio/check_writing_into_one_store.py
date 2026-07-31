@@ -8,11 +8,12 @@ before building anything on top of it.
 given all of them. Everything that makes a large run heavy is a cost *per store*: the
 browser's limit on how many things it will fetch at once, the engine reworking where
 everything sits in space each time a store is read, and three drawing layers created for
-every position. A fused image avoids all of that — one store, whatever the size of the
-specimen — but fusing a finished folder means reading every tile and writing several
-hundred gigabytes out again.
+every position. A single image standing for the whole specimen avoids all of that — one
+store, whatever the size of the specimen. Copying a finished folder into one afterwards
+would be one way to get there, and it is not the way taken here, because it means reading
+every tile and writing several hundred gigabytes out again.
 
-There is a way to have the benefit without the copy: have the run write each tile
+The better way is to have the benefit without the copy: have the run write each tile
 straight into its place in a single OME-Zarr that was created empty at the start. Then
 the tile is written once rather than twice, and the viewer holds one store from the very
 first moment. The measurements in `measure_one_stitched_store.py` say what that is worth:

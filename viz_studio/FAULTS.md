@@ -44,7 +44,6 @@ session than the fault, the commit is named.
 | 4 | Re-running into the same folder kept the old, longer frame count | measured: 5 then 2, was 5 then 5 |
 | 9 | The time axis was declared, then reversed to declare up front and fill in | see `DATA_LAYOUT.md` |
 | E | The guard against overwriting a run was defeated by the acquisition's name — `well[A1]` and `GFP[488]` were read as patterns, matched nothing, and the run was destroyed | measured: 4242 became 0. Fixed in `347624b` |
-| F | `fuse()` destroyed the run it was about to read, then died with `KeyError: 'multiscales'` | measured. Fixed in `347624b` |
 | N | Two writers could claim one folder and lose each other's tiles, 10 times out of 10; `discard_existing_run` left orphan images holding the old run's pixels; the bundling grain was read from the first image only | measured. Fixed in `347624b` |
 
 The writer's guards were re-attacked independently on 2026-07-30 — names containing

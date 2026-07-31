@@ -69,18 +69,19 @@ holds a handful of images, each growing as its tiles land. That is a small, fixe
 that does not grow with the run, which is the whole of what made many stores slow.
 
 **And if a run does overlap its tiles, it does not write into one image at all.** It keeps
-its tiles separate while it runs and is stitched into one picture afterwards, once every
-tile exists and the alignment can actually be solved. The two are different paths rather
-than settings of one, because overlap written into a single image is destroyed at the moment
-of writing: measured, a run overlapping by an eighth loses **18% of everything the camera
-recorded**, and no later step can recover it. The writer refuses rather than allowing it
-quietly. See Decision 1b.
+its tiles separate while it runs, and joining them into one picture afterwards — once every
+tile exists and the alignment can actually be solved — needs a stitcher, which is not part
+of this project. The two are different paths rather than settings of one, because overlap
+written into a single image is destroyed at the moment of writing: measured, a run
+overlapping by an eighth loses **18% of everything the camera recorded**, and no later step
+can recover it. The writer refuses rather than allowing it quietly. See Decision 1b.
 
-**Why not overlap and keep it anyway.** It can be done — spread the tiles over four images
-so neighbours never share one — and it measures well: 0.6 seconds to open against 0.5, the
-same sixty draws a second, nothing lost. It is available and tested. It is not the rule
-because it makes every reader deal with four images instead of one, and analysis reads these
-images too. See "If a run must keep its overlap" under Decision 1b.
+**Why not overlap and keep it anyway.** Tiles could be dealt out over four images so that
+neighbours never share one, which keeps every pixel and, when it was measured, cost almost
+nothing to view. It was not made the rule, because it leaves every reader — analysis code
+included — joining four images up instead of reading one picture. It is not built, and the
+measurement that decided against it is kept under Decision 1b, because it is the reason one
+image was chosen.
 
 **The rule behind all of it.** *Add alongside; do not reshape.* And a position's place in
 the world lives in its metadata — not in a grid, not in a filename, not in the shape of
@@ -222,11 +223,13 @@ those answers cheap helped so much and why a graphics card would not help at all
 
 ### If a run ever turns out big enough to mind
 
-Stitch it into one canvas **after the run has finished**, as a separate step. By
-then every position is known, so nothing has to be predicted, and the canvas's
-advantage applies in full to a finished dataset that will be looked at many times.
-The viewer reads both shapes already, so this costs no viewer work — only a
-conversion when you decide a particular run deserves it.
+The answer is to write into one canvas **from the start**, rather than to convert the
+run once it has finished. Copying finished positions into a single image would work,
+but it makes a second copy of every pixel, and that copy then has to be made by a step
+somebody remembers to run, stored, and kept in step with the original. Decision 1b sets
+out why that was turned down and why writing straight into one image is the better
+answer for a run that trusts the stage — the tile is written once, where it belongs, and
+the viewer holds a single store from the first moment.
 
 ### Three things to get right when writing
 
@@ -334,10 +337,8 @@ further is deliberate: below that a copy has stopped being an overview of the sp
 become a thumbnail, and the reading it saves is no longer worth the writing it costs on
 every tile.
 
-`copies_for_a_canvas` in `zmart_storage/canvas.py` is the rule, and `zmart_storage/fuse.py`
-follows the same one when it joins a finished run into a single picture, because that
-picture is read in exactly the same way. A writer with a reason of its own can still state a
-number outright and it is used as asked.
+`copies_for_a_canvas` in `zmart_storage/canvas.py` is the rule. A writer with a reason of
+its own can still state a number outright, and it is used as asked.
 
 **An `omero` block** naming each channel, giving it a colour, and giving a starting
 brightness window. The viewer honours all three, so an acquisition arrives looking
@@ -568,45 +569,21 @@ the data of the one above it. Sixteen contending tiles were measured no slower t
 that never met. So the writer compares a tile only against the largest piece it could
 actually line up with, and advice an operator can follow is the only kind it gives.
 
-### If a run must keep its overlap: several images, deliberately
+### What one image costs an overlapping run, measured
 
-This is available, measured, and not the rule. It is recorded because the reasoning is worth
-having and because somebody will ask.
+This is history, and it is kept because it is the reason the rule above exists.
 
-Go back to what actually made many stores slow. It was never that there was more than one
-image. It was that the number of images grew with the run, and the work of keeping track of
-them is paid *again every time a tile lands*, not once at the start. Measured on this
-repository's own rig: a tile arriving cost 0.1 seconds with 25 stores open, 0.3 seconds
-with 100, and 3.7 seconds with 225. A run of a few thousand tiles is far outside that.
+Before the rule was settled, a way of keeping the overlap *and* writing as the run goes was
+tried and measured. The idea was to deal the tiles out over a small, fixed number of images
+in rotation, so that two tiles landing in the same image are never immediate neighbours and
+therefore never share any ground — four images is enough for a run tiled in y and x,
+whatever the overlap, and it is four whether the run visits fifty places or five thousand.
+It was written, it worked, and it was then removed, because it leaves every reader with
+four images to join up instead of one picture to read. This project no longer offers it.
 
-So the thing to avoid is the growth, not the plurality. **A small number of images, fixed
-before the run starts, is as cheap to follow as one and keeps every pixel.**
-
-#### How many images that takes, and why it is a small number
-
-Tiles overlap their immediate neighbours. But if the tiles are dealt out to several images
-in rotation, two tiles that end up in the same image are further apart than neighbours —
-and past a certain separation they stop touching at all.
-
-That separation is easy to work out. Tiles placed a step apart, each a tile-width across,
-are two steps apart when one is skipped, so they clear each other whenever two steps is at
-least one tile wide. That holds for any overlap up to half a tile. Since no tiled
-acquisition overlaps by more than half, **two images per axis is always enough**:
-
-| how the run is tiled | images needed |
-|---|---|
-| in y and x, which is the usual case | **4** |
-| in y, x and z as well | **8** |
-| not tiled at all | 1 |
-
-The number depends only on how much the tiles overlap. It does not depend on how many tiles
-the run acquires, which is the whole point — it is four whether the run visits fifty places
-or five thousand.
-
-#### What it costs, measured
-
-The same 9 × 9 raster of tiles overlapping by 12%, written both ways, with the viewer
-opened on each. Reproduced by `measure_canvas_vs_checkerboard.py` beside this file.
+What the measurement settled is worth keeping all the same, because it is the honest
+statement of what butting tiles up against each other costs. The same 9 × 9 raster of tiles
+overlapping by 12% was written both ways, with the viewer opened on each.
 
 | | one image | four images |
 |---|---|---|
@@ -629,13 +606,13 @@ that this is larger than the 12% overlap, and it should be: a tile in the middle
 raster is eaten into from both sides in both directions, so it loses considerably more than
 one overlap's worth.
 
-One further figure worth having, from the same script: **44% of the time spent writing a
-tile goes on the smaller copies** that keep the zoomed-out view current. That is the first
+One further figure worth having, from the same measurement: **44% of the time spent writing
+a tile goes on the smaller copies** that keep the zoomed-out view current. That is the first
 dial to reach for if writing ever cannot keep up with the camera — fewer levels, or build
 the coarse ones behind the acquisition rather than in step with it, at the cost of a
 zoomed-out view that lags a little behind the run.
 
-#### The subtlety that is easy to get wrong
+### The subtlety that is easy to get wrong: sharing a piece of image
 
 Two tiles written at the same moment are unsafe when they **share a piece of image** — not
 when they overlap each other. Those are different things, and confusing them is the kind of
@@ -663,10 +640,9 @@ judged to share nothing, and they write that one file at the same moment. Measur
 a pair of tiles arranged so lost 14 336 voxels between them in 20 attempts out of 20.
 
 Asking each copy about its own pieces has no such gap in it, and it never holds tiles apart
-more than the storage actually requires. Two smaller points travel with it: what counts as a
+more than the storage actually requires. One smaller point travels with it: what counts as a
 piece is the *shard* when the image is sharded — several chunks bundled into one file — since
-it is the bundle that gets read and written back whole; and every image in the run is asked
-rather than only the first, because nothing guarantees a run's images are all stored alike.
+it is the bundle that gets read and written back whole.
 
 The fault and its fix both live in `_measure_the_pieces_of` in `zmart_storage/canvas.py`,
 where the reasoning is recorded next to the code. Three tests in
@@ -678,25 +654,6 @@ covers the sharded case, and `test_tiles_written_at_once_do_not_corrupt_each_oth
 the ordinary one. Nothing `TileCanvases.create` produces is arranged the dangerous way —
 every geometry it can make was tried — so this is about the generality the writer claims
 rather than about the runs it writes today.
-
-#### What it costs elsewhere
-
-The viewer pays nothing worth minding, but two other readers do.
-
-**Analysis has several images to read instead of one.** Asking for the pixels around a cell
-becomes "read that region from four images and combine them", which puts the joining-up
-back into the analysis path. That wants a small helper next to the writer, so analysis code
-can ask for a region and be handed one array without knowing there were four. It is not
-built yet.
-
-**Anything else that opens the data sees four images.** A colleague's tool, or napari, will
-show four layers rather than one and will not know they belong together. Each is a valid
-OME-NGFF image saying honestly what it is, so nothing is broken — but assembling them is
-knowledge that lives here rather than in the files.
-
-Neither is a reason against it for a run whose overlap is worth keeping. Both are reasons to
-write a single fused image afterwards if the data is going to be handed on, which is
-Decision 1b's original recommendation and is unaffected.
 
 The writer is `zmart_storage/canvas.py`, deliberately outside the viewer: the drivers know
 instruments, the viewer knows pictures, and neither should have to know how a run is laid
@@ -1404,9 +1361,8 @@ about itself and an engine can hold all its data and still draw nothing.
 **Built since this said it was not:** a writer. `zmart_storage/canvas.py` declares a run's
 images up front and writes each tile into its place as it arrives, keeping the smaller
 copies in step, refusing a run whose tiles overlap, and holding two tiles apart when they
-would otherwise land in one piece of image at the same moment. `zmart_storage/fuse.py` joins
-a spread run back into a single picture afterwards, and `zmart_storage/coverage.py` records
-where the run actually imaged.
+would otherwise land in one piece of image at the same moment. `zmart_storage/coverage.py`
+records where the run actually imaged.
 
 What is genuinely still open is **where the writer belongs in the pipeline**, which is a
 different question. The mesoSPIM writes its own OME-Zarr today and our driver copies the

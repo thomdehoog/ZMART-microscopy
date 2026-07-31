@@ -196,7 +196,7 @@ The production writer. Writing happens **only inside the test suite**, and shoul
 small fixture helper — if it grows a pyramid updater, it has become the writer and the
 scope line has moved without anyone deciding to move it.
 
-Also out of scope: fusing finished folders, and making folders of many stores faster.
+Also out of scope: making folders of many stores faster.
 
 ## The tests
 
