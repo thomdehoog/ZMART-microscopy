@@ -67,6 +67,7 @@ import socket
 import threading
 import time
 import warnings
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -75,15 +76,12 @@ import zarr
 
 from .coverage import Recorder, forget_the_record_of
 
-# The default colours for the usual excitation wavelengths, matching what the
-# viewer uses elsewhere, so a run written here looks the same as one read from a
-# mesoSPIM. A wavelength that is not listed is drawn white rather than guessed at.
-_CHANNEL_COLORS = {
-    "405": "4D73FF",
-    "488": "00FF66",
-    "561": "FFBF1A",
-    "647": "FF33FF",
-}
+# -- how many images a run needs, and how many copies of each -----------------
+#
+# Both of these are decided once, before any imaging begins, and neither can be
+# changed afterwards without declaring the images again. So they are worked out
+# from what the run says about itself rather than left to a fixed number that
+# happens to suit one size of experiment.
 
 
 def slots_per_axis(tile_length: int, step: int) -> int:
@@ -182,6 +180,9 @@ def copies_for_a_canvas(canvas_shape) -> int:
     return copies
 
 
+# -- the rule: tiles that overlap must not share one image ---------------------
+
+
 def _refuse_overlapping_tiles(tile_shape, tile_step) -> None:
     """Stop a run whose tiles overlap from being written into one image.
 
@@ -219,6 +220,19 @@ def _refuse_overlapping_tiles(tile_shape, tile_step) -> None:
     )
 
 
+# -- not writing over a run that has already been imaged -----------------------
+#
+# Declaring the images empties whatever is already under their name. That is the
+# right thing at the start of a run, when nothing is there, and it is a disaster
+# once a run has been imaged into that folder: the acquired pictures go, and the
+# newly declared images look perfectly healthy, because an empty image is a valid
+# one. A notebook cell run twice is all it takes.
+#
+# Everything in this part is about telling those two situations apart, and about
+# doing it by name, so that the overview a run has already imaged never stands in
+# the way of the prescan being declared beside it.
+
+
 # The handful of files inside an image that describe it rather than hold any
 # picture. Everything else under an image folder is acquired data, which is what
 # makes them the thing to look past when asking "has anything been imaged here?".
@@ -253,6 +267,18 @@ def _a_tile_already_written(store: Path) -> Path | None:
 # Every image this module writes is a folder whose name ends this way, which is
 # the usual convention for an OME-Zarr image and is what the viewer looks for.
 _IMAGE_SUFFIX = ".ome.zarr"
+
+# What goes between an acquisition type's name and the number, when a run has to
+# spread one acquisition over several images to keep the overlap between its
+# tiles. So ``overview`` becomes ``overview_part0.ome.zarr`` and its siblings.
+#
+# This is used both for naming those images and for recognising them again
+# afterwards, and it is written once here so that the two cannot drift apart.
+# :func:`zmart_storage.coverage.acquisition_of` takes the same name back off an
+# image, and it has to agree with this — the two modules keep their own copy
+# because ``coverage`` is the lower of the pair and must not reach up into this
+# one.
+_PART_MARKER = "_part"
 
 
 def _refuse_a_name_that_is_not_a_plain_file_name(name: str) -> None:
@@ -322,7 +348,7 @@ def _images_belonging_to(folder: Path, name: str) -> list[Path]:
     """
     if not folder.is_dir():
         return []
-    numbered_prefix = f"{name}_part"
+    numbered_prefix = f"{name}{_PART_MARKER}"
     found = []
     for entry in folder.iterdir():
         if not entry.name.endswith(_IMAGE_SUFFIX):
@@ -674,6 +700,16 @@ def _read_the_claim(handle) -> str:
     return "\n".join(f"  {line}" for line in said.splitlines())
 
 
+# -- keeping two tiles out of one piece of image -------------------------------
+#
+# A piece of a zarr image is read, changed and written back whole. So two tiles
+# written into one piece at the same moment are not merged: whichever finishes
+# second saves a copy that never held the other's contribution, and nothing says
+# so. The next few functions work out how large a piece is for each image, refuse
+# the one arrangement that cannot be made safe, and point out a tile size that
+# makes the waiting more common than it needs to be.
+
+
 def _refuse_pieces_that_hold_several_tiles(pieces) -> None:
     """Stop a run whose storage bundles several tiles into one piece of image.
 
@@ -711,6 +747,62 @@ def _refuse_pieces_that_hold_several_tiles(pieces) -> None:
         "which is what TileCanvases.create does. That is also what makes showing "
         "a single plane cheap, so nothing is given up by it."
     )
+
+
+def _measure_the_pieces_of(slots: list[_Slot]) -> None:
+    """Ask every image how much specimen it keeps in one file, and refuse the rest.
+
+    This is worked out once, when the writer is made, and it is what lets the
+    writer keep two tiles out of one file later on. Three things about it were each
+    found by a measurement rather than by reasoning, so they are written down here.
+
+    **Every copy of an image is asked, not only the smallest.** A tile is written
+    into all of the progressively smaller copies, so it can share a file with
+    another tile in any one of them. It is tempting to collapse that into a single
+    number, since a piece of the smallest copy covers the most ground — but that
+    does not work, and the code used to do it. Suppose the full-size copy keeps 128
+    voxels in a piece and the half-size copy keeps 100, which is 200 voxels of
+    specimen. Holding tiles apart in blocks of 200 draws a boundary at voxel 200,
+    and that boundary falls in the middle of the full-size copy's piece covering
+    128 to 256. Two tiles either side of it are then judged to share nothing and
+    write that one file at the same time. Measured here, a pair of tiles arranged
+    that way lost 14336 voxels in 20 of 20 attempts. Asking each copy about its own
+    pieces has no such gap in it, and it never holds tiles apart more than the
+    storage actually requires.
+
+    **A shard counts, not the chunk inside it.** Ordinarily a piece is a chunk, the
+    smallest amount of picture zarr keeps as one file. But a zarr image can also be
+    *sharded*, which means many chunks are bundled together into a single file to
+    save the filesystem from millions of tiny ones. When that is done it is the
+    bundle, not the chunk, that is read and written back whole — so two tiles in
+    different chunks of one bundle are every bit as dangerous as two tiles in one
+    chunk, and measuring in chunks would let them through. Measured here on zarr
+    3.1.6, four tiles written at once into four chunks of one bundle left three of
+    them missing, with nothing reported.
+
+    **Every image is asked, not only the first.** A run's images are usually stored
+    identically, but nothing here guarantees it. Taking the first image's answer
+    for all of them let a hand-built run through whose second image kept two planes
+    in one file, and two tiles at different depths were then written into that file
+    at once and one of them vanished, in 3 of 3 attempts.
+
+    Args:
+        slots: the images this run writes into. Each one is given the size of a
+            piece of each of its copies, in voxels of specimen across ``y`` and
+            ``x``.
+
+    Raises:
+        ValueError: if any image bundles several moments, colours or planes into
+            one piece, which is an arrangement the writer cannot keep safe.
+    """
+    for slot in slots:
+        slot.pieces = []
+        for array in slot.arrays:
+            pieces = array.shards or array.chunks
+            _refuse_pieces_that_hold_several_tiles(pieces)
+            # Counted from the end, so that this does not depend on how many axes
+            # come before the specimen's y and x.
+            slot.pieces.append((int(pieces[-2]), int(pieces[-1])))
 
 
 def _grain_a_tile_of_this_size_could_meet(tile_length: int, chunk: int, levels: int) -> int:
@@ -779,6 +871,20 @@ def _warn_if_tiles_straddle_pieces(tile_shape, tile_step, chunk: int, levels: in
             return
 
 
+# -- the colours of light a run records ---------------------------------------
+
+
+# The default colours for the usual excitation wavelengths, matching what the
+# viewer uses elsewhere, so a run written here looks the same as one read from a
+# mesoSPIM. A wavelength that is not listed is drawn white rather than guessed at.
+_CHANNEL_COLORS = {
+    "405": "4D73FF",
+    "488": "00FF66",
+    "561": "FFBF1A",
+    "647": "FF33FF",
+}
+
+
 @dataclass(frozen=True)
 class Channel:
     """One colour of light the run records, and how it should first appear.
@@ -827,6 +933,9 @@ class Channel:
             "color": color,
             "window": window,
         }
+
+
+# -- the images, and the writer that fills them in -----------------------------
 
 
 @dataclass
@@ -883,61 +992,19 @@ class TileCanvases:
         self._tile_shape = tile_shape
         self._slot_grid = slot_grid
         self._claim = claim
-        # Two tiles being written at the same moment are only safe if they do not
-        # share a piece of image: otherwise each reads the piece, adds its own
-        # tile to its own copy, and writes the whole thing back, so whichever
-        # finishes second erases the other's contribution. Nothing reports this —
-        # the picture simply comes out with parts missing.
-        #
-        # Note that this is about sharing a *piece*, not about the tiles
-        # overlapping. Two tiles can sit well apart and still fall inside one
-        # piece of image, and that is just as damaging. So before a tile is
-        # written it says which pieces it is about to touch, and waits until
-        # nothing else in progress is touching any of them.
-        #
-        # A tile is written into every one of the progressively smaller copies, so
-        # it has to say that for each of them separately. It is tempting to
-        # collapse that into one number — the piece of the smallest copy covers the
-        # most ground, so surely holding tiles apart by that much covers the rest?
-        # It does not, and this is worth spelling out because the code used to do
-        # it. Suppose the full-size copy keeps 128 voxels in a piece and the
-        # half-size copy keeps 100, which is 200 voxels of specimen. Holding tiles
-        # apart in blocks of 200 draws a boundary at voxel 200, and that boundary
-        # falls in the middle of the full-size copy's piece covering 128 to 256. So
-        # two tiles either side of it are judged not to share anything, and they
-        # write that one file at the same time. Measured here, a pair of tiles
-        # arranged that way lost 14336 voxels in 20 of 20 attempts. Asking each
-        # copy about its own pieces has no such gap in it, and it also never holds
-        # tiles apart more than the storage actually requires.
-        #
-        # What counts as "a piece" needs care. Ordinarily it is a chunk, the
-        # smallest amount of picture zarr stores as one file. But a zarr image can
-        # also be **sharded**, which means many chunks are bundled together and
-        # kept in a single file to save the filesystem from millions of tiny ones.
-        # When that is done it is the shard, not the chunk, that is read and
-        # written back whole — so two tiles in different chunks of one shard are
-        # every bit as dangerous as two tiles in one chunk, and measuring the
-        # claim in chunks would let them through. Measured here on zarr 3.1.6,
-        # four tiles written at once into four chunks of one shard left three of
-        # them missing, with nothing reported. Hence: shards where there are any,
-        # chunks where there are not.
-        #
-        # Every image is asked, not only the first. A run's images are usually
-        # stored identically, but nothing here guarantees it, and taking the first
-        # image's answer for all of them let a hand-built run through whose second
-        # image kept two planes in one file: two tiles at different depths were
-        # then written into that file at once and one of them vanished, in 3 of 3
-        # attempts.
-        for slot in slots:
-            slot.pieces = []
-            for array in slot.arrays:
-                pieces = array.shards or array.chunks
-                _refuse_pieces_that_hold_several_tiles(pieces)
-                # Counted from the end, so that this does not depend on how many
-                # axes come before the specimen's y and x.
-                slot.pieces.append((int(pieces[-2]), int(pieces[-1])))
+
+        # How much specimen one file of each image holds. This is what lets the
+        # writer keep two tiles out of one file at the same moment. Why it is
+        # measured the way it is takes some explaining, so the explanation lives
+        # with the function that does it.
+        _measure_the_pieces_of(slots)
+
+        # The tiles being written at this very moment, and the means of waiting
+        # for one of them. See :meth:`_while_nothing_else_holds_these_pieces` for
+        # what they are protecting against.
         self._busy: list[tuple] = []
         self._free = threading.Condition()
+
         # Each image keeps its own note of where it has been imaged, beside the
         # pictures. Nothing about the acquisition depends on it, and the run goes
         # ahead unchanged if it cannot be kept — but with it, anything reading the
@@ -1188,7 +1255,7 @@ class TileCanvases:
             # One image per acquisition type, named after it, so the viewer can
             # group what it finds the way the experiment is organised. Only a run
             # that spreads its tiles needs more than one, and those are numbered.
-            leaf = name if total == 1 else f"{name}_part{index}"
+            leaf = name if total == 1 else f"{name}{_PART_MARKER}{index}"
             store = folder / f"{leaf}.ome.zarr"
             arrays = _declare_one(
                 store,
@@ -1272,17 +1339,9 @@ class TileCanvases:
         occupied = (frame, channel, *footprint)
         slot = self._choose(occupied, tile_index)
 
-        # Hold back until nothing sharing a piece of image is mid-write, so two
-        # tiles can never be halfway through the same piece at once.
-        region = (
-            slot.index, frame, channel, z0, z0 + depth,
-            self._pieces_this_tile_touches(slot, origin, image.shape),
-        )
-        with self._free:
-            while any(_touches(region, other) for other in self._busy):
-                self._free.wait()
-            self._busy.append(region)
-        try:
+        with self._while_nothing_else_holds_these_pieces(
+            slot, origin, image.shape, frame=frame, channel=channel
+        ):
             at = (frame, channel)
             slot.arrays[0][
                 *at, z0:z0 + depth, y0:y0 + height, x0:x0 + width
@@ -1300,11 +1359,45 @@ class TileCanvases:
                     shape=image.shape,
                     tile_index=tile_index,
                 )
+        return slot.folder
+
+    @contextmanager
+    def _while_nothing_else_holds_these_pieces(
+        self, slot: _Slot, origin: tuple[int, int, int],
+        shape: tuple[int, int, int], *, frame: int, channel: int,
+    ):
+        """Wait until no other tile is part way through the files this one needs.
+
+        Two tiles written at the same moment are only safe if they do not share a
+        piece of image. Where they do share one, each reads that piece, adds its
+        own tile to its own copy, and writes the whole thing back — so whichever
+        finishes second erases the other's contribution. Nothing reports it; the
+        picture simply comes out with parts missing.
+
+        The trap is that this is about sharing a *piece*, not about the tiles
+        overlapping each other. Two tiles can sit well apart, touching nowhere, and
+        still fall inside one piece of image, which is just as damaging. So before
+        a tile is written it says which pieces it is about to touch, and waits here
+        until nothing else in progress is touching any of them.
+
+        The waiting is given back the moment the tile is written, whether that went
+        well or not, so one failed tile can never leave the rest of a run queueing
+        behind it.
+        """
+        holding = (
+            slot.index, frame, channel, origin[0], origin[0] + shape[0],
+            self._pieces_this_tile_touches(slot, origin, shape),
+        )
+        with self._free:
+            while any(_touches(holding, other) for other in self._busy):
+                self._free.wait()
+            self._busy.append(holding)
+        try:
+            yield
         finally:
             with self._free:
-                self._busy.remove(region)
+                self._busy.remove(holding)
                 self._free.notify_all()
-        return slot.folder
 
     def _check_these_images_are_still_ours(self) -> None:
         """Refuse to write once a later writer has taken these images over.

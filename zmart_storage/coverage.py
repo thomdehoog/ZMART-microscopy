@@ -178,16 +178,27 @@ REGIONS_FILE = "regions.json"
 # plainly instead of misreading it.
 RECORD_VERSION = 1
 
-# The usual ending of an OME-Zarr image folder, repeated here so that this module
-# can work out which acquisition an image belongs to without reaching into
-# ``canvas``.
+# How a run names its images: the usual ending of an OME-Zarr image folder, and
+# what goes between an acquisition type's name and its number when one
+# acquisition has to be spread over several images.
+#
+# Both are repeated here rather than shared, so that this module can work out
+# which acquisition an image belongs to without reaching up into ``canvas`` —
+# which imports this one, so the borrowing could only go the wrong way. They have
+# to agree with the same two names in ``canvas``, and a run written with one
+# spelling and read with the other would look like a folder full of unrelated
+# acquisitions.
 _IMAGE_SUFFIX = ".ome.zarr"
+_PART_MARKER = "_part"
 
 # How often the short summary is rebuilt while a run is going. A live viewer
 # reads it to decide which parts of the canvas are worth asking for, so being a
 # second behind costs nothing an operator could notice — whereas rebuilding it on
 # every tile would make a fast run pay for a full rewrite thousands of times.
 _HOW_OFTEN_TO_REBUILD_SECONDS = 1.0
+
+
+# -- where a record lives, and which acquisition it belongs to -----------------
 
 
 def acquisition_of(image_name: str) -> str:
@@ -208,7 +219,7 @@ def acquisition_of(image_name: str) -> str:
     leaf = image_name
     if leaf.endswith(_IMAGE_SUFFIX):
         leaf = leaf[: -len(_IMAGE_SUFFIX)]
-    head, marker, tail = leaf.rpartition("_part")
+    head, marker, tail = leaf.rpartition(_PART_MARKER)
     if marker and tail.isdigit():
         return head
     return leaf
@@ -250,6 +261,15 @@ def forget_the_record_of(run: str | Path, acquisition: str) -> None:
     for child in kept.iterdir():
         if child.is_dir() and acquisition_of(child.name) == acquisition:
             shutil.rmtree(child, ignore_errors=True)
+
+
+# -- what a record is made of --------------------------------------------------
+#
+# Two shapes, and they answer different questions. A region is a rectangular block
+# of the canvas that holds picture, which is what a viewer needs in order to bound
+# the work it does. A tile is one thing the microscope actually recorded, with the
+# moment and the colour it was recorded in, which is what an operator needs in
+# order to ask whether a particular place was visited.
 
 
 @dataclass(frozen=True, order=True)
@@ -362,6 +382,9 @@ class Tile:
             ),
             written=str(line["written"]),
         )
+
+
+# -- gathering touching blocks into as few rectangles as the shape allows ------
 
 
 def join_up(blocks) -> list[Region]:
@@ -571,6 +594,9 @@ class Recorder:
         }
         _put_in_place(self._folder / REGIONS_FILE, json.dumps(summary, indent=1))
         self._rebuilt_at = time.monotonic()
+
+
+# -- small helpers the writing and the reading both use ------------------------
 
 
 def _named(numbers, names) -> dict:

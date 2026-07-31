@@ -851,9 +851,29 @@ def test_pieces_holding_several_planes_are_refused(tmp_path):
 # -- how an acquisition first appears on screen --------------------------------
 
 
-def _omero_channels(store: Path) -> list[dict]:
+def _description(store: Path) -> dict:
+    """An image's own OME-Zarr description, whichever generation it was written in.
+
+    Version 0.4 keeps the description in a ``.zattrs`` file beside the image, and
+    0.5 keeps it inside ``zarr.json`` under an ``ome`` key. Reading both here lets
+    the tests below ask the same questions of either, which is the point: a run
+    should describe itself the same way whichever generation it was written in.
+    """
     import json
-    return json.loads((store / ".zattrs").read_text(encoding="utf-8"))["omero"]["channels"]
+
+    if (store / ".zattrs").exists():
+        return json.loads((store / ".zattrs").read_text(encoding="utf-8"))
+    inside = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
+    return inside["attributes"]["ome"]
+
+
+def _omero_channels(store: Path) -> list[dict]:
+    return _description(store)["omero"]["channels"]
+
+
+def _multiscale(store: Path) -> dict:
+    """The block describing the image's axes, its copies and where it sits."""
+    return _description(store)["multiscales"][0]
 
 
 def test_a_channel_given_no_window_does_not_claim_one(tmp_path):
@@ -891,6 +911,146 @@ def test_a_channel_given_a_window_still_gets_it(tmp_path):
     assert (window["start"], window["end"]) == (100, 4000)
 
 
+def test_a_channel_is_named_and_coloured_the_way_it_was_asked_for(tmp_path):
+    """The name and the colour are how an operator tells one channel from another.
+
+    Both are written into the image itself so that the viewer never has to guess
+    them from a file name. A run whose channels come back unnamed, or drawn in one
+    another's colours, is one the operator cannot read at a glance — and nothing
+    about the picture looks wrong, so there is nothing to notice.
+    """
+    canvases = TileCanvases.create(
+        tmp_path, name="overview",
+        canvas_shape=(2, 640, 640), tile_shape=TILE, tile_step=BUTTED_UP,
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488"), Channel("nuclei", color="AABBCC")],
+        levels=2, chunk=64,
+    )
+    described = _omero_channels(canvases.paths[0])
+
+    assert [c["label"] for c in described] == ["488", "nuclei"], (
+        "the channels are not named, or not in the order they were given in"
+    )
+    # A name that looks like an excitation wavelength picks up the conventional
+    # colour for it, so a run written here looks like one from a mesoSPIM.
+    assert described[0]["color"] == "00FF66", (
+        f"the 488 channel came out {described[0]['color']} rather than the usual "
+        f"green a 488 line is drawn in"
+    )
+    # And a colour asked for outright is used exactly as it was asked for.
+    assert described[1]["color"] == "AABBCC"
+    canvases.close()
+
+
+def test_a_channel_nobody_has_a_colour_for_is_drawn_white(tmp_path):
+    """Guessing a colour for an unfamiliar name would be worse than not trying.
+
+    White says plainly that nothing is known about this one. A guessed colour
+    would quietly suggest a wavelength the run never used, which is the kind of
+    small untruth that survives into a figure.
+    """
+    canvases = TileCanvases.create(
+        tmp_path, name="overview",
+        canvas_shape=(2, 640, 640), tile_shape=TILE, tile_step=BUTTED_UP,
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("brightfield")],
+        levels=2, chunk=64,
+    )
+    assert _omero_channels(canvases.paths[0])[0]["color"] == "FFFFFF"
+    canvases.close()
+
+
+# -- the numbers that make a measurement truthful ------------------------------
+#
+# On its own an image is only a grid of numbers. What turns it into a picture of a
+# specimen — one you can put a scale bar on, measure a cell in, and lay beside the
+# run's other images — is two small parts of its description: how large one voxel
+# is in microns, and where the low corner of the image sits on the stage.
+#
+# Both are written once, when the images are declared, and never again. Nothing on
+# screen looks wrong when they are wrong: the specimen still draws, it is simply
+# the wrong size or in the wrong place, and there is no second copy of either
+# number to disagree with. So they are read back off disk here rather than trusted.
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5"])
+def test_the_size_of_a_voxel_is_written_into_the_description(tmp_path, version):
+    """Every measurement made in the viewer rests on this one line of description."""
+    canvases = _canvases(tmp_path, ome_zarr_version=version)
+    full_size = _multiscale(canvases.paths[0])["datasets"][0]
+    (transformation,) = full_size["coordinateTransformations"]
+
+    # The last three numbers are the specimen's depth, height and width in microns.
+    # The two in front of them are time and colour, which have no size in microns
+    # and are left at one.
+    assert transformation["type"] == "scale"
+    assert transformation["scale"][-3:] == [2.0, 0.35, 0.35], (
+        f"the run was declared with voxels of 2.0 by 0.35 by 0.35 microns, and the "
+        f"image on disk says {transformation['scale'][-3:]}"
+    )
+    canvases.close()
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5"])
+def test_each_smaller_copy_says_how_much_ground_its_voxels_cover(tmp_path, version):
+    """A copy that does not admit it was shrunk draws the specimen at the wrong size.
+
+    Each smaller copy covers twice as much specimen per voxel as the one above it,
+    and its description has to say so. If it does not, the viewer draws that copy
+    at twice its true size the moment somebody zooms out — and the picture is
+    perfectly good, simply too big, so nothing about it invites a second look.
+
+    Depth is never shrunk, because scrolling through a stack should show the planes
+    that were really acquired. So the depth of a voxel has to stay put while its
+    height and width double.
+    """
+    canvases = _canvases(tmp_path, ome_zarr_version=version)
+    copies = _multiscale(canvases.paths[0])["datasets"]
+    assert len(copies) == 2, "this run was declared with two copies"
+
+    for level, copy in enumerate(copies):
+        (transformation,) = copy["coordinateTransformations"]
+        depth, height, width = transformation["scale"][-3:]
+        assert copy["path"] == str(level)
+        assert depth == 2.0, (
+            f"copy {level} claims voxels {depth} microns deep, but a smaller copy "
+            f"keeps every plane and so must keep the depth it started with"
+        )
+        assert (height, width) == (0.35 * 2 ** level, 0.35 * 2 ** level), (
+            f"copy {level} claims voxels {height} microns across, where halving "
+            f"{level} time(s) makes them {0.35 * 2 ** level}"
+        )
+    canvases.close()
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5"])
+def test_where_the_images_sit_on_the_stage_is_written_down(tmp_path, version):
+    """Every image of a run shares one corner, which is what makes them line up.
+
+    A run that keeps its overlap writes several images meant to be drawn on top of
+    one another. Were they to disagree about where their corner sits, the viewer
+    would draw the specimen several times over, slightly apart — which looks like a
+    stage that cannot repeat itself rather than like a description that is wrong.
+    """
+    corner = (10.0, 250.5, 900.25)
+    canvases = _canvases(
+        tmp_path, step=OVERLAPPING, slots=(1, 2, 2),
+        origin_um=corner, ome_zarr_version=version,
+    )
+    assert len(canvases.paths) == 4
+
+    for store in canvases.paths:
+        (transformation,) = _multiscale(store)["coordinateTransformations"]
+        assert transformation["type"] == "translation"
+        assert transformation["translation"][-3:] == list(corner), (
+            f"{store.name} puts its corner at "
+            f"{transformation['translation'][-3:]}, where the run was declared "
+            f"from {list(corner)} — so this image would be drawn away from its "
+            f"siblings"
+        )
+    canvases.close()
+
+
 # -- what the rule is protecting against -------------------------------------
 
 
@@ -911,9 +1071,25 @@ def test_writing_an_overlapping_run_into_one_image_would_lose_a_fifth(tmp_path):
         lost += int((patch != value).sum())
 
     total = len(expected) * int(np.prod(TILE))
-    assert lost > 0
+    share = lost / total
     print(f"\none image, tiles overlapping: {lost} of {total} voxels overwritten "
-          f"({100 * lost / total:.0f}% of what was acquired)")
+          f"({100 * share:.0f}% of what was acquired)")
+
+    # The name of this test is a number, so the number is what is checked. These
+    # tiles are 128 voxels across and stepped 112, so each one loses the strip its
+    # neighbours to the right and below cover it with, and about a fifth of
+    # everything acquired disappears — 18 per cent as measured here.
+    #
+    # A band rather than an exact figure, because the point is the size of the
+    # loss rather than its last digit. Asking only that *something* was lost would
+    # be satisfied by a single voxel, which would let the writer stop being
+    # dangerous without anybody noticing that the case for the refusal had gone.
+    assert 0.10 < share < 0.30, (
+        f"{100 * share:.1f}% of what was acquired was overwritten, where writing "
+        f"these overlapping tiles into one image should cost about a fifth of it. "
+        f"If the loss has genuinely changed, the refusal this measures is worth "
+        f"re-examining rather than the number simply being widened."
+    )
 
 
 def test_spreading_an_overlapping_run_keeps_every_tile(tmp_path):

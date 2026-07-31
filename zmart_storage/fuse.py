@@ -65,8 +65,9 @@ def fuse(
     """Join a run's images into a single OME-Zarr image.
 
     Args:
-        run: the folder the run was written to, holding ``canvas0.ome.zarr`` and
-            its siblings.
+        run: the folder the run was written to. A run that kept the overlap
+            between its tiles holds several numbered images — ``overview_part0``
+            to ``overview_part3``, say — and all of them are read and joined.
         into: where to write the joined image. This has to be somewhere outside
             the run's own folder — beside it is the natural place — because the
             joined image is made by emptying whatever is already there, and
@@ -95,14 +96,27 @@ def fuse(
     """
     if where_they_meet not in ("blend", "first", "mean"):
         raise ValueError(
-            f"'{where_they_meet}' is not one of 'blend', 'first' or 'mean'"
+            f"{where_they_meet!r} is not a way of handling the places where two "
+            "tiles recorded the same specimen. There are three to choose from, "
+            "and which one is right depends on what the picture is for:\n\n"
+            "  'blend' fades one tile into the other across the strip they share, "
+            "which hides the join. This is usually the one to look at.\n"
+            "  'first' keeps whichever tile the run wrote first, so every voxel "
+            "is one recording exactly as the camera made it. This is the one to "
+            "use when the numbers themselves matter.\n"
+            "  'mean' averages the two recordings, which is a little less noisy "
+            "but smears if the tiles are not perfectly aligned."
         )
 
     run = Path(run)
     sources = sorted(run.glob("*.ome.zarr"))
     if not sources:
         raise FileNotFoundError(
-            f"{run} holds no images from a run — expected canvas0.ome.zarr and so on"
+            f"{run} holds no OME-Zarr images, so there is nothing here to join. "
+            "A run's folder holds one image folder per acquisition type — "
+            "'overview.ome.zarr', say — or a numbered set of them when the run "
+            "kept the overlap between its tiles. Check that this is the run's own "
+            "folder rather than the folder holding it."
         )
 
     into = Path(into)
@@ -158,6 +172,9 @@ def fuse(
     _write_smaller_copies(joined, full, levels, chunk)
     _describe(into, sources[0], levels)
     return into
+
+
+# -- not joining a run on top of itself ----------------------------------------
 
 
 def _refuse_to_write_the_joined_image_into_the_run(
@@ -231,6 +248,9 @@ def _refuse_to_write_the_joined_image_into_the_run(
         )
 
 
+# -- deciding what to do where two tiles recorded the same place ---------------
+
+
 def _join(planes: list[np.ndarray], how: str, dtype) -> np.ndarray:
     """Combine the same plane from each of the run's images into one.
 
@@ -292,6 +312,9 @@ def _fade_towards_the_edges(has: np.ndarray) -> np.ndarray:
         # Without SciPy a plain average is a reasonable stand-in: the join shows
         # as a faint seam rather than being invisible, and nothing is lost.
         return has.astype(np.float64)
+
+
+# -- the smaller copies, and the description that names them -------------------
 
 
 def _write_smaller_copies(group, full, levels: int, chunk: int) -> None:
