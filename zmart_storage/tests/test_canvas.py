@@ -3,13 +3,12 @@
 The arrangement this writer is for is **one image per acquisition type, with tiles
 that do not overlap**. Most of what follows checks that ordinary path.
 
-The rest checks the rule itself. A run whose tiles overlap must not be written
-into one image as it goes, because the second tile to arrive replaces the strip
-it shares with the first — and those two recordings of the shared strip are
-exactly what a stitcher compares. Such a run keeps its tiles separate and is
-stitched once it has finished. The writer refuses rather than letting it happen
-quietly, and the tests below pin both the refusal and what it is protecting
-against.
+The rest checks the rule itself. Everything goes into one image, and one image
+holds a single value per voxel, so if two tiles covered the same ground the
+second to arrive would simply replace the strip they share. Nothing about the
+resulting picture would look wrong, which is why the writer refuses such a run
+when the image is declared rather than letting it happen quietly. The tests below
+pin both the refusal and what it is protecting against.
 """
 
 from __future__ import annotations
@@ -25,14 +24,14 @@ import zarr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from zmart_storage.canvas import Channel, TileCanvases, slots_per_axis
+from zmart_storage.canvas import Channel, TileCanvases
 
 # Tiles 128 voxels across. With 64-voxel pieces and two levels of shrunk-down
 # copies, a whole piece is 128 voxels -- so a tile is exactly one piece and tiles
 # never share one, which is the arrangement to aim for.
 TILE = (2, 128, 128)
 BUTTED_UP = (2, 128, 128)    # the rule: the stage steps by a whole tile
-OVERLAPPING = (2, 112, 112)  # a run that must be stitched afterwards instead
+OVERLAPPING = (2, 112, 112)  # a step this writer refuses
 GRID = 4
 
 
@@ -98,12 +97,18 @@ def test_a_run_with_overlapping_tiles_is_refused(tmp_path):
 
 
 def test_the_refusal_says_what_to_do_instead(tmp_path):
-    """An error that only says no leaves the operator stuck."""
+    """An error that only says no leaves the operator stuck.
+
+    It must also not send them after something that is not here. This writer does
+    not join overlapping tiles up afterwards and has no stitcher, so the advice
+    has to be "acquire without overlap" and nothing else — an operator told to
+    stitch would go looking for a capability that does not exist.
+    """
     with pytest.raises(ValueError) as complaint:
         _canvases(tmp_path, step=OVERLAPPING)
     said = str(complaint.value)
     assert "step the stage by the whole tile" in said
-    assert "stitch" in said
+    assert "does not support an overlapping acquisition" in said
 
 
 def test_tiles_that_do_not_divide_into_pieces_are_only_a_warning(tmp_path):
@@ -494,17 +499,18 @@ def test_letting_go_of_a_run_lets_another_program_have_it(tmp_path):
 
 
 def test_throwing_the_old_run_away_leaves_none_of_it_behind(tmp_path):
-    """A run spread over four images, thrown away for one that needs a single image.
+    """An imaged run, thrown away outright, must leave nothing of itself on disk.
 
-    The four numbered images belong to the same acquisition type, so all four go.
-    Before this was fixed, only the one the new arrangement happened to reuse was
-    replaced and the other three stayed on disk holding the old run's pixels.
+    What is checked here is that the acquisition type's image is genuinely gone
+    and empty afterwards, and that the folder is then in a state where the run can
+    simply be declared again — which is what somebody repeating a test run into
+    the same scratch folder needs.
     """
-    first = _canvases(tmp_path, step=OVERLAPPING, slots=(1, 2, 2))
-    for index in range(4):
-        first.write(np.full(TILE, 500 + index, dtype="uint16"),
-                    origin=(0, 0, index * TILE[2]), tile_index=(0, 0, index))
-    assert len(list(tmp_path.glob("*.ome.zarr"))) == 4
+    first = _canvases(tmp_path)
+    first.write(np.full(TILE, 500, dtype="uint16"),
+                origin=(0, 0, 0), tile_index=(0, 0, 0))
+    first.close()
+    assert len(list(tmp_path.glob("*.ome.zarr"))) == 1
 
     second = _canvases(tmp_path, discard_existing_run=True)
 
@@ -548,20 +554,6 @@ def test_throwing_one_acquisition_type_away_leaves_the_others(tmp_path):
     assert _read_level0(deep.paths[0])[0, 0, 0] == 222, (
         "overview_deep was thrown away along with overview"
     )
-
-
-@pytest.mark.parametrize(
-    ("tile", "step", "wanted"),
-    [
-        (64, 64, 1),   # butted up, which is the rule: one image is enough
-        (64, 58, 2),   # a tenth of a tile shared
-        (64, 32, 2),   # exactly half: still two
-        (64, 24, 3),   # more than half, which no tiled acquisition does
-    ],
-)
-def test_how_many_images_an_overlapping_run_would_need(tile, step, wanted):
-    """Only relevant to a run being spread deliberately, but worth pinning."""
-    assert slots_per_axis(tile, step) == wanted
 
 
 # -- the ordinary path: one image, tiles butted up ---------------------------
@@ -678,18 +670,18 @@ def test_tiles_written_at_once_do_not_corrupt_each_other(tmp_path):
 # not bundle anything today, so these images are built by hand, which is also how
 # they would arrive if bundling were switched on later.
 #
-# Building one by hand means naming `_Slot`, which belongs to the writer's insides,
-# and there is no way round that today: `create` cannot produce these arrangements,
-# and handing the writer arrays somebody else made is not something it offers in
-# public. Each of the three helpers below therefore borrows `_Slot` where it needs
-# it, rather than the whole file borrowing it at the top. That way, if the class is
-# ever renamed, only these three tests say so — instead of every test in this file
-# failing to load at once and hiding whatever else might have broken.
+# Building one by hand means naming `_Image`, which belongs to the writer's
+# insides, and there is no way round that today: `create` cannot produce these
+# arrangements, and handing the writer arrays somebody else made is not something
+# it offers in public. Each of the two helpers below therefore borrows `_Image`
+# where it needs it, rather than the whole file borrowing it at the top. That way,
+# if the class is ever renamed, only these tests say so — instead of every test in
+# this file failing to load at once and hiding whatever else might have broken.
 
 
 def _built_by_hand(folder: Path, *, chunks, shards) -> TileCanvases:
     """One image with pieces of a chosen size, wired up to the writer directly."""
-    from zmart_storage.canvas import _Slot
+    from zmart_storage.canvas import _Image
 
     store = folder / "overview.ome.zarr"
     group = zarr.open_group(str(store), mode="w", zarr_format=3)
@@ -698,11 +690,10 @@ def _built_by_hand(folder: Path, *, chunks, shards) -> TileCanvases:
     )
     return TileCanvases(
         folder,
-        [_Slot(index=0, folder=store, arrays=[array])],
+        _Image(folder=store, arrays=[array]),
         shape=(1, 1, 2, 512, 512),
         levels=1,
         tile_shape=TILE,
-        slot_grid=(1, 1, 1),
     )
 
 
@@ -740,75 +731,6 @@ def test_tiles_sharing_a_bundle_survive_being_written_at_once(tmp_path):
         )
 
 
-def _two_images_by_hand(folder: Path, *, second_chunks) -> TileCanvases:
-    """A run of two images, the second stored differently from the first.
-
-    A run's images are normally stored identically, but nothing guarantees it, and
-    the writer used to take the first image's answer for all of them. These are
-    wired up directly so that the second image can be given a shape of its own.
-    """
-    from zmart_storage.canvas import _Slot
-
-    slots = []
-    for index, chunks in enumerate([(1, 1, 1, 128, 128), second_chunks]):
-        store = folder / f"overview_part{index}.ome.zarr"
-        group = zarr.open_group(str(store), mode="w", zarr_format=3)
-        array = group.create_array(
-            "0", shape=(1, 1, 2, 512, 512), chunks=chunks, dtype="uint16"
-        )
-        slots.append(_Slot(index=index, folder=store, arrays=[array]))
-    return TileCanvases(
-        folder, slots, shape=(1, 1, 2, 512, 512), levels=1,
-        tile_shape=TILE, slot_grid=(1, 2, 1),
-    )
-
-
-def test_every_image_is_asked_how_it_keeps_its_pieces(tmp_path):
-    """The arrangement the writer cannot keep safe is refused wherever it appears.
-
-    A piece that holds two planes lets two tiles at different depths into one file
-    at the same moment, which is why it is refused. Only the first image used to be
-    asked, so a run whose *second* image was like that was accepted — and then,
-    measured before this was fixed, two tiles at different depths into that image
-    lost one of them entirely in 3 of 3 attempts.
-    """
-    with pytest.raises(ValueError, match="more than one moment, colour or plane"):
-        _two_images_by_hand(tmp_path, second_chunks=(1, 1, 2, 128, 128))
-
-
-def test_tiles_are_held_apart_by_the_image_they_land_in(tmp_path):
-    """How large a piece is depends on the image, so each image speaks for itself.
-
-    The two tiles here land in one image whose pieces are 512 voxels wide, so they
-    share a file and have to be written one after the other. The other image in the
-    run keeps 128 voxels in a piece, and taking that figure for both — which is
-    what happened before — let these two go at once and one of them was lost.
-    """
-    import threading
-
-    canvases = _two_images_by_hand(tmp_path, second_chunks=(1, 1, 1, 512, 512))
-    values = [(111, 0), (222, 128)]
-
-    def write(value, x0):
-        # Both into the second image, which is what tile_index (0, 1, 0) chooses.
-        canvases.write(np.full(TILE, value, dtype="uint16"),
-                       origin=(0, 0, x0), tile_index=(0, 1, 0))
-
-    threads = [threading.Thread(target=write, args=pair) for pair in values]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-    written = _read_level0(canvases.paths[1])
-    for value, x0 in values:
-        patch = written[:, :TILE[1], x0:x0 + TILE[2]]
-        assert (patch == value).all(), (
-            f"the tile at x={x0} lost {int((patch != value).sum())} of its "
-            f"{patch.size} voxels to a tile sharing its file"
-        )
-
-
 def _several_copies_by_hand(folder: Path, *, pieces) -> TileCanvases:
     """One image whose copies keep differently sized pieces.
 
@@ -816,7 +738,7 @@ def _several_copies_by_hand(folder: Path, *, pieces) -> TileCanvases:
     copy's own voxels. Built by hand because :meth:`TileCanvases.create` always
     uses the same piece size throughout, so it cannot produce this.
     """
-    from zmart_storage.canvas import _Slot
+    from zmart_storage.canvas import _Image
 
     store = folder / "overview.ome.zarr"
     group = zarr.open_group(str(store), mode="w", zarr_format=3)
@@ -829,9 +751,9 @@ def _several_copies_by_hand(folder: Path, *, pieces) -> TileCanvases:
         for level, piece in enumerate(pieces)
     ]
     return TileCanvases(
-        folder, [_Slot(index=0, folder=store, arrays=arrays)],
+        folder, _Image(folder=store, arrays=arrays),
         shape=(1, 1, 2, 1024, 1024), levels=len(pieces),
-        tile_shape=TILE, slot_grid=(1, 1, 1),
+        tile_shape=TILE,
     )
 
 
@@ -1067,29 +989,31 @@ def test_each_smaller_copy_says_how_much_ground_its_voxels_cover(tmp_path, versi
 
 @pytest.mark.parametrize("version", ["0.4", "0.5"])
 def test_where_the_images_sit_on_the_stage_is_written_down(tmp_path, version):
-    """Every image of a run shares one corner, which is what makes them line up.
+    """The image has to say where on the stage it begins, or it draws in the wrong place.
 
-    A run that keeps its overlap writes several images meant to be drawn on top of
-    one another. Were they to disagree about where their corner sits, the viewer
-    would draw the specimen several times over, slightly apart — which looks like a
-    stage that cannot repeat itself rather than like a description that is wrong.
+    A run's acquisition types are drawn together — an overview with a targetscan
+    laid over it — and each one carries this number separately. Were they to
+    disagree about where their corner sits, the viewer would draw the specimen
+    twice over, slightly apart, which looks like a stage that cannot repeat itself
+    rather than like a description that is wrong.
+
+    The number given is the **corner** of the first voxel, not its middle. Which of
+    those two the OME-Zarr standard intends is genuinely unsettled, and
+    ``zmart_storage/VOXEL_PLACEMENT.md`` sets out the evidence and why this writer
+    chose the corner. It is checked here so that nobody changes it by accident.
     """
     corner = (10.0, 250.5, 900.25)
-    canvases = _canvases(
-        tmp_path, step=OVERLAPPING, slots=(1, 2, 2),
-        origin_um=corner, ome_zarr_version=version,
-    )
-    assert len(canvases.paths) == 4
+    canvases = _canvases(tmp_path, origin_um=corner, ome_zarr_version=version)
 
-    for store in canvases.paths:
-        (transformation,) = _multiscale(store)["coordinateTransformations"]
-        assert transformation["type"] == "translation"
-        assert transformation["translation"][-3:] == list(corner), (
-            f"{store.name} puts its corner at "
-            f"{transformation['translation'][-3:]}, where the run was declared "
-            f"from {list(corner)} — so this image would be drawn away from its "
-            f"siblings"
-        )
+    (store,) = canvases.paths
+    (transformation,) = _multiscale(store)["coordinateTransformations"]
+    assert transformation["type"] == "translation"
+    assert transformation["translation"][-3:] == list(corner), (
+        f"{store.name} puts its corner at "
+        f"{transformation['translation'][-3:]}, where the run was declared "
+        f"from {list(corner)} — so it would be drawn away from the run's other "
+        f"acquisition types"
+    )
     canvases.close()
 
 
@@ -1099,10 +1023,13 @@ def test_where_the_images_sit_on_the_stage_is_written_down(tmp_path, version):
 def test_writing_an_overlapping_run_into_one_image_would_lose_a_fifth(tmp_path):
     """The cost the refusal exists to prevent, as a measured number.
 
-    Reached deliberately here, by asking for a single image outright, which is the
-    only way to get one for a run whose tiles overlap.
+    The refusal happens when the images are declared, so getting past it here
+    means declaring a perfectly ordinary run whose stage steps by a whole tile,
+    and then putting the tiles down at overlapping positions anyway. That is
+    exactly the acquisition the refusal turns away, and what follows is the price
+    of letting it through.
     """
-    canvases = _canvases(tmp_path, step=OVERLAPPING, slots=(1, 1, 1))
+    canvases = _canvases(tmp_path)
     expected = _write_a_grid(canvases, step=OVERLAPPING)
 
     written = _read_level0(canvases.paths[0])
@@ -1132,31 +1059,6 @@ def test_writing_an_overlapping_run_into_one_image_would_lose_a_fifth(tmp_path):
         f"If the loss has genuinely changed, the refusal this measures is worth "
         f"re-examining rather than the number simply being widened."
     )
-
-
-def test_spreading_an_overlapping_run_keeps_every_tile(tmp_path):
-    """The other way to keep it: several images, so nothing is ever written over.
-
-    Available deliberately, for a run that wants one artefact rather than tiles
-    plus a stitching step afterwards. Not the default.
-    """
-    canvases = _canvases(tmp_path, step=OVERLAPPING, slots=(1, 2, 2))
-    expected = _write_a_grid(canvases, step=OVERLAPPING)
-
-    assert len(canvases.paths) == 4
-    levels = [_read_level0(path) for path in canvases.paths]
-    for (row, col), value in expected.items():
-        y0, x0 = row * OVERLAPPING[1], col * OVERLAPPING[2]
-        found = [
-            level[:, y0:y0 + TILE[1], x0:x0 + TILE[2]]
-            for level in levels
-            if level[0, y0, x0] == value
-        ]
-        assert found, f"tile ({row}, {col}) is not in any image"
-        assert (found[0] == value).all(), (
-            f"tile ({row}, {col}) was partly overwritten: "
-            f"{int((found[0] != value).sum())} voxels lost"
-        )
 
 
 # -- moments, declared at the start and filled in ------------------------------
@@ -1324,7 +1226,7 @@ def test_the_same_place_twice_in_one_moment_is_still_refused(tmp_path):
     """
     canvases = _targets(tmp_path / "run")
     canvases.write(np.full(TILE, 1, dtype="uint16"), origin=(0, 0, 0))
-    with pytest.raises(ValueError, match="overlaps something already written"):
+    with pytest.raises(ValueError, match="already been imaged in this moment"):
         canvases.write(np.full(TILE, 2, dtype="uint16"), origin=(0, 0, 0))
     canvases.close()
 
