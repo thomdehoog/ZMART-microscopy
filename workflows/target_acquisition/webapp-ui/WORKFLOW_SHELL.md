@@ -1,18 +1,21 @@
 # The operator window: steps on the left, modules in the middle and right
 
 Written 2026-07-31, recording the shape the smart-microscopy operator window is
-meant to take. It describes an intention rather than what exists today, and the
-last section says which part matters most to get right early.
+meant to take. Most of it describes an intention rather than something already
+built. The section called "The one thing to get right early" is the part that
+matters most, and the section at the end says how much of this exists so far and
+where to find it.
 
 ---
 
 ## The shape
 
-The window has three parts.
+The window has three parts. The frame that holds them, and decides how they sit on
+screen, is what the rest of this note calls the shell.
 
-**Down the left, the workflow's steps**, numbered one to however many there are.
-Above them, the choice of workflow, which is what decides the list of steps. A
-workflow is a sequence of steps pieced together, and the steps themselves are
+**Down the left, the workflow's steps**, numbered one to however many there are —
+the step rail. Above them, the choice of workflow, which is what decides the list
+of steps. A workflow is a sequence of steps pieced together, and the steps are
 ordinary things that can be arranged in any order that makes sense — that is what
 makes new workflows cheap to build rather than a programming job.
 
@@ -98,11 +101,16 @@ no special case.
 
 ## What exists today
 
-The step rail, the workflow chooser and the right-hand panel are built and working.
-Steps hand their results on. The canvas is being built separately in
-`viz_studio/options/`, behind one interface with three engines to choose between, and
-the live-tiles work already put a viewer into the scan step, so the two halves are
-known to fit.
+The step rail, the workflow chooser and the right-hand panel are built and working,
+and steps hand their results on — but not in this repository as it now stands. This
+repository was narrowed to the viewer and the writer, and the operator window's code
+went out with the rest of the workflow code. It is on the `claude/live-tiles-mvp`
+branch, in this same folder, which is where to look for anything described above. All
+that is left here is the note you are reading.
+
+The canvas is being built separately in `viz_studio/options/`, behind one interface
+with three engines to choose between, and the live-tiles work already put a viewer
+into the scan step, so the two halves are known to fit.
 
 What is **not** built is the declaration described above. Steps today pass things on
 by arrangement rather than by stating what they need.
