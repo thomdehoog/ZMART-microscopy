@@ -9,9 +9,9 @@ writes a tile, and reads the answer out of a photograph.
 Two habits run through the whole file and are worth stating once.
 
 **Every number comes from the picture.** Where a measurement does ask the page
-something — how many gestures it refused, how many pieces of decoded image it was
-asked to let go of — that is the *means* to make something happen or to tell two
-identical-looking outcomes apart, never the answer being reported.
+something — how many gestures it refused, how many readers it sent back to the
+store — that is the *means* to make something happen or to tell two
+identical-looking outcomes apart, and never the answer being reported.
 
 **Every check is shown failing.** A check that has never been seen to fail is not
 evidence of anything, and this project has been caught out repeatedly by green
@@ -521,14 +521,18 @@ def _does_it_appear_at_all(harness, canvases, span) -> dict:
                 lit_without_telling,
             "and after telling it": _lit(after),
             "what was needed": (
-                "viewer.tilesMayHaveLanded(), which asks the engine to let go of "
-                "the pieces of image it has already decoded. Nothing less works: "
-                "the engine remembers every piece including the ones it found "
-                "empty, with no time limit, so a tile written into ground it has "
-                "already looked at is not slow to appear — it is never fetched "
-                "again at all."
+                "viewer.tilesMayHaveLanded({coverage}), which sends the option "
+                "back to the store to read what is there now. Nothing less "
+                "works: every one of these viewers remembers what it has already "
+                "read, including the places it found empty, with no time limit — "
+                "so a tile written into ground it has already looked at is not "
+                "slow to appear, it is never fetched again at all. How an option "
+                "goes back is its own business and the page never knows: two of "
+                "them open a fresh reader on the store, and the third tells the "
+                "drawing engine's background worker to read its resolution "
+                "levels again."
             ),
-            "holders of decoded image asked": asked,
+            "readers sent back to the store": asked,
             "it appeared": _lit(after) > lit_without_telling * 1.3,
             "photographs": [
                 harness.save_frame(before, "new-data-before"),
@@ -543,8 +547,8 @@ def _does_it_appear_at_all(harness, canvases, span) -> dict:
             "note": (
                 "only the pieces actually on screen are asked for again, so this "
                 "follows the size of the window rather than the size of the "
-                "specimen. Anything the operator had scrolled past is dropped and "
-                "fetched again if they scroll back."
+                "specimen. Anything the operator had scrolled past is fetched "
+                "again if and when they scroll back to it."
             ),
         },
         "does the picture survive the refresh": {
@@ -556,11 +560,14 @@ def _does_it_appear_at_all(harness, canvases, span) -> dict:
                 round(dark_for, 2) if dark_for is not None else None,
             "what the window showed, frame by frame": during,
             "note": (
-                "letting go of every decoded piece is a complete redraw, so the "
-                "picture does go away and come back rather than being replaced "
-                "in place. What matters is how long the gap lasts and whether "
-                "two generations are ever on screen at once, which is what the "
-                "least-showed figure would reveal as a value between the two."
+                "all three options are meant to keep the picture already on "
+                "screen while the store is read again, and to exchange it only "
+                "once the new picture is ready to draw. So the right answer here "
+                "is a flat line at the settled share. A reading of nought means "
+                "the old picture was let go of before the new one had arrived, "
+                "which on a run in progress is a window that flashes empty every "
+                "few seconds; a run of values between the two would mean two "
+                "generations of the data were on screen at once."
             ),
         },
     }

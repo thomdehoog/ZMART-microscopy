@@ -102,9 +102,9 @@ ROWS = [
                          "does it appear at all", "it appeared"),
     ),
     (
-        "  … holders of decoded image it had to be asked to let go of",
+        "  … readers the option had to send back to the store",
         lambda f: _reach(f, "5. new data arriving while somebody is watching",
-                         "does it appear at all", "holders of decoded image asked"),
+                         "does it appear at all", "readers sent back to the store"),
     ),
     (
         "**5b. What the refresh costs** — pieces re-fetched",

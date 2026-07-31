@@ -1,6 +1,6 @@
 {
   "option": "viv-under",
-  "measured": "2026-07-31 07:09",
+  "measured": "2026-07-31 07:57",
   "0. can a surface underneath be seen": {
     "question": "with a colour painted behind the engine's canvas and a different colour set as the engine's own background, which does an operator see over ground nobody imaged?",
     "shares of the window": {
@@ -219,8 +219,8 @@
       "share of the window showing picture, at first": 0.0961,
       "after eight more tiles were written, without being told": 0.0961,
       "and after telling it": 0.2734,
-      "what was needed": "viewer.tilesMayHaveLanded(), which asks the engine to let go of the pieces of image it has already decoded. Nothing less works: the engine remembers every piece including the ones it found empty, with no time limit, so a tile written into ground it has already looked at is not slow to appear \u2014 it is never fetched again at all.",
-      "holders of decoded image asked": 3,
+      "what was needed": "viewer.tilesMayHaveLanded({coverage}), which sends the option back to the store to read what is there now. Nothing less works: every one of these viewers remembers what it has already read, including the places it found empty, with no time limit \u2014 so a tile written into ground it has already looked at is not slow to appear, it is never fetched again at all. How an option goes back is its own business and the page never knows: two of them open a fresh reader on the store, and the third tells the drawing engine's background worker to read its resolution levels again.",
+      "readers sent back to the store": 3,
       "it appeared": true,
       "photographs": [
         "new-data-before.png",
@@ -232,19 +232,20 @@
       "pieces of image re-fetched to show the new tiles": 4,
       "of which held picture": 3,
       "seconds": 0.01,
-      "note": "only the pieces actually on screen are asked for again, so this follows the size of the window rather than the size of the specimen. Anything the operator had scrolled past is dropped and fetched again if they scroll back."
+      "note": "only the pieces actually on screen are asked for again, so this follows the size of the window rather than the size of the specimen. Anything the operator had scrolled past is fetched again if and when they scroll back to it."
     },
     "does the picture survive the refresh": {
-      "frames the screen changed during the refresh": 3,
+      "frames the screen changed during the refresh": 4,
       "the least the picture ever showed during it": 0.2734,
       "it settled at": 0.2734,
-      "seconds before the picture was back to half of that": 0.09,
+      "seconds before the picture was back to half of that": 0.1,
       "what the window showed, frame by frame": [
+        0.2734,
         0.2734,
         0.2734,
         0.2734
       ],
-      "note": "letting go of every decoded piece is a complete redraw, so the picture does go away and come back rather than being replaced in place. What matters is how long the gap lasts and whether two generations are ever on screen at once, which is what the least-showed figure would reveal as a value between the two."
+      "note": "all three options are meant to keep the picture already on screen while the store is read again, and to exchange it only once the new picture is ready to draw. So the right answer here is a flat line at the settled share. A reading of nought means the old picture was let go of before the new one had arrived, which on a run in progress is a window that flashes empty every few seconds; a run of values between the two would mean two generations of the data were on screen at once."
     },
     "does the view stay where the operator put it": {
       "the centre moved (\u00b5m)": 0.0,
@@ -252,17 +253,17 @@
       "the edge of the picture moved (photograph pixels)": 0.0
     },
     "how soon after the tile lands does it show": {
-      "seconds": 0.36,
+      "seconds": 0.13,
       "it showed": true,
       "share of the window showing picture, before": 0.2734,
       "and after": 0.2972,
       "note": "the clock starts when the tile is safely on disk and stops when the window is measurably brighter than it was. It includes the time spent photographing, so it is an upper bound rather than a best case."
     },
     "does it keep up": {
-      "tiles written during the measurement": 478,
+      "tiles written during the measurement": 484,
       "frames a second, round by round": [
         5.2,
-        5.2,
+        5.6,
         5.2,
         5.2,
         5.2,
@@ -285,27 +286,27 @@
       "of which found picture": 36,
       "of which were for ground nobody imaged": 396,
       "how many the browser held at once": 6,
-      "rounds of waiting": 264,
-      "seconds": 2.29
+      "rounds of waiting": 250,
+      "seconds": 2.15
     },
     "bounded to the imaged ground": {
       "requests to redraw the view": 100,
       "of which found picture": 36,
       "of which were for ground nobody imaged": 64,
-      "how many the browser held at once": 5,
-      "rounds of waiting": 57,
-      "seconds": 0.33
+      "how many the browser held at once": 6,
+      "rounds of waiting": 55,
+      "seconds": 0.37
     }
   },
   "7. drawing rate with many positions": {
     "20 positions": {
-      "frames that changed, in three seconds": 58,
-      "frames a second": 19.3,
+      "frames that changed, in three seconds": 87,
+      "frames a second": 26.1,
       "rectangles the page was drawing": 20
     },
     "200 positions": {
-      "frames that changed, in three seconds": 38,
-      "frames a second": 11.8,
+      "frames that changed, in three seconds": 58,
+      "frames a second": 18.1,
       "rectangles the page was drawing": 200
     }
   }
