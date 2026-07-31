@@ -28,8 +28,8 @@
 
 const HOW_TO_OPEN = {
   "neuroglancer-under": () => import("../../neuroglancer-under/viewer.js"),
-  // "viv-under": () => import("../../viv-under/viewer.js"),
-  // "viv-inside": () => import("../../viv-inside/viewer.js"),
+  "viv-under": () => import("../../viv-under/viewer.js"),
+  "viv-inside": () => import("../../viv-inside/viewer.js"),
 };
 
 /** The options this page was built with, in the order they should be tried. */
