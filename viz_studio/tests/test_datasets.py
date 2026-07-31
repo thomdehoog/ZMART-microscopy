@@ -126,6 +126,66 @@ def test_tiles_missing_a_channel_are_not_an_error(tmp_path):
     assert len(library.dataset(library.open(folder)).stores) == 3
 
 
+def test_a_timelapse_and_a_still_volume_of_one_run_are_the_same_acquisition(tmp_path):
+    """A store with a time axis and one without are still one picture.
+
+    What decides whether two stores belong together is the size of a voxel, which
+    is the magnification the microscope was set to. That is a fact about *space*,
+    so only the spatial axes are compared. A store recorded over time carries an
+    extra number in front of its scale — how far apart the moments are — and if
+    that number were compared too, the very same specimen at the very same
+    magnification would look like two different acquisitions simply because one of
+    them was a recording.
+
+    That is not a made-up shape. A run images an overview once and then watches a
+    chosen target over time, and both land in the same folder at the same
+    magnification. Comparing the whole scale would refuse to open that folder, and
+    the operator would be told to "open one of them instead" about two halves of
+    one experiment.
+    """
+    folder = tmp_path / "run_over_time"
+    _store(folder / "overview_pos001.ome.zarr", axes=("z", "y", "x"), scale=(2.0, 0.35, 0.35))
+    _store(
+        folder / "overview_pos002.ome.zarr",
+        axes=("t", "z", "y", "x"),
+        scale=(30.0, 2.0, 0.35, 0.35),
+    )
+    library = Library()
+    number = library.open(folder)
+    assert library.dataset(number).stores == [
+        "overview_pos001.ome.zarr",
+        "overview_pos002.ome.zarr",
+    ], "a recording and a still of the same specimen are one acquisition"
+
+
+def test_a_timelapse_appearing_later_joins_the_run_it_belongs_to(tmp_path):
+    """The same question asked of a store that turns up while the run is watched.
+
+    A folder being watched is looked in again as the run goes, and a store that
+    appears is either another piece of the picture already on screen or a
+    different acquisition that deserves a heading of its own. That decision is
+    made by the same comparison, so it needs checking here too — a store that was
+    wrongly judged to be a different acquisition would arrive as a second heading
+    with its own eye and its own brightness, and the operator would be left
+    wondering why half their run had split in two.
+    """
+    folder = tmp_path / "run_watched"
+    _store(folder / "overview_pos001.ome.zarr", axes=("z", "y", "x"), scale=(2.0, 0.35, 0.35))
+    library = Library()
+    number = library.open(folder)
+    _store(
+        folder / "overview_pos002.ome.zarr",
+        axes=("t", "z", "y", "x"),
+        scale=(30.0, 2.0, 0.35, 0.35),
+    )
+    library.entries()
+    assert len(library.datasets()) == 1, "the recording started a second dataset of its own"
+    assert library.dataset(number).stores == [
+        "overview_pos001.ome.zarr",
+        "overview_pos002.ome.zarr",
+    ]
+
+
 def test_channels_declared_inside_stores_must_agree(tmp_path):
     """Where a store names its own channels, disagreement is a real mismatch.
 
@@ -143,14 +203,44 @@ def test_channels_declared_inside_stores_must_agree(tmp_path):
     assert "channels" in str(refused.value).lower()
 
 
-def test_a_dataset_knows_its_channels(tmp_path):
-    """What the panel needs in order to show sub-layers without deriving them."""
+def test_a_dataset_knows_its_channels_from_the_filenames(tmp_path):
+    """What the panel needs in order to show sub-layers without deriving them.
+
+    This is the shape a mesoSPIM transfer arrives in: one file per tile and
+    channel, with the channel written into the name. The dataset presents the
+    union of what it finds, because a tile that has not been imaged in every
+    channel yet is a normal state part way through a run.
+    """
     folder = tmp_path / "run_g"
     _store(folder / "scan_Tile0_Ch488.ome.zarr")
     _store(folder / "scan_Tile0_Ch647.ome.zarr")
     _store(folder / "scan_Tile1_Ch488.ome.zarr")
     library = Library()
     assert library.dataset(library.open(folder)).channels == ["Ch488", "Ch647"]
+
+
+def test_a_dataset_takes_the_names_a_store_gives_its_own_channels(tmp_path):
+    """Where a store names its channels inside itself, those are the names shown.
+
+    The other shape, and the one a run written by `zmart_storage` produces: the
+    channels live along an axis of a single image, and the store's own description
+    says what each is called. Those names are what the microscopist chose —
+    "marker-a", "nuclei" — so they are taken whole rather than worked out from
+    anything about the filename, which may say nothing about channels at all.
+
+    Reading the filename here instead would not fail loudly. It would quietly give
+    the dataset no channels, or the wrong ones, and the panel would then be
+    labelled with something the operator never wrote.
+    """
+    folder = tmp_path / "run_named_channels"
+    axes = ("c", "z", "y", "x")
+    # Four, because the helper above gives the channel axis four steps; the point
+    # is that the names come back exactly as the store gave them.
+    names = ["nuclei", "marker-a", "marker-b", "brightfield"]
+    _store(folder / "overview_pos001.ome.zarr", axes=axes, channels=names)
+    _store(folder / "overview_pos002.ome.zarr", axes=axes, channels=names)
+    library = Library()
+    assert library.dataset(library.open(folder)).channels == names
 
 
 def test_two_datasets_open_at_once_stay_apart(tmp_path):

@@ -20,11 +20,12 @@ is open.
 Opening a finished folder of many stores is untouched, including the pacing in
 `engine.js`, which is a correctness fix and not a speed one.
 
-**The `t` half of this is not a change at all.** `stores.py:321-323` already says, in the
-docstring of `written_timepoints`: *"A store is given its full length in time when it is
+**The `t` half of this is not a change at all.** The docstring of `written_timepoints`,
+in `stores.py`, already says: *"A store is given its full length in time when it is
 created, long before the run has produced that many frames — that is what keeps an
 unpredictable timelapse cheap."* The whole function exists to bound the slider because the
-store declares more than it holds, and `test_masks_luts_and_refresh.py:222-242` pins it.
+store declares more than it holds, and
+`test_masks_luts_and_refresh.py::test_the_time_slider_stops_at_frames_that_exist` pins it.
 `DATA_LAYOUT.md` Decision 2, which describes a timelapse growing its own array, is the
 stale artefact. Reconciling it is bookkeeping, and this plan should not dress it up as
 design.
@@ -100,11 +101,12 @@ forbids.
 
 ## The work this actually needs: invalidation that names a store
 
-`letGoOfDecodedPieces` walks every shared object the engine holds and invalidates every one
-of them (`engine.js:359-366`). It is triggered by a bare boolean on the announcement, with
-no other condition (`App.jsx:343`). So a run writing tiles into one store sets that flag on
-essentially every announcement, and each one throws away **every decoded chunk of every
-source in the viewer** and refetches the whole visible scene.
+`letGoOfDecodedPieces` in `engine.js` walks every shared object the engine holds and
+invalidates every one of them. It is triggered by a bare boolean on the announcement, with
+no other condition — see the `heard` handler inside `App.jsx`. So a run writing tiles into
+one store sets that flag on essentially every announcement, and each one throws away
+**every decoded chunk of every source in the viewer** and refetches the whole visible
+scene.
 
 Measured in `NEXT_STEPS.md`, a tile landing costs 22 requests, paid on every announcement.
 The shape-key refetch that declaring `t` avoids is at most the same visible set and happens
@@ -116,10 +118,15 @@ name *which store* was written, and invalidate only that store's sources. A stor
 the address of the change, not a second description of the world, so it does not violate
 Decision 4's rule that announcements stay detail-free.
 
-Note also that `engine.js:338-343` documents a gate — the invalidation firing "only when
-the scene turned out to be completely unchanged" — that `App.jsx:343` does not implement.
-`NEXT_STEPS.md` records the scene-derived version as rejected. One of the two is a lie, and
-anyone reasoning from the docstring will build the wrong thing. Fix it while here.
+This document used to add that `engine.js` documented a gate — the invalidation firing
+"only when the scene turned out to be completely unchanged" — that `App.jsx` did not
+implement, and that one of the two was therefore a lie. **That has since been put right and
+the note is kept only so nobody goes looking for it.** `letGoOfDecodedPieces` now names the
+exactly two occasions on which it is called, both of them in `App.jsx`, and `App.jsx`
+implements both and no others: a run saying outright that it wrote image into a store
+already open, and an acquisition already on screen gaining its first picture. The wider
+rule the old docstring described is recorded there as an attempt that was tried and
+rejected, with the measurement that rejected it.
 
 ## What the writer has to do, and what that is worth
 
@@ -128,8 +135,9 @@ work for us, but the design does not hold without it.
 
 **One writer per store, updating the levels above each tile as it lands, announcing after.**
 
-The reason is the pyramid. Chunk size is held constant across levels here
-(`demo_data.py:377-378`), so a tile that is exactly one chunk at level 0 is a quarter of a
+The reason is the copies of the image. The size of a piece is held constant across them
+here (see how `chunks` is chosen in `demo_data.py`), so a tile that is exactly one piece of
+the full-size copy is a quarter of a
 chunk at the level above, a sixteenth two levels up. Several tiles therefore share one
 coarse chunk file, and updating it means reading it, adding a contribution and writing it
 back. **That is entirely safe when one process does it in order** — read-modify-write is

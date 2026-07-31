@@ -184,7 +184,8 @@ and does show through**, measured exactly. So the stack above can also be built
 entirely as layers within the engine, which is how the layer-stack probe built
 it — the plate and the plan each written into the store as an image layer of
 their own. Both measurements are written up: the first in `options/RESULTS.md`,
-the second in `LAYER_STACK.md`.
+the second in `LAYER_STACK.md`, which as noted above is not on this branch — it
+lives on `claude/layer-stack-probe`, commit `4960d17`.
 
 That second route does cut across the line drawn earlier in this document, and it
 is worth seeing the cost before choosing it. Anything written as a layer lives in

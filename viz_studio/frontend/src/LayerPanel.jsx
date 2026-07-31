@@ -26,6 +26,13 @@ const LUT_DESCRIPTIONS = {
 const css = (rgb) =>
   rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
 
+// -- the pieces the panel is drawn from ---------------------------------------
+//
+// A histogram, an eye, and the arithmetic that decides how far the contrast
+// handles may travel. They are here rather than inside the panel below so that
+// each can be read on its own, and because each of them answers a question a
+// microscopist actually asks rather than a question about the interface.
+
 /**
  * How far the black and white handles are allowed to travel.
  *
@@ -133,6 +140,8 @@ function Eye({ open }) {
   );
 }
 
+
+// -- the controls, and the list they act on -----------------------------------
 
 /**
  * The one block of controls, acting on whichever channel is picked out in the list.
@@ -509,6 +518,8 @@ export default function LayerPanel({
     </section>
   );
 }
+
+// -- how it all looks ---------------------------------------------------------
 
 // What separates one block of the bar from the next: a rule, and enough room on
 // either side of it that the eye reads two sections rather than one long list.

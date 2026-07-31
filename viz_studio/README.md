@@ -83,6 +83,14 @@ A few things worth knowing:
 - **Put the controls on the left** with `--panel-side left`, if that side is easier
   to reach at your microscope.
 - **Show the selection list** with `--select` if you want to mark places.
+- **Say `--static` for a run that has finished.** The viewer then stops looking for
+  new acquisitions and new frames, and lets your browser keep its own copy of the
+  image — which is what makes moving around yesterday's data feel instant. Leave it
+  off while an experiment is still producing data, or new acquisitions will not
+  appear until you reopen the viewer.
+- **Set the brightness yourself** with `--range LOW,HIGH` if the measured one does
+  not suit your specimen. Without it the viewer uses the window your store asks
+  for, or measures one from the smallest copy of the image.
 - **If the viewer will not start, it is usually the port.** The viewer answers on
   8848, and it cannot start if something else on the machine is already using that
   number — most often a copy of the viewer you left open. It will say so and

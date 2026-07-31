@@ -31,6 +31,22 @@ _CHANNEL_COLORS = {
 }
 _CHANNEL_PATTERN = re.compile(r"Ch(\d{3})")
 
+# The small files a zarr store writes to describe itself rather than to hold any
+# of its picture: what the axes are, how large the image is, how its pieces are
+# named. Version 2 uses the three beginning with a dot, version 3 uses the last
+# one, and a store may hold either.
+#
+# This is written down once and shared, because two other parts of the viewer ask
+# the same question of a folder for quite different reasons and the answer has to
+# be the same in both. ``contrast`` asks "has anything actually been written into
+# this copy of the image yet?" — a folder holding only these has been declared and
+# never imaged into. ``server`` asks "is this a description rather than picture?",
+# because a description must never be kept by the browser and picture data may be.
+# Kept apart, the two lists drifted: the same four names lived in both modules
+# under different spellings, so teaching the viewer about a new one meant finding
+# both.
+DESCRIPTION_FILES = (".zattrs", ".zarray", ".zgroup", "zarr.json")
+
 
 def channel_of(name: str) -> str | None:
     """The excitation wavelength a store's name declares, if it declares one."""
@@ -375,7 +391,7 @@ _array_cache: dict[str, tuple[int, dict]] = {}
 def _read_array_description(level: Path) -> dict:
     """How the array at ``level`` is laid out on disk, whichever zarr version wrote it.
 
-    ``level`` is the folder holding one resolution level of the image — ``0`` inside
+    ``level`` is the folder holding one copy of the image — ``0`` inside
     the store, for the full-resolution copy. What comes back is a small set of facts,
     and an empty answer if the array cannot be read at all:
 
@@ -761,7 +777,7 @@ def written_timepoints(store: Path) -> int | None:
 def _moments_folder(level: Path) -> Path:
     """The folder that gains an entry as each moment of a timelapse is written.
 
-    For nearly every layout that is the resolution level's own folder, ``0`` inside the
+    For nearly every layout that is the copy's own folder, ``0`` inside the
     store. Zarr version 3's default naming is the exception: it files every piece under
     a folder called ``c`` inside that one, so ``c`` is what grows as the run goes and
     ``0`` itself is left untouched after the array is created.

@@ -132,18 +132,22 @@ export function shaderControlsFor(window_, volumetric, opacity) {
   return controls;
 }
 
-// The engine keeps one flat list of layers and requires their names to be unique,
-// while the panel shows them gathered under their acquisition type. Two types can
-// easily hold a channel of the same name -- both an overview and a target scan
-// have a "marker-a" -- so the name handed to the engine carries the type with it.
-// The panel still shows the short name; this is only what the engine is told.
-// How a channel is identified across a change in what is open. The same pair the
-// panel uses to carry colour and contrast across, for the same reason: positions in
-// the list move, names do not.
+// How one channel is recognised again after something has been opened or closed.
+// The acquisition type and the channel name together, because that pair is what
+// stays the same across such a change: a row's position in the list moves as soon
+// as anything is added or removed, so a number would quietly come to mean a
+// different channel. This is the key the panel carries colour and contrast across
+// on, and it never leaves the page.
 export function layerKey(spec) {
   return `${spec.group}/${spec.name}`;
 }
 
+// What the engine is told to call a layer. The engine keeps one flat list and
+// requires the names in it to be unique, while the panel shows them gathered under
+// their acquisition type. Two types can easily hold a channel of the same name --
+// both an overview and a target scan have a "marker-a" -- so the name handed over
+// carries the type with it. The panel still shows the short name on screen; this is
+// only what the engine hears.
 export function engineName(spec) {
   return spec.group ? `${spec.group} · ${spec.name}` : spec.name;
 }
@@ -218,7 +222,7 @@ export function layersFor(config, mode, layerState, groupState, groupOrder) {
     if (controls) layer.shaderControls = controls;
     if (volumetric) {
       layer.volumeRendering = "on";
-      // This, not the zoom, chooses the pyramid level the volume is drawn from.
+      // This, not the zoom, chooses which copy of the image the volume is drawn from.
       layer.volumeRenderingDepthSamples = config.depthSamples;
     } else {
       layer.opacity = combinedOpacity;

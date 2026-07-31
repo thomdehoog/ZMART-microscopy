@@ -17,9 +17,10 @@ workflow. Both run with no microscope (demo mode).
 ## Read these, in this order
 
 There are four, and they answer different questions. The list is deliberately
-short; the older planning documents are still here and are listed further down as
-history, but reading them first would leave you with a picture of the design that
-is a few months out of date.
+short. There are a dozen more documents beside this one, and they are listed
+further down under "the rest of the documents"; the older planning documents are
+listed after that as history, and reading those first would leave you with a
+picture of the design that is a few months out of date.
 
 1. **`viz_studio/README.md`** — what the viewer is and how to run the demo (build
    the frontend, launch the window). Read this to *run* it.
@@ -38,7 +39,29 @@ is a few months out of date.
 
 If you want the reasoning behind the engine choice itself — why neuroglancer, and
 how the first render bug was found — that is in
-`docs/reviews/2026-07-23-visualization-engine-session.md`.
+`docs/reviews/2026-07-23-visualization-engine-session.md`, which is **not on this
+branch**. It lives on `claude/workflow-safety-features`, commit `209408c`.
+`DRAWING_ENGINES.md` beside this file covers the same ground more recently, and
+`OPTIONS.md` records the three arrangements that were built and measured since.
+
+## The rest of the documents beside this one
+
+The four above are enough to run the viewer and to work on it. These others were
+written since, each answering one question in depth, and they are listed here so
+that a newcomer can find the right one rather than opening all of them. Read one
+when you have the question it answers.
+
+| | The question it answers |
+|---|---|
+| `WHERE_THINGS_STAND.md` | What was done, measured and decided in the last long session, written for somebody arriving the next morning. **The best single thing to read after the four above.** |
+| `FAULTS.md` | What is broken and how we know. Every entry says whether it was measured or only reasoned about, and the measured ones carry the reproduction that was run. |
+| `ARCHITECTURE.md` | The shape the viewer is meant to have — a thin wrapper around a drawing engine — and where the code still departs from it. |
+| `DRAWING_ENGINES.md` | Which engine draws the picture, and why there may end up being two. |
+| `OPTIONS.md` | Three ways of putting acquired image underneath the operator's own drawing, built so they could be compared rather than argued about. |
+| `LAYERS.md` | What is drawn on top of what, and where the line falls between the engine's work and ours. |
+| `THE_CANVAS.md` | The shape the smart-microscopy front end is meant to take: three layers in one coordinate system. |
+| `CONTROLS.md` | How the viewer is driven — every mouse gesture and key, and why each is what it is. Flat view only. |
+| `LIVE_MODE_PLAN.md` | A proposal, not yet built, for one store per acquisition type declared at the start. Worth reading for what its reviewers disproved. |
 
 ## Kept as history, not as description
 
@@ -105,9 +128,14 @@ missing.
 
 There is **one** branch to work from:
 
-- **`claude/napaly-neuroglancer-progress-jo0b8h`** — everything: the webapp, the
-  viewer with its full control panel and annotations, all these docs, and `main`
-  merged in. Point an agent here.
+- **`claude/viewer-only`** — everything: the webapp, the viewer with its full
+  control panel and annotations, the writer in `zmart_storage`, all these
+  documents, and `main` merged in. Point an agent here.
+
+This used to name `claude/napaly-neuroglancer-progress-jo0b8h`, which was the
+right answer when it was written and is no longer: `claude/viewer-only` now holds
+some sixty commits of work on top of it, including the whole of the writer, and
+has nothing missing that the older branch has.
 
 Several earlier branch names still exist on the remote
 (`claude/viz-studio-spike`, `claude/neuroglancer-napari-version-e2707l`, and the
@@ -115,5 +143,12 @@ five `codex/zmart-viewer-*` branches). They are not separate pieces of work —
 the viewer was built as one straight line of commits, and each of those names is
 just a bookmark left at an intermediate step along it. The branch above contains
 all of them, so nothing is lost by ignoring or deleting them.
+
+Three branches hold measurements that are referred to from these documents and
+that were deliberately not merged, because each is a probe rather than something
+to keep: `claude/sandwich-probe` (`SANDWICH.md`),
+`claude/layer-stack-probe` (`LAYER_STACK.md`), and
+`claude/workflow-safety-features` (the older `docs/` tree, including the
+engine-choice session written up on 2026-07-23).
 
 Nothing has been merged to `main` yet; consolidation is a deliberate later step.

@@ -40,7 +40,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--range",
         help="display window as LOW,HIGH; by default it is read from the "
-        "store's omero block, or measured from its coarsest pyramid level",
+        "store's own description, or measured from the smallest copy of "
+        "the image",
     )
     parser.add_argument(
         "--tiles",

@@ -19,8 +19,13 @@ store that opens today must not stop opening because a repair went wrong.
 
 from __future__ import annotations
 
+import http.client
 import json
+import threading
 
+import numpy as np
+import zarr
+from server import make_server
 from stores import normalise_units
 
 
@@ -90,3 +95,89 @@ class TestNotBreakingWhatAlreadyWorks:
         ).encode("utf-8")
         repaired = json.loads(normalise_units(raw))
         assert repaired["ome"]["multiscales"][0]["axes"][0]["unit"] == "micrometer"
+
+
+class TestTheRepairReachesTheBrowser:
+    """The repair has to happen where the description leaves the machine.
+
+    Everything above asks the repair itself whether it works, and it does. None of
+    it asks the question that actually matters: does what the **browser** receives
+    have the corrected spelling in it? Those are different questions, and the second
+    is the one an operator's afternoon depends on. A perfect repair that the server
+    forgets to call leaves the engine refusing the store exactly as before, and every
+    test above still passes.
+
+    So this starts the real server on a store that says ``um``, fetches its
+    description the way the page does, and reads the units out of what came back.
+    """
+
+    def _a_store_saying(self, folder, unit: str):
+        """A small but real OME-Zarr whose axes are spelled the everyday way."""
+        folder.mkdir(parents=True, exist_ok=True)
+        store = folder / "acquisition.ome.zarr"
+        store.mkdir()
+        group = zarr.open_group(str(store), mode="w", zarr_format=2)
+        array = group.create_array("0", shape=(4, 32, 32), chunks=(1, 32, 32), dtype="uint16")
+        array[:] = np.full((4, 32, 32), 2000, dtype=np.uint16)
+        (store / ".zattrs").write_text(
+            json.dumps(
+                {
+                    "multiscales": [
+                        {
+                            "version": "0.4",
+                            "axes": [
+                                {"name": name, "type": "space", "unit": unit}
+                                for name in ("z", "y", "x")
+                            ],
+                            "datasets": [
+                                {
+                                    "path": "0",
+                                    "coordinateTransformations": [
+                                        {"type": "scale", "scale": [2.0, 0.35, 0.35]}
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return store
+
+    def _fetch(self, port: int, path: str) -> bytes:
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            connection.request("GET", path)
+            return connection.getresponse().read()
+        finally:
+            connection.close()
+
+    def _served_units(self, tmp_path, unit: str) -> list[str]:
+        data = tmp_path / "data"
+        self._a_store_saying(data, unit)
+        site = tmp_path / "site"
+        site.mkdir()
+        (site / "index.html").write_text("<!doctype html>", encoding="utf-8")
+        server = make_server(
+            port=0, data_dir=data, site_dir=site, store="acquisition.ome.zarr"
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            body = self._fetch(
+                server.server_address[1], "/data/0/acquisition.ome.zarr/.zattrs"
+            )
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+        return [
+            axis["unit"] for axis in json.loads(body)["multiscales"][0]["axes"]
+        ]
+
+    def test_a_store_saying_um_is_served_saying_micrometer(self, tmp_path):
+        assert self._served_units(tmp_path, "um") == ["micrometer"] * 3
+
+    def test_a_store_that_was_already_correct_is_served_unchanged(self, tmp_path):
+        """The far commoner case, and the repair must not disturb it."""
+        assert self._served_units(tmp_path, "micrometer") == ["micrometer"] * 3

@@ -53,7 +53,20 @@ from stores import (
 # files whose changing matters most to anyone watching a run. Both spellings are
 # listed because the two versions of the format name them differently, and a
 # folder is checked for either.
+#
+# Deliberately shorter than ``DESCRIPTION_FILES`` in ``stores``, and not a stale
+# copy of it. That list is every file that describes rather than holds picture;
+# this one is only the two that make a folder *recognisable as an image*, which
+# is the moment a watcher cares about. A ``.zarray`` appearing says an array is
+# being built and says nothing about whether the image can be opened yet.
 _DESCRIPTION_FILES = (".zattrs", "zarr.json")
+
+
+# -- noticing that something on disk has changed -------------------------------
+#
+# A run writes while the viewer is open, so the library has to tell what is new
+# from what it has already seen. Everything here is about doing that cheaply: it
+# asks the operating system when things were last touched and reads nothing.
 
 
 def _described_at(folder: Path) -> str:
@@ -79,6 +92,14 @@ def _described_at(folder: Path) -> str:
         # operating system that the time alone did.
         return f"{found.st_mtime_ns}:{found.st_size}"
     return "-"
+
+
+# -- what to call things, and what makes two stores one acquisition ------------
+#
+# Two separate questions that are easy to confuse, so they are set out together.
+# What a dataset is *called* comes from names, because a name is what an operator
+# reads. What *belongs together* never does: that is read from inside the stores,
+# because a folder can be renamed by anybody and the magnification cannot.
 
 
 def _without_format_suffix(name: str) -> str:
@@ -187,6 +208,9 @@ def _kind_of_acquisition(root: Path, names: list[str]) -> Acquisition | None:
         if found[0] or found[1] is not None:
             return found
     return None
+
+
+# -- one load, one acquisition -------------------------------------------------
 
 
 @dataclass
@@ -675,7 +699,7 @@ class Library:
             # written therefore gets a look too.
             #
             # *Which* folder that is has to be asked rather than assumed, and this
-            # is where it went wrong. It used to be taken as the resolution level's
+            # is where it went wrong. It used to be taken as the full-size copy's
             # own folder, ``0`` inside the store, which is right for OME-Zarr 0.4.
             # A 0.5 store is built on zarr version 3, which files every piece under
             # a folder called ``c`` inside that one -- so a frame landing changed

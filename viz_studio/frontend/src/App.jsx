@@ -44,6 +44,13 @@ const VOLUME_LAYOUT = "3d";
 // which is long enough to ride out a brief hiccup and short enough to be useful.
 const UNANSWERED_BEFORE_SAYING_SO = 5;
 
+// -- asking Python to do things -----------------------------------------------
+//
+// Four short conversations with the server, kept together and kept out of the
+// component below. Every one of them answers with something the interface can show
+// even when it went wrong, because a button that silently does nothing is the
+// hardest kind of fault for an operator to make sense of.
+
 /**
  * Ask the server what is open, or return null if it cannot be reached.
  *
@@ -62,36 +69,6 @@ async function fetchConfig() {
   } catch {
     return null;
   }
-}
-
-function ModeToggle({ mode, onChange }) {
-  return (
-    <div style={styles.toggle}>
-      {Object.entries(MODES).map(([key, label]) => (
-        <button
-          key={key}
-          onClick={() => onChange(key)}
-          style={{ ...styles.button, ...(mode === key ? styles.buttonActive : null) }}
-          title={key === "flat" ? "One plane; scroll to move through z" : "Ray-cast volume; drag to rotate"}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-const TARGET_LAYER = "Targets";
-
-function annotationLayer(targets, color, visible) {
-  return {
-    type: "annotation",
-    name: TARGET_LAYER,
-    source: "local://annotations",
-    annotations: targets,
-    annotationColor: color,
-    visible,
-  };
 }
 
 // Ask Python to show a folder chooser, then open whatever was picked. The chooser
@@ -141,6 +118,38 @@ async function loadTargets() {
   }
 }
 
+// -- the small pieces the shell draws with -------------------------------------
+
+function ModeToggle({ mode, onChange }) {
+  return (
+    <div style={styles.toggle}>
+      {Object.entries(MODES).map(([key, label]) => (
+        <button
+          key={key}
+          onClick={() => onChange(key)}
+          style={{ ...styles.button, ...(mode === key ? styles.buttonActive : null) }}
+          title={key === "flat" ? "One plane; scroll to move through z" : "Ray-cast volume; drag to rotate"}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const TARGET_LAYER = "Targets";
+
+function annotationLayer(targets, color, visible) {
+  return {
+    type: "annotation",
+    name: TARGET_LAYER,
+    source: "local://annotations",
+    annotations: targets,
+    annotationColor: color,
+    visible,
+  };
+}
+
 /**
  * Did an acquisition that was already on screen, but had nothing in it, just gain
  * its first image?
@@ -170,17 +179,17 @@ async function loadTargets() {
  */
 function anyStoreGainedItsFirstImage(previous, loaded) {
   if (!previous) return false;
-  const before = new Map(
-    (previous.layers || []).map((spec) => [`${spec.group}/${spec.name}`, spec]),
-  );
+  const before = new Map((previous.layers || []).map((spec) => [layerKey(spec), spec]));
   return (loaded.layers || []).some((spec) => {
-    const was = before.get(`${spec.group}/${spec.name}`);
+    const was = before.get(layerKey(spec));
     if (!was) return false; // newly arrived, so nothing has been decoded for it
     const hadNothing = was.histogram == null && was.frames == null;
     const hasSomethingNow = spec.histogram != null || spec.frames != null;
     return hadNothing && hasSomethingNow;
   });
 }
+
+// -- the shell ----------------------------------------------------------------
 
 /**
  * The application shell, and the single owner of what the viewer shows.
@@ -279,11 +288,11 @@ export default function App() {
     // Match each channel now open to the same channel before, so the colour,
     // contrast and opacity the operator chose follow it across the change.
     const before = new Map(
-      (previous?.layers || []).map((spec, index) => [`${spec.group}/${spec.name}`, index]),
+      (previous?.layers || []).map((spec, index) => [layerKey(spec), index]),
     );
     setLayerState((current) =>
       loaded.layers.map((spec) => {
-        const was = before.get(`${spec.group}/${spec.name}`);
+        const was = before.get(layerKey(spec));
         if (was != null && current[was]) return current[was];
         return {
           visible: true,
@@ -901,6 +910,8 @@ export default function App() {
     </div>
   );
 }
+
+// -- how it all looks ---------------------------------------------------------
 
 const styles = {
   shell: { position: "absolute", inset: 0, display: "flex", background: "#0b0d10" },

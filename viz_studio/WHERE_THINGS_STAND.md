@@ -118,7 +118,8 @@ unevenness in any single frame, in screen pixels:
 The discipline that makes it work: repaint the operator's canvas **only from inside
 neuroglancer's end-of-frame announcement**, using the view state read at that
 instant. The control reading zero is what makes the rest believable — it says the
-measurement is not measuring itself. Full detail in `SANDWICH.md`.
+measurement is not measuring itself. Full detail in `SANDWICH.md`, which is not on
+this branch — it lives on `claude/sandwich-probe`, commit `1277e30`.
 
 **No interface freeze was found** even with the server delayed 200 ms per request.
 The engine draws what it has and redraws as more arrives, so a slow disk changes
@@ -233,3 +234,5 @@ acquisition, what a plate actually costs to write, whether a pattern survives be
 shrunk down, and whether several layers can crop one store.
 
 Their results will be in `viz_studio/options/RESULTS.md` and `viz_studio/LAYER_STACK.md`.
+Only the first of those is on this branch; the second lives on
+`claude/layer-stack-probe`, commit `4960d17`.

@@ -19,6 +19,7 @@ import json
 import threading
 import time
 
+import announcements as announcements_mod
 import pytest
 from announcements import Announcements, FolderWatcher
 from server import make_server
@@ -96,6 +97,58 @@ class TestWatchingTheDisk:
             time.sleep(0.1)
             library.answer = "different"
             assert heard.get(timeout=2) is not None
+        finally:
+            watcher.stop()
+
+    def test_it_stays_quiet_about_a_change_the_microscope_has_already_announced(self):
+        """The same write must not be announced twice, once by each mechanism.
+
+        Two things notice a write: the application driving the microscope, which
+        knows because it did the writing, and this watcher, which sees the disk move
+        a moment later. Left alone they both speak, so every position an experiment
+        produces costs each open page two full rebuilds of the expensive "what is
+        open" answer — over a second apiece once a folder holds a few thousand
+        acquisitions.
+
+        The second announcement is worse than merely wasteful. Nothing on disk has
+        moved between the two, and *that* is the signal the page reads as "image was
+        written into a store I already have open" — so it throws away everything it
+        has fetched and fetches it again, once per position, for nothing.
+
+        The two are kept apart by what the disk says rather than by counting
+        announcements, so a change landing *after* the microscope spoke is still
+        noticed. That is the second half of this test.
+        """
+        library, told = self._Changing(), Announcements()
+        heard = told.listen()
+        watcher = FolderWatcher(library, told, every=0.01)
+        watcher.start()
+        try:
+            # Let the watcher settle on what the disk looks like now, so that the
+            # change below is one it would otherwise notice and speak about.
+            time.sleep(0.1)
+            assert heard.empty(), "it spoke before anything had happened"
+
+            # The write happens, and the microscope announces it itself, saying what
+            # the disk looked like at that moment. That is the one announcement the
+            # page should get.
+            library.answer = "after the write"
+            told.say_something_changed(covering="after the write")
+            assert heard.get(timeout=1) is not None, "the microscope's own announcement"
+
+            time.sleep(0.2)
+            assert heard.empty(), (
+                "the watcher repeated the write the microscope had already "
+                "announced, which costs every open page a second rebuild and makes "
+                "it refetch the whole view"
+            )
+
+            # And it must still speak for the next write, which nobody announced.
+            library.answer = "and then another write"
+            assert heard.get(timeout=2) is not None, (
+                "the watcher went quiet for good instead of only for the write it "
+                "had already been told about"
+            )
         finally:
             watcher.stop()
 
@@ -206,6 +259,42 @@ class TestTheConnectionAPageHolds:
             assert json.loads(response.read()) == {"told": 0}
             conn.close()
         finally:
+            server.shutdown()
+            thread.join(timeout=5)
+
+    def test_a_quiet_connection_is_given_a_sign_of_life(self, tmp_path, monkeypatch):
+        """Nothing happening for a while must still put something on the wire.
+
+        This is not about telling the page anything — the line sent is a comment
+        the browser hands to nobody. It is about the *writing*. A page that has been
+        closed is only discovered by trying to write to it, so without this a server
+        left running overnight beside an experiment would hold on to a thread for
+        every window anybody had ever opened, and never find out that they had gone.
+
+        The wait is shortened here from fifteen seconds to a tenth of one, because
+        what is being checked is that the sign of life is sent at all, and nobody
+        should have to wait fifteen seconds to find that out.
+        """
+        monkeypatch.setattr(announcements_mod, "QUIET_HEARTBEAT_S", 0.1)
+        server, thread = _serving(tmp_path)
+        listening = http.client.HTTPConnection(
+            "127.0.0.1", server.server_address[1], timeout=10
+        )
+        try:
+            listening.request("GET", "/api/events")
+            response = listening.getresponse()
+            assert b"listening" in response.readline(), "the greeting"
+
+            heard = b""
+            deadline = time.monotonic() + 10
+            while b"still here" not in heard and time.monotonic() < deadline:
+                heard += response.readline()
+            assert b"still here" in heard, (
+                "nothing at all was written to a quiet connection, so a page that "
+                f"had been closed would never be noticed: {heard!r}"
+            )
+        finally:
+            listening.close()
             server.shutdown()
             thread.join(timeout=5)
 

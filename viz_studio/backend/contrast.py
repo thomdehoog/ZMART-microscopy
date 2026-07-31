@@ -65,7 +65,7 @@ from pathlib import Path
 # teach rather than two. It is spelled with a leading underscore to say "this is
 # internal to the viewer's backend", which it is; this module is part of the same
 # backend and is a fair caller of it.
-from stores import _moments_folder, _read_attrs_at
+from stores import DESCRIPTION_FILES, _moments_folder, _read_attrs_at
 
 LOW_PERCENTILE = 1.0
 HIGH_PERCENTILE = 99.9
@@ -82,6 +82,13 @@ VOLUME_HIGH_PERCENTILE = 99.99
 HISTOGRAM_BINS = 64
 HISTOGRAM_LOW_PERCENTILE = 0.1
 HISTOGRAM_HIGH_PERCENTILE = 99.9
+
+
+# -- what the store says about itself ------------------------------------------
+#
+# Before any pixel is read, the store's own description is asked two questions:
+# does it already say how it should be displayed, and how many copies of the image
+# does it keep? Both are answered from a small text file, so they cost nothing.
 
 
 def _omero_window(attrs: dict, channel: int | None = None) -> tuple[float, float] | None:
@@ -123,9 +130,13 @@ def _coarsest_level_path(attrs: dict) -> str | None:
     return levels[-1] if levels else None
 
 
-# The small files that describe a copy of the image rather than holding any of its
-# picture. A folder containing only these has been declared but never written to.
-_DESCRIPTION_FILES = {".zarray", ".zattrs", ".zgroup", "zarr.json"}
+# -- choosing a copy of the image to read, and reading a little of it ----------
+#
+# Judging brightness means looking at real pixels, and that is much the most
+# expensive thing this viewer does when an acquisition is opened. Everything in
+# this section is about keeping that cost down and keeping the answer honest: read
+# the smallest copy that has actually been written, read only a bounded sample of
+# it, and take that sample from the one channel being asked about.
 
 
 def _level_holds_pixels(level: Path) -> bool:
@@ -155,7 +166,7 @@ def _level_holds_pixels(level: Path) -> bool:
     """
     holder = _moments_folder(level)
     try:
-        return any(entry.name not in _DESCRIPTION_FILES for entry in holder.iterdir())
+        return any(entry.name not in DESCRIPTION_FILES for entry in holder.iterdir())
     except OSError:
         return False
 
@@ -369,6 +380,13 @@ def _hold_the_channel(attrs: dict, channel: int | None) -> dict[int, int]:
     return {axes.index("c"): channel} if "c" in axes else {}
 
 
+# -- the answers the panel asks for -------------------------------------------
+#
+# These are the four public functions. :func:`measure` is the one the server calls
+# when it meets a store, because it answers every question from a single reading of
+# the pixels; the others exist for callers that want one answer on its own.
+
+
 def measure(
     store: str | Path, *, channel: int | None = None, bins: int = HISTOGRAM_BINS
 ) -> dict:
@@ -513,7 +531,7 @@ def display_window(
 def intensity_histogram(
     store: str | Path, *, channel: int | None = None, bins: int = HISTOGRAM_BINS
 ) -> dict | None:
-    """Return a compact histogram measured from the coarsest pyramid level.
+    """Return a compact histogram measured from the smallest copy of the image.
 
     The plotted range is percentile-clipped so one defective hot pixel cannot
     compress the useful distribution into the first bar. Counts still include

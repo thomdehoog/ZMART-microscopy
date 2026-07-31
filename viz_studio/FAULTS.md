@@ -282,6 +282,43 @@ without the variable, so a plain checkout stays green. See `TESTING.md` for all 
   marker comes off. This is the largest fault still open.
 - **Nothing tests the desktop shell.**
 
+### What 36 deliberate breaks found in the viewer, 2026-07-31
+
+The same exercise the writer had: break the code on purpose, run the tests that
+claim to guard it, and see. Thirty-six breaks were made across the backend, the front
+end and the server. **Twenty-nine were caught. Seven were not**, and all seven have
+since been given a test that fails without the fix. Two shapes came out of it and both
+are worth remembering.
+
+**Six of the seven were the same shape: a rule that is stated somewhere and checked
+nowhere.** Each of them had a comment or a docstring setting out plainly why it
+mattered — and no test.
+
+| what was broken | what nobody would have noticed |
+| --- | --- |
+| `voxel_size` compared every axis instead of only the spatial ones | a timelapse and a still of the same specimen refused as two acquisitions |
+| `_heading_for` handed out a heading already in use | two headings reading the same, and closing one closing both |
+| `_channels_of` ignored the channel names a store gives itself | the panel labelled with names the microscopist never wrote |
+| `normalise_units` was never called on the way out of the server | a store saying `um` refused by the engine, exactly as before the repair |
+| the contrast track went back to the whole 16-bit range | every handle still worked and none was usable |
+| the folder watcher repeated what the microscope had already announced | two rebuilds per position, and the whole view refetched each time |
+| a quiet connection was never sent its sign of life | a page that had been closed never noticed, one thread kept per window |
+
+**The seventh is the more interesting one, because a test did look and looked at the
+wrong thing.** Stopping the engine from re-reading a store that has grown changed
+nothing any test could see. `test_a_newer_format_timelapse_lengthens_as_it_is_written`
+reads `window.zmartConfig`, which is the *server's* count and was never going to move;
+and every fixture in the suite declares its moments up front, so the engine's own idea
+of the length never had to change either. The path only matters for a store that
+lengthens its own array, which nothing built. `test_a_store_that_lengthens_its_own_array_is_read_again`
+now builds one and reads the slider off the screen.
+
+**Where this area is still weak.** The mutations were chosen by reading the code for
+rules worth guarding, so they are biased towards code that says what it is for; the
+quieter parts of `server.py` and the layout of the panel were sampled thinly. Nothing
+was broken in `demo_data.py`, `launcher.py` or `browsercheck.py` at all. And nothing
+here tests the desktop shell, which remains the largest untouched surface.
+
 ### Known limits, written down rather than fixed
 
 - **The frame count is not bounded by the length the store declared.** A stray folder `9999`
