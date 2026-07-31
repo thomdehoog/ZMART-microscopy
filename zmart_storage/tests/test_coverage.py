@@ -394,6 +394,61 @@ def test_declaring_a_run_again_throws_the_old_record_away(tmp_path):
     assert lines[0]["origin"] == {"z": 0, "y": 512, "x": 512}
 
 
+def test_declaring_a_run_again_forgets_the_images_it_no_longer_has(tmp_path):
+    """A run redeclared with fewer images must not leave the extra records behind.
+
+    A run that keeps the overlap between its tiles spreads them over several
+    numbered images, and each of those gets a record of its own. Declaring the same
+    acquisition again as a single image throws the numbered images away — but their
+    records live in a folder beside the images, which nothing else touches, so
+    unless they are removed on purpose they stay there describing a run that is no
+    longer on disk.
+
+    What that costs is worth spelling out, because it is not merely untidy. Reading
+    the coverage of the run would report tiles belonging to images the operator
+    cannot open, and would claim as imaged a stretch of canvas the new run has
+    never been near. A viewer bounding its work to "where the picture is" would
+    then keep asking for a region that holds nothing at all.
+    """
+    spread = TileCanvases.create(
+        tmp_path,
+        name="overview",
+        canvas_shape=(2, 2048, 2048),
+        tile_shape=TILE,
+        tile_step=(2, 112, 112),
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488")],
+        levels=2,
+        chunk=64,
+        slots=(1, 2, 2),
+    )
+    for row in range(2):
+        for col in range(2):
+            spread.write(_a_tile(1000 + row * 2 + col),
+                         origin=(0, 1024 + row * 112, 1024 + col * 112),
+                         tile_index=(0, row, col))
+    spread.close()
+    assert len(list((tmp_path / COVERAGE_FOLDER).iterdir())) == 4
+
+    # The same acquisition again, this time as a single image, so the four
+    # numbered images the first run wrote are thrown away.
+    again = _canvases(tmp_path, discard_existing_run=True)
+    again.write(_a_tile(7), origin=(0, 0, 0), tile_index=(0, 0, 0))
+    again.close()
+
+    kept = sorted(p.name for p in (tmp_path / COVERAGE_FOLDER).iterdir())
+    assert kept == ["overview.ome.zarr"], (
+        f"records were left behind for images this run does not have: {kept}"
+    )
+
+    found = imaged_regions(tmp_path)
+    assert found.images == ["overview.ome.zarr"]
+    assert found.regions == [Region(0, 2, 0, 128, 0, 128)], (
+        f"the coverage still claims ground belonging to the run that was thrown "
+        f"away: {found.regions}"
+    )
+
+
 def test_declaring_a_run_again_leaves_another_acquisition_type_alone(tmp_path):
     """Throwing away the overview must not throw away the targetscan beside it."""
     targets = _canvases(tmp_path, name="targetscan")
@@ -429,10 +484,20 @@ def test_the_record_does_not_look_like_an_imaged_run(tmp_path):
 def test_every_line_survives_tiles_written_all_at_once(tmp_path):
     """Sixteen threads writing at once, and every one of them is in the record.
 
-    This is the constraint the design turns on. A record kept in one file that
-    each tile read and rewrote would lose lines here, exactly as two tiles
-    sharing a zarr chunk lose picture — whichever writer saved last would save a
-    copy that never held the other's line.
+    This is the constraint the design turns on. What this test pins is the lock the
+    recorder holds while it adds a line: take that away, and a record that read the
+    file and wrote it back loses lines here exactly as two tiles sharing a zarr
+    chunk lose picture — whichever writer saved last saves a copy that never held
+    the other's line.
+
+    It is worth being straight about the limit of that, because the two other
+    things keeping this record safe cannot be shown by a test of this shape. The
+    file is opened in "always add to the end" mode, and each line is handed to the
+    operating system in a single call. Neither has any effect while the lock is
+    held, because then no two threads are ever inside the writing at the same
+    moment — so a record that read and rewrote the whole file every time would pass
+    this test comfortably. Those two belong to the shape of the file rather than to
+    the behaviour of one program, and the test below asks about them directly.
     """
     canvases = _canvases(tmp_path)
     places = [(row, col) for row in range(4) for col in range(4)]
@@ -463,6 +528,38 @@ def test_every_line_survives_tiles_written_all_at_once(tmp_path):
     # And every line is whole: a spliced line would not be readable JSON at all,
     # which the reading above would already have shown, so this checks the parts.
     assert all(line["shape"] == {"z": 2, "y": 128, "x": 128} for line in lines)
+
+
+def test_a_line_can_only_ever_be_added_to_the_end_of_the_record(tmp_path):
+    """The file is opened so that nothing already written can be moved or replaced.
+
+    This is the half of the record's safety that the test above cannot show. With
+    the recorder's lock held, even a record that read the whole file and wrote it
+    back would survive threads — so passing that test is not evidence that the file
+    is only ever added to.
+
+    What "always add to the end" buys is that the safety does not rest on the lock
+    being right. The operating system puts each line at the end of the file itself,
+    whatever offset anybody thought they were at, so a line that is already on disk
+    cannot be overwritten by a later one. That is what makes the record of a run
+    that was cut short trustworthy: whatever reached the disk stayed there.
+
+    Asked of the open file rather than of the source, so it is the real handle
+    being checked.
+    """
+    fcntl = pytest.importorskip(
+        "fcntl", reason="only Unix marks a file this way; Windows differs"
+    )
+
+    canvases = _canvases(tmp_path)
+    (recorder,) = [slot.record for slot in canvases._slots]
+    how_it_was_opened = fcntl.fcntl(recorder._handle, fcntl.F_GETFL)
+
+    assert how_it_was_opened & os.O_APPEND, (
+        "the record is not opened in 'always add to the end' mode, so two lines "
+        "could be placed at the same spot in the file and one of them lost"
+    )
+    canvases.close()
 
 
 def test_the_record_matches_the_picture_after_writing_at_once(tmp_path):

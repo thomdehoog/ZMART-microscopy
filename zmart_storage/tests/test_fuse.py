@@ -96,6 +96,21 @@ def test_keeping_the_first_recording_leaves_the_numbers_untouched(tmp_path):
         f"{values - acquired} appear in the joined picture but were never acquired"
     )
 
+    # And "first" has to mean the earliest recording, not merely some unmixed one.
+    # The check above is satisfied by keeping whichever tile arrived last, which
+    # would be just as untouched and quite the wrong answer — so the shared strip
+    # is asked about by name.
+    #
+    # The tiles at columns 0 and 1 both cover the strip from x=112 to x=128, and
+    # the run wrote column 0 first, so column 0's reading of it is the one that
+    # should still be there. Staying above y=112 keeps the row below out of it.
+    shared = picture[:, 8:100, STEP[2]:TILE[2]]
+    assert (shared == 1000).all(), (
+        f"the strip shared by the first two tiles came back holding "
+        f"{sorted(set(np.unique(shared).tolist()))}, where keeping the first "
+        f"recording should have left the earlier tile's 1000 there"
+    )
+
 
 def test_blending_only_changes_the_shared_strips(tmp_path):
     """Away from a join, a blended picture is the tile's own value untouched."""
