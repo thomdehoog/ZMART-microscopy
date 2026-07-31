@@ -7,11 +7,15 @@
  *
  * A step is data plus one function:
  *
- *   { id, title, why, button, widget, ready(run), run(ctx) }
+ *   { id, title, why, button, widget, panels, ready(run), run(ctx) }
  *
  * `widget` is a key in the widget registry, or null for steps the canvas
- * already serves. `ready` returns null to go, or a string saying why not.
- * `run` does the work through `ctx.backend` — never a timer, never hardware.
+ * already serves. `panels` is for the rarer step that wants to say exactly
+ * which modules it needs, including a step that wants no canvas at all; see
+ * `panelsFor` at the bottom. `ready` returns null to go, or a string saying why
+ * not. `run` does the work through `ctx.backend` — never a timer, never
+ * hardware, and a step that has nothing to do simply has neither `run` nor
+ * `button`.
  *
  * The frame knows nothing beyond that. Adding a workflow is writing a list.
  */
@@ -51,8 +55,22 @@ export function blockedBecause(step, run) {
   return step.ready ? step.ready(run) : null;
 }
 
-/** Which panels the right-hand side shows: the canvas, plus this step's own. */
+/**
+ * Which modules this step wants on screen, in the order they are offered.
+ *
+ * Most steps happen on the stage, so the canvas is what they get, with their own
+ * panel beside it when they brought one. A step that wants something else says
+ * so with `panels`, and then it gets exactly what it named and nothing more.
+ *
+ * That escape is not a special case for one step; it is the rule
+ * `WORKFLOW_SHELL.md` sets out. Not every step wants both halves of the window:
+ * setting the microscope up wants only a panel of controls, and a step whose
+ * whole content is looking at a picture wants only the picture. Saying which
+ * modules it wants is the step's business; how wide they are and which of them
+ * is collapsed is the shell's.
+ */
 export function panelsFor(step) {
+  if (step?.panels) return step.panels;
   return step?.widget ? ["canvas", step.widget] : ["canvas"];
 }
 

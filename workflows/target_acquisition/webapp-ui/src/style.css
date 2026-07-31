@@ -474,6 +474,13 @@ canvas.scattercv { cursor: crosshair; }
 canvas.livecv { position: absolute; inset: 0; background: #05070d; }
 canvas.livecv[hidden] { display: none; }
 
+/* The box the canvas draws in, on the step that is nothing but the canvas. It
+   is left empty here: whatever drawing surfaces the chosen engine needs are
+   made inside it, sized to fill it, and taken away again when the panel closes.
+   Its colour is set by the panel rather than here, so that the engine can be
+   told the same colour and no seam shows between one surface and the next. */
+.viewer-box { position: absolute; inset: 0; }
+
 /* What the picture is doing, said quietly in the corner of it: which run is
    open, or why it could not be. */
 .live-note {

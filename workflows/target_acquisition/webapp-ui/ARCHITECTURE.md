@@ -11,6 +11,7 @@ src/
   widgets/      the panels on the right. One file each.
   workflows/    step lists. Compose, do not invent.
   live/         acquired data drawn from the run's own images, as it is written.
+  canvas/       the picture of a run, drawn by whichever engine is chosen.
 ```
 
 ## The rule that keeps it honest
@@ -111,8 +112,33 @@ so several workflows can share them — the point is to mix and match, not to
 retype. Numbering is derived from position; only sub-steps like `3a` carry an
 explicit `n`.
 
+A step may also say which modules it wants on screen, with `panels`. Most say
+nothing and get the canvas, which is right because most steps happen on the
+stage. A step that says `panels: ["viewer"]` gets exactly that and nothing
+beside it — see the viewer step, whose whole content is a picture to look at.
+That is the rule `WORKFLOW_SHELL.md` sets out: which modules a step wants is the
+step's business, and how they are laid out is the shell's.
+
 Adding a workflow should mean writing one file that imports existing steps.
 If it means editing the frame, the frame is missing something.
+
+**Adding the viewer workflow tested that claim, and it did not hold.** Writing
+the workflow was indeed a list, but three things had to be added before the
+operator could reach it, and all three are worth knowing about:
+
+- the workflow had to be **declared twice**, once in `workflows/index.js` and
+  once in `main.js`, because `main.js` still carries its own copy. That is the
+  hazard already named at the end of this file, met in practice.
+- `frame/steps.js` gave every step the canvas whether or not it asked, so a step
+  wanting only its own module could not be written. `panels` above is the fix.
+- a panel that builds a picture of its own — rather than drawing on one of the
+  page's canvases — had no way to learn that it was on screen. `PANEL_META` now
+  takes an optional `whenShown`, which is the general form of the `if (show ===
+  …)` chain that was already there for the page's own panels.
+
+None of those is about the viewer in particular. Each is something the shell
+needed before *any* step could bring a module of its own, which is what
+`WORKFLOW_SHELL.md` says steps are supposed to be able to do.
 
 ## What the frame owns, and what it never gives away
 
@@ -143,6 +169,7 @@ tree matches the picture.
 | `widgets/carrier.js` | built, used — the first widget, and the shape the rest should follow |
 | `widgets/scanfields.js` | built, used — the geometry editor and the grid, in the same channel |
 | `live/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
+| `canvas/` | built, used by the viewer workflow, and covered by browser tests that photograph the picture |
 | `src/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
 **Widget extraction has started, from the outside in.** `widgets/carrier.js` is
@@ -183,6 +210,49 @@ while iterating on design stays where it is. Until that is done, **treat
 `main.js` as the source of truth and the modules as a proposal** — and if you
 change a rule, change it in both.
 
+Adding the viewer workflow has now cost that twice over, which is worth
+recording because it is the first time somebody has paid it. The workflow is
+declared in `workflows/index.js`, where the unit tests can read it, *and* in
+`main.js`, which is what an operator actually sees. Either one alone looks
+entirely convincing: the tests go green against a workflow the page does not
+offer, and the page offers a workflow no test has ever seen. Whoever takes the
+duplication out should start here.
+
+## The canvas: `canvas/`
+
+`live/overview.js` draws the overview inside the scan step, with Viv wired in
+directly. The canvas is the next thing along and a different arrangement: one
+viewer written more than once, once for each drawing engine worth considering,
+every version behind the same small interface so that they can be compared and
+swapped. It is not kept here — it lives at the top of the repository in
+`viz_studio/options/`, with the interface written out in `contract.md` beside it
+— and this folder is only the page's side of it.
+
+```
+canvas/
+  engines.js    which engines this page can open, and what each one is
+  panel.js      opening one on a run, the two gestures, and changing engine
+```
+
+Two rules hold this together and both are load-bearing.
+
+**The canvas is never told which step it is in.** It is handed a run to draw
+and, when the page wants them, two functions to draw with — one for beneath the
+picture and one for above it. It learns nothing else. A picture that has taken
+on the shape of one workflow cannot be moved into the next one without being
+taken apart again, and being movable is the whole reason it was built behind an
+interface. If wiring it into a future step seems to want a piece of run state
+passed in, the interface is where the answer belongs.
+
+**Everything about how a picture is drawn stays behind that interface.** Nothing
+in this page imports Viv or deck.gl on the canvas's behalf; it calls
+`openViewer` and drives the handle that comes back. That is what makes a
+difference between two engines a difference in the engines, rather than a
+difference in how somebody happened to wire one of them up.
+
+Reaching across to `viz_studio/options/` costs two settings in `vite.config.js`,
+and both are explained there.
+
 ## Acquired data: `live/`
 
 Everything else on this page is a rehearsal — a synthetic sample, a stage that
@@ -214,5 +284,13 @@ written out at length in the file:
 - `tests/*.spec.js` — Playwright, driving the real page. A smoke net, not a
   specification: the page is nearly all canvas, and driving it has repeatedly
   caught what reading the source did not.
+
+The Playwright tests need a Chromium and will not run without one. On the
+containers this project is developed in it sits at `/opt/pw-browsers/chromium`,
+and `playwright.config.js` honours `PLAYWRIGHT_CHROMIUM`, so the browser suite
+is run as `PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium npm run test:ui`.
+Playwright fails rather than skipping when it cannot find a browser, which is
+the behaviour to want: a suite that quietly skips the tests which look at
+pixels and then reports success is worse than no suite at all.
 
 Prototyping pace: keep the browser suite small and the unit suite sharp.

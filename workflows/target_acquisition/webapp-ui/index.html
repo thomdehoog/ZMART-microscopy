@@ -89,6 +89,26 @@
         </div>
       </div>
 
+      <!-- The canvas on its own: the picture of a run, with the whole width of
+           the window and no panel of controls beside it. The row of buttons at
+           the top chooses which drawing engine draws it, so the same view can be
+           looked at through one engine and then another. -->
+      <div class="panel" id="panel-viewer" role="tabpanel">
+        <div class="toolbar focus-toolbar">
+          <div class="tb-row">
+            <span class="tb-label">Engine</span>
+            <div class="seg" id="viewer-engine" role="radiogroup"
+                 aria-label="Which engine draws the picture"></div>
+            <div class="readout" id="viewer-readout">—</div>
+          </div>
+        </div>
+        <div class="plot-host">
+          <div class="viewer-box" id="viewer-box"></div>
+          <div class="live-note" id="viewer-note" hidden></div>
+        </div>
+        <div class="panel-foot" id="foot-viewer"></div>
+      </div>
+
       <!-- detection panel: tune on one tile, then run them all -->
       <div class="panel" id="panel-detect" role="tabpanel">
         <div class="toolbar focus-toolbar">
