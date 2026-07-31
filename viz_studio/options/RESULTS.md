@@ -45,18 +45,37 @@ across 97% of the window and none of the colour behind. The engine forces the
 whole canvas opaque at the end of every frame.
 
 That was measured before anything was built on it, which was the right order,
-because `LAYERS.md` reads as though the operator's carrier and planned tiles
-could sit on a surface *underneath* the picture. In a sandwich they cannot. The
-stack has to be built the other way up: **the operator draws the carrier and the
-tiles on the surface above the engine, and cuts holes in it wherever the coverage
-record says there is picture.** That is what the harness does, it works, and it
-is what the sparseness row measures.
+because it settles which way up a sandwich has to be assembled. A sandwich is two
+separate drawing surfaces in the page, one in front of the other: the engine's
+canvas and the operator's own. In that arrangement the operator's carrier and
+planned tiles cannot sit on a surface *underneath* the engine, because such a
+surface is never seen at all. The sandwich has to be built the other way up:
+**the operator draws the carrier and the tiles on the surface above the engine,
+and cuts holes in it wherever the coverage record says there is picture.** That
+is what the harness does, it works, and it is what the sparseness row measures.
 
-It has a consequence worth stating plainly. The coverage record is no longer an
-optimisation — it is the thing that makes the layer order possible at all. With
-no record there is nowhere the picture may show, and the harness says so rather
-than guessing. Whether the same is true of a deck.gl canvas is unmeasured, and
-the agent building option B should measure it the same way before building on it:
+**Please do not read this as saying that the stack in `LAYERS.md` cannot be
+built.** It is a different arrangement and it was measured separately the same
+night, and the two results sit happily side by side once you see which is which.
+This measurement is about two *canvases* in the page, one behind the other. The
+layer-stack probe written up in `viz_studio/LAYER_STACK.md` — which at the time of
+writing lives on the branch `claude/layer-stack-probe`, commit `4960d17` — asked
+the neighbouring question: what happens when the plate and the plan are put
+*inside* neuroglancer as ordinary image layers, beneath the acquisition. There the
+lower layer does show through the upper one — read as exactly `0, 255, 0`
+wherever the upper layer had never been written, turning to the background colour
+when the lower layer was taken away, and to `255, 0, 0` when the upper layer's
+shader was made opaque on purpose. So the honest statement of both findings
+together is this: **a surface behind the engine's canvas can never be seen, while
+a layer inside the engine, beneath another layer, can.** The stack in `LAYERS.md` is buildable — as layers
+within the engine rather than as canvases stacked on top of one another.
+
+The finding here has a consequence for the sandwich worth stating plainly. In
+this arrangement the coverage record is no longer an optimisation — it is the
+thing that makes the layer order possible at all. With no record there is nowhere
+the picture may show, and the harness says so rather than guessing. Whether a
+deck.gl canvas behaves the same way is unmeasured, and the agent building option
+B should measure it the same way before building on it:
 `measure/showing_through.py` does it by name and needs no changes.
 
 ### The seam is meant to be invisible; the measurements make it visible on purpose

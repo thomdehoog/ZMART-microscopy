@@ -48,7 +48,13 @@ from margins import (  # noqa: E402
 
 
 def can_a_surface_underneath_be_seen(harness) -> dict:
-    """Asked first, because the arrangement of `LAYERS.md` depends on the answer."""
+    """Asked first, because which way up a sandwich must be built depends on it.
+
+    This is about surfaces in the page — one canvas behind another — and not
+    about layers inside the engine, which `viz_studio/LAYER_STACK.md` measures
+    separately — on the branch `claude/layer-stack-probe` at the time of writing —
+    and where a lower layer does show through the one above it.
+    """
     found = showing_through.measure(harness)
     found["and the check can fail"] = showing_through.check_it_can_fail(harness)
     return found
@@ -796,8 +802,8 @@ def drawing_rate_with_many_positions(harness) -> dict:
 # ---------------------------------------------------------------------------
 
 # In the order they should be run rather than the order OPTIONS.md lists them.
-# The question about showing through comes first because the whole arrangement of
-# `LAYERS.md` depends on the answer, and there is no sense measuring anything
+# The question about showing through comes first because the whole sandwich
+# arrangement depends on the answer, and there is no sense measuring anything
 # built on top of an assumption that has not been checked.
 EVERYTHING = {
     "0. can a surface underneath be seen": lambda h, d: (

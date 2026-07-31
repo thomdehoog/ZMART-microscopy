@@ -153,10 +153,18 @@ suite be what tells you an upgrade moved something.
 Rotation is removed, because a rotated view stops lining up with the drawing over it
 and nothing reports that it has. Recorded in `CONTROLS.md`.
 
-**The layer stack**, bottom to top: the plate layout, the tiles the operator
-selected, then the acquisition with unimaged room see-through. The plate is written
-once per carrier type and reused; the tiles are written at the moment the operator
-presses save, before the run starts. Recorded in `LAYERS.md` and `OPTIONS.md`.
+**The layer stack**, bottom to top: the plate layout, then the acquisition with
+unimaged room see-through, and the tiles the operator selected above it. The plate
+is written once per carrier type and reused; the tiles are written at the moment
+the operator presses save, before the run starts. Recorded in `LAYERS.md` and
+`OPTIONS.md`.
+
+The order of the last two was the other way round when this was first written, and
+the layer-stack probe corrected it by photographing the stack being built: with the
+plan underneath, the acquisition covered the tile outlines exactly where the two
+overlapped, so a tile lost its outline at the moment it was imaged — which is the
+moment the operator most wants to compare what they planned against what they got.
+The plate stays at the bottom because a backdrop is meant to be covered.
 
 ---
 
