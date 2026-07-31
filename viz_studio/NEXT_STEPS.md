@@ -856,9 +856,9 @@ The briefs, chosen so they do not overlap:
    audit found sixty-one milliseconds of work per slider event at that scale, on the same
    thread the engine draws with.
 
-A seventh, if there is room: **what a stitched image costs to make and to view**, measured
-rather than assumed. Several of the items above are only worth doing if stitching turns out
-not to be the better answer for finished data.
+A seventh was proposed — what one image standing for the whole specimen costs to view —
+and it has since been measured rather than assumed. The next section has the numbers, and
+they are the reason several of the items above matter less than they once did.
 
 ---
 
@@ -879,25 +879,22 @@ evidence:
 
 | | config | first pixel | requests | stores | drawing layers | frames in 5 s |
 |---|---|---|---|---|---|---|
-| one fused store, 4 096³ voxels (~137 GB) | 0.6 s | **1.4 s** | **38** | 1 | **5** | **255** |
+| one whole-specimen store, 4 096³ voxels (~137 GB) | 0.6 s | **1.4 s** | **38** | 1 | **5** | **255** |
 | 300 separate positions (a few megabytes) | 0.6 s | 2.4 s | 1 125 | 300 | 302 | 62 |
 
-The fused store describes a specimen thousands of times larger and opens faster, on a
+That one store describes a specimen thousands of times larger and opens faster, on a
 thirtieth of the requests, and then draws four times as smoothly. Every wall in audit 3
 is a cost per store, so one store has none of them.
 
-**Fusing a finished folder means copying everything**, which is the honest objection to
-it: reading every tile and writing several hundred gigabytes out again, with both copies
-on disk while it runs, plus the pyramid — which is cheaper than it sounds, adding about
-14% since each level is an eighth of the one below. If the tiles land on chunk boundaries
-and no blending of overlaps is wanted, the coarsest work can be avoided by hard-linking
-the tile files under the fused array's chunk names, so no bytes move; blending overlaps
-rules that out.
+**Copying a finished folder into one image means copying everything**, which is the honest
+objection to that way of arriving at it: reading every tile and writing several hundred
+gigabytes out again, with both copies on disk while it runs, plus the pyramid — which is
+cheaper than it sounds, adding about 14% since each level is an eighth of the one below.
+That route is not offered here, and Decision 1b in `DATA_LAYOUT.md` records why.
 
-**But a smart-microscopy run does not have to fuse anything — it can write into the one
-store as it goes.** The tile is written once instead of twice, and the viewer holds a
-single source from the very first moment. This is the operator's suggestion and it is the
-better answer.
+**A smart-microscopy run does not need it — it can write into the one store as it goes.**
+The tile is written once instead of twice, and the viewer holds a single source from the
+very first moment. This is the operator's suggestion and it is the better answer.
 
 **The one condition — measured, and now built.** The engine remembers every piece of
 image it has decoded, including the pieces it found empty, with no time limit. A tile

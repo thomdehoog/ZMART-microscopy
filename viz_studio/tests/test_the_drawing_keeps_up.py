@@ -67,8 +67,7 @@ MUST_KEEP_TODAY = 0.25
 THE_RATE_WE_WANT = 0.8
 
 # Started once and only once: calling it twice would leave two loops running and
-# both counting, which reads as the page having doubled its rate. Taken from
-# measure_canvas_vs_checkerboard.py, where this measurement was first made.
+# both counting, which reads as the page having doubled its rate.
 COUNT_FRAMES = """() => {
   if (window.__counting) return;
   window.__counting = true;

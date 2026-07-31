@@ -145,10 +145,11 @@ def is_store(path: Path) -> bool:
 #
 #   overview.ome.zarr             one image per kind of scan, named after it, with
 #   targetscan.ome.zarr           every position written into its own place inside.
-#                                 This is what zmart_storage writes today; a run
-#                                 that has to keep the overlap between its tiles
-#                                 spreads the same scan over overview_part0,
-#                                 overview_part1 and so on.
+#                                 This is what zmart_storage writes today, and it
+#                                 asks for tiles that butt up against one another:
+#                                 a run whose tiles overlap is refused outright, and
+#                                 keeps one store per position instead -- the shape
+#                                 below.
 #
 #   overview_pos001.ome.zarr      one image per position, named by the driver as
 #   overview_pos002.ome.zarr      "{acquisition type}_{position label}" -- that is

@@ -84,11 +84,9 @@ compares against the largest piece a tile of that size could actually line up wi
 so an ordinary tile is silent however many copies the run keeps, while a genuinely
 awkward one is still flagged with a size the camera could be set to.
 
-**`fuse.py` and three stale documents** (`fc0f64b`). The after-the-fact stitcher
-still fixed the pyramid at three copies; it now uses the same rule as the writer.
-`ARCHITECTURE.md` §3 described departures that have all been closed. `DATA_LAYOUT.md`
-described rows gathered by acquisition type, where the truth is now that one load is
-one group. A comment in `server.py` justified a restriction with a hazard that was
+**Three stale documents** (`fc0f64b`). `ARCHITECTURE.md` §3 described departures
+that have all been closed. `DATA_LAYOUT.md` described rows gathered by acquisition
+type, where the truth is now that one load is one group. A comment in `server.py` justified a restriction with a hazard that was
 real on 28 July and gone by the 29th — rewritten with the reason that does still
 hold, and the byte-range machinery left strictly alone, since sharded stores depend
 on it.
