@@ -123,20 +123,56 @@ actually says is in flight** — see below.
 
 ---
 
-## What is in flight as this is written
+## What finished after the rest of this was written
 
-Three agents, each in its own territory:
+**The interrupted viewer pass was sound.** Nothing in its 31 files was broken; the
+suite it never ran now reads **542 passed, 10 skipped, 2 xfailed**. Two things came
+out of checking it that were worth more than the check. The run had been failing for
+a reason that had nothing to do with the change — two dozen tests were skipping on a
+harness fault, and **neither the test runner nor the CI job built the page those
+tests open**, so the skip would have returned on any fresh checkout and the CI
+viewer job was red for the same reason. And of the eight fixes that pass claimed its
+new tests would catch, seven held every time while **the eighth passed about one run
+in three with the fix deliberately removed** — worse than no test, because it reports
+a fault as guarded. It waited on the server's count of moments rather than the
+engine's; it now reads the time axis out of the engine's own coordinate space.
 
-1. **Verifying `483417f`** — running the viewer suite that was never run, fixing what
-   is red, and re-breaking each of seven fixes to prove their new tests catch them.
-2. **Removing stitching** — `fuse.py` and the overlap machinery, keeping the refusal
-   of overlapping runs and rewriting its advice. Also writing
-   `zmart_storage/VOXEL_PLACEMENT.md`, the investigation above.
-3. **A Viewer workflow** — on `claude/viewer-as-a-workflow`, off the operator-window
-   branch: one workflow, one step, the canvas and nothing else, so it can be
-   exercised inside the real window on its own.
+**Stitching is gone**, and everything it left behind has been cleared away —
+`measure_canvas_vs_checkerboard.py`, which no longer ran, and every document passage
+that described a run being spread over several images. The measured table that
+justified writing into one image is kept and now says on its face that it is history.
 
-Their results are not in this document. Read their commits.
+**The Viewer workflow exists**, on `claude/viewer-as-a-workflow`. It works, and it
+falsified the operator framework's own claim — see the next section.
+
+---
+
+## Two findings that need a decision, and are not written up elsewhere
+
+**The workflow list is declared twice.** `src/workflows/index.js` says of itself that
+adding a workflow should never require changing the frame, and *"if it means editing
+the frame, the frame is missing something and that is the bug."* Adding one needed
+three changes. The serious one: that file is imported by nothing that runs — `main.js`
+carries its own copy. So **the unit suite passes against a workflow the page does not
+offer, and the page offers workflows no test has ever seen.** Each half looks
+completely convincing alone. `ARCHITECTURE.md` had flagged the file as stale; this is
+the first time anybody paid for it.
+
+**The canvas contract has two gaps, both needing a decision rather than a
+workaround.** The page is made responsible for describing an acquisition's channels —
+name, colour, brightness window — but that description exists only inside the store,
+and the canvas offers no way to ask for it. So a page would have to open the run
+itself merely to learn what to tell the canvas about the run it is asking the canvas
+to open. Today it passes nothing, and **a multi-colour run shows only its first
+channel.** The same applies to the coverage record: the contract treats it as nearly
+mandatory, the operator page has none to hand over, so the whole declared room is
+drawn rather than only the part that was imaged.
+
+**And one engine is missing from that workflow.** Neuroglancer needs a background
+worker delivered as a separate file, while the operator page is deliberately built as
+one self-contained document because the microscope computer has no toolchain. Those
+cannot both hold, so the chooser offers two of the three engines — and the one it
+leaves out is the one currently preferred.
 
 ---
 
