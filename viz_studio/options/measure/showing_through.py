@@ -11,8 +11,10 @@ one in front of the other — the bottom of that stack wants a surface *behind* 
 engine's canvas for the carrier to be drawn on, with the engine in front of it
 showing picture where there is picture and nothing where there is none. For
 anything on that lower surface to be seen at all, two things have to be true at
-once: the shader has to emit nothing over ground nobody imaged, which it does, and
-that nothing has to survive all the way to the screen.
+once. The little program each engine runs on the graphics card to turn stored
+numbers into colour — a shader, in the engines' own word — has to paint nothing
+at all over ground nobody imaged, which it does. And that nothing has to survive
+all the way to the screen, which is what this asks.
 
 **What this question is not about.** It asks only about surfaces in the page: one
 canvas placed behind another. It says nothing about layers stacked *inside* the

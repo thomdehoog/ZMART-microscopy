@@ -1,6 +1,6 @@
 {
   "option": "neuroglancer-under",
-  "measured": "2026-07-31 11:27",
+  "measured": "2026-07-31 12:46",
   "0. can a surface underneath be seen": {
     "question": "with a colour painted behind the engine's canvas and a different colour set as the engine's own background, which does an operator see over ground nobody imaged?",
     "shares of the window": {
@@ -23,10 +23,18 @@
     }
   },
   "0b. is the bottom layer beneath the picture": {
-    "question": "with one flat colour drawn in the bottom slot and nothing in the top, does an operator see that colour over ground nobody imaged?",
+    "question": "with one flat colour drawn in the bottom slot and nothing in the top, does an operator see that colour over ground nobody imaged \u2014 and is the acquired picture still on top of it?",
     "what the option says of itself": {
       "drawsUnder": false,
       "because": "neuroglancer forces the whole of its canvas opaque at the end of every frame, so nothing placed behind it is ever seen. Anything that has to sit beneath the picture on this engine has to go inside the engine as a layer of its own, which means it must be written to the store first and cannot change while somebody is watching."
+    },
+    "with nothing drawn in either slot": {
+      "shares of the window": {
+        "behind the engine (green)": 0.0,
+        "the engine's own background (blue)": 0.9703,
+        "acquired picture (near white)": 0.0297
+      },
+      "photograph": "beneath-with-nothing-drawn.png"
     },
     "with the colour in the bottom slot": {
       "shares of the window": {
@@ -35,7 +43,12 @@
         "acquired picture (near white)": 0.0297
       },
       "the colour was seen": false,
-      "photograph": "beneath-the-picture.png"
+      "photograph": "beneath-the-picture.png",
+      "the picture is still on top of it": {
+        "share of the window showing picture, with nothing drawn": 0.0297,
+        "and with the colour in the bottom slot": 0.0297,
+        "the picture survived": true
+      }
     },
     "the bottom layer is genuinely beneath the picture": false,
     "answer": "no. A colour drawn in the bottom slot is seen nowhere at all: over ground nobody imaged an operator sees the engine's own background (97% of the window) instead. The drawing is made, on a surface genuinely behind the engine's canvas, and the engine covers it. This option says so itself, as viewer.drawsUnder, rather than drawing the same thing on top with holes cut in it \u2014 which would look identical while doing something quite different underneath.",
@@ -48,7 +61,12 @@
           "acquired picture (near white)": 0.0
         },
         "the colour was seen": true,
-        "photograph": "beneath-can-fail-on-top.png"
+        "photograph": "beneath-can-fail-on-top.png",
+        "the picture is still on top of it": {
+          "share of the window showing picture, with nothing drawn": 0.0297,
+          "and with the colour in the top slot": 0.0,
+          "the picture survived": false
+        }
       },
       "the counting noticed": true
     }
@@ -101,8 +119,8 @@
       "photograph": "registration-panning-worst.png"
     },
     "zooming": {
-      "samples": 48,
-      "photographs": 48,
+      "samples": 51,
+      "photographs": 51,
       "closed": 0,
       "left": 1.0,
       "right": 1.0,
@@ -134,7 +152,7 @@
       },
       "band was cut at, in these pixels": 40.0,
       "worst slant across three cuts": 0.0,
-      "frames": 16,
+      "frames": 17,
       "photograph": "registration-zooming-worst.png"
     },
     "thrown about": {
@@ -263,8 +281,15 @@
   },
   "4. sparseness": {
     "places the run imaged": 5,
-    "share of the window showing acquired picture": 0.0152,
+    "share of the window showing acquired picture": 0.0111,
     "share showing the operator's own drawing": 0.9848,
+    "near-white counted with the picture on screen": 0.0152,
+    "and with every channel switched off": {
+      "what was changed": "every channel was switched off, so nothing of the acquisition was drawn and only the operator's own drawing was left on screen",
+      "picture": 0.0041,
+      "drawing": 0.9959,
+      "photograph": "sparseness-with-no-picture.png"
+    },
     "the picture shows": true,
     "the operator's plan shows through the gaps": true,
     "photograph": "sparseness.png"
@@ -275,7 +300,8 @@
       "after eight more tiles were written, without being told": 0.0953,
       "and after telling it": 0.2726,
       "what was needed": "viewer.tilesMayHaveLanded({coverage}), which sends the option back to the store to read what is there now. Nothing less works: every one of these viewers remembers what it has already read, including the places it found empty, with no time limit \u2014 so a tile written into ground it has already looked at is not slow to appear, it is never fetched again at all. How an option goes back is its own business and the page never knows: two of them open a fresh reader on the store, and the third tells the drawing engine's background worker to read its resolution levels again.",
-      "readers sent back to the store": 3,
+      "what the option said it sent back to the store": 3,
+      "and what that number is not": "this one number is the option's own account of what it did, and it is the only number in this suite that is. It is here for one narrow purpose: to tell 'the option was asked and nothing happened' apart from 'the option was never asked', which look identical on screen. It must not be read across the columns, because it counts a different thing in each of them. For the two Viv options it is how many copies of the image the freshly opened reader has \u2014 three, because the writer makes a pyramid of three \u2014 and it would still be three if the fresh reader were then thrown away without being used. For neuroglancer it is how many of the engine's own stores of decoded picture were told to let go, which is also three here and for an unrelated reason. The number that can be compared is the one below it, 'pieces of image re-fetched', which the server counted rather than the page. Measured with one option's refresh deliberately made to do nothing at all, this went on reporting three while the pieces re-fetched fell to nought and the window never changed.",
       "it appeared": true,
       "photographs": [
         "new-data-before.png",
@@ -290,11 +316,12 @@
       "note": "only the pieces actually on screen are asked for again, so this follows the size of the window rather than the size of the specimen. Anything the operator had scrolled past is fetched again if and when they scroll back to it."
     },
     "does the picture survive the refresh": {
-      "frames the screen changed during the refresh": 2,
+      "frames the screen changed during the refresh": 3,
       "the least the picture ever showed during it": 0.2726,
       "it settled at": 0.2726,
       "seconds before the picture was back to half of that": 0.12,
       "what the window showed, frame by frame": [
+        0.2726,
         0.2726,
         0.2726
       ],
@@ -306,26 +333,26 @@
       "the edge of the picture moved (photograph pixels)": 0.0
     },
     "how soon after the tile lands does it show": {
-      "seconds": 0.37,
+      "seconds": 0.43,
       "it showed": true,
       "share of the window showing picture, before": 0.2726,
       "and after": 0.2966,
       "note": "the clock starts when the tile is safely on disk and stops when the window is measurably brighter than it was. It includes the time spent photographing, so it is an upper bound rather than a best case."
     },
     "does it keep up": {
-      "tiles written during the measurement": 438,
+      "tiles written during the measurement": 426,
       "frames a second, round by round": [
         5.2,
         5.6,
         5.2,
         5.2,
         5.2,
-        5.6
+        5.2
       ],
       "seconds a round took": [
         2.5,
         2.5,
-        2.5,
+        2.51,
         2.5,
         2.5,
         2.5
@@ -338,29 +365,53 @@
       "requests to redraw the view": 117,
       "of which found picture": 9,
       "of which were for ground nobody imaged": 108,
-      "how many the browser held at once": 5,
-      "rounds of waiting": 76,
-      "seconds": 0.23
+      "how many the browser held at once": 6,
+      "rounds of waiting": 77,
+      "seconds": 0.26
     },
     "bounded to the imaged ground": {
       "requests to redraw the view": 25,
       "of which found picture": 9,
       "of which were for ground nobody imaged": 16,
-      "how many the browser held at once": 4,
-      "rounds of waiting": 13,
-      "seconds": 0.04
+      "how many the browser held at once": 2,
+      "rounds of waiting": 22,
+      "seconds": 0.05
     }
   },
   "7. drawing rate with many positions": {
     "20 positions": {
-      "frames that changed, in three seconds": 57,
-      "frames a second": 18.0,
-      "rectangles the page was drawing": 20
+      "frames a second": 13.5,
+      "frames a second, lowest and highest seen": [
+        12.3,
+        14.0
+      ],
+      "frames a second, every reading in the order taken": [
+        12.3,
+        14.0,
+        13.5,
+        14.0,
+        12.8
+      ],
+      "how many times it was read": 5,
+      "rectangles the page was drawing": 20,
+      "note": "the middle of several readings, not a single one. Single readings of this on a machine with no graphics card have been seen to vary by a factor of two on an unchanged build, so the lowest and highest are reported beside the middle value. Two options whose ranges overlap have not been shown to differ."
     },
     "200 positions": {
-      "frames that changed, in three seconds": 38,
-      "frames a second": 11.2,
-      "rectangles the page was drawing": 200
+      "frames a second": 9.1,
+      "frames a second, lowest and highest seen": [
+        8.4,
+        10.5
+      ],
+      "frames a second, every reading in the order taken": [
+        9.1,
+        8.4,
+        10.5,
+        9.0,
+        9.9
+      ],
+      "how many times it was read": 5,
+      "rectangles the page was drawing": 200,
+      "note": "the middle of several readings, not a single one. Single readings of this on a machine with no graphics card have been seen to vary by a factor of two on an unchanged build, so the lowest and highest are reported beside the middle value. Two options whose ranges overlap have not been shown to differ."
     }
   }
 }

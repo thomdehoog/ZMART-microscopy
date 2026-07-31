@@ -8,17 +8,25 @@ writes a tile, and reads the answer out of a photograph.
 
 Two habits run through the whole file and are worth stating once.
 
-**Every number comes from the picture.** Where a measurement does ask the page
-something — how many gestures it refused, how many readers it sent back to the
-store — that is the *means* to make something happen or to tell two
-identical-looking outcomes apart, and never the answer being reported.
+**Every number comes from the picture, with one exception that is labelled as
+one.** Where a measurement asks the page something — how many gestures it
+refused, what the option says it did to go back to the store — that is the means
+to make something happen or to tell two identical-looking outcomes apart, and not
+the answer to the question being asked. The exception is measurement 5's count of
+what the option sent back to the store, which does reach the results table. It is
+the option's own account of its own work, it counts a different thing in each of
+the three columns, and it is kept only because it tells "the option was asked and
+did nothing" apart from "the option was never asked". Its reading in the table
+says so, and the comparable number for the same event — how many pieces of image
+were really re-fetched — is counted by the server rather than by the page.
 
 **Every check is shown failing.** A check that has never been seen to fail is not
 evidence of anything, and this project has been caught out repeatedly by green
 checks over broken things. So the registration measurement deliberately puts the
 hole in the wrong place, the gesture measurement counts what it refused as well
-as what it accepted, and the measurement of showing-through hides the surfaces it
-is asking about. The red evidence is reported beside the green.
+as what it accepted, the measurement of showing-through hides the surfaces it is
+asking about, and the sparseness measurement photographs the same window again
+with the picture switched off. The red evidence is reported beside the green.
 """
 
 from __future__ import annotations
@@ -478,6 +486,18 @@ def sparseness(harness) -> dict:
     be true at once, and they are opposite failures: picture must appear where
     picture was written, and the operator's plan must be plainly visible
     everywhere else.
+
+    **The same window is photographed twice**, once with the acquisition on
+    screen and once with every channel switched off, and the answer is the
+    difference between the two. That is not fussiness, and it was not always done
+    this way. The counting below finds near-white pixels, and the operator's own
+    carrier outline is a pale line on a dark sheet — pale enough to be counted as
+    picture. Measured, it filled 0.41% of the window on its own, which is more
+    than the 0.2% the old reading asked for. So the check passed on a page with
+    the holes deliberately not cut in it and no acquired picture on screen
+    anywhere. Photographing the same page with the picture switched off says
+    exactly how much of the near-white is the drawing's, and subtracting it
+    leaves the share that is really acquired picture.
     """
     harness.open(store="scattered", draw="carrier")
     # Backed out a little so that the whole carrier is in the window and the gaps
@@ -487,30 +507,75 @@ def sparseness(harness) -> dict:
     harness.settle(tries=20)
     picture = harness.photograph()
     counted = _what_is_on_screen(picture)
+    without = _the_same_window_with_the_picture_switched_off(harness)
+    really_picture = round(counted["picture"] - without["picture"], 4)
     coverage = harness.coverage("scattered")
     return {
         "places the run imaged": len(coverage["regions"]),
-        "share of the window showing acquired picture": counted["picture"],
+        "share of the window showing acquired picture": really_picture,
         "share showing the operator's own drawing": counted["drawing"],
+        "near-white counted with the picture on screen": counted["picture"],
+        "and with every channel switched off": without,
         # A few small patches on a canvas mostly not imaged, seen from far
         # enough out to have the whole carrier in the window: a few per cent is
         # the right answer, and anything at all is the thing being asked about.
         # Nought would mean the picture is not being drawn; most of the window
         # would mean unimaged ground is being painted over the operator's plan,
         # which is the opposite failure and just as bad.
-        "the picture shows": counted["picture"] > 0.002,
+        "the picture shows": really_picture > 0.002,
         "the operator's plan shows through the gaps": counted["drawing"] > 0.5,
         "photograph": harness.save_frame(picture, "sparseness"),
     }
 
 
+def _the_same_window_with_the_picture_switched_off(harness) -> dict:
+    """Photograph the same page again with every channel hidden.
+
+    This is both halves of one job. It says how much of the near-white in the
+    photograph above belongs to the operator's own pale outlines rather than to
+    the acquisition, which is what makes the reported share honest. And it is the
+    red evidence for this measurement: with the picture switched off the share
+    has to fall away, and a counting program that could only ever answer "there
+    is picture" would be caught here.
+
+    Every channel is switched off through the interface every option implements,
+    so nothing about any particular engine is assumed. The channels are switched
+    back on afterwards, so that a later measurement never finds a page still
+    holding this.
+    """
+    how_many = len(harness.believes("window.harness.acquisitionsAsked[0].channels"))
+    for index in range(how_many):
+        harness.believes(
+            f"window.harness.setChannel({index}, {{visible: false}})"
+        )
+    harness.settle(tries=20)
+    dark = harness.photograph()
+    counted = _what_is_on_screen(dark)
+    for index in range(how_many):
+        harness.believes(f"window.harness.setChannel({index}, {{visible: true}})")
+    harness.settle(tries=20)
+    return {
+        "what was changed": (
+            "every channel was switched off, so nothing of the acquisition was "
+            "drawn and only the operator's own drawing was left on screen"
+        ),
+        "picture": counted["picture"],
+        "drawing": counted["drawing"],
+        "photograph": harness.save_frame(dark, "sparseness-with-no-picture"),
+    }
+
+
 def _what_is_on_screen(picture) -> dict:
-    """Roughly what share of the window is picture and what share is our drawing.
+    """Roughly what share of the window is near-white and what share is not.
 
     The acquired picture is near-white and near-flat; the operator's drawing is
-    the dark page colour with pale outlines and tinted rectangles on it. Counting
-    the near-white separates them well enough to answer "is there any of each",
-    which is the question.
+    the dark page colour with tinted rectangles on it. Counting the near-white
+    separates the two well enough to answer "is there any of each", which is the
+    question — with one caveat that the caller has to handle. The operator's
+    carrier outline is a pale line, pale enough to land above the threshold, so
+    the near-white share is a little larger than the picture alone. See
+    `sparseness`, which photographs the same window with the picture switched off
+    and takes the difference.
     """
     picture = np.asarray(picture).astype(int)
     red, green, blue = picture[:, :, 0], picture[:, :, 1], picture[:, :, 2]
@@ -663,7 +728,26 @@ def _does_it_appear_at_all(harness, canvases, span) -> dict:
                 "drawing engine's background worker to read its resolution "
                 "levels again."
             ),
-            "readers sent back to the store": asked,
+            "what the option said it sent back to the store": asked,
+            "and what that number is not": (
+                "this one number is the option's own account of what it did, and "
+                "it is the only number in this suite that is. It is here for one "
+                "narrow purpose: to tell 'the option was asked and nothing "
+                "happened' apart from 'the option was never asked', which look "
+                "identical on screen. It must not be read across the columns, "
+                "because it counts a different thing in each of them. For the "
+                "two Viv options it is how many copies of the image the freshly "
+                "opened reader has — three, because the writer makes a pyramid "
+                "of three — and it would still be three if the fresh reader were "
+                "then thrown away without being used. For neuroglancer it is how "
+                "many of the engine's own stores of decoded picture were told to "
+                "let go, which is also three here and for an unrelated reason. "
+                "The number that can be compared is the one below it, 'pieces of "
+                "image re-fetched', which the server counted rather than the "
+                "page. Measured with one option's refresh deliberately made to "
+                "do nothing at all, this went on reporting three while the "
+                "pieces re-fetched fell to nought and the window never changed."
+            ),
             "it appeared": _lit(after) > lit_without_telling * 1.3,
             "photographs": [
                 harness.save_frame(before, "new-data-before"),
@@ -898,6 +982,22 @@ def requests_to_draw_one_view(harness) -> dict:
 # ---------------------------------------------------------------------------
 
 
+# How many times the drawing rate is read before any of it is reported.
+#
+# One reading of this is worth very little, and that is measured rather than
+# feared. Taken five times over on one unchanged build, single readings ranged
+# from 4.8 to 10.3 frames a second on the same option at the same number of
+# positions — a factor of two — while the medians of two options a reader would
+# want to compare sat within a few tenths of each other. A single number in a
+# table invites exactly the comparison it cannot support, so the reading is
+# repeated and the spread is reported beside the middle value.
+#
+# Five is a compromise. It costs about fifteen seconds an option and it is enough
+# to show plainly when two options' spreads overlap, which is the thing a reader
+# has to know before treating a difference as real.
+HOW_MANY_TIMES_THE_RATE_IS_READ = 5
+
+
 def drawing_rate_with_many_positions(harness) -> dict:
     """Does the cost of drawing grow with the number of tiles the operator laid out?
 
@@ -910,26 +1010,51 @@ def drawing_rate_with_many_positions(harness) -> dict:
 
     Frames are counted from a live recording of the screen over three seconds of
     continuous panning, not from anything the page says about itself.
+
+    **This is the least trustworthy measurement in the suite, and it now says so
+    in its own numbers.** On a machine with no graphics card the rate wanders a
+    great deal from one reading to the next for reasons that have nothing to do
+    with the code — another program waking up is enough. So the three seconds of
+    panning is done five times over on the same page, and what is reported is the
+    middle reading with the lowest and highest beside it. Two options whose
+    ranges overlap have not been shown to differ, however far apart their middle
+    readings happen to fall, and the table is written so that a reader can see
+    that at a glance.
     """
     found = {}
     for positions in (20, 200):
         harness.open(store="scattered", draw="carrier", positions=positions)
-        harness.believes("window.harness.reset()")
-        harness.settle(tries=20)
-        with Recording(harness.page) as recording:
-            started = time.perf_counter()
-            while time.perf_counter() - started < 3.0:
-                pan_steadily(harness.page, steps=10, step=4)
-            elapsed = time.perf_counter() - started
-        pictures = [picture for _, picture in recording.pictures()]
-        changed = sum(
-            1 for a, b in zip(pictures, pictures[1:]) if not np.array_equal(a, b)
-        )
+        readings = []
+        for _ in range(HOW_MANY_TIMES_THE_RATE_IS_READ):
+            # Back to the same view before every reading, so that each of them
+            # is of the same scene rather than of wherever the last pan finished.
+            harness.believes("window.harness.reset()")
+            harness.settle(tries=20)
+            with Recording(harness.page) as recording:
+                started = time.perf_counter()
+                while time.perf_counter() - started < 3.0:
+                    pan_steadily(harness.page, steps=10, step=4)
+                elapsed = time.perf_counter() - started
+            pictures = [picture for _, picture in recording.pictures()]
+            changed = sum(
+                1 for a, b in zip(pictures, pictures[1:]) if not np.array_equal(a, b)
+            )
+            readings.append(round(changed / elapsed, 1))
+        in_order = sorted(readings)
         found[f"{positions} positions"] = {
-            "frames that changed, in three seconds": changed,
-            "frames a second": round(changed / elapsed, 1),
+            "frames a second": in_order[len(in_order) // 2],
+            "frames a second, lowest and highest seen": [in_order[0], in_order[-1]],
+            "frames a second, every reading in the order taken": readings,
+            "how many times it was read": len(readings),
             "rectangles the page was drawing": harness.believes(
                 "window.harness.scene.tiles.length"
+            ),
+            "note": (
+                "the middle of several readings, not a single one. Single "
+                "readings of this on a machine with no graphics card have been "
+                "seen to vary by a factor of two on an unchanged build, so the "
+                "lowest and highest are reported beside the middle value. Two "
+                "options whose ranges overlap have not been shown to differ."
             ),
         }
     return found

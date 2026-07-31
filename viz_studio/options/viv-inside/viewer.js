@@ -44,17 +44,19 @@
  * that canvas is room the microscope has never visited. Viv's colouring ends by
  * setting the transparency to "fully opaque" whatever the brightness, so left
  * alone it would paint every unvisited square black — and in a single canvas
- * that black would cover the operator's own drawing. A dozen lines of shader
- * added to Viv's layers fix it: where nothing was recorded, nothing is painted.
- * See `LetTheUnimagedGroundShowThrough` below, including what the fix costs and
- * the measured surprise that where the run kept a coverage record it is not
- * needed at all.
+ * that black would cover the operator's own drawing. A dozen lines added to the
+ * little program Viv runs on the graphics card — a shader, in the engine's own
+ * word, and the thing that decides what colour each spot comes out — fix it:
+ * where nothing was recorded, nothing is painted. See
+ * `LetTheUnimagedGroundShowThrough` below, including what the fix costs and the
+ * measured surprise that where the run kept a coverage record it is not needed
+ * at all.
  *
  * **3. Nothing on disk announces a new tile.** A run declares its images at full
  * size before the first tile exists, and their description is identical before
  * and after, so there is nothing for a watcher to notice. Viv has to be handed a
  * freshly opened reader, and only one such read is allowed to be in flight at a
- * time. See `tilesMayHaveLanded` and `goAndLookAgain`.
+ * time. See `tilesMayHaveLanded` and `openTheStoresAgain`.
  *
  * ## Please keep Viv behind this file
  *
@@ -78,7 +80,7 @@ import { loadOmeZarr } from "@vivjs/loaders";
  * How dim a spot may be before it is treated as ground nobody has been to.
  *
  * Two per cent of the brightness window. See
- * `letTheUnimagedGroundShowThrough` for what this is really asking and what it
+ * `LetTheUnimagedGroundShowThrough` for what this is really asking and what it
  * cannot tell apart.
  */
 const AS_GOOD_AS_NOTHING = 0.02;
@@ -158,8 +160,12 @@ export async function openViewer(element, options = {}) {
     boundToCoverage: boundToCoverage && Boolean(coverage?.regions?.length),
     canvas: null,
     deck: null,
-    // The offscreen canvas the page draws its carrier and tiles into, and the
-    // texture that carries those pixels to the one canvas on screen.
+    // The offscreen canvas the page draws its carrier and tiles into, the
+    // drawing context it draws with, and the texture those pixels are copied
+    // into. A texture is simply an image kept in the graphics card's own memory,
+    // which is where a picture has to be before the card can draw with it — so
+    // this is the bridge between an ordinary two-dimensional drawing and the one
+    // canvas everything is composed in.
     drawing: null,
     context: null,
     texture: null,
@@ -190,7 +196,7 @@ export async function openViewer(element, options = {}) {
       overlayPaints: 0, groundPaints: 0, enginePaints: 0, letGoes: 0, lastAsked: 0,
     },
     // Only one fresh read of the store may be in flight at a time; see
-    // `goAndLookAgain` for what that is worth and what it is guarding against.
+    // `openTheStoresAgain` for what that is worth and what it is guarding against.
     readingAgain: false,
     anotherLookIsWanted: false,
     destroyed: false,
@@ -225,8 +231,8 @@ function buildTheOneCanvas(own) {
     element.style.position = "relative";
   }
   // The colour an operator sees over ground nobody has imaged. Nothing is drawn
-  // there — that is the point of the shader addition below — so what shows is
-  // whatever the box is painted, which is the page's own colour.
+  // there — that is the point of `LetTheUnimagedGroundShowThrough` below — so
+  // what shows is whatever the box is painted, which is the page's own colour.
   element.style.background = own.background;
 
   own.canvas = document.createElement("canvas");
@@ -343,7 +349,7 @@ function makeTheGroundBeneath(own) {
  * the store is, so it is taken off here. Nothing is added: the address the
  * caller gave is the address that is read.
  */
-function addressOf(url) {
+function addressOfTheStore(url) {
   const withoutTheHint = url.split("|")[0];
   return withoutTheHint.endsWith("/")
     ? withoutTheHint.slice(0, -1)
@@ -362,7 +368,7 @@ function addressOf(url) {
  * is the honest reading for the stores this project writes, and stating it here
  * is better than a silent factor of a thousand somewhere further along.
  */
-function voxelSizeFrom(metadata, labels) {
+function voxelSizeUm(metadata, labels) {
   const found = { x: 1, y: 1, z: 1 };
   const multiscale = metadata?.multiscales?.[0];
   if (!multiscale) return found;
@@ -395,9 +401,25 @@ function voxelSizeFrom(metadata, labels) {
  * pieces it found empty, so a tile written into ground it has already looked at
  * would never be fetched again. Opening the store afresh gives a reader that
  * remembers nothing.
+ *
+ * A store that cannot be read at all is refused with the reason and the address,
+ * in the same words option B uses, rather than being left to whatever the reading
+ * library happens to say. A viewer that opens onto nothing and reports itself
+ * content is the most expensive failure this project keeps meeting.
  */
-async function readTheStore(url) {
-  return loadOmeZarr(addressOf(url), { type: "multiscales" });
+async function readTheStore(url, name = "this acquisition") {
+  const address = addressOfTheStore(url);
+  try {
+    return await loadOmeZarr(address, { type: "multiscales" });
+  } catch (why) {
+    throw new Error(
+      `the acquisition "${name}" could not be read from ${address}: ` +
+        `${why && why.message ? why.message : why}. This is said here rather ` +
+        "than left as an empty window, because a viewer that opens onto " +
+        "nothing and reports itself content is the most expensive failure " +
+        "this project keeps meeting.",
+    );
+  }
 }
 
 /**
@@ -406,13 +428,15 @@ async function readTheStore(url) {
 async function start(own, acquisitions) {
   own.opened = await Promise.all(
     acquisitions.map(async (acquisition) => {
-      const { data, metadata } = await readTheStore(acquisition.url);
+      const { data, metadata } = await readTheStore(
+        acquisition.url, acquisition.name,
+      );
       return {
         asked: acquisition,
         name: acquisition.name,
         pyramid: data,
         metadata,
-        umPerVoxel: voxelSizeFrom(metadata, data[0].labels),
+        umPerVoxel: voxelSizeUm(metadata, data[0].labels),
       };
     }),
   );
@@ -422,7 +446,7 @@ async function start(own, acquisitions) {
   // Somewhere sensible to be looking before the page says where it wants to be,
   // so that the very first frame shows the specimen rather than a corner of
   // empty room. The page moves the view immediately afterwards.
-  own.view = theWholeOfTheFirstAcquisition(own);
+  own.view = openingViewFor(own);
 
   own.deck = new Deck({
     canvas: own.canvas,
@@ -456,6 +480,12 @@ async function start(own, acquisitions) {
     // screen those two look identical when the right answer is that nothing
     // should have happened. Every number the measurements *report* still comes
     // from a photograph of the screen.
+    onError: (why) => {
+      // Said out loud rather than swallowed, in the same words option B uses. A
+      // drawing engine that has quietly given up looks exactly like one that is
+      // still loading, and telling those two apart has cost this project days.
+      console.error("the drawing engine reported a problem", why);
+    },
     onAfterRender: () => {
       if (own.destroyed) return;
       own.counted.enginePaints += 1;
@@ -508,11 +538,11 @@ function rowsFor(opened) {
  * A view showing the whole of the first acquisition, used only until the page
  * says where it would rather be.
  */
-function theWholeOfTheFirstAcquisition(own) {
+function openingViewFor(own) {
   const first = own.opened[0];
   const { width, height } = own.size;
   if (!first) return { centre: { x: 0, y: 0 }, zoom: 1 };
-  const across = widthAndHeightOf(first.pyramid[0]);
+  const across = widthAndHeightInVoxels(first.pyramid[0]);
   const um = first.umPerVoxel;
   return {
     centre: { x: (across.width * um.x) / 2, y: (across.height * um.y) / 2 },
@@ -524,135 +554,14 @@ function theWholeOfTheFirstAcquisition(own) {
 }
 
 /** How many voxels across and down the full-resolution image is. */
-function widthAndHeightOf(source) {
+function widthAndHeightInVoxels(source) {
   const across = source.labels.indexOf("x");
   const down = source.labels.indexOf("y");
   return { width: source.shape[across], height: source.shape[down] };
 }
 
 // ---------------------------------------------------------------------------
-// Micrometres in, micrometres out
-// ---------------------------------------------------------------------------
-//
-// deck.gl has a notion of magnification of its own, and it is not one the
-// operator should ever meet: it counts in powers of two, where zero means one
-// unit of its own world to the screen pixel, and its world is whatever the
-// layers were placed in. The store and the microscope stage both speak
-// micrometres, so that is what crosses the interface, and the conversion lives
-// here and nowhere else.
-//
-// The world the layers are placed in is **voxels of the first acquisition's
-// full-resolution image**. That choice is worth stating, because it is the one
-// place a unit could go wrong. Viv places an image one world unit to the voxel
-// unless it is told otherwise, and telling it otherwise changes which copy of
-// the pyramid it chooses as well as where it draws — two things at once, one of
-// them rounded. Leaving its own placement alone and converting here instead
-// keeps the conversion in a single line that can be read and checked.
-//
-// The arithmetic, so it can be checked rather than trusted:
-//
-//     world units per screen pixel  =  µm per screen pixel ÷ µm per voxel
-//     deck.gl's magnification       =  −log₂(world units per screen pixel)
-//
-// A second acquisition written at a different voxel size is scaled onto the
-// same world with a matrix, in `imageLayersFor`.
-
-/** Where deck.gl should be looking, worked out from the view in micrometres. */
-function theViewStateFor(own) {
-  const { centre, zoom } = own.view;
-  const um = own.umPerVoxel;
-  return {
-    target: [centre.x / um.x, centre.y / um.y, 0],
-    zoom: -Math.log2(zoom / um.x),
-  };
-}
-
-/** The rectangle of specimen the window is showing, in world units. */
-function theWindowInWorld(own) {
-  const { centre, zoom } = own.view;
-  const { width, height } = own.size;
-  const um = own.umPerVoxel;
-  const acrossPerPixel = zoom / um.x;
-  const downPerPixel = zoom / um.y;
-  const middleX = centre.x / um.x;
-  const middleY = centre.y / um.y;
-  return {
-    left: middleX - (width / 2) * acrossPerPixel,
-    right: middleX + (width / 2) * acrossPerPixel,
-    top: middleY - (height / 2) * downPerPixel,
-    bottom: middleY + (height / 2) * downPerPixel,
-  };
-}
-
-/** The view now on screen, in micrometres. */
-function readTheView(own) {
-  return {
-    centre: { x: own.view.centre.x, y: own.view.centre.y },
-    zoom: own.view.zoom,
-  };
-}
-
-/**
- * How the canvas is placed on the screen at this instant.
- *
- * One record, worked out in one place, and used for three things: the frame each
- * of the page's two drawings is handed, the announcement when the view settles,
- * and the answer to `whereThingsAreDrawn()`. Keeping them the same object is what
- * makes an ordinary HTML element positioned from `project` land in exactly the
- * same place as a shape drawn with it.
- *
- * `project` turns micrometres into browser pixels from the top-left of the box;
- * `unproject` goes the other way, which is what a click or a drag needs.
- */
-function howThingsArePlaced(own) {
-  const { width, height, density } = own.size;
-  const view = own.view;
-  return {
-    centre: { x: view.centre.x, y: view.centre.y },
-    zoom: view.zoom,
-    width,
-    height,
-    density,
-    project: (x, y) => ({
-      x: width / 2 + (x - view.centre.x) / view.zoom,
-      y: height / 2 + (y - view.centre.y) / view.zoom,
-    }),
-    unproject: (x, y) => ({
-      x: view.centre.x + (x - width / 2) * view.zoom,
-      y: view.centre.y + (y - height / 2) * view.zoom,
-    }),
-  };
-}
-
-/**
- * Move the view, in micrometres, and draw the frame that follows from it.
- *
- * The view and the layers are handed over together, in one call, and this is
- * the heart of why this option needs no discipline about repainting. deck.gl
- * takes both and draws them in one pass, so the picture and the operator's
- * drawing in any frame were placed from the same numbers. There is no follower
- * and nothing to lag.
- */
-function writeTheView(own, asked) {
-  const now = own.view;
-  own.view = {
-    centre: asked.centre || now.centre,
-    zoom: asked.zoom > 0 ? asked.zoom : now.zoom,
-  };
-  showTheView(own);
-}
-
-/** Hand deck.gl the view and the layers that go with it, together. */
-function showTheView(own) {
-  if (!own.deck || own.destroyed) return;
-  own.deck.setProps({
-    viewState: theViewStateFor(own),
-    layers: layersFor(own),
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Making ground nobody imaged see-through
+// The little program that runs on the graphics card
 // ---------------------------------------------------------------------------
 
 /**
@@ -782,7 +691,7 @@ function onlyWhereTheRunHasImaged(source, level, regions) {
 }
 
 // ---------------------------------------------------------------------------
-// The layers
+// What the engine is asked to draw
 // ---------------------------------------------------------------------------
 
 /**
@@ -896,8 +805,129 @@ function stretchOntoTheSameWorld(own, store) {
 }
 
 // ---------------------------------------------------------------------------
+// Micrometres in, micrometres out
+// ---------------------------------------------------------------------------
+//
+// deck.gl has a notion of magnification of its own, and it is not one the
+// operator should ever meet: it counts in powers of two, where zero means one
+// unit of its own world to the screen pixel, and its world is whatever the
+// layers were placed in. The store and the microscope stage both speak
+// micrometres, so that is what crosses the interface, and the conversion lives
+// here and nowhere else.
+//
+// The world the layers are placed in is **voxels of the first acquisition's
+// full-resolution image**. That choice is worth stating, because it is the one
+// place a unit could go wrong. Viv places an image one world unit to the voxel
+// unless it is told otherwise, and telling it otherwise changes which copy of
+// the pyramid it chooses as well as where it draws — two things at once, one of
+// them rounded. Leaving its own placement alone and converting here instead
+// keeps the conversion in a single line that can be read and checked.
+//
+// The arithmetic, so it can be checked rather than trusted:
+//
+//     world units per screen pixel  =  µm per screen pixel ÷ µm per voxel
+//     deck.gl's magnification       =  −log₂(world units per screen pixel)
+//
+// A second acquisition written at a different voxel size is scaled onto the
+// same world with a matrix, in `imageLayersFor`.
+
+/** Where deck.gl should be looking, worked out from the view in micrometres. */
+function theViewStateFor(own) {
+  const { centre, zoom } = own.view;
+  const um = own.umPerVoxel;
+  return {
+    target: [centre.x / um.x, centre.y / um.y, 0],
+    zoom: -Math.log2(zoom / um.x),
+  };
+}
+
+/** The rectangle of specimen the window is showing, in world units. */
+function theWindowInWorld(own) {
+  const { centre, zoom } = own.view;
+  const { width, height } = own.size;
+  const um = own.umPerVoxel;
+  const acrossPerPixel = zoom / um.x;
+  const downPerPixel = zoom / um.y;
+  const middleX = centre.x / um.x;
+  const middleY = centre.y / um.y;
+  return {
+    left: middleX - (width / 2) * acrossPerPixel,
+    right: middleX + (width / 2) * acrossPerPixel,
+    top: middleY - (height / 2) * downPerPixel,
+    bottom: middleY + (height / 2) * downPerPixel,
+  };
+}
+
+/** The view now on screen, in micrometres. */
+function readTheView(own) {
+  return {
+    centre: { x: own.view.centre.x, y: own.view.centre.y },
+    zoom: own.view.zoom,
+  };
+}
+
+/**
+ * Move the view, in micrometres, and draw the frame that follows from it.
+ *
+ * The view and the layers are handed over together, in one call, and this is
+ * the heart of why this option needs no discipline about repainting. deck.gl
+ * takes both and draws them in one pass, so the picture and the operator's
+ * drawing in any frame were placed from the same numbers. There is no follower
+ * and nothing to lag.
+ */
+function writeTheView(own, asked) {
+  const now = own.view;
+  own.view = {
+    centre: asked.centre || now.centre,
+    zoom: asked.zoom > 0 ? asked.zoom : now.zoom,
+  };
+  showTheView(own);
+}
+
+/** Hand deck.gl the view and the layers that go with it, together. */
+function showTheView(own) {
+  if (!own.deck || own.destroyed) return;
+  own.deck.setProps({
+    viewState: theViewStateFor(own),
+    layers: layersFor(own),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // The operator's own drawing
 // ---------------------------------------------------------------------------
+
+/**
+ * How the canvas is placed on the screen at this instant.
+ *
+ * One record, worked out in one place, and used for three things: the frame each
+ * of the page's two drawings is handed, the announcement when the view settles,
+ * and the answer to `whereThingsAreDrawn()`. Keeping them the same object is what
+ * makes an ordinary HTML element positioned from `project` land in exactly the
+ * same place as a shape drawn with it.
+ *
+ * `project` turns micrometres into browser pixels from the top-left of the box;
+ * `unproject` goes the other way, which is what a click or a drag needs.
+ */
+function howThingsArePlaced(own) {
+  const { width, height, density } = own.size;
+  const view = own.view;
+  return {
+    centre: { x: view.centre.x, y: view.centre.y },
+    zoom: view.zoom,
+    width,
+    height,
+    density,
+    project: (x, y) => ({
+      x: width / 2 + (x - view.centre.x) / view.zoom,
+      y: height / 2 + (y - view.centre.y) / view.zoom,
+    }),
+    unproject: (x, y) => ({
+      x: view.centre.x + (x - width / 2) * view.zoom,
+      y: view.centre.y + (y - height / 2) * view.zoom,
+    }),
+  };
+}
 
 /**
  * The operator's drawing, as one layer glued to the rectangle of specimen the
@@ -915,11 +945,11 @@ function stretchOntoTheSameWorld(own, store) {
  * a camera do.
  */
 function theOperatorsDrawingLayer(own) {
-  const window_ = theWindowInWorld(own);
+  const showing = theWindowInWorld(own);
   return new TheOperatorsDrawing({
     id: "the-operators-drawing",
     image: own.texture,
-    bounds: [window_.left, window_.bottom, window_.right, window_.top],
+    bounds: [showing.left, showing.bottom, showing.right, showing.top],
     pickable: false,
     repaintFromTheFrameBeingDrawn: () => repaint(own),
     updateTriggers: { repaintFromTheFrameBeingDrawn: [] },
@@ -937,11 +967,11 @@ function theOperatorsDrawingLayer(own) {
  * layers over the same ground, and this simply puts one of them underneath.
  */
 function theGroundBeneathLayer(own) {
-  const window_ = theWindowInWorld(own);
+  const showing = theWindowInWorld(own);
   return new TheOperatorsDrawing({
     id: "the-ground-beneath",
     image: own.textureBeneath,
-    bounds: [window_.left, window_.bottom, window_.right, window_.top],
+    bounds: [showing.left, showing.bottom, showing.right, showing.top],
     pickable: false,
     repaintFromTheFrameBeingDrawn: () => repaintTheGroundBeneath(own),
     updateTriggers: { repaintFromTheFrameBeingDrawn: [] },
@@ -1024,7 +1054,7 @@ function repaintTheGroundBeneath(own) {
 }
 
 // ---------------------------------------------------------------------------
-// Going back to look for tiles that have landed
+// Going back to the store for what has arrived since
 // ---------------------------------------------------------------------------
 
 /**
@@ -1047,7 +1077,7 @@ function repaintTheGroundBeneath(own) {
  * from the old amount to the new one with nothing in between. So the guard is
  * kept for a measured saving and a remembered fault, not for a fault seen here.
  */
-async function goAndLookAgain(own) {
+async function openTheStoresAgain(own) {
   own.anotherLookIsWanted = true;
   if (own.readingAgain) return own.counted.lastAsked;
   own.readingAgain = true;
@@ -1056,7 +1086,7 @@ async function goAndLookAgain(own) {
       own.anotherLookIsWanted = false;
       let asked = 0;
       for (const store of own.opened) {
-        const fresh = await readTheStore(store.asked.url);
+        const fresh = await readTheStore(store.asked.url, store.name);
         if (own.destroyed) return own.counted.lastAsked;
         store.pyramid = fresh.data;
         store.metadata = fresh.metadata;
@@ -1262,7 +1292,7 @@ function handleFor(own) {
         own.boundToCoverage =
           own.boundToCoverage && Boolean(coverage.regions?.length);
       }
-      return goAndLookAgain(own);
+      return openTheStoresAgain(own);
     },
 
     /** Close the viewer and let go of everything it was holding. */

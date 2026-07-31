@@ -44,7 +44,10 @@
  *    silently reads from the wrong place. Here the caller says where the data
  *    is, and an address without a scheme is refused outright rather than
  *    quietly never fetched — which is what neuroglancer does with one, with no
- *    error and no request (see `SANDWICH.md`, last section).
+ *    error and no request. That was measured on the sandwich probe, whose
+ *    write-up is `viz_studio/SANDWICH.md` — a file that is not on this
+ *    branch; it lives on `claude/sandwich-probe`, commit `1277e30`, in its
+ *    last section.
  *
  * 3. **The operator's drawing is repainted only from inside the engine's
  *    end-of-frame announcement**, using the view read at that instant. This is
@@ -64,9 +67,8 @@
  *    that a tile may have landed, the engine on its own throws away everything
  *    it has already decoded, so the window goes empty and fills back in — every
  *    few seconds, all through a run. That is fixed here, and the section
- *    "Keeping the picture on screen while it is being fetched again" explains
- *    both the fault and what the engine does and does not give us to fix it
- *    with.
+ *    "Going back to the store for what has arrived since" explains both the
+ *    fault and what the engine does and does not give us to fix it with.
  *
  * 6. **The picture is placed where the store says it is.** Our writer says where
  *    an image sits by giving the corner of its first voxel; the engine reads the
@@ -269,6 +271,22 @@ export async function openViewer(element, options = {}) {
   return handleFor(own);
 }
 
+// ---------------------------------------------------------------------------
+// The two surfaces
+// ---------------------------------------------------------------------------
+//
+// Five of the pieces below — `fitTheSurfaces`, `makeTheSurfaceBeneath`,
+// `imagedBounds`, `howThingsArePlaced` and `repaint` — are word for word the
+// same in this file and in `../viv-under/viewer.js`.
+// That is on purpose and it is not tidy. The two options are the same
+// arrangement with a different engine in the middle, so the parts that are
+// not about the engine have to be identical or a reader could not tell an
+// engine difference from a wiring difference — which is the whole reason
+// this comparison exists. Two copies can drift apart, though, so **if you
+// change one of those five, change the other file to match in the same
+// commit.** Whether they should instead live in one shared module is a real
+// question and `../README.md` sets out what it would cost.
+
 /**
  * Put the engine's canvas down and the operator's canvas exactly on top of it.
  *
@@ -359,7 +377,9 @@ function buildTheTwoSurfaces(own) {
  * canvas pixel per browser pixel and lets the browser scale it up. What that
  * costs is sharpness rather than registration: the geometry still agrees exactly,
  * and the picture is simply drawn at two thirds of the resolution a dense screen
- * could show. It is recorded in `SANDWICH.md` §7 and it is not this file's to fix.
+ * could show. It is recorded in `viz_studio/SANDWICH.md` §7 — on the branch
+ * `claude/sandwich-probe`, commit `1277e30`, rather than on this one — and it
+ * is not this file's to fix.
  */
 function fitTheSurfaces(own) {
   const density = window.devicePixelRatio || 1;
@@ -499,8 +519,16 @@ function fitTheEngineToItsPatch(own) {
  *
  * Nudging the engine's own count of resizes makes it re-read its size at the
  * start of the very next frame, before it draws anything, so the frame the
- * operator sees is drawn at the size it is displayed at. With this, the same
- * measurement comes back to a single pixel.
+ * operator sees is drawn at the size it is displayed at. Asking for a redraw is
+ * what makes that next frame happen at once rather than whenever something else
+ * causes one. With this, the same measurement comes back to a single pixel.
+ *
+ * Both halves earn their place, and which fault each one prevents was measured
+ * rather than assumed. With the whole of this taken out, the two layers came
+ * apart by 69 screen pixels while panning and 71 while thrown about. With only
+ * the count left out and the redraw kept, panning came back to 1 and zooming
+ * stayed at 2 rather than 1 — so the redraw is what saves panning and the count
+ * is what saves zooming.
  *
  * It reaches into a field rather than calling something, because there is
  * nothing to call. If a later version of the engine renames it, this file is
@@ -512,6 +540,10 @@ function tellTheEngineItHasBeenResized(own) {
   display.resizeGeneration += 1;
   display.scheduleRedraw?.();
 }
+
+// ---------------------------------------------------------------------------
+// Opening the acquisitions
+// ---------------------------------------------------------------------------
 
 /**
  * Start the engine, hand it the acquisitions, and settle everything that is set
@@ -627,126 +659,6 @@ async function start(own, acquisitions) {
   keepShowingThePictureWhileTheNewOneArrives(own);
 }
 
-// ---------------------------------------------------------------------------
-// Keeping the picture on screen while it is being fetched again
-// ---------------------------------------------------------------------------
-//
-// This section exists because of one thing an operator sees, so it is worth
-// describing that first and the machinery second.
-//
-// While a run is going, the viewer is told every few seconds that a tile may
-// have landed. Each time, it has to make the engine go back to the store,
-// because nothing on disk announces a new tile — see `tilesMayHaveLanded` below
-// for why. Left to itself, the engine handles that by throwing away every piece
-// of picture it had already decoded and starting again from nothing, so the
-// window went completely empty for about a sixth of a second and then filled
-// back in. Measured: the share of the window holding picture read
-// 0.2726 → 0.0000 → 0.1839 across a single refresh. On a real acquisition that
-// is a flash of empty screen every few seconds, at exactly the moment the
-// operator is watching most closely, and it reads as the viewer breaking rather
-// than as the viewer working.
-//
-// **What the engine does and does not offer.** The only instruction the engine's
-// background worker accepts on this subject is "let go of everything you decoded
-// from this source", and a source here is one whole resolution level of one
-// acquisition — there is nothing finer. So the newly imaged ground cannot be
-// singled out: the refetching really is all-or-nothing, and that part is not
-// ours to change.
-//
-// What *is* ours to change is the picture on screen while the refetching
-// happens. The pieces the operator is looking at live in two places at once: the
-// worker's copy, which is what the instruction above throws away, and the
-// browser's own copy already uploaded to the graphics card, which is what is
-// actually drawn. The engine throws both away together, and only the first of
-// those two is necessary. So this keeps the second: the picture already on the
-// screen stays on the screen, and each piece of it is exchanged for its
-// replacement at the moment that replacement finishes downloading. Nothing is
-// ever drawn from two generations of the data at once, because the exchange
-// happens one piece at a time and each piece is whole.
-
-/**
- * Keep every piece of picture already on screen until its replacement arrives.
- *
- * The engine's worker and the page talk to each other in short messages, one per
- * piece of picture: "here is a fresh piece", "that piece has gone". Among them
- * is one message with no piece named at all, which means "let go of everything
- * you decoded from this source" — and that single message is the whole of the
- * blank. This intercepts exactly that one message and answers it by remembering
- * what was on screen instead of clearing it.
- *
- * Two things then have to be tidied up, and both are done here rather than left
- * to chance.
- *
- * A piece that is kept has to be let go of at the moment its replacement lands,
- * or the graphics card would quietly hold two copies of the same picture for
- * ever. A replacement announces itself by arriving under a name that is already
- * in use, which is what the second half of this function watches for.
- *
- * And a piece that is kept but never asked for again — ground the operator has
- * scrolled away from, which the engine has no reason to fetch a second time —
- * is let go of when the *next* refresh comes round, in `tilesMayHaveLanded`.
- * That bounds what is being held to a single refresh's worth of scenery.
- */
-function keepShowingThePictureWhileTheNewOneArrives(own) {
-  const queue = own.viewer?.chunkManager?.chunkQueueManager;
-  if (!queue || typeof queue.applyChunkUpdate !== "function") return;
-  const asTheEngineWouldHave = queue.applyChunkUpdate.bind(queue);
-
-  queue.applyChunkUpdate = (message) => {
-    const source = queue.rpc.get(message.source);
-    if (source === undefined) return asTheEngineWouldHave(message);
-
-    // "Let go of everything you decoded from this source." It is the only
-    // message that names no piece, and `message.promise` tells it apart from the
-    // one other message that names none — a direct request for a piece's
-    // contents, which is a question rather than an instruction.
-    if (message.promise === undefined && message.id === undefined) {
-      let holding = own.superseded.get(source);
-      if (holding === undefined) {
-        holding = new Set();
-        own.superseded.set(source, holding);
-      }
-      for (const piece of source.chunks.keys()) holding.add(piece);
-      // Nothing on screen changed, and saying so is not a white lie: every piece
-      // the engine was drawing a moment ago is still there to be drawn.
-      return false;
-    }
-
-    // A replacement for a piece that is still on screen. Letting go of the old
-    // one here, rather than leaving it to be overwritten, is what returns its
-    // room on the graphics card.
-    if (message.new && source.chunks.has(message.id)) {
-      source.deleteChunk(message.id);
-      own.superseded.get(source)?.delete(message.id);
-    }
-    return asTheEngineWouldHave(message);
-  };
-
-  own.stopHoldingOn = () => {
-    delete queue.applyChunkUpdate;
-    own.superseded.clear();
-  };
-}
-
-/**
- * Let go of the pieces kept through the last refresh that were never replaced.
- *
- * A piece is replaced during a refresh if the engine wants to draw it, which
- * means everything the operator is actually looking at is exchanged within that
- * one refresh. What is left over is scenery: ground that was on screen at some
- * point and is not now. Holding it costs room on the graphics card that the
- * engine no longer knows about, so it is let go of when the next refresh comes
- * round, and the picture on screen does not change when it goes.
- */
-function letGoOfWhatWasAlreadyReplaced(own) {
-  for (const [source, holding] of own.superseded) {
-    for (const piece of holding) {
-      if (source.chunks.has(piece)) source.deleteChunk(piece);
-    }
-  }
-  own.superseded.clear();
-}
-
 /**
  * Turn the acquisitions into the flat list of rows the engine draws.
  *
@@ -781,42 +693,6 @@ function rowsFor(acquisitions) {
     });
   });
   return rows;
-}
-
-/**
- * The little program that turns stored numbers into what you see.
- *
- * It has two things to get right at once and they pull in opposite directions,
- * so both are worth stating.
- *
- * **The brightness has to reach the screen**, because turning the contrast
- * handles is how a microscopist finds their specimen. So the colour carries the
- * brightness: colour × value.
- *
- * **Ground nobody has imaged has to come out as nothing rather than as black.**
- * Most of a canvas is usually empty — the room is declared to the reach of the
- * stage and filled in as the run goes — so a row drawn opaque everywhere blacks
- * out every row below it. That means the transparency answers one question only:
- * was this spot imaged at all?
- *
- * Getting these the other way round is a real mistake with a confusing symptom.
- * For the bottom-most picture on screen the engine switches blending off
- * altogether and writes the colour straight out, using the transparency only as
- * a yes-or-no test — so brightness put into the transparency simply never
- * arrives, and every contrast window draws the same flat shape.
- *
- * The numbers for the window are sent separately, as values for a control the
- * program declares, so that dragging a contrast handle reaches a program that is
- * already compiled instead of causing a fresh one to be built several times a
- * second.
- */
-function shaderFor(colour) {
-  const [r, g, b] = colour;
-  return (
-    "#uicontrol invlerp normalized\n" +
-    "void main() { float v = normalized();" +
-    ` emitRGBA(vec4(vec3(${r}, ${g}, ${b}) * v, v > 0.0 ? 1.0 : 0.0)); }`
-  );
 }
 
 /**
@@ -1009,6 +885,46 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
 }
 
 // ---------------------------------------------------------------------------
+// The little program that runs on the graphics card
+// ---------------------------------------------------------------------------
+
+/**
+ * The little program that turns stored numbers into what you see.
+ *
+ * It has two things to get right at once and they pull in opposite directions,
+ * so both are worth stating.
+ *
+ * **The brightness has to reach the screen**, because turning the contrast
+ * handles is how a microscopist finds their specimen. So the colour carries the
+ * brightness: colour × value.
+ *
+ * **Ground nobody has imaged has to come out as nothing rather than as black.**
+ * Most of a canvas is usually empty — the room is declared to the reach of the
+ * stage and filled in as the run goes — so a row drawn opaque everywhere blacks
+ * out every row below it. That means the transparency answers one question only:
+ * was this spot imaged at all?
+ *
+ * Getting these the other way round is a real mistake with a confusing symptom.
+ * For the bottom-most picture on screen the engine switches blending off
+ * altogether and writes the colour straight out, using the transparency only as
+ * a yes-or-no test — so brightness put into the transparency simply never
+ * arrives, and every contrast window draws the same flat shape.
+ *
+ * The numbers for the window are sent separately, as values for a control the
+ * program declares, so that dragging a contrast handle reaches a program that is
+ * already compiled instead of causing a fresh one to be built several times a
+ * second.
+ */
+function shaderFor(colour) {
+  const [r, g, b] = colour;
+  return (
+    "#uicontrol invlerp normalized\n" +
+    "void main() { float v = normalized();" +
+    ` emitRGBA(vec4(vec3(${r}, ${g}, ${b}) * v, v > 0.0 ? 1.0 : 0.0)); }`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Micrometres in, micrometres out
 // ---------------------------------------------------------------------------
 //
@@ -1169,6 +1085,127 @@ function repaint(own) {
     own.paint(frameFor(context));
     own.counted.overlayPaints += 1;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Going back to the store for what has arrived since
+// ---------------------------------------------------------------------------
+//
+// **Keeping the picture on screen while it is being fetched again.** This
+// section exists because of one thing an operator sees, so it is worth
+// describing that first and the machinery second.
+//
+// While a run is going, the viewer is told every few seconds that a tile may
+// have landed. Each time, it has to make the engine go back to the store,
+// because nothing on disk announces a new tile — see `tilesMayHaveLanded` below
+// for why. Left to itself, the engine handles that by throwing away every piece
+// of picture it had already decoded and starting again from nothing, so the
+// window went completely empty for about a sixth of a second and then filled
+// back in. Measured: the share of the window holding picture read
+// 0.2726 → 0.0000 → 0.1839 across a single refresh. On a real acquisition that
+// is a flash of empty screen every few seconds, at exactly the moment the
+// operator is watching most closely, and it reads as the viewer breaking rather
+// than as the viewer working.
+//
+// **What the engine does and does not offer.** The only instruction the engine's
+// background worker accepts on this subject is "let go of everything you decoded
+// from this source", and a source here is one whole resolution level of one
+// acquisition — there is nothing finer. So the newly imaged ground cannot be
+// singled out: the refetching really is all-or-nothing, and that part is not
+// ours to change.
+//
+// What *is* ours to change is the picture on screen while the refetching
+// happens. The pieces the operator is looking at live in two places at once: the
+// worker's copy, which is what the instruction above throws away, and the
+// browser's own copy already uploaded to the graphics card, which is what is
+// actually drawn. The engine throws both away together, and only the first of
+// those two is necessary. So this keeps the second: the picture already on the
+// screen stays on the screen, and each piece of it is exchanged for its
+// replacement at the moment that replacement finishes downloading. Nothing is
+// ever drawn from two generations of the data at once, because the exchange
+// happens one piece at a time and each piece is whole.
+
+/**
+ * Keep every piece of picture already on screen until its replacement arrives.
+ *
+ * The engine's worker and the page talk to each other in short messages, one per
+ * piece of picture: "here is a fresh piece", "that piece has gone". Among them
+ * is one message with no piece named at all, which means "let go of everything
+ * you decoded from this source" — and that single message is the whole of the
+ * blank. This intercepts exactly that one message and answers it by remembering
+ * what was on screen instead of clearing it.
+ *
+ * Two things then have to be tidied up, and both are done here rather than left
+ * to chance.
+ *
+ * A piece that is kept has to be let go of at the moment its replacement lands,
+ * or the graphics card would quietly hold two copies of the same picture for
+ * ever. A replacement announces itself by arriving under a name that is already
+ * in use, which is what the second half of this function watches for.
+ *
+ * And a piece that is kept but never asked for again — ground the operator has
+ * scrolled away from, which the engine has no reason to fetch a second time —
+ * is let go of when the *next* refresh comes round, in `tilesMayHaveLanded`.
+ * That bounds what is being held to a single refresh's worth of scenery.
+ */
+function keepShowingThePictureWhileTheNewOneArrives(own) {
+  const queue = own.viewer?.chunkManager?.chunkQueueManager;
+  if (!queue || typeof queue.applyChunkUpdate !== "function") return;
+  const asTheEngineWouldHave = queue.applyChunkUpdate.bind(queue);
+
+  queue.applyChunkUpdate = (message) => {
+    const source = queue.rpc.get(message.source);
+    if (source === undefined) return asTheEngineWouldHave(message);
+
+    // "Let go of everything you decoded from this source." It is the only
+    // message that names no piece, and `message.promise` tells it apart from the
+    // one other message that names none — a direct request for a piece's
+    // contents, which is a question rather than an instruction.
+    if (message.promise === undefined && message.id === undefined) {
+      let holding = own.superseded.get(source);
+      if (holding === undefined) {
+        holding = new Set();
+        own.superseded.set(source, holding);
+      }
+      for (const piece of source.chunks.keys()) holding.add(piece);
+      // Nothing on screen changed, and saying so is not a white lie: every piece
+      // the engine was drawing a moment ago is still there to be drawn.
+      return false;
+    }
+
+    // A replacement for a piece that is still on screen. Letting go of the old
+    // one here, rather than leaving it to be overwritten, is what returns its
+    // room on the graphics card.
+    if (message.new && source.chunks.has(message.id)) {
+      source.deleteChunk(message.id);
+      own.superseded.get(source)?.delete(message.id);
+    }
+    return asTheEngineWouldHave(message);
+  };
+
+  own.stopHoldingOn = () => {
+    delete queue.applyChunkUpdate;
+    own.superseded.clear();
+  };
+}
+
+/**
+ * Let go of the pieces kept through the last refresh that were never replaced.
+ *
+ * A piece is replaced during a refresh if the engine wants to draw it, which
+ * means everything the operator is actually looking at is exchanged within that
+ * one refresh. What is left over is scenery: ground that was on screen at some
+ * point and is not now. Holding it costs room on the graphics card that the
+ * engine no longer knows about, so it is let go of when the next refresh comes
+ * round, and the picture on screen does not change when it goes.
+ */
+function letGoOfWhatWasAlreadyReplaced(own) {
+  for (const [source, holding] of own.superseded) {
+    for (const piece of holding) {
+      if (source.chunks.has(piece)) source.deleteChunk(piece);
+    }
+  }
+  own.superseded.clear();
 }
 
 // ---------------------------------------------------------------------------

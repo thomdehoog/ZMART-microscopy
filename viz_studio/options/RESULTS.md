@@ -36,26 +36,70 @@ whether the arrangement keeps up with a run is the one to repeat first** on the
 machine with the graphics card, because that is where the engine stops being the
 slowest thing.
 
-**And the drawing rate wanders a great deal between one run and the next**, which
-is worth knowing before anybody reads a change in it as a change in the code. Row
-7 fell for all three options between the run of the morning and the run that
-added the bottom layer — option A from 24.8 to 18.0 frames a second, option B from
-26.1 to 16.0. That looked like a cost of the change, so it was checked properly
-rather than assumed either way: the page was built twice, once with the bottom
-layer and once without, and measurement 7 was taken from the two builds
-alternately, five times each, so that a machine having a slow few minutes could
-not favour one. The medians came out **14.7 against 16.0 at twenty positions and
-12.0 against 11.6 at two hundred** — the two builds swapping places, with single
-readings ranging from 10.2 to 16.4 within one build. So the fall is the machine
-and not the change, and a difference of this size in row 7 means nothing at all
-unless it is taken this way.
+**And the drawing rate wanders a great deal between one reading and the next**,
+which is worth knowing before anybody reads a change in it as a change in the
+code. It wandered enough that row 7 used to be misleading, so the row has been
+changed, and the story is worth telling because it is the reason for the
+brackets in it.
 
-The same caution belongs on row 6 for option B, which went from 826 requests to
-723 between the two runs while the bounded figure held at exactly 36. The
-unbounded reading waits for the requests to go quiet and then stops, so it counts
-however many the engine had got round to asking for; the bounded one is settled by
-the coverage record and is steady. Read the bounded numbers as the measurement and
-the unbounded ones as the order of magnitude.
+Row 7 fell for all three options between the run of one morning and the run that
+added the bottom layer — option A from 24.8 to 18.0 frames a second, option B
+from 26.1 to 16.0. That looked like a cost of the change, so it was checked
+rather than assumed: the page was built twice, once with the bottom layer and
+once without, and measurement 7 was taken from the two builds alternately, five
+times each, so that a machine having a slow few minutes could not favour one. The
+medians came out 14.7 against 16.0 at twenty positions and 12.0 against 11.6 at
+two hundred — the two builds swapping places, with single readings ranging from
+10.2 to 16.4 within one build. The fall was the machine and not the change.
+
+That was written down but the table went on reporting a single reading, which
+invited exactly the comparison it could not support. Taken five times over on one
+unchanged build, single readings have ranged from 4.8 to 10.3 on the same option
+at the same number of positions — a factor of two — while two options a reader
+would want to compare sat within a few tenths of each other. **So row 7 now
+reports the middle of five readings with the lowest and highest beside it**, and
+two columns whose ranges overlap have not been shown to differ, however far apart
+their middle values fall.
+
+Two runs of the new row a quarter of an hour apart show why that had to be said
+out loud. In the first, options A and B overlapped at twenty positions and were
+almost apart at two hundred; in the second, taken with no change to any of the
+three, they were apart at twenty and lay exactly on top of each other at two
+hundred. **Option C is the only column that is plainly and repeatedly slower
+than the others**, at both counts, in both runs. Everything else about row 7 is
+this machine having a good minute or a bad one.
+
+The same caution belongs on row 6 for option B, which has read 826, 723 and 688
+requests on different runs while the bounded figure held at exactly 36 every
+time. The unbounded reading waits for the requests to go quiet and then stops, so
+it counts however many the engine had got round to asking for; the bounded one is
+settled by the coverage record and is steady. Read the bounded numbers as the
+measurement and the unbounded ones as the order of magnitude.
+
+### Every row was broken on purpose to see whether it would notice
+
+A table of numbers reads as evidence whether or not it is, so each measurement
+here has been made to fail deliberately, by breaking the thing it claims to
+watch, and the breakages are listed under each row below. Three of them were not
+noticed at first, and all three have been fixed:
+
+- **Row 0b** said yes to an option that drew the bottom layer *above* the
+  picture. It asked only whether the colour appeared, and a colour on top appears
+  just as well as a colour underneath. It now also asks whether the acquired
+  picture is still showing, which a colour on top hides completely.
+- **Row 4** said "the picture shows" on a page with no acquired picture on screen
+  at all. It counts near-white pixels, and the operator's own pale carrier
+  outline is near-white enough to pass the test on its own. The same window is
+  now photographed twice, once with every channel switched off, and the reported
+  share is the difference.
+- **Row 7** reported a single reading of a number that varies by a factor of two
+  on an unchanged build. It now reports the middle of five with the spread beside
+  it.
+
+Two things the table still cannot see are recorded under the rows they belong to:
+the registration rows are blind to the two layers disagreeing about
+magnification alone, and row 3 cannot tell an engine whose gestures were taken
+away from an engine that never receives them.
 
 ### One finding changes the shape of the arrangement, and it applies to option B too
 
@@ -85,8 +129,9 @@ the neighbouring question: what happens when the plate and the plan are put
 *inside* neuroglancer as ordinary image layers, beneath the acquisition. There the
 lower layer does show through the upper one — read as exactly `0, 255, 0`
 wherever the upper layer had never been written, turning to the background colour
-when the lower layer was taken away, and to `255, 0, 0` when the upper layer's
-shader was made opaque on purpose. So the honest statement of both findings
+when the lower layer was taken away, and to `255, 0, 0` when the little program
+the engine runs on the graphics card to decide each spot's colour — a shader, in
+the engines' own word — was made to paint the upper layer opaque on purpose. So the honest statement of both findings
 together is this: **a surface behind the engine's canvas can never be seen, while
 a layer inside the engine, beneath another layer, can.** The stack in `LAYERS.md` is buildable — as layers
 within the engine rather than as canvases stacked on top of one another.
@@ -157,11 +202,13 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 
 | | neuroglancer-under | viv-inside | viv-under |
 | --- | --- | --- | --- |
-| *measured* | 2026-07-31 11:27 | 2026-07-31 11:14 | 2026-07-31 11:16 |
+| *measured* | 2026-07-31 12:46 | 2026-07-31 12:48 | 2026-07-31 12:51 |
 | **0. Can a surface underneath the engine be seen?** | **no** | yes | yes |
 | **0b. Is the bottom layer genuinely beneath the picture?** | **no** | yes | yes |
 |   … a colour drawn there fills this share of the window | 0.0 | 0.9695 | 0.9695 |
+|   … and the acquired picture is still showing on top of it | yes | yes | yes |
 |   … the same colour drawn in the top slot instead (must be large) | 1.0 | 1.0 | 1.0 |
+|   … which must hide the picture, and does (share left showing) | 0.0 | 0.0 | 0.0 |
 | **1. Registration** — worst unevenness at rest (screen px) | 1.0 | 0.0 | 0.0 |
 |   … while panning | 1.0 | 0.0 | 0.0 |
 |   … while zooming | 1.0 | 0.0 | 0.0 |
@@ -177,23 +224,24 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 |   … dragging carries the picture with the hand (slope) | 1.0 | 1.0 | 1.0 |
 | **3. Two gestures** — removed gestures that moved the view | none | none | none |
 |   … gestures the page refused | 1 shiftDrag, 1 rightButton, 3 ctrlWheel, 22 keys | 1 shiftDrag, 1 rightButton, 3 ctrlWheel, 22 keys | 1 shiftDrag, 1 rightButton, 3 ctrlWheel, 22 keys |
-| **4. Sparseness** — share of the window showing picture | 0.0152 | 0.0153 | 0.0153 |
+| **4. Sparseness** — share of the window showing picture | 0.0111 | 0.0112 | 0.0112 |
+|   … the same count with every channel switched off (must be small) | 0.0041 | 0.0041 | 0.0041 |
 |   … the operator's plan shows through the gaps | yes | yes | yes |
 | **5a. New data appears at all** | yes | yes | yes |
-|   … readers the option had to send back to the store | 3 | 3 | 3 |
+|   … the option's own count of what it sent back (a different thing in each) | 3 | 3 | 3 |
 | **5b. What the refresh costs** — pieces re-fetched | 4 | 3 | 4 |
-| **5c. The picture survives the refresh** — seconds before it is back | 0.12 | 0.25 | 0.18 |
-|   … what the window showed while it refreshed | [0.2726, 0.2726] | [0.2734, 0.2734, 0.2734, 0.2734] | [0.2734, 0.2734, 0.2734, 0.2734] |
+| **5c. The picture survives the refresh** — seconds before it is back | 0.12 | 0.4 | 0.2 |
+|   … what the window showed while it refreshed | [0.2726, 0.2726, 0.2726] | [0.2734, 0.2734, 0.2734, 0.2734] | [0.2734, 0.2734, 0.2734] |
 | **5d. The view stays put** — centre moved (µm) | 0.0 | 0 | 0.0 |
-| **5e. How soon a tile shows** (seconds) | 0.37 | 0.36 | 0.22 |
-| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 5.6 | 5.6 → 4.8 | 5.2 → 5.6 |
-|   … tiles written meanwhile | 438 | 426 | 441 |
-| **6. Requests** — to redraw one view, unbounded | 117 | 723 | 432 |
-|   … of those, for ground nobody imaged | 108 | 678 | 396 |
+| **5e. How soon a tile shows** (seconds) | 0.43 | 0.62 | 0.46 |
+| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 5.2 | 3.5 → 4.5 | 5.2 → 5.2 |
+|   … tiles written meanwhile | 426 | 512 | 414 |
+| **6. Requests** — to redraw one view, unbounded | 117 | 688 | 432 |
+|   … of those, for ground nobody imaged | 108 | 643 | 396 |
 |   … bounded by the coverage record | 25 | 36 | 100 |
 |   … of those, for ground nobody imaged | 16 | 0 | 64 |
-| **7. Drawing rate** — frames a second at 20 positions | 18.0 | 8.2 | 16.0 |
-|   … at 200 positions | 11.2 | 6.9 | 12.1 |
+| **7. Drawing rate** — frames a second at 20 positions, middle of five | 13.5 (12.3–14.0) | 5.6 (4.9–6.2) | 10.9 (10.0–11.6) |
+|   … at 200 positions, middle of five | 9.1 (8.4–10.5) | 4.5 (4.2–5.0) | 9.2 (8.4–9.9) |
 
 <!-- end of the generated table -->
 
@@ -222,6 +270,25 @@ it filling 100% of the window — including the one that had shown none of it a
 moment before. So the reading means "which slot", not "which colour", and it
 cannot be explained by a drawing that never ran or by a counting program that can
 only answer nought.
+
+**That was not enough on its own, and finding out why is the most useful thing in
+this row.** Option C was deliberately changed to put its bottom layer at the end
+of its list of layers instead of the beginning — that is, to draw the thing
+handed to `drawUnder` *over* the picture rather than under it, which is exactly
+the fake `contract.md` §4a forbids. The row went on reading **yes**, and its
+prose went on saying "the application's own drawing really does sit beneath the
+picture", because a colour on top fills the window just as well as a colour
+underneath. The only sign in the whole table was the share moving from 0.9695 to
+1.0, which nobody would read as a fault.
+
+So the row now asks a second question of the same photograph: **is the acquired
+picture still showing on top of the colour?** Underneath, it is — 2.95% of the
+window, exactly what it is with nothing drawn at all. On top, it is not — the
+colour has covered it and the picture reads nought. Both readings are in the
+table, and against the deliberately faked option the row now reads no, with a
+sentence saying which half it failed. The same second question is what makes the
+top-slot check mean something: a colour in the top slot must both fill the window
+and hide the picture.
 
 The measurement is taken with the drawn region *unbounded*, and that matters more
 here than anywhere else. Bounded to the coverage record, the engine's surface
@@ -256,7 +323,22 @@ explained away by the two layers having been photographed a moment apart.
 
 The last row of that group is the red evidence. Moving the hole two pixels reads
 5, and eight pixels reads 17, on the same page with nothing else changed. A check
-that has never been seen to fail is not evidence of anything.
+that has never been seen to fail is not evidence of anything, and this one has
+been shown to fail against a real fault as well as against a nudged hole: with
+option B changed to paint the operator's drawing from the frame *before* the one
+being shown — the classic follower fault — the row went from 0 to 10 while
+panning and 24 while thrown about.
+
+**What this number cannot see**, and it is worth knowing before leaning on a
+nought. Unevenness is the difference between the widest side and the narrowest,
+so it catches the two layers sitting in different *places*. If instead they
+agreed about position and disagreed about *magnification*, all four sides would
+grow or shrink together and the difference between them would stay at nought. The
+raw readings in `measurements/<option>.json` do carry that: each side is also
+reported as how far it strayed from the width the band was cut at, and a
+magnification disagreement shows there. The table has room for one number per
+row, and displacement is the fault this arrangement is actually prone to, so
+displacement is the number the table carries.
 
 **The one pixel option A reads at rest is this measurement's own floor against
 this engine, and nothing in the viewer can drive it to nought.** It was chased
@@ -290,15 +372,53 @@ needed and neither replaces the other: dragging reads +1.0 whichever way round
 the picture is drawn, because an engine pans using the same axis mapping it draws
 with. Only something asymmetric inside the specimen can say which way round it is.
 
+The row was shown able to give the other answer. With option B's picture mirrored
+left to right on purpose, the brightness slope went from +91.5 to **−91.5** and
+"the bright edge is on the right" read no — while the dragging check went on
+reading +1.0, exactly as the paragraph above says it would. That is as clear a
+demonstration as one could want that the dragging check cannot do this job.
+
 **3. Two gestures.** Nine gestures that used to move the view were each made in
 earnest and each left the picture byte-identical. The page also reports what it
 turned away — one shift-drag, one right-button click, three ctrl-wheels and
 twenty-two key presses — which is what stops this passing on a page that had
 quietly stopped listening altogether.
 
+The row was shown able to give the other answer: with shift-and-drag allowed to
+pan again in `harness/src/gestures.js`, it read **1: shift and drag (used to
+rotate)** on the next run.
+
+**What it cannot tell apart, which matters for one line of option A.** Option A
+also empties neuroglancer's own table of gestures, and its comment calls that
+belt as well as braces. That is exactly right, and this row cannot say which of
+the two is doing the work: with the emptying taken out altogether, every one of
+the nine gestures still left the picture byte-identical. The engine never
+receives them in the first place — its box is transparent to the mouse, and it
+listens for keys on an element that never has the keyboard's attention. So the
+emptying is insurance against a future stylesheet edit rather than something this
+table can show working, and it should be kept for that reason rather than because
+a number here would notice if it went.
+
 **4. Sparseness.** Five patches imaged on a canvas mostly never visited, seen from
 far enough out to have the whole carrier in the window. Picture where picture was
 written, the operator's plan everywhere else.
+
+**The number in this row used to be a little too large, and the check behind it
+could not fail.** The counting finds near-white pixels, on the reasoning that the
+acquired picture is near-white and the operator's drawing is dark. The operator's
+carrier outline is a pale line, and pale enough to be counted as picture: on its
+own it fills 0.41% of the window, which was more than the 0.2% the check asked
+for. So with the holes in the operator's sheet deliberately not cut at all — no
+acquired picture reaching the screen anywhere — the row still read "the picture
+shows".
+
+The same window is now photographed twice, once with every channel switched off
+through the interface, and the share reported is the difference between the two.
+That does two jobs at once. The headline number is now the picture alone, which
+is why this row reads 0.0111 where it used to read 0.0152. And the second reading
+is the red evidence, reported in the table beside it: with the picture switched
+off the share falls to 0.0041, and against the uncut-holes breakage the row now
+reads 0.0000 and "the picture shows" reads no.
 
 **5. New data arriving.** The one that matters most, and it has six parts.
 
@@ -307,12 +427,28 @@ written, the operator's plan everywhere else.
   window showing picture did not move at all, from 0.0953 to 0.0953. Not slow: no
   request was made, ever. What made it appear was one call,
   `tilesMayHaveLanded({coverage})`, which sends the option back to the store to
-  read what is there now; three readers were sent back, and the share went to
-  0.2726. How an option goes back differs and the page never knows: the two Viv
-  options open a fresh reader on the store, and option A tells neuroglancer's
-  background worker to read its three resolution levels again.
-- *What the refresh costs.* Four pieces of image re-fetched, three of which held
-  picture. That number follows the size of the window rather than the size of the
+  read what is there now, and the share went to 0.2726. How an option goes back
+  differs and the page never knows: the two Viv options open a fresh reader on
+  the store, and option A tells neuroglancer's background worker to read its
+  three resolution levels again.
+
+  The row beneath it — *the option's own count of what it sent back* — reads 3 in
+  every column and **must not be read across them**, which is why the row now
+  says so in its own name. It is the only number in this table that is the
+  option's own account of its own work rather than something read off a
+  photograph or counted by the server. For the two Viv options it is how many
+  copies of the image the freshly opened reader has, which is three because the
+  writer makes a pyramid of three; for option A it is how many of the engine's
+  own stores of decoded picture were told to let go, which is also three and for
+  an unrelated reason. It is kept for one narrow job: telling "the option was
+  asked and nothing happened" apart from "the option was never asked", which look
+  identical on screen. It cannot do more than that, and it was shown not to:
+  with option B's refresh deliberately made to hand the fresh readers nowhere,
+  this row went on reading 3 while the window never changed, "new data appears at
+  all" read no, and the pieces re-fetched fell to nought. **Row 5b is the number
+  to compare**, because the server counted it.
+- *What the refresh costs.* Four pieces of image re-fetched for option A, three
+  of which held picture. That number follows the size of the window rather than the size of the
   specimen, because the engine asks for what it needs to draw and nothing else.
 - *Does the picture survive it.* Yes, in all three, and the readings are flat:
   option A held 0.2726 in every frame of the refresh and the other two held
@@ -334,12 +470,25 @@ written, the operator's plan everywhere else.
   back, and that check was shown going red against the fault.
 - *Does the view stay put.* Yes, exactly: the centre moved 0.0 µm, the zoom did
   not change, and the edge of the picture on screen moved 0.0 photograph pixels.
-- *How soon.* 0.30 seconds from the tile being safely on disk to the window being
-  measurably brighter, which includes the time spent photographing and is
-  therefore an upper bound rather than a best case.
-- *Does it keep up.* 476 tiles written during the measurement while the view was
-  panned and zoomed throughout, with a refresh in every round. The drawing rate
-  went 5.2 → 5.6 → 5.2 → 5.2 → 5.2 → 5.2 frames a second: flat, not falling.
+- *How soon.* Between a fifth and two thirds of a second from the tile being
+  safely on disk to the window being measurably brighter — see row 5e for the
+  reading each option last gave. It includes the time spent photographing, so it
+  is an upper bound rather than a best case.
+- *Does it keep up.* Four hundred-odd tiles written during the measurement while
+  the view was panned and zoomed throughout, with a refresh in every round. The
+  drawing rate over the six rounds is flat rather than falling for every option,
+  which is the answer this asks for: a viewer that fell progressively further
+  behind a run would show it here. Row 5f carries the first round and the last
+  for each option, and the whole series is in `measurements/<option>.json`.
+  Read it the way row 7 asks to be read — these are single readings of a number
+  that wanders, so what matters is the shape of the six and not any one of them.
+
+  Two parts of this were shown able to fail. With option A's picture-keeping
+  taken out, "does the picture survive the refresh" read
+  `[0.2726, 0.0000, 0.0000]` — the blink, back. With option C's refresh made to
+  drag the view sideways on purpose, "the view stays put" read 50.155 µm and the
+  edge of the picture on screen moved 12 photograph pixels, so the reading from
+  the numbers and the reading from the photograph agreed.
 
 **6. Requests.** On the sparse canvas — a large declared room with a small imaged
 patch, which is the shape a real run has — a complete redraw cost **117 requests,
@@ -348,11 +497,29 @@ same redraw cost **25, of which 16 were wasted**. Almost the whole cost of a
 redraw is asking about ground the microscope has never been to, and the record is
 what stops it.
 
-**7. Drawing rate.** 25.1 frames a second with twenty tile rectangles on the
-operator's canvas and 19.5 with two hundred — a real cost, and one that will look
-different on a machine with a graphics card. It is the number to compare against
-the single-canvas option, because that is exactly where drawing in two surfaces
-and drawing in one should differ.
+Shown able to fail: with option A's bounding switched off in the adapter, the
+bounded reading came out at 117 — exactly the unbounded one, which is what it
+should be when the record is doing nothing.
+
+**7. Drawing rate.** The cost of the operator's drawing growing with the number
+of tile rectangles on it, which is exactly where drawing in two surfaces and
+drawing in one should differ.
+
+**Read the brackets before the number.** Each reading is the middle of five
+three-second pans taken on the same page, and the pair beside it is the lowest
+and the highest of those five. That is not decoration: a single reading of this
+has been seen to vary by a factor of two on an unchanged build, so a difference
+smaller than the spread means nothing whatever.
+
+Only two things in this row have held across repeated runs. **Option C is slower
+than the other two**, at both counts, by more than the spread. And **every option
+draws more slowly with two hundred rectangles than with twenty**, which is the
+cost the row exists to show. Whether options A and B differ from one another has
+come out both ways on runs a quarter of an hour apart, which is the honest answer:
+not shown either way on this machine.
+
+And the whole row describes this machine, which has no graphics card. It says
+"does the cost grow", not "is it fast enough".
 
 ---
 
@@ -381,7 +548,9 @@ by accident while adding a keystroke.
 
 ## Four surprises from building the options
 
-**Following the pointer did not come apart, on this machine.** `SANDWICH.md`
+**Following the pointer did not come apart, on this machine.** The sandwich
+probe's write-up — `viz_studio/SANDWICH.md`, which is not on this branch but on
+`claude/sandwich-probe`, commit `1277e30` —
 records that repainting the operator's drawing on every mouse move rather than
 from the engine's end-of-frame announcement let the two layers drift by up to 25
 screen pixels. That was reproduced here as a deliberate breakage — the
@@ -454,7 +623,8 @@ place the picture from the corner — should not notice the change.
 
 **A dense screen costs sharpness and a little registration, but not scale.**
 Neuroglancer sizes its canvas in browser pixels and lets the browser scale it up,
-which `SANDWICH.md` §7 records as a loss of sharpness. Measured here at a screen
+which `viz_studio/SANDWICH.md` §7 records as a loss of sharpness — again on
+`claude/sandwich-probe`, commit `1277e30`. Measured here at a screen
 density of 1.5 and of 2, the margins came out 60 / 61 and 79 / 81 real pixels
 against a band cut at 60 and 80. Opposite sides therefore add up to within a
 single real pixel of twice the band at every density — and a picture drawn at the

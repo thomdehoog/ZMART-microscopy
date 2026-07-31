@@ -48,7 +48,7 @@
  *    declared to the reach of the stage arrives as a large black rectangle with
  *    a few bright patches in it. A short addition to the little program that
  *    runs on the graphics card fixes that: where nothing was recorded, nothing
- *    is drawn. See `ShowWhatIsBehindUnimagedGround` below, which explains both
+ *    is drawn. See `LetTheUnimagedGroundShowThrough` below, which explains both
  *    what it does and the one thing it cannot tell apart.
  *
  * 3. **The engine is given a patch of its own canvas rather than a smaller
@@ -106,6 +106,15 @@ import { loadOmeZarr } from "@vivjs/loaders";
  * hundreds that bounding saves.
  */
 const SLACK_AROUND_THE_IMAGED_GROUND = 64;
+
+/**
+ * How dim a spot may be before it is treated as ground nobody has been to.
+ *
+ * Two per cent of the brightness window. The same number and the same meaning as
+ * in `../viv-inside/viewer.js`; see `LetTheUnimagedGroundShowThrough` below for
+ * what this is really asking and what it cannot tell apart.
+ */
+const AS_GOOD_AS_NOTHING = 0.02;
 
 /**
  * How the store's own description spells the size of a voxel, and what that is
@@ -223,8 +232,8 @@ export async function openViewer(element, options = {}) {
     // ran. Only one read of the store at a time: two overlapping reads leave
     // parts of two different generations of the data on screen at once, which
     // the live-tiles work in this repository has already met once.
-    refreshing: null,
-    askedAgainWhileRefreshing: false,
+    readingAgain: null,
+    anotherLookIsWanted: false,
     // How much drawing has actually happened. Kept because a measurement has to
     // be able to tell "the drawing never moved" from "the drawing moved to the
     // wrong place", and on screen those look identical.
@@ -242,6 +251,18 @@ export async function openViewer(element, options = {}) {
 // ---------------------------------------------------------------------------
 // The two surfaces
 // ---------------------------------------------------------------------------
+//
+// Five of the pieces below — `fitTheSurfaces`, `makeTheSurfaceBeneath`,
+// `imagedBounds`, `howThingsArePlaced` and `repaint` — are word for word the
+// same in this file and in `../neuroglancer-under/viewer.js`.
+// That is on purpose and it is not tidy. The two options are the same
+// arrangement with a different engine in the middle, so the parts that are
+// not about the engine have to be identical or a reader could not tell an
+// engine difference from a wiring difference — which is the whole reason
+// this comparison exists. Two copies can drift apart, though, so **if you
+// change one of those five, change the other file to match in the same
+// commit.** Whether they should instead live in one shared module is a real
+// question and `../README.md` sets out what it would cost.
 
 /**
  * Put the engine's canvas down and the operator's canvas exactly on top of it.
@@ -720,19 +741,19 @@ function widthAndHeightInVoxels(image) {
  * Until that is done this remains a good guess rather than a true statement, and
  * it is worth knowing which.
  */
-class ShowWhatIsBehindUnimagedGround extends LayerExtension {
+class LetTheUnimagedGroundShowThrough extends LayerExtension {
   getShaders() {
     return {
       inject: {
         "fs:DECKGL_FILTER_COLOR": `
-          float brightestOfTheThree = max(max(color.r, color.g), color.b);
-          color.a *= smoothstep(0.0, 0.02, brightestOfTheThree);
+          float brightestHere = max(color.r, max(color.g, color.b));
+          color.a *= smoothstep(0.0, ${AS_GOOD_AS_NOTHING.toFixed(3)}, brightestHere);
         `,
       },
     };
   }
 }
-ShowWhatIsBehindUnimagedGround.extensionName = "ShowWhatIsBehindUnimagedGround";
+LetTheUnimagedGroundShowThrough.extensionName = "LetTheUnimagedGroundShowThrough";
 
 // ---------------------------------------------------------------------------
 // What the engine is asked to draw
@@ -787,7 +808,7 @@ function layersFor(own) {
       excludeBackground: true,
       extensions: [
         new ColorPaletteExtension(),
-        new ShowWhatIsBehindUnimagedGround(),
+        new LetTheUnimagedGroundShowThrough(),
       ],
       onTileError: (why) => {
         // A piece nobody has written is the ordinary case on a sparse run
@@ -897,16 +918,16 @@ function theFrameTheEngineDrew(own) {
   if (!own.deck || own.destroyed) return null;
   const { width, height } = own.size;
   if (!(width > 0) || !(height > 0)) return null;
-  let viewport = null;
+  let frame = null;
   try {
-    viewport = own.deck.getViewports?.()[0] || null;
+    frame = own.deck.getViewports?.()[0] || null;
   } catch {
     return null;
   }
-  if (!viewport || !(viewport.width > 0) || !Array.isArray(viewport.target)) {
+  if (!frame || !(frame.width > 0) || !Array.isArray(frame.target)) {
     return null;
   }
-  return viewport;
+  return frame;
 }
 
 /**
@@ -920,17 +941,17 @@ function theFrameTheEngineDrew(own) {
  */
 function readTheView(own) {
   const um = voxelOfTheEngine(own);
-  const viewport = theFrameTheEngineDrew(own);
-  if (!viewport) {
+  const frame = theFrameTheEngineDrew(own);
+  if (!frame) {
     return own.wanted || { centre: { x: 0, y: 0 }, zoom: 1 };
   }
-  const zoomAcross = viewport.zoomX ?? viewport.zoom;
+  const zoomAcross = frame.zoomX ?? frame.zoom;
   const zoom = um.x / Math.pow(2, zoomAcross);
   const off = howFarThePatchIsOffCentre(own);
   return {
     centre: {
-      x: viewport.target[0] * um.x - off.x * zoom,
-      y: viewport.target[1] * um.y - off.y * zoom,
+      x: frame.target[0] * um.x - off.x * zoom,
+      y: frame.target[1] * um.y - off.y * zoom,
     },
     zoom,
   };
@@ -1044,8 +1065,8 @@ function repaint(own) {
  */
 async function openTheStoresAgain(own) {
   if (own.destroyed) return 0;
-  if (own.refreshing) {
-    own.askedAgainWhileRefreshing = true;
+  if (own.readingAgain) {
+    own.anotherLookIsWanted = true;
     return own.counted.lastAsked;
   }
   const doIt = (async () => {
@@ -1074,17 +1095,17 @@ async function openTheStoresAgain(own) {
     if (!own.destroyed) own.deck?.setProps({ layers: layersFor(own) });
     return handedOver;
   })();
-  own.refreshing = doIt;
+  own.readingAgain = doIt;
   let handedOver = 0;
   try {
     handedOver = await doIt;
   } finally {
-    own.refreshing = null;
+    own.readingAgain = null;
   }
   own.counted.letGoes += 1;
   own.counted.lastAsked = handedOver;
-  if (own.askedAgainWhileRefreshing && !own.destroyed) {
-    own.askedAgainWhileRefreshing = false;
+  if (own.anotherLookIsWanted && !own.destroyed) {
+    own.anotherLookIsWanted = false;
     return openTheStoresAgain(own);
   }
   return handedOver;

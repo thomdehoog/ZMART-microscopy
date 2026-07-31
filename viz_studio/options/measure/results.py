@@ -55,10 +55,22 @@ ROWS = [
                          "behind the engine (green)"),
     ),
     (
+        "  … and the acquired picture is still showing on top of it",
+        lambda f: _reach(f, "0b. is the bottom layer beneath the picture",
+                         "with the colour in the bottom slot",
+                         "the picture is still on top of it", "the picture survived"),
+    ),
+    (
         "  … the same colour drawn in the top slot instead (must be large)",
         lambda f: _reach(f, "0b. is the bottom layer beneath the picture",
                          "and the check can fail", "with the colour in the top slot",
                          "shares of the window", "behind the engine (green)"),
+    ),
+    (
+        "  … which must hide the picture, and does (share left showing)",
+        lambda f: _reach(f, "0b. is the bottom layer beneath the picture",
+                         "and the check can fail", "with the colour in the top slot",
+                         "shares of the window", "acquired picture (near white)"),
     ),
     (
         "**1. Registration** — worst unevenness at rest (screen px)",
@@ -135,6 +147,11 @@ ROWS = [
                          "share of the window showing acquired picture"),
     ),
     (
+        "  … the same count with every channel switched off (must be small)",
+        lambda f: _reach(f, "4. sparseness", "and with every channel switched off",
+                         "picture"),
+    ),
+    (
         "  … the operator's plan shows through the gaps",
         lambda f: _reach(f, "4. sparseness",
                          "the operator's plan shows through the gaps"),
@@ -145,9 +162,10 @@ ROWS = [
                          "does it appear at all", "it appeared"),
     ),
     (
-        "  … readers the option had to send back to the store",
+        "  … the option's own count of what it sent back (a different thing in each)",
         lambda f: _reach(f, "5. new data arriving while somebody is watching",
-                         "does it appear at all", "readers sent back to the store"),
+                         "does it appear at all",
+                         "what the option said it sent back to the store"),
     ),
     (
         "**5b. What the refresh costs** — pieces re-fetched",
@@ -207,14 +225,12 @@ ROWS = [
                          "of which were for ground nobody imaged"),
     ),
     (
-        "**7. Drawing rate** — frames a second at 20 positions",
-        lambda f: _reach(f, "7. drawing rate with many positions", "20 positions",
-                         "frames a second"),
+        "**7. Drawing rate** — frames a second at 20 positions, middle of five",
+        lambda f: _rate(f, "20 positions"),
     ),
     (
-        "  … at 200 positions",
-        lambda f: _reach(f, "7. drawing rate with many positions", "200 positions",
-                         "frames a second"),
+        "  … at 200 positions, middle of five",
+        lambda f: _rate(f, "200 positions"),
     ),
 ]
 
@@ -234,6 +250,27 @@ def _refused(found: dict) -> str:
         return "—"
     refused = counted.get("refused", {})
     return ", ".join(f"{value} {key}" for key, value in refused.items() if value)
+
+
+def _rate(found: dict, positions: str) -> str:
+    """The drawing rate, always with the spread of the readings beside it.
+
+    Written as "8.2 (7.4–8.6)" rather than as a bare number, and never as a bare
+    number, because a single reading of this on a machine without a graphics card
+    has been seen to vary by a factor of two on an unchanged build. Two columns
+    whose ranges overlap have not been shown to differ, and a reader can see that
+    from the table itself instead of having to know it.
+    """
+    middle = _reach(found, "7. drawing rate with many positions", positions,
+                    "frames a second")
+    if middle == "—":
+        return "—"
+    spread = _reach(found, "7. drawing rate with many positions", positions,
+                    "frames a second, lowest and highest seen")
+    if spread == "—":
+        return middle
+    low, high = json.loads(spread.replace("'", '"'))
+    return f"{middle} ({low}–{high})"
 
 
 def _first_to_last(found: dict) -> str:

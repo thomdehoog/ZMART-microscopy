@@ -5,10 +5,11 @@ All of them are written by this project's own writer,
 matters more than it sounds. The whole question being settled is how three ways
 of drawing behave on the runs this project actually produces, and an answer
 obtained on a made-up image would say nothing about the sparseness, the pyramid
-of smaller copies, the chunk size or the many small requests that make a real one
-what it is. So these are ordinary runs, only small enough to measure quickly.
+of smaller copies, the size of the blocks it is stored in or the many small
+requests that make a real one what it is. So these are ordinary runs, only small
+enough to measure quickly.
 
-There are four, because the measurements ask four different questions.
+There are five, because the measurements ask five different questions.
 
 **The square** is for registration and handedness. It is imaged edge to edge, so
 on screen it is a solid block of picture with the background all around it — the
@@ -31,6 +32,12 @@ operator meets.
 which is what a run visiting chosen positions looks like. It is what the
 sparseness measurement uses: the operator's drawing should show through the gaps
 between them, and picture should appear only where picture was written.
+
+**The fine square** is the square again, written at a third of a micrometre to
+the voxel instead of one. It exists to catch a viewer that has quietly settled on
+counting in voxels while telling everybody it counts in micrometres. On every
+other store here a voxel is exactly one micrometre, so the two are the same
+number and the confusion cannot be seen.
 """
 
 from __future__ import annotations
@@ -52,9 +59,10 @@ from zmart_storage import Channel, TileCanvases  # noqa: E402
 SQUARE_VOXELS = 1024
 SQUARE_TILE = 256
 
-# The brightness written into the square. The shader maps 0 to 4095 onto black to
-# white, so this lands near white — one of the four colours the margin
-# measurement has to be able to tell apart. See `harness/src/drawings.js`.
+# The brightness written into the square. The little program each engine runs to
+# turn stored numbers into colour maps 0 to 4095 onto black to white, so this
+# lands near white — one of the four colours the margin measurement has to be
+# able to tell apart. See `harness/src/drawings.js`.
 BRIGHT = 3800
 
 # The sparse canvas: a large declared room with a small imaged patch inside it.
@@ -62,9 +70,12 @@ BRIGHT = 3800
 # realistic voxel size, and far more than any of these measurements draws at once.
 SPARSE_VOXELS = 8192
 SPARSE_TILE = 512
-# A chunk of sixty-four is deliberately small. It is what makes a single redraw of
-# the whole canvas cost a couple of hundred separate requests rather than a dozen,
-# which is the shape the sparse acquisitions measured earlier in this project had.
+# How large a block the picture is stored in — a chunk, in the store's own word.
+# It is the smallest piece anything can ask for, so it decides how many separate
+# requests a redraw costs. Sixty-four voxels is deliberately small: it makes one
+# redraw of the whole canvas cost a couple of hundred requests rather than a
+# dozen, which is the shape the sparse acquisitions measured earlier in this
+# project had.
 SPARSE_CHUNK = 64
 SPARSE_PATCH = 3
 
@@ -210,7 +221,7 @@ def write_the_scattered_canvas(folder: Path, *, name: str = "scattered") -> Tile
     return canvases
 
 
-def write_a_tenth_of_a_micrometre_square(
+def write_a_third_of_a_micrometre_square(
     folder: Path, *, name: str = "fine"
 ) -> TileCanvases:
     """The same square written at a third of a micrometre to the voxel.
@@ -246,7 +257,7 @@ def write_them_all(folder: Path) -> None:
         write_the_lopsided_square,
         write_the_sparse_canvas,
         write_the_scattered_canvas,
-        write_a_tenth_of_a_micrometre_square,
+        write_a_third_of_a_micrometre_square,
     ):
         write(folder).close()
 
