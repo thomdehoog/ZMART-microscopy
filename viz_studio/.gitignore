@@ -19,3 +19,9 @@ cold_open_*.json
 # time, and builds into its own dist. Both are generated.
 options/node_modules
 options/harness/dist/
+
+# The acquisitions the measurements are taken against. `options/measure/run.py`
+# writes them fresh each time it runs, and they are large, so they are not worth
+# keeping in the history -- the readings taken from them are, and those live in
+# options/measurements/.
+options/measurements/acquisitions/
