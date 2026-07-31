@@ -5,14 +5,23 @@ nobody had asked it. It is measured first, before anything is built on top of th
 answer, and the answer is reported plainly whichever way it comes out.
 
 **Why it matters.** `LAYERS.md` sets out a stack with the carrier outline at the
-bottom, the operator's planned tiles above it, and the acquired picture above
-those. Read literally, and drawn as a sandwich, that arrangement wants three
-surfaces: the operator's plan underneath, the engine's canvas in the middle
-showing picture where there is picture and nothing where there is none, and the
-operator's scribbles and selection on top. For the middle surface to be
-transparent where nothing was imaged, two things have to be true at once — the
-shader has to emit nothing there, which it does, and that nothing has to survive
-all the way to the screen.
+bottom, the acquired picture above it, and the operator's planned tiles above
+that. Drawn as a sandwich — meaning two separate drawing surfaces in the page,
+one in front of the other — the bottom of that stack wants a surface *behind* the
+engine's canvas for the carrier to be drawn on, with the engine in front of it
+showing picture where there is picture and nothing where there is none. For
+anything on that lower surface to be seen at all, two things have to be true at
+once: the shader has to emit nothing over ground nobody imaged, which it does, and
+that nothing has to survive all the way to the screen.
+
+**What this question is not about.** It asks only about surfaces in the page: one
+canvas placed behind another. It says nothing about layers stacked *inside* the
+engine, which is a separate arrangement measured separately in
+`viz_studio/LAYER_STACK.md` (on the branch `claude/layer-stack-probe`, commit
+`4960d17`, at the time of writing), and where a lower layer does show through the
+layer above it. Whichever way this measurement comes out, the stack described in
+`LAYERS.md` remains buildable as layers within the engine. Please keep the two
+apart when reporting the result.
 
 **How it is measured.** The box the viewer was opened inside is painted one
 saturated colour. The engine's own background behind the picture is set to a
@@ -98,9 +107,13 @@ def measure(harness, *, store: str = "scattered") -> dict:
             f"nobody imaged an operator sees the engine's own background "
             f"({engine:.0%} of the window) and none of the colour painted "
             "behind it. A surface underneath the engine cannot be seen at all, "
-            "so the operator's carrier and tiles have to be drawn on the "
-            "surface ABOVE the engine, with holes cut where the run's coverage "
-            "record says there is picture."
+            "so in a sandwich the operator's carrier and tiles have to be drawn "
+            "on the surface ABOVE the engine, with holes cut where the run's "
+            "coverage record says there is picture. This is a fact about one "
+            "canvas placed behind another, and it does not carry over to layers "
+            "stacked inside the engine, where a lower layer does show through "
+            "the layer above it; see viz_studio/LAYER_STACK.md, on the branch "
+            "claude/layer-stack-probe."
         )
         found["a surface underneath is usable"] = False
     return found

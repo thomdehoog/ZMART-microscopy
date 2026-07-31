@@ -93,12 +93,21 @@ function onScreen(project, region) {
  * - `selected` the index of the tile the operator is working with, or `null`
  * - `background` the page colour, so the sheet matches it exactly
  *
- * The order things are drawn in is the order `LAYERS.md` sets out, and it is not
- * arbitrary. The carrier and the tiles sit *underneath* the acquired picture, so
- * they are painted first and then the ground that really holds picture is
- * cleared away, letting the image show through. Anything the operator is
- * actively working with sits on top of everything and is painted last, after the
- * clearing, so it is never hidden by the picture.
+ * The order things are drawn in is not arbitrary. The carrier and the tiles are
+ * painted first and then the ground that really holds picture is cleared away,
+ * letting the image show through from the engine's canvas underneath. Anything
+ * the operator is actively working with sits on top of everything and is painted
+ * last, after the clearing, so it is never hidden by the picture.
+ *
+ * One thing to know before copying this order into a real viewer. It puts the
+ * planned tiles *below* the acquisition, because a tile rectangle is cleared away
+ * wherever picture was written — and `LAYERS.md` has since been corrected to put
+ * the plan above the picture, on the evidence that an operator most wants to see
+ * a tile's outline at the moment that tile has just been imaged. Drawing the tile
+ * outlines again after the holes are cut would follow the corrected order. It has
+ * deliberately not been changed here, because these measurements were taken with
+ * the drawing as it stands and the readings would no longer describe the same
+ * page.
  */
 export function drawTheCarrier({ context, width, height, project, coverage }, scene) {
   const { background = "#101014", tiles = [], wells = [], carrier = null } = scene;

@@ -166,16 +166,28 @@ the engine's own background: over ground nobody imaged, 97% of the window was th
 engine's background and 0% was the colour behind. The engine forces the whole
 canvas opaque at the end of every frame.
 
-The consequence for `LAYERS.md` is real and it applies to any sandwich, so option
-B inherits it. The stack of "carrier at the bottom, tiles above, picture above
-those" **cannot** be built by putting the operator's plan on a surface underneath
-the engine. It has to be built the other way up: the operator draws the carrier
+The consequence applies to any sandwich, so option B inherits it. In a sandwich —
+two drawing surfaces in the page, one in front of the other — the operator's plan
+**cannot** be put on a surface underneath the engine, because that surface is
+never seen. It has to be built the other way up: the operator draws the carrier
 and the tiles on the surface *above*, and cuts holes in it wherever the coverage
 record says there is picture. That works, and it is what the harness does.
 
-It also promotes the coverage record from an optimisation to a requirement. With
-no record there is nowhere the picture is allowed to show, and the harness says
-so plainly rather than guessing.
+It also promotes the coverage record from an optimisation to a requirement for
+these options. With no record there is nowhere the picture is allowed to show,
+and the harness says so plainly rather than guessing.
+
+**This does not mean the stack in `LAYERS.md` is impossible**, and it would be
+easy to draw that conclusion by mistake, so it is worth separating the two
+carefully. What was measured here is one *canvas* placed behind another. Putting
+the plate and the plan *inside* neuroglancer as image layers, underneath the
+acquisition, is a different arrangement, and it was measured on the same night in
+`viz_studio/LAYER_STACK.md` — on the branch `claude/layer-stack-probe`, commit
+`4960d17`, at the time of writing. There a lower layer does show through the layer
+above it, read as exactly `0, 255, 0` wherever the upper layer had never been
+written. So a surface behind the engine's canvas can never be seen, while a layer
+inside the engine, beneath another layer, can. Option C, which draws everything in
+one canvas, is not touched by this finding either.
 
 **Resizing the engine's canvas mid-gesture costs registration unless the engine is
 told at once.** Neuroglancer only re-reads its own size when the browser's resize

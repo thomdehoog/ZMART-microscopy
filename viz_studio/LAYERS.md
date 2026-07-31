@@ -5,8 +5,9 @@ Written 2026-07-30, while the flat two-dimensional front end is being designed.
 This describes **what belongs to the drawing engine and what belongs to the
 application's own canvas**, and why the line falls where it does. It is worth
 writing down separately from the question of *which* engine draws, because the
-answer is the same either way — and that question is still open, being measured
-in task #23.
+answer is the same either way. That question has since been settled — the engine
+is neuroglancer, and the reasoning is recorded in `WHERE_THINGS_STAND.md` — but
+nothing below depends on it.
 
 ---
 
@@ -15,14 +16,30 @@ in task #23.
 | | What it is | Who draws it |
 | --- | --- | --- |
 | 1 | The carrier: the plate or slide outline, the wells | the application |
-| 2 | The tiles the operator laid out, coloured by how they are getting on | the application |
-| 3 | The acquired image — one layer per acquisition type | the engine |
-| 4 | A segmentation mask, when there is one | the engine |
+| 2 | The acquired image — one layer per acquisition type | the engine |
+| 3 | A segmentation mask, when there is one | the engine |
+| 4 | The tiles the operator laid out, coloured by how they are getting on | the application |
 | 5 | Scribbles, markers, selection, drag handles | the application |
 
-Later layers are drawn over earlier ones. So the operator's plan sits underneath
-the picture and shows through wherever nothing has been imaged yet, and anything
-they are actively working with sits on top of everything.
+Later layers are drawn over earlier ones. So the acquired picture covers the
+carrier wherever there is picture, the operator's plan stays visible on top of
+the picture, and anything they are actively working with sits above everything
+else.
+
+**Why the plan sits above the picture rather than below it.** This was the other
+way round until the layer stack was photographed being built on 2026-07-30, and
+the photographs settled it (`LAYER_STACK.md` §3, which at the time of writing
+lives on the branch `claude/layer-stack-probe`, commit `4960d17`). With the plan
+underneath, the acquisition covered the tile outlines exactly where the two
+overlapped — so a tile lost its outline at the very moment it was imaged. That is
+the worst possible moment to lose it, because it is precisely when the operator is
+checking whether the tile they got is the tile they planned. The carrier
+underneath is a different sort of thing: it is a backdrop, drawn so the operator
+can see where on the plate they are, and it is *meant* to be covered as picture
+arrives. The plan is not a backdrop. It is something the operator drew on purpose
+and needs to keep seeing, so it belongs above the picture. It should be drawn
+lightly enough to sit there comfortably — a thin outline and at most a faint
+wash — so that it marks the picture out without hiding what is in it.
 
 An acquisition type is one image. A run that takes a wide survey and then a
 detailed scan of chosen places has two of them, and they become two layers in the
@@ -94,13 +111,16 @@ hit-testing, which is exactly the work the application's canvas is for.
 
 ## One consequence worth knowing about: picking
 
-Because the acquired image is drawn *above* the tile rectangles, a click landing
-on the image would be caught by it before ever reaching the tile underneath.
+With the plan drawn above the picture, a click that lands inside a planned tile
+reaches that tile first, which is the behaviour an operator expects. The picture
+is still there underneath, though, and a click on imaged ground where no tile was
+planned lands on it.
 
-The fix is one line — mark the image layer as not pickable. You almost never want
-to pick a pixel; you want to pick the tile it belongs to. With the image standing
-aside, clicks fall through to the rectangles and the interaction the operator
-expects simply works.
+So it is still worth marking the image layer as not pickable, which is one line.
+You almost never want to pick a pixel; you want to pick the tile it belongs to,
+or nothing at all. With the image standing aside, a click either finds one of the
+operator's own shapes or finds nothing, and never comes back holding a voxel
+nobody asked about.
 
 ---
 
@@ -136,8 +156,40 @@ drawing over it and nothing reports that it has.
 
 ## What is still open
 
-None of the above depends on which engine draws the image, which is the point of
-writing it down now. What is still being decided is whether the engine draws
-*inside* the application's canvas as another layer, or *underneath* it as a second
-canvas with holes cut in the layers above. That is task #23, and the measurement
-is whether the two stay locked together while the view is moved.
+**Which engine draws is no longer one of these questions.** It is neuroglancer,
+chosen on the strength of what it lets you build around it rather than on what it
+can hold; `WHERE_THINGS_STAND.md` sets out the reasoning, along with the one
+drawback that does not go away, which is that every import comes through a path
+the package itself calls unpromised. None of the stack above depended on that
+answer, which is why it was worth writing down before the choice was made.
+
+What is still being decided is the **arrangement**: whether the engine draws
+*inside* the application's own canvas as one more layer, or *underneath* it as a
+second canvas with holes cut in the surface above. Three viewers are being built
+side by side for that comparison — two sandwiches, one with each engine, and one
+single canvas — behind one interface and measured with one suite, so that any
+difference you feel is the approach rather than the way somebody happened to wire
+it up. Viv is still among them on purpose, so that the choice of engine is checked
+against a real machine and a real dataset instead of being argued about. See
+`OPTIONS.md` for the three and `options/RESULTS.md` for the readings so far.
+
+One measured fact belongs here because it decides how each arrangement can be
+assembled, and because the two halves of it are easy to run together by mistake.
+**Nothing painted on a surface behind the engine's canvas is ever seen**, since
+the engine forces its whole canvas opaque at the end of every frame — so in a
+sandwich of two canvases the carrier and the plan cannot go underneath, and are
+instead drawn on the surface above with holes cut wherever there is picture.
+**A layer placed inside the engine, beneath another layer, is a different matter
+and does show through**, measured exactly. So the stack above can also be built
+entirely as layers within the engine, which is how the layer-stack probe built
+it — the plate and the plan each written into the store as an image layer of
+their own. Both measurements are written up: the first in `options/RESULTS.md`,
+the second in `LAYER_STACK.md`.
+
+That second route does cut across the line drawn earlier in this document, and it
+is worth seeing the cost before choosing it. Anything written as a layer lives in
+the store, so it cannot change while somebody is watching without writing to disk
+again. A plan fixed at the moment the operator presses save is comfortable there.
+Tile rectangles that turn from *planned* to *acquiring* to *done* every few
+seconds are not, and belong to the application whichever route is taken. The order
+in the table above holds either way.
