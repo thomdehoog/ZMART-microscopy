@@ -44,6 +44,23 @@ ROWS = [
                          "a surface underneath is usable"),
     ),
     (
+        "**0b. Is the bottom layer genuinely beneath the picture?**",
+        lambda f: _reach(f, "0b. is the bottom layer beneath the picture",
+                         "the bottom layer is genuinely beneath the picture"),
+    ),
+    (
+        "  … a colour drawn there fills this share of the window",
+        lambda f: _reach(f, "0b. is the bottom layer beneath the picture",
+                         "with the colour in the bottom slot", "shares of the window",
+                         "behind the engine (green)"),
+    ),
+    (
+        "  … the same colour drawn in the top slot instead (must be large)",
+        lambda f: _reach(f, "0b. is the bottom layer beneath the picture",
+                         "and the check can fail", "with the colour in the top slot",
+                         "shares of the window", "behind the engine (green)"),
+    ),
+    (
         "**1. Registration** — worst unevenness at rest (screen px)",
         lambda f: _reach(f, "1. registration", "at rest, unevenness"),
     ),
@@ -63,6 +80,32 @@ ROWS = [
         "  … with the hole moved 8 px on purpose (must be large)",
         lambda f: _reach(f, "1. registration", "and the check can fail",
                          "the hole moved 8 browser pixels", "unevenness"),
+    ),
+    (
+        "**1b. Registration of the bottom layer** — worst unevenness at rest (screen px)",
+        lambda f: _reach(f, "1b. registration of the bottom layer",
+                         "at rest, unevenness"),
+    ),
+    (
+        "  … while panning",
+        lambda f: _reach(f, "1b. registration of the bottom layer", "panning",
+                         "unevenness"),
+    ),
+    (
+        "  … while zooming",
+        lambda f: _reach(f, "1b. registration of the bottom layer", "zooming",
+                         "unevenness"),
+    ),
+    (
+        "  … thrown about",
+        lambda f: _reach(f, "1b. registration of the bottom layer", "thrown about",
+                         "unevenness"),
+    ),
+    (
+        "  … with the ring moved 8 px on purpose (must be large)",
+        lambda f: _reach(f, "1b. registration of the bottom layer",
+                         "and the check can fail",
+                         "the ring moved 8 browser pixels", "unevenness"),
     ),
     (
         "**2. Handedness** — brightness across the picture (levels per 100 px)",

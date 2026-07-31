@@ -28,7 +28,8 @@ exactly one thing:
  *   coverage      the imaged regions, as `zmart_storage/coverage.py` records them,
  *                 or null when the run keeps no record
  *   background    the page colour, so the seam never shows
- *   onViewChanged called with { centre, zoom } whenever the view settles
+ *   onViewChanged called whenever the view settles, with the same record
+ *                 `whereThingsAreDrawn()` gives back
  * @returns {Promise<Viewer>}
  */
 export function openViewer(element, options): Promise<Viewer>
@@ -42,15 +43,18 @@ viewer.getView()                   // → { centre, zoom }, the view now on scre
 viewer.setPlane(z)                 // which plane of the stack, in micrometres
 viewer.setMoment(t)                // which moment of a timelapse, counted from the first
 viewer.setChannel(index, { visible, colour, window })
-viewer.drawOver(paint)             // the operator's own drawing; see below
+viewer.drawUnder(paint)            // the application's drawing beneath the picture
+viewer.drawOver(paint)             // the application's drawing above it
+viewer.drawsUnder                  // true or false: is `drawUnder` really beneath?
+viewer.drawsUnderBecause           // one sentence saying why it is what it is
+viewer.whereThingsAreDrawn()       // the transform, for placing ordinary HTML
 viewer.tilesMayHaveLanded({ coverage })   // "go and look, a tile may have arrived"
 viewer.destroy()
 ```
 
 Nothing else is public. Add your option's name to
 `harness/src/options.js` — one line — and the page, the gestures, the drawing,
-the seven measurements and the results table all work for it without another
-change.
+the measurements and the results table all work for it without another change.
 
 ---
 
@@ -103,26 +107,35 @@ That is not fussiness. Neuroglancer given an address beginning with a slash
 builds the layer, raises no error, makes no request, and waits for ever — so the
 failure mode of getting this wrong is a blank page that looks like a slow one.
 
-### 4. The operator's drawing is repainted at the moment the option considers
-correct
+### 4. The application's drawings are repainted at the moment the option
+considers correct
 
-`drawOver(paint)` takes one function and the option calls it. For the sandwich
-options that is from inside the engine's end-of-frame announcement, using the
-view read at that instant; for a single-canvas option it is inside the engine's
-own draw. **The page never knows which.**
+There are two slots, and they are the outer two layers of
+`viz_studio/THE_CANVAS.md`: the application's own drawing beneath the picture,
+and its own drawing above it. `drawUnder(paint)` and `drawOver(paint)` each take
+one function and the option calls it. For the sandwich options that is from
+inside the engine's end-of-frame announcement, using the view read at that
+instant; for a single-canvas option it is inside the engine's own draw. **The
+page never knows which.**
 
-The function is called with:
+Both are called with the same kind of frame, in the same frame of the picture:
 
 ```js
-paint({ centre, zoom, width, height, context, project, coverage })
+paint({ centre, zoom, width, height, density, context, project, unproject, coverage })
 ```
 
 - `centre`, `zoom` — the view this frame is being drawn from, in micrometres
 - `width`, `height` — the box, in browser pixels
+- `density` — how many real pixels the screen packs into one browser pixel
 - `context` — a 2-D drawing context, already cleared and already scaled for the
   screen's pixel density, so everything is drawn in browser-pixel units
 - `project(x, y)` — micrometres to screen pixels for this frame
+- `unproject(x, y)` — screen pixels back to micrometres, for a click or a drag
 - `coverage` — the run's coverage record, or null
+
+Hand `null` to either slot to say the application has nothing for it. An option
+may then skip laying a surface down at all, so a page that never draws beneath
+the picture pays nothing for the slot.
 
 **A note for the single-canvas option.** A deck.gl canvas has no 2-D context to
 offer. The honest way to keep the page's drawing code identical is to draw into
@@ -130,6 +143,62 @@ an offscreen 2-D canvas and composite it inside your own single pass — the
 registration stays exact by construction, which is the property that option is
 being built to demonstrate, and the page goes on drawing the same shapes. If you
 find a better way, take it; what must not change is the page's drawing code.
+
+### 4a. An option that cannot honour the bottom slot must say so
+
+This is the one place where the three options genuinely differ in what they can
+do, so the interface makes the difference askable rather than hiding it.
+
+```js
+viewer.drawsUnder          // true: genuinely beneath the picture. false: this engine cannot.
+viewer.drawsUnderBecause   // one plain sentence, which a page may show to whoever is looking
+```
+
+**A page must be able to find this out without knowing which engine it is talking
+to**, which is why it is a fact on the handle rather than something a page works
+out from an option's name.
+
+Neuroglancer forces the whole of its canvas opaque at the end of every frame, so
+a surface behind it is never seen: measured, 0% of a colour painted behind it
+against 97% of the engine's own background. A deck.gl canvas is cleared to
+nothing, so 96.95% of the same colour comes through. Those are the two answers,
+and `viz_studio/options/RESULTS.md` measurement 0b reports them per option from a
+photograph.
+
+**Do not invent a fallback**, and this matters more than it may look. It would be
+easy for an option that cannot draw beneath the picture to draw the same thing
+*above* it instead, with holes cut wherever the run has imaged, so that the page
+looks the same. It must not. Two options that looked identical while doing
+entirely different things underneath would make the comparison a lie, and a
+silent difference of exactly that kind is what this whole exercise exists to
+avoid. An option that cannot honour the slot paints the drawing where it belongs,
+lets the engine cover it, and answers `false`.
+
+### 4b. The transform is published every frame, for things that are not drawings
+
+A drawing function is right for shapes that must stay locked to the picture, and
+it is why they stay locked as well as they do. But **you cannot put an HTML
+element inside a drawing context.** A label pinned to a tile, a menu, a styled
+handle, anything with its own event listeners, has to be an ordinary element
+positioned over or under the canvas — and to land in the right place it needs the
+same conversion from micrometres to screen pixels that the drawing uses.
+
+So every option publishes it:
+
+```js
+viewer.whereThingsAreDrawn()   // { centre, zoom, width, height, density, project, unproject }
+```
+
+and hands the same record to `onViewChanged` every time the view settles, so an
+element can be moved in the same instant the picture moved rather than a frame
+later. `project(x, y)` gives browser pixels from the top-left of the box the
+viewer was opened inside, which is exactly what `left` and `top` want.
+
+This is the whole of it. **No option builds a layer of HTML elements**, and none
+should until the shape of that is settled; publishing the transform is what makes
+it possible for an application to. Which side of the canvas such an element may
+go on is the same question `drawsUnder` answers: above works everywhere, below
+only where the engine's canvas lets what is behind it through.
 
 ### 5. Nothing in a module variable
 
@@ -166,12 +235,20 @@ the engine's own background: over ground nobody imaged, 97% of the window was th
 engine's background and 0% was the colour behind. The engine forces the whole
 canvas opaque at the end of every frame.
 
-The consequence applies to any sandwich, so option B inherits it. In a sandwich —
-two drawing surfaces in the page, one in front of the other — the operator's plan
-**cannot** be put on a surface underneath the engine, because that surface is
-never seen. It has to be built the other way up: the operator draws the carrier
-and the tiles on the surface *above*, and cuts holes in it wherever the coverage
-record says there is picture. That works, and it is what the harness does.
+The consequence applies to any sandwich built on *that* engine, and it is worth
+being careful about which part carries over. In a sandwich — two drawing surfaces
+in the page, one in front of the other — the operator's plan cannot be put on a
+surface underneath **neuroglancer**, because that surface is never seen. It has to
+be built the other way up: the operator draws the carrier and the tiles on the
+surface *above*, and cuts holes in it wherever the coverage record says there is
+picture. That works, and it is what the harness does by default, for all three
+options, so that the three are drawing the same thing when they are compared.
+
+It turned out **not** to carry over to a deck.gl canvas, which is cleared to
+nothing rather than to a colour: measured the same way, 96.95% of the colour
+behind it comes through. That is why the bottom slot in §4a exists at all, and why
+it is asked about rather than assumed. Both Viv options honour it; neuroglancer
+says plainly that it cannot.
 
 It also promotes the coverage record from an optimisation to a requirement for
 these options. With no record there is nowhere the picture is allowed to show,

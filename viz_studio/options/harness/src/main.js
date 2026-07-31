@@ -12,11 +12,19 @@
  *
  *   `?option=neuroglancer-under`  which of the three draws the picture
  *   `&store=square`               which acquisition to read
- *   `&draw=carrier`               the operator's real drawing: a carrier
- *                                 outline and tile rectangles
+ *   `&draw=carrier`               the operator's real drawing, all on one sheet
+ *                                 above the picture with holes cut in it
+ *   `&draw=threeLayers`           the same scene taken apart into the three
+ *                                 layers of `THE_CANVAS.md`: the carrier beneath
+ *                                 the picture, the tiles above it
  *   `&draw=margin`                the measuring instrument: a sheet with a hole
  *                                 cut a little larger than the imaged square
  *   `&data=http://host:port/data` where the acquisitions are served from
+ *
+ * Press **o** to change engine without losing the view. The centre, the
+ * magnification, the plane, the moment and the channel settings are all carried
+ * over, so the same view can be looked at through two engines one after the
+ * other — which is the only way to see a difference that is small.
  *
  * Everything a measurement needs to take hold of is hung on `window.harness`.
  * None of it is the page reporting on its own correctness: every number in the
@@ -30,12 +38,16 @@ import { onlyPanAndZoom } from "./gestures.js";
 import {
   MARGIN_CSS_PX,
   drawTheCarrier,
+  drawTheGroundBeneath,
   drawTheMarginProbe,
+  drawTheMarginRingBeneath,
+  drawTheTilesOnTop,
+  fillTheSlot,
   imagedRegions,
 } from "./drawings.js";
 
 const asked = new URLSearchParams(window.location.search);
-const optionName = asked.get("option") || "neuroglancer-under";
+let optionName = asked.get("option") || "neuroglancer-under";
 const storeName = asked.get("store") || "square";
 const whatToDraw = asked.get("draw") || "margin";
 // Where the acquisitions are served from. Passed in rather than worked out from
@@ -75,6 +87,46 @@ const harness = {
   coverage: null,
   viewer: null,
   gestures: null,
+  // What the page is drawing in each of the two slots it is given. The words are
+  // the page's own and mean nothing to any option: an option is handed one
+  // drawing function per slot and never learns what it will draw.
+  //
+  //   "nothing"          leave the slot empty. The option is handed no drawing
+  //                      function at all for it, so nothing is set up and
+  //                      nothing costs anything.
+  //   "the scene"        whatever the chosen `draw=` mode puts there
+  //   "a colour"         one flat colour over the whole window, for the
+  //                      measurement of whether the bottom layer can be seen
+  //   "the margin ring"  a rectangle of colour framing the imaged square a
+  //                      little way outside it, for the measurement of whether
+  //                      the bottom layer stays lined up with the picture
+  //
+  // The bottom slot is empty unless the three-layer view was asked for, so every
+  // measurement that was taken before there was a bottom slot is taken on a page
+  // where the bottom slot is doing nothing whatever.
+  slots: {
+    under: whatToDraw === "threeLayers" ? "the scene" : "nothing",
+    over: "the scene",
+  },
+  // The colour the flat fill uses, when a slot is asked for one.
+  slotColour: "#00ff00",
+  // How far the ring beneath the picture is deliberately put in the wrong place,
+  // in browser pixels. Nought in every real measurement, and set only to show
+  // that the reading of the bottom layer's registration can go the other way.
+  nudgeBeneath: 0,
+  // Whether the option now underneath really draws the bottom slot beneath the
+  // picture, and the sentence it gives as the reason. Filled in when a viewer is
+  // opened, and read straight off the handle rather than guessed at from the
+  // option's name — the page must be able to find this out without knowing which
+  // engine it is talking to.
+  drawsUnder: null,
+  drawsUnderBecause: null,
+  // Options that were tried in this page and would not open. See `switchTo`:
+  // the one case there is refuses to be reached once a sister option has been
+  // loaded, and remembering it here keeps the key that changes engine from
+  // offering the same dead end over and over.
+  cannotChangeTo: [],
+  switchWouldNotWork: null,
 };
 window.harness = harness;
 
@@ -157,29 +209,86 @@ function sceneFor(coverage) {
 }
 
 /**
- * The drawing the page hands over. The same function for every option, and it is
- * never told which one it is drawing for.
+ * The drawing the page hands over for the **top** slot: everything that belongs
+ * over the picture.
+ *
+ * The same function for every option, and it is never told which one it is
+ * drawing for.
  */
 function paint(frame) {
-  if (whatToDraw === "none") {
-    // Nothing at all. The option has already cleared the operator's surface
-    // before calling this, so what a photograph then shows is purely whatever
-    // the option drew and whatever is behind it — which is exactly what the
-    // measurement of showing-through needs to see.
-    harness.painted = (harness.painted || 0) + 1;
+  harness.painted = (harness.painted || 0) + 1;
+  harness.lastView = { centre: frame.centre, zoom: frame.zoom };
+  if (harness.slots.over === "nothing") {
+    // Nothing at all. The option has already cleared the slot before calling
+    // this, so what a photograph then shows is purely whatever the option drew
+    // and whatever is behind it — which is exactly what the measurements of
+    // showing-through and of the bottom layer need to see.
     return;
   }
+  if (harness.slots.over === "a colour") {
+    fillTheSlot(frame, harness.slotColour);
+    return;
+  }
+  if (whatToDraw === "none") return;
   if (whatToDraw === "margin") {
     harness.lastHole = drawTheMarginProbe(frame, {
       square: harness.square,
       nudge: harness.nudge,
       alsoDrawTheTileEdge: asked.get("tileEdge") === "1",
     });
+  } else if (whatToDraw === "threeLayers") {
+    drawTheTilesOnTop(frame, harness.scene);
   } else {
     drawTheCarrier(frame, harness.scene);
   }
-  harness.lastView = { centre: frame.centre, zoom: frame.zoom };
-  harness.painted = (harness.painted || 0) + 1;
+}
+
+/**
+ * The drawing the page hands over for the **bottom** slot: everything that
+ * belongs beneath the picture.
+ *
+ * This is the same shape of function as `paint` above, receives the same frame,
+ * and is written in exactly the same way — which is the point of having a bottom
+ * slot at all. An application should be able to put its carrier under the picture
+ * without learning anything about the engine drawing the picture.
+ *
+ * Whether it can actually be *seen* is a different question, and the page asks
+ * the viewer rather than assuming: `viewer.drawsUnder`. An engine that cannot
+ * honour the bottom slot says so, and the page then shows nothing there rather
+ * than quietly drawing the same thing on top with holes cut in it. Faking it
+ * would make two options look alike while doing entirely different things
+ * underneath, which is the kind of silent difference this whole comparison
+ * exists to avoid.
+ */
+function paintBeneath(frame) {
+  harness.paintedBeneath = (harness.paintedBeneath || 0) + 1;
+  if (harness.slots.under === "nothing") return;
+  if (harness.slots.under === "a colour") {
+    fillTheSlot(frame, harness.slotColour);
+    return;
+  }
+  if (harness.slots.under === "the margin ring") {
+    drawTheMarginRingBeneath(frame, {
+      square: harness.square,
+      nudge: harness.nudgeBeneath,
+    });
+    return;
+  }
+  if (whatToDraw === "threeLayers") drawTheGroundBeneath(frame, harness.scene);
+}
+
+/**
+ * Hand both drawings over to whichever viewer is in the box.
+ *
+ * A slot the page has nothing for is handed `null` rather than a function that
+ * paints nothing. The difference is not tidiness: told there is nothing beneath,
+ * an option need not lay down a surface for it, clear it every frame or carry it
+ * to the graphics card, so a page that never uses the bottom layer costs exactly
+ * what it did before there was one.
+ */
+function handOverTheDrawings(viewer) {
+  viewer.drawUnder(harness.slots.under === "nothing" ? null : paintBeneath);
+  viewer.drawOver(paint);
 }
 
 /**
@@ -224,7 +333,6 @@ async function boot() {
   };
   harness.scene = sceneFor(coverage);
 
-  const openViewer = await openerFor(optionName);
   // Kept where a test can reach them, so that a second viewer can be opened on
   // exactly the same acquisitions as the first. That is the check that catches
   // an option keeping its state in a variable belonging to its file rather than
@@ -239,40 +347,27 @@ async function boot() {
     },
   ];
   harness.loadTheOption = async () => ({ openViewer: await openerFor(optionName) });
-  const viewer = await openViewer(box, {
-    acquisitions: harness.acquisitionsAsked,
-    coverage,
-    background,
-    // Bounding what the engine draws to the ground the run imaged is on by
-    // default, because it is the arrangement that would ship. One measurement
-    // turns it off, so that the saving can be shown rather than asserted.
-    boundToCoverage: asked.get("bounded") !== "0",
-    onViewChanged: (view) => {
-      harness.viewNow = view;
-    },
-  });
-  harness.viewer = viewer;
-  // Painted after the option has laid its surfaces down, so it really is behind
-  // them rather than merely declared first.
-  if (under) box.style.background = under;
-  viewer.drawOver(paint);
-  viewer.setView(fitTheImagedGround());
+
+  await putAViewerInTheBox(fitTheImagedGround());
 
   harness.gestures = onlyPanAndZoom(box, {
-    getView: () => viewer.getView(),
-    setView: (view) => viewer.setView(view),
+    // Read through `harness.viewer` rather than through a viewer captured here,
+    // because the engine underneath can be changed while the page is open and
+    // the gestures must go on reaching whichever one is there now.
+    getView: () => harness.viewer.getView(),
+    setView: (view) => harness.viewer.setView(view),
     sizeOf: sizeOfBox,
   });
 
   // -- the handles a measurement takes hold of ---------------------------
-  harness.view = () => viewer.getView();
-  harness.setView = (view) => viewer.setView(view);
+  harness.view = () => harness.viewer.getView();
+  harness.setView = (view) => harness.viewer.setView(view);
   harness.size = sizeOfBox;
   harness.density = () => window.devicePixelRatio || 1;
   // Put the imaged ground back in the middle at the magnification the page
   // opened with. Every measurement starts from here, so that the numbers from
   // one are comparable with the numbers from another.
-  harness.reset = () => viewer.setView(fitTheImagedGround());
+  harness.reset = () => harness.viewer.setView(fitTheImagedGround());
   // "Go and look, a tile may have arrived." The coverage record is fetched again
   // first, because a run that has acquired new ground has changed where the
   // picture is allowed to show — and a viewer told to look again while still
@@ -284,9 +379,9 @@ async function boot() {
     ).then((answer) => answer.json());
     harness.coverage = coverage;
     harness.scene = sceneFor(coverage);
-    return viewer.tilesMayHaveLanded({ coverage });
+    return harness.viewer.tilesMayHaveLanded({ coverage });
   };
-  harness.counts = () => viewer.countsForMeasurement?.() ?? null;
+  harness.counts = () => harness.viewer.countsForMeasurement?.() ?? null;
   harness.gesturesSoFar = () => ({
     refused: { ...harness.gestures.refused },
     accepted: { ...harness.gestures.accepted },
@@ -297,8 +392,44 @@ async function boot() {
   // notice a real one.
   harness.nudgeTheHole = (pixels) => {
     harness.nudge = pixels;
-    viewer.drawOver(paint);
+    harness.viewer.drawOver(paint);
   };
+  // The same deliberate breakage for the bottom layer: move the ring drawn
+  // beneath the picture away from where it belongs, and watch the reading of the
+  // bottom layer's registration go uneven by twice as much.
+  harness.nudgeTheGroundBeneath = (pixels) => {
+    harness.nudgeBeneath = pixels;
+    handOverTheDrawings(harness.viewer);
+  };
+  // Which plane, which moment and which channel settings the page has asked for.
+  // They are remembered as well as passed on, so that changing engine can put
+  // the new one into the same state as the old — see `switchTo`.
+  harness.setPlane = (z) => {
+    harness.plane = z;
+    harness.viewer.setPlane(z);
+  };
+  harness.setMoment = (t) => {
+    harness.moment = t;
+    harness.viewer.setMoment(t);
+  };
+  harness.setChannel = (index, settings) => {
+    harness.channels = harness.channels || {};
+    harness.channels[index] = { ...(harness.channels[index] || {}), ...settings };
+    harness.viewer.setChannel(index, settings);
+  };
+  // What the page draws in each slot. The words are explained beside
+  // `harness.slots` at the top of this file; the measurement of the bottom layer
+  // uses them to put the same flat colour first in one slot and then in the
+  // other, which is what makes its reading mean "which slot" rather than "which
+  // colour".
+  harness.drawInTheSlots = ({ under: below, over: above, colour }) => {
+    if (colour) harness.slotColour = colour;
+    if (below) harness.slots.under = below;
+    if (above) harness.slots.over = above;
+    handOverTheDrawings(harness.viewer);
+  };
+  // Change the engine underneath without losing the view. See `switchTo`.
+  harness.switchTo = switchTo;
   // What size the surfaces really are, in real pixels. Two canvases have to
   // agree about how large a screen pixel is, and this is where a disagreement
   // would show.
@@ -310,9 +441,172 @@ async function boot() {
       css: canvas.clientWidth,
     }));
 
-  window.addEventListener("resize", () => viewer.setView(viewer.getView()));
+  window.addEventListener("resize", () =>
+    harness.viewer.setView(harness.viewer.getView()),
+  );
+  // One key, so that two engines can be compared on the same view by pressing it
+  // and looking again. It is deliberately not one of the keys the flat view used
+  // to answer to — those are all refused and counted, and `CONTROLS.md` says why.
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "o" && event.key !== "O") return;
+    const next = nextOption();
+    if (next) switchTo(next);
+  });
   harness.ready = true;
-  note.textContent = "";
+  sayWhichEngineIsUnderneath();
+}
+
+/**
+ * Open the chosen option inside the box and wire the page's two drawings to it.
+ *
+ * Split out from `boot` because the engine underneath can be changed while the
+ * page is open, and everything here has to happen again when it is.
+ */
+async function putAViewerInTheBox(view) {
+  const openViewer = await openerFor(optionName);
+  const viewer = await openViewer(box, {
+    acquisitions: harness.acquisitionsAsked,
+    coverage: harness.coverage,
+    background,
+    // Bounding what the engine draws to the ground the run imaged is on by
+    // default, because it is the arrangement that would ship. One measurement
+    // turns it off, so that the saving can be shown rather than asserted.
+    boundToCoverage: asked.get("bounded") !== "0",
+    onViewChanged: (settled) => {
+      harness.viewNow = settled;
+    },
+  });
+  harness.viewer = viewer;
+  harness.option = optionName;
+  // Read off the handle rather than worked out from the option's name. The page
+  // must be able to find out whether the bottom slot is really beneath the
+  // picture without knowing which engine it is talking to, because that is the
+  // whole point of there being one interface.
+  harness.drawsUnder = viewer.drawsUnder ?? null;
+  harness.drawsUnderBecause = viewer.drawsUnderBecause ?? null;
+  // Painted after the option has laid its surfaces down, so it really is behind
+  // them rather than merely declared first.
+  if (under) box.style.background = under;
+  // Both slots, in the order they sit in: the ground first, the operator's marks
+  // second. The same two functions go to every option, and neither of them knows
+  // which one it reached.
+  handOverTheDrawings(viewer);
+  viewer.setView(view);
+  if (harness.plane != null) viewer.setPlane(harness.plane);
+  if (harness.moment != null) viewer.setMoment(harness.moment);
+  for (const [index, settings] of Object.entries(harness.channels || {})) {
+    viewer.setChannel(Number(index), settings);
+  }
+  return viewer;
+}
+
+/**
+ * The next option along the list, wrapping round at the end.
+ *
+ * Anything already found not to open in this page is stepped over rather than
+ * offered again, so that one option that cannot be reached does not stop the key
+ * reaching the others. `switchTo` explains what makes an option unreachable and
+ * why it is a fact about the page rather than about the option. Nothing at all is
+ * returned when there is nowhere left to go.
+ */
+function nextOption() {
+  const all = optionsBuiltIn();
+  const at = all.indexOf(optionName);
+  for (let step = 1; step <= all.length; step += 1) {
+    const name = all[(at + step) % all.length];
+    if (name !== optionName && !harness.cannotChangeTo.includes(name)) return name;
+  }
+  return null;
+}
+
+/**
+ * Change the engine underneath, keeping the view exactly where it is.
+ *
+ * Comparing two ways of drawing the same thing is very hard if looking at the
+ * second one means opening a fresh page and finding your way back to where you
+ * were. Small differences — half a pixel of registration, a slightly different
+ * edge — are only visible when the two pictures are of the same view moments
+ * apart. So the old viewer is closed, the new one is opened in the same box, and
+ * the centre, the magnification, the plane, the moment and the channel settings
+ * are carried across.
+ *
+ * The gestures are untouched by this. They listen on the box, which does not go
+ * away, and they reach whichever viewer is in it through `harness.viewer` rather
+ * than through one they were handed when the page opened.
+ *
+ * **One pair of options cannot be swapped this way, and it is worth knowing
+ * why.** The two options that draw with Viv are installed from two different
+ * lists of packages — one borrows the viewer's own, the other keeps a list beside
+ * itself — and the versions of deck.gl underneath them are not the same. deck.gl
+ * refuses outright to have two versions of itself alive in one page and says so:
+ * "multiple versions detected". So changing from one Viv option straight to the
+ * other fails, the engine that was working is put back on the same view, and the
+ * reason is written in the corner rather than swallowed. Every other change
+ * works, including from either Viv option to neuroglancer and back, so a fresh
+ * page is all that is needed to reach the third. Making all three swappable would
+ * mean the two Viv options sharing one version of deck.gl, which would change
+ * which version of the engine the measurements describe — a real decision, and
+ * not one to take by accident while adding a keystroke.
+ */
+async function switchTo(name) {
+  if (harness.switching || name === optionName) return harness.option;
+  harness.switching = true;
+  const wasShowing = optionName;
+  const carriedOver = harness.viewer.getView();
+  harness.switchWouldNotWork = null;
+  try {
+    harness.viewer.destroy();
+    optionName = name;
+    await putAViewerInTheBox(carriedOver);
+  } catch (why) {
+    // Put the engine that was working back, on the same view, rather than
+    // leaving an empty box. A page that has quietly become blank is the single
+    // most expensive failure this project keeps meeting, and one that has become
+    // blank because somebody pressed a key would be worse still.
+    harness.switchWouldNotWork = {
+      wanted: name,
+      why: String(why && why.message ? why.message : why),
+    };
+    if (!harness.cannotChangeTo.includes(name)) harness.cannotChangeTo.push(name);
+    optionName = wasShowing;
+    try {
+      await putAViewerInTheBox(carriedOver);
+    } catch (alsoWhy) {
+      harness.failed = String(alsoWhy && alsoWhy.stack ? alsoWhy.stack : alsoWhy);
+      note.textContent = harness.failed;
+      harness.switching = false;
+      return harness.option;
+    }
+  }
+  sayWhichEngineIsUnderneath();
+  harness.switching = false;
+  return harness.option;
+}
+
+/**
+ * Say in the corner which engine is drawing and whether it can honour the bottom
+ * layer.
+ *
+ * Only in the three-layer view, and deliberately so. Every other view is
+ * photographed by a measurement that counts colours, and a line of text in the
+ * corner would be another colour in the photograph. This one is for a person
+ * flipping between engines with the **o** key, where knowing which one you are
+ * looking at is the whole point.
+ */
+function sayWhichEngineIsUnderneath() {
+  if (whatToDraw !== "threeLayers") {
+    note.textContent = "";
+    return;
+  }
+  note.textContent =
+    `${harness.option} — press o for the next engine\n` +
+    (harness.drawsUnder
+      ? "the bottom layer is drawn beneath the picture"
+      : `no bottom layer: ${harness.drawsUnderBecause || "this engine cannot"}`) +
+    (harness.switchWouldNotWork
+      ? `\ncould not change to ${harness.switchWouldNotWork.wanted}, so this one ` +
+        `was put back: ${harness.switchWouldNotWork.why}`
+      : "");
 }
 
 note.textContent = `opening "${optionName}"…`;

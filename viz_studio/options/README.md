@@ -63,18 +63,36 @@ The words the address takes:
 | --- | --- |
 | `option=` | which of the three draws the picture |
 | `store=` | `square`, `lopsided`, `sparse`, `scattered` or `fine` |
-| `draw=carrier` | the operator's real drawing: a carrier outline and tile rectangles |
+| `draw=carrier` | the operator's real drawing, all on one sheet above the picture with holes cut in it |
+| `draw=threeLayers` | the same scene taken apart into the three layers of `THE_CANVAS.md`: the carrier and a background pattern beneath the picture, the tiles above it |
 | `draw=margin` | the measuring instrument: a sheet with a hole cut around the picture |
 | `draw=none` | nothing over the picture at all |
 | `positions=` | how many tile rectangles the operator laid out |
 | `bounded=0` | give the engine the whole window instead of only the imaged ground |
 | `data=` | where the acquisitions are served from |
 
+**Press `o` to change engine without losing the view.** The centre, the
+magnification, the plane, the moment and the channel settings are all carried
+over, so the same view can be looked at through two engines one after the other —
+which is the only way to see a difference that is small. Try it with
+`draw=threeLayers`: the ground beneath the picture is plainly there under either
+Viv option and plainly absent under neuroglancer, whose canvas is opaque. The
+corner of the window says which engine is drawing and what it does with the bottom
+layer.
+
+One pair cannot be swapped this way and the page says so rather than going blank.
+The two Viv options are installed from two different lists of packages, and deck.gl
+refuses to have two versions of itself alive in one page; asked to change from one
+straight to the other, the harness puts the working engine back on the same view
+and writes the reason in the corner. Pressing `o` again reaches the third. A fresh
+page reaches any of them.
+
 ## The checks
 
 `viz_studio/tests/test_the_options_hold_together.py` holds the promises every
 option has to keep — micrometres, two gestures, addresses passed in, two viewers
-on one page, the engine kept behind its adapter. Run them with a browser
+on one page, the engine kept behind its adapter, and an honest answer about
+whether the bottom layer is really beneath the picture. Run them with a browser
 required, so that a machine which could have drawn does:
 
 ```

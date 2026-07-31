@@ -36,6 +36,27 @@ whether the arrangement keeps up with a run is the one to repeat first** on the
 machine with the graphics card, because that is where the engine stops being the
 slowest thing.
 
+**And the drawing rate wanders a great deal between one run and the next**, which
+is worth knowing before anybody reads a change in it as a change in the code. Row
+7 fell for all three options between the run of the morning and the run that
+added the bottom layer — option A from 24.8 to 18.0 frames a second, option B from
+26.1 to 16.0. That looked like a cost of the change, so it was checked properly
+rather than assumed either way: the page was built twice, once with the bottom
+layer and once without, and measurement 7 was taken from the two builds
+alternately, five times each, so that a machine having a slow few minutes could
+not favour one. The medians came out **14.7 against 16.0 at twenty positions and
+12.0 against 11.6 at two hundred** — the two builds swapping places, with single
+readings ranging from 10.2 to 16.4 within one build. So the fall is the machine
+and not the change, and a difference of this size in row 7 means nothing at all
+unless it is taken this way.
+
+The same caution belongs on row 6 for option B, which went from 826 requests to
+723 between the two runs while the bounded figure held at exactly 36. The
+unbounded reading waits for the requests to go quiet and then stops, so it counts
+however many the engine had got round to asking for; the bounded one is settled by
+the coverage record and is steady. Read the bounded numbers as the measurement and
+the unbounded ones as the order of magnitude.
+
 ### One finding changes the shape of the arrangement, and it applies to option B too
 
 **Nothing behind neuroglancer's canvas ever shows through it.** With one colour
@@ -78,6 +99,49 @@ deck.gl canvas behaves the same way is unmeasured, and the agent building option
 B should measure it the same way before building on it:
 `measure/showing_through.py` does it by name and needs no changes.
 
+### The canvas now has a bottom layer, and one of the three cannot honour it
+
+`viz_studio/THE_CANVAS.md` describes the front end's main surface as three layers
+sharing one coordinate system: the application's own drawing beneath the picture,
+the picture in the middle, and the operator's marks above. Until recently the
+interface had only the top of those, so every option drew all of the operator's
+geometry on one sheet above the engine and cut holes in it. That is still what
+rows 1 to 7 describe, deliberately, because it is what an engine with an opaque
+canvas obliges an application into and because all three options drawing the same
+thing is what makes them comparable.
+
+The interface now has the bottom slot as well — `drawUnder(paint)` beside
+`drawOver(paint)`, taking the same kind of function, called at the same moment
+with the same view — and rows **0b** and **1b** report what each option does with
+it. Two questions are asked and they are separate promises:
+
+- **Is a drawing put there really beneath the picture?** Measured by drawing one
+  flat colour in the bottom slot and photographing the window. Both Viv options
+  show it across 96.95% of the window; neuroglancer shows none of it and shows
+  its own background across 97% instead.
+- **Does it stay locked to the picture while the view moves?** Being underneath
+  and staying put are different things, and a bottom layer that drifts as the
+  operator pans is worse than none at all, because it looks right standing still
+  and wrong the moment it is used. Measured with the same instrument as row 1,
+  with the shape moved to the layer beneath: both Viv options read **0 screen
+  pixels of unevenness at rest, panning, zooming and thrown about**, the same as
+  their top layer. So on an engine that allows a bottom layer at all, being
+  underneath costs nothing in registration.
+
+**The option that cannot honour the slot says so rather than faking it.** Every
+option publishes `viewer.drawsUnder`, and a page can ask it without knowing which
+engine it is talking to. It would have been easy to have neuroglancer draw the
+bottom layer *above* the picture instead, with holes cut wherever the run has
+imaged, so that the page looked the same under all three — and that was
+deliberately not done. Two options that looked identical while doing entirely
+different things underneath would make this whole table a lie, which is precisely
+the kind of silent difference the table exists to prevent. Option A paints the
+drawing where it belongs, the engine covers it, and the row reads **no**.
+
+Row 1b reads "not applicable" for option A rather than a number, for the same
+reason: there was nothing of the bottom layer on screen to measure, and a nought
+would read as "perfectly lined up".
+
 ### The seam is meant to be invisible; the measurements make it visible on purpose
 
 The engine's background is meant to match the page exactly, so that an operator
@@ -93,13 +157,21 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 
 | | neuroglancer-under | viv-inside | viv-under |
 | --- | --- | --- | --- |
-| *measured* | 2026-07-31 08:46 | 2026-07-31 07:56 | 2026-07-31 07:57 |
+| *measured* | 2026-07-31 11:27 | 2026-07-31 11:14 | 2026-07-31 11:16 |
 | **0. Can a surface underneath the engine be seen?** | **no** | yes | yes |
+| **0b. Is the bottom layer genuinely beneath the picture?** | **no** | yes | yes |
+|   … a colour drawn there fills this share of the window | 0.0 | 0.9695 | 0.9695 |
+|   … the same colour drawn in the top slot instead (must be large) | 1.0 | 1.0 | 1.0 |
 | **1. Registration** — worst unevenness at rest (screen px) | 1.0 | 0.0 | 0.0 |
 |   … while panning | 1.0 | 0.0 | 0.0 |
 |   … while zooming | 1.0 | 0.0 | 0.0 |
 |   … thrown about | 1.0 | 0.0 | 0.0 |
 |   … with the hole moved 8 px on purpose (must be large) | 17.0 | 16.0 | 16.0 |
+| **1b. Registration of the bottom layer** — worst unevenness at rest (screen px) | not applicable | 0.0 | 0.0 |
+|   … while panning | not applicable | 0.0 | 0.0 |
+|   … while zooming | not applicable | 0.0 | 0.0 |
+|   … thrown about | not applicable | 0.0 | 0.0 |
+|   … with the ring moved 8 px on purpose (must be large) | not applicable | 16.0 | 16.0 |
 | **2. Handedness** — brightness across the picture (levels per 100 px) | 91.5 | 91.5 | 91.5 |
 |   … the bright edge is on the right | yes | yes | yes |
 |   … dragging carries the picture with the hand (slope) | 1.0 | 1.0 | 1.0 |
@@ -110,18 +182,18 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 | **5a. New data appears at all** | yes | yes | yes |
 |   … readers the option had to send back to the store | 3 | 3 | 3 |
 | **5b. What the refresh costs** — pieces re-fetched | 4 | 3 | 4 |
-| **5c. The picture survives the refresh** — seconds before it is back | 0.08 | 0.11 | 0.1 |
-|   … what the window showed while it refreshed | [0.2726, 0.2726, 0.2726] | [0.2734, 0.2734, 0.2734] | [0.2734, 0.2734, 0.2734, 0.2734] |
+| **5c. The picture survives the refresh** — seconds before it is back | 0.12 | 0.25 | 0.18 |
+|   … what the window showed while it refreshed | [0.2726, 0.2726] | [0.2734, 0.2734, 0.2734, 0.2734] | [0.2734, 0.2734, 0.2734, 0.2734] |
 | **5d. The view stays put** — centre moved (µm) | 0.0 | 0 | 0.0 |
-| **5e. How soon a tile shows** (seconds) | 0.3 | 0.38 | 0.13 |
-| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 5.6 | 5.2 → 4.8 | 5.2 → 5.2 |
-|   … tiles written meanwhile | 465 | 470 | 484 |
-| **6. Requests** — to redraw one view, unbounded | 117 | 826 | 432 |
-|   … of those, for ground nobody imaged | 108 | 781 | 396 |
+| **5e. How soon a tile shows** (seconds) | 0.37 | 0.36 | 0.22 |
+| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 5.6 | 5.6 → 4.8 | 5.2 → 5.6 |
+|   … tiles written meanwhile | 438 | 426 | 441 |
+| **6. Requests** — to redraw one view, unbounded | 117 | 723 | 432 |
+|   … of those, for ground nobody imaged | 108 | 678 | 396 |
 |   … bounded by the coverage record | 25 | 36 | 100 |
 |   … of those, for ground nobody imaged | 16 | 0 | 64 |
-| **7. Drawing rate** — frames a second at 20 positions | 24.8 | 12.7 | 26.1 |
-|   … at 200 positions | 19.2 | 10.9 | 18.1 |
+| **7. Drawing rate** — frames a second at 20 positions | 18.0 | 8.2 | 16.0 |
+|   … at 200 positions | 11.2 | 6.9 | 12.1 |
 
 <!-- end of the generated table -->
 
@@ -132,6 +204,49 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 **0. Showing through.** Described above. The check was shown able to give the
 other answer: with the option's own surfaces hidden, the colour behind filled
 100% of the window.
+
+Note that rows 0 and 0b are asking the same physics of two different things, and
+the pair is more useful than either alone — see 0b below.
+
+**0b. Is the bottom layer genuinely beneath the picture?** The same physics as row
+0, asked of the slot an application actually writes against. Row 0 paints a colour
+on the *box* the viewer was opened inside and asks whether it shows through; this
+one hands a colour to `drawUnder(paint)`, which is what an application would do,
+and asks the same question of the result. They can come apart, because an option
+could implement the slot and then not honour it, and that is why both are here.
+
+The check was shown able to give the other answer, and the way it was shown is the
+part worth reading. **The same flat colour, painted by the same drawing function
+on the same page, was handed to the top slot instead.** Every option then showed
+it filling 100% of the window — including the one that had shown none of it a
+moment before. So the reading means "which slot", not "which colour", and it
+cannot be explained by a drawing that never ran or by a counting program that can
+only answer nought.
+
+The measurement is taken with the drawn region *unbounded*, and that matters more
+here than anywhere else. Bounded to the coverage record, the engine's surface
+covers only the part of the window holding imaged ground, so a colour drawn
+beneath would be seen all around it — which is a fact about the size of a box
+rather than about whether a surface lets light through, and it would read as a yes
+on an engine that is really a no.
+
+**1b. Registration of the bottom layer.** Row 1 asked whether the layer *above*
+the picture stays lined up with it. This asks the same of the layer *below*, and
+it is the second half of what a shared coordinate system promises: all three
+layers pan and zoom together, or the canvas is not one canvas.
+
+The instrument is the same and `viz_studio/tests/margins.py` reads it unchanged.
+Only the shape moves: a rectangle of colour is drawn beneath the picture a little
+way outside the imaged square, so a cut across the photograph meets the ring, a
+band of background, the picture, a band of background and the ring again — the
+same four things row 1 reads, in the same order. The ring is drawn narrow enough
+to stay inside the rectangle the engine is given, which is what makes "there is
+none of it on screen" a truthful answer for an engine that covers what is behind
+it, rather than a reading taken off the edge of the engine's own box.
+
+The last row of the group is the red evidence, and it is the same breakage row 1
+uses applied to the other slot: the ring moved two pixels reads 4, and eight
+pixels reads 16, on the same page with nothing else changed.
 
 **1. Registration.** A square of image with a hole cut forty screen pixels larger
 around it; the band between them is read on all four sides, along three cuts, in
@@ -241,7 +356,30 @@ and drawing in one should differ.
 
 ---
 
-## Four surprises worth passing on
+## Surprises worth passing on
+
+**The two Viv options cannot live in one page at the same time.** The harness can
+now change engine without losing the view — press `o`, and the centre, the
+magnification, the plane, the moment and the channel settings all carry over, so
+the same view can be looked at through two engines seconds apart. That works
+between neuroglancer and either Viv option, in both directions, with the centre
+measured as moving 0 µm and the zoom unchanged.
+
+It does not work between the two Viv options, and the reason is not about drawing
+at all. They are installed from two different lists of packages — one borrows the
+viewer's own, the other keeps a list beside itself — and the versions of deck.gl
+underneath them differ. deck.gl refuses outright to have two versions of itself
+alive in one page and says so: "multiple versions detected: 9.3.3 vs 9.3.7". The
+harness catches that, puts the engine that was working back on the same view, and
+writes the reason in the corner rather than going blank; pressing `o` again steps
+over the one that will not open and reaches the third.
+
+It is recorded here rather than fixed, because fixing it means choosing one
+version of deck.gl for both options — which would change which version of the
+engine half of this table describes. That is a real decision and not one to take
+by accident while adding a keystroke.
+
+## Four surprises from building the options
 
 **Following the pointer did not come apart, on this machine.** `SANDWICH.md`
 records that repainting the operator's drawing on every mouse move rather than

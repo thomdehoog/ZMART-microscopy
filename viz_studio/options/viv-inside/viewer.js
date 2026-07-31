@@ -30,6 +30,15 @@
  * see `drawOver` at the bottom of this file, and the long note there about why
  * this was chosen over the alternatives.
  *
+ * The same trick serves the bottom layer of `viz_studio/THE_CANVAS.md`, and here
+ * it is at its most natural. `drawUnder(paint)` takes a second offscreen canvas
+ * and puts it into the same list of layers *before* the picture rather than
+ * after, so the ground, the acquisition and the operator's marks are three
+ * layers in one canvas drawn in one pass. There is no question of the bottom
+ * layer being covered by an opaque canvas, because there is only one canvas, and
+ * no question of it drifting, because all three are placed from the same
+ * numbers in the same frame. `viewer.drawsUnder` is `true` here.
+ *
  * **2. Ground nobody has imaged had to be made see-through.** Viv paints the
  * whole of a run's declared canvas, and a run declares generously, so most of
  * that canvas is room the microscope has never visited. Viv's colouring ends by
@@ -103,7 +112,10 @@ const NOTHING_WAS_IMAGED_HERE = Object.freeze({
  *   `background`    the page colour, as CSS text. Ground nobody has imaged is
  *                   left see-through, so this is the colour an operator sees
  *                   there.
- *   `onViewChanged` called with `{ centre, zoom }` for every frame drawn.
+ *   `onViewChanged` called for every frame drawn, with the same record
+ *                   `whereThingsAreDrawn()` gives back: the centre and zoom in
+ *                   micrometres, the size of the box, and `project`/`unproject`
+ *                   for placing ordinary HTML elements in the same coordinates.
  *   `boundToCoverage` whether to refuse to ask for image over ground the run
  *                   has not imaged. On wherever there is a record to go on.
  * @returns {Promise<Viewer>} the handle; see `../contract.md` for what it offers.
@@ -151,6 +163,15 @@ export async function openViewer(element, options = {}) {
     drawing: null,
     context: null,
     texture: null,
+    // And the same three again for the bottom layer — the application's own
+    // drawing that goes *beneath* the picture. They stay empty until a page
+    // actually asks for a bottom layer, so a page that never uses one neither
+    // allocates a second window-sized image nor carries one to the graphics
+    // card every frame.
+    drawingBeneath: null,
+    contextBeneath: null,
+    textureBeneath: null,
+    paintBeneath: null,
     size: { width: 1, height: 1, density: 1 },
     // The view, in the operator's own units: a place on the stage in
     // micrometres and a magnification in micrometres to the screen pixel.
@@ -165,7 +186,9 @@ export async function openViewer(element, options = {}) {
     plane: 0,
     moment: 0,
     paint: null,
-    counted: { overlayPaints: 0, enginePaints: 0, letGoes: 0, lastAsked: 0 },
+    counted: {
+      overlayPaints: 0, groundPaints: 0, enginePaints: 0, letGoes: 0, lastAsked: 0,
+    },
     // Only one fresh read of the store may be in flight at a time; see
     // `goAndLookAgain` for what that is worth and what it is guarding against.
     readingAgain: false,
@@ -243,6 +266,10 @@ function measureTheBox(own) {
   own.size = { width, height, density };
   own.drawing.width = Math.max(1, Math.round(width * density));
   own.drawing.height = Math.max(1, Math.round(height * density));
+  if (own.drawingBeneath) {
+    own.drawingBeneath.width = own.drawing.width;
+    own.drawingBeneath.height = own.drawing.height;
+  }
 }
 
 /**
@@ -256,10 +283,18 @@ function measureTheBox(own) {
  * frame is cheap.
  */
 function makeTheDrawingsTexture(own) {
-  const device = own.deck?.device;
-  if (!device) return;
+  if (!own.deck?.device) return;
   own.texture?.destroy?.();
-  own.texture = device.createTexture({
+  own.texture = aWindowSizedTexture(own);
+  if (own.drawingBeneath) {
+    own.textureBeneath?.destroy?.();
+    own.textureBeneath = aWindowSizedTexture(own);
+  }
+}
+
+/** One texture the size of the window, in the graphics card's own memory. */
+function aWindowSizedTexture(own) {
+  return own.deck.device.createTexture({
     width: own.drawing.width,
     height: own.drawing.height,
     format: "rgba8unorm",
@@ -273,6 +308,26 @@ function makeTheDrawingsTexture(own) {
       addressModeV: "clamp-to-edge",
     },
   });
+}
+
+/**
+ * Make the offscreen canvas the bottom layer is drawn into, the first time a
+ * page asks for one.
+ *
+ * Made only when it is wanted, because it is a window-sized image and the
+ * texture that carries it to the graphics card is another. A page that never
+ * draws beneath the picture pays for neither. The texture the operator's own
+ * drawing already uses is deliberately left alone here: it is in use by a layer
+ * on screen, and replacing it would throw away the picture that layer is holding
+ * for no reason.
+ */
+function makeTheGroundBeneath(own) {
+  if (own.drawingBeneath) return;
+  own.drawingBeneath = document.createElement("canvas");
+  own.drawingBeneath.width = own.drawing.width;
+  own.drawingBeneath.height = own.drawing.height;
+  own.contextBeneath = own.drawingBeneath.getContext("2d");
+  if (own.deck?.device) own.textureBeneath = aWindowSizedTexture(own);
 }
 
 // ---------------------------------------------------------------------------
@@ -404,7 +459,11 @@ async function start(own, acquisitions) {
     onAfterRender: () => {
       if (own.destroyed) return;
       own.counted.enginePaints += 1;
-      if (own.onViewChanged) own.onViewChanged(readTheView(own));
+      // The whole placement rather than only the centre and the zoom, so that a
+      // page keeping ordinary HTML elements over or under the canvas can move
+      // them in the same instant the picture moved. See `whereThingsAreDrawn` on
+      // the handle for what it is for.
+      if (own.onViewChanged) own.onViewChanged(howThingsArePlaced(own));
     },
   });
   makeTheDrawingsTexture(own);
@@ -530,6 +589,38 @@ function readTheView(own) {
   return {
     centre: { x: own.view.centre.x, y: own.view.centre.y },
     zoom: own.view.zoom,
+  };
+}
+
+/**
+ * How the canvas is placed on the screen at this instant.
+ *
+ * One record, worked out in one place, and used for three things: the frame each
+ * of the page's two drawings is handed, the announcement when the view settles,
+ * and the answer to `whereThingsAreDrawn()`. Keeping them the same object is what
+ * makes an ordinary HTML element positioned from `project` land in exactly the
+ * same place as a shape drawn with it.
+ *
+ * `project` turns micrometres into browser pixels from the top-left of the box;
+ * `unproject` goes the other way, which is what a click or a drag needs.
+ */
+function howThingsArePlaced(own) {
+  const { width, height, density } = own.size;
+  const view = own.view;
+  return {
+    centre: { x: view.centre.x, y: view.centre.y },
+    zoom: view.zoom,
+    width,
+    height,
+    density,
+    project: (x, y) => ({
+      x: width / 2 + (x - view.centre.x) / view.zoom,
+      y: height / 2 + (y - view.centre.y) / view.zoom,
+    }),
+    unproject: (x, y) => ({
+      x: view.centre.x + (x - width / 2) * view.zoom,
+      y: view.centre.y + (y - height / 2) * view.zoom,
+    }),
   };
 }
 
@@ -695,19 +786,34 @@ function onlyWhereTheRunHasImaged(source, level, regions) {
 // ---------------------------------------------------------------------------
 
 /**
- * Everything drawn this frame, bottom first: the picture, then the operator's
- * own drawing over it.
+ * Everything drawn this frame, bottom first: the application's own ground, then
+ * the picture, then the application's own marks over it.
  *
- * The order is the order of `LAYERS.md`. It looks upside down at first glance —
- * the carrier and the tiles are supposed to sit *under* the picture — and it is
- * not. The page draws its carrier and its tiles and then clears away the ground
- * the run has actually imaged, so its drawing arrives here as a sheet with holes
- * cut in it. Laid over the picture, the holes are exactly where the picture
- * shows and everything else is the operator's plan. The same drawing code, and
- * the same holes, serve all three options.
+ * These are the three layers of `viz_studio/THE_CANVAS.md`, in one canvas, drawn
+ * in one pass. The first and the last are both the application's — the page
+ * hands over one drawing function for each and never learns which engine
+ * received them — and the picture sits between them. Because all three are
+ * placed from the same view in the same frame, they cannot come apart even in
+ * principle, which is the property this option exists to demonstrate.
+ *
+ * The bottom layer is left out entirely when the page has nothing to put there,
+ * which is the ordinary case for the measurements taken before there was a
+ * bottom layer at all.
+ *
+ * A page may also, as the harness does by default, keep everything of its own on
+ * the top layer as one sheet with holes cut in it wherever the run has imaged.
+ * That looks upside down and is not: laid over the picture, the holes are
+ * exactly where the picture shows and everything else is the operator's plan. It
+ * is the arrangement an engine that cannot draw beneath its own canvas obliges
+ * an application into, and it is kept working here so that all three options can
+ * be compared drawing exactly the same thing.
  */
 function layersFor(own) {
-  return [...imageLayersFor(own), theOperatorsDrawingLayer(own)];
+  const layers = [];
+  if (own.paintBeneath && own.textureBeneath) layers.push(theGroundBeneathLayer(own));
+  layers.push(...imageLayersFor(own));
+  layers.push(theOperatorsDrawingLayer(own));
+  return layers;
 }
 
 /** One layer per acquisition, drawn in the order they were given. */
@@ -821,6 +927,28 @@ function theOperatorsDrawingLayer(own) {
 }
 
 /**
+ * The application's ground, as one layer glued to the same rectangle of specimen
+ * and drawn before the picture.
+ *
+ * Exactly the same construction as the operator's drawing above, differing in
+ * two things only: which offscreen canvas it carries, and where it sits in the
+ * list of layers. That is the whole of what a bottom layer costs in this option,
+ * and it is worth noticing how little it is — the arrangement was already three
+ * layers over the same ground, and this simply puts one of them underneath.
+ */
+function theGroundBeneathLayer(own) {
+  const window_ = theWindowInWorld(own);
+  return new TheOperatorsDrawing({
+    id: "the-ground-beneath",
+    image: own.textureBeneath,
+    bounds: [window_.left, window_.bottom, window_.right, window_.top],
+    pickable: false,
+    repaintFromTheFrameBeingDrawn: () => repaintTheGroundBeneath(own),
+    updateTriggers: { repaintFromTheFrameBeingDrawn: [] },
+  });
+}
+
+/**
  * An image layer that redraws its own picture as part of the frame.
  *
  * This is where the page's drawing function is called, and it is called from
@@ -853,28 +981,11 @@ TheOperatorsDrawing.defaultProps = {
 function repaint(own) {
   if (own.destroyed || !own.context || !own.texture) return;
   const { width, height, density } = own.size;
-  const view = own.view;
   const context = own.context;
   context.setTransform(density, 0, 0, density, 0, 0);
   context.clearRect(0, 0, width, height);
   if (own.paint) {
-    own.paint({
-      centre: view.centre,
-      zoom: view.zoom,
-      width,
-      height,
-      context,
-      coverage: own.coverage,
-      // Micrometres to screen pixels, for this frame. Everything the page draws
-      // goes through this one function, so there is exactly one place where the
-      // conversion between the operator's coordinates and the screen can be
-      // wrong — and it agrees with where the layer is placed by construction,
-      // because both are worked out from the same view.
-      project: (x, y) => ({
-        x: width / 2 + (x - view.centre.x) / view.zoom,
-        y: height / 2 + (y - view.centre.y) / view.zoom,
-      }),
-    });
+    own.paint({ ...howThingsArePlaced(own), context, coverage: own.coverage });
   }
   own.texture.copyExternalImage({
     image: own.drawing,
@@ -882,6 +993,34 @@ function repaint(own) {
     height: own.drawing.height,
   });
   own.counted.overlayPaints += 1;
+}
+
+/**
+ * The same again for the bottom layer, drawn from the same view in the same
+ * frame.
+ *
+ * Called from inside that layer's own drawing, which deck.gl runs before the
+ * picture's, so the ground is up to date at the moment it is composited. There
+ * is no possibility of the two being a frame apart: the whole list of layers is
+ * drawn in one pass from one view.
+ */
+function repaintTheGroundBeneath(own) {
+  if (own.destroyed || !own.contextBeneath || !own.textureBeneath) return;
+  const { width, height, density } = own.size;
+  const context = own.contextBeneath;
+  context.setTransform(density, 0, 0, density, 0, 0);
+  context.clearRect(0, 0, width, height);
+  if (own.paintBeneath) {
+    own.paintBeneath({
+      ...howThingsArePlaced(own), context, coverage: own.coverage,
+    });
+  }
+  own.textureBeneath.copyExternalImage({
+    image: own.drawingBeneath,
+    width: own.drawingBeneath.width,
+    height: own.drawingBeneath.height,
+  });
+  own.counted.groundPaints += 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -1026,6 +1165,71 @@ function handleFor(own) {
     },
 
     /**
+     * The application's own drawing, beneath the picture.
+     *
+     * The same shape of function as `drawOver`, called at the same moment with
+     * the same frame, so a page writes the two the same way. Hand over `null` to
+     * say there is nothing beneath, and no second offscreen canvas is made at
+     * all.
+     *
+     * Here the bottom layer is simply another layer in the same list, placed
+     * before the picture instead of after it. All three are drawn in one pass
+     * from one view, so the ground beneath, the acquisition and the operator's
+     * marks share a coordinate system by construction and there is nothing that
+     * could fall behind. `drawsUnder` is `true`.
+     */
+    drawUnder(paint) {
+      own.paintBeneath = paint;
+      if (paint) makeTheGroundBeneath(own);
+      showTheView(own);
+      own.deck?.redraw("the ground beneath was handed over");
+    },
+
+    /**
+     * Whether a drawing handed to `drawUnder` really ends up beneath the
+     * picture, where an operator can see it.
+     *
+     * `true` here, and it is the strongest form of yes among the three options:
+     * there is no second canvas that could cover it, because there is only one
+     * canvas.
+     */
+    drawsUnder: true,
+
+    /** Why, in a sentence a page can show to whoever is looking at it. */
+    drawsUnderBecause:
+      "the ground beneath, the picture and the operator's marks are three " +
+      "layers in one canvas, drawn in one pass from one view, so the bottom " +
+      "one is simply the first thing drawn.",
+
+    /**
+     * Where the canvas is looking, in a form good enough to place an ordinary
+     * HTML element in micrometres.
+     *
+     * The two drawing slots take a function and give back a flat picture, which
+     * is right for shapes that must stay locked to the specimen — and it is why
+     * they stay locked as well as they do. But a drawing context cannot hold an
+     * HTML element, so a label pinned to a tile, a menu, a handle with its own
+     * event listeners, anything with a life of its own, has to be an ordinary
+     * element positioned over or under the canvas.
+     *
+     * This is what lets an application do that in the canvas's own coordinate
+     * system. `project(x, y)` turns micrometres into browser pixels measured
+     * from the top-left of the box the viewer was opened inside, which is
+     * exactly what `left` and `top` want; `unproject` goes back, which is what a
+     * click needs. The same record is handed to `onViewChanged` for every frame
+     * drawn, so an element can be moved in the same instant the picture moved
+     * rather than a frame later.
+     *
+     * Which side of the canvas such an element may go on is not a free choice,
+     * and it is the same question `drawsUnder` answers: above the canvas works
+     * on every option, below it only where the engine's canvas lets what is
+     * behind it show through, as this one does.
+     */
+    whereThingsAreDrawn() {
+      return howThingsArePlaced(own);
+    },
+
+    /**
      * "Go and look, a tile may have arrived."
      *
      * Nothing on disk announces a new tile. A run declares its images at full
@@ -1066,10 +1270,15 @@ function handleFor(own) {
       if (own.destroyed) return;
       own.destroyed = true;
       own.paint = null;
+      own.paintBeneath = null;
       own.deck?.finalize();
       own.deck = null;
       own.texture?.destroy?.();
       own.texture = null;
+      own.textureBeneath?.destroy?.();
+      own.textureBeneath = null;
+      own.drawingBeneath = null;
+      own.contextBeneath = null;
       own.canvas?.remove();
       own.canvas = null;
       own.opened = [];

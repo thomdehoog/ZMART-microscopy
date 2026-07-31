@@ -33,6 +33,14 @@ unpicking an engine from the whole front end. That interface is
 The interface this serves: the viewer on the left, the workflow's own controls on
 the right, and nothing else competing for attention.
 
+**The framework now has all three slots**, and it is the same shape whichever
+engine is plugged in. An application hands over one drawing function for the
+bottom layer and one for the top — `drawUnder(paint)` and `drawOver(paint)`,
+written identically — and both are painted from the same view in the same frame
+as the picture. An engine that cannot honour the bottom slot says so, as
+`viewer.drawsUnder`, rather than faking it; the next section is about which
+engine that is and why.
+
 ---
 
 ## The one thing that stands in the way, and it is measured
@@ -49,6 +57,19 @@ behind it through.
 So the bottom layer as described above — the application's own drawing, interactive,
 changing while somebody watches — **works with Viv and does not work with
 neuroglancer**.
+
+That has since been measured again, from the other end. The framework now has a
+bottom slot that an application actually writes against, and a colour drawn *in
+that slot* was photographed: 96.95% of the window under both Viv options, 0% under
+neuroglancer. Implementing a slot and honouring it are two different things, and
+this is the reading that tells them apart. It is `RESULTS.md` measurement 0b.
+
+**This is fine, and it is not something to work around.** The framework is the
+same shape whichever engine is plugged in; an engine that cannot honour the bottom
+layer says so and the page shows nothing there. What must never be done is to draw
+the bottom layer *above* the picture instead, with holes cut in it, so that the two
+pages look alike. They would then look identical while doing something entirely
+different underneath, and the comparison would stop meaning anything.
 
 ### What neuroglancer offers instead, and what it costs
 
@@ -92,14 +113,70 @@ the run.
 
 ## What is already built
 
-Three implementations of the middle layer, behind one interface, each measured on the
-same eight questions: `viz_studio/options/`, with the table in `RESULTS.md`. All
+Three implementations of the middle layer, behind one interface, each measured on
+the same questions: `viz_studio/options/`, with the table in `RESULTS.md`. All
 three hold the same two gestures, the same handedness, the same coordinate system,
 and keep pace over hundreds of tiles arriving live.
 
-What is **not** built is the bottom layer. Every option today draws the operator's
-geometry above the engine, cutting holes where the picture shows through. That is
-the arrangement the measurements describe.
+**The bottom layer is now part of the framework**, and each option honours it as
+far as its engine allows and reports what it did. Three things were added, and
+they are the whole of it:
+
+1. **A slot in the interface.** `drawUnder(paint)` sits beside `drawOver(paint)`
+   and takes the same kind of function, called at the same moment with the same
+   view. An application's drawing code for the two layers is identical, and it is
+   identical across all three options.
+2. **A plain fact the page can ask for.** `viewer.drawsUnder` is `true` where the
+   drawing really ends up beneath the picture and `false` where the engine cannot
+   allow it, with `viewer.drawsUnderBecause` giving the reason in a sentence. A
+   page finds this out without knowing which engine it is talking to.
+3. **A measurement.** `RESULTS.md` rows 0b and 1b report, per option and from a
+   photograph, whether a colour drawn in the bottom slot is seen at all and
+   whether it stays locked to the picture while the view is panned, zoomed and
+   thrown about.
+
+The answers, measured: **Viv can, in both arrangements, and neuroglancer cannot.**
+A colour drawn in the bottom slot fills 96.95% of the window under either Viv
+option and 0% under neuroglancer, where the engine's own background fills 97%
+instead. The same colour drawn in the *top* slot fills the window under all three,
+which is how we know the difference is the slot and not the drawing.
+
+And the bottom layer holds its place as well as the top one does. The band between
+a shape drawn beneath the picture and the edge of the picture reads **0 screen
+pixels of unevenness at rest, panning, zooming and thrown about** on both Viv
+options — the same as their top layer — with the same reading going to 4 and 16
+when the shape is deliberately moved 2 and 8 pixels. So on an engine that allows a
+bottom layer at all, being underneath costs nothing in registration.
+
+Every option still draws the operator's geometry as one sheet *above* the engine
+with holes cut in it by default, and that is deliberate: it is what the older
+measurements describe, it is what an engine with an opaque canvas obliges an
+application into, and keeping all three drawing the same thing is what makes them
+comparable. The harness's `?draw=threeLayers` view takes the same scene apart into
+the three layers proper — carrier and background pattern beneath, picture in the
+middle, tiles above — and switching engine with the **o** key shows the difference
+plainly: the ground is there under Viv and simply absent under neuroglancer,
+blotted out exactly within the rectangle the engine is drawing in.
+
+### Things that are not drawings
+
+The two slots hand an application a flat drawing context, which is right for
+shapes that must stay locked to the picture. **It cannot hold an HTML element**,
+so a label pinned to a tile, a menu, or a handle with its own event listeners has
+to be an ordinary element positioned over or under the canvas.
+
+Every option therefore publishes the transform: `viewer.whereThingsAreDrawn()`
+gives the centre and the magnification in micrometres, the size of the box, and
+`project`/`unproject` between micrometres and browser pixels; the same record is
+handed to `onViewChanged` every frame the view settles, so an element moves in the
+same instant the picture does. That is all that was added — no layer of HTML
+elements exists yet and none should until its shape is settled.
+
+Which side such an element may go on follows from the finding above rather than
+needing its own measurement. **Above the canvas works for every option.** Below it
+works only where the engine's canvas lets what is behind it through, which is
+exactly what `drawsUnder` and measurement 0b already answer: yes for both Viv
+options, no for neuroglancer.
 
 ---
 
@@ -114,3 +191,36 @@ the arrangement the measurements describe.
 3. **Whether both engines stay.** They already sit behind one interface, so keeping
    both is not expensive, and a workflow that needs a live bottom layer could choose
    Viv while one that needs the volume view chooses neuroglancer.
+4. **Whether the two Viv options should share one installation of deck.gl.** They
+   do not today: one borrows the viewer's own packages and the other keeps a list
+   beside itself, and the two versions differ. deck.gl refuses to have two versions
+   of itself alive in one page, so the harness can change engine without losing the
+   view between *any* pair except those two — where it puts the working engine back
+   and says why in the corner. Making all three swappable in one page means choosing
+   one version, which changes which version of the engine the measurements describe.
+   That is a real decision and not one to take by accident.
+
+---
+
+## The shape of the framework, in one place
+
+For somebody arriving here from the code, this is the whole of what the three
+layers come to. The details are in `viz_studio/options/contract.md`.
+
+```js
+viewer.drawUnder(paint)   // the bottom layer: the application's own ground
+                          // (hand over null when there is nothing to put there)
+                          //   … the engine draws the picture in the middle …
+viewer.drawOver(paint)    // the top layer: the operator's marks, selection, tiles
+
+viewer.drawsUnder         // true or false — is the bottom layer really beneath?
+viewer.drawsUnderBecause  // one sentence saying why it is what it is
+
+viewer.whereThingsAreDrawn()   // the same transform, for placing ordinary HTML
+```
+
+Both drawing functions receive the same frame — the centre and zoom in
+micrometres, the size of the box, a 2-D context, and `project`/`unproject` — and
+are called in the same frame as the picture. That is what makes all three layers
+pan and zoom together: they are not kept in step, they are placed from the same
+numbers.

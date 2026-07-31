@@ -12,12 +12,21 @@
  * `project` function the option supplies, so there is exactly one place where
  * the conversion can be wrong, and it is not in this file.
  *
- * There are two drawings, because the page is asked two different questions.
+ * There are four drawings here, because the page is asked several different
+ * questions.
  *
- * **The carrier** is what an operator actually sees: the outline of the plate or
- * slide, the wells in it, and the rectangles of the tiles they laid out,
- * coloured by how each one is getting on. It is the drawing the comparison is
- * really about.
+ * **The carrier** is what an operator sees in the arrangement the measurements
+ * were taken in: one sheet above the picture, holding the outline of the plate or
+ * slide, the wells in it, and the rectangles of the tiles they laid out, with
+ * holes cut wherever the run has imaged so the picture shows through.
+ *
+ * **The ground beneath** and **the tiles on top** are the same scene taken apart
+ * into two of the three layers `viz_studio/THE_CANVAS.md` describes. The carrier
+ * and its wells belong *underneath* the acquisition, because they are fixed for
+ * the run and the picture should cover them; the tiles the operator is working
+ * with belong *above* it, because the moment a tile has just been imaged is
+ * exactly the moment its outline matters most. Drawn this way there is no sheet
+ * and there are no holes: the picture simply sits between the two.
  *
  * **The margin probe** is a measuring instrument rather than a picture. It is a
  * plain sheet with a rectangular hole cut a little larger than a known square of
@@ -176,6 +185,199 @@ export function drawTheCarrier({ context, width, height, project, coverage }, sc
     context.lineWidth = 3;
     context.strokeRect(box.left, box.top, box.width, box.height);
   }
+}
+
+/**
+ * The bottom layer: the ground the acquired picture is laid on.
+ *
+ * This is the application's own drawing, and it belongs *beneath* the picture
+ * rather than above it. What goes here is everything that is settled before the
+ * run starts and stays settled while it runs — the outline of the plate or slide,
+ * the wells in it, and a pattern that makes the empty room read as room rather
+ * than as a viewer that has failed to load. A tile the operator is dragging does
+ * not belong here; that lives on the top layer, where nothing can cover it.
+ *
+ * Everything is placed in micrometres and drawn through `project`, exactly as the
+ * top layer is, so the ground, the picture and the operator's marks all pan and
+ * zoom together and none of them has to be lined up by hand.
+ *
+ * The grid is ruled in micrometres rather than in screen pixels on purpose. Ruled
+ * in screen pixels it would slide about underneath the specimen as the view
+ * moved, which looks wrong immediately and is the clearest possible sign that a
+ * layer is not sharing the coordinate system after all.
+ *
+ * **Whether an operator can see any of this depends on the engine in the middle
+ * layer**, and the honest answer differs between the three options. Ask the
+ * viewer: `viewer.drawsUnder` says whether this drawing really ends up beneath
+ * the picture, and `viewer.drawsUnderBecause` says in a sentence why. Nothing
+ * here changes either way — the page draws the same shapes whichever engine is
+ * underneath, which is what makes the comparison worth looking at.
+ */
+export function drawTheGroundBeneath({ context, project }, scene) {
+  const { carrier = null, wells = [] } = scene;
+  if (!carrier) return;
+  const box = onScreen(project, carrier);
+
+  // The carrier itself, as a filled shape rather than an outline, because the
+  // point of a bottom layer is that there is something *there* for the picture to
+  // sit on. A deep, unsaturated colour, so that the acquisition drawn over it
+  // stays the brightest thing in the window.
+  context.fillStyle = "rgb(18, 42, 48)";
+  context.fillRect(box.left, box.top, box.width, box.height);
+
+  // A grid ruled across the carrier, twelve squares wide, so that its lines are
+  // an easy size to see at the magnification an operator opens on.
+  const step = (carrier.x1 - carrier.x0) / 12;
+  context.save();
+  context.beginPath();
+  context.rect(box.left, box.top, box.width, box.height);
+  context.clip();
+  context.strokeStyle = "rgba(90, 170, 180, 0.35)";
+  context.lineWidth = 1;
+  for (let x = carrier.x0; x <= carrier.x1 + step / 2; x += step) {
+    const from = project(x, carrier.y0);
+    const to = project(x, carrier.y1);
+    context.beginPath();
+    context.moveTo(from.x, from.y);
+    context.lineTo(to.x, to.y);
+    context.stroke();
+  }
+  for (let y = carrier.y0; y <= carrier.y1 + step / 2; y += step) {
+    const from = project(carrier.x0, y);
+    const to = project(carrier.x1, y);
+    context.beginPath();
+    context.moveTo(from.x, from.y);
+    context.lineTo(to.x, to.y);
+    context.stroke();
+  }
+  context.restore();
+
+  // The wells, and then the outline of the carrier last so that it is not cut
+  // into by the grid lines running up to it.
+  context.strokeStyle = "rgba(120, 200, 210, 0.7)";
+  context.lineWidth = 1;
+  for (const well of wells) {
+    const middle = project(well.x, well.y);
+    const edge = project(well.x + well.r, well.y);
+    context.beginPath();
+    context.arc(middle.x, middle.y, Math.abs(edge.x - middle.x), 0, Math.PI * 2);
+    context.stroke();
+  }
+  context.strokeStyle = "rgb(150, 220, 230)";
+  context.lineWidth = 2;
+  context.strokeRect(box.left, box.top, box.width, box.height);
+}
+
+/**
+ * The top layer, in the three-layer arrangement: only the things the operator is
+ * working with.
+ *
+ * The tile rectangles and whichever one is selected, and nothing else. There is
+ * no sheet and there are no holes cut in anything, because in this arrangement
+ * the picture is already underneath: it shows wherever it was written, without
+ * anybody having to say where that is. Everything drawn here sits over the
+ * picture, which is where a tile outline belongs — an operator most wants to see
+ * the square they laid out at the moment its picture has just landed inside it.
+ *
+ * Compare `drawTheCarrier` above, which packs all of this into one sheet with
+ * holes cut in it. That is what an engine that cannot show anything beneath its
+ * canvas obliges an application to do, and the difference between the two is
+ * worth seeing side by side.
+ */
+export function drawTheTilesOnTop({ context, project }, scene) {
+  const { tiles = [] } = scene;
+  const fills = {
+    planned: "rgba(120, 130, 160, 0.30)",
+    acquiring: "rgba(240, 190, 90, 0.45)",
+    done: "rgba(110, 200, 150, 0.30)",
+  };
+  for (const tile of tiles) {
+    const box = onScreen(project, tile);
+    context.fillStyle = fills[tile.state] || fills.planned;
+    context.fillRect(box.left, box.top, box.width, box.height);
+    context.strokeStyle = "rgba(210, 220, 235, 0.5)";
+    context.lineWidth = 1;
+    context.strokeRect(box.left, box.top, box.width, box.height);
+  }
+  if (scene.selected != null && tiles[scene.selected]) {
+    const box = onScreen(project, tiles[scene.selected]);
+    context.strokeStyle = "rgb(255, 214, 102)";
+    context.lineWidth = 3;
+    context.strokeRect(box.left, box.top, box.width, box.height);
+  }
+}
+
+/**
+ * How thick the ring drawn beneath the picture is, in the browser's own pixels.
+ *
+ * Only wide enough to be found reliably in a photograph. It matters that the
+ * ring stays *inside* the rectangle the engine is given to draw in: an engine
+ * that cannot show anything beneath its canvas must then show none of this ring
+ * at all, and the reading comes out as "there was nothing of the bottom layer on
+ * screen to measure", which is the honest answer. A ring drawn wide enough to
+ * spill outside the engine's rectangle would be seen around the edge of it and
+ * would be measured as though the engine had let it through, which would be
+ * quite untrue. The engine is given sixty-four browser pixels of slack around
+ * the imaged ground, and the outside of this ring falls at fifty-six.
+ */
+export const RING_CSS_PX = 16;
+
+/**
+ * The measuring instrument for the **bottom** layer: a rectangle of colour
+ * framing the imaged square, drawn underneath the picture.
+ *
+ * It asks the same question as the margin probe above and is read by the same
+ * program, `viz_studio/tests/margins.py`, without a line of change. The shapes
+ * are arranged so that a cut across the photograph meets the same four things in
+ * the same order: the ring, then a band of background, then the picture, then a
+ * band of background, then the ring again. If the layer beneath and the picture
+ * are lined up, the two bands are equal and stay equal however the view is
+ * panned, zoomed or thrown about. If they come apart, one side goes thick and
+ * the other thin, by exactly as much.
+ *
+ * `square` is the imaged rectangle in micrometres. `nudge` moves the ring
+ * sideways by that many browser pixels — nought in every real measurement, and
+ * set only to show that the reading can go the other way. A check that has never
+ * been seen to fail is not evidence of anything.
+ */
+export function drawTheMarginRingBeneath({ context, project }, { square, nudge = 0 }) {
+  const box = onScreen(project, square);
+  const inner = MARGIN_CSS_PX;
+  const outer = MARGIN_CSS_PX + RING_CSS_PX;
+  context.fillStyle = SHEET_IS_RED;
+  context.fillRect(
+    box.left - outer + nudge,
+    box.top - outer,
+    box.width + 2 * outer,
+    box.height + 2 * outer,
+  );
+  // Cleared rather than filled, so that what shows inside the ring is the page's
+  // own colour and the picture the engine draws over it — which is the whole
+  // arrangement being measured.
+  context.clearRect(
+    box.left - inner + nudge,
+    box.top - inner,
+    box.width + 2 * inner,
+    box.height + 2 * inner,
+  );
+}
+
+/**
+ * Fill a whole slot with one flat colour.
+ *
+ * Not a picture of anything — this is what the measurement of the bottom layer
+ * paints, and it is deliberately the dullest possible drawing. One saturated
+ * colour covering the window can be counted in a photograph without any
+ * judgement about what counts as a line or an outline, so the reading is "what
+ * share of the window is this colour" and nothing more.
+ *
+ * It is used for both slots in turn, which is the whole of the check that the
+ * reading means what it says: the same colour, the same drawing function, put in
+ * the other slot, must fill the window in every option.
+ */
+export function fillTheSlot({ context, width, height }, colour) {
+  context.fillStyle = colour;
+  context.fillRect(0, 0, width, height);
 }
 
 /**

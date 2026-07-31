@@ -367,6 +367,224 @@ def test_the_margins_stay_even_and_the_check_can_fail(harness_page, option):
     )
 
 
+def _share_of_the_window_that_is(picture, colour: str) -> float:
+    """What fraction of the window is one saturated colour.
+
+    Written as generous ranges rather than exact values, because a photograph of
+    a screen has been through compositing. The colours it is asked about are so
+    far apart that generous ranges cannot confuse them.
+    """
+    picture = np.asarray(picture).astype(int)
+    red, green, blue = picture[:, :, 0], picture[:, :, 1], picture[:, :, 2]
+    if colour == "green":
+        is_it = (green > 120) & (red < 90) & (blue < 90)
+    elif colour == "blue":
+        is_it = (blue > 120) & (red < 90) & (green < 90)
+    else:
+        raise ValueError(f"nothing here knows how to count {colour!r}")
+    return float(is_it.mean())
+
+
+def _draw_in_the_slots(harness, *, under: str, over: str) -> None:
+    """Put the page's own drawing in one slot, the other, or neither."""
+    harness.believes(
+        "window.harness.drawInTheSlots({under: %r, over: %r, colour: '#00ff00'})"
+        % (under, over)
+    )
+    harness.settle(tries=20)
+
+
+@pytest.mark.parametrize("option", EVERY_OPTION)
+def test_an_option_is_honest_about_the_bottom_layer(harness_page, option):
+    """What an option says about drawing beneath the picture matches a photograph.
+
+    `viz_studio/THE_CANVAS.md` asks for three layers sharing one coordinate
+    system, and the interface gives an application a slot for the bottom one:
+    ``drawUnder(paint)``, written exactly like ``drawOver(paint)``. Whether an
+    operator can actually *see* what goes there depends on the engine in the
+    middle, and an engine that cannot honour the slot has to say so — as
+    ``viewer.drawsUnder`` — rather than quietly drawing the same thing on top with
+    holes cut in it. Two options that looked alike while doing entirely different
+    things underneath would make the whole comparison a lie.
+
+    So this checks the claim against the picture, both ways round. An option that
+    says yes must show a colour drawn beneath; an option that says no must show
+    none of it, and must give a reason a page can put in front of somebody.
+
+    The same colour is then drawn in the *top* slot, and every option must show it
+    filling the window. That is what makes the reading mean "which slot" rather
+    than "which colour": without it, a viewer whose drawing never ran at all would
+    pass the "no" half of this test perfectly.
+    """
+    harness_page.option = option
+    # Unbounded on purpose. With the drawn region kept to the imaged ground, the
+    # engine's surface covers only part of the window and a colour drawn beneath
+    # is seen all round it — which is a fact about the size of a box rather than
+    # about whether a surface lets light through, and it would read as a yes on an
+    # engine that is really a no.
+    harness_page.open(
+        store="scattered", draw="none", background="#0000ff", bounded="0"
+    )
+    claims = harness_page.believes("window.harness.drawsUnder")
+    assert claims in (True, False), (
+        "the option did not say whether it draws beneath the picture. "
+        "`viewer.drawsUnder` is how a page finds that out without having to know "
+        f"which engine it is talking to; this one answered {claims!r}"
+    )
+
+    _draw_in_the_slots(harness_page, under="a colour", over="nothing")
+    beneath = _share_of_the_window_that_is(harness_page.photograph(), "green")
+
+    _draw_in_the_slots(harness_page, under="nothing", over="a colour")
+    above = _share_of_the_window_that_is(harness_page.photograph(), "green")
+
+    assert above > 0.9, (
+        "the same colour drawn in the top slot did not fill the window, so this "
+        "check cannot tell whether the colour was ever drawn at all: it covered "
+        f"{above:.4f} of the window"
+    )
+    if claims:
+        assert beneath > 0.5, (
+            f"{option} says it draws beneath the picture, and a colour drawn "
+            f"there covered only {beneath:.4f} of the window while the same "
+            f"colour drawn on top covered {above:.4f}. Either the bottom slot is "
+            "not reaching the screen or the claim is wrong."
+        )
+    else:
+        assert beneath < 0.02, (
+            f"{option} says it cannot draw beneath the picture, and yet a colour "
+            f"drawn there covered {beneath:.4f} of the window. Either the claim "
+            "is out of date or the drawing has quietly been moved on top, which "
+            "would make this option no longer comparable with the others."
+        )
+        because = harness_page.believes("window.harness.drawsUnderBecause")
+        assert because and len(because) > 20, (
+            "an option that cannot honour the bottom layer has to say why, in a "
+            "sentence a page can show to whoever is looking at it: "
+            f"{because!r}"
+        )
+
+
+@pytest.mark.parametrize("option", EVERY_OPTION)
+def test_the_bottom_layer_stays_lined_up_with_the_picture(harness_page, option):
+    """A layer beneath the picture has to move with it, not merely sit under it.
+
+    The three layers share one coordinate system, so panning and zooming must
+    carry all three together. A bottom layer that is underneath but drifts as the
+    operator pans is worse than none at all, because it looks right standing still
+    and wrong the moment it is used.
+
+    This is the same instrument as ``test_the_margins_stay_even``, and the same
+    program reads it. Only the shape moves: a rectangle of colour is drawn
+    *beneath* the picture a little way outside the imaged square, so a cut across
+    the photograph meets the ring, a band of background, the picture, a band of
+    background and the ring again. The right answer is that the two bands are
+    equal.
+
+    An option that cannot show anything beneath its canvas has nothing on screen
+    to measure, and this says so and stops rather than reporting a nought that
+    would read as "perfectly lined up".
+
+    The second half is what makes the first worth anything: the ring is moved
+    eight pixels away from where it belongs and the same reading must go uneven.
+    """
+    harness_page.option = option
+    harness_page.open(store="square", draw="none", background="#0000ff")
+    claims = harness_page.believes("window.harness.drawsUnder")
+    _draw_in_the_slots(harness_page, under="the margin ring", over="nothing")
+    harness_page.believes("window.harness.reset()")
+    harness_page.settle(tries=20)
+    lined_up = margins_around_the_hole(harness_page.photograph())
+
+    if not claims:
+        assert not lined_up.found, (
+            f"{option} says it cannot draw beneath the picture, and yet the ring "
+            "drawn there was found on screen. Either the claim is out of date or "
+            "the drawing has quietly been moved on top."
+        )
+        pytest.skip(
+            f"{option} shows nothing beneath the picture, so there is no bottom "
+            "layer on screen to measure. That is the honest reading and it is "
+            "checked above rather than reported as a nought."
+        )
+
+    assert lined_up.found, (
+        "the band of background between the picture and the ring drawn beneath "
+        f"it could not be found at all: {lined_up.why}"
+    )
+    assert lined_up.unevenness <= 2, (
+        "the layer beneath the picture is not lined up with it: "
+        f"{lined_up.sides}"
+    )
+
+    harness_page.believes("window.harness.nudgeTheGroundBeneath(8)")
+    harness_page.settle(tries=10)
+    broken = margins_around_the_hole(harness_page.photograph())
+    harness_page.believes("window.harness.nudgeTheGroundBeneath(0)")
+    assert broken.found and broken.unevenness > 8, (
+        "the ring beneath the picture was moved eight pixels away from where it "
+        "belongs and this check did not notice, so it is not measuring anything: "
+        f"{broken.sides if broken.found else broken.why}"
+    )
+
+
+@pytest.mark.parametrize("option", EVERY_OPTION)
+def test_the_transform_is_published_for_ordinary_html(harness_page, option):
+    """An application can place an HTML element in micrometres and have it land.
+
+    The two drawing slots take a function and give back a flat picture, which is
+    right for shapes that must stay locked to the specimen. But a drawing context
+    cannot hold an HTML element, so a label pinned to a tile, a menu, or a handle
+    with its own event listeners has to be an ordinary element positioned over the
+    canvas. ``viewer.whereThingsAreDrawn()`` is what makes that possible in the
+    canvas's own coordinate system.
+
+    It is checked against the picture rather than against itself. A transform that
+    is self-consistent and wrong would round-trip perfectly, so the corner of the
+    imaged square is projected and compared with where the picture really begins
+    on screen — the same trap, and the same answer, as the check that the view is
+    measured in micrometres.
+    """
+    harness_page.option = option
+    harness_page.open(store="square", draw="none")
+    harness_page.believes("window.harness.reset()")
+    harness_page.settle(tries=20)
+
+    placed = harness_page.page.evaluate(
+        """() => {
+          const where = window.harness.viewer.whereThingsAreDrawn();
+          const square = window.harness.square;
+          const corner = where.project(square.x0, square.y0);
+          const backAgain = where.unproject(corner.x, corner.y);
+          return {
+            centre: where.centre, zoom: where.zoom,
+            width: where.width, height: where.height,
+            corner, backAgain,
+            squareX0: square.x0, squareY0: square.y0,
+          };
+        }"""
+    )
+    assert placed["width"] > 0 and placed["zoom"] > 0, (
+        "whereThingsAreDrawn() did not describe a box with a size and a "
+        f"magnification: {placed}"
+    )
+    assert abs(placed["backAgain"]["x"] - placed["squareX0"]) < 0.01, (
+        "projecting a place in micrometres and unprojecting it again did not "
+        f"come back to where it started: {placed}"
+    )
+
+    picture = harness_page.photograph()
+    density = harness_page.believes("window.harness.density()")
+    really_starts = _where_the_picture_starts(picture)
+    assert really_starts is not None, "there was no picture on screen to measure"
+    assert abs(really_starts / density - placed["corner"]["x"]) <= 3, (
+        "the transform an application is given puts the corner of the imaged "
+        f"square {placed['corner']['x']:.1f} browser pixels across the window, "
+        f"and the picture really begins at {really_starts / density:.1f}. An "
+        "HTML element positioned with it would land in the wrong place."
+    )
+
+
 def _share_of_the_window_showing_picture(picture) -> float:
     """What fraction of the window is showing acquired picture rather than page.
 
