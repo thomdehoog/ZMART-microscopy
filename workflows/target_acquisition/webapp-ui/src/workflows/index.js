@@ -11,7 +11,7 @@ import { numbered } from "../frame/steps.js";
 import {
   connect, setOrigin, captureOverviewJob, captureTargetJob, focusStrategy,
   scanOverview, detectCells, selectCells, acquireAndCurate, saveRun, disconnect,
-  reworded,
+  lookAtTheRun, reworded,
 } from "./steps.js";
 
 const workflow = (name, blurb, steps) => ({ name, blurb, steps: numbered(steps) });
@@ -62,6 +62,17 @@ export const WORKFLOWS = {
       }),
       disconnect,
     ],
+  ),
+
+  /* One step and nothing else, so that the canvas can be tried inside the real
+     operator window before it is put to work in any run. Deliberately not part
+     of target acquisition: mixing it into a workflow that drives a microscope
+     would mean every question about the picture became a question about the
+     acquisition around it. */
+  viewer_only: workflow(
+    "Viewer on its own",
+    "the canvas and nothing else, for trying it out",
+    [lookAtTheRun],
   ),
 };
 

@@ -80,10 +80,24 @@ describe("readiness belongs to the step, not the frame", () => {
 });
 
 describe("panels follow the step", () => {
-  it("the canvas is always there", () => {
+  /* A step that says nothing gets the canvas, because nearly every step happens
+     on the stage. A step that says what it wants gets exactly that — see the
+     viewer step, whose whole content is a picture and which wants no panel of
+     controls beside it. Both halves are checked, because the first used to be
+     the only rule and there was then no way to write the second kind of step. */
+  it("a step that says nothing gets the canvas", () => {
     for (const wf of Object.keys(WORKFLOWS)) {
-      for (const s of WORKFLOWS[wf].steps) expect(panelsFor(s)[0]).toBe("canvas");
+      for (const s of WORKFLOWS[wf].steps) {
+        if (!s.panels) expect(panelsFor(s)[0]).toBe("canvas");
+      }
     }
+  });
+
+  it("a step that names its modules gets those and nothing else", () => {
+    expect(panelsFor({ id: "x", panels: ["viewer"] })).toEqual(["viewer"]);
+    // Naming modules wins over a widget, so a step cannot ask for two things
+    // and quietly be given three.
+    expect(panelsFor({ id: "x", panels: ["viewer"], widget: "focus" })).toEqual(["viewer"]);
   });
 
   it("a step with its own widget adds exactly one", () => {
@@ -95,9 +109,9 @@ describe("panels follow the step", () => {
 });
 
 describe("workflows compose the catalogue rather than restating it", () => {
-  it("offers three", () => {
+  it("offers four", () => {
     expect(Object.keys(WORKFLOWS)).toEqual(
-      ["target_acquisition", "overview_only", "focus_check"]);
+      ["target_acquisition", "overview_only", "focus_check", "viewer_only"]);
   });
 
   it("shares steps by identity, so a fix reaches every workflow", () => {
@@ -121,13 +135,59 @@ describe("workflows compose the catalogue rather than restating it", () => {
     }
   });
 
-  it("every step can actually run: it has a button and a run function", () => {
+  /* A step that offers an action has to be able to carry it out, which is what
+     this catches: a button with nothing behind it, or work with no way to ask
+     for it.
+
+     Not every step offers one, though, and that is not a gap. Some steps are
+     finished by doing the thing they are about — the carrier is settled by being
+     configured, and the viewer step is a picture to look at — so there is nothing
+     left to press and a button would only ask the operator to confirm what they
+     have already done. Those steps declare no button and no work, and the frame
+     draws no action for them. */
+  it("a step that offers an action can carry it out", () => {
     for (const wf of Object.keys(WORKFLOWS)) {
       for (const s of WORKFLOWS[wf].steps) {
+        if (!s.button && !s.run) continue;
         expect(typeof s.run, `${wf}/${s.id}`).toBe("function");
         expect(s.button, `${wf}/${s.id}`).toBeTruthy();
       }
     }
+  });
+});
+
+/* The canvas is being built once and put into workflows afterwards, so the first
+   place it goes is a workflow of its own with nothing else in it. That makes it
+   something an operator can open and try, in the real window, without an
+   acquisition happening around it — and it is deliberately kept out of target
+   acquisition, where every question about the picture would become a question
+   about the run. */
+describe("the viewer stands on its own", () => {
+  const steps = WORKFLOWS.viewer_only.steps;
+
+  it("is one step, and only one", () => {
+    expect(steps.length).toBe(1);
+    expect(steps[0].id).toBe("viewer");
+  });
+
+  it("wants the picture and nothing beside it", () => {
+    expect(panelsFor(steps[0])).toEqual(["viewer"]);
+  });
+
+  it("has nothing to run, because standing on it is the whole of it", () => {
+    expect(steps[0].run).toBeUndefined();
+    expect(steps[0].button).toBeUndefined();
+  });
+
+  it("says in plain words what it is for", () => {
+    expect(WORKFLOWS.viewer_only.name).toBe("Viewer on its own");
+    expect(steps[0].title).toBe("Look at the run");
+    expect(steps[0].why).toMatch(/canvas/);
+  });
+
+  it("leaves target acquisition exactly as it was", () => {
+    expect(ids("target_acquisition")).not.toContain("viewer");
+    for (const s of WORKFLOWS.target_acquisition.steps) expect(s.panels).toBeUndefined();
   });
 });
 

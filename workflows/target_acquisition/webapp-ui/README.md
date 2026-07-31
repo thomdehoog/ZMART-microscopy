@@ -84,6 +84,38 @@ one cost is that a place imaged and found empty then looks the same as a place
 nobody has visited. Both behaviours are measured in
 `tests/live-overview-sparse.spec.js`.
 
+## Trying the canvas on its own
+
+The canvas is the picture of a run that an operator pans and zooms, and it is
+being built separately, in `viz_studio/options/`, once for each of several
+drawing engines and all of them behind one small interface. This page offers it
+as a workflow of its own — **Viewer on its own** in the chooser at the top left —
+with a single step and nothing else in it.
+
+It is deliberately not part of target acquisition. Mixing it into a workflow that
+drives a microscope would mean every question about the picture became a question
+about the acquisition going on around it, and the point of a workflow with one
+step is that the picture can be looked at by itself.
+
+Point it at a run the same way the scan step is pointed at one, and choose the
+workflow:
+
+```
+http://127.0.0.1:5174/?overview=http://127.0.0.1:8788/overview.ome.zarr
+```
+
+The row of buttons above the picture chooses which engine draws it, and changing
+engine keeps the view exactly where it is — which is the only way to see a
+difference that is small. `?engine=viv-inside` says which one to open with.
+Dragging pans and the plain wheel zooms; nothing else moves the view.
+
+Two limits are worth knowing while this is young. Only the first colour a run
+recorded is drawn, in white, because the page has no way to ask the canvas what
+colours the run holds; and the whole of the room the run declared is drawn rather
+than only the part it has imaged, because the page does not yet hand over the
+run's record of where it has been. `src/canvas/panel.js` says what each of those
+would take to fix.
+
 ## Testing, at prototyping pace
 
 `tests/operator-page.spec.js` is a smoke net, not a specification: the layout

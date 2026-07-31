@@ -141,6 +141,22 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
       ]),
     },
+    /* One step and nothing else: the canvas, with the whole window to itself.
+       It is here so that the picture can be tried inside the real operator
+       window on its own, before it is put to work in any run — and deliberately
+       not folded into target acquisition, where every question about the picture
+       would become a question about the acquisition going on around it.
+
+       The step has no action to run. Standing on it is the whole of it, the way
+       standing on the carrier step is: the picture appears, and the operator
+       pans, zooms and changes the engine drawing it. */
+    viewer_only: {
+      name: "Viewer on its own",
+      blurb: "the canvas and nothing else, for trying it out",
+      steps: numbered([
+        { id: "viewer", title: "Look at the run", why: "Draws the run this page was pointed at, so the canvas can be tried on its own.", panels: ["viewer"] },
+      ]),
+    },
   };
 
   /* ============================================================
@@ -492,12 +508,21 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      They are three different things — a session, a list of presets, a carrier —
      and a tab beside the canvas should say which of them it opens. They draw
      into the same element because only one is ever shown. */
-  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-detect", "foot-focus", "foot-analysis", "foot-gallery"];
+  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer", "foot-detect", "foot-focus", "foot-analysis", "foot-gallery"];
 
+  /* Every panel a step may ask for, by the name a step uses for it. `whenShown`
+     is how a panel that has to build something of its own — a picture drawn by a
+     graphics engine, rather than shapes on one of the page's own canvases —
+     learns that it is on screen. It is called every time the panel comes up, and
+     a panel that need do nothing simply has none. */
   const PANEL_META = {
     connect: { label: "Microscope configuration", panel: "panel-setup" },
     optics: { label: "Optical configuration", panel: "panel-setup" },
     canvas: { label: "Canvas", panel: "panel-canvas" },
+    viewer: {
+      label: "Viewer", panel: "panel-viewer",
+      whenShown: () => theCanvas.whenShown(),
+    },
     detect: { label: "Detection", panel: "panel-detect" },
     focus: { label: "Focus strategy", panel: "panel-focus" },
     analysis: { label: "Analysis", panel: "panel-analysis" },
@@ -1157,6 +1182,10 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     }
     renderSide(show);
     renderStepAction(show);
+    // A panel that builds a picture of its own is told it is on screen; see
+    // `PANEL_META`. Everything below this line is the page drawing on its own
+    // canvases, which needs no such warning.
+    PANEL_META[show].whenShown?.();
     if (SETUP_CARDS[show]) renderSetup(show);
     // The acquired overview lies over the plan while the scan is what is being
     // looked at, so which of the two is on screen follows the step.
@@ -1230,6 +1259,14 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     return [asked.get("overview"), asked.get("targets")].filter(Boolean);
   })();
   const RUN_TO_WATCH = ACQUISITIONS[0] ?? null;
+
+  /* Which engine draws the picture on the viewer step — `?engine=viv-inside`.
+     The same run can be looked at through any of the engines this page was built
+     with, and the little row of buttons at the top of that panel changes between
+     them without losing the view. This says which one to open with; left out, it
+     is the first in the list. `src/canvas/engines.js` says what there is and why
+     one of the three is missing. */
+  const ENGINE_ASKED_FOR = new URLSearchParams(location.search).get("engine");
 
   /* What colour to paint the room the run declared, underneath the picture, as
      six hex digits — `?ground=1e3a5f`. Left out, nothing is drawn underneath and
@@ -1354,6 +1391,54 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
       /** Frame the whole overview again, for the Fit button. */
       fit() { picture?.fit(); },
+    };
+  })();
+
+  /* ============================================================
+     the canvas, as its own step
+     ============================================================ */
+  /* The picture of a run, filling a panel of its own, with the engine that draws
+     it chosen by the operator. It is the same run this page is already pointed
+     at with `?overview=` and `?targets=`, so there is one way of saying which
+     run to look at rather than two.
+
+     Everything about how the picture is drawn lives behind a small interface in
+     `viz_studio/options/`, and this page reaches it only through
+     `src/canvas/panel.js`. The canvas is never told which step it is in. */
+  const theCanvas = (() => {
+    /* Built the first time the panel is asked for, rather than on load. The
+       drawing engine is a large thing to fetch and there is no reason to fetch
+       it for a run that never opens this step.
+
+       The half-built state is remembered rather than the finished one, because
+       the panel can be asked for again while the fetch is still in flight and
+       two canvases in one box would be a hard fault to read on screen. */
+    let building = null;
+    const build = () => {
+      building ??= import("./canvas/panel.js").then(({ putTheCanvasIn }) =>
+        putTheCanvasIn({
+          box: el("viewer-box"),
+          note: el("viewer-note"),
+          chooser: el("viewer-engine"),
+          readout: el("viewer-readout"),
+          acquisitions: ACQUISITIONS,
+          engine: ENGINE_ASKED_FOR,
+        }),
+      );
+      return building;
+    };
+    return {
+      whenShown: () =>
+        build()
+          .then((canvas) => canvas.whenShown())
+          /* Said on the page as well as on the console. A box that is broken and
+             a box that is still loading look exactly alike, and this project has
+             lost days to the difference. */
+          .catch((why) => {
+            const note = el("viewer-note");
+            note.hidden = false;
+            note.textContent = `the canvas could not be loaded — ${why.message}`;
+          }),
     };
   })();
 

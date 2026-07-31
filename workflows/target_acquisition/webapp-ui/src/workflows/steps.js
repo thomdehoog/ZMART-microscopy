@@ -148,5 +148,26 @@ export const disconnect = {
     update({ locked: false }, await backend.disconnect()),
 };
 
+/**
+ * The canvas on its own, with the whole window to itself.
+ *
+ * This step has no action and produces nothing. Standing on it is the whole of
+ * it: the picture of the run appears, and the operator pans, zooms and changes
+ * the engine drawing it. That is unusual for a step and it is deliberate — the
+ * canvas is being built to be put into several workflows later, and a step that
+ * does nothing but show it is how it can be tried in the real operator window
+ * first, on its own, without an acquisition going on around it.
+ *
+ * It asks for one module and names it, so the frame gives it that and nothing
+ * else. There is no panel of controls down the right-hand side, because this
+ * step wants only the picture.
+ */
+export const lookAtTheRun = {
+  id: "viewer",
+  title: "Look at the run",
+  why: "Draws the run this page was pointed at, so the canvas can be tried on its own.",
+  panels: ["viewer"],
+};
+
 /** Same step, different words — a calibration run explains itself differently. */
 export const reworded = (step, changes) => ({ ...step, ...changes });
