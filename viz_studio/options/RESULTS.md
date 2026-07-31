@@ -91,37 +91,37 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 
 <!-- the table below is written by measure/results.py; edit above or below it -->
 
-| | neuroglancer-under |
-| --- | --- |
-| *measured* | 2026-07-30 23:32 |
-| **0. Can a surface underneath the engine be seen?** | **no** |
-| **1. Registration** — worst unevenness at rest (screen px) | 1.0 |
-|   … while panning | 1.0 |
-|   … while zooming | 2.0 |
-|   … thrown about | 1.0 |
-|   … with the hole moved 8 px on purpose (must be large) | 17.0 |
-| **2. Handedness** — brightness across the picture (levels per 100 px) | 91.5 |
-|   … the bright edge is on the right | yes |
-|   … dragging carries the picture with the hand (slope) | 1.0 |
-| **3. Two gestures** — removed gestures that moved the view | none |
-|   … gestures the page refused | 1 shiftDrag, 1 rightButton, 3 ctrlWheel, 22 keys |
-| **4. Sparseness** — share of the window showing picture | 0.0152 |
-|   … the operator's plan shows through the gaps | yes |
-| **5a. New data appears at all** | yes |
-|   … holders of decoded image it had to be asked to let go of | 3 |
-| **5b. What the refresh costs** — pieces re-fetched | 4 |
-| **5c. The picture survives the refresh** — seconds before it is back | 0.15 |
-|   … what the window showed while it refreshed | [0.2726, 0.0, 0.1839] |
-| **5d. The view stays put** — centre moved (µm) | 0.0 |
-| **5e. How soon a tile shows** (seconds) | 0.35 |
-| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 6.0 |
-|   … tiles written meanwhile | 460 |
-| **6. Requests** — to redraw one view, unbounded | 117 |
-|   … of those, for ground nobody imaged | 108 |
-|   … bounded by the coverage record | 25 |
-|   … of those, for ground nobody imaged | 16 |
-| **7. Drawing rate** — frames a second at 20 positions | 18.9 |
-|   … at 200 positions | 13.0 |
+| | neuroglancer-under | viv-inside | viv-under |
+| --- | --- | --- | --- |
+| *measured* | 2026-07-30 23:32 | 2026-07-31 07:05 | 2026-07-31 07:09 |
+| **0. Can a surface underneath the engine be seen?** | **no** | yes | yes |
+| **1. Registration** — worst unevenness at rest (screen px) | 1.0 | 0.0 | 0.0 |
+|   … while panning | 1.0 | 0.0 | 0.0 |
+|   … while zooming | 2.0 | 0.0 | 0.0 |
+|   … thrown about | 1.0 | 0.0 | 0.0 |
+|   … with the hole moved 8 px on purpose (must be large) | 17.0 | 16.0 | 16.0 |
+| **2. Handedness** — brightness across the picture (levels per 100 px) | 91.5 | 91.5 | 91.5 |
+|   … the bright edge is on the right | yes | yes | yes |
+|   … dragging carries the picture with the hand (slope) | 1.0 | 1.0 | 1.0 |
+| **3. Two gestures** — removed gestures that moved the view | none | none | none |
+|   … gestures the page refused | 1 shiftDrag, 1 rightButton, 3 ctrlWheel, 22 keys | 1 shiftDrag, 1 rightButton, 3 ctrlWheel, 22 keys | 1 shiftDrag, 1 rightButton, 3 ctrlWheel, 22 keys |
+| **4. Sparseness** — share of the window showing picture | 0.0152 | 0.0153 | 0.0153 |
+|   … the operator's plan shows through the gaps | yes | yes | yes |
+| **5a. New data appears at all** | yes | yes | yes |
+|   … holders of decoded image it had to be asked to let go of | 3 | 3 | 3 |
+| **5b. What the refresh costs** — pieces re-fetched | 4 | 3 | 4 |
+| **5c. The picture survives the refresh** — seconds before it is back | 0.15 | 0.19 | 0.09 |
+|   … what the window showed while it refreshed | [0.2726, 0.0, 0.1839] | [0.2734, 0.2734, 0.2734, 0.2734] | [0.2734, 0.2734, 0.2734] |
+| **5d. The view stays put** — centre moved (µm) | 0.0 | 0 | 0.0 |
+| **5e. How soon a tile shows** (seconds) | 0.35 | 0.37 | 0.36 |
+| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 6.0 | 5.2 → 5.6 | 5.2 → 5.2 |
+|   … tiles written meanwhile | 460 | 449 | 478 |
+| **6. Requests** — to redraw one view, unbounded | 117 | 845 | 432 |
+|   … of those, for ground nobody imaged | 108 | 800 | 396 |
+|   … bounded by the coverage record | 25 | 36 | 100 |
+|   … of those, for ground nobody imaged | 16 | 0 | 64 |
+| **7. Drawing rate** — frames a second at 20 positions | 18.9 | 13.0 | 19.3 |
+|   … at 200 positions | 13.0 | 7.1 | 11.8 |
 
 <!-- end of the generated table -->
 
