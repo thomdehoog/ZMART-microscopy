@@ -175,7 +175,8 @@ axis mapping it draws with, so the picture followed the hand pixel for pixel,
 slope +1.0, both before and after. What tells you which way round a picture is
 must come from something inside the specimen that could not have been reflected
 along with it — here, the order the voxels sit in the file. The original
-measurement in `SANDWICH.md`, section 2, saw the mirror as a slope of −1 only
+measurement in `SANDWICH.md`, section 2 — which is not on this branch; it lives on
+`claude/sandwich-probe`, commit `1277e30` — saw the mirror as a slope of −1 only
 because it compared the picture with the operator's own drawing laid over it,
 and that drawing was placed from the store's coordinates directly.
 

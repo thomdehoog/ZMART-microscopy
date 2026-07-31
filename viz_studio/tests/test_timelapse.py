@@ -351,3 +351,130 @@ def test_the_z_slider_reaches_every_plane_of_the_stack(viewer_page):
     slider = viewer_page.locator("[aria-label='z position']")
     # The top of the slider's own range must be the last plane, not the one before.
     assert float(slider.get_attribute("max")) == float(_DEPTH - 1)
+
+
+def test_a_store_that_lengthens_its_own_array_is_read_again(browser, built_dist, tmp_path):
+    """A run that grows its array must not leave the slider at the old length.
+
+    There are two shapes a timelapse can take on disk and the viewer meets both.
+    One declares all its moments up front and fills them in, which is what
+    `zmart_storage` writes; the slider is then held back by the count the server
+    reads off the disk, and the engine never has to change its mind about anything.
+    The other **grows**: the array is written with one moment, and its declared
+    length is raised as the run goes. `DATA_LAYOUT.md` records a real instrument
+    doing exactly this.
+
+    The second shape is the one that needs work from the viewer, and until this test
+    nothing covered it. Neuroglancer remembers everything it has ever read about a
+    store, with no time limit, so it goes on answering "one moment" from memory and
+    the slider cannot reach a frame that exists on disk and reads back perfectly.
+    `syncSources` in `engine.js` is what makes it look again, and the tests that
+    seemed to cover this all use the first shape — where the engine's answer was
+    never going to change, so it did not matter whether it looked.
+
+    Nothing about that failure is loud. The frames are there, the run is fine, and
+    the operator simply cannot get to them.
+    """
+    import http.client
+
+    store = tmp_path / "growing.ome.zarr"
+    _write_a_growing_timelapse(store, frames=1)
+
+    server = make_server(port=0, data_dir=tmp_path, site_dir=built_dist, store=store.name)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1200, "height": 900})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartViewer !== undefined", timeout=30_000)
+        # With a single moment there is nothing to step through, so no slider is
+        # offered at all — which is right, and is the state this starts from.
+        page.wait_for_function(
+            "() => (window.zmartConfig?.layers?.[0] || {}).frames === 1", timeout=30_000
+        )
+
+        # The run goes on, and the store grows to hold three moments.
+        _write_a_growing_timelapse(store, frames=3)
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", server.server_address[1], timeout=10
+        )
+        connection.request("POST", "/api/announce", body=b"{}", headers={"Content-Length": "2"})
+        assert json.loads(connection.getresponse().read())["told"] >= 1
+        connection.close()
+
+        # What the server reads off the disk is the easy half, and it is not what
+        # this test is about — but it has to be true before the hard half can be.
+        page.wait_for_function(
+            "() => (window.zmartConfig?.layers?.[0] || {}).frames === 3", timeout=30_000
+        )
+
+        # The hard half: the slider on screen, whose reach comes from the engine's
+        # own idea of how long the image is. If the engine never looked again, this
+        # stays at one moment however many the server counted.
+        page.wait_for_selector("[aria-label='t position']", state="attached", timeout=30_000)
+        page.wait_for_function(
+            """() => {
+              const slider = document.querySelector("[aria-label='t position']");
+              return slider && Number(slider.max) - Number(slider.min) === 2;
+            }""",
+            timeout=30_000,
+        )
+        reading = page.locator("[aria-label='t position value']").inner_text()
+        assert reading.strip().endswith("/ 3"), (
+            "the run reached three moments and the slider still offers "
+            f"{reading.strip()}, so two of them cannot be reached"
+        )
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def _write_a_growing_timelapse(store, *, frames: int) -> None:
+    """Write a timelapse that declares exactly the moments it has imaged so far.
+
+    Called again with a larger number, it lengthens the array in place — which is
+    what an instrument that does not know how long a run will be actually does. The
+    moments already written keep their pixels, because a piece of a zarr image is
+    filed under its position and growing the array does not move any of them.
+    """
+    height = width = 64
+    group = zarr.open_group(str(store), mode="a", zarr_format=2)
+    if "0" in group:
+        array = group["0"]
+        array.resize((frames, 1, height, width))
+    else:
+        array = group.create_array(
+            "0", shape=(frames, 1, height, width), chunks=(1, 1, height, width),
+            dtype="uint16",
+        )
+    for frame in range(frames):
+        # Each moment gets a different brightness, so a moment that was never
+        # written is plainly distinguishable from one that was.
+        array[frame] = np.full((1, height, width), 2000 + 500 * frame, dtype=np.uint16)
+    store.joinpath(".zattrs").write_text(
+        json.dumps(
+            {
+                "multiscales": [
+                    {
+                        "version": "0.4",
+                        "axes": [
+                            {"name": "t", "type": "time", "unit": "second"},
+                            {"name": "z", "type": "space", "unit": "micrometer"},
+                            {"name": "y", "type": "space", "unit": "micrometer"},
+                            {"name": "x", "type": "space", "unit": "micrometer"},
+                        ],
+                        "datasets": [
+                            {
+                                "path": "0",
+                                "coordinateTransformations": [
+                                    {"type": "scale", "scale": [30.0, 2.0, 0.35, 0.35]}
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )

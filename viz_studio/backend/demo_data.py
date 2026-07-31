@@ -211,7 +211,7 @@ def _multiscales_metadata(
 
     This is the little manifest the viewer reads to understand the volume: what
     the axes mean (a channel axis plus three spatial axes), what physical size
-    each voxel is at every resolution level, and where each level lives on disk
+    each voxel is at every copy of the image, and where each copy lives on disk
     (the folders ``0``, ``1``, ...). We follow the widely-supported NGFF v0.4
     layout, which is the flavour neuroglancer reads most reliably.
 
@@ -369,7 +369,7 @@ def write_demo_zarr(
             break
         levels.append(smaller)
 
-    # Write a zarr v2 group with one array per pyramid level. Chunks span a single
+    # Write a zarr v2 group with one array per copy of the image. Chunks span a single
     # frame, a single channel and a single z plane (tiled to at most 256x256
     # within the plane), so each file the viewer fetches stays small.
     group = zarr.open_group(str(path), mode="w", zarr_format=2)

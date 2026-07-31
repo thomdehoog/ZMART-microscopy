@@ -648,12 +648,36 @@ contribution. Nothing reports it; the picture simply comes out with parts missin
 The trap is that two tiles can sit well apart, not overlapping at all, and still both fall
 inside one piece of image — which is just as destructive. A guard that holds back
 overlapping tiles therefore lets exactly the wrong pairs through. The writer here widens
-each tile's claim to whole pieces before comparing, and it claims by the pieces of the
-*smallest* copy, since those cover the most ground and the finer ones nest inside them.
+each tile's claim to whole pieces before comparing, and it asks **every copy of the image
+about its own pieces**, not only the smallest one.
 
-This was found by a test rather than by reasoning, which is the argument for having it:
-`zmart_storage/tests/test_canvas.py` writes four tiles at once and checks that the strip
-belonging to each one alone survives.
+That last part is worth dwelling on, because the writer used to take a short cut here and it
+was wrong. A tile is written into all of the progressively smaller copies, so it can share a
+file with another tile in any one of them — and since a piece of the smallest copy covers
+the most ground, it is tempting to hold tiles apart by that one figure and assume the finer
+pieces sit neatly inside it. They do not. Suppose the full-size copy keeps 64 voxels in a
+piece and the half-size copy keeps 50, which is 100 voxels of specimen. Holding tiles apart
+in blocks of 100 draws a boundary at voxel 200, and that boundary falls in the middle of the
+full-size copy's piece covering 192 to 256. Two tiles either side of the boundary are then
+judged to share nothing, and they write that one file at the same moment. Measured that way,
+a pair of tiles arranged so lost 14 336 voxels between them in 20 attempts out of 20.
+
+Asking each copy about its own pieces has no such gap in it, and it never holds tiles apart
+more than the storage actually requires. Two smaller points travel with it: what counts as a
+piece is the *shard* when the image is sharded — several chunks bundled into one file — since
+it is the bundle that gets read and written back whole; and every image in the run is asked
+rather than only the first, because nothing guarantees a run's images are all stored alike.
+
+The fault and its fix both live in `_measure_the_pieces_of` in `zmart_storage/canvas.py`,
+where the reasoning is recorded next to the code. Three tests in
+`zmart_storage/tests/test_canvas.py` hold it in place, each by writing tiles at the same
+moment from several threads and then checking every tile is still whole:
+`test_tiles_sharing_a_piece_of_a_full_size_copy_wait_for_each_other` builds exactly the
+64-and-50 arrangement above, `test_tiles_sharing_a_bundle_survive_being_written_at_once`
+covers the sharded case, and `test_tiles_written_at_once_do_not_corrupt_each_other` covers
+the ordinary one. Nothing `TileCanvases.create` produces is arranged the dangerous way —
+every geometry it can make was tried — so this is about the generality the writer claims
+rather than about the runs it writes today.
 
 #### What it costs elsewhere
 

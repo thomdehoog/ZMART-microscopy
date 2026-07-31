@@ -4,15 +4,6 @@ import React from "react";
 // fast enough to read movement across a stack.
 const PLAY_STEP_MS = 140;
 
-/**
- * The controls for moving through a stack and through time.
- *
- * One slider, used twice: for `z`, to step through the planes of a stack, and for
- * `t`, to step through the frames of a timelapse. Both do the same job — change one
- * number in the engine's position — so they are the same control, and an image
- * without such an axis simply gets none.
- */
-
 // Read one named axis out of the engine's current coordinate space: where it can
 // travel, and where it is now. Returns null when the image has no such axis --
 // which is the normal answer for `t` on anything that is not a timelapse, and is

@@ -224,16 +224,112 @@ def test_opacity_survives_the_three_d_toggle(two_channel_page):
     assert layer["controls"]["opacity"] == pytest.approx(0.42)
 
 
-def test_each_layer_shows_its_measured_histogram(two_channel_page):
-    """Each channel has its own measured histogram, shown when it is selected.
+def test_the_histogram_of_the_chosen_channel_is_the_one_on_screen(two_channel_page):
+    """Whichever channel is picked out, its histogram is the one being shown.
 
     There is one histogram on screen rather than one per row, because there is one
-    block of controls; selecting a channel is what brings its own measurement up.
+    block of controls; selecting a channel is what brings its own up. This checks
+    only that the right one *appears* — whether the bars in it really come from the
+    measurement is the next test, and the two are separate because they can fail
+    separately.
     """
     assert two_channel_page.locator("[aria-label='histogram Ch488']").count() == 1
     _choose(two_channel_page, "Ch647")
     assert two_channel_page.locator("[aria-label='histogram Ch647']").count() == 1
     assert two_channel_page.locator("[aria-label='histogram Ch488']").count() == 0
+
+
+# The bars of the histogram, read back off the drawing itself. Each bar is a
+# one-unit-wide rectangle, which is what tells them apart from the shaded band
+# behind them and the two thin lines marking the edges of the window.
+_HISTOGRAM_BARS = """(label) => Array.from(
+  document.querySelector(`[aria-label="${label}"]`).querySelectorAll("rect"),
+).filter((bar) => bar.getAttribute("width") === "1")
+ .map((bar) => Number(bar.getAttribute("height")))"""
+
+
+def test_the_bars_on_screen_are_the_brightness_the_server_measured(two_channel_page):
+    """The histogram must be a picture of this channel, not a decoration.
+
+    The histogram is the one thing in the panel that answers a question a
+    microscopist really asks — is this channel saturating, or is it sitting on
+    background? An operator reads it and decides whether the acquisition is worth
+    keeping. So it is worth checking that the shape drawn on screen is the shape
+    the server measured, and not merely that a drawing appeared.
+
+    That distinction has caught this project out before, in the writer: a whole
+    group of tests proved the pictures landed in the right places and proved almost
+    nothing about whether the description of them was truthful. The check just above
+    was in exactly that shape — it asked whether a histogram was present and never
+    looked inside it.
+
+    Two things are compared, and neither repeats the drawing's own arithmetic. There
+    must be one bar per measured bin. And the bars must rise and fall where the
+    measurement does: the tallest bar has to sit over the fullest bin, and a bar of
+    no height has to sit over every bin that counted nothing.
+    """
+    measured = two_channel_page.evaluate(
+        "() => window.zmartConfig.layers[0].histogram.counts"
+    )
+    drawn = two_channel_page.evaluate(_HISTOGRAM_BARS, "histogram Ch488")
+    assert len(drawn) == len(measured), "one bar per measured bin"
+    assert drawn.index(max(drawn)) == measured.index(max(measured)), (
+        "the tallest bar is not over the fullest bin, so the drawing is not this "
+        "channel's measurement"
+    )
+    assert [at for at, height in enumerate(drawn) if height == 0] == [
+        at for at, count in enumerate(measured) if count == 0
+    ], "the empty bins on screen are not the ones the measurement found empty"
+
+
+def test_the_contrast_handles_travel_over_the_brightness_that_is_really_there(
+    two_channel_page,
+):
+    """The black and white sliders must be usable, not merely present.
+
+    This is the one control in the panel that is judged by feel rather than by
+    whether it works, and it is worth a test because "works" and "usable" came
+    apart badly here once. The handles used to travel over the whole range a
+    16-bit camera can produce, nought to 65535. Every one of them still moved, and
+    every window still reached the engine — so nothing in the suite noticed. But a
+    real acquisition occupies a narrow band of that range, a few hundred counts of
+    background with the signal just above, and across a track a few centimetres
+    wide the whole useful part was about two pixels of travel. One pixel of
+    movement jumped the brightness by hundreds of counts. In practice the only
+    control anybody could use was the Auto button.
+
+    So the track is taken from the spread of brightness the server measured, with
+    room to spare at each end. What is checked here is that it really is: the
+    distance the handles may travel has to be of the order of the measured spread
+    rather than of the camera's whole range.
+
+    The demo volume sits in a few thousand counts, so a track that still ran to
+    65535 would be more than ten times too wide — which is why a generous factor
+    of four is enough to tell the two apart, and keeps this from being a test about
+    the exact amount of room left at the ends.
+    """
+    measured = two_channel_page.evaluate(
+        "() => window.zmartConfig.layers[0].histogram"
+    )
+    spread = measured["high"] - measured["low"]
+    assert spread > 0, "the demo volume must have some spread to measure"
+
+    track = two_channel_page.evaluate(
+        """() => {
+          const handle = document.querySelector("[aria-label='black Ch488']");
+          return { min: Number(handle.min), max: Number(handle.max) };
+        }"""
+    )
+    room = track["max"] - track["min"]
+    assert room < spread * 4, (
+        f"the handles travel over {room:.0f} counts while the brightness in this "
+        f"channel spans {spread:.0f}, so the useful part of the track is a few "
+        "pixels wide and only the Auto button is any use"
+    )
+    assert room >= spread, (
+        f"the handles travel over only {room:.0f} counts while the brightness "
+        f"spans {spread:.0f}, so part of the measured range cannot be reached"
+    )
 
 
 def test_auto_contrast_restores_the_measured_window(two_channel_page):

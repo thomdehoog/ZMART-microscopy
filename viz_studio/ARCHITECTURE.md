@@ -15,10 +15,14 @@ the rule in section 2.
 
 ## 1. The shape
 
-Neuroglancer is the engine and its own interface is switched off:
-`NeuroglancerView.jsx:53-55` builds it with `makeMinimalViewer` and
-`showUIControls: false`, and `engine-chrome.css` suppresses what remains. Everything an
-operator sees is ours — the layer panel, the sliders, the targets list, the scale bar.
+Neuroglancer is the engine and its own interface is switched off: `NeuroglancerView.jsx`
+builds it with `makeMinimalViewer` and `showUIControls: false`, and `engine-chrome.css`
+suppresses what remains. Everything an operator sees is ours — the layer panel, the
+sliders, the targets list, the scale bar.
+
+(Pointers in this document name functions rather than line numbers. Two of them used to
+give a line and both had drifted a few lines out of date, which is enough to send a
+reader to the wrong place and no way to notice.)
 
 One trap comes with that and is worth repeating wherever this is described, because it
 costs a day to rediscover: `makeMinimalViewer` builds the engine but installs **no input
@@ -56,10 +60,10 @@ Two places where the deferral is done well and should be copied rather than dist
 - **A channel is one layer with many sources.** The engine composites the tiles; we never
   stitch. Measured live on a real mesoSPIM transfer: seven stores become one group with
   `Ch488` holding five sources and `Ch647` two.
-- **Contrast travels as control *values*, not as shader text.** `scene.js:52-60` declares
-  the `invlerp` control with no particular value and `shaderControlsFor` sends the numbers
-  separately, so dragging a contrast handle does not recompile a program on the graphics
-  card.
+- **Contrast travels as control *values*, not as shader text.** `shaderFor` in `scene.js`
+  declares the `invlerp` control with no particular value and `shaderControlsFor` sends the
+  numbers separately, so dragging a contrast handle does not recompile a program on the
+  graphics card.
 
 ### Where the rule is broken today: contrast is measured in Python
 

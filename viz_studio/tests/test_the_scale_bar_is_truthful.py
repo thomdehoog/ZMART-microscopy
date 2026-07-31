@@ -14,11 +14,16 @@ it away. ``ScaleBar.jsx`` says as much in its own words: a bar that does not
 follow the zoom "would quietly state the wrong size". Until these tests were
 written, nothing anywhere in this suite looked at the bar at all.
 
-One fault turned up while these were being written, and it is recorded at the
-bottom of the file rather than hidden: in the **3-D view** the bar states the
-scale of the flat view instead of the volume's, over-stating the demo specimen by
-about three quarters and not moving at all when the volume is zoomed. Everything
-else here is about the single-plane view, where the bar is right.
+One fault turned up while these were being written, and it has since been fixed.
+In the **3-D view** the bar used to state the scale of the flat view instead of
+the volume's — over-stating the demo specimen by about three quarters, by an
+amount that changed with the height of the window, and not moving at all when the
+volume was magnified. The two views count their zoom differently, and the bar read
+the flat view's in both. It was pinned by a test that was expected to fail, that
+test began passing the moment the fix landed, and the marker came off; the test is
+now the last one in this file. `FAULTS.md`, section I, has the measurement.
+
+Everything before it is about the single-plane view.
 
 So the tests here are all forms of one question: **does the bar agree with the
 data and with itself?** They check that

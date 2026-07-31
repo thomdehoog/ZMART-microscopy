@@ -27,7 +27,7 @@
  *    hundred gigabytes — where a rebuild can easily land while pieces are still
  *    in flight — it is luck that runs out.
  * 3. Everything the engine had worked out about the scene has to be worked out
- *    again: which pyramid level to draw, how the layers line up in space, which
+ *    again: which copy of the image to draw, how the layers line up in space, which
  *    shader programs to compile. None of it changed.
  *
  * So this module does the comparing itself. It looks at what the engine currently
@@ -41,6 +41,14 @@
  */
 
 import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
+
+// -- what each layer was last told ---------------------------------------------
+//
+// Working out the smallest set of changes means remembering what the engine was
+// handed last time, because the engine cannot always be asked. Everything
+// remembered here is filed against the layer it belongs to, in a kind of map that
+// lets go of an entry on its own once the layer is thrown away — so closing an
+// acquisition hands the memory back without anything having to tidy up.
 
 // The addresses each layer was last given. Kept here rather than read back out of
 // the engine because Neuroglancer tidies up the addresses it is handed, so what
@@ -60,6 +68,8 @@ function sourceList(spec) {
   if (spec.source == null) return [];
   return Array.isArray(spec.source) ? spec.source : [spec.source];
 }
+
+// -- handing the stores over a few at a time ----------------------------------
 
 /**
  * Handing the engine its stores a few at a time, rather than all at once.
@@ -300,13 +310,19 @@ async function keepHandingOver() {
   }
 }
 
-/**
- * How many stores are still queued across the whole scene.
- *
- * Zero means everything the panel asked for has been handed to the engine. The browser
- * tests use it to tell "still arriving" apart from "this is all there is", which is
- * precisely the distinction that was missing when positions were being lost in silence.
- */
+// -- making the engine look at the disk again ---------------------------------
+//
+// The engine remembers everything it has ever read, and there is no time limit on
+// that memory. It is the right thing almost always, and it is exactly wrong while a
+// run is still writing: what was true when the engine looked is no longer true.
+//
+// There are two ways of telling it to look again, and they are different sizes.
+// `letGoOfDecodedPieces` drops the picture the engine has already decoded, for the
+// whole scene. `forgetWhatWasReadAbout` drops only what was read about one store,
+// which is what a timelapse gaining a frame needs. Between them sits
+// `sourcesStillWaiting`, which is not about looking again at all — it belongs to the
+// feeding above and lives here only so that the two counts a test reads are together.
+
 /**
  * Let go of the pieces of image the engine has already decoded, so that looking again
  * really looks.
@@ -378,6 +394,13 @@ export function letGoOfDecodedPieces(viewer) {
   return asked;
 }
 
+/**
+ * How many stores are still queued across the whole scene.
+ *
+ * Zero means everything the panel asked for has been handed to the engine. The browser
+ * tests use it to tell "still arriving" apart from "this is all there is", which is
+ * precisely the distinction that was missing when positions were being lost in silence.
+ */
 export function sourcesStillWaiting(viewer) {
   let total = 0;
   for (const managed of viewer.layerManager.managedLayers) {
@@ -392,7 +415,7 @@ export function sourcesStillWaiting(viewer) {
  *
  * Neuroglancer remembers the answer to every question it has asked about a store —
  * the small files describing how many frames there are, how big a voxel is, where
- * the pyramid levels live. That memory is the right thing almost always: opening
+ * the copies of the image live. That memory is the right thing almost always: opening
  * the same acquisition in a second window, or coming back to it later, costs
  * nothing. But it is held for as long as the page is open and there is no time
  * limit on it, so when a timelapse grows the engine will keep answering "two
@@ -437,6 +460,13 @@ function forgetWhatWasReadAbout(chunkManager, url) {
     remembered.delete(question);
   }
 }
+
+// -- bringing the engine into line with the panel -----------------------------
+//
+// This is the heart of the module: given the scene the panel wants, change as
+// little as possible to reach it. One function per kind of change — the images a
+// layer reads from, the settings the operator turns, the order the layers are drawn
+// in — and `syncLayers` below puts them together.
 
 /**
  * Give one layer any images it does not yet have.
@@ -746,42 +776,13 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
   return reshaped;
 }
 
-/**
- * Wait for the images to say how big they are, then let the engine choose the
- * starting magnification again.
- *
- * Without this the viewer opens on an empty grey rectangle, with the data
- * present and correct but drawn far too small to see. It is worth explaining
- * why, because the cause is nowhere near the symptom.
- *
- * The engine picks a starting magnification the first moment it believes it
- * knows what space the picture lives in. It expresses that magnification in
- * physical units — so many micrometres to a screen pixel — and it is careful
- * afterwards: if the size of a voxel changes, it adjusts the number so that what
- * is on screen stays the same real size. That is the right thing to do, and it
- * is exactly what hurts us here.
- *
- * The trouble is timing. We hand the engine its layers immediately, while the
- * images themselves are still being read over the network. For a moment there
- * are layers but no axes yet, and in that moment the engine considers the space
- * settled — an empty space, in which it has no voxel size to work from and falls
- * back to treating one voxel as one metre. It picks its ordinary default of one
- * voxel to a pixel, which now means *one metre* to a pixel. A little later the
- * real axes arrive saying a voxel is a third of a micrometre, and the engine
- * dutifully preserves the physical scale it was given. A specimen a tenth of a
- * millimetre across is then drawn about a ten-thousandth of a pixel wide, which
- * is to say invisibly, and the panel shows nothing but its own background.
- *
- * So we wait for the axes to actually arrive and then clear the magnification,
- * which makes the engine choose it once more — this time knowing how big a voxel
- * really is. This happens once, before anything is on screen, so it cannot
- * disturb an operator who has started looking around. Afterwards the engine's
- * careful adjustment is left alone, because from then on it is working from real
- * sizes and is right.
- *
- * Returns a function that stops the waiting, for the caller to use when the
- * viewer goes away.
- */
+// -- settling the view when an image is first opened --------------------------
+//
+// Three things have to be decided the moment an image says how big it is, and all
+// three were wrong at some point in a way that produced a picture nobody could see:
+// which axes to draw, where in time to start, and how far to zoom. They happen once,
+// before anybody is looking, and afterwards the operator is in charge.
+
 /**
  * Draw the axes that measure distance, and leave the rest to the sliders.
  *
@@ -916,6 +917,42 @@ function startTimeAtTheFirstMoment(viewer) {
   position.value = moved;
 }
 
+/**
+ * Wait for the images to say how big they are, then let the engine choose the
+ * starting magnification again.
+ *
+ * Without this the viewer opens on an empty grey rectangle, with the data
+ * present and correct but drawn far too small to see. It is worth explaining
+ * why, because the cause is nowhere near the symptom.
+ *
+ * The engine picks a starting magnification the first moment it believes it
+ * knows what space the picture lives in. It expresses that magnification in
+ * physical units — so many micrometres to a screen pixel — and it is careful
+ * afterwards: if the size of a voxel changes, it adjusts the number so that what
+ * is on screen stays the same real size. That is the right thing to do, and it
+ * is exactly what hurts us here.
+ *
+ * The trouble is timing. We hand the engine its layers immediately, while the
+ * images themselves are still being read over the network. For a moment there
+ * are layers but no axes yet, and in that moment the engine considers the space
+ * settled — an empty space, in which it has no voxel size to work from and falls
+ * back to treating one voxel as one metre. It picks its ordinary default of one
+ * voxel to a pixel, which now means *one metre* to a pixel. A little later the
+ * real axes arrive saying a voxel is a third of a micrometre, and the engine
+ * dutifully preserves the physical scale it was given. A specimen a tenth of a
+ * millimetre across is then drawn about a ten-thousandth of a pixel wide, which
+ * is to say invisibly, and the panel shows nothing but its own background.
+ *
+ * So we wait for the axes to actually arrive and then clear the magnification,
+ * which makes the engine choose it once more — this time knowing how big a voxel
+ * really is. This happens once, before anything is on screen, so it cannot
+ * disturb an operator who has started looking around. Afterwards the engine's
+ * careful adjustment is left alone, because from then on it is working from real
+ * sizes and is right.
+ *
+ * Returns a function that stops the waiting, for the caller to use when the
+ * viewer goes away.
+ */
 export function chooseScaleWhenTheImagesAreMeasured(viewer) {
   const { position } = viewer.navigationState;
   // Axes, not images: a space with no axes is the placeholder described above.
@@ -946,6 +983,8 @@ export function chooseScaleWhenTheImagesAreMeasured(viewer) {
   check();
   return () => stop();
 }
+
+// -- the parts of the view that are not layers --------------------------------
 
 /**
  * Set the parts of the view that are not layers: which panels are on screen, and

@@ -128,10 +128,11 @@ useful way to see for yourself what a browser-less machine gets.
 
 ## Making a run fail if it never looked at a picture
 
-About a third of this suite opens a real browser and reads the pixels it drew, and
-that third is the only part that catches the fault this project keeps meeting: a
-picture that is silently absent, with every piece fetched, every layer built, and
-the engine reporting itself perfectly content.
+About a third of this suite opens a real browser and reads the pixels it drew —
+167 tests of 460 when this was last counted — and that third is the only part that
+catches the fault this project keeps meeting: a picture that is silently absent,
+with every piece fetched, every layer built, and the engine reporting itself
+perfectly content.
 
 If no browser can be started, or the page was never built, all of those tests skip
 — and the run would otherwise report the same comfortable green as one that looked
@@ -144,7 +145,7 @@ picture was not looked at ends with a banner saying so:
 
 ```
 ================================ NO PICTURE WAS LOOKED AT ================================
-41 tests that open a real browser and read the pixels it drew were skipped.
+167 tests that open a real browser and read the pixels it drew were skipped.
 Why:
   - no usable Chromium on this machine: BrowserType.launch: Executable doesn't exist at …
 …

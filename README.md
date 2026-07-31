@@ -76,6 +76,12 @@ copied afterwards and the viewer holds the same few images from the first moment
 `zmart_storage` is the writer that does this. When it has written a tile, the run
 says so, and the picture fills in on screen without the page reloading.
 
+The writer can produce either generation of the OME-Zarr format, chosen with its
+`ome_zarr_version` argument. It writes `0.4` unless you ask otherwise, because that
+is what almost every other tool can read today; `0.5` is the newer standard and is
+where the format is going. Nothing an operator sees changes between them, and the
+viewer reads both.
+
 `viz_studio/DATA_LAYOUT.md` records how a run should be stored and why, with the
 measurements behind each decision. Read it before changing anything about the layout
 — several of the obvious-looking choices were tried and rejected for reasons that
@@ -109,7 +115,6 @@ Written down because finding out for yourself is worse:
   two thousand. Every position does arrive and none is lost; it simply takes that
   long. A run written into one image per acquisition type opens in seconds, which is
   the arrangement to prefer.
-- **The writer produces OME-Zarr 0.4**, not 0.5. The viewer reads both.
 - **A run cannot be resumed.** Pointing the writer at a folder that already holds
   images is refused rather than allowed to overwrite them.
 

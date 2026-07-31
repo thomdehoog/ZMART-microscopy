@@ -267,6 +267,41 @@ class TestASecondAcquisitionArrivesDuringTheRun:
 
         assert len(_by_dataset(library)) == 3, _by_dataset(library)
 
+    def test_two_scans_whose_names_would_read_the_same_still_get_different_headings(
+        self, a_run_being_watched
+    ):
+        """Two acquisitions must never end up under one word, even when they want to.
+
+        The heading comes from the kind of scan in the store's name — the text
+        before the first underscore — because that is what the operator would call
+        it out loud. Two different acquisitions can easily want the same word. A run
+        that scans one target and then rescans it at a higher magnification writes
+        `targetscan_cell001` and `targetscan_cell001_fine`, and both ask to be
+        called "targetscan".
+
+        If both got it, the operator would see two identical headings with no way to
+        tell which was which — and worse, closing one of them would close both,
+        because closing works by the heading the panel shows. So the second falls
+        back to its full name.
+
+        This is checked because it is the kind of thing that reads as obviously
+        right in the code and is never exercised: it only happens when two headings
+        collide, which no other test here arranges.
+        """
+        library, folder = a_run_being_watched
+        _store(folder / "targetscan_cell001.ome.zarr", voxel=TARGET_SCAN_VOXEL)
+        _store(folder / "targetscan_cell001_fine.ome.zarr", voxel=(0.5, 0.15, 0.15))
+
+        # Looking in the folder is what places the newcomers, so it has to happen
+        # before the headings are read.
+        library.entries()
+        headings = [dataset.name for dataset in library.datasets()]
+        assert len(headings) == 3, f"three acquisitions, three datasets: {headings}"
+        assert len(set(headings)) == 3, (
+            "two acquisitions ended up under the same heading, so the operator "
+            f"cannot tell them apart and closing one would close both: {headings}"
+        )
+
 
 class TestWhatTheOperatorIsShown:
     """The same thing again, through the server, because that is what the panel reads."""

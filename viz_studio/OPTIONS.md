@@ -26,7 +26,8 @@ Neuroglancer draws into its own canvas. The operator's canvas sits exactly on to
 with holes cut wherever the image should show through. Neuroglancer never sees the
 mouse; the page owns every gesture and tells the engine where to look.
 
-*Measured 2026-07-30 (`SANDWICH.md`).* Registration holds to **1 screen pixel**
+*Measured 2026-07-30. The write-up is `SANDWICH.md`, which is not on this branch —
+it lives on `claude/sandwich-probe`, commit `1277e30`.* Registration holds to **1 screen pixel**
 while the view is thrown about, provided the operator's canvas is repainted only
 from inside neuroglancer's end-of-frame announcement. Following the pointer instead
 gives 25. No interface freeze was found even with the server delayed 200 ms.

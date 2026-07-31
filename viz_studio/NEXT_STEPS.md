@@ -1434,10 +1434,20 @@ else depends on it.
 
 ## Where things stand
 
-Branch `claude/time-axis-storage-trso2u`. The suite is 378 tests, 8 skipped where there is
-no GPU or no mesoSPIM data, and one `xfail`, in about eighteen minutes run one test at a
-time. The writer has a suite of its own, `zmart_storage/tests`, which is 26 passed and 1
-skipped in half a minute. Nothing uncommitted.
+Branch `claude/viewer-only`. Measured on 2026-07-31: **519 passed, 33 skipped and 2
+`xfail`s in twenty-three minutes**, run one test at a time. Most of the skips are the
+tests that need a graphics card or a real mesoSPIM transfer, neither of which this
+sandbox has. The writer has a suite of its own under `zmart_storage/tests`, described
+where it lives.
+
+**One thing to know before setting `ZMART_REQUIRE_BROWSER=1` on this checkout.** The run
+above ended in a failure rather than a pass, and not because anything is broken in the
+viewer. The twenty-six tests in `test_the_options_hold_together.py` open a browser of
+their own instead of taking the one the shared fixtures hand out, and Playwright's
+ordinary interface allows only one of those per thread — so they all skip, saying so, and
+the strict setting quite correctly fails a run in which nobody looked at a picture. The
+fix belongs with that file: take `browser` from `conftest.py` like everything else does.
+Everything outside it passes with the strict setting on.
 
 **One test in the viewer's suite is intermittent, and it is worth knowing before it
 surprises somebody.** `test_masks_luts_and_refresh.py::test_a_new_acquisition_is_noticed_
@@ -1519,9 +1529,18 @@ makes no difference. Leaving it alone remains defensible: the test still asks th
 question, and the docstring already says what it is really guarding against is the whole
 return leg arriving again rather than a stray piece or two.
 
-**The one `xfail`, because it is a real gap and not a flaky test.**
-`test_each_acquisition_type_gets_a_row_of_its_own` is marked strict, so it will announce
-itself the moment somebody fixes it. The viewer still gathers every image in a folder
+**The two `xfail`s, because both are real gaps and neither is a flaky test.**
+Both are marked strict, so each will announce itself the moment somebody fixes what it
+is waiting for.
+
+The first is `test_the_drawing_rate_should_barely_depend_on_how_many_positions_are_open`,
+in `test_the_drawing_keeps_up.py`. It states the drawing rate the viewer ought to keep
+when ten times as many positions are open, which it does not: the cost per position is
+paid on every frame. The cause and the fix are the architectural change described further
+up this document.
+
+The second is `test_each_acquisition_type_gets_a_row_of_its_own`. The viewer still gathers
+every image in a folder
 into a single row, as though they were positions of one acquisition. Both are drawn now
 that unimaged ground is transparent, but they share one row's contrast, colour and
 visibility — so an overview and a target scan cannot be adjusted apart, which is

@@ -52,6 +52,7 @@ from announcements import Announcements, FolderWatcher
 from contrast import coarsest_level_is_written, intensity_histogram, measure
 from library import Library
 from stores import (
+    DESCRIPTION_FILES,
     axis_names,
     channel_color,
     channel_of,
@@ -325,14 +326,17 @@ class _Handler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     # An OME-Zarr describes itself in small files named like this: what the axes
-    # are, how big each resolution level is, and how the pieces are named. The
-    # viewer reads one of them per level per store before it can draw anything, so
+    # are, how big each copy of the image is, and how the pieces are named. The
+    # viewer reads one of them per copy per store before it can draw anything, so
     # an acquisition of two hundred tiles means over a thousand of these before a
     # single pixel appears. They are the same every time — the shape of a store
     # only changes if it is resized, which the storage layout deliberately avoids —
     # so they are worth remembering rather than re-reading, and worth letting the
     # browser keep rather than asking for again.
-    _DESCRIBING_FILES = (".zattrs", ".zarray", ".zgroup", "zarr.json")
+    # Shared with ``contrast``, which asks the same question of a folder for a
+    # different reason. See ``DESCRIPTION_FILES`` in ``stores`` for why there is
+    # one list rather than one per module.
+    _DESCRIBING_FILES = DESCRIPTION_FILES
     # Remembered by path *and* by when the file was last written. Keying on the
     # path alone would be faster still and quietly wrong: a store whose
     # description is rewritten during a run — a timelapse being given more room,
@@ -346,7 +350,7 @@ class _Handler(SimpleHTTPRequestHandler):
     def forget_described(cls, store: Path) -> None:
         """Let go of the description files remembered for one closed store.
 
-        These are small, but there are several per store per resolution level, so a
+        These are small, but there are several per store per copy of the image, so a
         session that opens one large folder after another accumulates them by the
         thousand. Closing an acquisition should hand that memory back rather than
         keeping it until the viewer is quit.
@@ -473,7 +477,19 @@ class _Handler(SimpleHTTPRequestHandler):
             except FileNotFoundError:
                 payload = _EMPTY_ANNOTATIONS
             except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
-                self._send_json({"error": "invalid annotation sidecar"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                # Named plainly rather than as "the sidecar", which is our word for
+                # it and means nothing to somebody reading it for the first time.
+                self._send_json(
+                    {
+                        "error": (
+                            "the file of marked places beside the images "
+                            f"({_ANNOTATIONS_FILE}) could not be read, so none of "
+                            "them are shown. It is still there and has not been "
+                            "changed."
+                        )
+                    },
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
                 return
             self._send_json(payload)
             return
@@ -737,7 +753,7 @@ class _Handler(SimpleHTTPRequestHandler):
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, path)
-        except OSError:
+        except OSError as why:
             # The half-written file is cleared away so a failed save does not
             # leave litter beside the operator's data.
             if temporary is not None:
@@ -745,7 +761,25 @@ class _Handler(SimpleHTTPRequestHandler):
                     os.unlink(temporary)
                 except OSError:
                     pass
-            self._send_json({"error": "could not save annotations"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            # This message is shown in the panel, right under the list of places
+            # the operator has marked, so it is written for them rather than for
+            # us. It names the file, gives the reason the operating system gave,
+            # and says what has and has not been lost — because the useful thing
+            # to know at that moment is whether the marks are still on screen and
+            # whether the earlier ones are still on disk. Both are: nothing has
+            # been overwritten, and the marks are safe until the page is closed.
+            self._send_json(
+                {
+                    "error": (
+                        f"could not write {path} ({why.strerror or why}). The places "
+                        "you have marked are still on screen and whatever was saved "
+                        "before is untouched, but nothing new has reached the disk. "
+                        "This is usually a folder that cannot be written to, or a "
+                        "drive that has filled up or gone away."
+                    )
+                },
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
             return
         self._send_json(document)
 
