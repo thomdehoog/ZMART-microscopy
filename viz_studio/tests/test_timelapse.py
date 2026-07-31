@@ -387,10 +387,35 @@ def test_a_store_that_lengthens_its_own_array_is_read_again(browser, built_dist,
     try:
         page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined", timeout=30_000)
-        # With a single moment there is nothing to step through, so no slider is
-        # offered at all — which is right, and is the state this starts from.
+        # Wait for the **engine** to have read the store and settled on one moment,
+        # which is the state this test starts from. With a single moment there is
+        # nothing to step through, so no slider is offered at all — and that is
+        # right.
+        #
+        # It has to be the engine that is asked, and not `window.zmartConfig`, and
+        # this is worth spelling out because asking the wrong one is the very fault
+        # this test was written to correct. `zmartConfig` is the count the *server*
+        # read off the disk, and it is answered long before the engine has opened
+        # anything. Waiting on it let the store grow while the engine had still not
+        # looked once — so the engine read three moments the first time it looked,
+        # the slider appeared without anything having been re-read, and the test
+        # passed while proving nothing. Measured against a build with the fix
+        # deliberately removed: it passed on one run in three.
+        #
+        # An axis of a single step comes back from the engine spanning one unit, so
+        # the width of `t` is what says how many moments it believes in.
         page.wait_for_function(
-            "() => (window.zmartConfig?.layers?.[0] || {}).frames === 1", timeout=30_000
+            """() => {
+              const space = window.zmartViewer?.navigationState?.position
+                ?.coordinateSpace?.value;
+              if (!space?.valid) return false;
+              const t = space.names.indexOf("t");
+              if (t < 0) return false;
+              return Math.round(
+                space.bounds.upperBounds[t] - space.bounds.lowerBounds[t]
+              ) === 1;
+            }""",
+            timeout=30_000,
         )
 
         # The run goes on, and the store grows to hold three moments.

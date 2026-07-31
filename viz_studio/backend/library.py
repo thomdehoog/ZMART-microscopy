@@ -46,6 +46,7 @@ from stores import (
     declared_channels,
     discover,
     voxel_size,
+    without_format_suffix,
 )
 
 # The small files that say "this folder is an image, and here is its shape". A
@@ -102,19 +103,6 @@ def _described_at(folder: Path) -> str:
 # because a folder can be renamed by anybody and the magnification cannot.
 
 
-def _without_format_suffix(name: str) -> str:
-    """A store's name with the format's suffixes taken off.
-
-    So that what the operator reads is ``overview`` rather than
-    ``overview.ome.zarr``: the suffix says which file format this is, which they
-    already know and did not ask to be reminded of on every heading.
-    """
-    for suffix in (".ome.zarr", ".zarr"):
-        if name.endswith(suffix):
-            return name[: -len(suffix)]
-    return name
-
-
 def _named_for(path: Path, parent: Path) -> str:
     """What to call the dataset a load produced.
 
@@ -123,7 +111,7 @@ def _named_for(path: Path, parent: Path) -> str:
     ``overview`` rather than ``overview.ome.zarr``.
     """
     del parent  # kept in the signature: what was chosen is the whole answer here
-    return _without_format_suffix(path.name)
+    return without_format_suffix(path.name)
 
 
 def _acquisition_type_in(store_name: str) -> str:
@@ -141,7 +129,7 @@ def _acquisition_type_in(store_name: str) -> str:
     because a folder's name can be changed by anyone and this one may well not
     follow the convention at all.
     """
-    stem = _without_format_suffix(store_name)
+    stem = without_format_suffix(store_name)
     front, _, _position = stem.partition("_")
     return front or stem
 
@@ -453,7 +441,13 @@ class Library:
                 self._close(number)
         return closed
 
-    # -- reading -----------------------------------------------------------
+    # -- what is open now, and what has arrived since ----------------------
+    #
+    # These belong together because they are one question asked at one moment.
+    # A watched folder is looked in again here, so answering "what is open"
+    # is also what notices that a run has produced something since the last
+    # time anybody asked -- and what decides whether it joins the acquisition
+    # on screen or is given a heading of its own.
 
     def entries(self) -> list[tuple[int, Path, str]]:
         """Every open image as ``(folder number, folder, store name)``.
@@ -621,11 +615,13 @@ class Library:
         """
         taken = {dataset.name for dataset in self._datasets.values() if dataset.root == root}
         kind = _acquisition_type_in(store_name)
-        whole = _without_format_suffix(store_name)
+        whole = without_format_suffix(store_name)
         for candidate in (kind, whole, f"{kind} ({number})", f"{whole} ({number})"):
             if candidate not in taken:
                 return candidate
         return f"{whole} ({number})"
+
+    # -- noticing a change without reading anything ------------------------
 
     def revision(self) -> str:
         """A short summary of the open folders that changes when their contents do.
@@ -725,6 +721,8 @@ class Library:
         # acquisitions open the marks run to tens of thousands of characters, which
         # would then be sent across several times a second for no reason at all.
         return hashlib.blake2b("|".join(marks).encode("utf-8"), digest_size=16).hexdigest()
+
+    # -- the two questions the server asks ---------------------------------
 
     def is_empty(self) -> bool:
         """Whether nothing at all is open, which the server reports as an empty viewer."""

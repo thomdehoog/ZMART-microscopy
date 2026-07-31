@@ -9,9 +9,10 @@ python run_tests.py
 ```
 
 That is all you need. It installs the test tools if they are missing, builds the
-viewer page once, and then runs every test. The first run takes a few minutes
-(building the page and, on a real machine, downloading the browser the render
-tests drive); after that it is quick.
+two pages the tests open — the viewer itself, and the small page the three
+drawing options are compared on — and then runs every test. The first run takes a
+few minutes (building those pages and, on a real machine, downloading the browser
+the render tests drive); after that it is quick.
 
 To test against a **real acquisition** as well, point it at an OME-Zarr store:
 
@@ -129,10 +130,10 @@ useful way to see for yourself what a browser-less machine gets.
 ## Making a run fail if it never looked at a picture
 
 About a third of this suite opens a real browser and reads the pixels it drew —
-167 tests of 460 when this was last counted — and that third is the only part that
-catches the fault this project keeps meeting: a picture that is silently absent,
-with every piece fetched, every layer built, and the engine reporting itself
-perfectly content.
+199 tests of 554 when this was last counted, on 2026-07-31 — and that third is the
+only part that catches the fault this project keeps meeting: a picture that is
+silently absent, with every piece fetched, every layer built, and the engine
+reporting itself perfectly content.
 
 If no browser can be started, or the page was never built, all of those tests skip
 — and the run would otherwise report the same comfortable green as one that looked
@@ -145,7 +146,7 @@ picture was not looked at ends with a banner saying so:
 
 ```
 ================================ NO PICTURE WAS LOOKED AT ================================
-167 tests that open a real browser and read the pixels it drew were skipped.
+199 tests that open a real browser and read the pixels it drew were skipped.
 Why:
   - no usable Chromium on this machine: BrowserType.launch: Executable doesn't exist at …
 …

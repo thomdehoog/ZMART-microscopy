@@ -48,6 +48,14 @@ _CHANNEL_PATTERN = re.compile(r"Ch(\d{3})")
 DESCRIPTION_FILES = (".zattrs", ".zarray", ".zgroup", "zarr.json")
 
 
+# -- reading a store's name ----------------------------------------------------
+#
+# A microscope names each file it writes, and those names carry real information:
+# which colour was imaged, which tile of the specimen, which filter was in the
+# light path. All of that is read here, and it is used for **labels only** — the
+# long note further down says why nothing here decides what belongs with what.
+
+
 def channel_of(name: str) -> str | None:
     """The excitation wavelength a store's name declares, if it declares one."""
     match = _CHANNEL_PATTERN.search(name)
@@ -79,21 +87,35 @@ def layer_names(names: list[str]) -> list[str]:
 
 
 def _short_name(store_name: str) -> str:
-    stem = _stem(store_name)
+    stem = without_format_suffix(store_name)
     parts = [p for p in stem.split("_") if p.startswith("Tile") or p.startswith("Ch")]
     return "_".join(parts) if parts else stem
 
 
 def _with_filter(short: str, store_name: str) -> str:
     """Add the filter block, abbreviated, to a label that would otherwise clash."""
-    for part in _stem(store_name).split("_"):
+    for part in without_format_suffix(store_name).split("_"):
         if part.startswith("Flt"):
             filter_name = part[3:] or "None"
             return f"{short}_{filter_name[:12]}"
     return short
 
 
-def _stem(store_name: str) -> str:
+def without_format_suffix(store_name: str) -> str:
+    """A store's name with the format's suffixes taken off.
+
+    So that what the operator reads is ``overview`` rather than
+    ``overview.ome.zarr``: the suffix says which file format this is, which they
+    already know and did not ask to be reminded of on every heading. It is also
+    the first step in reading anything out of a name, because everything worth
+    reading sits between the underscores and the suffix would come along as part
+    of the last one.
+
+    Shared with ``library``, which needs the same answer for the headings it puts
+    on the panel. There were two copies of this until they were put together; they
+    happened to agree, which is luck rather than design, and teaching the viewer
+    about a third suffix would have meant finding both.
+    """
     return store_name.removesuffix(".ome.zarr").removesuffix(".zarr")
 
 
@@ -108,12 +130,15 @@ def channel_color(name: str) -> tuple[float, float, float] | None:
     return _CHANNEL_COLORS.get(channel) if channel else None
 
 
+# -- is this folder an image at all? -------------------------------------------
+
+
 def is_store(path: Path) -> bool:
     """True if ``path`` is an OME-Zarr image store (has multiscales metadata)."""
     return bool(_read_attrs_at(path).get("multiscales"))
 
 
-# --- what a smart-microscopy run leaves on disk, and what we read from it ----
+# -- what a smart-microscopy run leaves on disk, and what we read from it ------
 #
 # A run's folder holds each of its kinds of scan side by side. There are two
 # shapes of that, and both turn up:
@@ -162,6 +187,14 @@ def is_store(path: Path) -> bool:
 # invent a kind of scan we have never heard of and name it anything at all, and it
 # will still be shown correctly, because what is compared comes from inside the
 # stores.
+
+
+# -- repairing the way a store spells its units --------------------------------
+#
+# A store that names its units the way a microscopist would write them is refused
+# outright by the drawing engine — the whole image, not the offending axis. That
+# is a foreign instrument's habit rather than a fault of ours, and it is cheap to
+# put right on the way past, so it is put right here.
 
 
 # What an axis unit is called in the format, against what microscopists and their
@@ -251,6 +284,13 @@ def normalise_units(raw: bytes) -> bytes:
     return json.dumps(described).encode("utf-8")
 
 
+# -- the two facts that decide what belongs with what --------------------------
+#
+# How large a voxel is, and what a store calls its own channels. Both are read
+# from inside the store, and `library` compares them to work out whether two
+# stores are pieces of one acquisition or two different ones.
+
+
 def voxel_size(store: Path) -> tuple[float, ...]:
     """How large one voxel is at full resolution, as the store itself declares it.
 
@@ -307,6 +347,15 @@ def declared_channels(store: Path) -> list[str] | None:
 # has been rewritten is read afresh. At four hundred stores this is the difference
 # between three thousand file reads per refresh and a few hundred quick glances.
 _attrs_cache: dict[str, tuple[int, dict]] = {}
+
+
+# -- reading the small files that describe a store ------------------------------
+#
+# Every question above ends up here. A store keeps a short text file saying what
+# it is; opening one acquisition of two hundred tiles means reading a thousand of
+# them, so they are remembered rather than read again, and the remembering is
+# checked against the file's own modification time so a run that rewrites one is
+# still noticed.
 
 
 def _description_file(path: Path) -> Path | None:
@@ -366,7 +415,7 @@ def _read_attrs_at(path: Path) -> dict:
     return attrs
 
 
-# --- what the array inside a store says about itself ------------------------
+# -- what the array inside a store says about itself ---------------------------
 #
 # The store's description, read above, says what the image *is*: its axes, its
 # channels, how large a voxel is. The array inside it keeps a second description,
@@ -491,6 +540,13 @@ def _numbers(value: object) -> list[int]:
         return []
 
 
+# -- the shape of the image: axes, channels, and masks --------------------------
+#
+# What the panel needs before it can offer anything: which axes the image has, how
+# many channels are really in it, and whether any of the images beside it are maps
+# of objects rather than pictures.
+
+
 def zarr_scheme(store: Path) -> str:
     """Which of the engine's zarr readers should be asked for this store.
 
@@ -601,6 +657,15 @@ def label_images(store: Path) -> list[str]:
     return [name for name in names if is_store(folder / name)]
 
 
+# -- how far a timelapse has actually been written ------------------------------
+#
+# A store is given its full length in time the moment it is created, long before
+# the run has produced that many moments. The slider must not offer moments that
+# do not exist yet, so how far the image really reaches is counted from the disk.
+# This is the most expensive question in this module and the one most carefully
+# bounded; `written_timepoints` sets out what it can and cannot promise.
+
+
 # Counting frames means looking in the folder that holds the image's pieces, and
 # on a large acquisition that folder is enormous. This is the most that will be
 # looked at before giving up: past it the answer is not worth the time it costs,
@@ -608,6 +673,7 @@ def label_images(store: Path) -> list[str]:
 # `DATA_LAYOUT.md` asks never reaches this, because its pieces are filed in folders
 # and so this folder holds one entry per frame rather than one per piece of image.
 _SCAN_LIMIT = 20_000
+
 
 class _TooManyToCount:
     """Stands for "this folder holds more pieces than it is sensible to look through".
@@ -966,6 +1032,12 @@ def _furthest_moment_among_files(folder: Path, prefix: str) -> int | None | _Too
     return furthest
 
 
+# -- choosing which stores to show ----------------------------------------------
+#
+# What is under a path, and how an operator narrows it down when a transfer holds
+# more tiles or more filters than they want on screen at once.
+
+
 def _hex_to_rgb(value: object) -> tuple[float, float, float] | None:
     """Turn an ``omero`` colour like ``"00FF66"`` into fractions of red/green/blue."""
     if not isinstance(value, str):
@@ -989,7 +1061,11 @@ def select_tiles(names: list[str], tiles: list[int] | None) -> list[str]:
     if tiles is None:
         return names
     wanted = {f"Tile{n}" for n in tiles}
-    return [name for name in names if any(part in wanted for part in _stem(name).split("_"))]
+    return [
+        name
+        for name in names
+        if any(part in wanted for part in without_format_suffix(name).split("_"))
+    ]
 
 
 def prefer_filter(names: list[str], wanted: str | None) -> list[str]:
@@ -1017,14 +1093,14 @@ def prefer_filter(names: list[str], wanted: str | None) -> list[str]:
 
 
 def _tile_of(name: str) -> str | None:
-    for part in _stem(name).split("_"):
+    for part in without_format_suffix(name).split("_"):
         if part.startswith("Tile"):
             return part
     return None
 
 
 def _filter_of(name: str) -> str:
-    for part in _stem(name).split("_"):
+    for part in without_format_suffix(name).split("_"):
         if part.startswith("Flt"):
             return part[3:]
     return ""

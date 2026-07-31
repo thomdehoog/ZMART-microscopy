@@ -1365,6 +1365,19 @@ acquisition above, it was the first place suspected purely because nothing could
 it directly — the fault was actually in `Library.revision()`, and getting there took a
 server traced from the inside because neither piece could be questioned on its own.
 
+**It is larger than "move one function", which is why it has not been done in passing.**
+Counted on 2026-07-31, `make_server` is about 560 lines, and `build_config` is only the
+last of them. Five functions live inside that one call and share a single piece of state
+between them — the brightness measured for each store, which one of them fills in, one
+reads, one decides is out of date and one throws away when an acquisition is closed. That
+shared state is what keeps the five nested inside one call rather than standing on their
+own — a *closure*, which is just a function that can still see the variables of the
+function it was written inside. It is also why moving any one of them out alone would
+either leave the state behind or make a second copy of it. What this actually wants is
+a small object holding the measurements, with those five as its methods, and `layers.py`
+taking that object and a `Library`. That is a real change with real risk, and it deserves
+a session of its own rather than being done on the way past something else.
+
 ---
 
 ## 3. The rest of the assertions that cannot fail
@@ -1434,20 +1447,31 @@ else depends on it.
 
 ## Where things stand
 
-Branch `claude/viewer-only`. Measured on 2026-07-31: **519 passed, 33 skipped and 2
-`xfail`s in twenty-three minutes**, run one test at a time. Most of the skips are the
-tests that need a graphics card or a real mesoSPIM transfer, neither of which this
-sandbox has. The writer has a suite of its own under `zmart_storage/tests`, described
-where it lives.
+Branch `claude/viewer-only`. Measured on 2026-07-31 with `ZMART_REQUIRE_BROWSER=1`:
+**542 passed, 10 skipped and 2 `xfail`s in twenty minutes**, run one test at a time,
+ending green. All ten skips say why and every one of
+them is a piece of equipment this sandbox does not have — a graphics card, a real
+acquisition through `ZMART_TEST_STORE`, a mounted mesoSPIM transfer, the opt-in search
+for the browser's limit — except one, which is a measurement that has nothing to
+measure on the option that draws no bottom layer and says so.
 
-**One thing to know before setting `ZMART_REQUIRE_BROWSER=1` on this checkout.** The run
-above ended in a failure rather than a pass, and not because anything is broken in the
-viewer. The twenty-six tests in `test_the_options_hold_together.py` open a browser of
-their own instead of taking the one the shared fixtures hand out, and Playwright's
-ordinary interface allows only one of those per thread — so they all skip, saying so, and
-the strict setting quite correctly fails a run in which nobody looked at a picture. The
-fix belongs with that file: take `browser` from `conftest.py` like everything else does.
-Everything outside it passes with the strict setting on.
+The writer has a suite of its own under `zmart_storage/tests`: **86 passed in about
+thirteen seconds** on the same day. That number is worth writing down, because a figure
+of "109 passed, 1 skipped" has been passed along in hand-over notes and does not match
+this branch, where there are 86 tests in total and none of them skips.
+
+**The run before it ended in a failure, and this is what that was.** It came in at 519
+passed and 33 skipped, and the failure was not a broken viewer: nothing was red. The
+twenty-six tests in
+`test_the_options_hold_together.py` opened a browser of their own instead of taking the
+one the shared fixtures hand out, and Playwright allows only one of its ordinary
+connections to be alive in a thread at a time — so twenty-four of them skipped, and the
+strict setting quite correctly failed a run in which part of the picture was never
+looked at. `drive.Harness` now accepts a browser to borrow, the fixture lends it the
+suite's own, and those tests run: **25 passed, 1 skipped**, the one skip being a
+deliberate and explained one. The same run also showed that neither `run_tests.py` nor
+the CI job built the page those tests open, so both now do; without that the skip came
+back on any fresh checkout.
 
 **One test in the viewer's suite is intermittent, and it is worth knowing before it
 surprises somebody.** `test_masks_luts_and_refresh.py::test_a_new_acquisition_is_noticed_
