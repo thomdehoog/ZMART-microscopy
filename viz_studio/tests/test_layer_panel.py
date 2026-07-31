@@ -239,12 +239,19 @@ def test_the_histogram_of_the_chosen_channel_is_the_one_on_screen(two_channel_pa
     assert two_channel_page.locator("[aria-label='histogram Ch488']").count() == 0
 
 
-# The bars of the histogram, read back off the drawing itself. Each bar is a
-# one-unit-wide rectangle, which is what tells them apart from the shaded band
-# behind them and the two thin lines marking the edges of the window.
+# The bars of the histogram, read back off the drawing itself.
+#
+# Three kinds of rectangle are drawn in that little picture and only one of them
+# is a bar: there is also the shaded band showing the chosen window, and two thin
+# lines marking its edges. The bars are the ones drawn in the text colour, and
+# that is what picks them out here. Width would nearly always work as well — a bar
+# is exactly one unit wide — but "nearly always" is the wrong standard for a
+# measurement: a window happening to cover exactly one bin would make the band one
+# unit wide too, and it would then be counted as a bar and quietly shift every
+# reading by one.
 _HISTOGRAM_BARS = """(label) => Array.from(
   document.querySelector(`[aria-label="${label}"]`).querySelectorAll("rect"),
-).filter((bar) => bar.getAttribute("width") === "1")
+).filter((bar) => bar.getAttribute("fill") === "currentColor")
  .map((bar) => Number(bar.getAttribute("height")))"""
 
 

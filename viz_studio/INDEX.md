@@ -128,14 +128,25 @@ missing.
 
 There is **one** branch to work from:
 
-- **`claude/viewer-only`** — everything: the webapp, the viewer with its full
-  control panel and annotations, the writer in `zmart_storage`, all these
-  documents, and `main` merged in. Point an agent here.
+- **`claude/viewer-only`** — the viewer with its full control panel and
+  annotations, the writer in `zmart_storage`, and all these documents. Point an
+  agent here for anything to do with looking at images or writing them.
 
 This used to name `claude/napaly-neuroglancer-progress-jo0b8h`, which was the
-right answer when it was written and is no longer: `claude/viewer-only` now holds
-some sixty commits of work on top of it, including the whole of the writer, and
-has nothing missing that the older branch has.
+right answer when it was written and is no longer: `claude/viewer-only` holds
+some sixty commits of work on top of it, including the whole of the writer.
+
+The name is meant literally, and it is worth knowing before you go looking for
+something. This branch was narrowed to the viewer and the writer on purpose, so
+the parts of ZMART that drive the instrument are **not** here:
+`zmart_drivers`, `zmart_controller`, `getting_started`, and most of the `docs/`
+tree and the `workflows/` folder are all on the older branch and were left
+there. The two trees were compared file by file on 2026-07-31, so nothing has
+been lost: everything absent here is still on that branch and none of it is the
+viewer or the writer. But if a document beside this one points at a path under
+`docs/` and you cannot find it, that is why, and
+`claude/napaly-neuroglancer-progress-jo0b8h` (commit `810da03`) is where it
+still lives.
 
 Several earlier branch names still exist on the remote
 (`claude/viz-studio-spike`, `claude/neuroglancer-napari-version-e2707l`, and the

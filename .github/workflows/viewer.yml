@@ -93,6 +93,18 @@ jobs:
       - name: Check the page was really built
         run: test -f viz_studio/frontend/dist/index.html
 
+      - name: Build the page the drawing options are compared on
+        # Twenty-six of the tests open this page rather than the viewer's, because
+        # what they check is the promise each of the three drawing options makes to
+        # the page above it. Without it they skip, and with ZMART_REQUIRE_BROWSER
+        # set below a skip fails the job -- correctly, since the run would not have
+        # looked at that picture. It keeps no packages of its own; it borrows the
+        # viewer's, so it has to be built after the build above.
+        run: npm --prefix viz_studio/options/harness run build
+
+      - name: Check the options page was really built too
+        run: test -f viz_studio/options/harness/dist/index.html
+
       - name: Run the suite
         # One test at a time, deliberately. Three at once is much quicker where
         # there is room for it, and on a two-core runner there is not: the browser

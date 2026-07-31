@@ -83,10 +83,11 @@ and a writer killed without cleanup — and all 29 checks held.
 
 ---
 
-## The five fixed on 2026-07-30, in more detail
+## The ten fixed on 2026-07-30, in more detail
 
-These were the ones left standing, and each is worth a paragraph because the reasoning
-matters more than the diff.
+These were the ones left standing at the start of that day: A, C, D, H, I, J, K, L, P and Q
+from the tables above. Each is worth a paragraph because the reasoning matters more than the
+diff, and two pairs are taken together below because they were found and fixed together.
 
 ### A. An acquisition met before its image is on disk
 
@@ -286,11 +287,16 @@ without the variable, so a plain checkout stays green. See `TESTING.md` for all 
 
 The same exercise the writer had: break the code on purpose, run the tests that
 claim to guard it, and see. Thirty-six breaks were made across the backend, the front
-end and the server. **Twenty-nine were caught. Seven were not**, and all seven have
+end and the server. **Twenty-eight were caught. Eight were not**, and all eight have
 since been given a test that fails without the fix. Two shapes came out of it and both
 are worth remembering.
 
-**Six of the seven were the same shape: a rule that is stated somewhere and checked
+(This section first said seven rather than eight, and then described eight. The eight
+are the seven in the table below plus the one after it, each with a test of its own, so
+eight is the number that matches what is actually here. Counted again on 2026-07-31
+while the tests were being checked.)
+
+**Seven of the eight were the same shape: a rule that is stated somewhere and checked
 nowhere.** Each of them had a comment or a docstring setting out plainly why it
 mattered — and no test.
 
@@ -304,7 +310,7 @@ mattered — and no test.
 | the folder watcher repeated what the microscope had already announced | two rebuilds per position, and the whole view refetched each time |
 | a quiet connection was never sent its sign of life | a page that had been closed never noticed, one thread kept per window |
 
-**The seventh is the more interesting one, because a test did look and looked at the
+**The eighth is the more interesting one, because a test did look and looked at the
 wrong thing.** Stopping the engine from re-reading a store that has grown changed
 nothing any test could see. `test_a_newer_format_timelapse_lengthens_as_it_is_written`
 reads `window.zmartConfig`, which is the *server's* count and was never going to move;
@@ -313,8 +319,26 @@ of the length never had to change either. The path only matters for a store that
 lengthens its own array, which nothing built. `test_a_store_that_lengthens_its_own_array_is_read_again`
 now builds one and reads the slider off the screen.
 
-**Where this area is still weak.** The mutations were chosen by reading the code for
-rules worth guarding, so they are biased towards code that says what it is for; the
+**And that new test had the same fault in it, which is worth admitting.** All eight
+breaks above were made a second time on 2026-07-31, after the tests were written, to
+check that each really does fail without its fix. Seven failed every time. The eighth
+— the one just described — *passed* on about one run in three against a build with the
+fix deliberately removed, which is worse than no test at all, because it would have
+reported the fault as guarded. The cause was the very mistake the test was written to
+correct: it waited on `window.zmartConfig` to know that the engine had settled on one
+moment, and that is the server's count, answered long before the engine has opened
+anything. Sometimes the store grew before the engine ever looked, so it read three
+moments the first time, the slider appeared, and nothing had been re-read. It now waits
+on the width of the `t` axis in the engine's own coordinate space instead, and fails
+five runs out of five without the fix. **The lesson is the one at the top of this file, and
+it applies to the tests as much as to the code: ask the thing you are testing, not the
+thing that is easy to ask.**
+
+**Where this area is still weak.** The eight above were re-run and are proven; **the
+twenty-eight said to have been caught were not**, so that number rests on one session's
+word and nothing here would notice if it were wrong. The mutations were also chosen by
+reading the code for rules worth guarding, so they are biased towards code that says
+what it is for; the
 quieter parts of `server.py` and the layout of the panel were sampled thinly. Nothing
 was broken in `demo_data.py`, `launcher.py` or `browsercheck.py` at all. And nothing
 here tests the desktop shell, which remains the largest untouched surface.

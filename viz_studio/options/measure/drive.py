@@ -82,7 +82,11 @@ def find_a_chromium() -> str | None:
 
 
 class Harness:
-    """The server, a browser, and one page of the harness, held open together."""
+    """The server, a browser, and one page of the harness, held open together.
+
+    Pass ``browser`` to lend it one that is already running instead of letting it
+    start its own; see the note in ``__init__`` for why a test suite has to.
+    """
 
     def __init__(
         self,
@@ -91,6 +95,7 @@ class Harness:
         *,
         option: str = "neuroglancer-under",
         site_dir: Path | None = None,
+        browser=None,
     ):
         # Which option is being measured. Held here so that every measurement
         # below can be written without naming one — that is the whole point of
@@ -111,11 +116,28 @@ class Harness:
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._thread.start()
         self._playwright = None
-        self.browser = None
+        # A browser somebody else opened, where one was handed in.
+        #
+        # Playwright allows only one of its ordinary (synchronous) connections to
+        # be alive in a thread at a time, and it refuses a second with a message
+        # about an asyncio loop that explains none of that. So anything that has
+        # already opened a browser has to lend it rather than let this class open
+        # one of its own. The viewer's test suite is exactly that case: it keeps a
+        # single browser for the whole run, and before this it could not drive the
+        # harness at all — every one of the twenty-four checks over these options
+        # skipped, and a run that is supposed to look at the picture quietly
+        # stopped looking at this part of it.
+        #
+        # Running a measurement from the command line hands in nothing and gets a
+        # browser of its own, exactly as before.
+        self.borrowed_browser = browser is not None
+        self.browser = browser
         self.page = None
         self.console: list[str] = []
 
     def __enter__(self):
+        if self.browser is not None:
+            return self
         from playwright.sync_api import sync_playwright
 
         self._playwright = sync_playwright().start()
@@ -131,7 +153,9 @@ class Harness:
         return self
 
     def __exit__(self, *_):
-        if self.browser:
+        # A borrowed browser is left open: whoever lent it is still using it, and
+        # closing it here would end every other test in the run.
+        if self.browser and not self.borrowed_browser:
             self.browser.close()
         if self._playwright:
             self._playwright.stop()

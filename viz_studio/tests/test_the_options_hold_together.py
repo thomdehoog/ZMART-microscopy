@@ -121,12 +121,20 @@ def measurement_data(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
-def harness_page(measurement_data, tmp_path_factory):
+def harness_page(browser, measurement_data, tmp_path_factory):
     """A built harness page, a server for it, and a browser.
 
     This uses the measurement suite's own way of opening a page rather than a
     second copy of it, so that what the tests check and what the measurements
     report are the same program driven the same way.
+
+    The browser is the suite's own, lent to the harness rather than opened again.
+    Playwright allows only one of its ordinary connections to be alive in a thread
+    at a time, so a harness that started its own found the door already shut and
+    said so in a message about an asyncio loop that named nothing recognisable.
+    The effect was quiet and bad: all twenty-four of the checks below skipped, and
+    a run told to fail if it never looked at a picture failed for that reason
+    alone, on a machine that had in fact drawn everything else perfectly.
     """
     import drive
     from conftest import _give_up_on_the_picture
@@ -139,7 +147,9 @@ def harness_page(measurement_data, tmp_path_factory):
         )
     try:
         harness = drive.Harness(
-            measurement_data, tmp_path_factory.mktemp("option_pictures")
+            measurement_data,
+            tmp_path_factory.mktemp("option_pictures"),
+            browser=browser,
         )
         with harness:
             yield harness

@@ -78,6 +78,14 @@ _EMPTY_ANNOTATIONS = {"version": 1, "annotations": []}
 _RANGE_HEADER = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
+# -- checking what the page sends back ------------------------------------------
+#
+# The operator's marked places arrive from the page as text, and they are written
+# straight into a file beside somebody's data. So they are looked over first: the
+# right shape, a sane number of them, and real coordinates. Anything else is
+# refused with a reason rather than saved and puzzled over later.
+
+
 def _validate_annotations(payload: object) -> dict:
     """Return a small, safe annotation document or raise ValueError."""
     if not isinstance(payload, dict) or payload.get("version") != 1:
@@ -121,6 +129,9 @@ def _validate_annotations(payload: object) -> dict:
     return {"version": 1, "annotations": clean}
 
 
+# -- what the panel calls each open acquisition ---------------------------------
+
+
 def group_labels(datasets) -> dict[int, str]:
     """What to call each open dataset in the panel.
 
@@ -143,6 +154,14 @@ def group_labels(datasets) -> dict[int, str]:
         )
         for dataset in datasets
     }
+
+
+# -- answering one request ------------------------------------------------------
+#
+# Everything below belongs to a single request. The class is long because the
+# viewer asks for several quite different things down one address — the page, the
+# image, and a handful of short questions in JSON — and its own sections say which
+# is which.
 
 
 class _Handler(SimpleHTTPRequestHandler):
@@ -675,7 +694,28 @@ class _Handler(SimpleHTTPRequestHandler):
         try:
             chosen = self._browse()
         except Exception as exc:  # noqa: BLE001 -- reported, never swallowed
-            self._send_json({"error": f"the folder chooser failed: {exc}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            # Answered in the same shape as "there is no chooser here" above, and
+            # for the same reason: the page reads ``reason`` and asks for a typed
+            # path instead, so a chooser that will not open costs the operator a
+            # little typing rather than the ability to open their data at all.
+            # Without a ``reason`` the page has nothing to fall back to and the
+            # failure passes in silence, which is the one outcome this viewer is
+            # not allowed to produce.
+            #
+            # The reason the machine gave is kept, because it is often the useful
+            # part, but it is never the whole message: on its own it is a line of
+            # Python and tells an operator nothing they can act on.
+            self._send_json(
+                {
+                    "error": f"the folder chooser could not be opened: {exc}",
+                    "reason": (
+                        f"The window for choosing a folder could not be opened ({exc}). "
+                        "Nothing has changed and whatever was already on screen is "
+                        "still there. Type or paste the folder's path instead."
+                    ),
+                },
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
             return
         # Nothing chosen is a perfectly ordinary outcome: the operator changed
         # their mind and pressed cancel.
@@ -794,6 +834,18 @@ class _Handler(SimpleHTTPRequestHandler):
     # Quieten the default per-request logging so the console stays readable.
     def log_message(self, *args) -> None:  # noqa: D401
         pass
+
+
+# -- putting a server together --------------------------------------------------
+#
+# One call builds the whole thing: what is open, who is watching the disk, the
+# brightness measured for each store, and the description of the scene the panel
+# reads. They are gathered here rather than in a class of their own because they
+# share one piece of state — the measurements — and because a request handler is
+# built fresh for every request and so can hold nothing.
+#
+# It is the largest thing in this file by some way, and it is on the list to be
+# broken up; `NEXT_STEPS.md` says what that would take.
 
 
 def make_server(
@@ -1341,6 +1393,9 @@ def make_server(
             "and --port 0 lets the machine choose a free one for you and prints "
             "which it picked."
         ) from why
+
+
+# -- running it -----------------------------------------------------------------
 
 
 def serve(port: int = 8848) -> None:

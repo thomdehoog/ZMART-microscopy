@@ -16,6 +16,12 @@ the viewer only ever fetches the little pieces you are actually looking at.
 you are zoomed out the viewer shows a coarse copy instead of hauling every
 pixel across. Together those are what make even enormous volumes feel light.
 
+Two names for that one idea turn up below and elsewhere in the viewer, and they
+mean exactly the same thing: **a copy of the image** and **a level of the
+pyramid**. The plain phrase is preferred where somebody may be reading this for
+the first time; the older word is kept where it is the name of the thing, as in
+the constant a few lines down that says how many copies to make.
+
 The three channels mirror the rest of ZMART's demo sample:
 
 - ``structure`` — a general stain that fills every cell, your anatomical map.
