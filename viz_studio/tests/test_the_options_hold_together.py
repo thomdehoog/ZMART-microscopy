@@ -37,7 +37,7 @@ from margins import margins_around_the_hole  # noqa: E402
 
 # Every option that has been written. Add yours here; nothing else in this file
 # needs changing.
-EVERY_OPTION = ["neuroglancer-under"]
+EVERY_OPTION = ["neuroglancer-under", "viv-under", "viv-inside"]
 
 
 # ---------------------------------------------------------------------------
