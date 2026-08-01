@@ -8,6 +8,7 @@ why; `contract.md` beside this file says exactly what an option has to do;
 options/
   contract.md              the interface, restated beside the code — read this first
   RESULTS.md               the table, one column per option
+  gestures.js              drag pans, the wheel zooms — the one copy all three use
   harness/                 the page that drives any option, and the shapes it draws
   neuroglancer-under/      option A: neuroglancer underneath, the operator's drawing on top
   viv-under/               option B: Viv and deck.gl underneath, the same way up
@@ -51,6 +52,19 @@ exactly the kind of silent coupling this comparison exists to avoid — the numb
 would move together and nobody would know whether that was the engines or the
 shared file. If the comparison is ever settled and one option is chosen, sharing
 becomes plainly right; while all three are being weighed, the copies are honest.
+
+**The two gestures are the one place where sharing is plainly right, and they
+are shared for real.** `gestures.js` beside this file is a single module that
+every option imports; dragging and the wheel are not copied into three viewers
+and are not written by the page above them either. The distinction is worth
+holding on to, because it is the same argument turned round. Those five helpers
+are about how an option arranges its drawing surfaces, which is part of what the
+comparison is measuring. How far a wheel notch zooms is not about a drawing
+engine at all, so three answers to it could only add a difference that has
+nothing to do with the engines and cannot be told apart from one that has. One
+file, and a difference in how the three feel is a difference in the engine.
+`contract.md` §2 sets out the three lines each option writes to use it, and §2a
+sets out how an application says that a drag means something other than panning.
 
 **And all three share one more block the same way.** The four little functions
 that read a run's own description of its colours — under the heading "What the

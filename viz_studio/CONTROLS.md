@@ -106,6 +106,20 @@ microscope should be able to sit down and move around without being taught, and
 every extra gesture is one more thing that can be triggered by accident. The
 sections below explain what each removal is protecting.
 
+**Where this now lives.** For the three viewers in `viz_studio/options/`, the two
+gestures are in one shared file, `options/gestures.js`, which each of them
+imports; the viewer puts the listeners on when it opens and takes them off when it
+closes. A page that shows one of those viewers therefore inherits this decision
+rather than making it again, which is the point of writing it down here at all.
+
+**And one thing a page may change.** An operator who has chosen a pen needs a drag
+to draw rather than pan, and it cannot do both. So a page may tell the viewer that
+a drag means something other than panning — `handDragsTo`, set out in
+`options/contract.md` §2a — and the viewer hands the drag over instead of moving
+the view. What the two gestures *are* does not change; what a drag means is the
+application's to decide, exactly as it is in every drawing program an operator has
+already used.
+
 ## The three questions this settles, and why it settles them that way
 
 These are the places where the defaults are defensible for the engine's original

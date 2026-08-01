@@ -2,11 +2,19 @@
  * The page that drives any of the three options, chosen by a word in its address.
  *
  * Its whole job is to be *the same page* whichever option is underneath it. It
- * owns the two gestures, it owns the operator's drawing, it owns where the view
- * is, and it reaches the option through the small interface in
+ * owns the operator's drawing, it says where the view should start, and it
+ * reaches the option through the small interface in
  * `viz_studio/options/contract.md` and through nothing else. It never asks which
  * option it got. That is what makes the comparison about the engines rather than
  * about how somebody happened to wire each one up.
+ *
+ * **The two gestures are not this page's any more.** Dragging and the wheel
+ * belong to the canvas: whichever option is underneath puts them on when it
+ * opens and takes them off when it closes, out of the one shared file
+ * `viz_studio/options/gestures.js`. So this page does not attach them, does not
+ * move the view when the operator drags, and learns where the view ended up
+ * through `onViewChanged`. Every other page that embeds the canvas gets the same
+ * two gestures without writing a line, which is the whole reason they moved.
  *
  * The address says what to open:
  *
@@ -49,7 +57,6 @@
  */
 
 import { openerFor, optionsBuiltIn } from "./options.js";
-import { onlyPanAndZoom } from "./gestures.js";
 import {
   MARGIN_CSS_PX,
   drawTheCarrier,
@@ -126,7 +133,13 @@ const harness = {
   // single `coverage` above is the first one, which is what the interface takes.
   coverages: null,
   viewer: null,
-  gestures: null,
+  // Whether the page has told the canvas that a drag means something other than
+  // panning. False in every measurement; one check sets it, to show that the
+  // canvas really does hand the drag over instead of moving the view. The page
+  // never says what the drag is *for* — it only takes it, and remembers each
+  // step so that a check can see it arrived.
+  aDragMeansSomethingElse: false,
+  dragSteps: [],
   // What the page is drawing in each of the two slots it is given. The words are
   // the page's own and mean nothing to any option: an option is handed one
   // drawing function per slot and never learns what it will draw.
@@ -369,6 +382,23 @@ function handOverTheDrawings(viewer) {
 }
 
 /**
+ * Say whether a drag still means panning, or means something else now.
+ *
+ * This is the page playing the part the operator's window will play for real:
+ * something outside the canvas decides what a drag means, and the canvas obeys.
+ * Here the "something else" is deliberately the smallest thing that can be
+ * checked — the steps are remembered and nothing is drawn — because a tool that
+ * nobody has asked for yet is not worth inventing.
+ *
+ * Handed `null`, the canvas goes back to panning.
+ */
+function takeTheDragsOrGiveThemBack(viewer) {
+  viewer.handDragsTo(
+    harness.aDragMeansSomethingElse ? (step) => harness.dragSteps.push(step) : null,
+  );
+}
+
+/**
  * Put the imaged ground in the middle of the window at a magnification that
  * leaves room all round it.
  *
@@ -459,15 +489,6 @@ async function boot() {
 
   await putAViewerInTheBox(fitTheImagedGround());
 
-  harness.gestures = onlyPanAndZoom(box, {
-    // Read through `harness.viewer` rather than through a viewer captured here,
-    // because the engine underneath can be changed while the page is open and
-    // the gestures must go on reaching whichever one is there now.
-    getView: () => harness.viewer.getView(),
-    setView: (view) => harness.viewer.setView(view),
-    sizeOf: sizeOfBox,
-  });
-
   // -- the handles a measurement takes hold of ---------------------------
   harness.view = () => harness.viewer.getView();
   harness.setView = (view) => harness.viewer.setView(view);
@@ -490,10 +511,22 @@ async function boot() {
     return harness.viewer.tilesMayHaveLanded({ coverage: harness.coverage });
   };
   harness.counts = () => harness.viewer.countsForMeasurement?.() ?? null;
-  harness.gesturesSoFar = () => ({
-    refused: { ...harness.gestures.refused },
-    accepted: { ...harness.gestures.accepted },
-  });
+  // Asked of the canvas, because the gestures are the canvas's now. A gesture
+  // that was turned away and a gesture nobody made look exactly alike on
+  // screen, so a measurement has to be able to ask which of the two it is
+  // looking at.
+  harness.gesturesSoFar = () => harness.viewer.gesturesSoFar?.() ?? null;
+  // Tell the canvas that a drag means something other than panning, and take
+  // whatever it hands over. Nothing is drawn with it: this page has no tool and
+  // wants none, and what a lent drag is *for* belongs to the application that
+  // asks for it. Calling this with `false` gives dragging back to panning.
+  harness.aDragNowMeansSomethingElse = (yesOrNo) => {
+    harness.aDragMeansSomethingElse = Boolean(yesOrNo);
+    harness.dragSteps = [];
+    takeTheDragsOrGiveThemBack(harness.viewer);
+  };
+  /** Every step of every drag the canvas has handed over since it was asked to. */
+  harness.dragsHandedOver = () => harness.dragSteps.map((step) => ({ ...step }));
   // Move the hole a few pixels away from where it belongs. Nothing else changes,
   // so whatever the margin check then reports is the check noticing a
   // disagreement that really is there — which is the only way to know it would
@@ -612,6 +645,11 @@ async function putAViewerInTheBox(view) {
   // second. The same two functions go to every option, and neither of them knows
   // which one it reached.
   handOverTheDrawings(viewer);
+  // And what a drag means, which the page must say again to a fresh canvas for
+  // the same reason it says the plane and the channels again: a new viewer
+  // starts from its own defaults and knows nothing of what the last one was
+  // told.
+  takeTheDragsOrGiveThemBack(viewer);
   viewer.setView(view);
   if (harness.plane != null) viewer.setPlane(harness.plane);
   if (harness.moment != null) viewer.setMoment(harness.moment);
@@ -651,9 +689,12 @@ function nextOption() {
  * the centre, the magnification, the plane, the moment and the channel settings
  * are carried across.
  *
- * The gestures are untouched by this. They listen on the box, which does not go
- * away, and they reach whichever viewer is in it through `harness.viewer` rather
- * than through one they were handed when the page opened.
+ * The gestures go with the engine, because they belong to the canvas now. The
+ * old viewer takes its listeners off the box as it closes and the new one puts
+ * its own on as it opens, both out of the same shared file, so dragging and the
+ * wheel feel exactly the same either side of the change. What the page has to
+ * say again is what a drag *means*, alongside the plane, the moment and the
+ * channels — see `putAViewerInTheBox`.
  *
  * **One pair of options cannot be swapped this way, and it is worth knowing
  * why.** The two options that draw with Viv are installed from two different

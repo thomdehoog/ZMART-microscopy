@@ -61,9 +61,9 @@
  * ## Please keep Viv behind this file
  *
  * This is the only file in the application that knows Viv or deck.gl exist.
- * Everything above it — the page, the two gestures, the carrier outline, the
- * tile rectangles, the measurements — is written against the small interface in
- * `../contract.md`, and works the same whichever of the three options is
+ * Everything around it — the page, the two gestures in `../gestures.js`, the
+ * carrier outline, the tile rectangles, the measurements — is written against
+ * the small interface in `../contract.md`, and works the same whichever of the three options is
  * underneath. That is what makes comparing them fair: a difference somebody
  * feels tomorrow is then a difference in the approach, and not a difference in
  * how somebody happened to wire one of them up.
@@ -75,6 +75,9 @@ import { Matrix4 } from "@math.gl/core";
 import { ColorPaletteExtension } from "@vivjs/extensions";
 import { MultiscaleImageLayer } from "@vivjs/layers";
 import { loadOmeZarr } from "@vivjs/loaders";
+// The two gestures, from the one copy every option shares. See `../gestures.js`
+// for why there is only one copy and what it costs to have three.
+import { onlyPanAndZoom } from "../gestures.js";
 
 /**
  * How dim a spot may be before it is treated as ground nobody has been to.
@@ -163,6 +166,11 @@ export async function openViewer(element, options = {}) {
     boundToCoverage: boundToCoverage && Boolean(coverage?.regions?.length),
     canvas: null,
     deck: null,
+    // The two gestures, listening on the box. Put on when the viewer opens and
+    // taken off again when it closes, so a page that embeds this canvas gets
+    // dragging and the wheel without writing a line and without having to
+    // remember to tidy anything up.
+    gestures: null,
     // The offscreen canvas the page draws its carrier and tiles into, the
     // drawing context it draws with, and the texture those pixels are copied
     // into. A texture is simply an image kept in the graphics card's own memory,
@@ -207,6 +215,15 @@ export async function openViewer(element, options = {}) {
 
   buildTheOneCanvas(own);
   await start(own, acquisitions);
+  // The two gestures go on last, once there is something for them to move. The
+  // three lines below are word for word the same in every option, because they
+  // have to be: if the three wired up dragging even slightly differently, a
+  // difference in how they feel would be a difference in the wiring rather than
+  // in the engines, and the whole comparison would stop meaning anything.
+  own.gestures = onlyPanAndZoom(element, {
+    getView: () => readTheView(own),
+    setView: (view) => writeTheView(own, view),
+  });
   return handleFor(own);
 }
 
@@ -218,8 +235,8 @@ export async function openViewer(element, options = {}) {
  * Put down the single canvas everything is drawn into, and the offscreen canvas
  * the page draws its own shapes on.
  *
- * The canvas on screen is made transparent to the mouse on purpose. The page
- * owns both gestures and listens for them on the box the viewer was opened
+ * The canvas on screen is made transparent to the mouse on purpose. Both
+ * gestures belong to this viewer and are listened for on the box it was opened
  * inside; letting the events reach the box rather than the canvas means the
  * drawing engine can never quietly catch one for itself. `CONTROLS.md` sets out
  * what each gesture the engine would otherwise bind used to do and why it had
@@ -245,7 +262,7 @@ function buildTheOneCanvas(own) {
     inset: "0",
     width: "100%",
     height: "100%",
-    // The page listens for the two gestures on the box, and events reach it
+    // The two gestures are listened for on the box, and events reach it
     // because nothing inside the box takes them first.
     pointerEvents: "none",
     // Without this a drag on a touchpad scrolls the page instead of panning the
@@ -504,7 +521,7 @@ async function start(own, acquisitions) {
 
   own.deck = new Deck({
     canvas: own.canvas,
-    // A flat view, and the page owns every gesture. `controller: false` empties
+    // A flat view, and this file owns every gesture. `controller: false` empties
     // the engine's own gesture table before it can bind anything: dragging with
     // a modifier, the wheel with a modifier, double-click to zoom. `CONTROLS.md`
     // explains why each of those had to go.
@@ -1354,6 +1371,32 @@ function handleFor(own) {
     },
 
     /**
+     * Say what a drag means now.
+     *
+     * The canvas owns the mechanics of every gesture; the application owns what
+     * a drag currently *means*. Hand over a function and dragging stops panning:
+     * each drag is given to that function instead — once as it begins, once for
+     * every movement of the hand, and once when the operator lets go. Hand over
+     * nothing, or `null`, and dragging pans again, which is what it does until
+     * somebody says otherwise.
+     *
+     * The function is called with `{ phase, at, screen }`: `phase` is
+     * `"started"`, `"moved"` or `"finished"`, `at` is where the pointer is on
+     * the stage in micrometres, and `screen` is where it is in the box in
+     * browser pixels. Micrometres are what a mark on the specimen has to be
+     * recorded in — a mark kept in screen pixels would slide off the sample the
+     * moment the operator panned or zoomed.
+     *
+     * This is the whole of the mechanism, and it is deliberately no more than
+     * that. Nothing here draws anything, and this option never learns *why* the
+     * meaning changed. In the operator's window that is decided by the panel on
+     * the right, which is where choosing a tool belongs.
+     */
+    handDragsTo(handler) {
+      own.gestures?.handDragsTo(handler);
+    },
+
+    /**
      * The operator's own drawing.
      *
      * Hand over one function. It is called at the moment this option considers
@@ -1501,6 +1544,12 @@ function handleFor(own) {
     destroy() {
       if (own.destroyed) return;
       own.destroyed = true;
+      // The gestures come off first. Listeners left behind on a box that is
+      // still in the page would go on answering the operator's hand after the
+      // viewer they belonged to had gone. The little record of what they saw is
+      // kept rather than thrown away, so that a check can still ask a closed
+      // viewer whether anything reached it after it shut.
+      own.gestures?.stop();
       own.paint = null;
       own.paintBeneath = null;
       own.deck?.finalize();
@@ -1529,6 +1578,22 @@ function handleFor(own) {
      */
     countsForMeasurement() {
       return { ...own.counted };
+    },
+
+    /**
+     * What the two gestures have accepted, and what they have turned away.
+     *
+     * Not part of the interface an application would use, and deliberately
+     * named so that it reads as what it is. The measurements need it for one
+     * narrow reason: on screen, a gesture that was refused and a gesture nobody
+     * made look exactly alike, so without a count a canvas that had quietly
+     * stopped listening altogether would pass a check that nothing moved.
+     */
+    gesturesSoFar() {
+      return {
+        refused: { ...(own.gestures?.refused || {}) },
+        accepted: { ...(own.gestures?.accepted || {}) },
+      };
     },
   };
 }
