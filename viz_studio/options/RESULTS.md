@@ -566,14 +566,17 @@ reading +1.0, exactly as the paragraph above says it would. That is as clear a
 demonstration as one could want that the dragging check cannot do this job.
 
 **3. Two gestures.** Nine gestures that used to move the view were each made in
-earnest and each left the picture byte-identical. The page also reports what it
-turned away — one shift-drag, one right-button click, three ctrl-wheels and
+earnest and each left the picture byte-identical. What was turned away is
+reported as well — one shift-drag, one right-button click, three ctrl-wheels and
 twenty-two key presses — which is what stops this passing on a page that had
 quietly stopped listening altogether.
 
 The row was shown able to give the other answer: with shift-and-drag allowed to
-pan again in `harness/src/gestures.js`, it read **1: shift and drag (used to
-rotate)** on the next run.
+pan again, it read **1: shift and drag (used to rotate)** on the next run. The
+gestures were in the harness when that was measured and are now in the canvas
+itself, in `options/gestures.js`, which every option uses; the numbers are the
+same because it is the same code, driven the same way, on the same nine
+gestures.
 
 **What it cannot tell apart, which matters for one line of option A.** Option A
 also empties neuroglancer's own table of gestures, and its comment calls that

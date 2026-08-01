@@ -56,8 +56,10 @@ so they can be compared rather than argued about:
 | `viv-under` | the same arrangement, Viv and deck.gl below instead |
 | `viv-inside` | no sandwich — Viv's layers and ours in one canvas, one pass |
 
-All three take the same drawing functions, honour the same two gestures, speak
-micrometres, and are measured by the same suite. The table is in `RESULTS.md`.
+All three take the same drawing functions, speak micrometres, and are measured by
+the same suite. The two gestures they honour come out of one shared file they all
+import, so dragging and the wheel cannot feel different from one to the next. The
+table is in `RESULTS.md`.
 
 ### The operator window — branch `claude/live-tiles-mvp`
 
@@ -273,8 +275,8 @@ exhausted. What remains is what the method cannot reach:
   sizes a measurement against it in prose. Change one and a row silently starts
   measuring something else.
 - **The canvas should own its gestures**, with the right-hand panel selecting the
-  tool — so a drag draws instead of panning when the operator has chosen a pen. Not
-  built; the reasoning is in the session's notes.
+  tool — so a drag draws instead of panning when the operator has chosen a pen.
+  Since done; see "What landed after the sections above were written" below.
 
 ---
 
@@ -333,18 +335,39 @@ finishes.
 
 ---
 
-## The one thing left from this round
+## The canvas owns its gestures now
 
-**Moving the gestures into the canvas** — task #27 — was started and did not run. The
-agent stopped on a service limit before doing any work; nothing was changed and
-nothing is half-built.
+**Pan and zoom have moved out of the harness and into the canvas.** They live in
+one shared file, `viz_studio/options/gestures.js`, which all three options import;
+`openViewer` puts the listeners on the box it was opened inside and `destroy` takes
+them off again. The harness no longer attaches anything and no longer drives the
+view when the operator drags — it hears where the view went through
+`onViewChanged`, which already existed. Any page that embeds the canvas now gets
+"drag pans, the wheel zooms" without writing a line, which is the whole reason it
+moved.
 
-It matters because pan and zoom still live in the harness, so every page embedding the
-canvas would reimplement them and drift. The design is settled: one shared module
-inside the canvas used by all three engines, so they cannot diverge, with the
-application saying only *what a drag currently means* — the right-hand panel picks the
-tool, the canvas obeys. Build the mode switch and nothing more; a scribble tool is a
-use that does not exist yet.
+One file for all three, rather than a copy each, is the property that had to
+survive the move. It is why the harness owned them in the first place: if the
+three each decided how far a wheel notch should zoom, a difference somebody felt
+tomorrow might be the engine or might be somebody's arithmetic, and there would be
+no way to tell which. The three wiring lines are word for word identical in every
+`viewer.js`, and `contract.md` §2 shows them.
+
+**And a drag can now be lent to the application**, which is what keeps annotation
+possible: a drag that draws cannot also pan. `viewer.handDragsTo(handler)` makes
+the canvas hand each drag over — one call as it begins, one per movement of the
+hand, one when the operator lets go, each carrying where the pointer is on the
+stage in micrometres — and `handDragsTo(null)` gives panning back. The canvas owns
+the mechanics and never learns *why* the meaning changed; in the operator's window
+that will be the panel on the right. **There is no pen, no scribble and no
+annotation**, deliberately: only the switch, so that a tool can be built later
+without touching the canvas. `contract.md` §2a records it.
+
+**What is left for somebody else.** The operator page on
+`claude/viewer-as-a-workflow` reaches into `viz_studio/options/` by relative path,
+including into `harness/src/gestures.js`, which no longer exists — so that branch
+will not build against this one until it is brought across. That copy was already
+queued separately and this work deliberately did not touch it.
 
 **And the adapters on `claude/viewer-as-a-workflow` are a snapshot** taken before the
 channel and placement fixes. That page still shows only the first channel of a

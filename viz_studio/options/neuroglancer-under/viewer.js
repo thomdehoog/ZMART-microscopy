@@ -1693,9 +1693,10 @@ function handleFor(own) {
       own.destroyed = true;
       // The gestures come off first. Listeners left behind on a box that is
       // still in the page would go on answering the operator's hand after the
-      // viewer they belonged to had gone.
+      // viewer they belonged to had gone. The little record of what they saw is
+      // kept rather than thrown away, so that a check can still ask a closed
+      // viewer whether anything reached it after it shut.
       own.gestures?.stop();
-      own.gestures = null;
       own.watchSize?.disconnect();
       own.stopFollowing?.();
       own.stopHoldingOn?.();
