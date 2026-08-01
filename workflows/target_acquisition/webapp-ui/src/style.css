@@ -144,8 +144,15 @@ body {
   color: var(--ink-3);
 }
 .wf-row { display: flex; gap: 8px; align-items: center; }
+/* The chooser takes whatever room the rail has and no more. Left to itself a
+   dropdown is as wide as its longest choice, and the rail is a fixed column — so
+   naming a workflow a few words longer than the others used to push the Restart
+   button beside it clean off the rail and under the panel next door, where it
+   could not be pressed. A name is a thing somebody will change; the layout
+   should not depend on how long they make it. */
 select.wf-select {
-  flex: 1; min-width: 0;
+  flex: 1 1 0; min-width: 0; width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font: inherit; font-size: 14px; font-weight: 600; color: var(--ink);
   background: var(--surface-2);
   border: 1px solid var(--line-strong); border-radius: 8px;
@@ -329,6 +336,24 @@ button.run:disabled { opacity: 0.4; cursor: default; }
   min-width: 0; overflow-x: auto; overflow-y: hidden; white-space: nowrap;
   scrollbar-width: thin;
 }
+/* The canvas demonstration needs two rows: which engine is drawing, and which
+   of the three layers are on. */
+.viewer-toolbar { grid-template-rows: 28px auto; row-gap: 6px; }
+/* The row of layer buttons carries an explanation beside it, and an engine that
+   cannot draw beneath the picture explains that in three or four lines. So this
+   is the one row here that wraps rather than running off the side: a reason an
+   operator cannot read is no better than no reason at all.
+
+   Its height is reserved whether or not there is anything to say, because a
+   sentence appearing when a button is pressed would otherwise push the picture
+   down under the operator's cursor. */
+.viewer-toolbar .layer-row {
+  white-space: normal; overflow: visible; align-items: flex-start; padding-top: 4px;
+}
+.viewer-toolbar .layer-row .seg { flex: none; }
+.layer-why {
+  flex: 1 1 240px; min-width: 0; min-height: 3.2em; white-space: normal; line-height: 1.35;
+}
 .tb-label { font-weight: 600; color: var(--ink-3); flex: none; }
 .tile-pick { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; }
 .tile-pick #tile-label { min-width: 62px; text-align: center; color: var(--ink-2); }
@@ -357,11 +382,24 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 }
 .seg button:last-child { border-right: none; }
 .seg button:hover { color: var(--ink); background: var(--surface-3); }
-.seg button[aria-checked="true"] { background: var(--accent); color: #fff; }
-:root[data-theme="dark"] .seg button[aria-checked="true"] { color: #04121d; }
+/* Two kinds of button live in these strips and they look the same when they are
+   on. A row of engines is a choice between them, so exactly one is checked; a
+   row of layers is three switches that happen to sit together, so any number of
+   them may be pressed at once. The colour says "this one is on" in both cases,
+   which is the only thing an operator needs to read off it. */
+.seg button[aria-checked="true"],
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+:root[data-theme="dark"] .seg button[aria-checked="true"],
+:root[data-theme="dark"] .seg button[aria-pressed="true"] { color: #04121d; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .seg button[aria-checked="true"] { color: #04121d; }
+  :root:not([data-theme="light"]) .seg button[aria-checked="true"],
+  :root:not([data-theme="light"]) .seg button[aria-pressed="true"] { color: #04121d; }
 }
+/* A layer cannot be turned on while there is no picture to turn it on in. Said
+   by making the button plainly unavailable rather than by letting it be pressed
+   and do nothing. */
+.seg button:disabled { opacity: 0.45; cursor: default; }
+.seg button:disabled:hover { color: var(--ink-3); background: var(--surface-2); }
 .param { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
 .param input[type="number"], .param select {
   font: inherit; font-family: var(--mono); font-size: 12px;

@@ -33,9 +33,26 @@ export function numbered(steps) {
   });
 }
 
+/**
+ * Whether this step is one the run has to wait at.
+ *
+ * A run is walked in order because each step usually produces something the next
+ * one needs: there is no point choosing where to look before the run knows what
+ * the sample is mounted in. So a step that has not finished holds up everything
+ * after it, and that is the right default.
+ *
+ * Some steps produce nothing. A step that only shows you something — a picture
+ * to look at, a reading to check — leaves the run exactly as it found it, so
+ * there is nothing for the steps after it to wait for. Such a step says
+ * `nothingWaitsOnThis: true` in the catalogue and the operator may walk straight
+ * past it, or come back to it later, in whichever order suits them.
+ */
+const theRunHasToWaitHere = (step, done) =>
+  !done.has(step.id) && !step.nothingWaitsOnThis;
+
 /** The first step that has not completed — the only one the operator may reach. */
 export function firstIncomplete(steps, done) {
-  const i = steps.findIndex((s) => !done.has(s.id));
+  const i = steps.findIndex((s) => theRunHasToWaitHere(s, done));
   return i === -1 ? steps.length - 1 : i;
 }
 
@@ -76,7 +93,7 @@ export function blockedBecause(step, run) {
  * that point on everything happens on it. Walking back to a step before it
  * leaves the canvas behind, which is right — the session and the instrument are
  * not on the stage. A workflow where nothing asks for the canvas, such as the
- * viewer on its own, never shows one.
+ * canvas demonstration, never shows one.
  *
  * Saying which modules it wants is the step's business; how wide they are and
  * which of them is on top is the shell's.

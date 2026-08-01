@@ -65,9 +65,66 @@ against it.
 
 ## Where it is used
 
-`workflows/target_acquisition/webapp-ui` opens it as a workflow of its own, called
-**Viewer on its own**, with one step and nothing else in it. That is the first
-place the canvas has been put inside the real operator window, and it is
+`workflows/target_acquisition/webapp-ui` opens it as a workflow of its own,
+called **Canvas demonstration**, with two steps: the same run drawn by Viv, and
+then drawn by neuroglancer. Each step has a button for each of the three layers —
+the operator's drawing beneath, the acquisition, the operator's drawing above —
+so that what each layer contributes can be seen by taking it away. That is the
+first place the canvas has been put inside the real operator window, and it is
 deliberately separate from target acquisition so that a question about the
 picture stays a question about the picture. The page's own README says how to
 point it at a run.
+
+## Two things using it turned up, which belong in the interface
+
+Both were found by driving these engines from the operator page and measuring
+what reached the screen, not by reading them. Both are gaps in the interface
+rather than faults of any one engine, so they are written here rather than fixed
+in the copies — the copies are a snapshot and are due to be refreshed from
+`claude/viewer-only`, which would throw away anything changed in them.
+
+They are recorded here rather than in `contract.md` for one reason: `contract.md`
+is the shared statement of the interface and the branch it came from is being
+worked on right now, so the two are better reconciled deliberately than by two
+people editing the same paragraphs at once.
+
+**1. Opening with no acquisitions hangs one engine for ever.** `openViewer` is
+given a list of acquisitions to draw, and an empty list is a real thing to ask
+for: it is what an operator sees before a run has started, laying positions out
+on an empty plate, with the carrier and the planned positions drawn and nothing
+in the middle. Measured from the page: `viv-under` opens that way in about 190 ms
+and `viv-inside` in about 40 ms, both of them then honouring both drawing slots
+and both view controls perfectly. `neuroglancer-under` never finishes opening at
+all — still not ready after thirty seconds, with its own elements built inside
+the box and its promise unsettled.
+
+The reason is one line of it. That option waits for the engine to say what space
+the picture lives in before it goes on, and the engine works that out from the
+image layers it has been given. Watched directly, with no layers the engine's
+coordinate space stays at rank zero for as long as anybody looks — twelve
+readings over six seconds, all zero — so the wait never ends.
+
+Two things follow, and the second is the larger of them. The interface has no
+statement about what an empty list of acquisitions means, and it should have one.
+And **the interface has no way to abandon an `openViewer` that never finishes**:
+a page that gives up can take what the engine built out of the page, but whatever
+the engine is still doing out of sight goes on until the page is left. A cheap
+answer to both might be a `signal` on `openViewer`, or an engine saying up front
+whether it can draw nothing.
+
+**2. Handing a slot `null` does not always clear what was drawn there.**
+`drawUnder(paint)` and `drawOver(paint)` take `null` to mean the application has
+nothing for that slot. `contract.md` says an option may then skip laying a
+surface down, which is the right thing when nothing has ever been drawn. It says
+nothing about a slot that had something in it a moment ago, and two of the three
+options clear a surface only on their way to painting it — so a drawing handed
+`null` after the fact stays on the screen until the viewer is closed. Measured:
+the operator's drawing covered 3.4% of the box, the slot was handed `null`, and
+it still covered 3.4%. `viv-inside` clears either way.
+
+On the page this is the difference between a button that turns a layer off and a
+button that appears not to work, so the page works around it by handing a drawing
+that paints nothing rather than `null` — which costs the surface that `null` was
+there to save. `…/src/canvas/panel.js` explains that in place. The interface
+should say plainly that a slot handed `null` leaves nothing on screen, and all
+three options should honour it.

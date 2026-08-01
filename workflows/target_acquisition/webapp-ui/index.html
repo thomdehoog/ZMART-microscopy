@@ -89,24 +89,61 @@
         </div>
       </div>
 
-      <!-- The canvas on its own: the picture of a run, with the whole width of
-           the window and no panel of controls beside it. The row of buttons at
-           the top chooses which drawing engine draws it, so the same view can be
-           looked at through one engine and then another. -->
-      <div class="panel" id="panel-viewer" role="tabpanel">
-        <div class="toolbar focus-toolbar">
+      <!-- The canvas, twice over: one panel for each of the two steps of the
+           canvas demonstration. Each is the picture of a run with the whole
+           width of the window and no panel of controls beside it. The first row
+           of buttons chooses which engine draws; the second turns each of the
+           three layers on and off, named from the bottom of the stack upwards.
+
+           There are two panels rather than one because the two steps have to be
+           genuinely independent. Each holds its own picture, opened with its own
+           engine, remembering its own buttons and its own view, so that walking
+           from one step to the other is a fair comparison: nothing the operator
+           did in the first can have reached the second. Every id below appears
+           twice for that reason and the two blocks are otherwise identical, so
+           a change to one wants the same change to the other. -->
+      <div class="panel" id="panel-viewer-viv" role="tabpanel">
+        <div class="toolbar focus-toolbar viewer-toolbar">
           <div class="tb-row">
             <span class="tb-label">Engine</span>
-            <div class="seg" id="viewer-engine" role="radiogroup"
+            <div class="seg" id="viewer-viv-engine" role="radiogroup"
                  aria-label="Which engine draws the picture"></div>
-            <div class="readout" id="viewer-readout">—</div>
+            <div class="readout" id="viewer-viv-readout">—</div>
+          </div>
+          <div class="tb-row layer-row">
+            <span class="tb-label">Layers</span>
+            <div class="seg" id="viewer-viv-layers"
+                 aria-label="Which of the three layers are drawn"></div>
+            <span class="action-hint layer-why" id="viewer-viv-why"></span>
           </div>
         </div>
         <div class="plot-host">
-          <div class="viewer-box" id="viewer-box"></div>
-          <div class="live-note" id="viewer-note" hidden></div>
+          <div class="viewer-box" id="viewer-viv-box"></div>
+          <div class="live-note" id="viewer-viv-note" hidden></div>
         </div>
-        <div class="panel-foot" id="foot-viewer"></div>
+        <div class="panel-foot" id="foot-viewer-viv"></div>
+      </div>
+
+      <div class="panel" id="panel-viewer-neuroglancer" role="tabpanel">
+        <div class="toolbar focus-toolbar viewer-toolbar">
+          <div class="tb-row">
+            <span class="tb-label">Engine</span>
+            <div class="seg" id="viewer-neuroglancer-engine" role="radiogroup"
+                 aria-label="Which engine draws the picture"></div>
+            <div class="readout" id="viewer-neuroglancer-readout">—</div>
+          </div>
+          <div class="tb-row layer-row">
+            <span class="tb-label">Layers</span>
+            <div class="seg" id="viewer-neuroglancer-layers"
+                 aria-label="Which of the three layers are drawn"></div>
+            <span class="action-hint layer-why" id="viewer-neuroglancer-why"></span>
+          </div>
+        </div>
+        <div class="plot-host">
+          <div class="viewer-box" id="viewer-neuroglancer-box"></div>
+          <div class="live-note" id="viewer-neuroglancer-note" hidden></div>
+        </div>
+        <div class="panel-foot" id="foot-viewer-neuroglancer"></div>
       </div>
 
       <!-- detection panel: tune on one tile, then run them all -->
