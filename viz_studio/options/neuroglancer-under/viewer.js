@@ -4,8 +4,9 @@
  * should show.
  *
  * This file is the only place in the whole application that knows neuroglancer
- * exists. Everything above it — the page, the gestures, the carrier outline, the
- * tile rectangles, the measurements — is written against the small interface in
+ * exists. Everything around it — the page, the two gestures in `../gestures.js`,
+ * the carrier outline, the tile rectangles, the measurements — is written
+ * against the small interface in
  * `../contract.md` and would work just as well with a different engine
  * underneath. That is deliberate, and it is worth saying why it is worth the
  * trouble.
@@ -114,6 +115,9 @@ import { makeMinimalViewer } from "neuroglancer/unstable/ui/minimal_viewer.js";
 import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
 import "./engine-chrome.css";
+// The two gestures, from the one copy every option shares. See `../gestures.js`
+// for why there is only one copy and what it costs to have three.
+import { onlyPanAndZoom } from "../gestures.js";
 
 /**
  * Which of the engine's panel layouts to ask for, and which way round the axes
@@ -238,6 +242,11 @@ export async function openViewer(element, options = {}) {
     beneathContext: null,
     paintBeneath: null,
     viewer: null,
+    // The two gestures, listening on the box. Put on when the viewer opens and
+    // taken off again when it closes, so a page that embeds this canvas gets
+    // dragging and the wheel without writing a line and without having to
+    // remember to tidy anything up.
+    gestures: null,
     // The channels, flattened across all acquisitions in the order they are
     // drawn, each remembering the engine layer that draws it.
     rows: [],
@@ -271,6 +280,15 @@ export async function openViewer(element, options = {}) {
 
   buildTheTwoSurfaces(own);
   await start(own, acquisitions);
+  // The two gestures go on last, once there is something for them to move. The
+  // three lines below are word for word the same in every option, because they
+  // have to be: if the three wired up dragging even slightly differently, a
+  // difference in how they feel would be a difference in the wiring rather than
+  // in the engines, and the whole comparison would stop meaning anything.
+  own.gestures = onlyPanAndZoom(element, {
+    getView: () => readTheView(own),
+    setView: (view) => writeTheView(own, view),
+  });
   return handleFor(own);
 }
 
@@ -304,8 +322,9 @@ export async function openViewer(element, options = {}) {
  * insides inside it.
  *
  * And the engine must not receive gestures at all, so it is made transparent to
- * the mouse rather than merely covered by something. The page's own two gestures
- * are the only ones there are, and they arrive at the operator's canvas.
+ * the mouse rather than merely covered by something. The two gestures this file
+ * puts on the box are the only ones there are, and they reach it because
+ * nothing inside the box takes them first.
  */
 function buildTheTwoSurfaces(own) {
   const { element } = own;
@@ -1490,6 +1509,32 @@ function handleFor(own) {
     },
 
     /**
+     * Say what a drag means now.
+     *
+     * The canvas owns the mechanics of every gesture; the application owns what
+     * a drag currently *means*. Hand over a function and dragging stops panning:
+     * each drag is given to that function instead — once as it begins, once for
+     * every movement of the hand, and once when the operator lets go. Hand over
+     * nothing, or `null`, and dragging pans again, which is what it does until
+     * somebody says otherwise.
+     *
+     * The function is called with `{ phase, at, screen }`: `phase` is
+     * `"started"`, `"moved"` or `"finished"`, `at` is where the pointer is on
+     * the stage in micrometres, and `screen` is where it is in the box in
+     * browser pixels. Micrometres are what a mark on the specimen has to be
+     * recorded in — a mark kept in screen pixels would slide off the sample the
+     * moment the operator panned or zoomed.
+     *
+     * This is the whole of the mechanism, and it is deliberately no more than
+     * that. Nothing here draws anything, and this option never learns *why* the
+     * meaning changed. In the operator's window that is decided by the panel on
+     * the right, which is where choosing a tool belongs.
+     */
+    handDragsTo(handler) {
+      own.gestures?.handDragsTo(handler);
+    },
+
+    /**
      * The operator's own drawing.
      *
      * Hand over one function. It is called at the moment this option considers
@@ -1646,6 +1691,12 @@ function handleFor(own) {
     destroy() {
       if (own.destroyed) return;
       own.destroyed = true;
+      // The gestures come off first. Listeners left behind on a box that is
+      // still in the page would go on answering the operator's hand after the
+      // viewer they belonged to had gone. The little record of what they saw is
+      // kept rather than thrown away, so that a check can still ask a closed
+      // viewer whether anything reached it after it shut.
+      own.gestures?.stop();
       own.watchSize?.disconnect();
       own.stopFollowing?.();
       own.stopHoldingOn?.();
@@ -1677,6 +1728,22 @@ function handleFor(own) {
      */
     countsForMeasurement() {
       return { ...own.counted };
+    },
+
+    /**
+     * What the two gestures have accepted, and what they have turned away.
+     *
+     * Not part of the interface an application would use, and deliberately
+     * named so that it reads as what it is. The measurements need it for one
+     * narrow reason: on screen, a gesture that was refused and a gesture nobody
+     * made look exactly alike, so without a count a canvas that had quietly
+     * stopped listening altogether would pass a check that nothing moved.
+     */
+    gesturesSoFar() {
+      return {
+        refused: { ...(own.gestures?.refused || {}) },
+        accepted: { ...(own.gestures?.accepted || {}) },
+      };
     },
   };
 }

@@ -339,6 +339,151 @@ def test_only_two_gestures_move_the_view(harness_page, option):
     )
 
 
+def _drag_across(page, steps: int = 20, step: int = 6) -> None:
+    """One plain drag to the right, the same one every check here makes."""
+    page.mouse.move(450, 350)
+    page.mouse.down()
+    for at in range(1, steps + 1):
+        page.mouse.move(450 + at * step, 350)
+    page.mouse.up()
+
+
+@pytest.mark.parametrize("option", EVERY_OPTION)
+def test_the_application_can_say_a_drag_means_something_else(harness_page, option):
+    """Told that a drag means something else, the canvas hands the drag over
+    instead of panning — and told nothing, it pans again.
+
+    This is what keeps drawing on the picture possible now that the canvas owns
+    dragging. A drag that draws cannot also pan, so the application says which of
+    the two a movement of the hand is and the canvas obeys; the canvas never
+    learns why the meaning changed. There is no pen and no scribble here, and
+    there should not be one until somebody needs it — this checks the switch and
+    nothing else.
+
+    Three things have to be true, and the third is the one that is easy to lose.
+    The picture must not move. The steps of the drag must actually arrive. And
+    they must arrive in micrometres on the stage, because a mark recorded in
+    screen pixels would slide off the specimen the moment the operator panned.
+    """
+    harness_page.option = option
+    harness_page.open(store="square", draw="margin")
+    harness_page.believes("window.harness.reset()")
+    harness_page.settle(tries=15)
+    zoom = harness_page.believes("window.harness.view()")["zoom"]
+
+    harness_page.believes("window.harness.aDragNowMeansSomethingElse(true)")
+    before = harness_page.photograph()
+    _drag_across(harness_page.page)
+    harness_page.settle(tries=10)
+    assert np.array_equal(before, harness_page.photograph()), (
+        "the application said a drag means something other than panning, and the "
+        "view moved anyway"
+    )
+
+    handed = harness_page.believes("window.harness.dragsHandedOver()")
+    assert len(handed) > 3, (
+        "the view stayed still, but the drag was not handed to the application "
+        f"either, so it simply went nowhere: {handed}"
+    )
+    assert handed[0]["phase"] == "started" and handed[-1]["phase"] == "finished", (
+        "a drag has to arrive as a whole — one call as it begins and one when "
+        f"the operator lets go: {[step['phase'] for step in handed]}"
+    )
+    # 20 steps of 6 browser pixels to the right, so the place on the stage should
+    # have travelled 120 pixels' worth of micrometres. Read against the zoom
+    # rather than against a fixed number, because the check has to mean the same
+    # thing at any magnification.
+    travelled = handed[-1]["at"]["x"] - handed[0]["at"]["x"]
+    assert abs(travelled - 120 * zoom) < 2 * zoom, (
+        f"the hand moved 120 browser pixels at {zoom:.2f} µm to the pixel, so "
+        f"the drag should have covered about {120 * zoom:.1f} µm on the stage; "
+        f"it reported {travelled:.1f}. Something is handing over screen pixels "
+        "and calling them micrometres."
+    )
+
+    # And giving it back: dragging pans again, exactly as it did before.
+    harness_page.believes("window.harness.aDragNowMeansSomethingElse(false)")
+    before = harness_page.photograph()
+    _drag_across(harness_page.page)
+    harness_page.settle(tries=15)
+    assert not np.array_equal(before, harness_page.photograph()), (
+        "the application gave dragging back and it still did not pan"
+    )
+    assert harness_page.believes("window.harness.dragsHandedOver()") == [], (
+        "dragging was given back to panning and the drag was handed to the "
+        "application as well, so both things happened at once"
+    )
+
+
+@pytest.mark.parametrize("option", EVERY_OPTION)
+def test_the_gestures_come_off_when_the_viewer_closes(harness_page, option):
+    """A closed viewer leaves no listeners behind on the box.
+
+    This is the half of "the canvas owns its gestures" that is invisible until it
+    bites. Listeners left on a box that is still in the page go on answering the
+    operator's hand after the viewer they belonged to has gone — so a page that
+    closes one viewer and opens another in the same box moves the view twice for
+    every drag, and the picture races away at double speed.
+
+    Checked by counting rather than by looking, because a viewer that has been
+    destroyed draws nothing and there is no picture left to photograph. The
+    second viewer is opened in a box of its own, closed again, and then a drag is
+    made over that box: nothing that has been destroyed should notice it.
+    """
+    harness_page.option = option
+    harness_page.open(store="square", draw="none")
+    counted = harness_page.page.evaluate(
+        """async () => {
+          const box = document.createElement('div');
+          box.style.cssText =
+            'position:absolute;left:0;top:0;width:300px;height:300px;z-index:99';
+          document.body.appendChild(box);
+          const { openViewer } = await window.harness.loadTheOption();
+          const second = await openViewer(box, {
+            acquisitions: window.harness.acquisitionsAsked,
+            coverage: window.harness.coverage,
+            background: '#101014',
+          });
+          const whileOpen = second.gesturesSoFar();
+          second.destroy();
+          // A drag and a wheel notch over the very box it was listening on,
+          // after it has been closed. Made with plain events rather than with
+          // the mouse, because the browser's own pointer is driven from outside
+          // the page and this has to happen inside one evaluation.
+          const at = { clientX: 150, clientY: 150, bubbles: true, button: 0 };
+          box.dispatchEvent(new PointerEvent('pointerdown', at));
+          box.dispatchEvent(new PointerEvent('pointermove',
+            { ...at, clientX: 210 }));
+          box.dispatchEvent(new PointerEvent('pointerup', at));
+          box.dispatchEvent(new WheelEvent('wheel',
+            { ...at, deltaY: -120, cancelable: true }));
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r' }));
+          const afterClosing = second.gesturesSoFar();
+          box.remove();
+          return { whileOpen, afterClosing };
+        }"""
+    )
+    while_open = counted["whileOpen"]["accepted"]
+    assert while_open["drags"] == 0 and while_open["wheels"] == 0, (
+        "the second viewer had already seen gestures before anybody made one: "
+        + str(counted)
+    )
+    after = counted["afterClosing"]
+    assert after["accepted"]["drags"] == 0, (
+        "a drag over the box after the viewer was closed still reached its "
+        "gestures, so `destroy` left the listeners on: " + str(counted)
+    )
+    assert after["accepted"]["wheels"] == 0, (
+        "a wheel notch after the viewer was closed still reached its gestures, "
+        "so `destroy` left the listener on: " + str(counted)
+    )
+    assert after["refused"]["keys"] == 0, (
+        "a key press after the viewer was closed still reached its gestures, so "
+        "`destroy` left the listener on the window — which is the one that "
+        "outlives the box and the one easiest to forget: " + str(counted)
+    )
+
+
 @pytest.mark.parametrize("option", EVERY_OPTION)
 def test_the_margins_stay_even_and_the_check_can_fail(harness_page, option):
     """The operator's drawing stays lined up with the picture underneath it.
