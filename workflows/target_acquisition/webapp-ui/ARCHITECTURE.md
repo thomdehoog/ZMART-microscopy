@@ -267,8 +267,16 @@ swapped. It is not kept here — it lives at the top of the repository in
 ```
 canvas/
   engines.js    which engines this page can open, and what each one is
-  panel.js      opening one on a run, the two gestures, and changing engine
+  panel.js      opening one on a run, changing engine, and the layer buttons
 ```
+
+The two gestures are not in this list, and that is deliberate. Dragging and the
+wheel used to be arranged by this page, on the box the picture sits in. They now
+come with the canvas: every engine attaches the same shared piece of code for
+them when it opens. This page therefore does nothing about them at all, which is
+what you want — if each engine had interpreted a drag for itself, a difference in
+how two of them felt might have been the engine or might have been somebody's
+idea of how far a wheel notch should zoom, with no way to tell which.
 
 Two rules hold this together and both are load-bearing.
 

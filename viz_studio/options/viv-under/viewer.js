@@ -4,8 +4,8 @@
  * picture should show.
  *
  * This is the same arrangement as option A — the operator's canvas above, the
- * engine's canvas below, the page owning every gesture — with a different engine
- * underneath. That is deliberate and it is the whole reason this option exists.
+ * engine's canvas below, the canvas owning every gesture — with a different
+ * engine underneath. That is deliberate and it is the whole reason this option exists.
  * If A and B feel different, the difference is the engine, because nothing above
  * the engine differs at all. If they feel the same, the sandwich arrangement is
  * neutral and the choice can be made on everything else, which is a much easier
@@ -93,6 +93,9 @@ import { Matrix4 } from "@math.gl/core";
 import { ColorPaletteExtension } from "@vivjs/extensions";
 import { MultiscaleImageLayer } from "@vivjs/layers";
 import { loadOmeZarr } from "@vivjs/loaders";
+// The two gestures, from the one copy every option shares. See `../gestures.js`
+// for why there is only one copy and what it costs to have three.
+import { onlyPanAndZoom } from "../gestures.js";
 
 /**
  * How far outside the imaged ground the engine is still allowed to draw, in
@@ -143,7 +146,10 @@ const UM_PER_UNIT = {
  *                   at the bottom. Each `url` must be a whole address including
  *                   the scheme and host. `channels` is `[{ name, colour, window }]`,
  *                   where `colour` is three numbers from 0 to 1 and `window` is
- *                   `{low, high}` in the stored numbers' own units.
+ *                   `{low, high}` in the stored numbers' own units. It is
+ *                   **optional**: leave it out and the viewer reads the run's own
+ *                   description of its colours out of the store it is opening
+ *                   anyway. Say it and what you say is used unchanged.
  *   `coverage`      the imaged regions, as `zmart_storage/coverage.py` records
  *                   them, or `null` when the run keeps no record. Used to decide
  *                   where the picture is allowed to show through, and how much
@@ -218,6 +224,11 @@ export async function openViewer(element, options = {}) {
     beneathContext: null,
     paintBeneath: null,
     deck: null,
+    // The two gestures, listening on the box. Put on when the viewer opens and
+    // taken off again when it closes, so a page that embeds this canvas gets
+    // dragging and the wheel without writing a line and without having to
+    // remember to tidy anything up.
+    gestures: null,
     view: null,
     // One entry per acquisition, each holding the pyramid of readers, how large
     // its voxels are, and where it sits relative to the first acquisition.
@@ -245,6 +256,15 @@ export async function openViewer(element, options = {}) {
 
   buildTheTwoSurfaces(own);
   await start(own, acquisitions);
+  // The two gestures go on last, once there is something for them to move. The
+  // three lines below are word for word the same in every option, because they
+  // have to be: if the three wired up dragging even slightly differently, a
+  // difference in how they feel would be a difference in the wiring rather than
+  // in the engines, and the whole comparison would stop meaning anything.
+  own.gestures = onlyPanAndZoom(element, {
+    getView: () => readTheView(own),
+    setView: (view) => writeTheView(own, view),
+  });
   return handleFor(own);
 }
 
@@ -270,9 +290,9 @@ export async function openViewer(element, options = {}) {
  * The same arrangement as option A, and the same two pieces of styling that were
  * learned the hard way there. The engine's box is given a stacking order of its
  * own so that nothing the engine creates inside it can escape and end up above
- * the operator's drawing; and it is made transparent to the mouse, so the page's
- * two gestures are the only ones there are and they arrive at the operator's
- * canvas.
+ * the operator's drawing; and it is made transparent to the mouse, so the two
+ * gestures this file puts on the box are the only ones there are and nothing
+ * inside the box takes them first.
  *
  * The one difference is the background. Option A gives the engine a background
  * colour of its own that matches the page, so that the seam between the two
@@ -489,8 +509,8 @@ function fitTheEngineToItsPatch(own) {
       height: rect.height,
       // Height runs down the window, the way a stage and an image both count it.
       flipY: true,
-      // The engine handles no gesture at all. The page owns both of them and
-      // they arrive at the operator's canvas, which lies over this one.
+      // The engine handles no gesture at all. Both of them belong to this
+      // canvas, which listens for them on the box the viewer was opened inside.
       controller: false,
     });
     own.deck?.setProps({ views: own.view });
@@ -565,6 +585,157 @@ function voxelSizeUm(metadata, name) {
 }
 
 /**
+ * Where the low corner of this acquisition sits on the stage, in micrometres.
+ *
+ * **Why a viewer needs this at all.** An image says how large its voxels are and
+ * how many of them there are, and between them those two say how *big* it is —
+ * but neither says where on the specimen it begins. A run written from the
+ * stage's zero begins at nought and the question never comes up, which is why it
+ * can go unanswered for a long time without anybody noticing. Open a wide survey
+ * and a detailed scan of one part of it together, though, and the position is
+ * the only thing there is: the two runs have different voxels and share nothing
+ * else, so a viewer that ignores where each of them says it is draws the detail
+ * scan at the same corner as the survey — a perfectly sharp picture of the
+ * wrong part of the slide.
+ *
+ * That is not a hypothetical. Measured before this function existed, the detail
+ * scan of `viz_studio/options/RESULTS.md` measurement 8 landed 898 micrometres
+ * from where its store says it is.
+ *
+ * The number is written beside the multiscale block as a translation, in the
+ * same units as the axes. Viv's own reading of a store does not carry it, so it
+ * is taken from the description here, exactly as the size of a voxel is.
+ */
+function originUm(metadata) {
+  const multiscale = metadata?.multiscales?.[0];
+  const found = { x: 0, y: 0, z: 0 };
+  if (!multiscale) return found;
+  const axes = multiscale.axes || [];
+  const names = axes.map((axis) => (typeof axis === "string" ? axis : axis.name));
+  const units = axes.map((axis) => (typeof axis === "string" ? "" : axis.unit || ""));
+  for (const step of multiscale.coordinateTransformations || []) {
+    if (step.type !== "translation") continue;
+    names.forEach((axisName, at) => {
+      if (!(axisName in found)) return;
+      const perUnit = UM_PER_UNIT[String(units[at] || "").toLowerCase()];
+      const distance = Number(step.translation?.[at]);
+      if (perUnit === undefined || !Number.isFinite(distance)) return;
+      found[axisName] = distance * perUnit;
+    });
+  }
+  return found;
+}
+
+// ---------------------------------------------------------------------------
+// What the run says about its own colours
+// ---------------------------------------------------------------------------
+//
+// The page may describe an acquisition's channels — what each one is called,
+// what colour to draw it in, and how bright to open it — and where it does, what
+// it says is used exactly as given. But a page usually has no way of knowing any
+// of that, because the description lives inside the store, which is the very
+// thing it is asking this viewer to open. Making the page find out would mean
+// opening the run twice: once by the page, to learn what to say, and once by the
+// viewer, to draw it.
+//
+// So where the page says nothing, the description is read here instead, out of
+// the `omero` block that every image this project writes carries.
+// `zmart_storage/canvas.py` is where it is written, and it holds one entry per
+// channel: a label, a colour as six hex digits, and a brightness window.
+//
+// Leaving this out has a plain and visible cost. With nothing to go on a viewer
+// falls back to a single white channel, so **a run recorded in two colours shows
+// only its first one**, in white, and nothing on screen says that the rest of
+// the acquisition is missing.
+//
+// The four pieces below are word for word the same in all three options, on
+// purpose. The three are meant to be comparable, and a difference in how they
+// read the same description would show up in the results as a difference
+// between the engines, which it is not. Two copies can drift apart, so **if you
+// change one of these four, change the other two files to match in the same
+// commit.**
+
+/** The colour a channel is drawn in when nobody has named one. */
+const WHITE = [1, 1, 1];
+
+/**
+ * The brightness range to open a channel at when neither the page nor the run
+ * asked for one. It is the same range this viewer has always used in that case,
+ * and it suits the twelve-bit cameras these runs are acquired on.
+ */
+const AN_ORDINARY_WINDOW = { low: 0, high: 4095 };
+
+/**
+ * Six hex digits, the way a run writes a colour, as the three numbers from 0 to
+ * 1 the drawing works in.
+ *
+ * Anything that is not six hex digits is drawn white rather than refused. A
+ * misspelt colour is a small blemish; refusing to open somebody's acquisition
+ * over one would be a great deal worse.
+ */
+function colourFromTheStore(hex) {
+  if (typeof hex !== "string" || !/^[0-9a-f]{6}$/i.test(hex)) return [...WHITE];
+  return [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+}
+
+/**
+ * The brightness range a channel should first be shown with, out of the run's
+ * own description of it.
+ *
+ * A description holds two different ranges and telling them apart is the whole
+ * of this function. `min` and `max` are the numbers the camera can produce at
+ * all — nought to 65535 for a sixteen-bit camera — which is a fact about the
+ * instrument and true of every acquisition it ever takes. `start` and `end` are
+ * the range the picture should be *displayed* with, and they are written only
+ * when the run actually asked for one.
+ *
+ * Only `start` and `end` are used here, and that is deliberate. A real
+ * acquisition sits in the bottom few per cent of what the camera can count — a
+ * few hundred counts of background with the signal not far above — so opening it
+ * with the camera's whole range shows a picture that is very nearly black, and
+ * it stays that way until somebody thinks to drag a contrast slider. This
+ * project has already had that fault once and fixed it, which is why it is
+ * spelled out here rather than left to whoever reads the description next.
+ *
+ * When the run asked for nothing, the ordinary window above is used — the same
+ * one this viewer would have used had there been no description at all.
+ */
+function windowFromTheStore(described) {
+  const range = described?.window ?? {};
+  if (Number.isFinite(range.start) && Number.isFinite(range.end)) {
+    return { low: range.start, high: range.end };
+  }
+  return { ...AN_ORDINARY_WINDOW };
+}
+
+/**
+ * The channels a store describes, in the form this viewer keeps them in.
+ *
+ * `attributes` is the store's own description, as it was read from the image.
+ * Nothing at all is returned when the store describes no channels, so that the
+ * caller can fall back to whatever it did before rather than being handed an
+ * empty list and drawing nothing.
+ *
+ * One limit, said plainly. What comes back is one entry per channel the
+ * description *names*, not one per channel the picture holds. Everything this
+ * project writes keeps the two in step, so for our own runs they are the same
+ * list. A foreign image that stored four colours and described only two would
+ * have two of them drawn here, and the operator would have to notice. Counting
+ * the picture's own channels instead would mean a second reading of the image
+ * for one of the three options and none for the other two, which is exactly the
+ * kind of difference between them this comparison is trying not to introduce.
+ */
+function channelsTheStoreDescribes(attributes) {
+  const described = attributes?.omero?.channels;
+  if (!Array.isArray(described) || !described.length) return null;
+  return described.map((channel, at) => ({
+    name: channel?.label || `channel ${at + 1}`,
+    colour: colourFromTheStore(channel?.color),
+    window: windowFromTheStore(channel),
+  }));
+}
+
+/**
  * Turn one acquisition into the pyramid of readers and the description of it
  * that the drawing needs.
  *
@@ -595,9 +766,15 @@ async function openOneAcquisition(acquisition) {
     );
   }
   const um = voxelSizeUm(opened.metadata, acquisition.name);
+  const at = originUm(opened.metadata);
+  // What the page said, where it said anything; otherwise what the run says
+  // about itself; and only if the run says nothing either, one white channel.
+  // Viv hands back the store's whole description alongside the picture, so
+  // reading it here costs no extra request at all.
   const channels = acquisition.channels && acquisition.channels.length
     ? acquisition.channels
-    : [{ name: acquisition.name, colour: [1, 1, 1], window: { low: 0, high: 4095 } }];
+    : channelsTheStoreDescribes(opened.metadata)
+      || [{ name: acquisition.name, colour: [...WHITE], window: { ...AN_ORDINARY_WINDOW } }];
   return {
     name: acquisition.name,
     url: acquisition.url,
@@ -605,6 +782,11 @@ async function openOneAcquisition(acquisition) {
     sources: opened.data,
     metadata: opened.metadata,
     um,
+    // Where this acquisition's low corner sits on the stage, in micrometres.
+    // Nought for a run written from the stage's zero, which is most of them, and
+    // the only thing that puts two runs of different voxel sizes in the same
+    // place when it is not.
+    at,
     // Which plane of the stack and which moment of a timelapse are being shown.
     // Both are counted in the image's own whole numbers here; the handle takes
     // micrometres and moments and converts.
@@ -613,8 +795,8 @@ async function openOneAcquisition(acquisition) {
     channels: channels.map((channel, within) => ({
       name: channel.name,
       within,
-      colour: channel.colour || [1, 1, 1],
-      window: channel.window || { low: 0, high: 4095 },
+      colour: channel.colour || [...WHITE],
+      window: channel.window || { ...AN_ORDINARY_WINDOW },
       visible: channel.visible !== false,
     })),
   };
@@ -647,8 +829,8 @@ async function start(own, acquisitions) {
     // stale.
     views: own.view,
     viewState: engineViewFor(own),
-    // The engine handles no gesture. Both of the page's gestures arrive at the
-    // operator's canvas, which lies over this one, and the engine's box is
+    // The engine handles no gesture. Both of them belong to this canvas, which
+    // listens on the box the viewer was opened inside, and the engine's box is
     // transparent to the mouse besides.
     controller: false,
     // Nothing here is clicked on, and asking the engine to work out what is
@@ -690,7 +872,10 @@ function openingViewFor(own) {
   const wideUm = across.width * first.um.x;
   const tallUm = across.height * first.um.y;
   return {
-    centre: { x: wideUm / 2, y: tallUm / 2 },
+    // The middle of the first acquisition, counted from where that acquisition
+    // says it begins rather than from the stage's zero — otherwise a run written
+    // some way along the stage opens looking at empty room beside it.
+    centre: { x: first.at.x + wideUm / 2, y: first.at.y + tallUm / 2 },
     zoom: Math.max(
       wideUm / Math.max(1, width),
       tallUm / Math.max(1, height),
@@ -823,24 +1008,44 @@ function layersFor(own) {
 }
 
 /**
- * Where one acquisition sits relative to the first, as a placement the engine
+ * Where one acquisition sits on the specimen, as a placement the engine
  * understands.
  *
- * The engine counts in voxels of the first acquisition, because that is the
- * space its layers naturally live in. An overview scan and a detail scan of the
- * same specimen do not have voxels of the same size, so the second has to be
- * stretched to match the first or the two would be drawn at different
- * magnifications on top of one another. Nought is the ordinary case — one
- * acquisition, or several written at the same voxel size — and then this is the
- * identity and costs nothing.
+ * The engine counts in **voxels of the first acquisition, from the stage's
+ * zero**. That is worth stating in full because it is two decisions and both
+ * matter. The unit is the first acquisition's voxel because that is the space
+ * its layers naturally live in and it keeps the conversion from micrometres to a
+ * single line. The zero is the stage's zero rather than the first acquisition's
+ * corner, so that the page's micrometres mean the same thing however the first
+ * run happens to have been placed.
+ *
+ * Two things therefore have to be said about every acquisition, and leaving out
+ * either one is a fault an operator can see:
+ *
+ * - **How big its voxels are.** A survey and a detail scan of the same specimen
+ *   have voxels of different sizes, so the second is stretched to match the
+ *   first; without this the two are drawn at different magnifications on top of
+ *   one another.
+ * - **Where it begins.** An image says how large it is and says nothing about
+ *   where it sits unless it is asked. Without this a detail scan is drawn at the
+ *   same corner as the survey rather than over the part of the specimen it was
+ *   taken from — measured, before this was put right, at 898 micrometres from
+ *   where its store says it is.
+ *
+ * Nothing at all is handed back for the ordinary case — one acquisition, or
+ * several written at the same voxel size from the stage's zero — where the
+ * placement is the identity and costs nothing.
  */
 function placementOf(own, image) {
   const first = own.images[0];
-  if (!first || image === first) return undefined;
+  if (!first) return undefined;
   const across = image.um.x / first.um.x;
   const down = image.um.y / first.um.y;
-  if (Math.abs(across - 1) < 1e-9 && Math.abs(down - 1) < 1e-9) return undefined;
-  return new Matrix4().scale([across, down, 1]);
+  // The corner, in the same voxels the engine counts in.
+  const from = { x: image.at.x / first.um.x, y: image.at.y / first.um.y };
+  const sameSize = Math.abs(across - 1) < 1e-9 && Math.abs(down - 1) < 1e-9;
+  if (sameSize && from.x === 0 && from.y === 0) return undefined;
+  return new Matrix4().translate([from.x, from.y, 0]).scale([across, down, 1]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1177,6 +1382,32 @@ function handleFor(own) {
     },
 
     /**
+     * Say what a drag means now.
+     *
+     * The canvas owns the mechanics of every gesture; the application owns what
+     * a drag currently *means*. Hand over a function and dragging stops panning:
+     * each drag is given to that function instead — once as it begins, once for
+     * every movement of the hand, and once when the operator lets go. Hand over
+     * nothing, or `null`, and dragging pans again, which is what it does until
+     * somebody says otherwise.
+     *
+     * The function is called with `{ phase, at, screen }`: `phase` is
+     * `"started"`, `"moved"` or `"finished"`, `at` is where the pointer is on
+     * the stage in micrometres, and `screen` is where it is in the box in
+     * browser pixels. Micrometres are what a mark on the specimen has to be
+     * recorded in — a mark kept in screen pixels would slide off the sample the
+     * moment the operator panned or zoomed.
+     *
+     * This is the whole of the mechanism, and it is deliberately no more than
+     * that. Nothing here draws anything, and this option never learns *why* the
+     * meaning changed. In the operator's window that is decided by the panel on
+     * the right, which is where choosing a tool belongs.
+     */
+    handDragsTo(handler) {
+      own.gestures?.handDragsTo(handler);
+    },
+
+    /**
      * The operator's own drawing.
      *
      * Hand over one function. It is called at the moment this option considers
@@ -1294,6 +1525,12 @@ function handleFor(own) {
     destroy() {
       if (own.destroyed) return;
       own.destroyed = true;
+      // The gestures come off first. Listeners left behind on a box that is
+      // still in the page would go on answering the operator's hand after the
+      // viewer they belonged to had gone. The little record of what they saw is
+      // kept rather than thrown away, so that a check can still ask a closed
+      // viewer whether anything reached it after it shut.
+      own.gestures?.stop();
       own.watchSize?.disconnect();
       own.paint = null;
       own.paintBeneath = null;
@@ -1319,6 +1556,22 @@ function handleFor(own) {
      */
     countsForMeasurement() {
       return { ...own.counted };
+    },
+
+    /**
+     * What the two gestures have accepted, and what they have turned away.
+     *
+     * Not part of the interface an application would use, and deliberately
+     * named so that it reads as what it is. The measurements need it for one
+     * narrow reason: on screen, a gesture that was refused and a gesture nobody
+     * made look exactly alike, so without a count a canvas that had quietly
+     * stopped listening altogether would pass a check that nothing moved.
+     */
+    gesturesSoFar() {
+      return {
+        refused: { ...(own.gestures?.refused || {}) },
+        accepted: { ...(own.gestures?.accepted || {}) },
+      };
     },
   };
 }
