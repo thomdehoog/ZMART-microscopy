@@ -47,6 +47,7 @@ viewer.getView()                   // → { centre, zoom }, the view now on scre
 viewer.setPlane(z)                 // which plane of the stack, in micrometres
 viewer.setMoment(t)                // which moment of a timelapse, counted from the first
 viewer.setChannel(index, { visible, colour, window })
+viewer.handDragsTo(handler)        // a drag means something other than panning; null gives panning back
 viewer.drawUnder(paint)            // the application's drawing beneath the picture
 viewer.drawOver(paint)             // the application's drawing above it
 viewer.drawsUnder                  // true or false: is `drawUnder` really beneath?
