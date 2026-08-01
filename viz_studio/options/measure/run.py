@@ -99,8 +99,21 @@ def main() -> int:
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     data_dir = args.data or (out / "acquisitions")
-    if not (data_dir / "square.ome.zarr").exists():
-        print(f"writing the measurement acquisitions into {data_dir} …", flush=True)
+    # Every store the suite needs, checked one by one rather than by looking for
+    # a single one of them. A folder written before a new acquisition was added
+    # would otherwise look complete, and the measurement that needed the new one
+    # would fail with something about an address rather than with "it is not
+    # there".
+    missing = [
+        name for name in acquisitions.EVERY_STORE
+        if not (data_dir / f"{name}.ome.zarr").exists()
+    ]
+    if missing:
+        print(
+            f"writing the measurement acquisitions into {data_dir} "
+            f"(missing: {', '.join(missing)}) …",
+            flush=True,
+        )
         acquisitions.write_them_all(data_dir)
 
     wanted = [args.option] if args.option != "all" else options_that_exist()

@@ -895,3 +895,167 @@ def test_the_picture_does_not_blink_when_new_tiles_are_announced(
         f"stayed put is not a fix: {settled:.4f} of the window was showing "
         f"picture before and {afterwards:.4f} afterwards."
     )
+
+
+# ---------------------------------------------------------------------------
+# Two acquisitions at once, which is the ordinary shape of a run
+# ---------------------------------------------------------------------------
+
+
+def _bounding_box_of(picture, colour: str):
+    """The rectangle one saturated colour covers, in the photograph's pixels."""
+    picture = np.asarray(picture).astype(int)
+    red, green, blue = picture[:, :, 0], picture[:, :, 1], picture[:, :, 2]
+    is_it = (
+        (green > 110) & (red < 90) & (blue < 90) if colour == "green"
+        else (red > 110) & (green < 90) & (blue < 90)
+    )
+    rows = np.nonzero(is_it.any(axis=1))[0]
+    columns = np.nonzero(is_it.any(axis=0))[0]
+    if not len(rows) or not len(columns):
+        return None
+    return {
+        "left": float(columns[0]), "right": float(columns[-1]),
+        "top": float(rows[0]), "bottom": float(rows[-1]),
+        "width": float(columns[-1] - columns[0] + 1),
+    }
+
+
+@pytest.mark.parametrize("option", EVERY_OPTION)
+def test_two_acquisitions_land_in_the_same_place(harness_page, option):
+    """A wide survey and a detailed scan over part of it, opened together.
+
+    This is the ordinary arrangement smart microscopy is built around, and it is
+    the case where a viewer has the least help. Two runs written at different
+    voxel sizes share nothing but the position each of them states in
+    micrometres, so if a viewer ignores that position one run is drawn at the
+    other's corner — a perfectly sharp picture of the wrong part of the slide,
+    with nothing on screen to say so.
+
+    It cannot be seen on a single acquisition, which is why it went unnoticed for
+    so long: a run written from the stage's zero is drawn in the right place
+    whether its position was read or not. Measured here before it was put right,
+    two of the three options drew the detail scan 898 micrometres away from where
+    its store says it is.
+
+    The reading is taken from the photograph and in micrometres. The survey is a
+    known number of micrometres across, so how many pixels of it there are says
+    what one pixel is worth, and everything else follows from that.
+    """
+    from acquisitions import SURVEY_SPAN_UM, WHERE_THE_DETAIL_BELONGS
+
+    harness_page.option = option
+    harness_page.open(
+        store="survey", alsoStore="detail", draw="none",
+        channels="fromTheStore", bounded="0",
+    )
+    middle = SURVEY_SPAN_UM / 2
+    zoom = SURVEY_SPAN_UM / 650.0
+    harness_page.believes(
+        f"window.harness.setView("
+        f"{{centre: {{x: {middle}, y: {middle}}}, zoom: {zoom}}})"
+    )
+    harness_page.settle(tries=25)
+    picture = harness_page.photograph()
+
+    survey = _bounding_box_of(picture, "green")
+    detail = _bounding_box_of(picture, "red")
+    assert survey is not None, (
+        "none of the survey reached the screen, so there was nothing to measure "
+        "the detail scan against"
+    )
+    assert detail is not None, (
+        "the survey was drawn and the detail scan was nowhere in the window, "
+        "although the window held the whole of the survey and the detail scan "
+        "states a position inside it. Two acquisitions have nothing to line them "
+        "up but the position each states, so this is what ignoring it looks like."
+    )
+
+    # One photograph pixel, in micrometres, taken from the survey's own width.
+    um = SURVEY_SPAN_UM / survey["width"]
+    middle = {
+        "x": (detail["left"] + detail["right"]) / 2 - survey["left"],
+        "y": (detail["top"] + detail["bottom"]) / 2 - survey["top"],
+    }
+    belongs = {
+        "x": (WHERE_THE_DETAIL_BELONGS["x0"] + WHERE_THE_DETAIL_BELONGS["x1"]) / 2,
+        "y": (WHERE_THE_DETAIL_BELONGS["y0"] + WHERE_THE_DETAIL_BELONGS["y1"]) / 2,
+    }
+    out_by = max(
+        abs(middle["x"] * um - belongs["x"]), abs(middle["y"] * um - belongs["y"])
+    )
+    # Half of the survey's own voxel is four micrometres, and that is about as
+    # well as anything can be expected to agree: the survey cannot say where it
+    # was imaged more precisely than one of its own voxels. Ten micrometres
+    # leaves room for the coarseness of reading an edge out of a photograph at
+    # three micrometres to the pixel, and is a hundredth of the distance the
+    # fault this catches produced.
+    assert out_by < 10, (
+        "the detail scan did not land where its store says it is. Its middle "
+        f"came out {out_by:.1f} µm away from where the survey puts it, measured "
+        "from the photograph. Two acquisitions of different voxel sizes are "
+        "placed by the position each states in micrometres and by nothing else."
+    )
+
+
+@pytest.mark.parametrize("option", EVERY_OPTION)
+def test_a_drawing_at_the_wrong_size_is_noticed(harness_page, option):
+    """The reading that catches the two layers disagreeing about *size*.
+
+    The usual registration check reads how *uneven* the band around the picture
+    is, and that is the right number for the two layers sitting in different
+    places. It is blind to them agreeing about where the middle is and
+    disagreeing about how large everything should be, because then all four
+    margins grow together and the unevenness stays at nought while an operator
+    sees an outline visibly the wrong size around its tile.
+
+    So this asks the other question, and it asks it of a page deliberately
+    drawing its own layer two per cent too large. Both readings are taken, and
+    the point of the test is the contrast between them: the unevenness must stay
+    where it was while the second reading rises.
+    """
+    from drive import MARGIN_CSS_PX
+
+    harness_page.option = option
+    harness_page.open(store="square", draw="margin")
+    harness_page.believes("window.harness.reset()")
+    harness_page.settle(tries=20)
+    still = harness_page.photograph()
+    nominal = harness_page.nominal(still)
+    lined_up = margins_around_the_hole(still)
+    assert lined_up.found, (
+        "the band of background between the picture and the hole could not be "
+        f"found at all: {lined_up.why}"
+    )
+    # One pixel is this reading's own floor and not a disagreement: every edge is
+    # read as the gap between the last pixel that is definitely one thing and the
+    # first that is definitely the next, so the soft edge between them is left
+    # out on both sides and the band comes out about a pixel wide of the truth.
+    assert lined_up.wider_than_it_was_cut(nominal) <= 1.5, (
+        "the operator's drawing is a different size from the picture underneath "
+        f"it: the band was cut at {MARGIN_CSS_PX} browser pixels and came out "
+        f"{lined_up.sides}"
+    )
+
+    harness_page.believes(
+        "window.harness.drawTheOperatorsLayerAtTheWrongScale(1.02)"
+    )
+    harness_page.settle(tries=10)
+    wrong = harness_page.photograph()
+    broken = margins_around_the_hole(wrong)
+    harness_page.believes("window.harness.drawTheOperatorsLayerAtTheWrongScale(1)")
+    assert broken.found, (
+        "the band could not be read at all once the drawing was made too large, "
+        f"so nothing was compared: {broken.why}"
+    )
+    assert broken.wider_than_it_was_cut(harness_page.nominal(wrong)) > 2, (
+        "the operator's drawing was made two per cent too large and this reading "
+        f"did not notice, so it is not measuring anything: {broken.sides}"
+    )
+    # And the half that says why the new reading had to be added at all.
+    assert broken.unevenness <= 2, (
+        "the unevenness moved when the drawing was made too large, which it "
+        "should not: this test exists because a disagreement about size leaves "
+        "the four margins equal, and if that is no longer true the arrangement "
+        f"has changed and the prose in RESULTS.md needs revisiting: {broken.sides}"
+    )

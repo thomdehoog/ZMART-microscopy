@@ -479,6 +479,16 @@ def write_the_survey_and_the_detail(
     fine.close()
 
 
+# Every store the suite needs, by the name its folder is called. Kept here beside
+# the writers so that whoever adds an acquisition adds it in one place, and so
+# that a run can tell "the stores were never written" from "the stores were
+# written before this one existed".
+EVERY_STORE = (
+    "square", "lopsided", "sparse", "scattered", "fine", "colours",
+    "survey", "detail",
+)
+
+
 def write_them_all(folder: Path) -> None:
     """Write every store the suite needs, and close them."""
     folder.mkdir(parents=True, exist_ok=True)

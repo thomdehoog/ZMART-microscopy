@@ -94,6 +94,29 @@ ROWS = [
                          "the hole moved 8 browser pixels", "unevenness"),
     ),
     (
+        "**1c. A disagreement about size** — band wider all round than cut, at rest "
+        "(screen px)",
+        lambda f: _reach(f, "1. registration",
+                         "at rest, wider all round than it was cut"),
+    ),
+    (
+        "  … while zooming, at least",
+        lambda f: _reach(f, "1. registration", "zooming",
+                         "wider all round than it was cut, at least"),
+    ),
+    (
+        "  … with the operator's layer drawn 1.02× on purpose (must be large)",
+        lambda f: _reach(f, "1. registration", "and a disagreement about size",
+                         "the operator's layer drawn 1.02 times its proper size",
+                         "wider all round than it was cut"),
+    ),
+    (
+        "  … and the unevenness at that moment (which cannot see it)",
+        lambda f: _reach(f, "1. registration", "and a disagreement about size",
+                         "the operator's layer drawn 1.02 times its proper size",
+                         "unevenness"),
+    ),
+    (
         "**1b. Registration of the bottom layer** — worst unevenness at rest (screen px)",
         lambda f: _reach(f, "1b. registration of the bottom layer",
                          "at rest, unevenness"),
@@ -232,7 +255,49 @@ ROWS = [
         "  … at 200 positions, middle of five",
         lambda f: _rate(f, "200 positions"),
     ),
+    (
+        "**8. Two acquisitions at once** — both are drawn",
+        lambda f: _both_are_drawn(f),
+    ),
+    (
+        "  … how far the finer landed from where the store says (µm)",
+        lambda f: _reach(f, "8. two acquisitions at once",
+                         "seen from far enough out to hold both",
+                         "how far its middle is from where it belongs (µm)",
+                         "either way"),
+    ),
+    (
+        "  … the band of ground between them, worst departure from 128 µm",
+        lambda f: _reach(f, "8. two acquisitions at once", "seen close to",
+                         "worst departure from it (µm)"),
+    ),
+    (
+        "  … with the finer's stated origin moved 64 µm (must read about 64)",
+        lambda f: _reach(f, "8. two acquisitions at once", "and the check can fail",
+                         "seen close to", "worst departure from it (µm)"),
+    ),
 ]
+
+
+def _both_are_drawn(found: dict) -> str:
+    """Whether each of the two runs reached the screen at all.
+
+    Said as "yes" only when both did, and otherwise as which one is missing,
+    because "no" on its own would leave a reader guessing which half of the
+    arrangement had failed.
+    """
+    seen = found.get("8. two acquisitions at once", {}).get(
+        "seen from far enough out to hold both", {}
+    )
+    if not seen:
+        return "—"
+    survey = seen.get("the survey is drawn")
+    detail = seen.get("the detail scan is drawn")
+    if survey and detail:
+        return "yes"
+    if not survey and not detail:
+        return "**neither**"
+    return "**only the survey**" if survey else "**only the detail scan**"
 
 
 def _moved_anything(found: dict) -> str:
