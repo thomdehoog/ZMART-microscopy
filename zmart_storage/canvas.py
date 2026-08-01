@@ -1650,6 +1650,20 @@ def _declare_one(
         "datasets": datasets,
         # Where this image sits in the world. Every image in a run shares the
         # same corner, which is what makes them line up on screen.
+        #
+        # This number is the **corner** of the first voxel, not its middle, and
+        # every smaller copy is given the same one. That is a choice rather than
+        # a rule: OME-Zarr does not say which is meant, and the question has been
+        # open with the format's authors since 2022. Under the corner reading the
+        # copies nest perfectly -- every level begins at exactly this point, and a
+        # coarse voxel covers precisely the fine ones it was built from. Under the
+        # other reading they would not, so a level would have to be shifted by half
+        # of its own voxel to mean the same thing.
+        #
+        # Readers disagree about this, and some will place the picture half a voxel
+        # off. That is theirs to correct, not ours: a file that shifts itself to
+        # suit one reader is wrong for every other. The reasoning, the arithmetic
+        # and what each reader does are in VOXEL_PLACEMENT.md beside this file.
         "coordinateTransformations": [{
             "type": "translation",
             "translation": [0.0, 0.0,
