@@ -137,17 +137,18 @@ happen on the stage and the picture of the stage is enough. The canvas itself
 appears at the step that first asks for it — the carrier, in every workflow that
 drives a microscope — and stays for the rest of the run, because from that point
 on everything happens on a stage. A workflow where nothing asks for the canvas
-never shows one: see the viewer, whose whole content is a picture to look at.
+never shows one: see the canvas demonstration, whose whole content is a picture
+to look at.
 Which modules a step wants is the step's business; how they are laid out is the
 shell's.
 
 Adding a workflow should mean writing one list that uses existing steps. If it
 means editing the frame, the frame is missing something.
 
-**Adding the viewer workflow tested that claim, and at first it did not hold.**
-Writing the workflow was indeed a list, but three things had to be added before
-the operator could reach it. Two were real gaps in the shell and are now filled;
-the third was a duplication, and it has since been taken out:
+**Adding the canvas demonstration tested that claim, and at first it did not
+hold.** Writing the workflow was indeed a list, but four things had to be added
+before the operator could reach it. Three were real gaps in the shell and are now
+filled; the other was a duplication, and it has since been taken out:
 
 - the workflow had to be **declared twice**, once in `workflows/index.js` and
   once in `main.js`, because `main.js` carried its own copy. Fixed: `main.js`
@@ -161,9 +162,18 @@ the third was a duplication, and it has since been taken out:
   page's canvases — had no way to learn that it was on screen. `PANEL_META` now
   takes an optional `whenShown`, which is the general form of the `if (show ===
   …)` chain that was already there for the page's own panels.
+- **every step held up every step after it.** That is right for a run, where each
+  step produces something the next one needs, and wrong for a step that only
+  shows the operator something: such a step produces nothing, so there is nothing
+  to wait for, and there is nothing for the operator to do to finish it either —
+  which left the demonstration's second step greyed out for ever. A step may now
+  say `nothingWaitsOnThis`, and `frame/steps.js` skips it when working out how far
+  the run has got. Nothing in a real workflow says it, and a unit test keeps it
+  that way.
 
-None of those is about the viewer in particular. Each is something the shell
-needed before *any* step could bring a module of its own.
+None of those is about the canvas in particular. Each is something the shell
+needed before *any* step could bring a module of its own, or before any two steps
+could stand side by side without one gating the other.
 
 ## What the frame owns, and what it never gives away
 
@@ -194,7 +204,7 @@ tree matches the picture.
 | `widgets/carrier.js` | built, used — the first widget, and the shape the rest should follow |
 | `widgets/scanfields.js` | built, used — the geometry editor and the grid, in the same channel |
 | `live/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
-| `canvas/` | built, used by the viewer workflow, and covered by browser tests that photograph the picture |
+| `canvas/` | built, used by the canvas demonstration, and covered by browser tests that photograph the picture — including which of the three layers reached the screen |
 | `src/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
 **Widget extraction has started, from the outside in.** `widgets/carrier.js` is

@@ -35,6 +35,12 @@
  *              always ready.
  *   note       what the step writes beside itself in the rail once it has
  *              finished, for steps whose result is always the same sentence.
+ *   nothingWaitsOnThis
+ *              the steps after this one do not wait for it. A run is walked in
+ *              order because each step usually produces something the next one
+ *              needs; a step that only shows the operator something produces
+ *              nothing to wait for, and saying so here lets them walk straight
+ *              past it. See `frame/steps.js`, which is where the rule lives.
  *
  * Readiness belongs to the step rather than to the page around it. Only the
  * focus step knows that fitting a surface from points needs at least three of
@@ -181,24 +187,48 @@ export const disconnect = {
 };
 
 /**
- * The canvas on its own, with the whole window to itself.
+ * The two steps of the canvas demonstration.
  *
- * This step has no action and produces nothing. Standing on it is the whole of
- * it: the picture of the run appears, and the operator pans, zooms and changes
- * the engine drawing it. That is unusual for a step and it is deliberate — the
- * canvas is being built to be put into several workflows later, and a step that
- * does nothing but show it is how it can be tried in the real operator window
- * first, on its own, without an acquisition going on around it.
+ * Neither of these is a step of a real run, and the workflow they belong to says
+ * so in its name. They exist so that the canvas — the picture of a run that an
+ * operator pans and zooms — can be watched behaving inside the real operator
+ * window, before it is put to work in a workflow that drives a microscope.
  *
- * It asks for one module and names it, so it is given that and nothing else.
- * There is no panel of controls down the right-hand side, because this step
- * wants only the picture.
+ * There are two of them because the canvas is being written more than once, each
+ * time over a different drawing engine, and the only fair way to compare two
+ * ways of drawing the same thing is to look at one and then the other. So one
+ * step opens the picture with Viv and the other opens it with neuroglancer.
+ *
+ * ## They do not wait for each other
+ *
+ * Both say `nothingWaitsOnThis`, which means the operator may go straight to
+ * either one, in either order, as often as they like. That is not a shortcut: a
+ * step that only shows you something produces nothing for a later step to use,
+ * so there is genuinely nothing to wait for. The two steps share no state at
+ * all — each opens its own picture, in its own box, with its own engine — so
+ * whatever you do in one of them cannot change what the other shows. That is the
+ * point of having two: any difference you see between them is a difference
+ * between the two engines and nothing else.
+ *
+ * ## Each asks for one module and gets that alone
+ *
+ * There is no panel of controls down the right-hand side, because these steps
+ * want only the picture and the handful of buttons above it.
  */
-export const lookAtTheRun = {
-  id: "viewer",
-  title: "Look at the run",
-  why: "Draws the run this page was pointed at, so the canvas can be tried on its own.",
-  panels: ["viewer"],
+export const theCanvasDrawnByViv = {
+  id: "canvas-viv",
+  title: "The picture drawn by Viv",
+  why: "Opens the run with Viv, so the three layers can be watched with an engine that can draw all of them.",
+  panels: ["viewer-viv"],
+  nothingWaitsOnThis: true,
+};
+
+export const theCanvasDrawnByNeuroglancer = {
+  id: "canvas-neuroglancer",
+  title: "The picture drawn by neuroglancer",
+  why: "Opens the same run with neuroglancer, which draws the picture and the layer above it but cannot draw the layer beneath.",
+  panels: ["viewer-neuroglancer"],
+  nothingWaitsOnThis: true,
 };
 
 /**

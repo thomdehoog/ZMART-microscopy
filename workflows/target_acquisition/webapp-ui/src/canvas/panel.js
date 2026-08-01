@@ -19,15 +19,43 @@
  * sign the step wants something the interface does not yet offer, and the
  * interface is where the answer belongs.
  *
- * ## What it draws over and under the picture, which for now is nothing
+ * ## The three layers, and the three buttons that turn them on and off
  *
- * The interface offers two slots for the application's own drawing: one beneath
- * the picture and one above it. This step uses neither, because it exists to
- * show the canvas on its own. Each slot is handed nothing at all rather than a
- * function that paints nothing, and the difference is not tidiness — told there
- * is nothing to draw, an engine need not lay a drawing surface down, clear it
- * every frame or carry it to the graphics card, so a step that draws nothing
- * costs nothing for the slots it is not using.
+ * The picture an operator looks at is three drawings stacked one over the other.
+ * At the bottom is the application's own drawing — the carrier, the positions
+ * the microscope will visit, a region marked out by hand. In the middle is the
+ * acquisition itself, read from the run. On top is more of the application's own
+ * drawing, the part that has to stay visible over the picture rather than under
+ * it. The interface offers the outer two as slots that take a function, and this
+ * panel gives each of the three a button, so that what each layer contributes
+ * can be seen by taking it away.
+ *
+ * The bottom slot is the one place where the three engines genuinely differ, and
+ * the difference is not hidden here. Each viewer answers `drawsUnder` — whether
+ * a drawing handed to the bottom slot really ends up beneath the picture — and
+ * `drawsUnderBecause`, one sentence saying why it is what it is. This panel puts
+ * that sentence on screen beside the button, because a button that appears to do
+ * nothing teaches an operator that the page is broken, while a button with a
+ * reason beside it teaches them something true about the engine.
+ *
+ * ## Turning the picture off, and what that turned out to cost
+ *
+ * The third button opens the canvas with no acquisitions at all: the operator's
+ * own drawing above and below, and nothing in the middle. That is not an idle
+ * case. It is what an operator sees before a run has started, laying positions
+ * out on an empty plate, so it is a thing the canvas has to be able to do.
+ *
+ * Two of the three engines do it without complaint and open in a fraction of a
+ * second. Neuroglancer does not: asked to open with no acquisitions its
+ * `openViewer` never finishes at all, so a page that simply waited for it would
+ * wait for ever. Waiting for ever looks exactly like loading, which is the
+ * failure this project keeps being caught by, so this panel gives every open a
+ * time limit and says plainly what happened when the limit is reached. It does
+ * not paper over it and it does not pretend the engine succeeded; the button is
+ * offered on every engine, and on the one that cannot manage it you watch it
+ * fail and read why. The gap itself is written down in
+ * `viz_studio/options/README.md`, which is where the interface is being kept
+ * honest until it can be settled.
  *
  * ## One thing the page cannot yet tell the canvas
  *
@@ -43,6 +71,7 @@
  */
 
 import { onlyPanAndZoom } from "../../../../../viz_studio/options/harness/src/gestures.js";
+import { theGroundBeneath, theOperatorsMarks } from "./demonstration-drawings.js";
 import { describeEngine, enginesOnOffer, openerFor, whyOneIsMissing } from "./engines.js";
 
 /**
@@ -62,6 +91,111 @@ import { describeEngine, enginesOnOffer, openerFor, whyOneIsMissing } from "./en
 const THE_COLOUR_BEHIND_THE_PICTURE = "#05070d";
 
 /**
+ * How long to wait for an engine to open before saying that it has not.
+ *
+ * Generous on purpose. Opening reads the run's description over the network, and
+ * on a development server the engine's own pieces are handed over one file at a
+ * time, so the first open of a large engine is genuinely slow. Measured, the
+ * slowest honest open here is a few seconds and the two that open with no
+ * acquisitions take under a quarter of a second.
+ *
+ * What this is really for is the open that never finishes. A promise that never
+ * settles and a picture that is still loading look identical from the outside,
+ * and telling those two apart has cost this project days — so nothing here is
+ * allowed to wait without a limit and without saying so afterwards.
+ */
+const HOW_LONG_TO_WAIT_FOR_AN_ENGINE = 25_000;
+
+/**
+ * A drawing that draws nothing, for a layer that has been switched off.
+ *
+ * There are two ways to say a slot is empty and they are not interchangeable,
+ * which is worth explaining because the difference is invisible until it bites.
+ *
+ * Handing a slot `null` says the application has nothing for it at all, and an
+ * engine is then free to skip laying a drawing surface down, clearing it every
+ * frame and carrying it to the graphics card. That is the right thing to say
+ * when a viewer has only just been opened and its surfaces are still blank, and
+ * it is what this panel says then.
+ *
+ * It is not enough for a layer being switched off while somebody is watching.
+ * Measured on this page: two of the three engines clear a drawing surface only
+ * on their way to painting it, so a slot handed `null` after something has
+ * already been drawn there keeps showing the last drawing for as long as the
+ * viewer stays open. On those engines the button appears not to work. Handing a
+ * drawing that paints nothing instead costs a surface that is cleared each frame
+ * and settles the question, because the clearing happens either way.
+ *
+ * That difference belongs in the interface rather than here. Every engine ought
+ * to answer `drawUnder(null)` by leaving nothing on screen, and the fact that
+ * two of them do not is recorded in `viz_studio/options/README.md`. This is
+ * what the page does in the meantime, and it is written the way it is so that
+ * the day the interface is settled, this can go.
+ */
+const paintNothingAtAll = () => {};
+
+/** The three layers, bottom to top, as the buttons name them on screen. */
+const THE_LAYERS = [
+  {
+    key: "beneath",
+    label: "Beneath",
+    /* What each button is for, shown when the pointer rests on it. Written out
+       in full because the label on a button this small can only be one word. */
+    explains: "The operator's own drawing, beneath the picture. This is where a carrier " +
+      "outline and the positions still to be visited belong, and you see it wherever " +
+      "the picture does not reach.",
+  },
+  {
+    key: "picture",
+    label: "Picture",
+    explains: "The acquisition itself, read from the run. Turning it off opens the canvas " +
+      "with no acquisition at all, which is what an operator sees before a run has " +
+      "started.",
+  },
+  {
+    key: "above",
+    label: "Above",
+    explains: "The operator's own drawing, above the picture. This is where anything that " +
+      "has to stay visible over the acquisition belongs.",
+  },
+];
+
+/**
+ * Wait for a promise, but not for ever.
+ *
+ * @param promise what is being waited for.
+ * @param sayWhat how to describe what did not finish, used to build the message.
+ * @returns whatever the promise gave back.
+ * @throws if the wait runs out, with a message an operator can read. The
+ *   original promise is not cancelled — nothing here can cancel it — so a caller
+ *   that gives up must also assume whatever it started is still running. There
+ *   is a note about what that costs where this is called.
+ */
+async function beforeWeGiveUp(promise, sayWhat) {
+  let ringTheBell = null;
+  const theWaitRunningOut = new Promise((_, giveUp) => {
+    ringTheBell = setTimeout(
+      () => giveUp(new Error(
+        `${sayWhat} was still not ready after ` +
+        `${Math.round(HOW_LONG_TO_WAIT_FOR_AN_ENGINE / 1000)} seconds, so waiting was ` +
+        "given up on. Nothing has gone wrong on this page; the engine simply never " +
+        "finished opening.",
+      )),
+      HOW_LONG_TO_WAIT_FOR_AN_ENGINE,
+    );
+  });
+  /* Whichever of the two loses, its outcome is caught rather than left loose. An
+     unhandled rejection would be reported to the console as a fault on this
+     page, which it is not. */
+  promise.catch(() => {});
+  try {
+    return await Promise.race([promise, theWaitRunningOut]);
+  } finally {
+    clearTimeout(ringTheBell);
+  }
+}
+
+/**
  * Put the canvas inside a box on the page and hand back the way to drive it.
  *
  * @param box the element the picture fills. Whatever surfaces the chosen engine
@@ -75,6 +209,12 @@ const THE_COLOUR_BEHIND_THE_PICTURE = "#05070d";
  *   here, so that the same run can be looked at through one engine and then
  *   another. Which engines those are can depend on how the page was opened; see
  *   `engines.js`.
+ * @param layers an element to fill with one button per layer — the drawing
+ *   beneath, the picture, the drawing above — each of which turns its layer on
+ *   and off.
+ * @param why a small element beside those buttons, where this says what the
+ *   layers are doing and, when an engine cannot honour the layer beneath the
+ *   picture, the engine's own sentence explaining that.
  * @param readout a small element that says where the view is, in micrometres.
  * @param acquisitions the addresses of the run's images, as whole addresses
  *   including the scheme and the host, in the order they should be drawn with
@@ -86,11 +226,14 @@ const THE_COLOUR_BEHIND_THE_PICTURE = "#05070d";
  *   corner of the box, rather than substituting one in silence.
  *
  * @returns a handle with `whenShown()`, to be called each time the panel comes
- *   into view; `changeTo(name)`, which swaps the engine and keeps the view; and
+ *   into view; `changeTo(name)`, which swaps the engine and keeps the view;
+ *   `showTheLayer(key, on)`, which turns one of the three layers on or off; and
  *   `destroy()`. All of them are safe to call after `destroy()`, so a page
  *   tearing itself down need not keep track of the order.
  */
-export function putTheCanvasIn({ box, note, chooser, readout, acquisitions, engine }) {
+export function putTheCanvasIn({
+  box, note, chooser, layers, why, readout, acquisitions, engine,
+}) {
   /* What can be drawn with here, which is not always everything this page was
      built with — `engines.js` explains why. Asking for one that is not on offer
      is answered with the reason rather than by quietly opening a different one,
@@ -110,6 +253,15 @@ export function putTheCanvasIn({ box, note, chooser, readout, acquisitions, engi
      you were: small differences are only visible when the two pictures are of
      the same view moments apart. */
   let carriedOver = null;
+
+  /* Which of the three layers are being drawn. The picture starts on and the
+     operator's own two start off, which is the state that costs the least: told
+     there is nothing to draw in a slot, an engine need not lay a drawing surface
+     down, clear it every frame or carry it to the graphics card. It is also the
+     state to open on, because the first thing worth seeing is the acquisition on
+     its own. */
+  const showing = { beneath: false, picture: true, above: false };
+  const buttons = new Map();
 
   const say = (text) => {
     note.hidden = !text;
@@ -150,71 +302,203 @@ export function putTheCanvasIn({ box, note, chooser, readout, acquisitions, engi
 
   function sayWhichEngineIsDrawing() {
     if (!viewer) return;
-    say(`${wanted} — ${describeEngine(wanted)}${anythingElseWorthSaying()}`);
+    const withoutTheRun = showing.picture ? "" : " · opened with no acquisition";
+    say(`${wanted} — ${describeEngine(wanted)}${withoutTheRun}${anythingElseWorthSaying()}`);
     for (const button of chooser.querySelectorAll("button")) {
       button.setAttribute("aria-checked", String(button.dataset.engine === wanted));
     }
   }
 
+  /**
+   * What the layers are doing, in a sentence beside their buttons.
+   *
+   * The sentence that matters is the one about the layer beneath the picture,
+   * because that is the one an engine can refuse to draw. Each viewer answers
+   * that question about itself, so what appears here is the engine's own words
+   * rather than anything this page has worked out from its name — which means a
+   * fourth engine added tomorrow explains itself without a line changing here.
+   */
+  function sayWhatTheLayersAreDoing() {
+    /* Only the one class that says whether this is a warning is touched. The
+       element carries other classes that give it its place in the toolbar, and
+       replacing the whole list would take those away — which it did, once, and
+       what it cost was the wrapping: a four-line explanation ran off the side of
+       the window in one line, so the half that mattered could not be read. */
+    const warning = !!viewer && !viewer.drawsUnder;
+    why.classList.toggle("bad", warning);
+
+    if (!viewer) {
+      why.textContent = opening ? "waiting for the picture…" : "";
+    } else if (warning) {
+      why.textContent = showing.beneath
+        ? `Beneath is being drawn and you will not see it. ${viewer.drawsUnderBecause}`
+        : `This engine cannot show anything beneath the picture. ${viewer.drawsUnderBecause}`;
+    } else if (!showing.picture && !showing.beneath && !showing.above) {
+      why.textContent =
+        "Nothing is being drawn at all, which is why the box is empty. Turn a layer back on.";
+    } else if (!showing.picture) {
+      why.textContent =
+        "No acquisition is open — this is what the canvas shows before a run has started.";
+    } else if (showing.beneath) {
+      why.textContent =
+        "Beneath shows wherever the picture does not reach, so zoom out to see more of it.";
+    } else {
+      why.textContent = "";
+    }
+  }
+
+  /** Show each button in the state its layer is actually in. */
+  function markTheButtons() {
+    const nothingToPressYet = !viewer || opening;
+    for (const [key, button] of buttons) {
+      button.setAttribute("aria-pressed", String(showing[key]));
+      /* The picture cannot be turned on when this page was never pointed at a
+         run: there would be nothing to turn on, and a button that does nothing
+         is a worse answer than a button that is plainly unavailable. */
+      button.disabled = nothingToPressYet || (key === "picture" && !acquisitions.length);
+    }
+  }
+
+  /**
+   * Hand the two drawing slots what the buttons say they should hold.
+   *
+   * @param picture the viewer to hand them to.
+   * @param openedJustNow true when this viewer has only just been opened, so
+   *   there is nothing on its surfaces yet. See the note below, which is the
+   *   whole reason this has to be said.
+   */
+  function handTheSlotsTheirDrawings(picture = viewer, { openedJustNow = false } = {}) {
+    if (!picture) return;
+    const nothingToDraw = openedJustNow ? null : paintNothingAtAll;
+    picture.drawUnder(showing.beneath ? theGroundBeneath : nothingToDraw);
+    picture.drawOver(showing.above ? theOperatorsMarks : nothingToDraw);
+  }
+
   /** Open the chosen engine on the run, and put the view where it was. */
   async function openTheCanvas() {
     const openViewer = await openerFor(wanted);
-    const opened = await openViewer(box, {
-      acquisitions: acquisitions.map((url) => ({
-        url,
-        // The last part of the address, which is what the run is called on disk
-        // and the only name this page has for it.
-        name: url.split("/").filter(Boolean).pop() ?? url,
-      })),
-      // The run's record of where it has imaged, which this page does not have.
-      // Given nothing, an engine draws the whole of the room the run declared
-      // rather than only the part it has been to, which costs a few more
-      // requests and is right in every other way.
-      coverage: null,
-      background: THE_COLOUR_BEHIND_THE_PICTURE,
-      onViewChanged: sayWhereTheViewIs,
-    });
-    // Both slots left empty; the long note at the top of this file says why.
-    opened.drawUnder(null);
-    opened.drawOver(null);
+    const opened = await beforeWeGiveUp(
+      openViewer(box, {
+        /* No acquisitions at all is a state the canvas is asked for deliberately,
+           by the button that turns the picture off — see the note at the top of
+           this file. It is not an accident and it is not the same as this page
+           never having been given a run. */
+        acquisitions: (showing.picture ? acquisitions : []).map((url) => ({
+          url,
+          // The last part of the address, which is what the run is called on disk
+          // and the only name this page has for it.
+          name: url.split("/").filter(Boolean).pop() ?? url,
+        })),
+        // The run's record of where it has imaged, which this page does not have.
+        // Given nothing, an engine draws the whole of the room the run declared
+        // rather than only the part it has been to, which costs a few more
+        // requests and is right in every other way.
+        coverage: null,
+        background: THE_COLOUR_BEHIND_THE_PICTURE,
+        onViewChanged: sayWhereTheViewIs,
+      }),
+      showing.picture ? wanted : `${wanted}, opened with no acquisition,`,
+    );
+    handTheSlotsTheirDrawings(opened, { openedJustNow: true });
     if (carriedOver) opened.setView(carriedOver);
     viewer = opened;
     sayWhichEngineIsDrawing();
+    sayWhatTheLayersAreDoing();
     sayWhereTheViewIs(opened.getView());
     return opened;
   }
 
   /**
-   * Change the engine underneath, keeping the view exactly where it is.
+   * Empty the box after an open that never finished.
+   *
+   * Worth being honest about what this does and does not do. An engine that
+   * never finished opening cannot be handed back, so there is nothing to close
+   * properly: what it built is taken out of the page, and whatever it is still
+   * doing out of sight goes on until the page is left. Nothing on screen is
+   * wrong afterwards, and the next open starts from an empty box. Cleaning up
+   * after an open that cannot be abandoned is something the interface has no way
+   * to do, which is part of what makes this a gap worth recording rather than a
+   * quirk worth handling.
+   */
+  function emptyTheBox() {
+    box.textContent = "";
+  }
+
+  /**
+   * Open the picture again with something about it changed, keeping the view.
    *
    * The old picture is closed, the new one is opened in the same box, and the
    * centre and the magnification are carried across. If the new one will not
-   * open, the one that was working is put back on the same view and the reason
-   * is written in the corner — a box that has quietly gone blank because
+   * open, the arrangement that was working is put back on the same view and the
+   * reason is written in the corner — a box that has quietly gone blank because
    * somebody pressed a button is worse than one that never worked.
+   *
+   * @param change what to open differently: `engine`, or whether to show the
+   *   `picture`.
+   * @param doing a few words for what is being done, shown while it happens.
    */
-  async function changeTo(name) {
-    if (destroyed || opening || name === wanted || !viewer) return;
+  async function openItAgain(change, doing) {
+    if (destroyed || opening || !viewer) return;
     opening = true;
-    const wasDrawing = wanted;
+    markTheButtons();
+    const goingBackTo = { engine: wanted, picture: showing.picture };
     carriedOver = viewer.getView();
-    say(`opening ${name}…`);
+    say(doing);
+    sayWhatTheLayersAreDoing();
     try {
       viewer.destroy();
       viewer = null;
-      wanted = name;
+      if (change.engine !== undefined) wanted = change.engine;
+      if (change.picture !== undefined) showing.picture = change.picture;
       await openTheCanvas();
-    } catch (why) {
-      wanted = wasDrawing;
+    } catch (whyNot) {
+      emptyTheBox();
+      wanted = goingBackTo.engine;
+      showing.picture = goingBackTo.picture;
       try {
         await openTheCanvas();
-        say(`${wanted} — could not change to ${name}: ${why.message}`);
-      } catch (alsoWhy) {
-        say(`nothing could be drawn: ${alsoWhy.message}`);
+        say(`${whyNot.message} ${wanted} is drawing as it was.`);
+      } catch (alsoWhyNot) {
+        emptyTheBox();
+        viewer = null;
+        say(`nothing could be drawn: ${alsoWhyNot.message}`);
       }
     } finally {
       opening = false;
+      markTheButtons();
+      sayWhatTheLayersAreDoing();
     }
+  }
+
+  /** Change the engine underneath, keeping the view exactly where it is. */
+  async function changeTo(name) {
+    if (name === wanted) return;
+    await openItAgain({ engine: name }, `opening ${name}…`);
+  }
+
+  /**
+   * Turn one of the three layers on or off.
+   *
+   * Two of the three cost nothing to change: the drawing beneath and the drawing
+   * above are handed to the engine as they are, and the next frame has them. The
+   * picture is different, because whether there is an acquisition open is
+   * settled when a viewer is opened — so turning the picture on or off means
+   * opening the canvas again, which is why it takes a moment and why the view is
+   * carried across.
+   */
+  async function showTheLayer(key, on) {
+    if (destroyed || opening || !viewer || showing[key] === on) return;
+    if (key === "picture") {
+      await openItAgain(
+        { picture: on },
+        on ? "opening the acquisition…" : "opening with no acquisition…",
+      );
+      return;
+    }
+    showing[key] = on;
+    handTheSlotsTheirDrawings();
+    markTheButtons();
+    sayWhatTheLayersAreDoing();
   }
 
   for (const name of built) {
@@ -228,6 +512,19 @@ export function putTheCanvasIn({ box, note, chooser, readout, acquisitions, engi
     chooser.append(button);
   }
 
+  for (const layer of THE_LAYERS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.disabled = true;      // until there is a picture to change
+    button.setAttribute("aria-pressed", String(showing[layer.key]));
+    button.dataset.layer = layer.key;
+    button.title = layer.explains;
+    button.textContent = layer.label;
+    button.addEventListener("click", () => showTheLayer(layer.key, !showing[layer.key]));
+    buttons.set(layer.key, button);
+    layers.append(button);
+  }
+
   const handle = {
     /** Which engine is drawing now. */
     get engine() { return wanted; },
@@ -235,7 +532,11 @@ export function putTheCanvasIn({ box, note, chooser, readout, acquisitions, engi
     /** Whether a picture is open, which is what a test asks before looking. */
     get open() { return !!viewer; },
 
+    /** Which layers are being drawn, for a test to read back. */
+    get layers() { return { ...showing }; },
+
     changeTo,
+    showTheLayer,
 
     /**
      * Called each time the panel comes into view.
@@ -246,6 +547,14 @@ export function putTheCanvasIn({ box, note, chooser, readout, acquisitions, engi
      * panned to.
      */
     async whenShown() {
+      /* Left where a browser test can reach it, and set every time this panel
+         comes up rather than only when it is built, so that it always names the
+         canvas actually on screen. Nothing on the page reads it. What matters
+         about a picture is what reached the screen, and a viewer that reports
+         itself perfectly loaded while drawing nothing is the failure this is
+         meant to catch — so the tests photograph the box and this is only the
+         means to ask the picture to move. */
+      if (!destroyed) window.__theCanvas = handle;
       if (destroyed || viewer || opening) return;
       if (!acquisitions.length) {
         say(
@@ -258,6 +567,7 @@ export function putTheCanvasIn({ box, note, chooser, readout, acquisitions, engi
       }
       opening = true;
       say(`opening ${wanted}…`);
+      sayWhatTheLayersAreDoing();
       try {
         const opened = await openTheCanvas();
         /* Dragging pans and the plain wheel zooms, and nothing else moves the
@@ -272,17 +582,14 @@ export function putTheCanvasIn({ box, note, chooser, readout, acquisitions, engi
           setView: (view) => viewer.setView(view),
           sizeOf: () => ({ width: box.clientWidth, height: box.clientHeight }),
         });
-        /* Left where a browser test can reach it. Nothing on the page reads
-           this. What matters about a picture is what reached the screen, and a
-           viewer that reports itself perfectly loaded while drawing nothing is
-           the failure this is meant to catch — so the tests photograph the box
-           and this is only the means to ask the picture to move. */
-        window.__theCanvas = handle;
         return opened;
-      } catch (why) {
-        say(`the run could not be opened — ${why.message}`);
+      } catch (whyNot) {
+        emptyTheBox();
+        say(`the run could not be opened — ${whyNot.message}`);
       } finally {
         opening = false;
+        markTheButtons();
+        sayWhatTheLayersAreDoing();
       }
       return null;
     },
@@ -295,6 +602,7 @@ export function putTheCanvasIn({ box, note, chooser, readout, acquisitions, engi
       viewer = null;
       box.textContent = "";
       say("");
+      why.textContent = "";
     },
   };
 

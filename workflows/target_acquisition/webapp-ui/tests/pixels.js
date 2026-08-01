@@ -303,6 +303,39 @@ export function meanGrid(pixels, cells, { over = null } = {}) {
 }
 
 /**
+ * How much of the picture is one particular colour.
+ *
+ * This is the measurement for a layer the page drew itself. Asking whether
+ * anything was drawn is not enough when the question is *which* of several
+ * drawings reached the screen — a picture is full of colours already, and a
+ * layer switched on adds one more. Counting the pixels that are close to the
+ * colour the page used answers that, and answers it from a photograph rather
+ * than from the page's opinion of itself.
+ *
+ * Close rather than exact, because a colour does not always survive the journey
+ * unchanged. A drawing composited into another surface, or drawn with smoothed
+ * edges, comes back a shade or two out. The allowance is wide enough to survive
+ * that and far narrower than the distance between any two colours these tests
+ * ask about.
+ *
+ * @param pixels a photograph, from {@link photograph}.
+ * @param colour the colour to look for, as red, green and blue from 0 to 255.
+ * @param allowance how far each of the three may be out and still count.
+ * @returns a share between 0 and 1.
+ */
+export function fractionNear({ data, channels }, [red, green, blue], allowance = 24) {
+  let near = 0;
+  let pixels = 0;
+  for (let at = 0; at < data.length; at += channels) {
+    if (Math.abs(data[at] - red) <= allowance
+      && Math.abs(data[at + 1] - green) <= allowance
+      && Math.abs(data[at + 2] - blue) <= allowance) near += 1;
+    pixels += 1;
+  }
+  return near / pixels;
+}
+
+/**
  * How much variety there is in the picture.
  *
  * Three numbers that say the same thing from different angles, because any one

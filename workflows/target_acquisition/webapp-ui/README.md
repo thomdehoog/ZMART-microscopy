@@ -151,18 +151,20 @@ one cost is that a place imaged and found empty then looks the same as a place
 nobody has visited. Both behaviours are measured in
 `tests/live-overview-sparse.spec.js`.
 
-## Trying the canvas on its own
+## The canvas demonstration
 
 The canvas is the picture of a run that an operator pans and zooms, and it is
 being built separately, in `viz_studio/options/`, once for each of several
 drawing engines and all of them behind one small interface. This page offers it
-as a workflow of its own — **Viewer on its own** in the chooser at the top left —
-with a single step and nothing else in it.
+as a workflow of its own — **Canvas demonstration** in the chooser at the top
+left.
 
-It is deliberately not part of target acquisition. Mixing it into a workflow that
-drives a microscope would mean every question about the picture became a question
-about the acquisition going on around it, and the point of a workflow with one
-step is that the picture can be looked at by itself.
+**It is a bench, not a run.** No microscope moves, nothing is saved, and nothing
+in it produces anything. It is there so that the canvas can be watched behaving
+inside the real operator window before it is put to work in a workflow that
+drives an instrument. It is deliberately not part of target acquisition: mixing
+it in would mean every question about the picture became a question about the
+acquisition going on around it.
 
 Point it at a run the same way the scan step is pointed at one, and choose the
 workflow:
@@ -171,13 +173,65 @@ workflow:
 http://127.0.0.1:5174/?overview=http://127.0.0.1:8788/overview.ome.zarr
 ```
 
-The row of buttons above the picture chooses which engine draws it, and changing
-engine keeps the view exactly where it is — which is the only way to see a
-difference that is small. `?engine=viv-inside` says which one to open with.
+### Two steps, and why there are two
+
+The demonstration has two steps: **The picture drawn by Viv** and **The picture
+drawn by neuroglancer**. They wait for nothing and share nothing — each opens its
+own picture, in its own box, with its own engine and its own view — so you may go
+to either one first, and whatever you do in one cannot reach the other. Looking
+at the same scene in one and then the other is the only fair way to compare two
+ways of drawing it.
+
+The row of buttons above either picture chooses which engine draws it, and
+changing engine keeps the view exactly where it is, which is the only way to see
+a difference that is small. `?engine=viv-inside` opens both steps with one named
+engine instead, which is how the built page is checked one engine at a time.
 Dragging pans and the plain wheel zooms; nothing else moves the view.
 
+### The three layers, and the buttons that turn them on and off
+
+The picture an operator looks at is three drawings stacked one over the other,
+and the second row of buttons turns each of them on and off. They are named from
+the bottom of the stack upwards:
+
+* **Beneath** — the operator's own drawing under the picture. In a real workflow
+  this is the carrier and the positions still to be visited. You see it wherever
+  the picture does not reach, so zoom out to see more of it.
+* **Picture** — the acquisition itself, read from the run.
+* **Above** — the operator's own drawing over the picture.
+
+**The layer beneath is where the three engines genuinely differ, and the
+demonstration shows it rather than explaining it.** Turn it on in the Viv step
+and a wash of blue fills everything the picture does not cover; turn it on in the
+neuroglancer step and nothing appears at all, because neuroglancer forces its
+canvas opaque at the end of every frame and a drawing behind it is never seen.
+Each engine answers that question about itself, and the page prints its answer
+beside the button — so what you get is a reason rather than a button that seems
+broken. Measured from a photograph, in `tests/viewer-workflow.spec.js`: about 92%
+of the box under Viv, and 0% under neuroglancer.
+
+### Turning the picture off, and the gap that turned up
+
+Turning **Picture** off opens the canvas with no acquisition at all — the
+operator's own drawing above and below and nothing in the middle. That is not an
+idle case: it is what an operator sees before a run has started, laying positions
+out on an empty plate.
+
+**Two of the three engines do it and one does not.** `viv-under` and `viv-inside`
+open with no acquisition in under a quarter of a second.
+`neuroglancer-under` never finishes opening at all: it waits for the engine to
+say what space the picture lives in, and with no image layers to read that from,
+it never does. So the page gives every open a time limit, says plainly what
+happened when the limit is reached, and puts the picture that was working back —
+because a page that waited for ever would look exactly like one that was still
+loading, which is the failure this project keeps meeting. That is a gap in the
+interface rather than something for this page to fix, and it is written down in
+`viz_studio/options/README.md`.
+
+### What else is worth knowing
+
 All three engines are here: `viv-under`, `viv-inside` and `neuroglancer-under`.
-The page opens on `viv-under` unless the address says otherwise.
+The first step opens on `viv-under` and the second on `neuroglancer-under`.
 
 The third one is the fussy one, for the reason set out under *Why neuroglancer
 cannot be folded in* above. In short: it needs two files sitting beside the page,

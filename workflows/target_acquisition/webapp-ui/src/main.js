@@ -190,6 +190,12 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   for (const [key, wf] of Object.entries(WORKFLOWS)) {
     const opt = document.createElement("option");
     opt.value = key; opt.textContent = wf.name;
+    /* Each workflow's own sentence about itself, shown when the pointer rests on
+       it. A name has to be short enough for the rail, which is not always long
+       enough to say what a workflow is for — and it matters most for the one
+       that is a demonstration rather than a run, because somebody choosing it by
+       mistake should be able to find that out before they choose it. */
+    opt.title = wf.blurb;
     selectEl.append(opt);
   }
   selectEl.value = state.wf;
@@ -436,7 +442,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      They are three different things — a session, a list of presets, a carrier —
      and a tab beside the canvas should say which of them it opens. They draw
      into the same element because only one is ever shown. */
-  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer", "foot-detect", "foot-focus", "foot-analysis", "foot-gallery"];
+  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer-viv", "foot-viewer-neuroglancer", "foot-detect", "foot-focus", "foot-analysis", "foot-gallery"];
 
   /* Every panel a step may ask for, by the name a step uses for it. `whenShown`
      is how a panel that has to build something of its own — a picture drawn by a
@@ -447,9 +453,16 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     connect: { label: "Microscope configuration", panel: "panel-setup" },
     optics: { label: "Optical configuration", panel: "panel-setup" },
     canvas: { label: "Canvas", panel: "panel-canvas" },
-    viewer: {
-      label: "Viewer", panel: "panel-viewer",
-      whenShown: () => theCanvas.whenShown(),
+    /* One for each step of the canvas demonstration. They are two panels rather
+       than one so that the two steps share nothing at all; `index.html` says
+       more about why. */
+    "viewer-viv": {
+      label: "Viv", panel: "panel-viewer-viv",
+      whenShown: () => theVivCanvas.whenShown(),
+    },
+    "viewer-neuroglancer": {
+      label: "Neuroglancer", panel: "panel-viewer-neuroglancer",
+      whenShown: () => theNeuroglancerCanvas.whenShown(),
     },
     detect: { label: "Detection", panel: "panel-detect" },
     focus: { label: "Focus strategy", panel: "panel-focus" },
@@ -1180,12 +1193,17 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   })();
   const RUN_TO_WATCH = ACQUISITIONS[0] ?? null;
 
-  /* Which engine draws the picture on the viewer step — `?engine=viv-inside`.
-     The same run can be looked at through any of the engines this page was built
-     with, and the little row of buttons at the top of that panel changes between
-     them without losing the view. This says which one to open with; left out, it
-     is the first in the list. `src/canvas/engines.js` says what there is and why
-     one of the three is missing. */
+  /* Which engine to open both steps of the canvas demonstration with —
+     `?engine=viv-inside`.
+
+     Ordinarily each of the two steps names its own engine, which is the whole
+     point of having two of them. This overrides both, and it is there for asking
+     a page one question about one engine: whether a page delivered in a
+     particular way can draw with it at all. That is what the checks on the built
+     page use it for. Left out, each step opens with the engine it is named
+     after, and the row of buttons at the top of either panel still changes
+     between them without losing the view. `src/canvas/engines.js` says what
+     engines there are, and when one of the three cannot be offered. */
   const ENGINE_ASKED_FOR = new URLSearchParams(location.search).get("engine");
 
   /* What colour to paint the room the run declared, underneath the picture, as
@@ -1315,20 +1333,28 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   })();
 
   /* ============================================================
-     the canvas, as its own step
+     the canvas, as the two steps of the demonstration
      ============================================================ */
   /* The picture of a run, filling a panel of its own, with the engine that draws
-     it chosen by the operator. It is the same run this page is already pointed
-     at with `?overview=` and `?targets=`, so there is one way of saying which
-     run to look at rather than two.
+     it chosen by the operator and a button for each of the three layers. It is
+     the same run this page is already pointed at with `?overview=` and
+     `?targets=`, so there is one way of saying which run to look at rather than
+     two.
 
      Everything about how the picture is drawn lives behind a small interface in
      `viz_studio/options/`, and this page reaches it only through
-     `src/canvas/panel.js`. The canvas is never told which step it is in. */
-  const theCanvas = (() => {
-    /* Built the first time the panel is asked for, rather than on load. The
+     `src/canvas/panel.js`. The canvas is never told which step it is in.
+
+     There are two of these, one per step of the canvas demonstration, and they
+     share nothing: separate boxes, separate engines, separate buttons, separate
+     views. That is what makes walking from one step to the other a fair
+     comparison rather than a picture that has been changed underneath you. */
+  const aCanvasPanel = (which, engine) => {
+    /* Built the first time its panel is asked for, rather than on load. A
        drawing engine is a large thing to fetch and there is no reason to fetch
-       it for a run that never opens this step.
+       one for a run that never opens the step it belongs to — which also means
+       an operator who only ever looks at the Viv step never pays for
+       neuroglancer.
 
        The half-built state is remembered rather than the finished one, because
        the panel can be asked for again while the fetch is still in flight and
@@ -1337,12 +1363,14 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     const build = () => {
       building ??= import("./canvas/panel.js").then(({ putTheCanvasIn }) =>
         putTheCanvasIn({
-          box: el("viewer-box"),
-          note: el("viewer-note"),
-          chooser: el("viewer-engine"),
-          readout: el("viewer-readout"),
+          box: el(`viewer-${which}-box`),
+          note: el(`viewer-${which}-note`),
+          chooser: el(`viewer-${which}-engine`),
+          layers: el(`viewer-${which}-layers`),
+          why: el(`viewer-${which}-why`),
+          readout: el(`viewer-${which}-readout`),
           acquisitions: ACQUISITIONS,
-          engine: ENGINE_ASKED_FOR,
+          engine: ENGINE_ASKED_FOR ?? engine,
         }),
       );
       return building;
@@ -1355,12 +1383,14 @@ import scanfieldsWidget from "./widgets/scanfields.js";
              a box that is still loading look exactly alike, and this project has
              lost days to the difference. */
           .catch((why) => {
-            const note = el("viewer-note");
+            const note = el(`viewer-${which}-note`);
             note.hidden = false;
             note.textContent = `the canvas could not be loaded — ${why.message}`;
           }),
     };
-  })();
+  };
+  const theVivCanvas = aCanvasPanel("viv", "viv-under");
+  const theNeuroglancerCanvas = aCanvasPanel("neuroglancer", "neuroglancer-under");
 
   /* ============================================================
      the stage viewer — one projection, layers on top

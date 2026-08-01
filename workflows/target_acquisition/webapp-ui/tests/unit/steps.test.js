@@ -53,6 +53,25 @@ describe("ordering", () => {
     expect(firstIncomplete(steps, new Set(["connect", "optics"]))).toBe(2);
     expect(firstIncomplete(steps, new Set())).toBe(0);
   });
+
+  /* A step that only shows the operator something produces nothing, so there is
+     nothing for the steps after it to wait for and it says so. Without this a
+     workflow made of such steps would be stuck on its first one for ever: the
+     operator has no way to finish a step there is nothing to finish. */
+  it("a step that holds nothing up lets the run walk straight past it", () => {
+    const shown = [
+      { id: "look", nothingWaitsOnThis: true },
+      { id: "look-again", nothingWaitsOnThis: true },
+      { id: "act" },
+      { id: "after" },
+    ];
+    expect(firstIncomplete(shown, new Set())).toBe(2);
+    expect(isReachable(shown, new Set(), 0)).toBe(true);
+    expect(isReachable(shown, new Set(), 1)).toBe(true);
+    expect(isReachable(shown, new Set(), 2)).toBe(true);
+    // and it does not open the gate for what comes after the step that does act
+    expect(isReachable(shown, new Set(), 3)).toBe(false);
+  });
 });
 
 describe("readiness belongs to the step, not the frame", () => {
@@ -137,14 +156,27 @@ describe("panels follow the step", () => {
   });
 
   it("gives the whole window to a step in a workflow that never asks for the canvas", () => {
-    expect(panelsOf("viewer_only")).toEqual({ viewer: ["viewer"] });
+    expect(panelsOf("canvas_layers")).toEqual({
+      "canvas-viv": ["viewer-viv"],
+      "canvas-neuroglancer": ["viewer-neuroglancer"],
+    });
+  });
+
+  /* Each of the two demonstration steps has a panel to itself, and that is what
+     keeps them from sharing anything. Two steps naming one panel would be two
+     steps looking at one picture, and whatever the operator had done to it in
+     the first step would still be done to it in the second — which is exactly
+     the comparison the demonstration exists to make impossible to spoil. */
+  it("gives each demonstration step a picture of its own", () => {
+    const panels = Object.values(panelsOf("canvas_layers")).flat();
+    expect(new Set(panels).size).toBe(panels.length);
   });
 });
 
 describe("workflows compose the catalogue rather than restating it", () => {
   it("offers four", () => {
     expect(Object.keys(WORKFLOWS)).toEqual(
-      ["target_acquisition", "overview_only", "focus_check", "viewer_only"]);
+      ["target_acquisition", "overview_only", "focus_check", "canvas_layers"]);
   });
 
   /* The order an operator walks, spelled out. If a step moves, is dropped, or
@@ -166,7 +198,8 @@ describe("workflows compose the catalogue rather than restating it", () => {
 
   it("names every workflow in plain words for the chooser", () => {
     expect(Object.values(WORKFLOWS).map((w) => w.name)).toEqual([
-      "Target acquisition", "Overview only", "Focus surface check", "Viewer on its own"]);
+      "Target acquisition", "Overview only", "Focus surface check",
+      "Canvas demonstration"]);
     for (const w of Object.values(WORKFLOWS)) expect(w.blurb).toBeTruthy();
   });
 
@@ -199,7 +232,8 @@ describe("workflows compose the catalogue rather than restating it", () => {
 
   it("every step names panels the page can supply", () => {
     const known = new Set([
-      "canvas", "viewer", "connect", "optics", "focus", "detect", "analysis", "gallery"]);
+      "canvas", "viewer-viv", "viewer-neuroglancer",
+      "connect", "optics", "focus", "detect", "analysis", "gallery"]);
     for (const wf of Object.keys(WORKFLOWS)) {
       for (const s of WORKFLOWS[wf].steps) {
         for (const p of s.panels ?? []) expect(known.has(p), `${s.id} -> ${p}`).toBe(true);
@@ -241,34 +275,71 @@ describe("workflows compose the catalogue rather than restating it", () => {
    something an operator can open and try, in the real window, without an
    acquisition happening around it — and it is deliberately kept out of target
    acquisition, where every question about the picture would become a question
-   about the run. */
-describe("the viewer stands on its own", () => {
-  const steps = WORKFLOWS.viewer_only.steps;
+   about the run.
 
-  it("is one step, and only one", () => {
-    expect(steps.length).toBe(1);
-    expect(steps[0].id).toBe("viewer");
+   It has two steps, one per drawing engine, and the point of nearly everything
+   below is that neither of them can affect the other. */
+describe("the canvas demonstration", () => {
+  const steps = WORKFLOWS.canvas_layers.steps;
+
+  it("is two steps, one for each engine", () => {
+    expect(ids("canvas_layers")).toEqual(["canvas-viv", "canvas-neuroglancer"]);
   });
 
-  it("wants the picture and nothing beside it", () => {
-    expect(panelsFor(steps, 0)).toEqual(["viewer"]);
+  it("each wants a picture and nothing beside it", () => {
+    expect(panelsFor(steps, 0)).toEqual(["viewer-viv"]);
+    expect(panelsFor(steps, 1)).toEqual(["viewer-neuroglancer"]);
   });
 
-  it("has nothing to run, because standing on it is the whole of it", () => {
-    expect(steps[0].btn).toBeUndefined();
-    expect(steps[0].mode).toBeUndefined();
+  it("has nothing to run, because standing on a step is the whole of it", () => {
+    for (const s of steps) {
+      expect(s.btn).toBeUndefined();
+      expect(s.mode).toBeUndefined();
+    }
   });
 
-  it("says in plain words what it is for", () => {
-    expect(WORKFLOWS.viewer_only.name).toBe("Viewer on its own");
-    expect(steps[0].title).toBe("Look at the run");
-    expect(steps[0].why).toMatch(/canvas/);
+  /* The one that matters most. Neither step produces anything, so neither can be
+     waiting on the other, and the operator may open either one first. Without
+     this the second step would be greyed out for ever, because the first can
+     never be marked as finished — there is nothing to finish. */
+  it("lets the operator open either step, in either order, having done nothing", () => {
+    const nothingDone = new Set();
+    expect(isReachable(steps, nothingDone, 0)).toBe(true);
+    expect(isReachable(steps, nothingDone, 1)).toBe(true);
+  });
+
+  it("says in plain words that it is a demonstration rather than a run", () => {
+    expect(WORKFLOWS.canvas_layers.name).toMatch(/demonstration/i);
+    expect(WORKFLOWS.canvas_layers.blurb).toMatch(/not a run/i);
+  });
+
+  /* A name has to fit the rail, which is a fixed column, and no workflow name
+     may be longer than the longest one this page has always carried. That is
+     not fussiness about tidiness: the chooser used to take whatever width its
+     longest name wanted and push the Restart button beside it off the rail
+     altogether, where it could not be pressed. The layout no longer allows
+     that, and this keeps the names readable rather than trailing off. */
+  it("names every workflow briefly enough for the rail to show it", () => {
+    for (const w of Object.values(WORKFLOWS)) {
+      expect(w.name.length, `"${w.name}" is too long for the chooser`)
+        .toBeLessThanOrEqual(22);
+    }
+  });
+
+  it("names the engine each step opens with, where the operator will read it", () => {
+    expect(steps[0].title).toMatch(/Viv/);
+    expect(steps[1].title).toMatch(/neuroglancer/);
   });
 
   it("leaves target acquisition exactly as it was", () => {
-    expect(ids("target_acquisition")).not.toContain("viewer");
     for (const s of WORKFLOWS.target_acquisition.steps) {
-      expect(s.panels).not.toContain("viewer");
+      expect(s.id).not.toMatch(/^canvas-/);
+      expect(s.panels.some((p) => p.startsWith("viewer"))).toBe(false);
+      /* And nothing in a real run may skip its place in the queue. Every step of
+         an acquisition produces something the next one needs, so the rule that
+         lets the demonstration's two steps stand apart must not have leaked into
+         one of them. */
+      expect(s.nothingWaitsOnThis).toBeUndefined();
     }
   });
 });
