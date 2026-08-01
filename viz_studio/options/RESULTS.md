@@ -187,6 +187,33 @@ Row 1b reads "not applicable" for option A rather than a number, for the same
 reason: there was nothing of the bottom layer on screen to measure, and a nought
 would read as "perfectly lined up".
 
+### A run's own colours are read from the store, and this is not a row
+
+`viz_studio/options/contract.md` §6 now makes `channels` optional: a page that
+says nothing about an acquisition's colours gets the run's own description read
+out of the store instead of a single white channel. The fault behind that change
+was plain — a run recorded in two colours showed only its first one, in white —
+and it is checked against a photograph in
+`viz_studio/tests/test_the_options_hold_together.py`, on a two-channel
+acquisition written for the purpose.
+
+**It is deliberately not a row in the table**, and the reason is worth saying so
+that nobody adds one later without thinking. The table compares three engines, and
+a row of three identical yeses compares nothing. Every option reads the same
+description in the same way — the four functions that do it are word for word the
+same in all three — so on this question there is nothing between them to report.
+What differs is how hard each of them had to work to get there, and that is
+prose rather than a number; it is under "Five surprises" below.
+
+The readings, taken the same day as this note, on the two-colour square with the
+picture framed the way every measurement here frames it: with the page saying
+nothing, **4.78% of the window came out green and 4.74% red for option A, and
+4.80% and 4.79% for options B and C** — the two halves of the square, each in
+the colour the run names. With the page describing the acquisition itself, as one
+white channel, all three showed **no green and no red at all** and about 4.7% of
+the window near white. Reading the store is what happens when the page says
+nothing; it never overrules a page that speaks.
+
 ### The seam is meant to be invisible; the measurements make it visible on purpose
 
 The engine's background is meant to match the page exactly, so that an operator
@@ -546,7 +573,42 @@ version of deck.gl for both options — which would change which version of the
 engine half of this table describes. That is a real decision and not one to take
 by accident while adding a keystroke.
 
-## Four surprises from building the options
+## Five surprises from building the options
+
+**Reading the run's own colours was free for the two Viv options and awkward for
+neuroglancer, and it turned up two further faults in the neuroglancer adapter on
+the way.** This is the one genuine difference between the engines behind the note
+above, and it is worth knowing before somebody adds a fourth option.
+
+Viv hands a store's whole description back alongside the picture, so options B
+and C already had it in their hands: reading the channels out of it is a few
+lines and costs no extra request at all. Neuroglancer reads the same description
+— it has to, in order to build a layer — but keeps it to itself, giving back a
+layer rather than the text the layer was built from. So option A has to go and
+fetch the description itself, which is one small extra request per acquisition
+when the viewer opens. That is the whole of the cost, and it is worth paying, but
+it is a real difference in how much an engine will tell you about what it just
+read.
+
+The two further faults were both invisible until something with more than one
+channel was actually drawn, because until now every acquisition in the suite had
+exactly one white channel and every page said so.
+
+- **Both of a two-channel run's layers drew the same channel.** Which channel a
+  layer reads was being written onto the layer just after it was made, and a
+  layer made a moment ago does not yet know what dimensions its data has, so the
+  position was written into a space with no room in it and simply lost. Said
+  instead in the description the layer is built from, it takes. Measured before
+  the fix: one colour missing altogether and the other drawn twice.
+- **The second channel reached the screen at half strength.** Neuroglancer's own
+  default for an image layer is to be half see-through, which is right for
+  looking through one layer at another and wrong for the channels of one
+  acquisition. Measured: the second channel came out at 118 of a possible 255
+  where the first came out at 237 — the colour the run names, watered down for no
+  reason an operator could see.
+
+Options B and C needed neither fix; they name the channel they read and draw each
+at full strength already.
 
 **Following the pointer did not come apart, on this machine.** The sandwich
 probe's write-up — `viz_studio/SANDWICH.md`, which is not on this branch but on

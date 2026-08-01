@@ -77,7 +77,9 @@ One module per option, each exporting the same function. Nothing else is public.
  *
  * @param {HTMLElement} element  where the viewer draws; it fills this box
  * @param {object} options
- *   acquisitions  [{ url, name, channels }]  drawn in order, first at the bottom
+ *   acquisitions  [{ url, name, channels? }]  drawn in order, first at the bottom
+ *                 channels is optional; left out, the option reads the run's own
+ *                 description of its colours — see options/contract.md §6
  *   coverage      the imaged regions, as `zmart_storage/coverage.py` records them,
  *                 or null when the run keeps no record
  *   background    the page colour, so the seam never shows

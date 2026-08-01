@@ -143,7 +143,10 @@ const UM_PER_UNIT = {
  *                   at the bottom. Each `url` must be a whole address including
  *                   the scheme and host. `channels` is `[{ name, colour, window }]`,
  *                   where `colour` is three numbers from 0 to 1 and `window` is
- *                   `{low, high}` in the stored numbers' own units.
+ *                   `{low, high}` in the stored numbers' own units. It is
+ *                   **optional**: leave it out and the viewer reads the run's own
+ *                   description of its colours out of the store it is opening
+ *                   anyway. Say it and what you say is used unchanged.
  *   `coverage`      the imaged regions, as `zmart_storage/coverage.py` records
  *                   them, or `null` when the run keeps no record. Used to decide
  *                   where the picture is allowed to show through, and how much
@@ -564,6 +567,115 @@ function voxelSizeUm(metadata, name) {
   return found;
 }
 
+// ---------------------------------------------------------------------------
+// What the run says about its own colours
+// ---------------------------------------------------------------------------
+//
+// The page may describe an acquisition's channels — what each one is called,
+// what colour to draw it in, and how bright to open it — and where it does, what
+// it says is used exactly as given. But a page usually has no way of knowing any
+// of that, because the description lives inside the store, which is the very
+// thing it is asking this viewer to open. Making the page find out would mean
+// opening the run twice: once by the page, to learn what to say, and once by the
+// viewer, to draw it.
+//
+// So where the page says nothing, the description is read here instead, out of
+// the `omero` block that every image this project writes carries.
+// `zmart_storage/canvas.py` is where it is written, and it holds one entry per
+// channel: a label, a colour as six hex digits, and a brightness window.
+//
+// Leaving this out has a plain and visible cost. With nothing to go on a viewer
+// falls back to a single white channel, so **a run recorded in two colours shows
+// only its first one**, in white, and nothing on screen says that the rest of
+// the acquisition is missing.
+//
+// The four pieces below are word for word the same in all three options, on
+// purpose. The three are meant to be comparable, and a difference in how they
+// read the same description would show up in the results as a difference
+// between the engines, which it is not. Two copies can drift apart, so **if you
+// change one of these four, change the other two files to match in the same
+// commit.**
+
+/** The colour a channel is drawn in when nobody has named one. */
+const WHITE = [1, 1, 1];
+
+/**
+ * The brightness range to open a channel at when neither the page nor the run
+ * asked for one. It is the same range this viewer has always used in that case,
+ * and it suits the twelve-bit cameras these runs are acquired on.
+ */
+const AN_ORDINARY_WINDOW = { low: 0, high: 4095 };
+
+/**
+ * Six hex digits, the way a run writes a colour, as the three numbers from 0 to
+ * 1 the drawing works in.
+ *
+ * Anything that is not six hex digits is drawn white rather than refused. A
+ * misspelt colour is a small blemish; refusing to open somebody's acquisition
+ * over one would be a great deal worse.
+ */
+function colourFromTheStore(hex) {
+  if (typeof hex !== "string" || !/^[0-9a-f]{6}$/i.test(hex)) return [...WHITE];
+  return [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+}
+
+/**
+ * The brightness range a channel should first be shown with, out of the run's
+ * own description of it.
+ *
+ * A description holds two different ranges and telling them apart is the whole
+ * of this function. `min` and `max` are the numbers the camera can produce at
+ * all — nought to 65535 for a sixteen-bit camera — which is a fact about the
+ * instrument and true of every acquisition it ever takes. `start` and `end` are
+ * the range the picture should be *displayed* with, and they are written only
+ * when the run actually asked for one.
+ *
+ * Only `start` and `end` are used here, and that is deliberate. A real
+ * acquisition sits in the bottom few per cent of what the camera can count — a
+ * few hundred counts of background with the signal not far above — so opening it
+ * with the camera's whole range shows a picture that is very nearly black, and
+ * it stays that way until somebody thinks to drag a contrast slider. This
+ * project has already had that fault once and fixed it, which is why it is
+ * spelled out here rather than left to whoever reads the description next.
+ *
+ * When the run asked for nothing, the ordinary window above is used — the same
+ * one this viewer would have used had there been no description at all.
+ */
+function windowFromTheStore(described) {
+  const range = described?.window ?? {};
+  if (Number.isFinite(range.start) && Number.isFinite(range.end)) {
+    return { low: range.start, high: range.end };
+  }
+  return { ...AN_ORDINARY_WINDOW };
+}
+
+/**
+ * The channels a store describes, in the form this viewer keeps them in.
+ *
+ * `attributes` is the store's own description, as it was read from the image.
+ * Nothing at all is returned when the store describes no channels, so that the
+ * caller can fall back to whatever it did before rather than being handed an
+ * empty list and drawing nothing.
+ *
+ * One limit, said plainly. What comes back is one entry per channel the
+ * description *names*, not one per channel the picture holds. Everything this
+ * project writes keeps the two in step, so for our own runs they are the same
+ * list. A foreign image that stored four colours and described only two would
+ * have two of them drawn here, and the operator would have to notice. Counting
+ * the picture's own channels instead would mean a second reading of the image
+ * for one of the three options and none for the other two, which is exactly the
+ * kind of difference between them this comparison is trying not to introduce.
+ */
+function channelsTheStoreDescribes(attributes) {
+  const described = attributes?.omero?.channels;
+  if (!Array.isArray(described) || !described.length) return null;
+  return described.map((channel, at) => ({
+    name: channel?.label || `channel ${at + 1}`,
+    colour: colourFromTheStore(channel?.color),
+    window: windowFromTheStore(channel),
+  }));
+}
+
 /**
  * Turn one acquisition into the pyramid of readers and the description of it
  * that the drawing needs.
@@ -595,9 +707,14 @@ async function openOneAcquisition(acquisition) {
     );
   }
   const um = voxelSizeUm(opened.metadata, acquisition.name);
+  // What the page said, where it said anything; otherwise what the run says
+  // about itself; and only if the run says nothing either, one white channel.
+  // Viv hands back the store's whole description alongside the picture, so
+  // reading it here costs no extra request at all.
   const channels = acquisition.channels && acquisition.channels.length
     ? acquisition.channels
-    : [{ name: acquisition.name, colour: [1, 1, 1], window: { low: 0, high: 4095 } }];
+    : channelsTheStoreDescribes(opened.metadata)
+      || [{ name: acquisition.name, colour: [...WHITE], window: { ...AN_ORDINARY_WINDOW } }];
   return {
     name: acquisition.name,
     url: acquisition.url,
@@ -613,8 +730,8 @@ async function openOneAcquisition(acquisition) {
     channels: channels.map((channel, within) => ({
       name: channel.name,
       within,
-      colour: channel.colour || [1, 1, 1],
-      window: channel.window || { low: 0, high: 4095 },
+      colour: channel.colour || [...WHITE],
+      window: channel.window || { ...AN_ORDINARY_WINDOW },
       visible: channel.visible !== false,
     })),
   };

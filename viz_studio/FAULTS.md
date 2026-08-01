@@ -79,6 +79,8 @@ and a writer killed without cleanup — and all 29 checks held.
 | P | A live run written as OME-Zarr 0.5 stopped growing the moment the page opened | measured: frames 1 then 3 on 0.4, 1 then 1 on 0.5. Fixed 2026-07-30 |
 | Q | A target imaged again at the next moment, or in a second colour, was refused as an overlap | measured. Fixed 2026-07-30 |
 | R | The flat view drew every specimen mirrored left to right, so an operator clicking a well would send the stage to the one on the other side of the plate | measured: brightness across a picture of a ramp ran downhill at 65 grey levels per 100 px, and uphill by the same 65 after the fix. Fixed 2026-07-30; see `CONTROLS.md` §1a |
+| S | A multi-colour acquisition showed only its first channel, in white. The three options in `options/` made the *page* responsible for describing a run's channels and gave it no way to learn them, so pages said nothing and every option fell back to one white channel | measured: on a run recorded in two colours, 4.8% of the window green and 4.7% red after the fix, against one white half and nothing else before it. Fixed 2026-08-01; see `options/contract.md` §6 |
+| T | Neuroglancer drew both layers of a two-channel run from the same channel, and drew the second at half strength. Only visible once something with more than one colour was actually drawn | measured: one colour missing and the other drawn twice; and 118 of a possible 255 against the first channel's 237. Fixed 2026-08-01 |
 
 ---
 
