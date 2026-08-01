@@ -9,8 +9,9 @@ of smaller copies, the size of the blocks it is stored in or the many small
 requests that make a real one what it is. So these are ordinary runs, only small
 enough to measure quickly.
 
-There are six, because the measurements and the checks that go with them ask six
-different questions between them.
+There are seven, because the measurements and the checks that go with them ask
+seven different questions between them. The last of the seven is really a pair of
+runs meant to be opened together, so eight stores are written in all.
 
 **The square** is for registration and handedness. It is imaged edge to edge, so
 on screen it is a solid block of picture with the background all around it — the
@@ -48,6 +49,16 @@ is written so that a photograph can tell: the first channel fills the left half
 of the square and is named green, the second fills the right half and is named
 red. If a viewer is really reading the run's own description of itself, the two
 halves come out in those two colours.
+
+**The survey and the detail scan** are two runs meant to be opened *together*,
+and they are the only thing here that needs more than one store. This is the
+ordinary arrangement smart microscopy is built around: a wide, coarse scan of the
+whole specimen, and a fine scan of one interesting part of it. The two are
+written at different voxel sizes and in different colours, and the fine one sits
+over a square of ground the coarse one deliberately never imaged, so a photograph
+can say whether the two really landed in the same place. See
+:func:`write_the_survey_and_the_detail` for the shape of them and for what a
+measurement is meant to read off the picture.
 """
 
 from __future__ import annotations
@@ -130,7 +141,7 @@ def _a_lopsided_tile(height: int, width: int, at: int, across_tiles: int) -> np.
 
 def _canvas(
     folder: Path, name: str, *, shape, tile, chunk=None, voxel_um=VOXEL_UM,
-    channels=None,
+    channels=None, origin_um=(0.0, 0.0, 0.0),
 ):
     return TileCanvases.create(
         folder,
@@ -140,6 +151,10 @@ def _canvas(
         tile_step=tile,
         voxel_size_um=(voxel_um, voxel_um, voxel_um),
         channels=channels or [Channel(name="probe", color="FFFFFF", window=(0, 4095))],
+        # Where the low corner of this image sits on the stage, in micrometres.
+        # Nought for every store here except the detail scan, which has to sit
+        # over one particular part of the survey rather than at the same corner.
+        origin_um=origin_um,
         discard_existing_run=True,
         **({"chunk": chunk} if chunk else {}),
     )
@@ -314,6 +329,156 @@ def write_the_two_colour_square(folder: Path, *, name: str = "colours") -> TileC
     return canvases
 
 
+# ---------------------------------------------------------------------------
+# The survey and the detail scan: two runs meant to be opened together
+# ---------------------------------------------------------------------------
+#
+# Every number below is in micrometres unless it says voxels, because
+# micrometres are the only units the two runs have in common. That is the whole
+# point of the pair: they have different voxels, so nothing but the specimen
+# itself can tell them where to sit relative to one another.
+
+# The survey: four micrometres to the voxel, five hundred and twelve voxels
+# across, which comes to two millimetres of specimen. A coarse scan of a whole
+# slide is about this shape.
+SURVEY_VOXEL_UM = 4.0
+SURVEY_VOXELS = 512
+SURVEY_TILE = 64
+SURVEY_SPAN_UM = SURVEY_VOXELS * SURVEY_VOXEL_UM  # 2048 µm
+
+# The square of ground the survey deliberately leaves unimaged, in micrometres.
+# Two tiles by two tiles in the middle of the scan, which on screen is a plain
+# square window in the survey's colour with nothing of the survey in it. This is
+# the "known feature of the coarse run" the fine one has to land inside, and it
+# is a hole rather than a bright mark for one practical reason: the fine scan is
+# drawn over the survey, so a bright mark would simply be covered up and a
+# photograph could no longer say where it was.
+THE_WINDOW_IN_THE_SURVEY = {
+    "x0": 3 * SURVEY_TILE * SURVEY_VOXEL_UM,  # 768 µm
+    "x1": 5 * SURVEY_TILE * SURVEY_VOXEL_UM,  # 1280 µm
+    "y0": 3 * SURVEY_TILE * SURVEY_VOXEL_UM,
+    "y1": 5 * SURVEY_TILE * SURVEY_VOXEL_UM,
+}
+
+# The detail scan: half a micrometre to the voxel — eight times finer than the
+# survey — and two hundred and fifty-six micrometres across.
+DETAIL_VOXEL_UM = 0.5
+DETAIL_VOXELS = 512
+DETAIL_TILE = 128
+DETAIL_SPAN_UM = DETAIL_VOXELS * DETAIL_VOXEL_UM  # 256 µm
+
+# How wide a band of empty ground is left between the edge of the detail scan and
+# the edge of the window in the survey, on every side. It is what the measurement
+# actually reads: four numbers that should all come out at this, in micrometres,
+# however each engine happens to draw the two runs.
+THE_GAP_UM = (
+    (THE_WINDOW_IN_THE_SURVEY["x1"] - THE_WINDOW_IN_THE_SURVEY["x0"] - DETAIL_SPAN_UM)
+    / 2
+)  # 128 µm
+
+# Where the low corner of the detail scan sits on the stage, in micrometres, so
+# that it ends up centred in the window with that gap all round.
+DETAIL_ORIGIN_UM = THE_WINDOW_IN_THE_SURVEY["x0"] + THE_GAP_UM  # 896 µm
+
+# Where the detail scan should end up, in micrometres, if the two runs really are
+# placed by physical coordinates alone.
+WHERE_THE_DETAIL_BELONGS = {
+    "x0": DETAIL_ORIGIN_UM,
+    "x1": DETAIL_ORIGIN_UM + DETAIL_SPAN_UM,
+    "y0": DETAIL_ORIGIN_UM,
+    "y1": DETAIL_ORIGIN_UM + DETAIL_SPAN_UM,
+}
+
+# The two colours the pair is written in. Far apart on purpose, because the whole
+# reading is "which of these two runs is this part of the window showing", and
+# two shades of one colour would leave that to the reader's faith.
+SURVEY_IS_GREEN = "00FF00"
+DETAIL_IS_RED = "FF0000"
+
+
+def write_the_survey_and_the_detail(
+    folder: Path, *, survey: str = "survey", detail: str = "detail"
+) -> None:
+    """Two runs of different voxel sizes over overlapping ground.
+
+    This is the ordinary arrangement smart microscopy is built around, and until
+    now nothing in this suite had ever drawn it: a wide, coarse scan of the whole
+    specimen, and a fine scan of the one part of it worth looking at closely. The
+    two are separate images with separate voxel sizes, and **the only thing that
+    can put them in the same place on screen is the position each of them states
+    in micrometres.** Nothing about the pixels themselves lines them up.
+
+    So they are written to make that visible in a photograph:
+
+    - the **survey** is imaged edge to edge at four micrometres to the voxel,
+      except for one square window in the middle that it deliberately never
+      visits, and it names its colour green;
+    - the **detail scan** is written at half a micrometre to the voxel, states
+      its position so that it lands centred in that window, and names its colour
+      red.
+
+    A viewer that places the two by physical coordinates shows a red square
+    sitting in the middle of the green window with an even band of empty ground
+    all round it, and that band is ``THE_GAP_UM`` micrometres wide on every side.
+    A viewer that ignores where each run says it is puts the red square somewhere
+    else entirely — at the same corner as the survey, most likely, because that
+    is what "no position at all" means.
+
+    Both stores are closed before this returns; nothing writes into them while a
+    measurement is running.
+    """
+    coarse = _canvas(
+        folder, survey,
+        shape=(1, SURVEY_VOXELS, SURVEY_VOXELS),
+        tile=(1, SURVEY_TILE, SURVEY_TILE),
+        # One stored block to the tile, so that a tile is written without ever
+        # having to share a block with its neighbour.
+        chunk=SURVEY_TILE,
+        voxel_um=SURVEY_VOXEL_UM,
+        channels=[Channel(name="survey", color=SURVEY_IS_GREEN, window=(0, 4095))],
+    )
+    across = SURVEY_VOXELS // SURVEY_TILE
+    skip_from = int(THE_WINDOW_IN_THE_SURVEY["x0"] / SURVEY_VOXEL_UM) // SURVEY_TILE
+    skip_to = int(THE_WINDOW_IN_THE_SURVEY["x1"] / SURVEY_VOXEL_UM) // SURVEY_TILE
+    seed = 0
+    for row in range(across):
+        for column in range(across):
+            inside_the_window = (
+                skip_from <= row < skip_to and skip_from <= column < skip_to
+            )
+            if inside_the_window:
+                continue
+            coarse.write(
+                _a_tile(1, SURVEY_TILE, SURVEY_TILE, seed),
+                origin=(0, row * SURVEY_TILE, column * SURVEY_TILE),
+                tile_index=(0, row, column),
+            )
+            seed += 1
+    coarse.close()
+
+    fine = _canvas(
+        folder, detail,
+        shape=(1, DETAIL_VOXELS, DETAIL_VOXELS),
+        tile=(1, DETAIL_TILE, DETAIL_TILE),
+        chunk=DETAIL_TILE,
+        voxel_um=DETAIL_VOXEL_UM,
+        channels=[Channel(name="detail", color=DETAIL_IS_RED, window=(0, 4095))],
+        # The one store here that does not begin at the stage's zero. Everything
+        # this pair is for rests on this number reaching the screen.
+        origin_um=(0.0, DETAIL_ORIGIN_UM, DETAIL_ORIGIN_UM),
+    )
+    seed = 0
+    for row in range(DETAIL_VOXELS // DETAIL_TILE):
+        for column in range(DETAIL_VOXELS // DETAIL_TILE):
+            fine.write(
+                _a_tile(1, DETAIL_TILE, DETAIL_TILE, seed),
+                origin=(0, row * DETAIL_TILE, column * DETAIL_TILE),
+                tile_index=(0, row, column),
+            )
+            seed += 1
+    fine.close()
+
+
 def write_them_all(folder: Path) -> None:
     """Write every store the suite needs, and close them."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -326,6 +491,9 @@ def write_them_all(folder: Path) -> None:
         write_the_two_colour_square,
     ):
         write(folder).close()
+    # The survey and the detail scan are a pair rather than a single store, and
+    # each is closed as it is written, so they are handled on their own here.
+    write_the_survey_and_the_detail(folder)
 
 
 if __name__ == "__main__":

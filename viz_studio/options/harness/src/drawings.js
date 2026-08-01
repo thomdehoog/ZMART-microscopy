@@ -428,14 +428,23 @@ export function drawTheMarginProbe(
  * The record counts in voxels of the full-resolution image, because that is what
  * the writer knows; everything above this line counts in micrometres. The
  * conversion happens once, here, using the voxel size the record carries.
+ *
+ * It also has to say *where those voxels are*, which is a separate question and
+ * an easy one to forget. A record counts from its own image's low corner, and
+ * that corner need not be the stage's zero: a detail scan taken over one part of
+ * a wider survey begins a long way along. So the position the run states for
+ * itself is added on here. For a run written at the stage's zero it is nought and
+ * nothing changes, which is every acquisition in this suite except the detail
+ * scan.
  */
 export function imagedRegions(coverage) {
   if (!coverage || !coverage.regions) return [];
   const um = coverage.voxel_size_um || { x: 1, y: 1 };
+  const at = coverage.origin_um || { x: 0, y: 0 };
   return coverage.regions.map((region) => ({
-    x0: region.x[0] * um.x,
-    x1: region.x[1] * um.x,
-    y0: region.y[0] * um.y,
-    y1: region.y[1] * um.y,
+    x0: at.x + region.x[0] * um.x,
+    x1: at.x + region.x[1] * um.x,
+    y0: at.y + region.y[0] * um.y,
+    y1: at.y + region.y[1] * um.y,
   }));
 }
