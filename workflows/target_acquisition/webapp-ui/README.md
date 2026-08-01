@@ -17,25 +17,92 @@ export PATH="$E:$PATH"
 
 npm install
 npm run dev      # http://127.0.0.1:5174, hot reload on save
-npm run build    # one self-contained file -> ../workflow/webapp/static/
+npm run build    # the page and two files beside it -> ../workflow/webapp/static/
 npm test         # Playwright smoke suite, ~26 s
 ```
 
-## Why a single-file build
+## What the build produces, and why it is three files rather than one
 
-`vite-plugin-singlefile` inlines the JS and CSS into one `index.html`. Three
-reasons:
+`npm run build` writes three files into `../workflow/webapp/static/`:
 
-- The microscope PC has no toolchain and no network. The build happens on a
-  developer machine; Python hands out the result.
-- It is the shape `workflow/webapp/_page.py` already serves, so wiring it in
-  later replaces a string rather than introducing an asset pipeline.
-- One file can also be published as a Claude artifact when a shareable link is
-  wanted.
+| file | what it is | how large |
+| --- | --- | --- |
+| `index.html` | the whole page — every script, every stylesheet, folded in | ~4 MB |
+| `chunk_worker.bundle-*.js` | neuroglancer fetches pieces of image in this | ~0.9 MB |
+| `async_computation.bundle.js` | neuroglancer unpacks them in this | ~1.6 MB |
+
+Those three are what has to reach the microscope computer, and they have to stay
+in one folder together. The page opens and draws with the two Viv engines
+whether or not the other two came along; the third engine, neuroglancer, needs
+them.
+
+Everything is folded into the page for the same reasons it always was. The
+microscope PC has no toolchain and no network, so the build happens on a
+developer machine and Python hands out the result; it is close to the shape
+`workflow/webapp/_page.py` already serves; and a page that is genuinely one file
+can be published as a Claude artifact when a shareable link is wanted. That last
+one is now true only of a build without neuroglancer in it.
+
+### Why neuroglancer cannot be folded in
+
+Neuroglancer hands two jobs to *background programs* — separate pieces of
+JavaScript running alongside the page, so that fetching and unpacking pieces of
+image does not freeze what the operator is looking at. A browser will only start
+one of those from a file of its own.
+
+Folding them into the page was tried properly before this was accepted, and it
+failed twice over:
+
+1. **The build tool will not compile them.** Neuroglancer ships each background
+   program as a twenty-line list of imports written in a shorthand only a build
+   tool can read. Vite does not read it: where neuroglancer asks for a background
+   program, Vite copies the file across exactly as it found it. Folded into the
+   page that way, the browser cannot make sense of it, the program never starts,
+   and nothing reports an error — the description of a run loads and the picture
+   never appears. The only place Vite will accept a compiled program is the file
+   on disk inside `node_modules`, which is why `neuroglancer-workers.mjs` writes
+   there; a plugin handing Vite the compiled program instead was tried and Vite
+   never asked for it.
+2. **Even compiled, it is too large to fold in.** A background program folded
+   into a page stops being a file and becomes a very long address — about a
+   third longer than the program itself, because of how it has to be written
+   down — and Chromium refuses to start one from an address longer than about
+   2 MB. Measured in this browser: a 1.5 MB program started, a 2 MB one did not,
+   and the one that did not throw nothing, warn about nothing, and appear
+   nowhere. It simply never ran. The two programs come to about 2.5 MB together,
+   and they have to be folded together, because a folded program cannot look up
+   a file beside itself and the fetching one starts the unpacking one that way.
+
+So the page is folded into one file and the two background programs sit beside
+it. `neuroglancer-workers.mjs` compiles them; `vite.config.js` places them.
+
+### What that costs
+
+Three things, and it is worth being honest about which of them actually matter.
+
+**Copying a folder rather than a file.** This turns out to be very little. None
+of the reasons for one file were about the copying: the microscope PC still does
+not build anything, the files still arrive already built, and Python still hands
+them out. A folder copies as easily as a file so long as it is copied *whole* —
+which is the one new way to get this wrong, and why the build produces exactly
+three files and `tests/viewer-built.spec.js` says so out loud.
+
+**A build with neuroglancer in it can no longer be a Claude artifact.** That was
+one of the three original reasons for a single file, and it is genuinely given
+up. A page built without the third engine would still be one file, so this is a
+choice that can be made per build rather than a door closed for good.
+
+**Opened straight off the disk — a `file:///…` address, which double-clicking
+the page does — the third engine cannot work.** A browser gives such a page no
+address of its own and refuses to start a background program for it. The page
+knows this and offers only the two engines that can draw, with a sentence in the
+corner saying where the third went. Serve the folder over HTTP and all three are
+there; `python dev_window.py --build` now does exactly that, which is also the
+closer imitation of how the page will really be handed out.
 
 `build.outDir` points at `../workflow/webapp/static/`, currently gitignored.
-Whether the built file ships in the repo is decided when the page is wired up —
-given the scope PC cannot build, it probably has to, the way `workflow/react/
+Whether the built files ship in the repo is decided when the page is wired up —
+given the scope PC cannot build, they probably have to, the way `workflow/react/
 vendor/` already ships built React.
 
 ## Watching a scan fill in
@@ -109,6 +176,17 @@ engine keeps the view exactly where it is — which is the only way to see a
 difference that is small. `?engine=viv-inside` says which one to open with.
 Dragging pans and the plain wheel zooms; nothing else moves the view.
 
+All three engines are here: `viv-under`, `viv-inside` and `neuroglancer-under`.
+The page opens on `viv-under` unless the address says otherwise.
+
+The third one is the fussy one, for the reason set out under *Why neuroglancer
+cannot be folded in* above. In short: it needs two files sitting beside the page,
+and it needs the page to have been served over HTTP. Both hold under `npm run
+dev` and under a served build, and neither holds if the page is opened straight
+off the disk — in which case the chooser offers two engines and says in the
+corner where the third went, rather than offering a button that quietly draws
+nothing.
+
 Two limits are worth knowing while this is young. Only the first colour a run
 recorded is drawn, in white, because the page has no way to ask the canvas what
 colours the run holds; and the whole of the room the run declared is drawn rather
@@ -135,6 +213,20 @@ loaded while drawing nothing is the failure this project keeps meeting, and ever
 one of those checks passes while it does it. Setting
 `LIVE_OVERVIEW_SABOTAGE=stalled` stops the demo run writing anything, which is
 how to check that these tests can still go red.
+
+`tests/viewer-built.spec.js` is the only test that looks at the *built* page
+rather than the development server, and it is worth knowing why one exists.
+Everything else asks how the page behaves, and the development server serves the
+same page. But the build rearranges what the browser is given — the page folded
+into one file, neuroglancer's two background programs beside it — and that
+rearrangement is exactly what the third engine is sensitive to. So this one runs
+`npm run build`, checks that the three files it must produce are there and are
+real compiled programs rather than the short lists neuroglancer ships, serves
+them over HTTP and photographs each engine drawing, and then opens the same
+folder straight off the disk and checks that the page offers only what can draw
+there and says where the other went. Deleting either background program from the
+output turns the picture completely black while the page still reports itself
+perfectly content, which is what that test is for.
 
 Deliberately not covered yet, because each costs a full run through the UI: the
 focus model ladder (constant / plane / spline by geometry), the metric legend,

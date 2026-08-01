@@ -10,23 +10,52 @@ Two reasons to use this while designing:
   native window as they are saved.
 
     python dev_window.py            # the dev server, live reload
-    python dev_window.py --build    # the built single file, as Python serves it
+    python dev_window.py --build    # the built page, served the way Python will
 
 The dev server has to be running already (`npm run dev`); this only opens a
 window onto it. Needs pywebview, which the `zmart-microscopy` env has, and on
 Windows the WebView2 runtime that draws it.
+
+Why --build starts a small web server
+-------------------------------------
+
+It would be simpler to hand the window the built file straight off the disk, and
+that is what this used to do. It cannot any more, and the reason is worth
+knowing because it is a property of the page rather than of this script.
+
+One of the three drawing engines the page offers is neuroglancer, and it does
+part of its work in *background programs* -- separate pieces of JavaScript
+running alongside the page so that fetching and unpacking images does not freeze
+what the operator is looking at. A browser refuses to start one of those for a
+page opened straight off the disk, because such a page has no address of its own
+for the program to belong to. The page notices, offers only the two engines that
+can draw, and says so in the corner -- honest, but it means the engine this
+project leans towards could never be looked at in the window it is meant to run
+in.
+
+So `--build` serves the built folder over HTTP on a spare port and points the
+window at that. It is also the closer imitation of what will really happen:
+`workflow/webapp/_server.py` will hand the page out over HTTP too.
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
+import http.server
 import pathlib
+import socketserver
 import sys
+import threading
 import urllib.error
 import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
-BUILT = HERE.parent / "workflow" / "webapp" / "static" / "index.html"
+
+# Where `npm run build` leaves what the microscope computer is given: the page
+# itself, and neuroglancer's two background programs beside it.
+BUILT_FOLDER = HERE.parent / "workflow" / "webapp" / "static"
+BUILT = BUILT_FOLDER / "index.html"
 DEV_URL = "http://127.0.0.1:5174/"
 
 
@@ -38,12 +67,65 @@ def _dev_server_is_up(url: str, timeout: float = 1.5) -> bool:
         return False
 
 
+class _Quietly(http.server.SimpleHTTPRequestHandler):
+    """Serve the built folder without narrating every request to the console."""
+
+    # A browser will not start a background program from a file it was told is
+    # anything but JavaScript, and it says nothing when it refuses -- the picture
+    # simply never appears. Python's own guess is right on current versions and
+    # has not always been, so it is said here rather than relied upon.
+    extensions_map = {
+        **http.server.SimpleHTTPRequestHandler.extensions_map,
+        ".js": "text/javascript",
+        ".mjs": "text/javascript",
+    }
+
+    def log_message(self, *_args) -> None:  # noqa: D102 -- silencing the base class
+        pass
+
+
+class _Server(socketserver.ThreadingTCPServer):
+    """The little web server behind ``--build``, kept quiet about normal life."""
+
+    daemon_threads = True
+    # Otherwise a second window a moment after the first is refused the port.
+    allow_reuse_address = True
+
+    def handle_error(self, request, client_address) -> None:
+        """Say nothing when the window simply stops listening part way through.
+
+        A browser cancels requests all the time -- it changes its mind about an
+        image, or the window is closed mid-download -- and the base class prints
+        a full traceback for each one. Somebody looking at the page has no way to
+        tell that alarming wall of text from a real fault, so the ordinary case
+        is passed over in silence and everything else is still reported.
+        """
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
+
+def _serve(folder: pathlib.Path) -> str:
+    """Serve `folder` on a spare port for as long as this process lives.
+
+    Bound to the loopback address, so nothing outside this machine can reach it,
+    and given port 0 so the operating system picks one that is free -- which
+    means this never collides with the dev server or with a second window.
+
+    :returns: the address to point a window at.
+    """
+    handler = functools.partial(_Quietly, directory=str(folder))
+    server = _Server(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_address[1]}/"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--build",
         action="store_true",
-        help="open the built single file rather than the dev server (no hot reload)",
+        help="open the built page rather than the dev server (no hot reload)",
     )
     parser.add_argument("--url", default=DEV_URL, help=f"dev server address (default {DEV_URL})")
     args = parser.parse_args()
@@ -52,7 +134,8 @@ def main() -> int:
         if not BUILT.exists():
             print(f"no build at {BUILT} — run `npm run build` first")
             return 1
-        target, note = BUILT.as_uri(), f"built file · {BUILT}"
+        target = _serve(BUILT_FOLDER)
+        note = f"built page · {BUILT_FOLDER} · served at {target}"
     else:
         if not _dev_server_is_up(args.url):
             print(f"nothing answering at {args.url} — start it with `npm run dev`")

@@ -43,7 +43,7 @@
  */
 
 import { onlyPanAndZoom } from "../../../../../viz_studio/options/harness/src/gestures.js";
-import { describeEngine, enginesBuiltIn, openerFor } from "./engines.js";
+import { describeEngine, enginesOnOffer, openerFor, whyOneIsMissing } from "./engines.js";
 
 /**
  * The colour of the box the picture is drawn in.
@@ -52,6 +52,12 @@ import { describeEngine, enginesBuiltIn, openerFor } from "./engines.js";
  * visited should look empty rather than look broken. The engine is told this
  * colour as well as the box being painted with it, so that wherever there is no
  * picture there is no visible seam between one drawing surface and the next.
+ *
+ * The box itself is given the same colour in `src/style.css`, and the two have
+ * to be changed together. That is not only tidiness: an engine is fetched when
+ * this step is first opened, and for the second or two before it arrives the box
+ * is whatever the stylesheet says. Page-white for a moment where a dark image
+ * belongs reads as something having gone wrong.
  */
 const THE_COLOUR_BEHIND_THE_PICTURE = "#05070d";
 
@@ -65,15 +71,19 @@ const THE_COLOUR_BEHIND_THE_PICTURE = "#05070d";
  *   engine is drawing or why nothing could be drawn. A blank picture and a
  *   picture that is still loading look exactly alike, so nothing here fails
  *   quietly.
- * @param chooser an element to fill with one button per engine, so that the same
- *   run can be looked at through one engine and then another.
+ * @param chooser an element to fill with one button per engine that can draw
+ *   here, so that the same run can be looked at through one engine and then
+ *   another. Which engines those are can depend on how the page was opened; see
+ *   `engines.js`.
  * @param readout a small element that says where the view is, in micrometres.
  * @param acquisitions the addresses of the run's images, as whole addresses
  *   including the scheme and the host, in the order they should be drawn with
  *   the first at the bottom. An empty list means the page was not pointed at a
  *   run, which is said on screen rather than left as an empty box.
- * @param engine which engine to open with. An unknown name is refused with a
- *   list of what there is.
+ * @param engine which engine to open with, or nothing to open with the first.
+ *   A name that cannot be drawn with here — misspelled, or one this page cannot
+ *   offer where it was opened from — opens the first instead and says so in the
+ *   corner of the box, rather than substituting one in silence.
  *
  * @returns a handle with `whenShown()`, to be called each time the panel comes
  *   into view; `changeTo(name)`, which swaps the engine and keeps the view; and
@@ -81,7 +91,13 @@ const THE_COLOUR_BEHIND_THE_PICTURE = "#05070d";
  *   tearing itself down need not keep track of the order.
  */
 export function putTheCanvasIn({ box, note, chooser, readout, acquisitions, engine }) {
-  const built = enginesBuiltIn();
+  /* What can be drawn with here, which is not always everything this page was
+     built with — `engines.js` explains why. Asking for one that is not on offer
+     is answered with the reason rather than by quietly opening a different one,
+     because somebody who typed `?engine=…` had a reason for typing it. */
+  const built = enginesOnOffer();
+  const missing = whyOneIsMissing();
+  const askedForSomethingAbsent = engine && !built.includes(engine);
   let wanted = built.includes(engine) ? engine : built[0];
 
   let viewer = null;      // the picture, once an engine has been opened on it
@@ -114,9 +130,27 @@ export function putTheCanvasIn({ box, note, chooser, readout, acquisitions, engi
       ` · ${where.zoom.toFixed(2)} µm per pixel`;
   }
 
+  /**
+   * Anything to add after the name of the engine that is drawing.
+   *
+   * There are two things worth saying and they can both be true at once: that
+   * this page cannot offer everything it was built with, and that somebody asked
+   * for one of the ones it cannot offer. Both belong in this corner of the box,
+   * because that is where somebody looking for a missing button is looking.
+   */
+  function anythingElseWorthSaying() {
+    if (askedForSomethingAbsent && missing) {
+      return ` · ${engine} was asked for and is not here: ${missing}`;
+    }
+    if (askedForSomethingAbsent) {
+      return ` · there is no engine called ${engine}, so this one is drawing instead`;
+    }
+    return missing ? ` · ${missing}` : "";
+  }
+
   function sayWhichEngineIsDrawing() {
     if (!viewer) return;
-    say(`${wanted} — ${describeEngine(wanted)}`);
+    say(`${wanted} — ${describeEngine(wanted)}${anythingElseWorthSaying()}`);
     for (const button of chooser.querySelectorAll("button")) {
       button.setAttribute("aria-checked", String(button.dataset.engine === wanted));
     }
