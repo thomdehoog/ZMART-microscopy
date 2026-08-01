@@ -176,6 +176,11 @@ export function onlyPanAndZoom(element, { getView, setView }) {
       refused.ctrlWheel += 1;
       return;
     }
+    // Counted here, before anything is asked of the viewer, for the same reason
+    // a drag is counted the moment it begins: the count has to say "this gesture
+    // reached us", and a count taken after the work would go missing exactly
+    // when the work went wrong.
+    accepted.wheels += 1;
     const view = getView();
     const size = sizeOfTheBox();
     const bounds = element.getBoundingClientRect();
@@ -188,7 +193,6 @@ export function onlyPanAndZoom(element, { getView, setView }) {
     // from under the outlines drawn on it, a little on every notch.
     const heldX = view.centre.x + (pointerX - size.width / 2) * view.zoom;
     const heldY = view.centre.y + (pointerY - size.height / 2) * view.zoom;
-    accepted.wheels += 1;
     const zoom = view.zoom * Math.exp(event.deltaY * 0.0015);
     setView({
       zoom,
