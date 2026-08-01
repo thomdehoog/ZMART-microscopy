@@ -120,8 +120,13 @@ breaks the single sparse canvas everything rests on.
 **Shifting the writer's translations by half a voxel** so the picture lands where
 neuroglancer expects. Rejected: that is changing the data to suit one reader. The
 standard decides; a reader that disagrees compensates in its own adapter, which is
-where the compensation already lives. **An investigation into what the standard
-actually says is in flight** — see below.
+where the compensation already lives. The investigation into what the standard
+actually says has since finished, and it found that **the standard does not say**:
+neither OME-Zarr 0.4 nor 0.5 uses the words "corner" or "centre" anywhere, and the
+question has been open with the format's authors since 2022. The writer therefore
+states its own choice plainly — the number is the corner of the first voxel — and
+`zmart_storage/VOXEL_PLACEMENT.md` records the whole of it, including why half a
+voxel is worth the trouble at high magnification.
 
 ---
 
