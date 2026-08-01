@@ -134,12 +134,17 @@ def registration(harness) -> dict:
     harness.open(store="square", draw="margin")
     still = harness.photograph()
     at_rest = margins_around_the_hole(still)
+    nominal = harness.nominal(still)
     found = {
         "at rest": at_rest.sides if at_rest.found else {"why": at_rest.why},
         "at rest, unevenness": at_rest.unevenness,
-        "band was cut at, in a still photograph's pixels": round(
-            harness.nominal(still), 1
+        # The second reading of the same photograph, and it answers a different
+        # question. See `_what_the_unevenness_cannot_see` below.
+        "at rest, wider all round than it was cut": (
+            round(at_rest.wider_than_it_was_cut(nominal), 1)
+            if at_rest.found else None
         ),
+        "band was cut at, in a still photograph's pixels": round(nominal, 1),
         "photograph at rest": harness.save_frame(still, "registration-at-rest"),
     }
     for name, gesture in GESTURES.items():
@@ -147,6 +152,7 @@ def registration(harness) -> dict:
             harness, gesture, f"registration-{name.replace(' ', '-')}-worst"
         )
     found["and the check can fail"] = _registration_can_fail(harness)
+    found["and a disagreement about size"] = _what_the_unevenness_cannot_see(harness)
     return found
 
 
@@ -172,6 +178,64 @@ def _registration_can_fail(harness) -> dict:
         }
     harness.believes("window.harness.nudgeTheHole(0)")
     return broken
+
+
+def _what_the_unevenness_cannot_see(harness) -> dict:
+    """Draw the operator's layer a little too large, and watch two numbers part.
+
+    The reading everything above reports is the *unevenness* of the band — how
+    much wider one side is than the side opposite. It catches the two layers
+    sitting in different places, which is the fault this arrangement is really
+    prone to, and it is right that it is the headline. But it is blind to one
+    thing, and being blind to it is not a small matter: two layers can agree
+    perfectly about where the middle of the picture is and disagree about how
+    *large* everything around it should be. Then all four margins grow together,
+    the unevenness stays at nought, and an operator sees an outline that is
+    visibly the wrong size around its tile while the numbers say all is well.
+
+    So the fault is made on purpose here. The page draws everything of its own at
+    two per cent larger than the truth, about the middle of the window, leaving
+    the picture exactly where it is — which is what an option with a slightly
+    wrong conversion from micrometres to screen pixels would look like. Nothing
+    else on the page changes.
+
+    Both readings are taken at each scale, which is the whole point: the
+    unevenness must stay where it was while the second reading rises, and the
+    size of the rise is not arbitrary either. The imaged square is a known number
+    of pixels across, so drawing it two per cent large pushes each of its edges
+    out by one per cent of its width — and the reading should come out at about
+    that. A number that moves by roughly the amount the arithmetic predicts is
+    evidence; a number that merely moves is not.
+    """
+    found = {}
+    for scale in (1.0, 1.01, 1.02):
+        harness.believes(
+            f"window.harness.drawTheOperatorsLayerAtTheWrongScale({scale})"
+        )
+        harness.settle(tries=10)
+        picture = harness.photograph()
+        reading = margins_around_the_hole(picture)
+        nominal = harness.nominal(picture)
+        how_wide = _how_wide_the_picture_is(picture)
+        found[f"the operator's layer drawn {scale} times its proper size"] = {
+            "unevenness": reading.unevenness if reading.found else None,
+            "wider all round than it was cut": (
+                round(reading.wider_than_it_was_cut(nominal), 1)
+                if reading.found else None
+            ),
+            "and how wide the band should have grown, from the arithmetic": (
+                round((scale - 1) * how_wide / 2, 1) if how_wide else None
+            ),
+            "the picture is this many photograph pixels across": how_wide,
+            "noticed": bool(
+                reading.found and reading.wider_than_it_was_cut(nominal) > 1
+            ),
+            "photograph": harness.save_frame(
+                picture, f"registration-wrong-scale-{scale}"
+            ),
+        }
+    harness.believes("window.harness.drawTheOperatorsLayerAtTheWrongScale(1)")
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -1061,6 +1125,362 @@ def drawing_rate_with_many_positions(harness) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 8. Two acquisitions at once
+# ---------------------------------------------------------------------------
+#
+# Everything above this line is measured on a single acquisition, and until this
+# was written nothing in the suite had ever asked an option to open two. That is
+# a real gap rather than an oversight of tidiness: the ordinary arrangement smart
+# microscopy is built around is a wide survey with a detailed scan over part of
+# it, and two acquisitions written at different voxel sizes have nothing in
+# common except the position each of them states in micrometres. If an option
+# quietly ignores that position, one run lands somewhere else entirely — and on a
+# single acquisition there is nothing on screen to say so, because a run written
+# at the stage's zero is drawn in the right place whether the position was read
+# or not.
+
+
+def _mask_of(picture, colour: str):
+    """Which pixels of a photograph are definitely one of two saturated colours.
+
+    The survey names itself green and the detail scan names itself red, so
+    "which of the two runs is this part of the window showing" is answered by
+    looking at the colour of the pixel and nothing else. The thresholds are the
+    same generous ones ``viz_studio/tests/margins.py`` uses, and for the same
+    reason: a photograph of a screen has been through compositing, and two
+    colours this far apart cannot be confused by a few levels either way.
+    """
+    picture = np.asarray(picture).astype(int)
+    red, green, blue = picture[:, :, 0], picture[:, :, 1], picture[:, :, 2]
+    if colour == "green":
+        return (green > 110) & (red < 90) & (blue < 90)
+    return (red > 110) & (green < 90) & (blue < 90)
+
+
+def _edges_of(mask) -> dict | None:
+    """The rectangle a mask covers, in the photograph's own pixels."""
+    rows = np.nonzero(mask.any(axis=1))[0]
+    columns = np.nonzero(mask.any(axis=0))[0]
+    if not len(rows) or not len(columns):
+        return None
+    return {
+        "left": float(columns[0]), "right": float(columns[-1]),
+        "top": float(rows[0]), "bottom": float(rows[-1]),
+        "width": float(columns[-1] - columns[0] + 1),
+        "height": float(rows[-1] - rows[0] + 1),
+    }
+
+
+def _the_gap_in(line) -> tuple[float, float] | None:
+    """The longest stretch of "not this colour" with the colour on both sides.
+
+    That is how the window in the survey is found: along a cut across the middle
+    of it, the photograph shows survey, then a stretch of no survey, then survey
+    again. The stretch between them is the ground the coarse run deliberately
+    never imaged, and it is the known feature the fine one has to land inside.
+    """
+    where = np.nonzero(line)[0]
+    if len(where) < 2:
+        return None
+    first, last = int(where[0]), int(where[-1])
+    inside = line[first:last + 1]
+    best, run_from, longest = None, None, 0
+    for at, lit in enumerate(inside):
+        if not lit:
+            if run_from is None:
+                run_from = at
+        elif run_from is not None:
+            if at - run_from > longest:
+                longest, best = at - run_from, (first + run_from, first + at - 1)
+            run_from = None
+    return (float(best[0]), float(best[1])) if best else None
+
+
+def _open_the_pair(harness):
+    """Open the survey and the detail scan together, and say nothing about colour.
+
+    The page deliberately says nothing about either run's channels, so each
+    option reads the run's own description and draws the survey in the green it
+    names and the detail scan in the red it names. That is what makes a
+    photograph able to say which of the two it is looking at.
+
+    The drawn region is left unbounded, and it is worth saying why rather than
+    leaving it as a flag. The interface takes **one** coverage record for the
+    whole viewer, and a record counts in voxels of one particular image — so it
+    cannot describe two runs whose voxels are different sizes. Bounding is
+    therefore a question this measurement deliberately does not ask; it asks only
+    where the two runs land.
+    """
+    harness.open(
+        store="survey", alsoStore="detail", draw="none",
+        channels="fromTheStore", bounded="0",
+    )
+
+
+def _look_from(harness, centre_um: float, zoom: float, name: str):
+    """Put the view at a chosen place and magnification and take one photograph."""
+    harness.believes(
+        f"window.harness.setView("
+        f"{{centre: {{x: {centre_um}, y: {centre_um}}}, zoom: {zoom}}})"
+    )
+    harness.settle(tries=25)
+    picture = harness.photograph()
+    return picture, harness.save_frame(picture, name)
+
+
+def _the_wide_look(harness, name: str = "two-runs-wide") -> dict:
+    """Both runs in one window: is each drawn, and where did the fine one land?
+
+    Everything here is read off the photograph, including the scale. The survey
+    is a known number of micrometres across, so how many photograph pixels of
+    green there are says how many micrometres one pixel is worth — and every
+    distance below is measured in that unit rather than in anything an engine
+    reports about itself.
+    """
+    from acquisitions import (
+        DETAIL_SPAN_UM,
+        SURVEY_SPAN_UM,
+        WHERE_THE_DETAIL_BELONGS,
+    )
+
+    picture, photograph = _look_from(
+        harness, SURVEY_SPAN_UM / 2, SURVEY_SPAN_UM / 650.0, name
+    )
+    survey = _edges_of(_mask_of(picture, "green"))
+    detail = _edges_of(_mask_of(picture, "red"))
+    found = {
+        "the survey is drawn": survey is not None,
+        "the detail scan is drawn": detail is not None,
+        "photograph": photograph,
+    }
+    if survey is None:
+        found["why"] = (
+            "none of the survey reached the screen, so there was nothing to "
+            "measure the detail scan against"
+        )
+        return found
+    # One photograph pixel, in micrometres, taken from the survey's own width.
+    um_per_pixel = SURVEY_SPAN_UM / survey["width"]
+    found["one photograph pixel is this many micrometres"] = round(um_per_pixel, 3)
+    if detail is None:
+        found["why"] = (
+            "the survey was drawn but the detail scan was nowhere in the "
+            "window, although the window held the whole of the survey and the "
+            "detail scan states a position inside it"
+        )
+        return found
+
+    def across(pixels):
+        return (pixels - survey["left"]) * um_per_pixel
+
+    def down(pixels):
+        return (pixels - survey["top"]) * um_per_pixel
+
+    landed = {
+        "x0": round(across(detail["left"]), 1),
+        "x1": round(across(detail["right"]), 1),
+        "y0": round(down(detail["top"]), 1),
+        "y1": round(down(detail["bottom"]), 1),
+    }
+    middle_now = ((landed["x0"] + landed["x1"]) / 2, (landed["y0"] + landed["y1"]) / 2)
+    belongs = WHERE_THE_DETAIL_BELONGS
+    middle_should = (
+        (belongs["x0"] + belongs["x1"]) / 2, (belongs["y0"] + belongs["y1"]) / 2,
+    )
+    found["where the detail scan landed (µm)"] = landed
+    found["where the store says it belongs (µm)"] = belongs
+    found["how far its middle is from where it belongs (µm)"] = {
+        "across": round(middle_now[0] - middle_should[0], 1),
+        "down": round(middle_now[1] - middle_should[1], 1),
+        "either way": round(
+            max(abs(middle_now[0] - middle_should[0]),
+                abs(middle_now[1] - middle_should[1])), 1,
+        ),
+    }
+    # How wide the fine run came out. It should be its own width in micrometres,
+    # whatever the survey's voxels are: a viewer that had quietly drawn one run
+    # in the other's voxels would show it eight times too large here.
+    found["how wide the detail scan came out (µm)"] = {
+        "across": round(landed["x1"] - landed["x0"], 1),
+        "and it should be": DETAIL_SPAN_UM,
+    }
+    return found
+
+
+def _the_close_look(harness, name: str = "two-runs-close") -> dict:
+    """The fine run inside the window in the coarse one, measured in micrometres.
+
+    This is the reading that says the two really coincide rather than merely
+    both being somewhere on the screen. The survey leaves one square of ground
+    unimaged and the detail scan is written to sit centred in it, so on a viewer
+    that places the two by physical coordinates there is an even band of empty
+    ground between them — the same width on all four sides, and a known number
+    of micrometres.
+
+    The magnification is again taken from the photograph rather than from the
+    engine: the unimaged window is a known number of micrometres across, so how
+    many pixels of it there are says what a pixel is worth.
+    """
+    from acquisitions import THE_GAP_UM, THE_WINDOW_IN_THE_SURVEY
+
+    middle_um = (
+        THE_WINDOW_IN_THE_SURVEY["x0"] + THE_WINDOW_IN_THE_SURVEY["x1"]
+    ) / 2
+    window_um = THE_WINDOW_IN_THE_SURVEY["x1"] - THE_WINDOW_IN_THE_SURVEY["x0"]
+    picture, photograph = _look_from(
+        harness, middle_um, window_um / 500.0, name
+    )
+    green = _mask_of(picture, "green")
+    red = _mask_of(picture, "red")
+    height, width = picture.shape[0], picture.shape[1]
+    # The view was put on the middle of the window in the survey, so a cut
+    # through the middle of the photograph crosses it.
+    across = _the_gap_in(green[height // 2, :])
+    down = _the_gap_in(green[:, width // 2])
+    detail = _edges_of(red)
+    found = {"photograph": photograph}
+    if across is None or down is None:
+        found["why"] = (
+            "the square of ground the survey never imaged could not be found in "
+            "the photograph, so there was no known feature to measure against"
+        )
+        return found
+    um_per_pixel = window_um / (across[1] - across[0] + 1)
+    found["one photograph pixel is this many micrometres"] = round(um_per_pixel, 3)
+    found["the unimaged window in the survey, in photograph pixels"] = {
+        "left": across[0], "right": across[1], "top": down[0], "bottom": down[1],
+    }
+    if detail is None:
+        found["the detail scan is inside the window in the survey"] = False
+        found["why"] = (
+            "none of the detail scan was in this window at all, although the "
+            "view was put exactly where the store says the detail scan is"
+        )
+        return found
+    gaps = {
+        "left": round((detail["left"] - across[0]) * um_per_pixel, 1),
+        "right": round((across[1] - detail["right"]) * um_per_pixel, 1),
+        "top": round((detail["top"] - down[0]) * um_per_pixel, 1),
+        "bottom": round((down[1] - detail["bottom"]) * um_per_pixel, 1),
+    }
+    worst = max(abs(gap - THE_GAP_UM) for gap in gaps.values())
+    found["the band of empty ground on each side (µm)"] = gaps
+    found["and each of them should be"] = THE_GAP_UM
+    found["worst departure from it (µm)"] = round(worst, 1)
+    found["the detail scan is inside the window in the survey"] = all(
+        gap > 0 for gap in gaps.values()
+    )
+    return found
+
+
+# How far the detail scan's stated position is moved, in micrometres, to show
+# that the reading above can go the other way. Sixty-four micrometres is chosen
+# to be plainly larger than anything the reading's own coarseness could produce —
+# a photograph pixel is worth about one micrometre at the close look — and
+# plainly smaller than the band of empty ground it eats into, so that the shifted
+# run is still inside the window and the reading has to notice the *size* of the
+# move rather than merely losing sight of it.
+HOW_FAR_THE_DETAIL_IS_MOVED_UM = 64.0
+
+
+def _say_the_detail_is_somewhere_else(data_dir: Path, moved_um: float) -> None:
+    """Change what the detail scan says about where it is, and nothing else.
+
+    Only the run's stated position is touched — not a voxel of its picture, not
+    its size, not the survey. So whatever the readings then report is them
+    noticing a disagreement that really is there, which is the only way to know
+    they would notice a real one. A detail scan that stated the wrong position
+    would be exactly this: a run of a real specimen, drawn perfectly, in the
+    wrong part of the slide.
+    """
+    import json
+
+    from acquisitions import DETAIL_ORIGIN_UM
+
+    where = Path(data_dir) / "detail.ome.zarr" / ".zattrs"
+    described = json.loads(where.read_text())
+    multiscale = described["multiscales"][0]
+    names = [axis["name"] for axis in multiscale["axes"]]
+    for step in multiscale.get("coordinateTransformations", []):
+        if step.get("type") != "translation":
+            continue
+        step["translation"] = [
+            DETAIL_ORIGIN_UM + moved_um if name == "x" else distance
+            for name, distance in zip(names, step["translation"], strict=False)
+        ]
+    where.write_text(json.dumps(described, indent=2))
+
+
+def _moving_one_acquisition_on_purpose(harness, data_dir: Path) -> dict:
+    """Move the detail scan's stated position, and watch both readings notice.
+
+    The store is put back afterwards, so that nothing later in the run finds a
+    detail scan that thinks it is somewhere it is not.
+    """
+    found = {}
+    try:
+        _say_the_detail_is_somewhere_else(data_dir, HOW_FAR_THE_DETAIL_IS_MOVED_UM)
+        _open_the_pair(harness)
+        found["the detail scan was told it is this far along (µm)"] = (
+            HOW_FAR_THE_DETAIL_IS_MOVED_UM
+        )
+        found["seen from far enough out to hold both"] = _the_wide_look(
+            harness, "two-runs-moved-wide"
+        )
+        found["seen close to"] = _the_close_look(harness, "two-runs-moved-close")
+    finally:
+        _say_the_detail_is_somewhere_else(data_dir, 0.0)
+    moved = _reach_the_number(
+        found, "seen from far enough out to hold both",
+        "how far its middle is from where it belongs (µm)", "across",
+    )
+    found["noticed"] = (
+        moved is not None
+        and abs(abs(moved) - HOW_FAR_THE_DETAIL_IS_MOVED_UM) < 12
+    )
+    found["note"] = (
+        "the move has to be noticed at the right *size*, not merely noticed. A "
+        "check that reported something wrong whenever anything changed would "
+        "pass here without being able to tell a hair's breadth from half a "
+        "specimen."
+    )
+    return found
+
+
+def _reach_the_number(found: dict, *path):
+    """Follow a path of keys and hand back a number, or nothing at all."""
+    at = found
+    for step in path:
+        if not isinstance(at, dict) or step not in at:
+            return None
+        at = at[step]
+    return at if isinstance(at, (int, float)) else None
+
+
+def two_acquisitions_at_once(harness, data_dir: Path) -> dict:
+    """A wide survey and a detailed scan over part of it, opened together.
+
+    This is the arrangement the whole project is built around and the one thing
+    no measurement here had ever asked for. Two runs, written at different voxel
+    sizes over overlapping ground, have nothing to line them up but the position
+    each states in micrometres — so this asks two questions of a photograph and
+    nothing else: is each of them drawn at all, and does the fine one land inside
+    the piece of ground the coarse one says it should.
+
+    `acquisitions.write_the_survey_and_the_detail` describes the pair and why it
+    is shaped as it is.
+    """
+    _open_the_pair(harness)
+    return {
+        "seen from far enough out to hold both": _the_wide_look(harness),
+        "seen close to": _the_close_look(harness),
+        "and the check can fail": _moving_one_acquisition_on_purpose(
+            harness, data_dir
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Everything, in order
 # ---------------------------------------------------------------------------
 
@@ -1087,4 +1507,5 @@ EVERYTHING = {
     "7. drawing rate with many positions": lambda h, d: (
         drawing_rate_with_many_positions(h)
     ),
+    "8. two acquisitions at once": two_acquisitions_at_once,
 }

@@ -17,7 +17,11 @@ numbers go uneven — and *which way* they go says what has gone wrong:
   from a position the layer underneath has not reached yet, which is a follower
   lagging behind and is what panning produces;
 - all four growing or shrinking together: the two disagree about magnification
-  rather than about position.
+  rather than about position. That one is worth pausing on, because the obvious
+  number misses it entirely. "How uneven are the four sides" stays at nought
+  while all four grow together, so the second reading here —
+  :meth:`Margins.wider_than_it_was_cut` — compares the band with the width it was
+  cut at instead, and that is what catches a disagreement about size.
 
 The reason this is worth having as a general check, rather than as part of one
 investigation, is that the right answer is "unchanged". There is no number to
@@ -180,13 +184,54 @@ class Margins:
     def unevenness(self) -> float | None:
         """How far apart the widest and the narrowest side are.
 
-        This is the single number that says "these two layers have come apart",
-        and zero is the right answer.
+        This is the single number that says "these two layers are in different
+        *places*", and zero is the right answer.
+
+        It says nothing at all about the two layers disagreeing about *size*.
+        See :meth:`wider_than_it_was_cut`, which is the other half of the
+        question and is deliberately kept as a separate number.
         """
         if not self.found:
             return None
         widths = list(self.sides.values())
         return max(widths) - min(widths)
+
+    def wider_than_it_was_cut(self, nominal: float) -> float | None:
+        """How much wider the band came out all round than the width it was cut.
+
+        This is the reading that catches the two layers agreeing about where the
+        middle of the picture is and disagreeing about how large everything
+        around it should be. If the drawing on top is a couple of per cent too
+        big, every one of the four margins grows by the same amount, the
+        unevenness above stays at nought, and the operator sees an outline that
+        is visibly the wrong size around its tile with nothing in the numbers to
+        say so.
+
+        It is worked out by averaging each pair of opposite sides and comparing
+        that with ``nominal``, the width the band was cut at in this
+        photograph's own pixels. Averaging a pair is what makes it deaf to
+        displacement: sliding the whole drawing sideways takes from one margin
+        exactly what it gives the one opposite, so their average does not move.
+        The two questions are therefore genuinely separate, and neither number
+        can stand in for the other.
+
+        The answer is the worse of the two pairs, in the photograph's own pixels,
+        and nought is the right answer.
+
+        **One thing it cannot tell apart**, and it matters on a slow disk. A
+        picture whose pieces have not all arrived is genuinely smaller than the
+        ground it was written on, so the band around it is genuinely wider — and
+        that reads here exactly like a disagreement about size. It is not one; it
+        is an operator waiting for their data. So take this reading on a picture
+        that has settled, or set aside the frames where it has not with
+        :func:`only_the_whole_ones`, which tells the two apart by the same
+        arithmetic.
+        """
+        if not self.found:
+            return None
+        across = abs((self.left + self.right) / 2 - nominal)
+        down = abs((self.top + self.bottom) / 2 - nominal)
+        return max(across, down)
 
 
 def margins_around_the_hole(picture, at=0.5) -> Margins:
@@ -342,6 +387,20 @@ def worst_drift(readings: list[Margins], nominal: float) -> dict:
             max(abs(getattr(r, side) - nominal) for r in usable), 1
         )
     worst["unevenness"] = round(max(r.unevenness for r in usable), 1)
+    # The other half of the question, kept separate on purpose: how much wider
+    # the band came out all round than it was cut. See
+    # ``Margins.wider_than_it_was_cut`` for why one number cannot do both jobs.
+    #
+    # The **least** of the readings rather than the worst, which is the opposite
+    # of every other number here and is deliberate. A picture whose pieces have
+    # not all arrived is smaller than the ground it was written on, so the band
+    # around it is wider — and taking the worst reading would report an operator
+    # waiting for their data as a disagreement about size. A real disagreement
+    # about size is in *every* frame, so the least reading still shows it, while
+    # a frame or two of half-arrived picture cannot inflate it.
+    worst["wider all round than it was cut, at least"] = round(
+        min(r.wider_than_it_was_cut(nominal) for r in usable), 1
+    )
     worst["widest_seen"] = {
         side: max(getattr(r, side) for r in usable)
         for side in ("left", "right", "top", "bottom")

@@ -110,7 +110,8 @@ The words the address takes:
 | | |
 | --- | --- |
 | `option=` | which of the three draws the picture |
-| `store=` | `square`, `lopsided`, `sparse`, `scattered`, `fine` or `colours` |
+| `store=` | `square`, `lopsided`, `sparse`, `scattered`, `fine`, `colours`, or the pair `survey` and `detail` |
+| `alsoStore=` | a second acquisition, opened beside the first and drawn over it. `store=survey&alsoStore=detail&draw=none&bounded=0&channels=fromTheStore` is the ordinary shape of a run — a wide coarse scan in green with a fine one in red over the part of it worth looking at closely |
 | `channels=fromTheStore` | say nothing to the option about the run's colours, so that it reads the run's own description instead. Worth trying with `store=colours`, which is recorded in two |
 | `draw=carrier` | the operator's real drawing, all on one sheet above the picture with holes cut in it |
 | `draw=threeLayers` | the same scene taken apart into the three layers of `THE_CANVAS.md`: the carrier and a background pattern beneath the picture, the tiles above it |
@@ -141,9 +142,11 @@ page reaches any of them.
 `viz_studio/tests/test_the_options_hold_together.py` holds the promises every
 option has to keep — micrometres, two gestures, addresses passed in, two viewers
 on one page, the engine kept behind its adapter, an honest answer about whether
-the bottom layer is really beneath the picture, and a run's own colours being
-read when the page says nothing about them. Run them with a browser required, so
-that a machine which could have drawn does:
+the bottom layer is really beneath the picture, a run's own colours being read
+when the page says nothing about them, a wide survey and a detailed scan landing
+in the same place, and an operator's drawing at the wrong *size* being noticed
+rather than passing as well lined up. Run them with a browser required, so that a
+machine which could have drawn does:
 
 ```
 ZMART_REQUIRE_BROWSER=1 python -m pytest viz_studio/tests/test_the_options_hold_together.py
