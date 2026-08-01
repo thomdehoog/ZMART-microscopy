@@ -138,6 +138,58 @@ test("the same run, drawn by the other engine, from the same view", async ({ pag
   expect(await page.locator("#viewer-readout").textContent()).toBe(before);
 });
 
+test("the same run again, drawn by neuroglancer, from the same view", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  /* The third engine is the one this project is most likely to ship, and it is
+     also the one that cannot live inside the page: it hands the fetching and
+     unpacking of image pieces to background programs, which a browser will only
+     start from files of their own. `src/canvas/engines.js` explains what that
+     costs. What matters here is only the question a photograph can answer —
+     given a page served the way an operator will be served it, does the third
+     engine put a picture on the screen? The built page is checked separately, in
+     `viewer-built.spec.js`, because how the page is delivered is exactly what
+     this engine is sensitive to. */
+  await standOnTheViewerStep(page);
+  await run.acquire(25);
+  await fullestPictureOf(page, "viewer-workflow-before-neuroglancer", { seconds: 6 });
+
+  const before = await page.locator("#viewer-readout").textContent();
+  await page.locator('#viewer-engine button[data-engine="neuroglancer-under"]').click();
+  /* A generous wait, and it is not papering over anything. The button is marked
+     as the chosen one once the engine has actually opened, not when it is
+     pressed — so this is waiting for neuroglancer to load. It is a large engine,
+     and the development server hands a page its pieces one file at a time, so
+     the first time it is asked for it can take the better part of a minute. The
+     built page, where everything arrives in one piece, does it in a couple of
+     seconds; `viewer-built.spec.js` waits the ordinary amount and passes. */
+  await expect(page.locator('#viewer-engine button[data-engine="neuroglancer-under"]'))
+    .toHaveAttribute("aria-checked", "true", { timeout: 90_000 });
+
+  const measured = await fullestPictureOf(page, "viewer-workflow-neuroglancer-under");
+  console.log(
+    `neuroglancer drew: ${(measured.lit * 100).toFixed(1)}% of the box lit, ` +
+      `${measured.distinct} distinct colours`,
+  );
+  itIsReallyDrawing(measured, "neuroglancer-under");
+
+  // The view has to survive the change, the same as it does between the other two.
+  expect(await page.locator("#viewer-readout").textContent()).toBe(before);
+});
+
+test("the chooser offers every engine the page was built with, and no others", async ({ page }) => {
+  /* Served over HTTP, which is how an operator meets the page, all three can
+     draw and all three are offered. The point of this test is the "no others"
+     half: a button for an engine the page cannot open would draw nothing, and a
+     box that never fills looks exactly like one that is still loading. The same
+     rule is checked from the other side, without a browser, in
+     `tests/unit/engines.test.js`. */
+  await standOnTheViewerStep(page);
+
+  const offered = await page.locator("#viewer-engine button").allTextContents();
+  expect(offered).toEqual(["viv-under", "viv-inside", "neuroglancer-under"]);
+});
+
 test("the step gives the whole window to the picture", async ({ page }) => {
   await standOnTheViewerStep(page);
 

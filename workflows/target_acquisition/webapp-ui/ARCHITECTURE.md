@@ -276,8 +276,25 @@ in this page imports Viv or deck.gl on the canvas's behalf; it calls
 difference between two engines a difference in the engines, rather than a
 difference in how somebody happened to wire one of them up.
 
-Reaching across to `viz_studio/options/` costs two settings in `vite.config.js`,
-and both are explained there.
+Reaching across to `viz_studio/options/` costs a few settings in
+`vite.config.js`, and all of them are explained there.
+
+**One engine changes what the build produces.** Neuroglancer, the third of the
+three, hands the fetching and unpacking of image pieces to background programs,
+and a browser will only start one of those from a file of its own. So the build
+is no longer one file: it is `index.html` with everything else folded into it,
+and those two programs beside it. That was accepted after the alternative was
+tried and measured; `README.md` records what was tried, `neuroglancer-workers.mjs`
+compiles the two programs, and `vite.config.js` places them.
+
+It has one consequence that reaches into this folder. A page opened straight off
+the disk rather than served over HTTP has no address of its own, and a browser
+will not start a background program for it — so neuroglancer cannot draw there
+however well it was built. `engines.js` therefore has two lists: what the page
+was built with, and what it can actually open where it is now. Only the second is
+put in front of an operator. A button that draws nothing would be the worst of
+the available behaviours, because an empty box looks exactly like one that is
+still loading.
 
 ## Acquired data: `live/`
 

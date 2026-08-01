@@ -475,11 +475,18 @@ canvas.livecv { position: absolute; inset: 0; background: #05070d; }
 canvas.livecv[hidden] { display: none; }
 
 /* The box the canvas draws in, on the step that is nothing but the canvas. It
-   is left empty here: whatever drawing surfaces the chosen engine needs are
-   made inside it, sized to fill it, and taken away again when the panel closes.
-   Its colour is set by the panel rather than here, so that the engine can be
-   told the same colour and no seam shows between one surface and the next. */
-.viewer-box { position: absolute; inset: 0; }
+   holds nothing of its own: whatever drawing surfaces the chosen engine needs
+   are made inside it, sized to fill it, and taken away again when the panel
+   closes.
+
+   The colour is here as well as in the panel, and the two have to match. The
+   panel tells the engine this same colour so that no seam shows between one
+   drawing surface and the next; the box is painted with it because an engine is
+   fetched when the step is first opened, and until it arrives the box would be
+   page-white — a second or two of blank white where a dark, empty microscope
+   image belongs, which reads as something having gone wrong. Change this and
+   change `THE_COLOUR_BEHIND_THE_PICTURE` in `src/canvas/panel.js` with it. */
+.viewer-box { position: absolute; inset: 0; background: #05070d; }
 
 /* What the picture is doing, said quietly in the corner of it: which run is
    open, or why it could not be. */
