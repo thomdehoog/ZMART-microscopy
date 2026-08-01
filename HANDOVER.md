@@ -275,3 +275,79 @@ exhausted. What remains is what the method cannot reach:
 - **The canvas should own its gestures**, with the right-hand panel selecting the
   tool — so a drag draws instead of panning when the operator has chosen a pen. Not
   built; the reasoning is in the session's notes.
+
+---
+
+## What landed after the sections above were written
+
+Each of these was verified from its own reproduction rather than taken on the
+agent's word, which has caught a wrong claim four times in this session.
+
+**A multi-colour run now draws properly.** The contract asked the page to describe an
+acquisition's channels while giving it no way to learn them, so pages passed nothing
+and every engine fell back to one white channel. `channels` is now optional; left
+out, each viewer reads the run's own description — the name, the colour, and the
+display range the run asked for, never the camera's full range, because that opens a
+picture almost black and it stays that way until somebody drags a slider.
+
+Fixing it exposed two more faults in neuroglancer that only appear once something has
+more than one colour. **Both layers of a two-channel run drew the same channel** —
+and a page naming *one* channel of a two-channel run was shown the *second* one, in
+the colour it asked for the first. And the engine's default layer opacity watered the
+second channel down to 118 of a possible 255 against the first's 237.
+
+**Two acquisitions at once had never been asked for, and two of the three engines got
+it wrong.** Both Viv adapters drew a second acquisition **898 µm from where its store
+says it is** — the whole run, right size, perfectly sharp, at the survey's corner.
+They stretched it onto the first run's voxel size and never moved it: they read the
+scale from the store's description and never read the origin sitting beside it.
+Neuroglancer reads the description itself and was right first time. This is the
+arrangement the whole project is built around — a wide survey with a detailed scan
+over part of it — and nothing had ever drawn one.
+
+**Registration could not see a disagreement about size.** All four margins grow
+together when the operator's drawing is scaled slightly differently from the picture,
+so the unevenness stays at nought while the outline is visibly the wrong size around
+its tile. The fix was one piece of arithmetic on readings already taken. Drawing the
+operator's layer 2% too large now moves the new reading from 0.5 to 2.5 while the old
+number does not shift a digit.
+
+**The workflows are declared once.** The list the tests read was imported by nothing
+that runs, and `target_acquisition` shared only **7 of its 11 steps** with the version
+the page offers — a unit test asserted the old numbering explicitly and passed.
+
+**Neuroglancer reaches the operator page**, at the cost of two worker files beside the
+single-file page. Inlining them was ruled out by measurement: the build tool copies
+neuroglancer's worker stub without compiling it, and a browser silently refuses to
+start a worker folded into a page above about two megabytes. It also found that
+**over `file://` neuroglancer cannot start at all**, while both Viv engines draw — and
+the desktop shell was opening the built page that way, so it would have offered an
+engine that could never work.
+
+**Asking for a canvas with no acquisitions hangs neuroglancer.** `openViewer` never
+settles: the adapter waits for the engine to know its axes, and the engine derives
+those from its image layers. That is the pre-run case — an operator laying out
+positions on an empty plate — and the contract says nothing about what an empty
+acquisition list means. There is also no way to abandon an `openViewer` that never
+finishes.
+
+---
+
+## The one thing left from this round
+
+**Moving the gestures into the canvas** — task #27 — was started and did not run. The
+agent stopped on a service limit before doing any work; nothing was changed and
+nothing is half-built.
+
+It matters because pan and zoom still live in the harness, so every page embedding the
+canvas would reimplement them and drift. The design is settled: one shared module
+inside the canvas used by all three engines, so they cannot diverge, with the
+application saying only *what a drag currently means* — the right-hand panel picks the
+tool, the canvas obeys. Build the mode switch and nothing more; a scribble tool is a
+use that does not exist yet.
+
+**And the adapters on `claude/viewer-as-a-workflow` are a snapshot** taken before the
+channel and placement fixes. That page still shows only the first channel of a
+multi-colour run, and still puts a second acquisition in the wrong place. Copying them
+across is the smallest useful piece of work available, and it is a symptom of the
+branch question at the top of this document rather than a task worth repeating.
