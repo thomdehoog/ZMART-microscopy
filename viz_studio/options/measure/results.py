@@ -94,29 +94,6 @@ ROWS = [
                          "the hole moved 8 browser pixels", "unevenness"),
     ),
     (
-        "**1c. A disagreement about size** — band wider all round than cut, at rest "
-        "(screen px)",
-        lambda f: _reach(f, "1. registration",
-                         "at rest, wider all round than it was cut"),
-    ),
-    (
-        "  … while zooming, at least",
-        lambda f: _reach(f, "1. registration", "zooming",
-                         "wider all round than it was cut, at least"),
-    ),
-    (
-        "  … with the operator's layer drawn 1.02× on purpose (must be large)",
-        lambda f: _reach(f, "1. registration", "and a disagreement about size",
-                         "the operator's layer drawn 1.02 times its proper size",
-                         "wider all round than it was cut"),
-    ),
-    (
-        "  … and the unevenness at that moment (which cannot see it)",
-        lambda f: _reach(f, "1. registration", "and a disagreement about size",
-                         "the operator's layer drawn 1.02 times its proper size",
-                         "unevenness"),
-    ),
-    (
         "**1b. Registration of the bottom layer** — worst unevenness at rest (screen px)",
         lambda f: _reach(f, "1b. registration of the bottom layer",
                          "at rest, unevenness"),
@@ -141,6 +118,29 @@ ROWS = [
         lambda f: _reach(f, "1b. registration of the bottom layer",
                          "and the check can fail",
                          "the ring moved 8 browser pixels", "unevenness"),
+    ),
+    (
+        "**1c. A disagreement about size** — band wider all round than cut, at rest "
+        "(screen px)",
+        lambda f: _reach(f, "1. registration",
+                         "at rest, wider all round than it was cut"),
+    ),
+    (
+        "  … while zooming, at least",
+        lambda f: _reach(f, "1. registration", "zooming",
+                         "wider all round than it was cut, at least"),
+    ),
+    (
+        "  … with the operator's layer drawn 1.02× on purpose (must be large)",
+        lambda f: _reach(f, "1. registration", "and a disagreement about size",
+                         "the operator's layer drawn 1.02 times its proper size",
+                         "wider all round than it was cut"),
+    ),
+    (
+        "  … and the unevenness at that moment (which cannot see it)",
+        lambda f: _reach(f, "1. registration", "and a disagreement about size",
+                         "the operator's layer drawn 1.02 times its proper size",
+                         "unevenness"),
     ),
     (
         "**2. Handedness** — brightness across the picture (levels per 100 px)",

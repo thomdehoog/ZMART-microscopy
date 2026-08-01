@@ -69,12 +69,50 @@ hundred. **Option C is the only column that is plainly and repeatedly slower
 than the others**, at both counts, in both runs. Everything else about row 7 is
 this machine having a good minute or a bad one.
 
-The same caution belongs on row 6 for option B, which has read 826, 723 and 688
-requests on different runs while the bounded figure held at exactly 36 every
-time. The unbounded reading waits for the requests to go quiet and then stops, so
+The same caution belongs on row 6 for **option C**, the `viv-inside` column, which
+has read 845, 826, 723 and 688 requests on different runs while its bounded figure
+held at exactly 36 every time. (This sentence said "option B" until the table's own
+history was checked: every one of those numbers has always been in the
+`viv-inside` column, and `viv-under` has read exactly 432 on every run since it
+was built. Naming the wrong column made the caution point at the steadiest reading
+in the row.) The unbounded reading waits for the requests to go quiet and then stops, so
 it counts however many the engine had got round to asking for; the bounded one is
 settled by the coverage record and is steady. Read the bounded numbers as the
 measurement and the unbounded ones as the order of magnitude.
+
+### The whole table was taken again when rows 1c and 8 were added, and this is what moved
+
+Adding a row means running the suite again, which rewrites every number in the
+table and not only the new ones. So here is what changed between the run of 31
+July and the run of 1 August, and whether it is worth believing.
+
+Columns are named rather than lettered below, because the point of the paragraph
+is which reading moved.
+
+**Nothing moved at all in rows 0, 0b, 1, 1b, 2, 3, 4, 5a, 5b, 5d or 6.** Every one
+of those is identical to the digit in all three columns — all four registration
+readings, the deliberate breakages beside them, the shares of the window, and
+every request count in row 6, including the unbounded figure the paragraph above
+warns wanders, which held at 688. That is the reassuring half of the re-run, and
+it is most of the table.
+
+**What moved is the timing, and it moved the same way in every column.** Row 7
+rose by about a third throughout and at both counts — `neuroglancer-under` from
+13.5 to 18.1 frames a second at twenty positions, `viv-inside` from 5.6 to 7.2,
+`viv-under` from 10.9 to 15.8 — and the ranges beside them moved with them. What
+did not change is how the columns stand relative to one another: `viv-inside` is
+still plainly the slowest and the other two still overlap. This is exactly the
+wandering described above, and the cause is not mysterious — the earlier run
+shared this machine with something else and this one had it to itself. **It should
+not be read as any option having become faster.** Rows 5c and 5e moved the same
+way and by the same kind of amount: a tile now shows in 0.36 to 0.47 seconds where
+it took 0.43 to 0.62.
+
+Row 5f's first-and-last pair moved for `viv-inside`, from 3.5 → 4.5 to 5.2 → 3.8.
+The row asks whether a viewer falls progressively behind a run, and neither pair
+says that it does; the six readings behind each are in
+`measurements/<option>.json` and are what the row is really about. The count of
+tiles written alongside moved with the speed of the machine, as it must.
 
 ### Every row was broken on purpose to see whether it would notice
 
@@ -240,10 +278,11 @@ them states in micrometres, and on a single acquisition written from the stage's
 zero that position is nought — so a viewer that never reads it looks perfectly
 correct on every other row in this table.
 
-Both were put right, both now read **0.0 µm**, and the measurement was shown able
-to fail by moving one run's stated position 64 µm and watching all three notice it
-at the right size. Row 8 below has the arrangement, the numbers and what the row
-deliberately does not ask.
+Both were put right. All three now place the two runs within one photograph pixel
+of each other, which is well inside half of the survey's own four-micrometre
+voxel, and the measurement was shown able to fail by moving one run's stated
+position 64 µm and watching all three notice it at the right size. Row 8 below
+has the arrangement, the numbers, and what the row deliberately does not ask.
 
 ### The seam is meant to be invisible; the measurements make it visible on purpose
 
@@ -260,7 +299,7 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 
 | | neuroglancer-under | viv-inside | viv-under |
 | --- | --- | --- | --- |
-| *measured* | 2026-07-31 12:46 | 2026-07-31 12:48 | 2026-07-31 12:51 |
+| *measured* | 2026-08-01 11:40 | 2026-08-01 11:42 | 2026-08-01 11:46 |
 | **0. Can a surface underneath the engine be seen?** | **no** | yes | yes |
 | **0b. Is the bottom layer genuinely beneath the picture?** | **no** | yes | yes |
 |   … a colour drawn there fills this share of the window | 0.0 | 0.9695 | 0.9695 |
@@ -277,6 +316,10 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 |   … while zooming | not applicable | 0.0 | 0.0 |
 |   … thrown about | not applicable | 0.0 | 0.0 |
 |   … with the ring moved 8 px on purpose (must be large) | not applicable | 16.0 | 16.0 |
+| **1c. A disagreement about size** — band wider all round than cut, at rest (screen px) | 0.5 | 1.0 | 1.0 |
+|   … while zooming, at least | 0.5 | 0.0 | 0.0 |
+|   … with the operator's layer drawn 1.02× on purpose (must be large) | 2.5 | 3.0 | 3.0 |
+|   … and the unevenness at that moment (which cannot see it) | 1.0 | 0.0 | 0.0 |
 | **2. Handedness** — brightness across the picture (levels per 100 px) | 91.5 | 91.5 | 91.5 |
 |   … the bright edge is on the right | yes | yes | yes |
 |   … dragging carries the picture with the hand (slope) | 1.0 | 1.0 | 1.0 |
@@ -288,18 +331,22 @@ top of `harness/src/drawings.js` and of `tests/margins.py`.
 | **5a. New data appears at all** | yes | yes | yes |
 |   … the option's own count of what it sent back (a different thing in each) | 3 | 3 | 3 |
 | **5b. What the refresh costs** — pieces re-fetched | 4 | 3 | 4 |
-| **5c. The picture survives the refresh** — seconds before it is back | 0.12 | 0.4 | 0.2 |
-|   … what the window showed while it refreshed | [0.2726, 0.2726, 0.2726] | [0.2734, 0.2734, 0.2734, 0.2734] | [0.2734, 0.2734, 0.2734] |
+| **5c. The picture survives the refresh** — seconds before it is back | 0.1 | 0.18 | 0.17 |
+|   … what the window showed while it refreshed | [0.2726, 0.2726] | [0.2734, 0.2734, 0.2734] | [0.2734, 0.2734, 0.2734, 0.2734] |
 | **5d. The view stays put** — centre moved (µm) | 0.0 | 0 | 0.0 |
-| **5e. How soon a tile shows** (seconds) | 0.43 | 0.62 | 0.46 |
-| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 5.2 | 3.5 → 4.5 | 5.2 → 5.2 |
-|   … tiles written meanwhile | 426 | 512 | 414 |
+| **5e. How soon a tile shows** (seconds) | 0.36 | 0.47 | 0.47 |
+| **5f. Does it keep up** — frames a second, first round → last | 5.2 → 5.2 | 5.2 → 3.8 | 5.2 → 5.2 |
+|   … tiles written meanwhile | 427 | 414 | 415 |
 | **6. Requests** — to redraw one view, unbounded | 117 | 688 | 432 |
 |   … of those, for ground nobody imaged | 108 | 643 | 396 |
 |   … bounded by the coverage record | 25 | 36 | 100 |
 |   … of those, for ground nobody imaged | 16 | 0 | 64 |
-| **7. Drawing rate** — frames a second at 20 positions, middle of five | 13.5 (12.3–14.0) | 5.6 (4.9–6.2) | 10.9 (10.0–11.6) |
-|   … at 200 positions, middle of five | 9.1 (8.4–10.5) | 4.5 (4.2–5.0) | 9.2 (8.4–9.9) |
+| **7. Drawing rate** — frames a second at 20 positions, middle of five | 18.1 (17.1–18.9) | 7.2 (6.3–7.9) | 15.8 (14.9–16.4) |
+|   … at 200 positions, middle of five | 13.4 (10.5–14.0) | 6.2 (4.1–6.9) | 11.0 (10.5–11.2) |
+| **8. Two acquisitions at once** — both are drawn | yes | yes | yes |
+|   … how far the finer landed from where the store says (µm) | 0.0 | 1.6 | 1.6 |
+|   … the band of ground between them, worst departure from 128 µm | 1.0 | 0.0 | 0.0 |
+|   … with the finer's stated origin moved 64 µm (must read about 64) | 63.5 | 64.5 | 64.5 |
 
 <!-- end of the generated table -->
 
@@ -456,28 +503,44 @@ everything of its own at 1.01 and then 1.02 times its proper size, about the
 middle of the window, leaving the picture exactly where it is. That is not an
 invented fault: an option whose conversion from micrometres to screen pixels was
 slightly wrong would look precisely like this. Nothing else on the page changed,
-and both readings were taken from each photograph. **On every option the
-unevenness stayed at 0.0 at both scales**, exactly as the paragraph under row 1
-says it would, **while this reading rose from 1 to 2 and then to 3 screen
-pixels.** The contrast is the finding: the headline number cannot see this fault
-at all, and the new one sees it at one per cent.
+and both readings were taken from each photograph.
+
+**The unevenness did not move at all, on any of the three, at either scale.** It
+stayed at 1.0 for option A, which is that option's own floor and is explained
+under row 1, and at 0.0 for options B and C — the same numbers those columns read
+with nothing broken whatever. Meanwhile this reading rose by exactly 1 and then 2
+screen pixels on every one of them: 0.5 to 1.5 to 2.5 for option A, and 1.0 to
+2.0 to 3.0 for B and C. That contrast is the whole finding. The headline number
+cannot see this fault at all, and the new one sees it at one per cent.
 
 The *size* of the rise is checked as well as its direction, because a number that
 merely moves is not evidence — a check that reported something wrong whenever
-anything changed could not tell a hairline from a disaster. The imaged square is
-about 243 photograph pixels across, so drawing it two per cent too large pushes
-each of its edges out by one per cent of that, which is 2.4 pixels; the reading
-rose by 2. At one per cent the arithmetic says 1.2 and the reading rose by 1.
-Both numbers are in the table beside each other.
+anything changed could not tell a hairline from a disaster. The imaged square
+comes out 243 or 244 photograph pixels across, so drawing it two per cent too
+large pushes each of its edges out by one per cent of that, which is 2.4 pixels;
+the reading rose by 2. At one per cent the arithmetic says 1.2 and the reading
+rose by 1. Both numbers sit beside each other in
+`measurements/<option>.json`.
 
-**One is this reading's own floor rather than a disagreement**, and all three
-options read 1 with nothing broken at all. Every edge here is found as the gap
-between the last pixel that is definitely one thing and the first that is
-definitely the next, so the softly lit pixel between them is left out on both
-sides and the band comes out about a pixel wider than it was cut. That floor is
-what sets the smallest disagreement this can resolve — around half a per cent on
-a square this size, and less on a larger one, because the error grows with the
-square while the floor does not.
+**Half a pixel to a pixel is this reading's own floor rather than a
+disagreement**, and it is what the three columns read with nothing broken at all:
+0.5 for option A, 1.0 for B and C. Every edge here is found as the gap between
+the last pixel that is definitely one thing and the first that is definitely the
+next, so the softly lit pixel between them is left out on both sides and the band
+comes out about a pixel wider than it was cut. Option A reads half of what the
+other two read for the reason row 1 gives: its picture has a hard edge, so its
+two margins come out 40 and 41 rather than 41 and 41, and the average of a pair
+is what this reading takes. That floor is what sets the smallest disagreement
+this can resolve — around half a per cent on a square this size, and less on a
+larger one, because the error grows with the square while the floor does not.
+
+**The reading taken while zooming falls to nought on options B and C**, and that
+is the definition working rather than a fault. It is the *least* the band was
+ever wider over the frames of the gesture, and a zoom passes through many
+magnifications; at some of them the edge of the picture happens to fall so that
+the band lands exactly on the forty it was cut at. Option A holds 0.5 throughout,
+which is its hard edge again. Neither column moves when the drawing is made too
+large *and* the view is left still, which is the comparison the row is for.
 
 **What it cannot tell apart**, and this matters on a slow disk. A picture whose
 pieces have not all arrived is genuinely smaller than the ground it was written
@@ -698,7 +761,18 @@ of a voxel, and places every acquisition in a world whose unit is the first run'
 voxel and whose zero is the stage's zero. The functions say so at length —
 `placementOf` in `viv-under/viewer.js` and `stretchOntoTheSameWorld` in
 `viv-inside/viewer.js`. Measured after the change, both read a worst departure of
-**0.0 µm** from the 128 µm band, and the table carries the readings for all three.
+**0.0 µm** from the 128 µm band on all four sides.
+
+Two readings of the same thing are in the table and they differ slightly, which
+is worth explaining rather than leaving to be noticed. Seen from far enough out
+to hold both runs, the middle of the detail scan came out 0.0 µm from where it
+belongs on option A and 1.6 µm on options B and C. Seen close to, where the band
+between the two runs is read, the worst departure is 1.0 µm on option A and 0.0
+on B and C. Neither ordering means anything: one photograph pixel is worth about
+three micrometres at the wider magnification and about one at the closer, so both
+pairs of numbers are inside a pixel of each other and inside half of the survey's
+own four-micrometre voxel. **The survey cannot say where it was imaged more
+precisely than one of its own voxels**, and that is the honest limit of this row.
 
 For a run written from the stage's zero, which is every other acquisition in this
 suite, the placement is the identity and nothing at all changed — which is why no
@@ -724,13 +798,15 @@ it than it says.
   than of any engine, it is the next thing to settle for anyone building on this,
   and measuring around it was better than measuring something that would have
   meant three different things in three columns.
-- **It does not say the two are sharp to better than a photograph pixel.** The
-  detail scan measures 251 to 252 µm across where it should be 256, on all three
-  options, and that is the reading rather than the picture: the bounding box is
-  taken from pixels that are *definitely* red, so the softly lit pixel at each
-  edge is left out on both sides, which at three micrometres to the pixel comes
-  to the few micrometres missing. The band measurement is taken at one micrometre
-  to the pixel for exactly that reason.
+- **It does not say the two are sharp to better than a photograph pixel.** Seen
+  from far enough out to hold both runs, the detail scan measures 255.2 µm across
+  on options B and C and 251.2 µm on option A, where it is 256 µm — and that is
+  the reading rather than the picture. The rectangle is taken from pixels that
+  are *definitely* red, so the softly lit pixel at each edge is left out on both
+  sides, and at three micrometres to the photograph pixel that is the few
+  micrometres missing. Option A loses rather more of it because its picture has a
+  hard edge that lands where it lands. The band measurement that carries the real
+  answer is taken at one micrometre to the pixel for exactly this reason.
 
 ---
 
