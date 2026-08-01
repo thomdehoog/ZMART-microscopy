@@ -397,6 +397,52 @@ function voxelSizeUm(metadata, labels) {
 }
 
 /**
+ * Where the low corner of this acquisition sits on the stage, in micrometres.
+ *
+ * **Why a viewer needs this at all.** An image says how large its voxels are and
+ * how many of them there are, and between them those two say how *big* it is —
+ * but neither says where on the specimen it begins. A run written from the
+ * stage's zero begins at nought and the question never comes up, which is why it
+ * can go unanswered for a long time without anybody noticing. Open a wide survey
+ * and a detailed scan of one part of it together, though, and the position is
+ * the only thing there is: the two runs have different voxels and share nothing
+ * else, so a viewer that ignores where each of them says it is draws the detail
+ * scan at the same corner as the survey — a perfectly sharp picture of the
+ * wrong part of the slide.
+ *
+ * That is not a hypothetical. Measured before this function existed, the detail
+ * scan of `viz_studio/options/RESULTS.md` measurement 8 landed 898 micrometres
+ * from where its store says it is.
+ *
+ * The number is written beside the multiscale block as a translation, in the
+ * same units as the axes. Viv's own reading of a store does not carry it, so it
+ * is taken from the description here, exactly as the size of a voxel is.
+ */
+function originUm(metadata, labels) {
+  const found = { x: 0, y: 0, z: 0 };
+  const multiscale = metadata?.multiscales?.[0];
+  if (!multiscale) return found;
+  const axes = multiscale.axes || labels;
+  for (const step of multiscale.coordinateTransformations || []) {
+    if (step.type !== "translation") continue;
+    axes.forEach((axis, at) => {
+      const name = typeof axis === "string" ? axis : axis.name;
+      const unit = typeof axis === "string" ? "" : axis.unit || "";
+      if (!(name in found)) return;
+      const distance = Number(step.translation?.[at]);
+      if (!Number.isFinite(distance)) return;
+      const toMicrometres =
+        unit === "meter" || unit === "m" ? 1e6
+        : unit === "millimeter" || unit === "mm" ? 1e3
+        : unit === "nanometer" || unit === "nm" ? 1e-3
+        : 1;
+      found[name] = distance * toMicrometres;
+    });
+  }
+  return found;
+}
+
+/**
  * Read one acquisition's pyramid of smaller copies, freshly.
  *
  * "Freshly" is not a figure of speech and it is the whole of how new tiles
@@ -440,6 +486,11 @@ async function start(own, acquisitions) {
         pyramid: data,
         metadata,
         umPerVoxel: voxelSizeUm(metadata, data[0].labels),
+        // Where this acquisition's low corner sits on the stage, in
+        // micrometres. Nought for a run written from the stage's zero, which is
+        // most of them, and the only thing that puts two runs of different voxel
+        // sizes in the same place when it is not.
+        originUm: originUm(metadata, data[0].labels),
       };
     }),
   );
@@ -662,7 +713,13 @@ function openingViewFor(own) {
   const across = widthAndHeightInVoxels(first.pyramid[0]);
   const um = first.umPerVoxel;
   return {
-    centre: { x: (across.width * um.x) / 2, y: (across.height * um.y) / 2 },
+    // The middle of the first acquisition, counted from where that acquisition
+    // says it begins rather than from the stage's zero — otherwise a run written
+    // some way along the stage opens looking at empty room beside it.
+    centre: {
+      x: first.originUm.x + (across.width * um.x) / 2,
+      y: first.originUm.y + (across.height * um.y) / 2,
+    },
     zoom: Math.max(
       (across.width * um.x) / width,
       (across.height * um.y) / height,
@@ -908,17 +965,45 @@ function selectionFor(own, store, row) {
 }
 
 /**
- * A second acquisition written at a different voxel size, stretched onto the
- * world the first one defines. Nothing at all when they agree, which is the
- * ordinary case of one run open at a time.
+ * An acquisition put where it belongs in the world the first one defines:
+ * stretched to the same voxel size, and moved to where it says it begins.
+ *
+ * The world here is **voxels of the first acquisition, counted from the stage's
+ * zero**, and both halves of that matter. The unit is the first acquisition's
+ * voxel because that is the space deck.gl's layers naturally live in. The zero
+ * is the stage's zero rather than the first acquisition's corner, so that the
+ * page's micrometres mean the same thing however the first run happens to have
+ * been placed.
+ *
+ * Two things therefore have to be said about every acquisition, and leaving out
+ * either one is a fault an operator can see:
+ *
+ * - **How big its voxels are.** A survey and a detail scan of the same specimen
+ *   have voxels of different sizes, so the second is stretched to match the
+ *   first; without this the two are drawn at different magnifications on top of
+ *   one another.
+ * - **Where it begins.** An image says how large it is and says nothing about
+ *   where it sits unless it is asked. Without this a detail scan is drawn at the
+ *   same corner as the survey rather than over the part of the specimen it was
+ *   taken from — measured, before this was put right, at 898 micrometres from
+ *   where its store says it is.
+ *
+ * Nothing at all is handed back for the ordinary case — one acquisition, or
+ * several written at the same voxel size from the stage's zero — where the
+ * placement is the identity and costs nothing.
  */
 function stretchOntoTheSameWorld(own, store) {
   const reference = own.umPerVoxel;
   const mine = store.umPerVoxel;
   const across = mine.x / reference.x;
   const down = mine.y / reference.y;
-  if (across === 1 && down === 1) return undefined;
-  return new Matrix4().scale([across, down, 1]);
+  // The corner, in the same voxels the engine counts in.
+  const from = {
+    x: store.originUm.x / reference.x,
+    y: store.originUm.y / reference.y,
+  };
+  if (across === 1 && down === 1 && from.x === 0 && from.y === 0) return undefined;
+  return new Matrix4().translate([from.x, from.y, 0]).scale([across, down, 1]);
 }
 
 // ---------------------------------------------------------------------------

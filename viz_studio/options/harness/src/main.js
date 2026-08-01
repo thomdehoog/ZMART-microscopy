@@ -12,6 +12,15 @@
  *
  *   `?option=neuroglancer-under`  which of the three draws the picture
  *   `&store=square`               which acquisition to read
+ *   `&alsoStore=detail`           a second acquisition to open beside the first,
+ *                                 drawn over it. This is the ordinary
+ *                                 arrangement of a run — a wide survey with a
+ *                                 detailed scan over part of it — and the two
+ *                                 can only land in the same place by the
+ *                                 position each states in micrometres. Left out,
+ *                                 one acquisition is opened and everything
+ *                                 behaves exactly as it did before there was a
+ *                                 second.
  *   `&draw=carrier`               the operator's real drawing, all on one sheet
  *                                 above the picture with holes cut in it
  *   `&draw=threeLayers`           the same scene taken apart into the three
@@ -55,6 +64,10 @@ import {
 const asked = new URLSearchParams(window.location.search);
 let optionName = asked.get("option") || "neuroglancer-under";
 const storeName = asked.get("store") || "square";
+// A second acquisition, opened beside the first and drawn over it. Nothing at
+// all unless the address asks for one.
+const alsoStoreName = asked.get("alsoStore") || null;
+const storeNames = alsoStoreName ? [storeName, alsoStoreName] : [storeName];
 const whatToDraw = asked.get("draw") || "margin";
 // Where the acquisitions are served from. Passed in rather than worked out from
 // the page's own address, because the option is forbidden to work it out and the
@@ -96,12 +109,22 @@ const harness = {
   built: optionsBuiltIn(),
   draw: whatToDraw,
   store: storeName,
+  stores: storeNames,
   margin: MARGIN_CSS_PX,
   // How far the hole is deliberately put in the wrong place, in browser pixels.
   // Nought in every real measurement, and set only to show the check can fail.
   nudge: 0,
+  // How much larger than the truth the operator's own drawing is drawn, as a
+  // multiple. One in every real measurement. Set to something else only to show
+  // that the reading of a disagreement about *size* can go the other way — see
+  // `drawTheOperatorsLayerAtTheWrongScale` further down, which explains what
+  // this breaks and why the ordinary registration reading cannot see it.
+  operatorsLayerScale: 1,
   scene: null,
   coverage: null,
+  // One coverage record per acquisition the page opened, kept by name. The
+  // single `coverage` above is the first one, which is what the interface takes.
+  coverages: null,
   viewer: null,
   gestures: null,
   // What the page is drawing in each of the two slots it is given. The words are
@@ -232,7 +255,44 @@ function sceneFor(coverage) {
  * The same function for every option, and it is never told which one it is
  * drawing for.
  */
-function paint(frame) {
+/**
+ * The same frame, with the operator's drawing deliberately drawn at the wrong
+ * magnification.
+ *
+ * This exists to break one thing on purpose, and it is worth saying exactly
+ * which. The usual registration reading is the *unevenness* of the band around
+ * the picture — how much wider one side is than the side opposite — and that
+ * catches the two layers sitting in different places. It cannot catch them
+ * agreeing about where the middle is and disagreeing about how big things are,
+ * because then all four sides of the band grow or shrink together and the
+ * unevenness stays at nought while the operator's outline is visibly the wrong
+ * size around its tile.
+ *
+ * So this scales everything the page draws about the middle of the window, by a
+ * small factor, leaving the picture exactly where it is. It is a real shape of
+ * fault: an option whose conversion from micrometres to screen pixels was
+ * slightly wrong would look precisely like this. `harness.operatorsLayerScale`
+ * is one for every measurement that is not showing the check can fail.
+ */
+function asTheOperatorsLayerIsScaled(frame) {
+  const wrong = harness.operatorsLayerScale;
+  if (!(wrong > 0) || wrong === 1) return frame;
+  const middleX = frame.width / 2;
+  const middleY = frame.height / 2;
+  return {
+    ...frame,
+    project: (x, y) => {
+      const at = frame.project(x, y);
+      return {
+        x: middleX + (at.x - middleX) * wrong,
+        y: middleY + (at.y - middleY) * wrong,
+      };
+    },
+  };
+}
+
+function paint(given) {
+  const frame = asTheOperatorsLayerIsScaled(given);
   harness.painted = (harness.painted || 0) + 1;
   harness.lastView = { centre: frame.centre, zoom: frame.zoom };
   if (harness.slots.over === "nothing") {
@@ -328,12 +388,34 @@ function fitTheImagedGround() {
   };
 }
 
+/** The coverage record of every acquisition the page opened, kept by name. */
+async function readTheCoverageRecords() {
+  const found = {};
+  for (const name of storeNames) {
+    found[name] = await fetch(
+      `/api/coverage?image=${encodeURIComponent(name)}`,
+    ).then((answer) => answer.json());
+  }
+  return found;
+}
+
+/**
+ * Every imaged rectangle of every acquisition on the page, in micrometres.
+ *
+ * Micrometres, because that is the only thing two runs written at different
+ * voxel sizes have in common — and it is what makes a survey and a detail scan
+ * over part of it a single scene rather than two.
+ */
+function everythingImaged(coverages) {
+  return storeNames.flatMap((name) => imagedRegions(coverages[name]));
+}
+
 async function boot() {
-  const coverage = await fetch(
-    `/api/coverage?image=${encodeURIComponent(storeName)}`,
-  ).then((answer) => answer.json());
+  const coverages = await readTheCoverageRecords();
+  const coverage = coverages[storeName];
+  harness.coverages = coverages;
   harness.coverage = coverage;
-  const regions = imagedRegions(coverage);
+  const regions = everythingImaged(coverages);
   if (!regions.length) {
     throw new Error(
       `the run "${storeName}" has no coverage record, so there is nowhere the ` +
@@ -354,23 +436,25 @@ async function boot() {
   // exactly the same acquisitions as the first. That is the check that catches
   // an option keeping its state in a variable belonging to its file rather than
   // to the viewer — which is what stops a page holding two.
-  harness.acquisitionsAsked = [
-    {
-      url: `${dataBase}/${storeName}.ome.zarr/|zarr2:`,
-      name: storeName,
-      // Left out altogether when the page has been asked to say nothing about
-      // the colours. Left out means left out: the option is handed an
-      // acquisition with no `channels` at all, exactly as a page that has only
-      // been given the address of a run would hand it over.
-      ...(channelsAreSaidBy === "fromTheStore"
-        ? {}
-        : {
-            channels: [
-              { name: "probe", colour: [1, 1, 1], window: { low: 0, high: 4095 } },
-            ],
-          }),
-    },
-  ];
+  //
+  // One entry per acquisition the address asked for, in the order they should be
+  // drawn: the survey first and the detail scan over it, which is the order the
+  // interface takes them in.
+  harness.acquisitionsAsked = storeNames.map((name) => ({
+    url: `${dataBase}/${name}.ome.zarr/|zarr2:`,
+    name,
+    // Left out altogether when the page has been asked to say nothing about
+    // the colours. Left out means left out: the option is handed an
+    // acquisition with no `channels` at all, exactly as a page that has only
+    // been given the address of a run would hand it over.
+    ...(channelsAreSaidBy === "fromTheStore"
+      ? {}
+      : {
+          channels: [
+            { name: "probe", colour: [1, 1, 1], window: { low: 0, high: 4095 } },
+          ],
+        }),
+  }));
   harness.loadTheOption = async () => ({ openViewer: await openerFor(optionName) });
 
   await putAViewerInTheBox(fitTheImagedGround());
@@ -399,12 +483,11 @@ async function boot() {
   // holding last hour's idea of where the run had been would go and look in the
   // wrong place.
   harness.tilesMayHaveLanded = async () => {
-    const coverage = await fetch(
-      `/api/coverage?image=${encodeURIComponent(storeName)}`,
-    ).then((answer) => answer.json());
-    harness.coverage = coverage;
-    harness.scene = sceneFor(coverage);
-    return harness.viewer.tilesMayHaveLanded({ coverage });
+    const records = await readTheCoverageRecords();
+    harness.coverages = records;
+    harness.coverage = records[storeName];
+    harness.scene = sceneFor(harness.coverage);
+    return harness.viewer.tilesMayHaveLanded({ coverage: harness.coverage });
   };
   harness.counts = () => harness.viewer.countsForMeasurement?.() ?? null;
   harness.gesturesSoFar = () => ({
@@ -417,6 +500,19 @@ async function boot() {
   // notice a real one.
   harness.nudgeTheHole = (pixels) => {
     harness.nudge = pixels;
+    harness.viewer.drawOver(paint);
+  };
+  // Draw everything the operator's layer holds at the wrong magnification, and
+  // leave the picture exactly where it is. One puts it back.
+  //
+  // This is a different fault from moving the hole, and the difference is the
+  // whole reason it is here. Moving the hole makes one side of the band thicker
+  // and the side opposite thinner, which the usual reading — the unevenness —
+  // sees at once. Drawing the operator's layer a little too large grows all four
+  // sides of the band together, so the unevenness stays at nought and only a
+  // reading that compares the band with the width it was *cut* at can notice.
+  harness.drawTheOperatorsLayerAtTheWrongScale = (factor) => {
+    harness.operatorsLayerScale = factor;
     harness.viewer.drawOver(paint);
   };
   // The same deliberate breakage for the bottom layer: move the ring drawn

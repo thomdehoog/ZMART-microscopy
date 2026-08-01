@@ -567,6 +567,48 @@ function voxelSizeUm(metadata, name) {
   return found;
 }
 
+/**
+ * Where the low corner of this acquisition sits on the stage, in micrometres.
+ *
+ * **Why a viewer needs this at all.** An image says how large its voxels are and
+ * how many of them there are, and between them those two say how *big* it is —
+ * but neither says where on the specimen it begins. A run written from the
+ * stage's zero begins at nought and the question never comes up, which is why it
+ * can go unanswered for a long time without anybody noticing. Open a wide survey
+ * and a detailed scan of one part of it together, though, and the position is
+ * the only thing there is: the two runs have different voxels and share nothing
+ * else, so a viewer that ignores where each of them says it is draws the detail
+ * scan at the same corner as the survey — a perfectly sharp picture of the
+ * wrong part of the slide.
+ *
+ * That is not a hypothetical. Measured before this function existed, the detail
+ * scan of `viz_studio/options/RESULTS.md` measurement 8 landed 898 micrometres
+ * from where its store says it is.
+ *
+ * The number is written beside the multiscale block as a translation, in the
+ * same units as the axes. Viv's own reading of a store does not carry it, so it
+ * is taken from the description here, exactly as the size of a voxel is.
+ */
+function originUm(metadata) {
+  const multiscale = metadata?.multiscales?.[0];
+  const found = { x: 0, y: 0, z: 0 };
+  if (!multiscale) return found;
+  const axes = multiscale.axes || [];
+  const names = axes.map((axis) => (typeof axis === "string" ? axis : axis.name));
+  const units = axes.map((axis) => (typeof axis === "string" ? "" : axis.unit || ""));
+  for (const step of multiscale.coordinateTransformations || []) {
+    if (step.type !== "translation") continue;
+    names.forEach((axisName, at) => {
+      if (!(axisName in found)) return;
+      const perUnit = UM_PER_UNIT[String(units[at] || "").toLowerCase()];
+      const distance = Number(step.translation?.[at]);
+      if (perUnit === undefined || !Number.isFinite(distance)) return;
+      found[axisName] = distance * perUnit;
+    });
+  }
+  return found;
+}
+
 // ---------------------------------------------------------------------------
 // What the run says about its own colours
 // ---------------------------------------------------------------------------
@@ -707,6 +749,7 @@ async function openOneAcquisition(acquisition) {
     );
   }
   const um = voxelSizeUm(opened.metadata, acquisition.name);
+  const at = originUm(opened.metadata);
   // What the page said, where it said anything; otherwise what the run says
   // about itself; and only if the run says nothing either, one white channel.
   // Viv hands back the store's whole description alongside the picture, so
@@ -722,6 +765,11 @@ async function openOneAcquisition(acquisition) {
     sources: opened.data,
     metadata: opened.metadata,
     um,
+    // Where this acquisition's low corner sits on the stage, in micrometres.
+    // Nought for a run written from the stage's zero, which is most of them, and
+    // the only thing that puts two runs of different voxel sizes in the same
+    // place when it is not.
+    at,
     // Which plane of the stack and which moment of a timelapse are being shown.
     // Both are counted in the image's own whole numbers here; the handle takes
     // micrometres and moments and converts.
@@ -807,7 +855,10 @@ function openingViewFor(own) {
   const wideUm = across.width * first.um.x;
   const tallUm = across.height * first.um.y;
   return {
-    centre: { x: wideUm / 2, y: tallUm / 2 },
+    // The middle of the first acquisition, counted from where that acquisition
+    // says it begins rather than from the stage's zero — otherwise a run written
+    // some way along the stage opens looking at empty room beside it.
+    centre: { x: first.at.x + wideUm / 2, y: first.at.y + tallUm / 2 },
     zoom: Math.max(
       wideUm / Math.max(1, width),
       tallUm / Math.max(1, height),
@@ -940,24 +991,44 @@ function layersFor(own) {
 }
 
 /**
- * Where one acquisition sits relative to the first, as a placement the engine
+ * Where one acquisition sits on the specimen, as a placement the engine
  * understands.
  *
- * The engine counts in voxels of the first acquisition, because that is the
- * space its layers naturally live in. An overview scan and a detail scan of the
- * same specimen do not have voxels of the same size, so the second has to be
- * stretched to match the first or the two would be drawn at different
- * magnifications on top of one another. Nought is the ordinary case — one
- * acquisition, or several written at the same voxel size — and then this is the
- * identity and costs nothing.
+ * The engine counts in **voxels of the first acquisition, from the stage's
+ * zero**. That is worth stating in full because it is two decisions and both
+ * matter. The unit is the first acquisition's voxel because that is the space
+ * its layers naturally live in and it keeps the conversion from micrometres to a
+ * single line. The zero is the stage's zero rather than the first acquisition's
+ * corner, so that the page's micrometres mean the same thing however the first
+ * run happens to have been placed.
+ *
+ * Two things therefore have to be said about every acquisition, and leaving out
+ * either one is a fault an operator can see:
+ *
+ * - **How big its voxels are.** A survey and a detail scan of the same specimen
+ *   have voxels of different sizes, so the second is stretched to match the
+ *   first; without this the two are drawn at different magnifications on top of
+ *   one another.
+ * - **Where it begins.** An image says how large it is and says nothing about
+ *   where it sits unless it is asked. Without this a detail scan is drawn at the
+ *   same corner as the survey rather than over the part of the specimen it was
+ *   taken from — measured, before this was put right, at 898 micrometres from
+ *   where its store says it is.
+ *
+ * Nothing at all is handed back for the ordinary case — one acquisition, or
+ * several written at the same voxel size from the stage's zero — where the
+ * placement is the identity and costs nothing.
  */
 function placementOf(own, image) {
   const first = own.images[0];
-  if (!first || image === first) return undefined;
+  if (!first) return undefined;
   const across = image.um.x / first.um.x;
   const down = image.um.y / first.um.y;
-  if (Math.abs(across - 1) < 1e-9 && Math.abs(down - 1) < 1e-9) return undefined;
-  return new Matrix4().scale([across, down, 1]);
+  // The corner, in the same voxels the engine counts in.
+  const from = { x: image.at.x / first.um.x, y: image.at.y / first.um.y };
+  const sameSize = Math.abs(across - 1) < 1e-9 && Math.abs(down - 1) < 1e-9;
+  if (sameSize && from.x === 0 && from.y === 0) return undefined;
+  return new Matrix4().translate([from.x, from.y, 0]).scale([across, down, 1]);
 }
 
 // ---------------------------------------------------------------------------
