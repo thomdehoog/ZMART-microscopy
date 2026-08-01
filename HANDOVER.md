@@ -184,19 +184,32 @@ are the camera's whole range and opening an acquisition with them shows a nearly
 black picture. `viz_studio/tests/test_the_options_hold_together.py` checks it against
 a photograph of a two-colour acquisition, for every option.
 
-**The Viewer workflow on `claude/viewer-as-a-workflow` will not pick this up on its
-own**, because it holds *copies* of two of these adapters rather than importing them.
-It needs them copied across again before the multi-colour fault is gone there.
+**The Viewer workflow on `claude/viewer-as-a-workflow` did not pick this up on its
+own**, because it holds *copies* of these adapters rather than importing them. They
+have since been brought across (`a5ac49e`), which cleared the multi-colour fault
+there and the second-acquisition one with it. That is worth remembering as a
+standing cost rather than a job now finished: as long as the two branches keep
+separate copies, every fix has to be carried over by hand, and nothing announces
+when one has been forgotten. Settling where the canvas lives — the first item on
+the list below — is what makes that go away.
 
 The coverage record is the gap that remains. The contract treats it as nearly
 mandatory, the operator page has none to hand over, so the whole declared room is
 drawn rather than only the part that was imaged.
 
-**And one engine is missing from that workflow.** Neuroglancer needs a background
-worker delivered as a separate file, while the operator page is deliberately built as
-one self-contained document because the microscope computer has no toolchain. Those
-cannot both hold, so the chooser offers two of the three engines — and the one it
-leaves out is the one currently preferred.
+**All three engines now reach that workflow, and the third one changed what the
+build produces.** Neuroglancer hands the fetching and unpacking of image pieces to
+background programs, and a browser will only start one of those from a file of its
+own. The operator page had been built as a single self-contained document, because
+the microscope computer has no toolchain to build anything. Those two could not both
+hold, so the build now emits three files rather than one: the page, and the two
+background programs beside it. Copying a folder instead of a file is a small enough
+price for having the preferred engine available.
+
+What did not change is that neuroglancer needs the page to be *served*. Opened
+straight off the disk, a page has no origin and a browser refuses to start a
+background program for it, so on a `file://` opening the chooser offers the other
+two and says why. That is checked by a photograph rather than assumed.
 
 ---
 
