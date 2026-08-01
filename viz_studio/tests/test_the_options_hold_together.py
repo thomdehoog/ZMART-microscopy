@@ -388,6 +388,8 @@ def _share_of_the_window_that_is(picture, colour: str) -> float:
     red, green, blue = picture[:, :, 0], picture[:, :, 1], picture[:, :, 2]
     if colour == "green":
         is_it = (green > 120) & (red < 90) & (blue < 90)
+    elif colour == "red":
+        is_it = (red > 120) & (green < 90) & (blue < 90)
     elif colour == "blue":
         is_it = (blue > 120) & (red < 90) & (green < 90)
     elif colour == "near white":
@@ -398,6 +400,119 @@ def _share_of_the_window_that_is(picture, colour: str) -> float:
     else:
         raise ValueError(f"nothing here knows how to count {colour!r}")
     return float(is_it.mean())
+
+
+# How much of the window one half of the two-colour square fills. The page frames
+# the imaged ground at about 245 browser pixels across in a window of 900 by 700,
+# so each half of the square comes to roughly 4% of what an operator sees. Two per
+# cent is comfortably below that and comfortably above the odd stray pixel, so a
+# reading either side of it is not a close call.
+ENOUGH_OF_A_HALF = 0.02
+
+
+@pytest.mark.parametrize("option", EVERY_OPTION)
+def test_the_runs_own_colours_are_read_when_the_page_says_nothing(
+    harness_page, option
+):
+    """A run recorded in two colours is drawn in both of them, without the page
+    having to say so.
+
+    Describing an acquisition's channels — their names, their colours, the
+    brightness to open at — is something a page may do, and where it does, what
+    it says is used. But a page usually cannot know any of it. The description
+    lives inside the store, which is the very thing the page is asking the viewer
+    to open, so making the page responsible for it would mean opening the run
+    twice: once by the page to learn what to say, and once by the viewer to draw
+    it. In practice pages did not do that, they said nothing, and the viewer fell
+    back to a single white channel — so **a two-colour acquisition showed only
+    its first colour**, in white, with nothing on screen to say the rest of it
+    was missing.
+
+    The acquisition this reads is written for the purpose: two channels, the
+    first named green and filling the left half of the square, the second named
+    red and filling the right half. Every other acquisition in the suite has one
+    white channel, on which a viewer with this fault looks perfectly correct.
+
+    Three separate things are asked of the photograph, and each of them can fail
+    on its own:
+
+    - **both channels are there**, because a viewer reading only the first would
+      leave the right half of the square empty;
+    - **each is in the colour the run named**, because a viewer that read the
+      channels but guessed at their colours would draw both halves white — so
+      seeing green and red is what shows that the run's own description is really
+      being read rather than a palette being invented;
+    - **and a page that does say what it wants still gets it**, because this is a
+      fallback and not a takeover. Asked for one white channel, the viewer must
+      draw one white channel and neither of the run's two colours.
+    """
+    harness_page.option = option
+
+    # -- the page says nothing, so the run speaks for itself ----------------
+    harness_page.open(store="colours", draw="none", channels="fromTheStore")
+    harness_page.believes("window.harness.reset()")
+    harness_page.settle(tries=20)
+    from_the_store = harness_page.photograph()
+    green = _share_of_the_window_that_is(from_the_store, "green")
+    red = _share_of_the_window_that_is(from_the_store, "red")
+
+    assert green > ENOUGH_OF_A_HALF, (
+        "the first channel of the two-colour acquisition was not drawn in the "
+        f"green the run names for it: only {green:.4f} of the window came out "
+        f"green, against {red:.4f} red. Either the run's own description of its "
+        "colours is not being read, or it is being read and ignored."
+    )
+    assert red > ENOUGH_OF_A_HALF, (
+        "only the first channel of the two-colour acquisition reached the "
+        f"screen: {green:.4f} of the window is green and {red:.4f} is red, where "
+        "both halves of the square should be showing. This is the fault the "
+        "check exists for — a viewer with nothing said to it about the run's "
+        "colours drawing one channel and calling it the whole acquisition."
+    )
+
+    # And the second colour really is the second channel, rather than something
+    # else on screen that happens to be red. Switching channel one off has to
+    # take the red away and leave the green where it was.
+    harness_page.believes("window.harness.setChannel(1, {visible: false})")
+    harness_page.settle(tries=20)
+    with_the_second_off = harness_page.photograph()
+    red_left = _share_of_the_window_that_is(with_the_second_off, "red")
+    green_left = _share_of_the_window_that_is(with_the_second_off, "green")
+    assert red_left < red / 4, (
+        "switching off the second channel did not take the red half of the "
+        f"picture away: it went from {red:.4f} of the window to {red_left:.4f}. "
+        "So whatever is red on screen is not the run's second channel, and the "
+        "reading above proves less than it looks."
+    )
+    assert green_left > 0.8 * green, (
+        "switching off the second channel also took the first one away: the "
+        f"green went from {green:.4f} of the window to {green_left:.4f}. The two "
+        "channels are not being kept apart."
+    )
+
+    # -- and the page's own word still wins ---------------------------------
+    # The same acquisition, opened with the page describing it: one channel,
+    # white. A fallback that quietly overrode the page would be worse than no
+    # fallback at all, because an operator who had chosen a colour would watch it
+    # be ignored.
+    harness_page.open(store="colours", draw="none", channels="fromThePage")
+    harness_page.believes("window.harness.reset()")
+    harness_page.settle(tries=20)
+    from_the_page = harness_page.photograph()
+    said_green = _share_of_the_window_that_is(from_the_page, "green")
+    said_red = _share_of_the_window_that_is(from_the_page, "red")
+    said_white = _share_of_the_window_that_is(from_the_page, "near white")
+    assert said_white > ENOUGH_OF_A_HALF, (
+        "the page asked for one white channel and got no white picture at all: "
+        f"only {said_white:.4f} of the window is near white."
+    )
+    assert said_green < ENOUGH_OF_A_HALF / 4 and said_red < ENOUGH_OF_A_HALF / 4, (
+        "the page said exactly what it wanted — one channel, drawn white — and "
+        f"the run's own colours were drawn instead: {said_green:.4f} of the "
+        f"window green and {said_red:.4f} red. Reading the run's description is "
+        "meant to be what happens when the page says nothing, not something that "
+        "overrules the page when it does."
+    )
 
 
 def _draw_in_the_slots(harness, *, under: str, over: str) -> None:

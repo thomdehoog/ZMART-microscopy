@@ -20,6 +20,12 @@
  *   `&draw=margin`                the measuring instrument: a sheet with a hole
  *                                 cut a little larger than the imaged square
  *   `&data=http://host:port/data` where the acquisitions are served from
+ *   `&channels=fromTheStore`      say nothing to the option about the run's
+ *                                 colours, so that it reads the run's own
+ *                                 description instead. The default,
+ *                                 `fromThePage`, states one white channel, which
+ *                                 is what every measurement taken before there
+ *                                 was a choice was taken with.
  *
  * Press **o** to change engine without losing the view. The centre, the
  * magnification, the plane, the moment and the channel settings are all carried
@@ -67,6 +73,17 @@ const background = asked.get("background") || (whatToDraw === "margin" ? "#0000f
 // box one colour, give the engine's own background another, and a photograph
 // says plainly which one an operator would see over ground nobody imaged.
 const under = asked.get("under") || null;
+// Whether the page describes the run's channels to the option, or says nothing
+// and leaves the option to read the run's own description of them.
+//
+// The interface allows both, and the difference is worth being able to try. A
+// page that already knows what it wants on screen — an operator who has turned a
+// channel off, or chosen a colour — says so, and what it says is used. A page
+// that has only been handed the address of a run knows nothing about its
+// colours, and asking it to find out would mean opening the run twice: once to
+// learn what to say and once to draw it. The default here is the page saying its
+// piece, because that is what every measurement in `RESULTS.md` was taken with.
+const channelsAreSaidBy = asked.get("channels") || "fromThePage";
 
 const box = document.getElementById("viewer");
 const note = document.getElementById("note");
@@ -341,9 +358,17 @@ async function boot() {
     {
       url: `${dataBase}/${storeName}.ome.zarr/|zarr2:`,
       name: storeName,
-      channels: [
-        { name: "probe", colour: [1, 1, 1], window: { low: 0, high: 4095 } },
-      ],
+      // Left out altogether when the page has been asked to say nothing about
+      // the colours. Left out means left out: the option is handed an
+      // acquisition with no `channels` at all, exactly as a page that has only
+      // been given the address of a run would hand it over.
+      ...(channelsAreSaidBy === "fromTheStore"
+        ? {}
+        : {
+            channels: [
+              { name: "probe", colour: [1, 1, 1], window: { low: 0, high: 4095 } },
+            ],
+          }),
     },
   ];
   harness.loadTheOption = async () => ({ openViewer: await openerFor(optionName) });

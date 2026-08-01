@@ -24,7 +24,8 @@ exactly one thing:
  *
  * @param {HTMLElement} element  where the viewer draws; it fills this box
  * @param {object} options
- *   acquisitions  [{ url, name, channels }]  drawn in order, first at the bottom
+ *   acquisitions  [{ url, name, channels? }]  drawn in order, first at the bottom
+ *                 channels is optional; see §6 for what happens when it is left out
  *   coverage      the imaged regions, as `zmart_storage/coverage.py` records them,
  *                 or null when the run keeps no record
  *   background    the page colour, so the seam never shows
@@ -58,7 +59,7 @@ the measurements and the results table all work for it without another change.
 
 ---
 
-## The five things that are not negotiable
+## The six things that are not negotiable
 
 ### 1. Units are micrometres, everywhere
 
@@ -205,6 +206,59 @@ only where the engine's canvas lets what is behind it through.
 Everything belongs to the viewer, so that a page can hold two. There is a check
 that opens a second viewer, moves it, closes it, and fails if the first one
 noticed.
+
+### 6. `channels` is optional, and when it is left out the run speaks for itself
+
+`acquisitions[i].channels` describes the colours of light a run recorded — what
+each one is called, what colour to draw it in, and how bright to open it. A page
+**may** say it, and where it does, what it says is used exactly as given. An
+operator who has switched a channel off or chosen a colour must not have that
+quietly overruled.
+
+But a page usually cannot know any of it, and this is the part worth reading.
+The description lives inside the store, which is the very thing the page is
+asking the viewer to open. Making the page responsible for it would mean opening
+the run twice — once by the page, to learn what to tell the viewer, and once by
+the viewer, to draw it — for no gain to anybody. **So `channels` may simply be
+left out, and the option then reads the run's own description of itself.**
+
+That is not a nicety. The fault it fixes was real and visible: pages passed
+nothing, every option fell back to a single white channel, and **a run recorded
+in two colours showed only its first one**, in white, with nothing on screen to
+say the rest of the acquisition was missing.
+
+Every image this project writes carries the description, in the OME-Zarr `omero`
+block that `zmart_storage/canvas.py` fills in. It holds, per channel:
+
+- `label` — what the run calls that colour of light;
+- `color` — six hex digits;
+- `window` — always `min` and `max`, and `start` and `end` only sometimes.
+
+**The difference between those two pairs is load-bearing, and there is a
+recorded fault behind it.** `min` and `max` are the numbers the camera can
+produce at all — nought to 65535 for a sixteen-bit camera. `start` and `end` are
+the range the picture should first be *displayed* with, and they are written only
+when the run actually asked for one. A real acquisition sits in the bottom few
+per cent of the camera's range, so opening it with `min` and `max` shows a
+picture that is very nearly black and stays that way until somebody thinks to
+drag a contrast slider. That has already happened once in this project and been
+fixed. So: use `start` and `end` where they are there, and where they are not,
+fall back to whatever the option would have done with no description at all —
+**never** to `min` and `max`.
+
+All three options read this the same way, out of four short functions that are
+word for word the same in each of them. That duplication is deliberate, for the
+same reason as everything else in this document: a difference in how two options
+read the same description would show up in the results as a difference between
+the engines, which it is not.
+
+`tests/test_the_options_hold_together.py` checks it against a photograph, on an
+acquisition written for the purpose — two channels, the first named green and
+filling the left half of the square, the second named red and filling the right
+half. It asks three things of the picture: that both channels are there, that
+each is in the colour the run names rather than a colour the viewer guessed, and
+that a page which *does* say what it wants still gets exactly that. Each of the
+three has been made to fail on purpose.
 
 ---
 

@@ -52,6 +52,13 @@ would move together and nobody would know whether that was the engines or the
 shared file. If the comparison is ever settled and one option is chosen, sharing
 becomes plainly right; while all three are being weighed, the copies are honest.
 
+**And all three share one more block the same way.** The four little functions
+that read a run's own description of its colours — under the heading "What the
+run says about its own colours" — are word for word the same in every option,
+because reading a description is not a property of a drawing engine and three
+options that read it differently would look like three engines behaving
+differently. `contract.md` §6 says what they are for.
+
 ## Running it
 
 Build the page once. It borrows the viewer's own installed packages rather than
@@ -103,7 +110,8 @@ The words the address takes:
 | | |
 | --- | --- |
 | `option=` | which of the three draws the picture |
-| `store=` | `square`, `lopsided`, `sparse`, `scattered` or `fine` |
+| `store=` | `square`, `lopsided`, `sparse`, `scattered`, `fine` or `colours` |
+| `channels=fromTheStore` | say nothing to the option about the run's colours, so that it reads the run's own description instead. Worth trying with `store=colours`, which is recorded in two |
 | `draw=carrier` | the operator's real drawing, all on one sheet above the picture with holes cut in it |
 | `draw=threeLayers` | the same scene taken apart into the three layers of `THE_CANVAS.md`: the carrier and a background pattern beneath the picture, the tiles above it |
 | `draw=margin` | the measuring instrument: a sheet with a hole cut around the picture |
@@ -132,9 +140,10 @@ page reaches any of them.
 
 `viz_studio/tests/test_the_options_hold_together.py` holds the promises every
 option has to keep — micrometres, two gestures, addresses passed in, two viewers
-on one page, the engine kept behind its adapter, and an honest answer about
-whether the bottom layer is really beneath the picture. Run them with a browser
-required, so that a machine which could have drawn does:
+on one page, the engine kept behind its adapter, an honest answer about whether
+the bottom layer is really beneath the picture, and a run's own colours being
+read when the page says nothing about them. Run them with a browser required, so
+that a machine which could have drawn does:
 
 ```
 ZMART_REQUIRE_BROWSER=1 python -m pytest viz_studio/tests/test_the_options_hold_together.py

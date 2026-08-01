@@ -9,7 +9,8 @@ of smaller copies, the size of the blocks it is stored in or the many small
 requests that make a real one what it is. So these are ordinary runs, only small
 enough to measure quickly.
 
-There are five, because the measurements ask five different questions.
+There are six, because the measurements and the checks that go with them ask six
+different questions between them.
 
 **The square** is for registration and handedness. It is imaged edge to edge, so
 on screen it is a solid block of picture with the background all around it — the
@@ -38,6 +39,15 @@ the voxel instead of one. It exists to catch a viewer that has quietly settled o
 counting in voxels while telling everybody it counts in micrometres. On every
 other store here a voxel is exactly one micrometre, so the two are the same
 number and the confusion cannot be seen.
+
+**The two-colour square** records two channels rather than one, and it names a
+different colour for each of them. Every other acquisition here has a single
+white channel, which means a viewer that draws only the first channel of a run,
+or that draws every channel white, looks exactly right on all of them. This one
+is written so that a photograph can tell: the first channel fills the left half
+of the square and is named green, the second fills the right half and is named
+red. If a viewer is really reading the run's own description of itself, the two
+halves come out in those two colours.
 """
 
 from __future__ import annotations
@@ -118,7 +128,10 @@ def _a_lopsided_tile(height: int, width: int, at: int, across_tiles: int) -> np.
     return plane.astype(np.uint16)[None, :, :]
 
 
-def _canvas(folder: Path, name: str, *, shape, tile, chunk=None, voxel_um=VOXEL_UM):
+def _canvas(
+    folder: Path, name: str, *, shape, tile, chunk=None, voxel_um=VOXEL_UM,
+    channels=None,
+):
     return TileCanvases.create(
         folder,
         name=name,
@@ -126,7 +139,7 @@ def _canvas(folder: Path, name: str, *, shape, tile, chunk=None, voxel_um=VOXEL_
         tile_shape=tile,
         tile_step=tile,
         voxel_size_um=(voxel_um, voxel_um, voxel_um),
-        channels=[Channel(name="probe", color="FFFFFF", window=(0, 4095))],
+        channels=channels or [Channel(name="probe", color="FFFFFF", window=(0, 4095))],
         discard_existing_run=True,
         **({"chunk": chunk} if chunk else {}),
     )
@@ -249,6 +262,58 @@ def write_a_third_of_a_micrometre_square(
     return canvases
 
 
+# The two colours the two-colour square records, exactly as the run writes them
+# into its own description. They are far apart on purpose: a photograph has to be
+# able to say which half of the square is which, and two shades of the same
+# colour would leave that to the reader's faith rather than to the picture.
+GREEN = "00FF00"
+RED = "FF0000"
+
+
+def write_the_two_colour_square(folder: Path, *, name: str = "colours") -> TileCanvases:
+    """A square recorded in two channels, each named a different colour.
+
+    Two things about a viewer cannot be seen on a run with one white channel,
+    and both of them matter to anybody imaging more than one label at a time. A
+    viewer that quietly draws only the first channel looks perfectly correct, and
+    so does one that draws every channel white. So this run has two channels, it
+    names one of them green and the other red, and it puts them in different
+    halves of the square: the first channel fills the left half, the second fills
+    the right.
+
+    Writing them side by side rather than on top of one another is what makes the
+    photograph readable. Channels drawn over each other add up, so two colours in
+    the same place would come out as a third colour and a reader would have to
+    reason about what they were seeing. Side by side, green on the left and red
+    on the right is what a working viewer shows, and anything else is a fault you
+    can point at.
+    """
+    canvases = _canvas(
+        folder, name,
+        shape=(1, SQUARE_VOXELS, SQUARE_VOXELS),
+        tile=(1, SQUARE_TILE, SQUARE_TILE),
+        channels=[
+            Channel(name="488", color=GREEN, window=(0, 4095)),
+            Channel(name="561", color=RED, window=(0, 4095)),
+        ],
+    )
+    across = SQUARE_VOXELS // SQUARE_TILE
+    seed = 0
+    for row in range(across):
+        for column in range(across):
+            # The left half of the square is the first channel and the right half
+            # is the second, so each colour has a side of its own on screen.
+            channel = 0 if column < across // 2 else 1
+            canvases.write(
+                _a_tile(1, SQUARE_TILE, SQUARE_TILE, seed),
+                origin=(0, row * SQUARE_TILE, column * SQUARE_TILE),
+                channel=channel,
+                tile_index=(0, row, column),
+            )
+            seed += 1
+    return canvases
+
+
 def write_them_all(folder: Path) -> None:
     """Write every store the suite needs, and close them."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -258,6 +323,7 @@ def write_them_all(folder: Path) -> None:
         write_the_sparse_canvas,
         write_the_scattered_canvas,
         write_a_third_of_a_micrometre_square,
+        write_the_two_colour_square,
     ):
         write(folder).close()
 

@@ -158,13 +158,30 @@ offer, and the page offers workflows no test has ever seen.** Each half looks
 completely convincing alone. `ARCHITECTURE.md` had flagged the file as stale; this is
 the first time anybody paid for it.
 
-**The canvas contract has two gaps, both needing a decision rather than a
-workaround.** The page is made responsible for describing an acquisition's channels —
-name, colour, brightness window — but that description exists only inside the store,
-and the canvas offers no way to ask for it. So a page would have to open the run
-itself merely to learn what to tell the canvas about the run it is asking the canvas
-to open. Today it passes nothing, and **a multi-colour run shows only its first
-channel.** The same applies to the coverage record: the contract treats it as nearly
+**The canvas contract had two gaps. The first is now closed on this branch; the
+second still needs a decision.**
+
+The page was made responsible for describing an acquisition's channels — name,
+colour, brightness window — while that description exists only inside the store, and
+the canvas offered no way to ask for it. So a page would have had to open the run
+itself merely to learn what to tell the canvas about the run it was asking the canvas
+to open. It passed nothing, and **a multi-colour run showed only its first channel.**
+
+`channels` is now optional. Where a page says nothing, all three options read the
+run's own description out of the store they are opening anyway — the OME-Zarr
+`omero` block that `zmart_storage/canvas.py` writes. Where a page does say
+something, what it says still wins. `viz_studio/options/contract.md` §6 sets out the
+rule, including the one part that is easy to get wrong: a channel's display window
+comes from `start` and `end` and never from `min` and `max`, because `min` and `max`
+are the camera's whole range and opening an acquisition with them shows a nearly
+black picture. `viz_studio/tests/test_the_options_hold_together.py` checks it against
+a photograph of a two-colour acquisition, for every option.
+
+**The Viewer workflow on `claude/viewer-as-a-workflow` will not pick this up on its
+own**, because it holds *copies* of two of these adapters rather than importing them.
+It needs them copied across again before the multi-colour fault is gone there.
+
+The coverage record is the gap that remains. The contract treats it as nearly
 mandatory, the operator page has none to hand over, so the whole declared room is
 drawn rather than only the part that was imaged.
 
