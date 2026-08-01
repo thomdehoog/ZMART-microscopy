@@ -153,6 +153,33 @@ def voxel_size_um(image: Path) -> dict:
     return found
 
 
+def origin_um(image: Path) -> dict:
+    """Where the low corner of this image sits on the stage, in micrometres.
+
+    The coverage record counts voxels from the image's own corner, which says
+    nothing at all about where that corner is. For a run written at the stage's
+    zero the two are the same and nobody notices. For a detail scan taken over
+    one part of a wider survey they are not: the record's "voxel nought" is a
+    long way from the survey's, and a drawing placed without this would sit at
+    the wrong end of the specimen.
+
+    The number is written in the image's own description, as the translation
+    beside the multiscale block, and it is read from there rather than passed in
+    so that the record and the picture cannot disagree about it.
+    """
+    described = json.loads((image / ".zattrs").read_text())
+    multiscales = described["multiscales"][0]
+    names = [axis["name"] for axis in multiscales["axes"]]
+    found = {name: 0.0 for name in names if name in ("x", "y", "z")}
+    for step in multiscales.get("coordinateTransformations", []):
+        if step.get("type") != "translation":
+            continue
+        for name, distance in zip(names, step.get("translation", [])):
+            if name in found:
+                found[name] = float(distance)
+    return found
+
+
 def make_measurement_server(
     *, port: int, site_dir: Path, data_dir: Path, ledger: Ledger
 ) -> ThreadingHTTPServer:
@@ -250,6 +277,7 @@ def make_measurement_server(
             }
             if asked and (where / ".zattrs").exists():
                 answer["voxel_size_um"] = voxel_size_um(where)
+                answer["origin_um"] = origin_um(where)
             return answer
 
         def _serve_data(self) -> None:
