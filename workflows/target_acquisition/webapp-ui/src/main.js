@@ -1,5 +1,10 @@
 import "./style.css";
-import { numbered } from "./frame/steps.js";
+import { blockedBecause, isReachable, panelsFor } from "./frame/steps.js";
+/* The workflows this page offers, declared once in `workflows/index.js` and
+   read here. The unit tests read the same file, so a workflow the tests can see
+   is a workflow the operator can choose. It used to be written out again in
+   this file as well, and the two copies drifted apart in silence. */
+import { WORKFLOWS, DEFAULT_WORKFLOW } from "./workflows/index.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, DEMO_PRESETS, apisFor, defaultApiFor,
   describeSession, describeConnection, CONNECT_CHECKS,
@@ -95,71 +100,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   const cellsInTile = (tile) => sample.cells.filter((c) => c.tile === tile);
 
   /* ============================================================
-     workflow declarations — the whole point of the selector box
-     ============================================================ */
-  const WORKFLOWS = {
-    target_acquisition: {
-      name: "Target acquisition",
-      blurb: "overview, detect, select, acquire",
-      steps: numbered([
-        { id: "connect", title: "Microscope configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
-        { id: "optics", title: "Optical configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
-        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
-        { id: "scanfields", title: "Initial scanfields", why: "Say where on the carrier the overview is taken — a block in every area, or regions drawn by hand.", panels: [], mode: "scanfields" },
-        { id: "focus", title: "Focus strategy", why: "Choose how this run keeps every image sharp across the sample.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
-        { id: "scan", title: "Scan the overview", why: "Drives the stage through every position, stitching tiles as they are saved.", btn: "Scan overview", panels: [], ms: 2600, mode: "scan" },
-        { id: "detect", title: "Detect cells", why: "Segments every overview tile. Each cell found becomes one point.", btn: "Detect cells", panels: ["detect"], ms: 1600, mode: "detect" },
-        { id: "select", title: "Select cells", why: "Gate the cells worth imaging — drag a box on the plot, or pick them on the canvas.", btn: "Confirm selection", panels: ["analysis"], ms: 600, mode: "select" },
-        { id: "acquire", title: "Acquire and curate", why: "Images the selected cells at target magnification and collects your verdicts.", btn: "Acquire selection", panels: ["gallery"], ms: 2200, mode: "targets" },
-        { id: "save", title: "Save the run", why: "Writes the report, the layout picture and your verdicts beside the images.", btn: "Save results", panels: [], ms: 800, note: "report + layout written" },
-        { id: "disconnect", title: "Disconnect", why: "Releases the microscope and shuts the analysis engine down.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
-      ]),
-    },
-    overview_only: {
-      name: "Overview only",
-      blurb: "no analysis panel",
-      steps: numbered([
-        { id: "connect", title: "Microscope configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
-        { id: "optics", title: "Optical configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
-        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
-        { id: "scanfields", title: "Initial scanfields", why: "Say where on the carrier the overview is taken — a block in every area, or regions drawn by hand.", panels: [], mode: "scanfields" },
-        { id: "scan", title: "Scan the overview", why: "Drives the stage through every position and stitches the map.", btn: "Scan overview", panels: [], ms: 2600, mode: "scan" },
-        { id: "save", title: "Save the run", why: "Writes the stitched map and its report to the run folder.", btn: "Save results", panels: [], ms: 800, note: "map + report written" },
-        { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
-      ]),
-    },
-    focus_check: {
-      name: "Focus surface check",
-      blurb: "calibration run",
-      steps: numbered([
-        { id: "connect", title: "Microscope configuration", why: "Choose the microscope, its API and the password, then open the session.", btn: "Connect", ownButton: true, panels: ["connect"], ms: 1900 },
-        { id: "optics", title: "Optical configuration", why: "Set the microscope up in its own software, name the preset, and record it.", ownButton: true, panels: ["optics"], mode: "optics" },
-        { id: "carrier", title: "Carrier configuration", why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.", panels: [], mode: "carrier" },
-        { id: "scanfields", title: "Initial scanfields", why: "Say where on the carrier the overview is taken — a block in every area, or regions drawn by hand.", panels: [], mode: "scanfields" },
-        { id: "focus", title: "Focus strategy", why: "Choose how the surface is measured, then run it.", btn: "Apply strategy", panels: ["focus"], ms: 1400, mode: "focus" },
-        { id: "save", title: "Write the surface", why: "Fits the plane and records its residual for this objective.", btn: "Write surface", panels: [], ms: 700, note: "residual 1.8 µm · written" },
-        { id: "disconnect", title: "Disconnect", why: "Releases the microscope.", btn: "Disconnect", panels: [], ms: 600, note: "session closed" },
-      ]),
-    },
-    /* One step and nothing else: the canvas, with the whole window to itself.
-       It is here so that the picture can be tried inside the real operator
-       window on its own, before it is put to work in any run — and deliberately
-       not folded into target acquisition, where every question about the picture
-       would become a question about the acquisition going on around it.
-
-       The step has no action to run. Standing on it is the whole of it, the way
-       standing on the carrier step is: the picture appears, and the operator
-       pans, zooms and changes the engine drawing it. */
-    viewer_only: {
-      name: "Viewer on its own",
-      blurb: "the canvas and nothing else, for trying it out",
-      steps: numbered([
-        { id: "viewer", title: "Look at the run", why: "Draws the run this page was pointed at, so the canvas can be tried on its own.", panels: ["viewer"] },
-      ]),
-    },
-  };
-
-  /* ============================================================
      run state
      ============================================================ */
   // The focus strategy is its own little document: which approach, that
@@ -219,7 +159,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     plan: [],
     editor: null,
     checks: [],
-    wf: "target_acquisition",
+    wf: DEFAULT_WORKFLOW,
     activeIdx: 0,
     done: new Set(),
     running: null,
@@ -302,7 +242,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       const done = state.done.has(s.id);
       const active = i === state.activeIdx;
       const running = state.running === s.id;
-      const reachable = i <= firstIncomplete();
+      const reachable = isReachable(steps(), state.done, i);
 
       const b = document.createElement("button");
       b.className = "step" + (active ? " active" : "") + (done ? " done" : "") + (reachable ? "" : " locked");
@@ -345,17 +285,11 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     });
   }
 
-  /* What this step needs before it may run, and what to say when it is not
-     met. Read by the action bar; the server would enforce the same list. */
-  function readiness(s) {
-    if (s.mode === "focus" && !STRATEGIES[state.focus.strategy].needs(state.focus)) {
-      return STRATEGIES[state.focus.strategy].unmet;
-    }
-    if (s.mode === "optics" && !recordedBars().length) return "record at least one preset";
-    if (s.mode === "detect" && !state.detect.tested) return "try it on one tile first";
-    if ((s.mode === "select" || s.mode === "targets") && state.gated.size === 0) return "nothing gated yet";
-    return null;
-  }
+  /* What this step still needs before it may run, and what to say when it is
+     not met. The step itself holds the rule — see `workflows/steps.js` — and
+     this only asks it, which is why adding a workflow never means adding a
+     condition here. The server would enforce the same list. */
+  const readiness = (s) => blockedBecause(s, state);
 
   /* A step's action lives with the panel it operates, at the end of it — the
      way Connect's button has always sat inside its form. There is no bar above
@@ -397,12 +331,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   /* Which panel is showing decides which foot fills, so the action follows the
      operator rather than the step declaring where to put it. */
   const renderActionBar = () => renderStepAction(shownPanel());
-
-  function firstIncomplete() {
-    const list = steps();
-    for (let i = 0; i < list.length; i++) if (!state.done.has(list[i].id)) return i;
-    return list.length - 1;
-  }
 
   /* ============================================================
      running a step — fake work with real state changes
@@ -529,36 +457,28 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     gallery: { label: "Gallery", panel: "panel-gallery" },
   };
 
-  /* The canvas is the microscope's own limits drawn to scale, so it is there
-     from the step that sets it up onward. Nothing about the frame depends on
-     the carrier chosen inside it; the carrier only says where within those
-     limits the sample sits.
+  /* Which panels a step gets is `panelsFor` in `frame/steps.js`, and the reason
+     it lives there rather than here is that it is a rule about steps rather than
+     about this page. What it comes to for the workflows on offer:
 
-     Setting it up fixes the run's zero as well, which is why no step asks for
-     an origin any more. That happens behind the scenes and is deliberately not
-     drawn: it is a consequence of having a frame, not a thing to confirm.
+     The canvas is the microscope's own limits drawn to scale, so it is there
+     from the carrier step onward — the step that first asks for it. Nothing
+     about the frame depends on the carrier chosen inside it; the carrier only
+     says where within those limits the sample sits. Setting it up fixes the
+     run's zero as well, which is why no step asks for an origin any more. That
+     happens behind the scenes and is deliberately not drawn: it is a
+     consequence of having a frame, not a thing to confirm.
 
      From there the canvas is the window into the run, filling with data rather
      than appearing once data exists. The tab set is rebuilt on every render
-     rather than growing forever. */
-  /* It belongs to the steps that happen inside it, and to no others — the same
-     rule every other panel follows. The session and the instrument are not on
-     the stage, so walking back to those steps leaves the canvas behind rather
-     than parking a tab there for something the step has nothing to do with.
-     Which makes this a question about the step being looked at, not about how
-     far the run has got. */
-  const canvasAt = (i) => {
-    const c = indexOfStep("carrier");
-    return c >= 0 && i >= c;
-  };
-
-  function panelsFor(i) {
-    const own = (step(i).panels || []).filter((p) => p !== "canvas");
-    return canvasAt(i) ? ["canvas", ...own] : own;
-  }
-
+     rather than growing forever. It belongs to the steps that happen inside it,
+     and to no others — the same rule every other panel follows. The session and
+     the instrument are not on the stage, so walking back to those steps leaves
+     the canvas behind rather than parking a tab there for something the step
+     has nothing to do with. Which makes this a question about the step being
+     looked at, not about how far the run has got. */
   function focusPanelsFor(i) {
-    state.tabs = panelsFor(i);
+    state.tabs = panelsFor(steps(), i);
     // a step that brings a panel of its own opens on it; otherwise the base
     state.tab = state.tabs.length > 1 ? state.tabs[1] : state.tabs[0];
   }
@@ -1200,7 +1120,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     /* The step being looked at decides the tab set on its own, so this is the
        one place that has to agree with it — recomputed rather than trusted,
        and the selection kept only while it still names a tab that is there. */
-    state.tabs = panelsFor(state.activeIdx);
+    state.tabs = panelsFor(steps(), state.activeIdx);
     if (!state.tabs.includes(state.tab)) state.tab = state.tabs[0];
 
     renderRail();
@@ -1830,23 +1750,18 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       label: "Fit from points",
       blurb: "Measure a few positions and fit a surface. Four or more non-collinear points buy a "
         + "thin-plate spline; fewer buy a plane; a flat sample buys a constant.",
-      needs: (f) => f.points.length >= 3,
-      unmet: "place at least 3 points",
     },
     fixed: {
       label: "Fixed Z",
       blurb: "One focus height for the whole sample. Fastest, flattest assumption.",
-      needs: () => true,
     },
     auto: {
       label: "Per-tile autofocus",
       blurb: "Autofocus at every position. Most robust, and the slowest by far.",
-      needs: () => true,
     },
     reuse: {
       label: "Reuse surface",
       blurb: "Take the surface a previous run measured on this holder.",
-      needs: (f) => !!f.reuse,
     },
   };
 

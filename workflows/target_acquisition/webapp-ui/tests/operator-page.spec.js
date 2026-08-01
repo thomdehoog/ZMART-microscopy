@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { WORKFLOWS } from "../src/workflows/index.js";
 
 /* Prototyping pace: this is a smoke net, not a specification. It covers the
    layout rules that everything else is built on and one walk of the whole
@@ -89,6 +90,29 @@ test("the rail carries the workflow's declared steps", async ({ page }) => {
   await expect(page.locator("#steps .step")).toHaveCount(7);
   await page.locator("#wf-select").selectOption("focus_check");
   await expect(page.locator("#steps .step")).toHaveCount(7);
+});
+
+/* The declaration and the page, held up against each other.
+ *
+ * `src/workflows/index.js` says which workflows exist and what is in them, and
+ * this reads that file and then reads the running page to see whether it agrees.
+ * It is the check that a workflow only has to be written down once: add one to
+ * the declaration and the chooser grows without anybody touching the shell, and
+ * if the page ever goes back to keeping a list of its own, this is what notices.
+ *
+ * Making sure it can fail: change a step's title in the declaration and this
+ * goes red, because the rail is being read rather than described. */
+test("the page offers exactly the workflows that are declared", async ({ page }) => {
+  const chooser = page.locator("#wf-select option");
+  await expect(chooser).toHaveText(Object.values(WORKFLOWS).map((w) => w.name));
+
+  for (const [key, wf] of Object.entries(WORKFLOWS)) {
+    await page.locator("#wf-select").selectOption(key);
+    await expect(page.locator("#steps .step-name"), `the rail for ${key}`)
+      .toHaveText(wf.steps.map((s) => s.title));
+    await expect(page.locator("#steps .step-n"), `the numbering for ${key}`)
+      .toHaveText(wf.steps.map((s) => s.n));
+  }
 });
 
 test("a session needs a password before it will open", async ({ page }) => {
