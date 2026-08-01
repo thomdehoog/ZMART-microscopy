@@ -244,8 +244,16 @@ exhausted. What remains is what the method cannot reach:
   experiments rather than the instrument, so none of the code that will meet hardware
   has ever run. See `docs/design/controller_boundary.md`.
 - **Windows.** The desktop shell has never been started.
-- **Two acquisitions at once.** All three canvas implementations have code for
-  placing one image against another, and nothing anywhere opens two.
+- ~~**Two acquisitions at once.**~~ **Done, and it found what it was meant to.** A
+  wide survey and a detailed scan over part of it are now written for the
+  purpose, opened together by every option, and measured in micrometres from the
+  photograph — `viz_studio/options/RESULTS.md` row 8. The first time it was asked,
+  **two of the three drew the finer run 898 µm from where its store says it is**:
+  both had code that stretched a second acquisition to the first's voxel size and
+  never moved it to where it said it was. Both have been put right and read 0.0 µm
+  now. What remains unsettled is bounding the drawn region for two runs at once:
+  the interface takes one coverage record, and a record counts in voxels of one
+  particular image.
 
 ---
 
@@ -253,8 +261,14 @@ exhausted. What remains is what the method cannot reach:
 
 - **`viz_studio/INDEX.md`** still describes the design as "one store per position",
   which is no longer true and is the file that tells a new maintainer what to read.
-- **Registration is measured as unevenness**, which is blind to the two layers
-  agreeing about position while disagreeing about magnification.
+- ~~**Registration is measured as unevenness**~~, which was blind to the two
+  layers agreeing about position while disagreeing about magnification. **Fixed
+  by reporting rather than by measuring**, which turned out to be most of what was
+  needed: every side of the band was already recorded, and what was missing was
+  the one piece of arithmetic that separates the two faults — averaging each pair
+  of opposite sides, which is deaf to displacement exactly as the unevenness is
+  deaf to size. Row 1c carries it, and it is shown catching an operator's drawing
+  made two per cent too large while the unevenness sits at nought throughout.
 - **`SLACK_AROUND_THE_IMAGED_GROUND`** is defined in two adapters and the harness
   sizes a measurement against it in prose. Change one and a row silently starts
   measuring something else.

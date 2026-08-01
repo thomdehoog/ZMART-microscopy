@@ -174,7 +174,9 @@ def origin_um(image: Path) -> dict:
     for step in multiscales.get("coordinateTransformations", []):
         if step.get("type") != "translation":
             continue
-        for name, distance in zip(names, step.get("translation", [])):
+        for name, distance in zip(
+                names, step.get("translation", []), strict=False
+            ):
             if name in found:
                 found[name] = float(distance)
     return found

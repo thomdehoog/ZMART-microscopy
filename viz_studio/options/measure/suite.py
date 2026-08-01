@@ -1220,8 +1220,8 @@ def _open_the_pair(harness):
 def _look_from(harness, centre_um: float, zoom: float, name: str):
     """Put the view at a chosen place and magnification and take one photograph."""
     harness.believes(
-        "window.harness.setView({centre: {x: %s, y: %s}, zoom: %s})"
-        % (centre_um, centre_um, zoom)
+        f"window.harness.setView("
+        f"{{centre: {{x: {centre_um}, y: {centre_um}}}, zoom: {zoom}}})"
     )
     harness.settle(tries=25)
     picture = harness.photograph()
@@ -1238,7 +1238,9 @@ def _the_wide_look(harness, name: str = "two-runs-wide") -> dict:
     reports about itself.
     """
     from acquisitions import (
-        DETAIL_SPAN_UM, SURVEY_SPAN_UM, WHERE_THE_DETAIL_BELONGS,
+        DETAIL_SPAN_UM,
+        SURVEY_SPAN_UM,
+        WHERE_THE_DETAIL_BELONGS,
     )
 
     picture, photograph = _look_from(
@@ -1404,7 +1406,7 @@ def _say_the_detail_is_somewhere_else(data_dir: Path, moved_um: float) -> None:
             continue
         step["translation"] = [
             DETAIL_ORIGIN_UM + moved_um if name == "x" else distance
-            for name, distance in zip(names, step["translation"])
+            for name, distance in zip(names, step["translation"], strict=False)
         ]
     where.write_text(json.dumps(described, indent=2))
 

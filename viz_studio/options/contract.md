@@ -24,7 +24,10 @@ exactly one thing:
  *
  * @param {HTMLElement} element  where the viewer draws; it fills this box
  * @param {object} options
- *   acquisitions  [{ url, name, channels? }]  drawn in order, first at the bottom
+ *   acquisitions  [{ url, name, channels? }]  drawn in order, first at the bottom.
+ *                 Each is placed by the voxel size *and* the position it states in
+ *                 its own description — see §1a, which is where two of the three
+ *                 options were found to be wrong.
  *                 channels is optional; see §6 for what happens when it is left out
  *   coverage      the imaged regions, as `zmart_storage/coverage.py` records them,
  *                 or null when the run keeps no record
@@ -81,6 +84,38 @@ with itself and only the picture is wrong. So the check for this
 is *on screen* and compares it with the zoom, on a store written at a third of a
 micrometre to the voxel — where counting in voxels lands three times out. It was
 shown to fail on an option deliberately broken that way.
+
+### 1a. More than one acquisition is placed by what each of them says about itself
+
+`acquisitions` is a list, and a page may hand over several. The ordinary case is
+the arrangement this whole project is built around: a wide survey of the specimen
+and a detailed scan of the part worth looking at closely, written at different
+voxel sizes over overlapping ground.
+
+**Two images written at different voxel sizes have nothing in common but the
+position each of them states in micrometres.** Nothing about the pixels lines them
+up. Every image this project writes carries that position beside its multiscale
+block, as a translation in the axes' own units, and an option has to read it and
+use it — along with the size of a voxel, which options were already reading.
+
+This is easy to leave out and impossible to notice on one acquisition, which is
+exactly what happened. A run written from the stage's zero states a position of
+nought, so a viewer that never reads it draws that run in precisely the right
+place. Opened beside a survey, the same viewer drew the detail scan at the
+survey's corner — the whole run, at the right size and perfectly sharp, over the
+wrong part of the slide, measured at 898 micrometres out. Two of the three options
+did that until row 8 of `RESULTS.md` asked.
+
+So if you write a fourth option, place every acquisition by both numbers, and
+check it against the survey and the detail scan rather than against a single run:
+`tests/test_the_options_hold_together.py::test_two_acquisitions_land_in_the_same_place`.
+
+One thing is deliberately left unsettled here and you will meet it. `coverage` is
+**one** record for the whole viewer, and a coverage record counts in voxels of one
+particular image — so it cannot describe two runs whose voxels are different
+sizes. Bounding the drawn region for two acquisitions at once is therefore not
+something this interface can express yet, and row 8 is measured unbounded for that
+reason rather than by choice.
 
 ### 2. Two gestures, and the page owns them
 

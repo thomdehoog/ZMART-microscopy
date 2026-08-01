@@ -131,6 +131,16 @@ ready to be compared.
    slightly larger hole cut over it; the four margins stay even while the view is
    panned, zoomed and thrown about. Reported as worst unevenness in any one frame,
    in screen pixels.
+
+   **That number alone is not enough, and knowing why is half the measurement.**
+   Unevenness catches the two layers sitting in different *places*. It is deaf to
+   them agreeing about where the centre is and disagreeing about how *large*
+   everything should be, because that grows all four margins together and leaves
+   them equal. So the same photograph is also read for how much wider the band
+   came out all round than the width it was cut at, which is deaf to displacement
+   in return. Both are reported. `RESULTS.md` row 1c shows the second one catching
+   an operator's drawing made two per cent too large while the first sits at
+   nought throughout.
 2. **Handedness** — open an acquisition written dim at one edge and bright at the
    other, and check the bright edge is drawn on the right. A mirrored view was
    shipped for months because nothing asked this; see `CONTROLS.md` §1a and
@@ -186,6 +196,19 @@ ready to be compared.
 7. **Drawing rate with many positions** — the existing fault where cost grows with
    the number of positions. Frames in three seconds at twenty positions and at two
    hundred.
+8. **Two acquisitions at once** — a wide survey and a detailed scan over part of
+   it, opened together. This is the ordinary arrangement a run has, and it is the
+   only case where a viewer has no help at all: two images written at different
+   voxel sizes share nothing but the position each of them states in micrometres,
+   so if that position is ignored one run is drawn at the other's corner. On a
+   single acquisition written from the stage's zero the fault is invisible, which
+   is exactly why it has to be measured on two.
+
+   Measure that both are drawn and that the finer one lands inside a known
+   feature of the coarser, in micrometres, read from the photograph — and show
+   the check failing by moving one run's stated position a known distance. Two of
+   the three options were found drawing the finer run 898 µm out of place the
+   first time this was asked.
 
 Every measurement must be taken **from the picture**, never from what an engine
 reports about itself, and every check must be shown failing when it should. That

@@ -96,10 +96,20 @@ noticed at first, and all three have been fixed:
   on an unchanged build. It now reports the middle of five with the spread beside
   it.
 
-Two things the table still cannot see are recorded under the rows they belong to:
-the registration rows are blind to the two layers disagreeing about
-magnification alone, and row 3 cannot tell an engine whose gestures were taken
-away from an engine that never receives them.
+One thing the table still cannot see is recorded under the row it belongs to: row
+3 cannot tell an engine whose gestures were taken away from an engine that never
+receives them.
+
+**A second one used to be recorded there and now has a row of its own.** The
+registration rows were blind to the two layers agreeing about where the centre of
+the picture is and disagreeing about how *large* everything around it should be,
+because that leaves all four margins equal and the reading is the unevenness of
+the four. Row 1c is the number that catches it, it is reported beside row 1
+rather than instead of it, and the two are not interchangeable: one sees the
+layers sliding apart and is deaf to a wrong size, the other sees a wrong size and
+is deaf to sliding apart. Row 1c below sets out how it is worked out and shows it
+catching a drawing made two per cent too large while the unevenness sits at
+nought throughout.
 
 ### One finding changes the shape of the arrangement, and it applies to option B too
 
@@ -213,6 +223,27 @@ the colour the run names. With the page describing the acquisition itself, as on
 white channel, all three showed **no green and no red at all** and about 4.7% of
 the window near white. Reading the store is what happens when the page says
 nothing; it never overrules a page that speaks.
+
+### Nothing had ever opened two acquisitions, and two of the three were wrong
+
+Every row above 8 is measured on a single run. The arrangement this project is
+actually built around is two — a wide survey of the whole specimen and a detailed
+scan of the part worth looking at closely — and until row 8 was written, no
+measurement and no test anywhere had ever asked an option to open two at once.
+
+Asked for the first time, **two of the three drew the detailed scan 898
+micrometres from where its store says it is**: the whole run, at exactly the right
+size and perfectly sharp, over the wrong part of the slide. The reason it had
+gone unnoticed for so long is the reason it is worth writing down. Two images
+written at different voxel sizes have nothing in common but the position each of
+them states in micrometres, and on a single acquisition written from the stage's
+zero that position is nought — so a viewer that never reads it looks perfectly
+correct on every other row in this table.
+
+Both were put right, both now read **0.0 µm**, and the measurement was shown able
+to fail by moving one run's stated position 64 µm and watching all three notice it
+at the right size. Row 8 below has the arrangement, the numbers and what the row
+deliberately does not ask.
 
 ### The seam is meant to be invisible; the measurements make it visible on purpose
 
@@ -358,14 +389,16 @@ panning and 24 while thrown about.
 
 **What this number cannot see**, and it is worth knowing before leaning on a
 nought. Unevenness is the difference between the widest side and the narrowest,
-so it catches the two layers sitting in different *places*. If instead they
-agreed about position and disagreed about *magnification*, all four sides would
-grow or shrink together and the difference between them would stay at nought. The
-raw readings in `measurements/<option>.json` do carry that: each side is also
-reported as how far it strayed from the width the band was cut at, and a
-magnification disagreement shows there. The table has room for one number per
-row, and displacement is the fault this arrangement is actually prone to, so
-displacement is the number the table carries.
+so it catches the two layers sitting in different *places*. If instead they agree
+about position and disagree about *magnification*, all four sides grow or shrink
+together and the difference between them stays at nought. That is not a small
+blind spot. An outline drawn a couple of per cent too large around a tile is
+plainly wrong to look at, and this number would have gone on reading nought while
+an operator looked at it.
+
+Displacement is still the fault this arrangement is actually prone to, so it is
+still the headline. The other question now has a reading of its own beside it,
+and it is row 1c.
 
 **The one pixel option A reads at rest is this measurement's own floor against
 this engine, and nothing in the viewer can drive it to nought.** It was chased
@@ -391,6 +424,70 @@ read 39 and 41. A number that improves when you break the thing it is measuring
 has reached the end of what it can resolve. So option A's 1 should be read as
 "the two agree to within half a screen pixel", which is also all that the two
 zeros mean.
+
+**1c. A disagreement about size.** The other half of the question row 1 asks, and
+a separate number because no single number can do both jobs.
+
+The band around the picture is cut a fixed forty browser pixels wider than the
+imaged square on every side. Row 1 reads how *uneven* the four sides are, which
+goes wrong the moment the two layers sit in different places. This row reads what
+the unevenness is deaf to: how much wider the band came out **all round** than
+the forty it was cut at. It is worked out by averaging each pair of opposite
+sides and comparing that average with forty — and averaging a pair is exactly
+what makes it deaf to displacement in return, because sliding the drawing
+sideways takes from one margin what it gives the one opposite and leaves their
+average where it was. So the two readings are independent by construction, and a
+reader needs both.
+
+**The information was already being recorded; the number was not**, and it is
+worth being precise about that, because "we were already measuring it" and "we
+were already reporting it" are different claims. Every side of the band has
+always been written into `measurements/<option>.json`, at rest and as a worst
+departure from the width it was cut at, so this was largely a matter of reporting
+rather than of measuring — the cheaper of the two answers. But not purely. The
+per-side departures that were already there **conflate the two faults**: a side
+three pixels wide of forty is three pixels wide either because the drawing has
+moved or because it is the wrong size, and that number cannot say which. Taking
+the two opposite sides together is what separates them, and that arithmetic is
+new.
+
+**The red evidence, which is the point of the row.** The page was made to draw
+everything of its own at 1.01 and then 1.02 times its proper size, about the
+middle of the window, leaving the picture exactly where it is. That is not an
+invented fault: an option whose conversion from micrometres to screen pixels was
+slightly wrong would look precisely like this. Nothing else on the page changed,
+and both readings were taken from each photograph. **On every option the
+unevenness stayed at 0.0 at both scales**, exactly as the paragraph under row 1
+says it would, **while this reading rose from 1 to 2 and then to 3 screen
+pixels.** The contrast is the finding: the headline number cannot see this fault
+at all, and the new one sees it at one per cent.
+
+The *size* of the rise is checked as well as its direction, because a number that
+merely moves is not evidence — a check that reported something wrong whenever
+anything changed could not tell a hairline from a disaster. The imaged square is
+about 243 photograph pixels across, so drawing it two per cent too large pushes
+each of its edges out by one per cent of that, which is 2.4 pixels; the reading
+rose by 2. At one per cent the arithmetic says 1.2 and the reading rose by 1.
+Both numbers are in the table beside each other.
+
+**One is this reading's own floor rather than a disagreement**, and all three
+options read 1 with nothing broken at all. Every edge here is found as the gap
+between the last pixel that is definitely one thing and the first that is
+definitely the next, so the softly lit pixel between them is left out on both
+sides and the band comes out about a pixel wider than it was cut. That floor is
+what sets the smallest disagreement this can resolve — around half a per cent on
+a square this size, and less on a larger one, because the error grows with the
+square while the floor does not.
+
+**What it cannot tell apart**, and this matters on a slow disk. A picture whose
+pieces have not all arrived is genuinely smaller than the ground it was written
+on, so the band around it is genuinely wider — and that looks here exactly like a
+disagreement about size. It is nothing of the kind; it is an operator waiting for
+their data. So the reading taken during a gesture is the **least** the band was
+ever wider over the frames of that gesture, which is the opposite of every other
+number in this table and is deliberate: a real disagreement about size is in
+every frame, while a frame of half-arrived picture can only inflate a single
+reading and cannot lower the least of them.
 
 **2. Handedness.** The picture runs uphill to the right at 91 grey levels per
 hundred pixels, which is the specimen the way round it really is. The separate
@@ -547,6 +644,93 @@ not shown either way on this machine.
 
 And the whole row describes this machine, which has no graphics card. It says
 "does the cost grow", not "is it fast enough".
+
+**8. Two acquisitions at once.** A wide survey and a detailed scan over part of
+it, opened together. This is the ordinary arrangement smart microscopy is built
+around, and until this row existed **nothing in this suite had ever asked an
+option to open two acquisitions at all** — no measurement and no test. Every
+number above it was taken on a single run.
+
+That gap matters more than "one measurement missing" suggests, and the reason is
+worth reading before the numbers. Two runs written at different voxel sizes have
+nothing whatever in common except the position each of them states in
+micrometres. Nothing about the pixels themselves lines them up. And on a single
+acquisition the question never arises: a run written from the stage's zero is
+drawn in the right place whether its stated position was read or not, so a viewer
+that ignores the position entirely looks perfectly correct on every other row in
+this table.
+
+**The arrangement.** The survey is imaged edge to edge at four micrometres to the
+voxel over two millimetres of specimen, and it names its colour green. In the
+middle of it is one square of ground 512 µm across that it deliberately never
+visits — a plain window in the picture, and the known feature everything else is
+measured against. The detail scan is written at half a micrometre to the voxel,
+eight times finer, it names its colour red, and it states a position that puts it
+centred in that window with 128 µm of empty ground between it and the survey on
+every side. A viewer that places the two by physical coordinates alone shows a red
+square in the middle of the green window with an even band all round it, and the
+band is the reading.
+
+**Everything comes from the photograph, including the scale.** The survey is a
+known number of micrometres across, so how many pixels of green there are says
+what one photograph pixel is worth; the unimaged window is a known 512 µm across
+and says the same at the closer magnification. Nothing here is taken from what an
+engine reports about its own view, which matters especially in this row, because
+an engine that has placed a run wrongly will report its own view perfectly
+confidently.
+
+**Two of the three drew the detail scan 898 micrometres from where its store says
+it is, and that is the most useful thing in this row.** Both Viv options placed
+it at the survey's own corner — the whole detail scan, drawn at exactly the right
+size and perfectly sharp, over the wrong part of the specimen. The cause was one
+omission in each of them. Both had a function whose job is to put a second
+acquisition into the world the first one defines, and both **stretched** the
+second onto the first's voxel size and never **moved** it: the position each run
+states in its own description was read by nobody. Neuroglancer reads that
+description itself and was right from the first reading — 1.0 µm departure from
+the expected 128 µm band, which is well inside half of the survey's own
+four-micrometre voxel.
+
+It has been put right rather than only reported, because the fix is small and of
+a piece with what those functions already did. Each Viv option now reads the
+position out of the store's own description exactly as it already read the size
+of a voxel, and places every acquisition in a world whose unit is the first run's
+voxel and whose zero is the stage's zero. The functions say so at length —
+`placementOf` in `viv-under/viewer.js` and `stretchOntoTheSameWorld` in
+`viv-inside/viewer.js`. Measured after the change, both read a worst departure of
+**0.0 µm** from the 128 µm band, and the table carries the readings for all three.
+
+For a run written from the stage's zero, which is every other acquisition in this
+suite, the placement is the identity and nothing at all changed — which is why no
+other number in the table moved.
+
+**The red evidence.** The detail scan's *stated* position was moved 64
+micrometres along, in its own description on disk, with not a voxel of its
+picture touched and the survey left alone. That is exactly the fault a run with a
+mistaken stage position would have. All three options then drew it 63 to 64.4 µm
+out of place, and the band that should have been even all round came out about
+191 µm on one side and about 64 on the other — the move noticed, and noticed at
+the right *size*, which is the part that matters. A check that reported something
+wrong whenever anything changed would pass this without being able to tell a
+hair's breadth from half a specimen.
+
+**Two things this row deliberately does not ask**, so that nobody reads more into
+it than it says.
+
+- **It does not bound the drawn region to the coverage record.** The interface
+  takes one coverage record for the whole viewer, and a record counts in voxels
+  of one particular image — so as things stand it cannot describe two runs whose
+  voxels are different sizes. That is a real limitation of the interface rather
+  than of any engine, it is the next thing to settle for anyone building on this,
+  and measuring around it was better than measuring something that would have
+  meant three different things in three columns.
+- **It does not say the two are sharp to better than a photograph pixel.** The
+  detail scan measures 251 to 252 µm across where it should be 256, on all three
+  options, and that is the reading rather than the picture: the bounding box is
+  taken from pixels that are *definitely* red, so the softly lit pixel at each
+  edge is left out on both sides, which at three micrometres to the pixel comes
+  to the few micrometres missing. The band measurement is taken at one micrometre
+  to the pixel for exactly that reason.
 
 ---
 
