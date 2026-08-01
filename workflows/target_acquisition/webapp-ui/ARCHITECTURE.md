@@ -93,42 +93,68 @@ gives the canvas the whole width.
 
 ## Steps and workflows
 
-A step is data plus one function:
+A step is data. It says what it is called, why it is there, which modules it
+wants on screen, what it still needs before it may run, and which piece of work
+the page should carry out for it:
 
 ```js
 {
   id: "focus",
   title: "Focus strategy",
   why: "Choose how this run keeps every image sharp across the sample.",
-  button: "Apply strategy",
-  widget: "focus",                  // a key in the widget registry, or null
-  ready: (state) => null,           // null = go; a string = why not
-  run: async (ctx) => { … },        // calls ctx.backend, never hardware
+  btn: "Apply strategy",            // no btn means there is nothing to press
+  panels: ["focus"],                // the modules this step wants beside it
+  ms: 1400,                         // how long the rehearsal pretends it takes
+  mode: "focus",                    // which behaviour main.js runs for it
+  ready: (run) => null,             // null = go; a phrase = what is missing
 }
 ```
 
-A workflow is a name and a list of those. Steps live in `workflows/steps.js`
-so several workflows can share them — the point is to mix and match, not to
-retype. Numbering is derived from position; only sub-steps like `3a` carry an
-explicit `n`.
+Every field is written out at the top of `workflows/steps.js`, which is where
+steps are declared. Steps live there so that several workflows can share them —
+the point is to mix and match, not to retype — and a workflow that wants a shared
+step to say something different wraps it in `reworded()`, which changes the
+wording and nothing else.
 
-A step may also say which modules it wants on screen, with `panels`. Most say
-nothing and get the canvas, which is right because most steps happen on the
-stage. A step that says `panels: ["viewer"]` gets exactly that and nothing
-beside it — see the viewer step, whose whole content is a picture to look at.
-That is the rule `WORKFLOW_SHELL.md` sets out: which modules a step wants is the
-step's business, and how they are laid out is the shell's.
+A workflow is a name, a blurb for the chooser, and a list of those steps.
+Numbering is derived from position, so reordering costs nothing; a step may set
+its own `n` if two halves of one job should read as `3a` and `3b`.
 
-Adding a workflow should mean writing one file that imports existing steps.
-If it means editing the frame, the frame is missing something.
+**`workflows/index.js` is the only place the workflows are written down.**
+`main.js` imports it, and so do the unit tests, which is what makes a test about
+a workflow a test about the page. The browser suite checks the other half: it
+reads the declaration and then reads the running page, and fails if the chooser
+and the rail disagree with it.
 
-**Adding the viewer workflow tested that claim, and it did not hold.** Writing
-the workflow was indeed a list, but three things had to be added before the
-operator could reach it, and all three are worth knowing about:
+Readiness belongs to the step. Only the focus step knows that fitting a surface
+from measured positions needs at least three of them, and `frame/steps.js` only
+asks. That is what lets a new workflow be a list rather than another condition
+added to the shell.
+
+Which panels a step gets is `panelsFor` in `frame/steps.js`. A step names the
+modules it wants of its own and gets those; most name nothing, because most steps
+happen on the stage and the picture of the stage is enough. The canvas itself
+appears at the step that first asks for it — the carrier, in every workflow that
+drives a microscope — and stays for the rest of the run, because from that point
+on everything happens on a stage. A workflow where nothing asks for the canvas
+never shows one: see the viewer, whose whole content is a picture to look at.
+Which modules a step wants is the step's business; how they are laid out is the
+shell's.
+
+Adding a workflow should mean writing one list that uses existing steps. If it
+means editing the frame, the frame is missing something.
+
+**Adding the viewer workflow tested that claim, and at first it did not hold.**
+Writing the workflow was indeed a list, but three things had to be added before
+the operator could reach it. Two were real gaps in the shell and are now filled;
+the third was a duplication, and it has since been taken out:
 
 - the workflow had to be **declared twice**, once in `workflows/index.js` and
-  once in `main.js`, because `main.js` still carries its own copy. That is the
-  hazard already named at the end of this file, met in practice.
+  once in `main.js`, because `main.js` carried its own copy. Fixed: `main.js`
+  imports the declaration, and the copy is gone. This was the first time anybody
+  paid for that duplication, and it was worth recording because either half
+  looked entirely convincing on its own — the tests went green against a list the
+  page did not offer, and the page offered a list no test had ever seen.
 - `frame/steps.js` gave every step the canvas whether or not it asked, so a step
   wanting only its own module could not be written. `panels` above is the fix.
 - a panel that builds a picture of its own — rather than drawing on one of the
@@ -137,8 +163,7 @@ operator could reach it, and all three are worth knowing about:
   …)` chain that was already there for the page's own panels.
 
 None of those is about the viewer in particular. Each is something the shell
-needed before *any* step could bring a module of its own, which is what
-`WORKFLOW_SHELL.md` says steps are supposed to be able to do.
+needed before *any* step could bring a module of its own.
 
 ## What the frame owns, and what it never gives away
 
@@ -164,8 +189,8 @@ tree matches the picture.
 | `lib/microscopes.js` | used by the app |
 | `lib/surface.js`, `sweep.js`, `sample.js`, `rng.js` | built, unit-tested, **not yet imported by the app** |
 | `backend/mock.js` | built, **not yet imported by the app** |
-| `frame/steps.js` | built, unit-tested; only `numbered()` is used |
-| `workflows/` | built, unit-tested, **not yet imported and now stale** |
+| `frame/steps.js` | built, unit-tested, **used by the app** — numbering, ordering, readiness and panels |
+| `workflows/` | built, unit-tested, **used by the app: the only declaration of the workflows** |
 | `widgets/carrier.js` | built, used — the first widget, and the shape the rest should follow |
 | `widgets/scanfields.js` | built, used — the geometry editor and the grid, in the same channel |
 | `live/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
@@ -197,26 +222,27 @@ The rest is still inline in `main.js` on purpose. While the UI is being
 designed a single file is faster to iterate in, and boundaries drawn around a
 moving design get redrawn. Take a panel out when it stops moving.
 
-**The hazard: four facts are currently defined twice.** Surface fitting, the
-sweep and peak rules, the synthetic sample, and the workflow declarations all
-exist both inline in `main.js` and in the modules beside it. `main.js` is what
-runs; the modules are what the tests cover. Change a rule in one and the other
-disagrees in silence — the unit suite stays green while the app misbehaves.
+**The hazard: three facts are still defined twice.** Surface fitting, the sweep
+and peak rules, and the synthetic sample all exist both inline in `main.js` and
+in the modules beside it. `main.js` is what runs; the modules are what the unit
+tests cover. Change a rule in one and the other disagrees in silence — the suite
+stays green while the app misbehaves. For those three, **treat `main.js` as the
+source of truth and the modules as a proposal**, and if you change a rule, change
+it in both.
 
-The fix is small and does not touch the UI: `main.js` imports the maths, the
-sample and the workflows instead of carrying copies, and its runner drops the
-mode switch in favour of calling `step.run(ctx)`. Every line worth editing
-while iterating on design stays where it is. Until that is done, **treat
-`main.js` as the source of truth and the modules as a proposal** — and if you
-change a rule, change it in both.
+The workflow declarations used to be a fourth, and are not any more.
+`workflows/index.js` is now the only place the workflows are written down, and
+`main.js` imports it. That is the shape the remaining three should be taken out
+in: move the fact into the module, have `main.js` import it, and point the tests
+at the same thing the page uses. It does not touch the UI, and every line worth
+editing while iterating on design stays where it is.
 
-Adding the viewer workflow has now cost that twice over, which is worth
-recording because it is the first time somebody has paid it. The workflow is
-declared in `workflows/index.js`, where the unit tests can read it, *and* in
-`main.js`, which is what an operator actually sees. Either one alone looks
-entirely convincing: the tests go green against a workflow the page does not
-offer, and the page offers a workflow no test has ever seen. Whoever takes the
-duplication out should start here.
+What is left of that fix for the workflows is the runner. `main.js` still decides
+what a step *does* from its `mode` — a switch that grows by one arm per kind of
+work — where the intention is that a step carries its own `run(ctx)` and calls
+the backend. Readiness has already moved that way and is a good model for it: the
+rule now sits on the step, `frame/steps.js` only asks, and adding a workflow
+needs no change to the shell.
 
 ## The canvas: `canvas/`
 

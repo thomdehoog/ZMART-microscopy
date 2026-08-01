@@ -1,151 +1,183 @@
 /**
- * The step catalogue.
+ * The step catalogue: every step that any workflow on this page can be built
+ * from.
  *
- * Workflows compose from this rather than retyping. A step owns its own
- * readiness rule and its own work, so the frame never learns what "focus" or
- * "detect" mean — which is what makes a new workflow a list rather than a
- * change to the shell.
+ * Workflows compose from this rather than retyping, so a step that several runs
+ * share is described in one place. Reword `connect` here and every workflow that
+ * connects to a microscope says the new thing.
  *
- * Every `run` receives:
+ * This file is what the page runs on. `main.js` imports the workflows built out
+ * of these steps, and so do the unit tests, so there is one description of a
+ * step and both the operator and the tests are looking at it.
  *
- *   backend  the microscope, mock or real
- *   run      the current run state, to read
- *   update   (patch, note?) — merge state, optionally set this step's result
- *   note     (text) — set this step's result line
- *   picture  the acquired overview on screen, when the page is watching a run.
- *            A step that produces image data tells it so; see `scanOverview`.
+ * What a step is made of
+ * ----------------------
+ *
+ *   id         the short name the page files this step's result under
+ *   title      what the step is called in the rail down the left
+ *   why        one sentence saying what the step is for
+ *   panels     which modules the step wants on screen, named. An empty list
+ *              means "nothing of my own"; see `frame/steps.js`, which decides
+ *              what that comes to once the canvas is in play.
+ *   btn        the words on the button that carries the step out. A step with
+ *              no `btn` has nothing to press.
+ *   ownButton  the step's own panel builds its button, so the frame should not
+ *              add a second one underneath.
+ *   ms         how long this rehearsal pretends the work takes, in
+ *              milliseconds. The page is a mock of a microscope for now; when a
+ *              real instrument is wired in this is what the wait becomes.
+ *   mode       which piece of behaviour `main.js` runs for this step —
+ *              measuring focus, scanning, detecting, and so on.
+ *   ready      what the step still needs before it may be carried out. It is
+ *              handed the run so far and answers either `null`, meaning go
+ *              ahead, or a short phrase saying what is missing, which the page
+ *              shows beside the greyed-out button. A step with no rule is
+ *              always ready.
+ *   note       what the step writes beside itself in the rail once it has
+ *              finished, for steps whose result is always the same sentence.
+ *
+ * Readiness belongs to the step rather than to the page around it. Only the
+ * focus step knows that fitting a surface from points needs at least three of
+ * them, and putting that here is what lets a new workflow be a list of steps
+ * instead of another rule added to the shell.
+ *
+ * A step without a button is not an unfinished step. Some steps are completed by
+ * doing the thing they are about — the carrier is settled by being configured,
+ * the scan fields by being drawn, the viewer by being looked at — and asking for
+ * a press afterwards would only ask the operator to confirm what they have
+ * already done.
  */
 
 export const connect = {
   id: "connect",
-  title: "Connect",
-  why: "Opens the microscope session and starts the analysis engine.",
-  button: "Connect",
-  run: async ({ backend, note }) => note(await backend.connect()),
+  title: "Microscope configuration",
+  why: "Choose the microscope, its API and the password, then open the session.",
+  btn: "Connect",
+  ownButton: true,
+  panels: ["connect"],
+  ms: 1900,
 };
 
-export const setOrigin = {
-  id: "origin",
-  title: "Set origin",
-  why: "Marks the stage where it stands as (0, 0) for this run.",
-  button: "Set origin",
-  run: async ({ backend, update }) =>
-    update({ originSet: true }, await backend.setOrigin()),
+export const opticalConfiguration = {
+  id: "optics",
+  title: "Optical configuration",
+  why: "Set the microscope up in its own software, name the preset, and record it.",
+  ownButton: true,
+  panels: ["optics"],
+  mode: "optics",
+  /* A preset is recorded once it has been read off the instrument, which is
+     what gives a bar something to say for itself. */
+  ready: ({ bars }) =>
+    (bars.some((b) => b.state) ? null : "record at least one preset"),
 };
 
-export const captureOverviewJob = {
-  id: "job_ov",
-  title: "Capture overview job",
-  why: "Select the low-magnification job in LAS X, then capture its settings.",
-  button: "Capture overview job",
-  run: async ({ backend, note }) => note(await backend.captureJob("overview")),
+/* The step that puts the run on the stage. Asking for the canvas here is what
+   brings the picture up, and it stays for every step after this one, because
+   from here on the run is something that happens on a stage. */
+export const carrierConfiguration = {
+  id: "carrier",
+  title: "Carrier configuration",
+  why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.",
+  panels: ["canvas"],
+  mode: "carrier",
 };
 
-export const captureTargetJob = {
-  id: "job_tg",
-  title: "Capture target job",
-  why: "Now select the high-magnification job and capture it too.",
-  button: "Capture target job",
-  run: async ({ backend, note }) => note(await backend.captureJob("target")),
+export const initialScanfields = {
+  id: "scanfields",
+  title: "Initial scanfields",
+  why: "Say where on the carrier the overview is taken — a block in every area, or regions drawn by hand.",
+  panels: [],
+  mode: "scanfields",
 };
 
 export const focusStrategy = {
   id: "focus",
   title: "Focus strategy",
   why: "Choose how this run keeps every image sharp across the sample.",
-  button: "Apply strategy",
-  widget: "focus",
+  btn: "Apply strategy",
+  panels: ["focus"],
+  ms: 1400,
+  mode: "focus",
+  /* Only one of the strategies has anything to wait for. Fitting a surface to
+     measured positions needs at least three of them, because two points
+     describe a line rather than a plane. A fixed height, autofocus at every
+     position and reusing an earlier surface each have everything they need the
+     moment they are chosen. */
   ready: ({ focus }) =>
-    (focus.strategy === "plane" && focus.points.length < 3 ? "place at least 3 points" : null),
-  run: async ({ backend, run, update }) => {
-    const result = await backend.measureFocus(run.focus);
-    update({
-      focus: {
-        ...run.focus, ...result, applied: true,
-        points: result.points, selected: 0,
-      },
-    }, result.note);
-  },
+    (focus.strategy === "plane" && focus.points.length < 3
+      ? "place at least 3 points"
+      : null),
 };
 
-/* The count is the smaller half of what this step reports. The other half is the
-   picture: the overview drawn from the images the run is writing, filling in
-   position by position, so the operator can see that the sample is where it was
-   meant to be and that the focus held — neither of which a count can say.
-
-   Each position reported is also the moment to read the run again. Nothing on
-   disk announces a saved tile: the images are declared at their full size before
-   any of them exists, and a tile is written into room already reserved for it,
-   so their description is identical before and after. Somebody therefore has to
-   go and look, and the scan reporting a position is the one moment when there is
-   certainly something new to see. `live/overview.js` decides how often to
-   actually look and explains why. */
+/* The count is the smaller half of what this step reports. The other half is
+   the picture: the overview drawn from the images the run is writing, filling
+   in position by position, so the operator can see that the sample is where it
+   was meant to be and that the focus held — neither of which a count can say.
+   `live/overview.js` holds that picture and explains how it is kept up to
+   date. */
 export const scanOverview = {
   id: "scan",
   title: "Scan the overview",
   why: "Drives the stage through every position, stitching tiles as they are saved.",
-  button: "Scan overview",
-  run: async ({ backend, update, note, picture }) => {
-    note(await backend.scanOverview({
-      onProgress: (n, total) => {
-        update({ tiles: n }, `${n} / ${total} tiles`);
-        picture?.tileMayHaveLanded();
-      },
-    }));
-  },
+  btn: "Scan overview",
+  panels: [],
+  ms: 2600,
+  mode: "scan",
 };
 
 export const detectCells = {
   id: "detect",
   title: "Detect cells",
   why: "Segments every overview tile. Each cell found becomes one point.",
-  button: "Detect cells",
-  widget: "detect",
+  btn: "Detect cells",
+  panels: ["detect"],
+  ms: 1600,
+  mode: "detect",
+  /* Settings are tried on a single tile first, because running them over every
+     tile and then finding they were wrong is a long way to go for an answer. */
   ready: ({ detect }) => (detect.tested ? null : "try it on one tile first"),
-  run: async ({ backend, run, update }) => {
-    const { ids, note } = await backend.detectAll(run.detect);
-    update({ detected: ids, cellsShown: true }, note);
-  },
 };
 
 export const selectCells = {
   id: "select",
   title: "Select cells",
   why: "Gate the cells worth imaging — drag a box on the plot, or pick them on the canvas.",
-  button: "Confirm selection",
-  widget: "analysis",
+  btn: "Confirm selection",
+  panels: ["analysis"],
+  ms: 600,
+  mode: "select",
   ready: ({ gated }) => (gated.size ? null : "nothing gated yet"),
-  run: async ({ backend, run, note }) => note(await backend.confirmSelection(run.gated)),
 };
 
 export const acquireAndCurate = {
   id: "acquire",
   title: "Acquire and curate",
   why: "Images the selected cells at target magnification and collects your verdicts.",
-  button: "Acquire selection",
-  widget: "gallery",
-  ready: ({ gated }) => (gated.size ? null : "nothing selected yet"),
-  run: async ({ backend, run, update }) => {
-    const { pairs, note } = await backend.acquire(run.gated);
-    update({ acquired: pairs }, note);
-  },
+  btn: "Acquire selection",
+  panels: ["gallery"],
+  ms: 2200,
+  mode: "targets",
+  ready: ({ gated }) => (gated.size ? null : "nothing gated yet"),
 };
 
 export const saveRun = {
   id: "save",
   title: "Save the run",
   why: "Writes the report, the layout picture and your verdicts beside the images.",
-  button: "Save results",
-  run: async ({ backend, note }) => note(await backend.saveResults()),
+  btn: "Save results",
+  panels: [],
+  ms: 800,
+  note: "report + layout written",
 };
 
 export const disconnect = {
   id: "disconnect",
   title: "Disconnect",
   why: "Releases the microscope and shuts the analysis engine down.",
-  button: "Disconnect",
-  run: async ({ backend, update }) =>
-    update({ locked: false }, await backend.disconnect()),
+  btn: "Disconnect",
+  panels: [],
+  ms: 600,
+  note: "session closed",
 };
 
 /**
@@ -158,9 +190,9 @@ export const disconnect = {
  * does nothing but show it is how it can be tried in the real operator window
  * first, on its own, without an acquisition going on around it.
  *
- * It asks for one module and names it, so the frame gives it that and nothing
- * else. There is no panel of controls down the right-hand side, because this
- * step wants only the picture.
+ * It asks for one module and names it, so it is given that and nothing else.
+ * There is no panel of controls down the right-hand side, because this step
+ * wants only the picture.
  */
 export const lookAtTheRun = {
   id: "viewer",
@@ -169,5 +201,12 @@ export const lookAtTheRun = {
   panels: ["viewer"],
 };
 
-/** Same step, different words — a calibration run explains itself differently. */
+/**
+ * The same step, in different words.
+ *
+ * A calibration run and an imaging run both save at the end, but they are saving
+ * different things and should say so. This returns a copy of a step with some of
+ * its wording replaced, which keeps what the step *does* in one place while
+ * letting each workflow explain it in its own terms.
+ */
 export const reworded = (step, changes) => ({ ...step, ...changes });
