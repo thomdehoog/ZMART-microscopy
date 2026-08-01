@@ -24,7 +24,11 @@ exactly one thing:
  *
  * @param {HTMLElement} element  where the viewer draws; it fills this box
  * @param {object} options
- *   acquisitions  [{ url, name, channels }]  drawn in order, first at the bottom
+ *   acquisitions  [{ url, name, channels? }]  drawn in order, first at the bottom.
+ *                 Each is placed by the voxel size *and* the position it states in
+ *                 its own description — see §1a, which is where two of the three
+ *                 options were found to be wrong.
+ *                 channels is optional; see §6 for what happens when it is left out
  *   coverage      the imaged regions, as `zmart_storage/coverage.py` records them,
  *                 or null when the run keeps no record
  *   background    the page colour, so the seam never shows
@@ -43,6 +47,7 @@ viewer.getView()                   // → { centre, zoom }, the view now on scre
 viewer.setPlane(z)                 // which plane of the stack, in micrometres
 viewer.setMoment(t)                // which moment of a timelapse, counted from the first
 viewer.setChannel(index, { visible, colour, window })
+viewer.handDragsTo(handler)        // a drag means something other than panning; null gives panning back
 viewer.drawUnder(paint)            // the application's drawing beneath the picture
 viewer.drawOver(paint)             // the application's drawing above it
 viewer.drawsUnder                  // true or false: is `drawUnder` really beneath?
@@ -53,12 +58,14 @@ viewer.destroy()
 ```
 
 Nothing else is public. Add your option's name to
-`harness/src/options.js` — one line — and the page, the gestures, the drawing,
-the measurements and the results table all work for it without another change.
+`harness/src/options.js` — one line — and the page, the drawing, the
+measurements and the results table all work for it without another change. The
+two gestures you wire up yourself, out of the one shared file every option uses;
+§2 shows the three lines.
 
 ---
 
-## The five things that are not negotiable
+## The six things that are not negotiable
 
 ### 1. Units are micrometres, everywhere
 
@@ -81,21 +88,139 @@ is *on screen* and compares it with the zoom, on a store written at a third of a
 micrometre to the voxel — where counting in voxels lands three times out. It was
 shown to fail on an option deliberately broken that way.
 
-### 2. Two gestures, and the page owns them
+### 1a. More than one acquisition is placed by what each of them says about itself
 
-Dragging pans; the plain wheel zooms; nothing else moves the view. The gesture
-handling lives in `harness/src/gestures.js` and is attached to **the box the
-viewer was opened inside**, not to anything the option created. Events from
-whatever surfaces the option put in there bubble up to it, so this works the same
-for one canvas or two.
+`acquisitions` is a list, and a page may hand over several. The ordinary case is
+the arrangement this whole project is built around: a wide survey of the specimen
+and a detailed scan of the part worth looking at closely, written at different
+voxel sizes over overlapping ground.
 
-What your option has to do is make sure they arrive. Concretely: whatever surface
-is on top must receive pointer events, and the engine's own gesture table must be
-empty. Neuroglancer builds a small tree of elements with a stacking order of
-their own, and left alone those escape into the page's order and end up *above*
-anything placed after them — so the operator's drawing looks perfectly correct
-while every click is quietly caught by the engine underneath. Two lines of
-styling fix it and both are in `neuroglancer-under/viewer.js`.
+**Two images written at different voxel sizes have nothing in common but the
+position each of them states in micrometres.** Nothing about the pixels lines them
+up. Every image this project writes carries that position beside its multiscale
+block, as a translation in the axes' own units, and an option has to read it and
+use it — along with the size of a voxel, which options were already reading.
+
+This is easy to leave out and impossible to notice on one acquisition, which is
+exactly what happened. A run written from the stage's zero states a position of
+nought, so a viewer that never reads it draws that run in precisely the right
+place. Opened beside a survey, the same viewer drew the detail scan at the
+survey's corner — the whole run, at the right size and perfectly sharp, over the
+wrong part of the slide, measured at 898 micrometres out. Two of the three options
+did that until row 8 of `RESULTS.md` asked.
+
+So if you write a fourth option, place every acquisition by both numbers, and
+check it against the survey and the detail scan rather than against a single run:
+`tests/test_the_options_hold_together.py::test_two_acquisitions_land_in_the_same_place`.
+
+One thing is deliberately left unsettled here and you will meet it. `coverage` is
+**one** record for the whole viewer, and a coverage record counts in voxels of one
+particular image — so it cannot describe two runs whose voxels are different
+sizes. Bounding the drawn region for two acquisitions at once is therefore not
+something this interface can express yet, and row 8 is measured unbounded for that
+reason rather than by choice.
+
+### 2. Two gestures, and the canvas owns them
+
+Dragging pans; the plain wheel zooms; nothing else moves the view. All three
+options get that from **one shared file, `options/gestures.js`**, and not one of
+them implements it. `openViewer` puts the listeners on **the box the viewer was
+opened inside**; `destroy` takes them off again. Events from whatever surfaces
+the option put in that box bubble up to it, so this works the same for one canvas
+or two.
+
+That means a page which embeds this canvas gets both gestures without writing a
+line, and finds out where the view went through `onViewChanged` rather than by
+moving the view itself. It is the reason the gestures live here rather than in
+the page above: "drag pans, the wheel zooms" is a decision already taken, in
+`viz_studio/CONTROLS.md`, and every page that shows a picture should inherit it
+instead of deciding again.
+
+**One file for all three, rather than a copy each, is the property to protect.**
+It is also, deliberately, the opposite of what `README.md` says about the five
+copied helpers, so it is worth being clear about why the two cases differ. Those
+helpers are about how an option arranges its drawing surfaces, which is part of
+what is being compared. Interpreting a gesture is not: if the three each decided
+how far a wheel notch should zoom or how a drag should follow the hand, a
+difference somebody felt tomorrow might be the engine or might be somebody's
+idea of a good number, and there would be no way to tell which. Driven by one
+file, a difference is a difference in the engine. That is exactly why the
+gestures used to live in the harness, and it is the one thing that had to survive
+their move down here.
+
+What your option has to do is make sure the events arrive, and then wire the
+shared file up. Concretely: whatever surface is on top must receive pointer
+events, and the engine's own gesture table must be empty. Neuroglancer builds a
+small tree of elements with a stacking order of their own, and left alone those
+escape into the page's order and end up *above* anything placed after them — so
+the operator's drawing looks perfectly correct while every click is quietly
+caught by the engine underneath. Two lines of styling fix it and both are in
+`neuroglancer-under/viewer.js`.
+
+The wiring itself is three lines at the end of `openViewer`, and they are word
+for word the same in every option:
+
+```js
+own.gestures = onlyPanAndZoom(element, {
+  getView: () => readTheView(own),
+  setView: (view) => writeTheView(own, view),
+});
+```
+
+with `own.gestures?.stop()` at the top of `destroy`. Nothing else is passed in —
+the shared file measures the box itself — because every question an option is
+asked separately is a question the three could answer differently.
+
+Two things on the handle come out of this. `gesturesSoFar()` reports what the
+gestures accepted and what they turned away; like `countsForMeasurement()` it is
+not part of the interface an application would use, and it exists because a
+gesture that was refused and a gesture nobody made look exactly alike on screen.
+`handDragsTo(handler)` is the next section.
+
+### 2a. What a drag means, when the application wants it to mean something else
+
+A drag that draws cannot also pan. So the moment an operator is given a pen — a
+scribble round a region of interest, say — something has to decide which of the
+two a movement of the hand is. Left unanswered, a canvas that owns dragging
+quietly forecloses every annotation there will ever be.
+
+The answer is the one every drawing program an operator has already used takes:
+**the canvas owns the mechanics of a gesture, and the application owns what a
+drag currently means.** In the operator's window it is the panel on the right
+that chooses the tool; the canvas is never told why, only what.
+
+```js
+viewer.handDragsTo(handler)   // hand over a function: dragging stops panning
+viewer.handDragsTo(null)      // hand over nothing: dragging pans again, as it does by default
+```
+
+The handler hears the whole of a drag — once as it begins, once for every
+movement of the hand, and once when the operator lets go:
+
+```js
+handler({ phase, at, screen })
+```
+
+- `phase` — `"started"`, `"moved"` or `"finished"`
+- `at` — where the pointer is on the stage, in micrometres
+- `screen` — where it is in the box, in browser pixels from the top-left corner
+
+`at` is in micrometres for the same reason everything else here is: a mark kept
+in screen pixels would slide off the specimen the moment the operator panned or
+zoomed, while a mark kept in micrometres stays on the part of the sample it was
+drawn on.
+
+Which drag means what is settled once, at the instant the drag begins, and holds
+until the operator lets go. An application that changed tool halfway through
+would otherwise split one movement of the hand between two meanings, which is
+not something anybody could have asked for. A drag the browser cancels — the
+window losing focus, say — is reported as finished like any other, because a tool
+waiting for an end that never comes is a tool that has quietly stopped working.
+
+**This is the whole of it, and that is on purpose.** There is no pen here, no
+scribble, no annotation of any kind, and none should be added until somebody
+actually needs one. What exists is the one switch that makes such a thing
+possible later without the canvas ever learning what it is drawing.
 
 ### 3. Addresses are passed in, never worked out
 
@@ -205,6 +330,59 @@ only where the engine's canvas lets what is behind it through.
 Everything belongs to the viewer, so that a page can hold two. There is a check
 that opens a second viewer, moves it, closes it, and fails if the first one
 noticed.
+
+### 6. `channels` is optional, and when it is left out the run speaks for itself
+
+`acquisitions[i].channels` describes the colours of light a run recorded — what
+each one is called, what colour to draw it in, and how bright to open it. A page
+**may** say it, and where it does, what it says is used exactly as given. An
+operator who has switched a channel off or chosen a colour must not have that
+quietly overruled.
+
+But a page usually cannot know any of it, and this is the part worth reading.
+The description lives inside the store, which is the very thing the page is
+asking the viewer to open. Making the page responsible for it would mean opening
+the run twice — once by the page, to learn what to tell the viewer, and once by
+the viewer, to draw it — for no gain to anybody. **So `channels` may simply be
+left out, and the option then reads the run's own description of itself.**
+
+That is not a nicety. The fault it fixes was real and visible: pages passed
+nothing, every option fell back to a single white channel, and **a run recorded
+in two colours showed only its first one**, in white, with nothing on screen to
+say the rest of the acquisition was missing.
+
+Every image this project writes carries the description, in the OME-Zarr `omero`
+block that `zmart_storage/canvas.py` fills in. It holds, per channel:
+
+- `label` — what the run calls that colour of light;
+- `color` — six hex digits;
+- `window` — always `min` and `max`, and `start` and `end` only sometimes.
+
+**The difference between those two pairs is load-bearing, and there is a
+recorded fault behind it.** `min` and `max` are the numbers the camera can
+produce at all — nought to 65535 for a sixteen-bit camera. `start` and `end` are
+the range the picture should first be *displayed* with, and they are written only
+when the run actually asked for one. A real acquisition sits in the bottom few
+per cent of the camera's range, so opening it with `min` and `max` shows a
+picture that is very nearly black and stays that way until somebody thinks to
+drag a contrast slider. That has already happened once in this project and been
+fixed. So: use `start` and `end` where they are there, and where they are not,
+fall back to whatever the option would have done with no description at all —
+**never** to `min` and `max`.
+
+All three options read this the same way, out of four short functions that are
+word for word the same in each of them. That duplication is deliberate, for the
+same reason as everything else in this document: a difference in how two options
+read the same description would show up in the results as a difference between
+the engines, which it is not.
+
+`tests/test_the_options_hold_together.py` checks it against a photograph, on an
+acquisition written for the purpose — two channels, the first named green and
+filling the left half of the square, the second named red and filling the right
+half. It asks three things of the picture: that both channels are there, that
+each is in the colour the run names rather than a colour the viewer guessed, and
+that a page which *does* say what it wants still gets exactly that. Each of the
+three has been made to fail on purpose.
 
 ---
 

@@ -57,20 +57,21 @@
  * `viz_studio/options/README.md`, which is where the interface is being kept
  * honest until it can be settled.
  *
- * ## One thing the page cannot yet tell the canvas
+ * ## Why this page says nothing about colours
  *
- * The interface asks the page to say what colours of light a run recorded and
- * how bright to draw them. This page does not know: a run records that in its
- * own description, and the only way to read it is to open the run — which is
- * the very thing the canvas is being asked to do. So nothing is said, and each
- * engine falls back to drawing the first channel in white over a wide
- * brightness range. That is enough to see a picture and to compare two engines
- * on the same one, and it is not enough for a run of several colours. Reading
- * the description first, or asking the canvas for it afterwards, is the fix, and
- * it wants a decision on the interface rather than a workaround here.
+ * The interface lets a page say what colours of light a run recorded and how
+ * bright to draw them. This page says nothing, on purpose. It does not know: a
+ * run records that in its own description, and the only way to read it is to
+ * open the run — which is the very thing the canvas is being asked to do.
+ *
+ * It no longer needs to. A canvas given no colours reads the run's own
+ * description and draws every channel the run holds, each in the colour and
+ * brightness range the run itself names. A two-colour run arrives looking like
+ * a two-colour run. Saying nothing is therefore the ordinary case rather than a
+ * gap, and a page only speaks up when it wants something other than what the
+ * run asked for.
  */
 
-import { onlyPanAndZoom } from "../../../../../viz_studio/options/harness/src/gestures.js";
 import { theGroundBeneath, theOperatorsMarks } from "./demonstration-drawings.js";
 import { describeEngine, enginesOnOffer, openerFor, whyOneIsMissing } from "./engines.js";
 
@@ -245,7 +246,6 @@ export function putTheCanvasIn({
 
   let viewer = null;      // the picture, once an engine has been opened on it
   let opening = false;
-  let gestures = null;
   let destroyed = false;
   /* Where the view was when the engine was last changed. Held here rather than
      inside any one engine, because comparing two ways of drawing the same thing
@@ -569,20 +569,15 @@ export function putTheCanvasIn({
       say(`opening ${wanted}…`);
       sayWhatTheLayersAreDoing();
       try {
-        const opened = await openTheCanvas();
         /* Dragging pans and the plain wheel zooms, and nothing else moves the
-           view. The two gestures belong to the page rather than to any one
-           engine: if each engine interpreted them for itself, a difference in
-           how the two feel might be the engine or might be somebody's idea of
-           how far a wheel notch should zoom, and there would be no way to tell
-           which. They listen on the box, which stays put when the engine
-           changes, and they reach whichever picture is in it now. */
-        gestures = onlyPanAndZoom(box, {
-          getView: () => viewer.getView(),
-          setView: (view) => viewer.setView(view),
-          sizeOf: () => ({ width: box.clientWidth, height: box.clientHeight }),
-        });
-        return opened;
+           view. This page no longer arranges that for itself: a canvas now
+           arrives with those two gestures already attached, all three engines
+           sharing one piece of code for them. That is the point — if each
+           engine interpreted a drag for itself, a difference in how two of them
+           felt might be the engine or might be somebody's idea of how far a
+           wheel notch should zoom, and there would be no way to tell which.
+           One shared piece of code removes the question. */
+        return await openTheCanvas();
       } catch (whyNot) {
         emptyTheBox();
         say(`the run could not be opened — ${whyNot.message}`);
@@ -597,7 +592,8 @@ export function putTheCanvasIn({
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      gestures?.stop();
+      /* Closing the canvas takes its gestures down with it — they belong to the
+         canvas now, so there is nothing left here to unhook. */
       viewer?.destroy();
       viewer = null;
       box.textContent = "";

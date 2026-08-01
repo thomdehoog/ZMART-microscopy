@@ -4,8 +4,9 @@
  * should show.
  *
  * This file is the only place in the whole application that knows neuroglancer
- * exists. Everything above it — the page, the gestures, the carrier outline, the
- * tile rectangles, the measurements — is written against the small interface in
+ * exists. Everything around it — the page, the two gestures in `../gestures.js`,
+ * the carrier outline, the tile rectangles, the measurements — is written
+ * against the small interface in
  * `../contract.md` and would work just as well with a different engine
  * underneath. That is deliberate, and it is worth saying why it is worth the
  * trouble.
@@ -114,6 +115,9 @@ import { makeMinimalViewer } from "neuroglancer/unstable/ui/minimal_viewer.js";
 import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
 import "./engine-chrome.css";
+// The two gestures, from the one copy every option shares. See `../gestures.js`
+// for why there is only one copy and what it costs to have three.
+import { onlyPanAndZoom } from "../gestures.js";
 
 /**
  * Which of the engine's panel layouts to ask for, and which way round the axes
@@ -159,7 +163,10 @@ const SLACK_AROUND_THE_IMAGED_GROUND = 64;
  *                   the scheme and host — see the note about addresses above.
  *                   `channels` is `[{ name, colour, window }]`, where `colour`
  *                   is three numbers from 0 to 1 and `window` is `{low, high}`
- *                   in the stored numbers' own units.
+ *                   in the stored numbers' own units. It is **optional**: leave
+ *                   it out and the viewer reads the run's own description of its
+ *                   colours out of the store. Say it and what you say is used
+ *                   unchanged.
  *   `coverage`      the imaged regions, as `zmart_storage/coverage.py` records
  *                   them, or `null` when the run keeps no record. Used to decide
  *                   where the picture is allowed to show through.
@@ -235,6 +242,11 @@ export async function openViewer(element, options = {}) {
     beneathContext: null,
     paintBeneath: null,
     viewer: null,
+    // The two gestures, listening on the box. Put on when the viewer opens and
+    // taken off again when it closes, so a page that embeds this canvas gets
+    // dragging and the wheel without writing a line and without having to
+    // remember to tidy anything up.
+    gestures: null,
     // The channels, flattened across all acquisitions in the order they are
     // drawn, each remembering the engine layer that draws it.
     rows: [],
@@ -268,6 +280,15 @@ export async function openViewer(element, options = {}) {
 
   buildTheTwoSurfaces(own);
   await start(own, acquisitions);
+  // The two gestures go on last, once there is something for them to move. The
+  // three lines below are word for word the same in every option, because they
+  // have to be: if the three wired up dragging even slightly differently, a
+  // difference in how they feel would be a difference in the wiring rather than
+  // in the engines, and the whole comparison would stop meaning anything.
+  own.gestures = onlyPanAndZoom(element, {
+    getView: () => readTheView(own),
+    setView: (view) => writeTheView(own, view),
+  });
   return handleFor(own);
 }
 
@@ -301,8 +322,9 @@ export async function openViewer(element, options = {}) {
  * insides inside it.
  *
  * And the engine must not receive gestures at all, so it is made transparent to
- * the mouse rather than merely covered by something. The page's own two gestures
- * are the only ones there are, and they arrive at the operator's canvas.
+ * the mouse rather than merely covered by something. The two gestures this file
+ * puts on the box are the only ones there are, and they reach it because
+ * nothing inside the box takes them first.
  */
 function buildTheTwoSurfaces(own) {
   const { element } = own;
@@ -591,20 +613,42 @@ async function start(own, acquisitions) {
 
   // -- the acquisitions ---------------------------------------------------
 
-  own.rows = rowsFor(acquisitions);
+  own.rows = await rowsFor(acquisitions);
   for (const [at, row] of own.rows.entries()) {
     const managed = makeLayer(own.viewer.layerSpecification, row.layerName, {
       type: "image",
       source: row.url,
       shader: shaderFor(row.colour),
       shaderControls: { normalized: { range: [row.window.low, row.window.high] } },
+      // How solid this layer is. The engine's own default for an image layer is
+      // a half, which is right for looking through one layer at another and
+      // wrong for the channels of one acquisition, because those are separate
+      // colours of the same specimen rather than one picture seen through
+      // another. Measured on a run recorded in two colours: with the default
+      // left alone the second channel reached the screen at 118 of a possible
+      // 255 where the first reached 237 — the colour the run names, drawn at
+      // half strength for no reason an operator could see.
+      //
+      // Nothing is lost by drawing each at its full strength, because what
+      // decides where a layer is see-through here is the little program the
+      // engine runs on the graphics card. It emits nothing at all where the
+      // stored number is nought, so ground a channel never imaged still lets the
+      // layers beneath it show through.
+      opacity: 1,
+      // Where a store keeps its channels inside one array, this is what picks
+      // the channel out: the engine offers it as a dimension belonging to the
+      // layer, and each row pins it to its own index. Nothing splits the data —
+      // one store feeds every row that reads from it.
+      //
+      // It is said here, in the description the layer is built from, rather than
+      // written onto the layer afterwards. That is not tidiness. A layer built a
+      // moment ago does not yet know what dimensions its data has, so writing a
+      // position into it at that point writes into a space with no room in it
+      // and is simply lost. Measured before it was moved here: a run with two
+      // channels drew both of its layers from the same channel, so one colour
+      // was missing and the other was drawn twice.
+      localPosition: [row.channelIndex],
     });
-    // Where a store keeps its channels inside one array, this is what picks the
-    // channel out: the engine offers it as a dimension belonging to the layer,
-    // and each row pins it to its own index. Nothing splits the data — one store
-    // feeds every row that reads from it.
-    if (row.channelIndex != null) managed.layer.localPosition.value =
-      Float32Array.from([row.channelIndex]);
     own.viewer.layerSpecification.add(managed, at);
     row.managed = managed;
   }
@@ -659,6 +703,170 @@ async function start(own, acquisitions) {
   keepShowingThePictureWhileTheNewOneArrives(own);
 }
 
+// ---------------------------------------------------------------------------
+// What the run says about its own colours
+// ---------------------------------------------------------------------------
+//
+// The page may describe an acquisition's channels — what each one is called,
+// what colour to draw it in, and how bright to open it — and where it does, what
+// it says is used exactly as given. But a page usually has no way of knowing any
+// of that, because the description lives inside the store, which is the very
+// thing it is asking this viewer to open. Making the page find out would mean
+// opening the run twice: once by the page, to learn what to say, and once by the
+// viewer, to draw it.
+//
+// So where the page says nothing, the description is read here instead, out of
+// the `omero` block that every image this project writes carries.
+// `zmart_storage/canvas.py` is where it is written, and it holds one entry per
+// channel: a label, a colour as six hex digits, and a brightness window.
+//
+// Leaving this out has a plain and visible cost. With nothing to go on a viewer
+// falls back to a single white channel, so **a run recorded in two colours shows
+// only its first one**, in white, and nothing on screen says that the rest of
+// the acquisition is missing.
+//
+// The four pieces below are word for word the same in all three options, on
+// purpose. The three are meant to be comparable, and a difference in how they
+// read the same description would show up in the results as a difference
+// between the engines, which it is not. Two copies can drift apart, so **if you
+// change one of these four, change the other two files to match in the same
+// commit.**
+
+/** The colour a channel is drawn in when nobody has named one. */
+const WHITE = [1, 1, 1];
+
+/**
+ * The brightness range to open a channel at when neither the page nor the run
+ * asked for one. It is the same range this viewer has always used in that case,
+ * and it suits the twelve-bit cameras these runs are acquired on.
+ */
+const AN_ORDINARY_WINDOW = { low: 0, high: 4095 };
+
+/**
+ * Six hex digits, the way a run writes a colour, as the three numbers from 0 to
+ * 1 the drawing works in.
+ *
+ * Anything that is not six hex digits is drawn white rather than refused. A
+ * misspelt colour is a small blemish; refusing to open somebody's acquisition
+ * over one would be a great deal worse.
+ */
+function colourFromTheStore(hex) {
+  if (typeof hex !== "string" || !/^[0-9a-f]{6}$/i.test(hex)) return [...WHITE];
+  return [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+}
+
+/**
+ * The brightness range a channel should first be shown with, out of the run's
+ * own description of it.
+ *
+ * A description holds two different ranges and telling them apart is the whole
+ * of this function. `min` and `max` are the numbers the camera can produce at
+ * all — nought to 65535 for a sixteen-bit camera — which is a fact about the
+ * instrument and true of every acquisition it ever takes. `start` and `end` are
+ * the range the picture should be *displayed* with, and they are written only
+ * when the run actually asked for one.
+ *
+ * Only `start` and `end` are used here, and that is deliberate. A real
+ * acquisition sits in the bottom few per cent of what the camera can count — a
+ * few hundred counts of background with the signal not far above — so opening it
+ * with the camera's whole range shows a picture that is very nearly black, and
+ * it stays that way until somebody thinks to drag a contrast slider. This
+ * project has already had that fault once and fixed it, which is why it is
+ * spelled out here rather than left to whoever reads the description next.
+ *
+ * When the run asked for nothing, the ordinary window above is used — the same
+ * one this viewer would have used had there been no description at all.
+ */
+function windowFromTheStore(described) {
+  const range = described?.window ?? {};
+  if (Number.isFinite(range.start) && Number.isFinite(range.end)) {
+    return { low: range.start, high: range.end };
+  }
+  return { ...AN_ORDINARY_WINDOW };
+}
+
+/**
+ * The channels a store describes, in the form this viewer keeps them in.
+ *
+ * `attributes` is the store's own description, as it was read from the image.
+ * Nothing at all is returned when the store describes no channels, so that the
+ * caller can fall back to whatever it did before rather than being handed an
+ * empty list and drawing nothing.
+ *
+ * One limit, said plainly. What comes back is one entry per channel the
+ * description *names*, not one per channel the picture holds. Everything this
+ * project writes keeps the two in step, so for our own runs they are the same
+ * list. A foreign image that stored four colours and described only two would
+ * have two of them drawn here, and the operator would have to notice. Counting
+ * the picture's own channels instead would mean a second reading of the image
+ * for one of the three options and none for the other two, which is exactly the
+ * kind of difference between them this comparison is trying not to introduce.
+ */
+function channelsTheStoreDescribes(attributes) {
+  const described = attributes?.omero?.channels;
+  if (!Array.isArray(described) || !described.length) return null;
+  return described.map((channel, at) => ({
+    name: channel?.label || `channel ${at + 1}`,
+    colour: colourFromTheStore(channel?.color),
+    window: windowFromTheStore(channel),
+  }));
+}
+
+/**
+ * The run's own description of an acquisition, fetched from the store.
+ *
+ * This is the one place where this option has to work harder than the other two,
+ * and the difference is worth knowing rather than hiding. Viv hands a store's
+ * whole description back alongside the picture, so the two Viv options already
+ * have it in their hands and reading the channels out of it costs them nothing.
+ * Neuroglancer reads the same description — it has to, in order to build a layer
+ * at all — but it keeps it to itself: what it gives back is a layer, not the
+ * text the layer was built from. So the only honest way for this option to learn
+ * what a run calls its colours is to go and ask for the description itself. That
+ * is one small request per acquisition, made once while the viewer is opening.
+ *
+ * The address the page passes carries a short suffix telling the engine which
+ * shape of store to expect, written after a vertical bar as in
+ * `…/run.ome.zarr/|zarr2:`. It is taken off here so that the description can be
+ * asked for by name.
+ *
+ * A store that will not answer is not a reason to refuse the acquisition, so
+ * nothing at all is returned and the caller carries on with what it already has.
+ *
+ * @param {string} url the address the page gave for this acquisition.
+ * @returns {Promise<object|null>} the store's description, or nothing.
+ */
+async function theRunsOwnDescription(url) {
+  const bar = url.indexOf("|");
+  const address = (bar < 0 ? url : url.slice(0, bar)).replace(/\/+$/, "");
+  // The two versions of the format keep the description in different places.
+  // Version 2 writes a small `.zattrs` file beside the picture; version 3 folds
+  // the same thing into `zarr.json`, under `attributes`. Both are tried, so that
+  // a run written either way opens the same.
+  for (const [file, unwrap] of [
+    [".zattrs", (doc) => doc],
+    ["zarr.json", (doc) => doc?.attributes ?? doc],
+  ]) {
+    try {
+      // Never from the browser's own copy. These runs are written into while
+      // somebody is watching them, and a viewer answering from a moment ago is
+      // exactly what live viewing exists to avoid.
+      const answer = await fetch(`${address}/${file}`, { cache: "no-store" });
+      if (answer.ok) return unwrap(await answer.json());
+    } catch (why) {
+      // One of the two spellings is expected to be missing, so a failure here is
+      // ordinary. It is only worth saying something if both of them fail, which
+      // is what happens below.
+    }
+  }
+  console.warn(
+    `the description of "${address}" could not be read, so nothing is known ` +
+      "about the colours this run recorded. It will be drawn as a single white " +
+      "channel, which is all there is to go on.",
+  );
+  return null;
+}
+
 /**
  * Turn the acquisitions into the flat list of rows the engine draws.
  *
@@ -668,12 +876,15 @@ async function start(own, acquisitions) {
  * hold, and it matches how an operator reads the list on screen: one line per
  * thing that can be switched on and off.
  */
-function rowsFor(acquisitions) {
+async function rowsFor(acquisitions) {
   const rows = [];
-  acquisitions.forEach((acquisition) => {
+  for (const acquisition of acquisitions) {
+    // What the page said, where it said anything; otherwise what the run says
+    // about itself; and only if the run says nothing either, one white channel.
     const channels = acquisition.channels && acquisition.channels.length
       ? acquisition.channels
-      : [{ name: acquisition.name, colour: [1, 1, 1], window: { low: 0, high: 4095 } }];
+      : channelsTheStoreDescribes(await theRunsOwnDescription(acquisition.url))
+        || [{ name: acquisition.name, colour: [...WHITE], window: { ...AN_ORDINARY_WINDOW } }];
     channels.forEach((channel, within) => {
       rows.push({
         url: acquisition.url,
@@ -684,14 +895,22 @@ function rowsFor(acquisitions) {
         // channel of the same name — an overview and a detail scan both
         // recording green. So the name carries both halves.
         layerName: `${acquisition.name}/${channel.name}`,
-        colour: channel.colour || [1, 1, 1],
-        window: channel.window || { low: 0, high: 4095 },
-        channelIndex: channels.length > 1 ? within : null,
+        colour: channel.colour || [...WHITE],
+        window: channel.window || { ...AN_ORDINARY_WINDOW },
+        // Which position along the store's channel axis this row reads from.
+        // Said for every row, including a lone one, and that is worth a sentence
+        // because it used not to be. Left unsaid, the engine picks a channel for
+        // itself — the middle of however many the store holds — so a page that
+        // named one channel of a two-channel run was shown the *second* one,
+        // drawn in the colour it had asked for the first. Nothing on screen
+        // could have told an operator that. The other two options have always
+        // said which channel they mean, and now all three do.
+        channelIndex: within,
         visible: channel.visible !== false,
         managed: null,
       });
     });
-  });
+  }
   return rows;
 }
 
@@ -1290,6 +1509,32 @@ function handleFor(own) {
     },
 
     /**
+     * Say what a drag means now.
+     *
+     * The canvas owns the mechanics of every gesture; the application owns what
+     * a drag currently *means*. Hand over a function and dragging stops panning:
+     * each drag is given to that function instead — once as it begins, once for
+     * every movement of the hand, and once when the operator lets go. Hand over
+     * nothing, or `null`, and dragging pans again, which is what it does until
+     * somebody says otherwise.
+     *
+     * The function is called with `{ phase, at, screen }`: `phase` is
+     * `"started"`, `"moved"` or `"finished"`, `at` is where the pointer is on
+     * the stage in micrometres, and `screen` is where it is in the box in
+     * browser pixels. Micrometres are what a mark on the specimen has to be
+     * recorded in — a mark kept in screen pixels would slide off the sample the
+     * moment the operator panned or zoomed.
+     *
+     * This is the whole of the mechanism, and it is deliberately no more than
+     * that. Nothing here draws anything, and this option never learns *why* the
+     * meaning changed. In the operator's window that is decided by the panel on
+     * the right, which is where choosing a tool belongs.
+     */
+    handDragsTo(handler) {
+      own.gestures?.handDragsTo(handler);
+    },
+
+    /**
      * The operator's own drawing.
      *
      * Hand over one function. It is called at the moment this option considers
@@ -1446,6 +1691,12 @@ function handleFor(own) {
     destroy() {
       if (own.destroyed) return;
       own.destroyed = true;
+      // The gestures come off first. Listeners left behind on a box that is
+      // still in the page would go on answering the operator's hand after the
+      // viewer they belonged to had gone. The little record of what they saw is
+      // kept rather than thrown away, so that a check can still ask a closed
+      // viewer whether anything reached it after it shut.
+      own.gestures?.stop();
       own.watchSize?.disconnect();
       own.stopFollowing?.();
       own.stopHoldingOn?.();
@@ -1477,6 +1728,22 @@ function handleFor(own) {
      */
     countsForMeasurement() {
       return { ...own.counted };
+    },
+
+    /**
+     * What the two gestures have accepted, and what they have turned away.
+     *
+     * Not part of the interface an application would use, and deliberately
+     * named so that it reads as what it is. The measurements need it for one
+     * narrow reason: on screen, a gesture that was refused and a gesture nobody
+     * made look exactly alike, so without a count a canvas that had quietly
+     * stopped listening altogether would pass a check that nothing moved.
+     */
+    gesturesSoFar() {
+      return {
+        refused: { ...(own.gestures?.refused || {}) },
+        accepted: { ...(own.gestures?.accepted || {}) },
+      };
     },
   };
 }

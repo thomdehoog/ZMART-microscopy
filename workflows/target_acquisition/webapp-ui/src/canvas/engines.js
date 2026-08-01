@@ -16,8 +16,10 @@
  * on the same run, differ only in the thing being compared.
  *
  * Adding an engine is one line below. Nothing else in this page needs to change:
- * the panel, the two gestures and the little row of buttons that chooses between
- * engines all work by name.
+ * the panel and the little row of buttons that chooses between engines both work
+ * by name. The two gestures need no thought either — a canvas arrives with
+ * dragging and the wheel already attached, all three engines sharing one piece
+ * of code for them.
  *
  * ## The third engine, and what it costs to have it here
  *

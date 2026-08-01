@@ -1,130 +1,167 @@
-# The canvas: one viewer, written for several drawing engines
+# Comparing three ways to draw the flat view
 
-The canvas is the picture of a run that an operator pans and zooms. It is being
-written more than once — once for each drawing engine worth considering — and
-every version is kept behind the same small interface, so that the versions can
-be compared with each other and swapped for one another without anything above
-them noticing.
-
-`contract.md` beside this file is that interface, in full, and is the thing to
-read first. The short version is that an engine is a folder holding a `viewer.js`
-which exports exactly one function, `openViewer`, and hands back a small handle
-for driving the picture: where the view is, which plane of the stack, which
-colours, and two slots for the application's own drawing — one beneath the
-picture and one above it.
+Three viewers, one interface, one measurement suite. `viz_studio/OPTIONS.md` says
+why; `contract.md` beside this file says exactly what an option has to do;
+`RESULTS.md` holds the numbers.
 
 ```
 options/
-  contract.md          the interface, and the five things that are not negotiable
-  viv-under/           the picture underneath, the operator's drawing on a
-                       second surface above it
-  viv-inside/          one surface, with the picture and the operator's drawing
-                       as layers in it
-  neuroglancer-under/  the same arrangement as viv-under, drawn by neuroglancer
-  harness/src/         the parts of the page that drive an engine and belong to
-                       no single one of them — at present, the two gestures
+  contract.md              the interface, restated beside the code — read this first
+  RESULTS.md               the table, one column per option
+  gestures.js              drag pans, the wheel zooms — the one copy all three use
+  harness/                 the page that drives any option, and the shapes it draws
+  neuroglancer-under/      option A: neuroglancer underneath, the operator's drawing on top
+  viv-under/               option B: Viv and deck.gl underneath, the same way up
+  viv-inside/              option C: one canvas, with Viv's layers and the operator's in it
+  measure/                 the suite, run against each option in turn
+  measurements/            what the last run produced: photographs and full readings
 ```
 
-## What is here, and what is not
+## How the three are laid out inside
 
-This is a **part** of the canvas, brought over so that it could be put inside the
-operator window and tried there. The rest of it — the page that drives all three
-side by side, and the measurement suite that photographs each one and fills in a
-table of results — lives on the branch `claude/viewer-only`, and the two halves
-have deliberately not been merged.
+The three `viewer.js` files are written to the same plan, so that reading one
+after another is easy and a difference between them stands out. Each has its
+sections in this order, with the same headings:
 
-All three `viewer.js` files here, and `harness/src/gestures.js` beside them, are
-copies taken from that branch at commit `1e6b4f5`, unchanged. That commit is
-worth writing down, because the branch keeps moving and a copy with no date on it
-is very hard to compare with anything later. To see what has changed since:
+| | |
+| --- | --- |
+| `openViewer` | the one thing the file exports, and what it refuses |
+| the surfaces | two canvases for A and B, one for C |
+| opening the acquisitions | addresses, voxel sizes, and where to look first |
+| the little program that runs on the graphics card | how stored numbers become colour |
+| what the engine is asked to draw | the layers, and what is deliberately not asked for |
+| micrometres in, micrometres out | the one place an engine's own units are converted |
+| the operator's own drawing | where the page's two drawing functions are called |
+| going back to the store | what "a tile may have arrived" comes to for this engine |
+| the handle | everything a page may call, and nothing else |
 
-```bash
-git diff 1e6b4f5 claude/viewer-only -- viz_studio/options/viv-under/viewer.js
+Option A has no "what the engine is asked to draw" section of its own, because
+neuroglancer builds its layers from the description it is handed rather than from
+a list this file makes each frame; that happens inside `start`.
+
+**Two of the files share code by copying it.** Five helpers are word for word the
+same in `neuroglancer-under/viewer.js` and `viv-under/viewer.js`, because those
+two are the same arrangement with a different engine in the middle and the parts
+that are not about the engine have to stay identical. Copies can drift, so each
+file says which five they are and asks that both be changed together.
+
+Putting them in one shared module instead would be the obvious cure, and it has
+not been done, because it is a real decision rather than a tidy-up. A shared
+module means one edit changes two columns of the results table at once, which is
+exactly the kind of silent coupling this comparison exists to avoid — the numbers
+would move together and nobody would know whether that was the engines or the
+shared file. If the comparison is ever settled and one option is chosen, sharing
+becomes plainly right; while all three are being weighed, the copies are honest.
+
+**The two gestures are the one place where sharing is plainly right, and they
+are shared for real.** `gestures.js` beside this file is a single module that
+every option imports; dragging and the wheel are not copied into three viewers
+and are not written by the page above them either. The distinction is worth
+holding on to, because it is the same argument turned round. Those five helpers
+are about how an option arranges its drawing surfaces, which is part of what the
+comparison is measuring. How far a wheel notch zooms is not about a drawing
+engine at all, so three answers to it could only add a difference that has
+nothing to do with the engines and cannot be told apart from one that has. One
+file, and a difference in how the three feel is a difference in the engine.
+`contract.md` §2 sets out the three lines each option writes to use it, and §2a
+sets out how an application says that a drag means something other than panning.
+
+**And all three share one more block the same way.** The four little functions
+that read a run's own description of its colours — under the heading "What the
+run says about its own colours" — are word for word the same in every option,
+because reading a description is not a property of a drawing engine and three
+options that read it differently would look like three engines behaving
+differently. `contract.md` §6 says what they are for.
+
+## Running it
+
+Build the page once. It borrows the viewer's own installed packages rather than
+keeping a second copy, so the engine being compared is the exact version the
+viewer ships:
+
+```
+npm --prefix viz_studio/frontend install       # only if you have not already
+npm --prefix viz_studio/options/harness run build
 ```
 
-Two consequences are worth knowing before you read further.
+Then take the measurements:
 
-**All three engines are here, and the third one costs something.**
-`neuroglancer-under` does part of its work in background programs that the
-browser will only start from files of their own. The operator page was until
-recently delivered to the microscope as a single self-contained file with
-everything folded inside it, and those two cannot both be true. What was settled
-is that the page is still folded into one file and the two background programs
-sit beside it, so what reaches the microscope is a small folder rather than a
-single file. Folding them in was tried first, and it fails twice over — once
-silently, which is the kind of failure this project keeps meeting.
-`workflows/target_acquisition/webapp-ui/README.md` records what was tried and
-what each attempt did, and `…/src/canvas/engines.js` says the short version where
-somebody wiring an engine in will meet it.
+```
+python viz_studio/options/measure/run.py --option neuroglancer-under
+python viz_studio/options/measure/run.py --option all
+```
 
-**`contract.md` describes rather more than is here.** It talks about the
-measurement suite, the results table, and the page that flips between three
-engines with a keystroke. None of those are on this branch. Everything it says
-about the *interface* holds exactly, which is the part that matters when writing
-against it.
+It writes photographs and a full set of readings into `measurements/`, and brings
+the table in `RESULTS.md` up to date. It takes about three minutes per option on a
+machine with no graphics card. Rather more than half a minute of that is
+measurement 7, which takes its reading five times over and reports the middle one
+— a single reading of the drawing rate is worth very little, and `RESULTS.md`
+says why under row 7.
 
-## Where it is used
+## Looking at it yourself
 
-`workflows/target_acquisition/webapp-ui` opens it as a workflow of its own,
-called **Canvas demonstration**, with two steps: the same run drawn by Viv, and
-then drawn by neuroglancer. Each step has a button for each of the three layers —
-the operator's drawing beneath, the acquisition, the operator's drawing above —
-so that what each layer contributes can be seen by taking it away. That is the
-first place the canvas has been put inside the real operator window, and it is
-deliberately separate from target acquisition so that a question about the
-picture stays a question about the picture. The page's own README says how to
-point it at a run.
+The harness is an ordinary page. Serve it and open it with a word in the address
+to choose the option — **no rebuild between one option and the next**, which is
+the whole point:
 
-## Two things using it turned up, which belong in the interface
+```
+python - <<'EOF'
+import sys; sys.path.insert(0, "viz_studio/options/measure")
+from data_server import Ledger, make_measurement_server
+from pathlib import Path
+import acquisitions
+data = Path("/tmp/zmart-options"); acquisitions.write_them_all(data)
+server = make_measurement_server(
+    port=8850, site_dir=Path("viz_studio/options/harness/dist"),
+    data_dir=data, ledger=Ledger())
+print("http://127.0.0.1:8850/?option=neuroglancer-under&draw=carrier&store=scattered")
+server.serve_forever()
+EOF
+```
 
-Both were found by driving these engines from the operator page and measuring
-what reached the screen, not by reading them. Both are gaps in the interface
-rather than faults of any one engine, so they are written here rather than fixed
-in the copies — the copies are a snapshot and are due to be refreshed from
-`claude/viewer-only`, which would throw away anything changed in them.
+The words the address takes:
 
-They are recorded here rather than in `contract.md` for one reason: `contract.md`
-is the shared statement of the interface and the branch it came from is being
-worked on right now, so the two are better reconciled deliberately than by two
-people editing the same paragraphs at once.
+| | |
+| --- | --- |
+| `option=` | which of the three draws the picture |
+| `store=` | `square`, `lopsided`, `sparse`, `scattered`, `fine`, `colours`, or the pair `survey` and `detail` |
+| `alsoStore=` | a second acquisition, opened beside the first and drawn over it. `store=survey&alsoStore=detail&draw=none&bounded=0&channels=fromTheStore` is the ordinary shape of a run — a wide coarse scan in green with a fine one in red over the part of it worth looking at closely |
+| `channels=fromTheStore` | say nothing to the option about the run's colours, so that it reads the run's own description instead. Worth trying with `store=colours`, which is recorded in two |
+| `draw=carrier` | the operator's real drawing, all on one sheet above the picture with holes cut in it |
+| `draw=threeLayers` | the same scene taken apart into the three layers of `THE_CANVAS.md`: the carrier and a background pattern beneath the picture, the tiles above it |
+| `draw=margin` | the measuring instrument: a sheet with a hole cut around the picture |
+| `draw=none` | nothing over the picture at all |
+| `positions=` | how many tile rectangles the operator laid out |
+| `bounded=0` | give the engine the whole window instead of only the imaged ground |
+| `data=` | where the acquisitions are served from |
 
-**1. Opening with no acquisitions hangs one engine for ever.** `openViewer` is
-given a list of acquisitions to draw, and an empty list is a real thing to ask
-for: it is what an operator sees before a run has started, laying positions out
-on an empty plate, with the carrier and the planned positions drawn and nothing
-in the middle. Measured from the page: `viv-under` opens that way in about 190 ms
-and `viv-inside` in about 40 ms, both of them then honouring both drawing slots
-and both view controls perfectly. `neuroglancer-under` never finishes opening at
-all — still not ready after thirty seconds, with its own elements built inside
-the box and its promise unsettled.
+**Press `o` to change engine without losing the view.** The centre, the
+magnification, the plane, the moment and the channel settings are all carried
+over, so the same view can be looked at through two engines one after the other —
+which is the only way to see a difference that is small. Try it with
+`draw=threeLayers`: the ground beneath the picture is plainly there under either
+Viv option and plainly absent under neuroglancer, whose canvas is opaque. The
+corner of the window says which engine is drawing and what it does with the bottom
+layer.
 
-The reason is one line of it. That option waits for the engine to say what space
-the picture lives in before it goes on, and the engine works that out from the
-image layers it has been given. Watched directly, with no layers the engine's
-coordinate space stays at rank zero for as long as anybody looks — twelve
-readings over six seconds, all zero — so the wait never ends.
+One pair cannot be swapped this way and the page says so rather than going blank.
+The two Viv options are installed from two different lists of packages, and deck.gl
+refuses to have two versions of itself alive in one page; asked to change from one
+straight to the other, the harness puts the working engine back on the same view
+and writes the reason in the corner. Pressing `o` again reaches the third. A fresh
+page reaches any of them.
 
-Two things follow, and the second is the larger of them. The interface has no
-statement about what an empty list of acquisitions means, and it should have one.
-And **the interface has no way to abandon an `openViewer` that never finishes**:
-a page that gives up can take what the engine built out of the page, but whatever
-the engine is still doing out of sight goes on until the page is left. A cheap
-answer to both might be a `signal` on `openViewer`, or an engine saying up front
-whether it can draw nothing.
+## The checks
 
-**2. Handing a slot `null` does not always clear what was drawn there.**
-`drawUnder(paint)` and `drawOver(paint)` take `null` to mean the application has
-nothing for that slot. `contract.md` says an option may then skip laying a
-surface down, which is the right thing when nothing has ever been drawn. It says
-nothing about a slot that had something in it a moment ago, and two of the three
-options clear a surface only on their way to painting it — so a drawing handed
-`null` after the fact stays on the screen until the viewer is closed. Measured:
-the operator's drawing covered 3.4% of the box, the slot was handed `null`, and
-it still covered 3.4%. `viv-inside` clears either way.
+`viz_studio/tests/test_the_options_hold_together.py` holds the promises every
+option has to keep — micrometres, two gestures, addresses passed in, two viewers
+on one page, the engine kept behind its adapter, an honest answer about whether
+the bottom layer is really beneath the picture, a run's own colours being read
+when the page says nothing about them, a wide survey and a detailed scan landing
+in the same place, and an operator's drawing at the wrong *size* being noticed
+rather than passing as well lined up. Run them with a browser required, so that a
+machine which could have drawn does:
 
-On the page this is the difference between a button that turns a layer off and a
-button that appears not to work, so the page works around it by handing a drawing
-that paints nothing rather than `null` — which costs the surface that `null` was
-there to save. `…/src/canvas/panel.js` explains that in place. The interface
-should say plainly that a slot handed `null` leaves nothing on screen, and all
-three options should honour it.
+```
+ZMART_REQUIRE_BROWSER=1 python -m pytest viz_studio/tests/test_the_options_hold_together.py
+```
