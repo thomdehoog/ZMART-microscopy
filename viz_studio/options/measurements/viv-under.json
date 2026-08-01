@@ -1,6 +1,6 @@
 {
   "option": "viv-under",
-  "measured": "2026-07-31 12:51",
+  "measured": "2026-08-01 11:46",
   "0. can a surface underneath be seen": {
     "question": "with a colour painted behind the engine's canvas and a different colour set as the engine's own background, which does an operator see over ground nobody imaged?",
     "shares of the window": {
@@ -79,6 +79,7 @@
       "bottom": 41.0
     },
     "at rest, unevenness": 0.0,
+    "at rest, wider all round than it was cut": 1.0,
     "band was cut at, in a still photograph's pixels": 40.0,
     "photograph at rest": "registration-at-rest.png",
     "panning": {
@@ -90,6 +91,7 @@
       "top": 1.0,
       "bottom": 1.0,
       "unevenness": 0.0,
+      "wider all round than it was cut, at least": 1.0,
       "widest_seen": {
         "left": 41.0,
         "right": 41.0,
@@ -119,14 +121,15 @@
       "photograph": "registration-panning-worst.png"
     },
     "zooming": {
-      "samples": 48,
-      "photographs": 48,
+      "samples": 51,
+      "photographs": 51,
       "closed": 0,
       "left": 1.0,
       "right": 1.0,
       "top": 1.0,
       "bottom": 1.0,
       "unevenness": 0.0,
+      "wider all round than it was cut, at least": 0.0,
       "widest_seen": {
         "left": 41.0,
         "right": 41.0,
@@ -152,7 +155,7 @@
       },
       "band was cut at, in these pixels": 40.0,
       "worst slant across three cuts": 0.0,
-      "frames": 16,
+      "frames": 17,
       "photograph": "registration-zooming-worst.png"
     },
     "thrown about": {
@@ -164,6 +167,7 @@
       "top": 1.0,
       "bottom": 1.0,
       "unevenness": 0.0,
+      "wider all round than it was cut, at least": 1.0,
       "widest_seen": {
         "left": 41.0,
         "right": 41.0,
@@ -208,6 +212,32 @@
         "noticed": true,
         "photograph": "registration-can-fail-nudged-8.png"
       }
+    },
+    "and a disagreement about size": {
+      "the operator's layer drawn 1.0 times its proper size": {
+        "unevenness": 0.0,
+        "wider all round than it was cut": 1.0,
+        "and how wide the band should have grown, from the arithmetic": 0.0,
+        "the picture is this many photograph pixels across": 243,
+        "noticed": false,
+        "photograph": "registration-wrong-scale-1.0.png"
+      },
+      "the operator's layer drawn 1.01 times its proper size": {
+        "unevenness": 0.0,
+        "wider all round than it was cut": 2.0,
+        "and how wide the band should have grown, from the arithmetic": 1.2,
+        "the picture is this many photograph pixels across": 243,
+        "noticed": true,
+        "photograph": "registration-wrong-scale-1.01.png"
+      },
+      "the operator's layer drawn 1.02 times its proper size": {
+        "unevenness": 0.0,
+        "wider all round than it was cut": 3.0,
+        "and how wide the band should have grown, from the arithmetic": 2.4,
+        "the picture is this many photograph pixels across": 243,
+        "noticed": true,
+        "photograph": "registration-wrong-scale-1.02.png"
+      }
     }
   },
   "1b. registration of the bottom layer": {
@@ -230,6 +260,7 @@
       "top": 1.0,
       "bottom": 1.0,
       "unevenness": 0.0,
+      "wider all round than it was cut, at least": 1.0,
       "widest_seen": {
         "left": 41.0,
         "right": 41.0,
@@ -267,6 +298,7 @@
       "top": 1.0,
       "bottom": 1.0,
       "unevenness": 0.0,
+      "wider all round than it was cut, at least": 0.0,
       "widest_seen": {
         "left": 41.0,
         "right": 41.0,
@@ -304,6 +336,7 @@
       "top": 1.0,
       "bottom": 1.0,
       "unevenness": 0.0,
+      "wider all round than it was cut, at least": 1.0,
       "widest_seen": {
         "left": 41.0,
         "right": 41.0,
@@ -432,11 +465,12 @@
       "note": "only the pieces actually on screen are asked for again, so this follows the size of the window rather than the size of the specimen. Anything the operator had scrolled past is fetched again if and when they scroll back to it."
     },
     "does the picture survive the refresh": {
-      "frames the screen changed during the refresh": 3,
+      "frames the screen changed during the refresh": 4,
       "the least the picture ever showed during it": 0.2734,
       "it settled at": 0.2734,
-      "seconds before the picture was back to half of that": 0.2,
+      "seconds before the picture was back to half of that": 0.17,
       "what the window showed, frame by frame": [
+        0.2734,
         0.2734,
         0.2734,
         0.2734
@@ -449,18 +483,18 @@
       "the edge of the picture moved (photograph pixels)": 0.0
     },
     "how soon after the tile lands does it show": {
-      "seconds": 0.46,
+      "seconds": 0.47,
       "it showed": true,
       "share of the window showing picture, before": 0.2734,
       "and after": 0.2972,
       "note": "the clock starts when the tile is safely on disk and stops when the window is measurably brighter than it was. It includes the time spent photographing, so it is an upper bound rather than a best case."
     },
     "does it keep up": {
-      "tiles written during the measurement": 414,
+      "tiles written during the measurement": 415,
       "frames a second, round by round": [
         5.2,
         5.2,
-        4.7,
+        5.2,
         5.2,
         5.2,
         5.2
@@ -468,7 +502,7 @@
       "seconds a round took": [
         2.5,
         2.5,
-        2.53,
+        2.5,
         2.5,
         2.5,
         2.5
@@ -482,52 +516,151 @@
       "of which found picture": 36,
       "of which were for ground nobody imaged": 396,
       "how many the browser held at once": 6,
-      "rounds of waiting": 269,
-      "seconds": 3.2
+      "rounds of waiting": 245,
+      "seconds": 2.87
     },
     "bounded to the imaged ground": {
       "requests to redraw the view": 100,
       "of which found picture": 36,
       "of which were for ground nobody imaged": 64,
-      "how many the browser held at once": 5,
-      "rounds of waiting": 59,
-      "seconds": 0.55
+      "how many the browser held at once": 6,
+      "rounds of waiting": 55,
+      "seconds": 0.65
     }
   },
   "7. drawing rate with many positions": {
     "20 positions": {
-      "frames a second": 10.9,
+      "frames a second": 15.8,
       "frames a second, lowest and highest seen": [
-        10.0,
-        11.6
+        14.9,
+        16.4
       ],
       "frames a second, every reading in the order taken": [
-        10.0,
-        10.6,
-        11.1,
-        10.9,
-        11.6
+        16.4,
+        16.2,
+        15.8,
+        14.9,
+        15.7
       ],
       "how many times it was read": 5,
       "rectangles the page was drawing": 20,
       "note": "the middle of several readings, not a single one. Single readings of this on a machine with no graphics card have been seen to vary by a factor of two on an unchanged build, so the lowest and highest are reported beside the middle value. Two options whose ranges overlap have not been shown to differ."
     },
     "200 positions": {
-      "frames a second": 9.2,
+      "frames a second": 11.0,
       "frames a second, lowest and highest seen": [
-        8.4,
-        9.9
+        10.5,
+        11.2
       ],
       "frames a second, every reading in the order taken": [
-        9.2,
-        9.2,
-        8.6,
-        9.9,
-        8.4
+        10.5,
+        11.2,
+        10.8,
+        11.0,
+        11.0
       ],
       "how many times it was read": 5,
       "rectangles the page was drawing": 200,
       "note": "the middle of several readings, not a single one. Single readings of this on a machine with no graphics card have been seen to vary by a factor of two on an unchanged build, so the lowest and highest are reported beside the middle value. Two options whose ranges overlap have not been shown to differ."
+    }
+  },
+  "8. two acquisitions at once": {
+    "seen from far enough out to hold both": {
+      "the survey is drawn": true,
+      "the detail scan is drawn": true,
+      "photograph": "two-runs-wide.png",
+      "one photograph pixel is this many micrometres": 3.151,
+      "where the detail scan landed (\u00b5m)": {
+        "x0": 894.8,
+        "x1": 1150.0,
+        "y0": 894.8,
+        "y1": 1150.0
+      },
+      "where the store says it belongs (\u00b5m)": {
+        "x0": 896.0,
+        "x1": 1152.0,
+        "y0": 896.0,
+        "y1": 1152.0
+      },
+      "how far its middle is from where it belongs (\u00b5m)": {
+        "across": -1.6,
+        "down": -1.6,
+        "either way": 1.6
+      },
+      "how wide the detail scan came out (\u00b5m)": {
+        "across": 255.2,
+        "and it should be": 256.0
+      }
+    },
+    "seen close to": {
+      "photograph": "two-runs-close.png",
+      "one photograph pixel is this many micrometres": 1.024,
+      "the unimaged window in the survey, in photograph pixels": {
+        "left": 200.0,
+        "right": 699.0,
+        "top": 100.0,
+        "bottom": 599.0
+      },
+      "the band of empty ground on each side (\u00b5m)": {
+        "left": 128.0,
+        "right": 128.0,
+        "top": 128.0,
+        "bottom": 128.0
+      },
+      "and each of them should be": 128.0,
+      "worst departure from it (\u00b5m)": 0.0,
+      "the detail scan is inside the window in the survey": true
+    },
+    "and the check can fail": {
+      "the detail scan was told it is this far along (\u00b5m)": 64.0,
+      "seen from far enough out to hold both": {
+        "the survey is drawn": true,
+        "the detail scan is drawn": true,
+        "photograph": "two-runs-moved-wide.png",
+        "one photograph pixel is this many micrometres": 3.151,
+        "where the detail scan landed (\u00b5m)": {
+          "x0": 961.0,
+          "x1": 1213.0,
+          "y0": 894.8,
+          "y1": 1150.0
+        },
+        "where the store says it belongs (\u00b5m)": {
+          "x0": 896.0,
+          "x1": 1152.0,
+          "y0": 896.0,
+          "y1": 1152.0
+        },
+        "how far its middle is from where it belongs (\u00b5m)": {
+          "across": 63.0,
+          "down": -1.6,
+          "either way": 63.0
+        },
+        "how wide the detail scan came out (\u00b5m)": {
+          "across": 252.0,
+          "and it should be": 256.0
+        }
+      },
+      "seen close to": {
+        "photograph": "two-runs-moved-close.png",
+        "one photograph pixel is this many micrometres": 1.024,
+        "the unimaged window in the survey, in photograph pixels": {
+          "left": 200.0,
+          "right": 699.0,
+          "top": 100.0,
+          "bottom": 599.0
+        },
+        "the band of empty ground on each side (\u00b5m)": {
+          "left": 191.5,
+          "right": 63.5,
+          "top": 128.0,
+          "bottom": 128.0
+        },
+        "and each of them should be": 128.0,
+        "worst departure from it (\u00b5m)": 64.5,
+        "the detail scan is inside the window in the survey": true
+      },
+      "noticed": true,
+      "note": "the move has to be noticed at the right *size*, not merely noticed. A check that reported something wrong whenever anything changed would pass here without being able to tell a hair's breadth from half a specimen."
     }
   }
 }
