@@ -82,12 +82,19 @@ surfaces are not acquired data and get their own widgets.
 A panel need not be a tab. Something that *is* the canvas rather than an
 alternative to it takes the channel beside it instead: see the carrier below.
 
-**The channel belongs to the step standing in it.** Two steps own one — the
+**The channel belongs to the step standing in it.** Three steps own one — the
 carrier is what the canvas is drawing, the scan fields are what is being drawn
-on it — and both dock into the same column, with the heading saying whose it
-is. One column rather than two, because a second would take width from the
-picture to show controls for a step nobody is on. A step with no side widget
-gives the canvas the whole width.
+on it, the focus map is what the run knows about it — and all three dock into
+the same column, with the heading saying whose it is. One column rather than
+two, because a second would take width from the picture to show controls for a
+step nobody is on. A step with no side widget gives the canvas the whole width.
+
+Focus is the case that shows why this is worth insisting on. It used to be a
+tab with a map of its own, its own camera and its own fit — which meant two
+answers to where a well is, and the operator holding both. It now draws onto the
+canvas with the canvas's projection and puts its controls in the channel. **If a
+step is about the sample on the stage, it belongs on the canvas; a tab is for
+something that is not the stage at all** (a scatter plot, a gallery, a form).
 
 ## Steps and workflows
 
@@ -155,8 +162,22 @@ carrier on the stage itself. Controls and drawing are in the one file because
 they are one subject — change what a carrier is and a single place follows.
 
 The channel belongs to whichever step owns it, and `widgets/scanfields.js` is
-the second to. It stops being editable once something later has been done —
-positions placed against areas that must not move out from under them.
+the second to. It stops being editable once something has been **imaged**
+against it — the overview scan — rather than once any later step has been done.
+The focus map sits in between and does not depend on the plan: a fitted surface
+is a statement about the plate, so walking back past it and moving a field is
+safe. Tiles are different, because a tile does not know where it should have
+been.
+
+That is the general rule for a step that can be walked back to: **editable
+while nothing has consumed its output, locked once something has.** There is
+deliberately no held-and-applied edit, and no per-step accepted snapshot. Two
+copies of the plan — the one on screen and the one the run would use — is the
+one-owner rule broken in the way that fails silently, and the window where it
+would help is empty anyway: before the scan there is no downstream answer to go
+stale, and after it there is nothing left to change. Undo and redo cover
+getting back to a previous state within a step, which is what actually gets
+reached for.
 
 One rule it establishes, which the next widget should keep: **a widget redraws
 itself.** Asking the frame to rebuild the panel on every change destroys the

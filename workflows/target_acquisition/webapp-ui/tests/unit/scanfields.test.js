@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   block, bounds, boxesOverlap, centroid, contains, edges, handles, isPointLike,
-  normalise, rotatePoint, segmentHitsBox, tiles, topCentre,
+  normalise, rotatePoint, segmentHitsBox, tiles, topCentre, withoutTrailingDuplicate,
 } from "../../src/lib/scanfields.js";
 import { centres, DEFAULT_CARRIER, geometry } from "../../src/lib/carriers.js";
 
@@ -158,5 +158,26 @@ describe("the pieces the editor leans on", () => {
   it("overlaps boxes that touch", () => {
     expect(boxesOverlap({ xMin: 0, yMin: 0, xMax: 1, yMax: 1 }, { xMin: 1, yMin: 1, xMax: 2, yMax: 2 })).toBe(true);
     expect(boxesOverlap({ xMin: 0, yMin: 0, xMax: 1, yMax: 1 }, { xMin: 2, yMin: 2, xMax: 3, yMax: 3 })).toBe(false);
+  });
+  /* What a double-click leaves behind: the press that finishes the outline
+     placed a vertex too, so the last two land in the same spot. */
+  it("drops a vertex the double-click repeated, and keeps one that moved", () => {
+    const three = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }];
+    expect(withoutTrailingDuplicate([...three, { x: 10.5, y: 10.2 }], 4)).toEqual(three);
+    const moved = [...three, { x: 14, y: 10 }];
+    expect(withoutTrailingDuplicate(moved, 4)).toEqual(moved);
+  });
+
+  it("leaves a list too short to have a duplicate alone", () => {
+    expect(withoutTrailingDuplicate([], 4)).toEqual([]);
+    expect(withoutTrailingDuplicate([{ x: 1, y: 1 }], 4)).toEqual([{ x: 1, y: 1 }]);
+  });
+
+  /* The threshold is in the points' own units, so the caller converts screen
+     pixels at the current zoom rather than fixing a distance in micrometres. */
+  it("takes the same pair as the same place or not, by the threshold given", () => {
+    const pts = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 3 }, { x: 5, y: 3.5 }];
+    expect(withoutTrailingDuplicate(pts, 1)).toHaveLength(3);
+    expect(withoutTrailingDuplicate(pts, 0.1)).toHaveLength(4);
   });
 });

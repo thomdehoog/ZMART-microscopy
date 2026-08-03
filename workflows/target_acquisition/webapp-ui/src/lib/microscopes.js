@@ -192,24 +192,6 @@ export const DEFAULT_SESSION = {
   password: "demo",
 };
 
-/**
- * Presets the mock starts with, as though they had already been recorded.
- *
- * The same convenience the prefilled password is, and the same caveat: a real
- * build starts with none. Recording is the work this step exists for, and a
- * preset that was never read off an instrument is a preset that can disagree
- * with one.
- *
- * One of each thing a target run needs — the low magnification it maps the
- * sample at, the high one it images single cells at, and the autofocus that
- * keeps both sharp. `nth` picks which reading the controller returns, so the
- * magnifications here are the ones those readings actually describe.
- */
-export const DEMO_PRESETS = [
-  { name: "Overview", type: "acquisition", nth: 0 },
-  { name: "Target", type: "acquisition", nth: 1 },
-  { name: "AF", type: "autofocus", nth: 0 },
-];
 
 /** The APIs a microscope offers, as [key, {label, detail}] pairs. */
 export const apisFor = (microscope) =>

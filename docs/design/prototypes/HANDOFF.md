@@ -18,10 +18,55 @@ not be correct about physics.
 2. **Say what you would do and why before changing anything.** Check the
    reading against what is actually on screen.
 
+**The focus map is on the canvas, not in a tab.** Step 5 draws its heatmap over
+the plan with the canvas's own projection, and its controls — the SURS point
+picker, the point list, the sweep and its preview — sit in the channel beside
+it, named `Focus strategy` at the right end of the tab row. The markup for them
+is parked in `index.html` under `#focus-controls` and moved into the channel
+while the step is standing, so it is built and wired once; anything that writes
+into it asks `focusMounted()` first, because the channel hands it back when the
+step is left.
+
 **The step that defines the overview positions is built.** It is step 4,
 Initial scanfields: a geometry editor and a grid mode in the channel beside the
 canvas, ported from `06_scanfields.jsx`. The grid reads the carrier's area
 centres, so the plate decides the plan.
+
+**The editor's interaction model, since it is not all obvious from the source.**
+The left button does whatever is under it: the editor is asked first, and only
+what it turns down pans the stage — so a press on a field picks it up and a
+press on empty canvas both lets go of the selection and moves the picture. A
+double-click finishes a polygon, and the duplicate vertex its second press
+leaves behind is dropped; Alt+drag pans regardless, and without it there is no
+way to move the stage while a drawing tool is armed. The cursor is set by the
+editor rather than by CSS, and says what the next press will do: `pointer` over
+a field or a grip, `crosshair` with a tool armed, `default` otherwise.
+
+**Exactly one thing is ever highlighted.** A grip beats the field it sits on
+and the field behind it, and the nearest grip beats the rest — several are
+inside the same twelve pixels once a field is small or the view is zoomed out.
+Highlighting is a claim about what the next press will take hold of, so two of
+them at once is worse than none. Point stays armed after use and its button toggles off; every other
+tool disarms itself after one shape. A polygon is drawn closed from the first
+two points, with the cursor standing in for the vertex about to be placed.
+
+Three places it deliberately parts company with the JSX. Hover and selection
+read the same, rather than as three weights. Grid positions can be picked,
+given a preset and deleted but not dragged, because where they are is the
+carrier's statement and the next Apply would silently undo a hand-move. And
+**marked means brighter** — the field's ink and its tiles go to more chroma,
+which is the one signal every kind of field can carry: a region has an outline
+to thicken, a grid position has only its tile, and a tile cannot grow without
+saying something false about how much of the sample it takes in. Away from grey
+rather than towards it, because a plan is mostly tiles and darkening drags the
+marked ones towards the greys the carrier is drawn in. A grid position
+therefore draws nothing of its own at all; the tile is the position — and when
+a preset's frame is under a pixel wide, a mark stands in for the tile, or a
+high-magnification plan is hundreds of positions and an empty canvas.
+
+Everything else about how objects appear, select, resize and rotate follows the
+JSX — including that fields are clamped to the carrier, which the first port
+missed.
 
 **The sample follows the plan.** Tissue belongs to the plate — soft patches
 over the carrier, there whether or not anybody looks. Cells belong to the plan:
@@ -60,8 +105,8 @@ cd workflows/target_acquisition/webapp-ui
 
 npm run dev        # http://127.0.0.1:5174 — hot reload
 npm run build      # one self-contained file -> ../workflow/webapp/static/
-npm run test:unit  # vitest, 86 tests, ~0.3 s
-npm run test:ui    # playwright, 18 tests, ~70 s
+npm run test:unit  # vitest, 89 tests, ~0.3 s
+npm run test:ui    # playwright, 27 tests, ~150 s
 python dev_window.py   # the page in a native pywebview window, still hot-reloading
 ```
 

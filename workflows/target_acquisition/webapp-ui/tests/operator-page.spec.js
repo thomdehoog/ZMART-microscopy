@@ -39,9 +39,13 @@ async function record(page, kind, name) {
 /** Everything before the sample is touched: session, optics, carrier. */
 async function throughSetup(page) {
   await connect(page);
-  // the mock starts with an overview, a target and an autofocus preset already
-  // recorded, so optics needs nothing; and configuring the carrier is the work,
-  // so standing on that step settles it
+  /* Nothing is seeded, so the presets have to be recorded — a run cannot say
+     where to scan until something says what a frame is. Configuring the carrier
+     is the work, so standing on that step settles it. */
+  await gotoStep(page, "Optical configuration");
+  await record(page, "acquisition", "overview");
+  await record(page, "acquisition", "target");
+  await record(page, "autofocus", "af");
   await gotoStep(page, "Carrier configuration");
   await page.waitForTimeout(200);
 }
@@ -57,7 +61,8 @@ async function throughFields(page) {
 
 async function placeFocusPoints(page) {
   await gotoStep(page, "Focus strategy");
-  const box = await page.locator("#focus-canvas").boundingBox();
+  // the focus map is the canvas now, not a map of its own
+  const box = await page.locator("#stage-canvas").boundingBox();
   for (const [fx, fy] of FOCUS_POINTS) {
     await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
     await page.waitForTimeout(50);
@@ -173,20 +178,23 @@ test("an open session is not editable, and Disconnect is the way out", async ({ 
   await expect(page.locator(".rec-row")).toHaveCount(started);
 });
 
-test("the mock starts on the three presets a target run needs", async ({ page }) => {
-  await connect(page);
-  await gotoStep(page, "Optical configuration");
+test("a run starts with no presets, and one recording completes the step",
+  async ({ page }) => {
+    await connect(page);
+    await gotoStep(page, "Optical configuration");
 
-  // a convenience of the mock, not of the design: a real build records these
-  await expect(page.locator(".rec-name")).toHaveText(["Overview", "Target", "AF"]);
-  await expect(page.locator(".rec-row").nth(0), "the overview maps the sample")
-    .toContainText("5x");
-  await expect(page.locator(".rec-row").nth(1), "the target images single cells")
-    .toContainText("63x");
-  // and a preset existing is what completes the step, seeded or recorded
-  await expect(page.locator('.step:has-text("Optical configuration")').first())
-    .toHaveClass(/done/);
-});
+    /* A preset is a reading taken off this instrument today. Starting with
+       three would be the mock telling the operator something untrue, and the
+       step is not done until one has actually been taken. */
+    await expect(page.locator(".rec-row")).toHaveCount(0);
+    await expect(page.locator('.step:has-text("Optical configuration")').first())
+      .not.toHaveClass(/done/);
+
+    await record(page, "acquisition", "overview");
+    await expect(page.locator(".rec-row")).toHaveCount(1);
+    await expect(page.locator('.step:has-text("Optical configuration")').first())
+      .toHaveClass(/done/);
+  });
 
 test("settings are recorded off the instrument, and the list grows", async ({ page }) => {
   await connect(page);
@@ -194,16 +202,16 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
 
   // recording is the work, so there is nothing to confirm afterwards
   await expect(page.locator(".panel.on button.step-run")).toHaveCount(0);
-  const started = await page.locator(".rec-row").count();
+  await expect(page.locator(".rec-row")).toHaveCount(0);
 
   await record(page, "acquisition", "survey");
   await record(page, "autofocus", "af-coarse");
 
-  await expect(page.locator(".rec-row")).toHaveCount(started + 2);
+  await expect(page.locator(".rec-row")).toHaveCount(2);
   // grouped by kind rather than by the order record happened to be pressed
   await expect(page.locator(".setting-group:has(.setting-box.done)")).toHaveCount(2);
   // names are stored capitalised, being identifiers the run refers to
-  await expect(page.locator(".rec-name").nth(started - 1)).toHaveText("Survey");
+  await expect(page.locator(".rec-name").first()).toHaveText("Survey");
   await expect(page.locator(".rec-row").first()).toContainText("NA");
   await expect(page.locator(".rec-row").last()).toContainText("NA");
 
@@ -280,6 +288,7 @@ test("the optical settings panel lines up", async ({ page }) => {
 test("a recorded preset unfolds to show everything that was read", async ({ page }) => {
   await connect(page);
   await gotoStep(page, "Optical configuration");
+  await record(page, "acquisition", "survey");
   const fold = page.locator(".rec-fold").first();
 
   // folded by default: a list of presets should stay a list
@@ -345,9 +354,14 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     await connect(page);
     await expect(page.locator(".step.active .step-name")).toHaveText("Microscope configuration");
     await expect(page.locator('.step:has-text("Microscope configuration")').first()).toHaveClass(/done/);
-    /* Carrier configuration is reachable — the presets the mock starts with
-       complete the step between here and it — but the rail still stops at the
-       first step that has not been done, so nothing beyond it opens. */
+    /* The rail stops at the first step that has not been done, and nothing is
+       seeded, so Optical configuration is as far as it opens. */
+    await expect(page.locator('.step:has-text("Optical configuration")').first()).toBeEnabled();
+    await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeDisabled();
+
+    // one preset is what that step needs, and the next one opens behind it
+    await gotoStep(page, "Optical configuration");
+    await record(page, "acquisition", "survey");
     await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeEnabled();
     await expect(page.locator('.step:has-text("Focus strategy")').first()).toBeDisabled();
   });
@@ -404,9 +418,13 @@ test("the canvas belongs to the steps that happen inside it, and to no others",
     await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(300);
 
+    /* Focus is the same shape: it happens on the canvas, so it is not a tab
+       either — it takes the channel and names it. */
     await placeFocusPoints(page);
-    await expect(page.locator(".tab")).toHaveText(["Canvas", "Focus strategy"]);
-    await expect(page.locator('.tab[aria-selected="true"]')).toHaveText("Focus strategy");
+    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
+    await expect(page.locator(".side-tab")).toHaveText("Focus strategy");
+    await expect(page.locator("#focus-controls")).toBeVisible();
+    await expect(page.locator(".sf-card")).toHaveCount(0);
 
     await runStep(page, 1600);
     // a step that owns no panel is the canvas alone — setup does not follow it
@@ -425,8 +443,9 @@ test("the canvas belongs to the steps that happen inside it, and to no others",
     await runStep(page, 3000);
 
     await gotoStep(page, "Focus strategy");
-    await expect(page.locator(".tab"), "walking back reopens that step's panel")
-      .toHaveText(["Canvas", "Focus strategy"]);
+    await expect(page.locator(".side-tab"), "walking back brings its channel with it")
+      .toHaveText("Focus strategy");
+    await expect(page.locator("#focus-controls")).toBeVisible();
   });
 
 test("the grid comes from the carrier, so changing the plate changes the plan",
@@ -455,8 +474,7 @@ test("the grid comes from the carrier, so changing the plate changes the plan",
        six areas is 54 positions, not 864 — the count is read off the carrier
        rather than typed beside it. */
     await page.locator("#restart-btn").click();
-    await connect(page);
-    await gotoStep(page, "Carrier configuration");
+    await throughSetup(page);
     await page.locator(".carrier-preset").selectOption({ label: "6-well" });
     await page.waitForTimeout(200);
     await gotoStep(page, "Initial scanfields");
@@ -523,10 +541,27 @@ test("a grid position can be picked and dropped, but not dragged off its grid",
       await page.waitForTimeout(250);
       return shot();
     };
+    /* Drag from a position rather than from wherever the middle of the canvas
+       lands. Empty stage is a pan now, so a miss would move the picture and
+       answer a different question than the one being asked. The canvas says
+       where one is: over a field the cursor offers to pick it up. */
+    const findPosition = async () => {
+      for (const fy of [0.5, 0.44, 0.56]) {
+        for (let fx = 0.3; fx <= 0.7; fx += 0.01) {
+          const at = { x: box.x + box.width * fx, y: box.y + box.height * fy };
+          await page.mouse.move(at.x, at.y);
+          const cursor = await page.locator("#stage-canvas").evaluate((c) => c.style.cursor);
+          if (cursor === "pointer") return at;
+        }
+      }
+      throw new Error("no grid position found under the pointer");
+    };
+    const onPosition = await findPosition();
+
     const before = await idle();
-    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+    await page.mouse.move(onPosition.x, onPosition.y);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.62, box.y + box.height * 0.62, { steps: 10 });
+    await page.mouse.move(onPosition.x + box.width * 0.12, onPosition.y + box.height * 0.12, { steps: 10 });
     await page.mouse.up();
     await page.waitForTimeout(250);
     expect(Buffer.compare(before, await idle()) === 0,
@@ -567,8 +602,9 @@ test("a region is drawn on the canvas and covered by its preset's frame",
       "a region the size of several frames takes several tiles").toBeGreaterThan(1);
 
     // drawing hands the tool back, so the next drag moves rather than draws a
-    // second one — no tool is armed
-    await expect(page.locator(".sf-tool.on")).toHaveCount(0);
+    // second one — and the row says so by lighting Select instead
+    await expect(page.locator(".sf-tool.on")).toHaveCount(1);
+    await expect(page.locator(".sf-tool[data-tool='pointer']")).toHaveClass(/\bon\b/);
 
     // undo has no button of its own; the shortcut list is where it is said
     await page.locator("#stage-canvas").click({ position: { x: 5, y: 5 } });
@@ -577,17 +613,252 @@ test("a region is drawn on the canvas and covered by its preset's frame",
     await expect(page.locator(".sf-readout")).toContainText("nothing to scan yet");
   });
 
+test("a polygon is closed by a double-click, and keeps the vertices it was given",
+  async ({ page }) => {
+    await throughSetup(page);
+    await gotoStep(page, "Initial scanfields");
+    const box = await page.locator("#stage-canvas").boundingBox();
+    const at = (fx, fy) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+
+    await page.locator(".sf-tool[data-tool='polygon']").click();
+    for (const [fx, fy] of [[0.3, 0.3], [0.5, 0.28], [0.55, 0.5]]) {
+      await page.mouse.click(at(fx, fy).x, at(fx, fy).y);
+      await page.waitForTimeout(120);
+    }
+    // still being drawn: nothing is in the plan yet
+    await expect(page.locator(".sf-readout")).toContainText("nothing to scan yet");
+
+    const last = at(0.32, 0.52);
+    await page.mouse.dblclick(last.x, last.y);
+    await page.waitForTimeout(300);
+    await expect(page.locator(".sf-readout")).toContainText("1 region");
+
+    // and the tool hands itself back, like every other shape
+    await expect(page.locator(".sf-tool[data-tool='pointer']")).toHaveClass(/\bon\b/);
+
+    // the duplicate vertex the second press leaves behind is dropped by
+    // withoutTrailingDuplicate — which the unit suite pins, not this
+  });
+
+test("walking back to the carrier takes the plan off the canvas, and keeps it",
+  async ({ page }) => {
+    await throughSetup(page);
+    const shot = async () => {
+      await page.locator("#fit-btn").click();
+      await page.mouse.move(10, 10);
+      await page.waitForTimeout(250);
+      return page.locator("#stage-canvas").screenshot();
+    };
+
+    // the carrier alone, before there is any plan to draw over it
+    const bare = await shot();
+
+    await gotoStep(page, "Initial scanfields");
+    await page.locator(".sf-mode[data-mode='grid']").click();
+    await page.locator(".sf-apply-grid").click();
+    await page.waitForTimeout(400);
+    await expect(page.locator(".sf-readout")).toContainText("864 positions");
+    expect(Buffer.compare(bare, await shot()) === 0,
+      "the plan is on the canvas here").toBe(false);
+
+    /* Back on the carrier the plan is not drawn: it is an answer to a question
+       being asked again, and these areas are what it was placed against. */
+    await gotoStep(page, "Carrier configuration");
+    await page.waitForTimeout(300);
+    expect(Buffer.compare(bare, await shot()) === 0,
+      "the carrier is back to how it looked before any fields existed").toBe(true);
+
+    // taken off the canvas, not thrown away
+    await gotoStep(page, "Initial scanfields");
+    await page.waitForTimeout(300);
+    await expect(page.locator(".sf-readout")).toContainText("864 positions");
+  });
+
+test("the plan stays editable until the overview has been scanned",
+  async ({ page }) => {
+    await throughFields(page);
+    await placeFocusPoints(page);
+    await runStep(page, 1600);
+    // the toolbar that used to say so is gone; the rail row carries it now
+    await expect(page.locator(".step", { hasText: "Focus strategy" }))
+      .toContainText("from 5 points");
+
+    /* Back past the focus map, the plan is still the operator's to change: a
+       fitted surface is a statement about the plate, measured at points that
+       stay where they were put whatever the scan fields do. */
+    await gotoStep(page, "Initial scanfields");
+    await page.waitForTimeout(300);
+    await expect(page.locator(".sf-apply-grid")).toBeEnabled();
+    await expect(page.locator(".sf-mode[data-mode='geometry']")).toBeEnabled();
+
+    await gotoStep(page, "Scan the overview");
+    await runStep(page, 3000);
+
+    // and now it is not: the tiles are pictures taken at those positions
+    await gotoStep(page, "Initial scanfields");
+    await page.waitForTimeout(300);
+    await expect(page.locator(".sf-apply-grid")).toBeDisabled();
+    await expect(page.locator(".sf-mode[data-mode='geometry']")).toBeDisabled();
+  });
+
+test("a press on empty canvas lets go of the selection, and the canvas shows it",
+  async ({ page }) => {
+    await throughSetup(page);
+    await gotoStep(page, "Initial scanfields");
+    const box = await page.locator("#stage-canvas").boundingBox();
+    const at = (fx, fy) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+    const shot = () => page.locator("#stage-canvas").screenshot();
+
+    await page.locator(".sf-tool[data-tool='rectangle']").click();
+    await page.mouse.move(at(0.3, 0.3).x, at(0.3, 0.3).y);
+    await page.mouse.down();
+    await page.mouse.move(at(0.45, 0.5).x, at(0.45, 0.5).y, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+
+    // drawn and selected: grips on the canvas, and the panel can reassign it
+    await expect(page.locator(".sf-flat", { hasText: "Apply to selected" })).toBeEnabled();
+    const selected = await shot();
+
+    /* The press that deselects is also the press that starts a pan, so the
+       editor never claims it — which is exactly how it once cleared the
+       selection without the canvas ever being told to repaint. */
+    const empty = at(0.85, 0.85);
+    await page.mouse.move(empty.x, empty.y);
+    await page.mouse.down();
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    await expect(page.locator(".sf-flat", { hasText: "Apply to selected" })).toBeDisabled();
+    expect(Buffer.compare(selected, await shot()) === 0,
+      "the grips are gone from the picture, not just from the panel").toBe(false);
+  });
+
+test("a region can be copied, and a second paste lands clear of the first",
+  async ({ page }) => {
+    await throughSetup(page);
+    await gotoStep(page, "Initial scanfields");
+    const box = await page.locator("#stage-canvas").boundingBox();
+
+    await page.locator(".sf-tool[data-tool='rectangle']").click();
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.5, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    await expect(page.locator(".sf-readout")).toContainText("1 region");
+
+    // drawing leaves the new region selected, so that is what is copied
+    await page.keyboard.press("Control+c");
+    await page.keyboard.press("Control+v");
+    await page.waitForTimeout(250);
+    await expect(page.locator(".sf-readout")).toContainText("2 regions");
+
+    /* The copy becomes what is held, so pasting again offsets from it rather
+       than landing back on the original. Three distinct regions, and the tile
+       count grows with each — two on top of each other would not. */
+    const two = Number((await page.locator(".sf-readout").innerText()).match(/^(\d+)/)[1]);
+    await page.keyboard.press("Control+v");
+    await page.waitForTimeout(250);
+    await expect(page.locator(".sf-readout")).toContainText("3 regions");
+    const three = Number((await page.locator(".sf-readout").innerText()).match(/^(\d+)/)[1]);
+    expect(three, "a third region adds its own tiles").toBeGreaterThan(two);
+
+    // and a paste is one step, so one undo takes it back
+    await page.keyboard.press("Control+z");
+    await page.waitForTimeout(250);
+    await expect(page.locator(".sf-readout")).toContainText("2 regions");
+  });
+
+test("a pasted position is hand-made, so the next Apply leaves it alone",
+  async ({ page }) => {
+    await throughFields(page);
+    await gotoStep(page, "Initial scanfields");
+    await expect(page.locator(".sf-readout")).toContainText("864 positions");
+
+    /* Copying is how a grid position is kept: the copy sheds the grid tag, so
+       it stops being the grid's to replace. Without that, Apply would sweep
+       away a field the operator had deliberately made a copy of. */
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Control+c");
+    await page.keyboard.press("Control+v");
+    await page.waitForTimeout(500);
+    await expect(page.locator(".sf-readout")).toContainText("1728 positions");
+
+    await page.locator(".sf-apply-grid").click();
+    await page.waitForTimeout(500);
+    await expect(page.locator(".sf-readout")).toContainText("1728 positions");
+  });
+
+test("focus points are laid out on a random lattice, not scattered",
+  async ({ page }) => {
+    await throughFields(page);
+    await gotoStep(page, "Focus strategy");
+
+    /* Where the points are, read off the list rather than off the canvas. The
+       rows carry millimetres, which is what the claim is about. */
+    const placed = async () => {
+      const rows = await page.locator(".point-row").allInnerTexts();
+      return rows.map((t) => {
+        const m = t.match(/(-?[\d.]+),\s*(-?[\d.]+)\s*mm/);
+        return { x: Number(m[1]), y: Number(m[2]) };
+      });
+    };
+    const closestPair = (pts) => {
+      let min = Infinity;
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 1; j < pts.length; j++) {
+          min = Math.min(min, Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y));
+        }
+      }
+      return min;
+    };
+
+    await page.locator("#fp-count").fill("12");
+    await expect(page.locator("#fp-hint")).toHaveText("12 points");
+    await page.locator("#fp-place").click();
+    await page.waitForTimeout(300);
+
+    const pts = await placed();
+    expect(pts).toHaveLength(12);
+    /* Twelve points over a 105 × 70 mm plate sit on a 4 × 3 lattice, so the
+       pitch is over 20 mm and nothing can be near anything. Independent random
+       points would put some pair inside 10 mm most of the time — that clumping
+       is the whole reason for sampling this way. */
+    expect(closestPair(pts), "no two points crowd each other").toBeGreaterThan(10);
+
+    // and one lattice per compartment, so every well is measured
+    await page.locator("#fp-scope button[data-scope='area']").click();
+    await page.locator("#fp-count").fill("2");
+    await expect(page.locator("#fp-hint")).toHaveText("192 points");
+    await page.locator("#fp-place").click();
+    await page.waitForTimeout(600);
+    expect(await page.locator(".point-row").count()).toBe(192);
+
+    // Clear empties it, and says so by refusing to be pressed again
+    await page.locator("#fp-clear").click();
+    await page.waitForTimeout(250);
+    expect(await page.locator(".point-row").count()).toBe(0);
+    await expect(page.locator("#fp-clear")).toBeDisabled();
+  });
+
 test("one walk of the whole run", async ({ page }) => {
   await throughFields(page);
 
   await placeFocusPoints(page);
   await runStep(page, 1600);
-  await expect(page.locator("#focus-readout")).toContainText("spline · 5 points");
+  await expect(page.locator(".step", { hasText: "Focus strategy" }))
+    .toContainText("spline from 5 points");
 
+  /* Everything after the plan is measured against the plan. The grid put 864
+     positions down, so that is what the scan drives through and what the tile
+     picker counts — a step reading a list of its own would disagree here. */
   await gotoStep(page, "Scan the overview");
   await runStep(page, 3000);
+  await expect(page.locator('.step:has-text("Scan the overview") .step-note'))
+    .toContainText("864 / 864 tiles");
 
   await gotoStep(page, "Detect cells");
+  await expect(page.locator("#tile-label")).toHaveText("1 / 864");
   await expect(page.locator(".panel.on button.step-run"),
     "detection may not run on settings nobody has seen work").toBeDisabled();
   await page.getByRole("button", { name: "Test on this tile" }).click();
