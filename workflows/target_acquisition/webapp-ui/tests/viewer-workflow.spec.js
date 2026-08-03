@@ -13,9 +13,10 @@ import {
  * The canvas is the picture of a run that an operator pans and zooms. It is
  * being built separately, once for each of several drawing engines, all behind
  * one small interface, and the workflow these tests drive is where it is put
- * inside the operator window and watched: two steps, one drawing with Viv and
- * one with neuroglancer, each with a button for the layer beneath the picture,
- * the picture itself, and the layer above it.
+ * inside the operator window and watched: one step, with a row of buttons that
+ * chooses which engine draws — changing it keeps the view exactly where it is —
+ * and a button each for the layer beneath the picture, the picture itself, and
+ * the layer above it.
  *
  * The question worth asking about a picture is a question about pixels, so that
  * is what is measured here. The box is photographed and the photograph is
@@ -77,14 +78,19 @@ const THE_WASH_IS_THERE = 0.3;
 const THE_LATTICE_IS_THERE = 0.015;
 const A_LAYER_IS_ABSENT = 0.002;
 
-/** Which panel belongs to each of the two steps, and what that step is called. */
-const STEPS = {
-  viv: { at: 0, engine: "viv-under", title: /drawn by Viv/ },
-  neuroglancer: { at: 1, engine: "neuroglancer-under", title: /drawn by neuroglancer/ },
+/* The demonstration is one step drawing into one panel, and the engines are
+   compared inside it. These name a *view of that panel* — which engine is asked
+   to draw — rather than a step of its own, which is what they used to be when
+   there was a step per engine. The panel is the same one either way, so the
+   selectors below take the panel from here rather than from the key. */
+const THE_PANEL = "viv";
+const VIEWS = {
+  viv: { engine: "viv-under" },
+  neuroglancer: { engine: "neuroglancer-under" },
 };
 
-const boxOf = (which) => `#viewer-${which}-box`;
-const layerButton = (which, layer) => `#viewer-${which}-layers button[data-layer="${layer}"]`;
+const boxOf = () => `#viewer-${THE_PANEL}-box`;
+const layerButton = (layer) => `#viewer-${THE_PANEL}-layers button[data-layer="${layer}"]`;
 
 let run = null;
 
@@ -92,27 +98,31 @@ test.beforeAll(async () => { run = await startDemoRun({ port: PORT }); });
 test.afterAll(() => { run?.stop(); });
 
 /**
- * Open the page on the run and stand on one of the demonstration's two steps.
+ * Open the page on the run and stand on the demonstration's step.
  *
  * The step is reached by clicking it in the rail, exactly as an operator would,
- * rather than by asking the page to show a panel. That matters for the second
- * step: nothing has been done in the first one, so if the two steps were not
- * genuinely independent the second would be greyed out and this would fail here.
+ * rather than by asking the page to show a panel — so a step that had somehow
+ * become unreachable would fail here rather than being quietly stepped around.
+ *
+ * `which` names a view rather than a step: it decides which engine the page is
+ * asked to open with, through the same `?engine=` the built page is checked
+ * with one engine at a time.
  */
-async function standOn(page, which, { engine = null } = {}) {
+async function standOn(page, which = "viv", { engine = null } = {}) {
   const asked = new URLSearchParams({ overview: run.store });
-  if (engine) asked.set("engine", engine);
+  const wanted = engine || VIEWS[which]?.engine;
+  if (wanted) asked.set("engine", wanted);
   await page.goto(`/?${asked}`);
   await page.selectOption("#wf-select", "canvas_layers");
-  await page.locator(".step").nth(STEPS[which].at).click();
-  // The engine is fetched when a step is first opened rather than on load, so
+  await page.locator(".step").nth(0).click();
+  // The engine is fetched when the step is first opened rather than on load, so
   // there is a moment here before anything can be drawn.
-  await expect(page.locator(`#panel-viewer-${which}`)).toHaveClass(/\bon\b/);
+  await expect(page.locator(`#panel-viewer-${THE_PANEL}`)).toHaveClass(/\bon\b/);
 }
 
 /** Wait until the picture has opened and the engine has said which it is. */
-async function untilTheEngineIsDrawing(page, which, name, { timeout = 90_000 } = {}) {
-  await expect(page.locator(`#viewer-${which}-engine button[data-engine="${name}"]`))
+async function untilTheEngineIsDrawing(page, name, { timeout = 90_000 } = {}) {
+  await expect(page.locator(`#viewer-${THE_PANEL}-engine button[data-engine="${name}"]`))
     .toHaveAttribute("aria-checked", "true", { timeout });
 }
 
@@ -130,11 +140,11 @@ async function fullestPictureOf(page, which, name, { seconds = 10 } = {}) {
   const until = Date.now() + seconds * 1000;
   let best = null;
   do {
-    const pixels = await photograph(page, boxOf(which), 0.5);
+    const pixels = await photograph(page, boxOf(), 0.5);
     const lit = fractionLit(pixels);
     if (!best || lit > best.lit) {
       best = { lit, ...colourSpread(pixels) };
-      best.shot = await page.locator(boxOf(which)).screenshot();
+      best.shot = await page.locator(boxOf()).screenshot();
     }
     await rest(700);
   } while (Date.now() < until);
@@ -165,7 +175,7 @@ async function howMuchOfTheBoxIs(page, which, colour, { seconds = 3 } = {}) {
   const until = Date.now() + seconds * 1000;
   let most = 0;
   do {
-    most = Math.max(most, fractionNear(await photograph(page, boxOf(which), 0.5), colour));
+    most = Math.max(most, fractionNear(await photograph(page, boxOf(), 0.5), colour));
     await rest(400);
   } while (Date.now() < until);
   return most;
@@ -174,7 +184,7 @@ async function howMuchOfTheBoxIs(page, which, colour, { seconds = 3 } = {}) {
 /** Keep a photograph of the box, so a failure can be looked at rather than read. */
 async function keep(page, which, name) {
   fs.mkdirSync(SHOTS, { recursive: true });
-  fs.writeFileSync(path.join(SHOTS, `${name}.png`), await page.locator(boxOf(which)).screenshot());
+  fs.writeFileSync(path.join(SHOTS, `${name}.png`), await page.locator(boxOf()).screenshot());
 }
 
 /**
@@ -189,7 +199,7 @@ async function keep(page, which, name) {
  * these measurements also depend on it still working.
  */
 async function zoomOutABitWithTheWheel(page, which, notches = 5) {
-  const box = await page.locator(boxOf(which)).boundingBox();
+  const box = await page.locator(boxOf()).boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   for (let i = 0; i < notches; i += 1) {
     await page.mouse.wheel(0, 300);
@@ -202,7 +212,7 @@ test("the first step opens with Viv, and a photograph says it drew the run", asy
   test.setTimeout(180_000);
 
   await standOn(page, "viv");
-  await untilTheEngineIsDrawing(page, "viv", STEPS.viv.engine);
+  await untilTheEngineIsDrawing(page, VIEWS.viv.engine);
   await run.acquire(25);
 
   const measured = await fullestPictureOf(page, "viv", "canvas-layers-viv-under");
@@ -213,21 +223,18 @@ test("the first step opens with Viv, and a photograph says it drew the run", asy
   itIsReallyDrawing(measured, "viv-under");
 });
 
-test("the second step opens with neuroglancer, without the first having been touched",
+test("neuroglancer draws the same run, when it is the engine asked for",
   async ({ page }) => {
     test.setTimeout(180_000);
 
-    /* Straight to the second step, having done nothing in the first. The two
-       steps produce nothing, so neither can be waiting on the other, and an
-       operator may open either one first. If that rule were lost the click below
-       would land on a disabled step and this would fail before a pixel was
-       measured. */
+    /* The other engine, in the same step and the same box. This used to be a
+       step of its own, and the fact that it no longer is makes this test worth
+       more rather than less: the engine that draws is now a button rather than a
+       place you walk to, so what is measured here is that changing it really
+       changes what reaches the screen. */
     await standOn(page, "neuroglancer");
-    await untilTheEngineIsDrawing(page, "neuroglancer", STEPS.neuroglancer.engine);
+    await untilTheEngineIsDrawing(page, VIEWS.neuroglancer.engine);
     await run.acquire(25);
-
-    // The first step's picture was never opened, so its box is still empty.
-    expect(await page.locator("#viewer-viv-box canvas").count()).toBe(0);
 
     const measured = await fullestPictureOf(
       page, "neuroglancer", "canvas-layers-neuroglancer-under");
@@ -242,14 +249,14 @@ test("the layer above the picture comes and goes with its button", async ({ page
   test.setTimeout(180_000);
 
   await standOn(page, "viv");
-  await untilTheEngineIsDrawing(page, "viv", STEPS.viv.engine);
+  await untilTheEngineIsDrawing(page, VIEWS.viv.engine);
   await run.acquire(25);
 
   const before = await howMuchOfTheBoxIs(page, "viv", THE_COLOUR_ABOVE);
-  await page.locator(layerButton("viv", "above")).click();
+  await page.locator(layerButton("above")).click();
   const during = await howMuchOfTheBoxIs(page, "viv", THE_COLOUR_ABOVE);
   await keep(page, "viv", "canvas-layers-above-on");
-  await page.locator(layerButton("viv", "above")).click();
+  await page.locator(layerButton("above")).click();
   const after = await howMuchOfTheBoxIs(page, "viv", THE_COLOUR_ABOVE);
 
   console.log(
@@ -267,12 +274,12 @@ test("the layer beneath the picture appears under Viv", async ({ page }) => {
   test.setTimeout(180_000);
 
   await standOn(page, "viv");
-  await untilTheEngineIsDrawing(page, "viv", STEPS.viv.engine);
+  await untilTheEngineIsDrawing(page, VIEWS.viv.engine);
   await run.acquire(25);
   await zoomOutABitWithTheWheel(page, "viv");
 
   const before = await howMuchOfTheBoxIs(page, "viv", THE_COLOUR_BENEATH);
-  await page.locator(layerButton("viv", "beneath")).click();
+  await page.locator(layerButton("beneath")).click();
   const during = await howMuchOfTheBoxIs(page, "viv", THE_COLOUR_BENEATH);
   await keep(page, "viv", "canvas-layers-beneath-under-viv");
 
@@ -293,19 +300,21 @@ test("the layer beneath the picture does not appear under neuroglancer, and the 
   async ({ page }) => {
     test.setTimeout(180_000);
 
-    /* This is the one real difference between the three engines, and the whole
-       reason the demonstration has two steps. Neuroglancer forces its canvas
-       opaque at the end of every frame, so a drawing placed behind it is never
-       seen. It is not hidden and it is not worked around — the drawing is handed
-       to the slot it belongs in, the engine covers it, and the page puts the
-       engine's own sentence about it beside the button. */
+    /* This is the one real difference between the three engines, and the reason
+       the demonstration exists at all. Neuroglancer forces its canvas opaque at
+       the end of every frame, so a drawing placed behind it is never seen. It is
+       not hidden and it is not worked around — the drawing is handed to the slot
+       it belongs in, the engine covers it, and the page puts the engine's own
+       sentence about it beside the button. Held against the same measurement one
+       test above, taken in the same box with Viv drawing, this is the comparison
+       the single step is for. */
     await standOn(page, "neuroglancer");
-    await untilTheEngineIsDrawing(page, "neuroglancer", STEPS.neuroglancer.engine);
+    await untilTheEngineIsDrawing(page, VIEWS.neuroglancer.engine);
     await run.acquire(25);
     await zoomOutABitWithTheWheel(page, "neuroglancer");
 
-    await page.locator(layerButton("neuroglancer", "beneath")).click();
-    await expect(page.locator(layerButton("neuroglancer", "beneath")))
+    await page.locator(layerButton("beneath")).click();
+    await expect(page.locator(layerButton("beneath")))
       .toHaveAttribute("aria-pressed", "true");
     const during = await howMuchOfTheBoxIs(page, "neuroglancer", THE_COLOUR_BENEATH);
     await keep(page, "neuroglancer", "canvas-layers-beneath-under-neuroglancer");
@@ -321,7 +330,7 @@ test("the layer beneath the picture does not appear under neuroglancer, and the 
        they just pressed. A button that appears to do nothing teaches somebody
        that the page is broken; a reason beside it teaches them something true
        about the engine. */
-    const said = await page.locator("#viewer-neuroglancer-why").textContent();
+    const said = await page.locator("#viewer-viv-why").textContent();
     console.log(`the page said: ${said}`);
     expect(said).toMatch(/cannot|will not/);
     // The engine's own words, not a sentence this page made up about a name it
@@ -331,7 +340,7 @@ test("the layer beneath the picture does not appear under neuroglancer, and the 
 
     // The layer above works on this engine, which is what makes the one above a
     // statement about the bottom slot rather than about drawing in general.
-    await page.locator(layerButton("neuroglancer", "above")).click();
+    await page.locator(layerButton("above")).click();
     const above = await howMuchOfTheBoxIs(page, "neuroglancer", THE_COLOUR_ABOVE);
     console.log(`the layer above, under neuroglancer: ${(above * 100).toFixed(2)}%`);
     expect(above, "the layer above, under neuroglancer").toBeGreaterThan(THE_LATTICE_IS_THERE);
@@ -345,17 +354,17 @@ test("turning the picture off leaves the operator's own drawing on screen", asyn
      to survive it is the operator's own drawing: the picture goes, and the
      things the operator put above and below it stay exactly where they were. */
   await standOn(page, "viv");
-  await untilTheEngineIsDrawing(page, "viv", STEPS.viv.engine);
+  await untilTheEngineIsDrawing(page, VIEWS.viv.engine);
   await run.acquire(25);
 
-  await page.locator(layerButton("viv", "above")).click();
-  await page.locator(layerButton("viv", "beneath")).click();
+  await page.locator(layerButton("above")).click();
+  await page.locator(layerButton("beneath")).click();
 
   const withThePicture = await fullestPictureOf(
     page, "viv", "canvas-layers-picture-on", { seconds: 3 });
 
-  await page.locator(layerButton("viv", "picture")).click();
-  await expect(page.locator(layerButton("viv", "picture")))
+  await page.locator(layerButton("picture")).click();
+  await expect(page.locator(layerButton("picture")))
     .toHaveAttribute("aria-pressed", "false", { timeout: 40_000 });
   await rest(1500);
 
@@ -405,28 +414,28 @@ test("neuroglancer cannot open with no acquisition, and the page says so rather 
        the page waits, gives up out loud, and puts the picture that was working
        back rather than leaving a box that will never fill. */
     await standOn(page, "neuroglancer");
-    await untilTheEngineIsDrawing(page, "neuroglancer", STEPS.neuroglancer.engine);
+    await untilTheEngineIsDrawing(page, VIEWS.neuroglancer.engine);
     await run.acquire(25);
-    await page.locator(layerButton("neuroglancer", "above")).click();
+    await page.locator(layerButton("above")).click();
 
-    await page.locator(layerButton("neuroglancer", "picture")).click();
+    await page.locator(layerButton("picture")).click();
 
     // The page says what it is doing while it waits, rather than looking frozen.
-    await expect(page.locator("#viewer-neuroglancer-note"))
+    await expect(page.locator("#viewer-viv-note"))
       .toContainText("opening with no acquisition", { timeout: 10_000 });
 
     /* And then gives up and says so. The wait is deliberately generous, so this
        is the one place a test here waits a long time on purpose. */
-    await expect(page.locator("#viewer-neuroglancer-note"))
+    await expect(page.locator("#viewer-viv-note"))
       .toContainText("never finished opening", { timeout: 90_000 });
 
-    const said = await page.locator("#viewer-neuroglancer-note").textContent();
+    const said = await page.locator("#viewer-viv-note").textContent();
     console.log(`the page said: ${said}`);
     expect(said).toMatch(/no acquisition/);
     expect(said).toMatch(/drawing as it was/);
 
     // The button went back to on, because the layer it names never went off.
-    await expect(page.locator(layerButton("neuroglancer", "picture")))
+    await expect(page.locator(layerButton("picture")))
       .toHaveAttribute("aria-pressed", "true");
 
     /* And the picture that was working is working still. Giving up on an engine
@@ -444,13 +453,13 @@ test("the same run, drawn by another engine, from the same view", async ({ page 
   test.setTimeout(180_000);
 
   await standOn(page, "viv");
-  await untilTheEngineIsDrawing(page, "viv", STEPS.viv.engine);
+  await untilTheEngineIsDrawing(page, VIEWS.viv.engine);
   await run.acquire(25);
   await fullestPictureOf(page, "viv", "canvas-layers-before-the-change", { seconds: 6 });
 
   const before = await page.locator("#viewer-viv-readout").textContent();
   await page.locator('#viewer-viv-engine button[data-engine="viv-inside"]').click();
-  await untilTheEngineIsDrawing(page, "viv", "viv-inside");
+  await untilTheEngineIsDrawing(page, "viv-inside");
 
   const measured = await fullestPictureOf(page, "viv", "canvas-layers-viv-inside");
   console.log(
@@ -470,10 +479,10 @@ test("the same run, drawn by another engine, from the same view", async ({ page 
      surfaces stacked in the page. The page's drawing code is identical for all
      three — that is the whole point of the interface — so this is asking whether
      the third engine really carries it out. */
-  await page.locator(layerButton("viv", "above")).click();
+  await page.locator(layerButton("above")).click();
   const above = await howMuchOfTheBoxIs(page, "viv", THE_COLOUR_ABOVE);
   await zoomOutABitWithTheWheel(page, "viv");
-  await page.locator(layerButton("viv", "beneath")).click();
+  await page.locator(layerButton("beneath")).click();
   const beneath = await howMuchOfTheBoxIs(page, "viv", THE_COLOUR_BENEATH);
   await keep(page, "viv", "canvas-layers-viv-inside-both-layers");
 
@@ -485,7 +494,7 @@ test("the same run, drawn by another engine, from the same view", async ({ page 
   expect(beneath, "the layer beneath, on viv-inside").toBeGreaterThan(THE_WASH_IS_THERE);
 });
 
-test("either step offers every engine the page was built with, and no others", async ({ page }) => {
+test("the step offers every engine the page was built with, and no others", async ({ page }) => {
   /* Served over HTTP, which is how an operator meets the page, all three can
      draw and all three are offered. The point of this test is the "no others"
      half: a button for an engine the page cannot open would draw nothing, and a
@@ -493,39 +502,35 @@ test("either step offers every engine the page was built with, and no others", a
      rule is checked from the other side, without a browser, in
      `tests/unit/engines.test.js`.
 
-     Both steps are asked, because the row of engines is what makes the
-     comparison possible from wherever you happen to be standing. */
+     This row is the whole of the comparison now that there is one step, so
+     everything the page can draw with has to be in it. */
   const three = ["viv-under", "viv-inside", "neuroglancer-under"];
 
   /* The row is built when the step is first opened rather than when the page
-     loads, because building it means fetching the engine, so each row is waited
-     for rather than read the instant the step is clicked. */
+     loads, because building it means fetching the engine, so it is waited for
+     rather than read the instant the step is clicked. */
   await standOn(page, "viv");
   await expect(page.locator("#viewer-viv-engine button")).toHaveCount(three.length);
   expect(await page.locator("#viewer-viv-engine button").allTextContents()).toEqual(three);
-
-  await page.locator(".step").nth(STEPS.neuroglancer.at).click();
-  await expect(page.locator("#viewer-neuroglancer-engine button")).toHaveCount(three.length);
-  expect(await page.locator("#viewer-neuroglancer-engine button").allTextContents())
-    .toEqual(three);
 });
 
-test("each step gives the whole window to the picture, and says it is a demonstration",
+test("the step gives the whole window to the picture, and says it is a demonstration",
   async ({ page }) => {
     await standOn(page, "viv");
 
     // One module, so one tab, and it is the picture.
     await expect(page.locator("#tabs .tab")).toHaveCount(1);
-    await expect(page.locator("#tabs .tab")).toHaveText("Viv");
+    await expect(page.locator("#tabs .tab")).toHaveText("Canvas");
     // Nothing docked down the right-hand side, and nothing to press.
     await expect(page.locator("#canvas-side")).toBeHidden();
     await expect(page.locator("#panel-viewer-viv button.step-run")).toHaveCount(0);
 
-    // Two steps in the rail, each naming the engine it opens with.
-    await expect(page.locator(".step")).toHaveCount(2);
-    await expect(page.locator(".step").nth(0)).toContainText(STEPS.viv.title);
-    await expect(page.locator(".step").nth(1)).toContainText(STEPS.neuroglancer.title);
-    // Neither is greyed out, because neither is waiting for the other.
+    /* One step in the rail, and it names no engine. There were two, one per
+       engine; the row of buttons above the picture compares them better, because
+       changing engine there keeps the view exactly where it is. */
+    await expect(page.locator(".step")).toHaveCount(1);
+    await expect(page.locator(".step").nth(0)).toContainText("Viewer comparison");
+    // Not greyed out: there is nothing for it to wait on.
     await expect(page.locator(".step.locked")).toHaveCount(0);
 
     /* And it is named as what it is. Somebody choosing it in a month should not

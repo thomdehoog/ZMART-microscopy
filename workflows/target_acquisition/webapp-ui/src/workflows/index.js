@@ -23,7 +23,7 @@ import { numbered } from "../frame/steps.js";
 import {
   connect, opticalConfiguration, carrierConfiguration, initialScanfields,
   focusStrategy, scanOverview, detectCells, selectCells, acquireAndCurate,
-  saveRun, disconnect, theCanvasDrawnByViv, theCanvasDrawnByNeuroglancer,
+  saveRun, disconnect, theCanvas,
   reworded,
 } from "./steps.js";
 
@@ -102,16 +102,22 @@ export const WORKFLOWS = {
      would turn every question about the picture into a question about the run
      going on around it.
 
-     Two steps rather than one, and they wait for nothing: the same scene drawn
-     by Viv, then drawn by neuroglancer. Looking at one and then the other is the
-     only fair way to compare two engines, and it is how the one real difference
-     between them becomes visible rather than something you have to be told. */
+     One step, and the engines are compared inside it. This was two steps — the
+     same scene drawn by Viv, then drawn by neuroglancer — and the row of engine
+     buttons above the picture makes that arrangement redundant: changing engine
+     keeps the view exactly where it is, so one scene seen through each engine in
+     turn compares them more closely than two pictures that were never guaranteed
+     to be looking at the same place. Two steps also had to be marked as waiting
+     for nothing, because a rail means "do this, then that" and these never did.
+     What the second step demonstrated — that two viewers can be open at once
+     without fighting over shared state — is guarded by
+     `test_two_viewers_can_be_open_at_once` rather than by an operator noticing. */
   canvas_layers: workflow(
     "Canvas demonstration",
     "Not a run. A bench for watching the canvas draw its three layers: the " +
       "operator's own drawing beneath, the acquisition, and the operator's own " +
       "drawing above. No microscope moves and nothing is saved.",
-    [theCanvasDrawnByViv, theCanvasDrawnByNeuroglancer],
+    [theCanvas],
   ),
 };
 

@@ -456,7 +456,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      They are three different things — a session, a list of presets, a carrier —
      and a tab beside the canvas should say which of them it opens. They draw
      into the same element because only one is ever shown. */
-  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer-viv", "foot-viewer-neuroglancer", "foot-detect", "foot-analysis", "foot-gallery"];
+  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer-viv", "foot-detect", "foot-analysis", "foot-gallery"];
 
   /* Every panel a step may ask for, by the name a step uses for it. `whenShown`
      is how a panel that has to build something of its own — a picture drawn by a
@@ -467,16 +467,28 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     connect: { label: "Microscope configuration", panel: "panel-setup" },
     optics: { label: "Optical configuration", panel: "panel-setup" },
     canvas: { label: "Canvas", panel: "panel-canvas" },
-    /* One for each step of the canvas demonstration. They are two panels rather
-       than one so that the two steps share nothing at all; `index.html` says
-       more about why. */
+    /* The canvas demonstration's one panel. There were two, one per engine, until
+       the row of engine buttons above the picture made them redundant: changing
+       engine keeps the view where it is, so one panel shown through each engine
+       in turn is a closer comparison than two panels looking at the same run
+       from wherever each happened to be. */
     "viewer-viv": {
-      label: "Viv", panel: "panel-viewer-viv",
-      whenShown: () => theVivCanvas.whenShown(),
-    },
-    "viewer-neuroglancer": {
-      label: "Neuroglancer", panel: "panel-viewer-neuroglancer",
-      whenShown: () => theNeuroglancerCanvas.whenShown(),
+      label: "Canvas", panel: "panel-viewer-viv",
+      whenShown: async () => {
+        await Promise.all(theThreeCanvases.map((canvas) => canvas.whenShown()));
+        /* Put them all where the first one is looking. Each engine picks its own
+           opening view and they do not agree — Viv fits the acquisition, and
+           neuroglancer opens at one voxel to the pixel, which on this data is
+           twenty times closer. Three pictures at three zooms compare nothing, so
+           the page says which view they share. Only at opening: after that each
+           is panned on its own, because locking them together is a different
+           thing and is not built. */
+        const first = theThreeCanvases.find((canvas) => canvas.view);
+        if (!first) return;
+        for (const canvas of theThreeCanvases) {
+          if (canvas !== first) canvas.lookAt(first.view);
+        }
+      },
     },
     detect: { label: "Detection", panel: "panel-detect" },
     analysis: { label: "Analysis", panel: "panel-analysis" },
@@ -1437,8 +1449,15 @@ import scanfieldsWidget from "./widgets/scanfields.js";
           }),
     };
   };
-  const theVivCanvas = aCanvasPanel("viv", "viv-under");
-  const theNeuroglancerCanvas = aCanvasPanel("neuroglancer", "neuroglancer-under");
+  /* Three viewers side by side in the one step, each fixed to an engine. They
+     share nothing — three separate viewers on the same run — which is both what
+     makes them comparable and what proves the canvas keeps no state belonging to
+     its file rather than to the viewer. */
+  const theThreeCanvases = [
+    aCanvasPanel("vivunder", "viv-under"),
+    aCanvasPanel("vivinside", "viv-inside"),
+    aCanvasPanel("neuro", "neuroglancer-under"),
+  ];
 
   /* ============================================================
      the stage viewer — one projection, layers on top
