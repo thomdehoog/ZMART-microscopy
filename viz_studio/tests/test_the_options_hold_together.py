@@ -1144,6 +1144,47 @@ def test_two_acquisitions_land_in_the_same_place(harness_page, option):
 
 
 @pytest.mark.parametrize("option", EVERY_OPTION)
+def test_an_image_from_another_microscope_is_drawn(harness_page, option):
+    """An acquisition somebody else's instrument wrote, opened as it arrives.
+
+    Standing on OME-Zarr is what makes it possible to read an image this project
+    did not write, so an option that can only read our own is only half an
+    option. Nothing in this suite asked that until now, and the reason is worth
+    writing down because it is the shape of the gap rather than one mistake.
+
+    Every acquisition our writer produces declares five axes — time, channel and
+    the three of space — whether or not the run had a moment or a colour to put
+    in them. So on every other store here, an option that always asks for a `t`
+    index is asking for something that is always there, and is right by
+    accident. A light-sheet transfer declares three axes and no more, and asking
+    such an image for its `t` is an error rather than a harmless nought: every
+    piece of it fails to load, and it fails quietly, one refused read at a time,
+    leaving a viewer that reports itself perfectly well while drawing nothing.
+
+    That is this project's characteristic failure and the reason the reading here
+    is taken from a photograph rather than from the viewer's own opinion of
+    itself. The store is filled solid, so a viewer that reads it shows a block
+    and a viewer that cannot shows an empty window; there is no middle case to
+    argue about.
+    """
+    harness_page.option = option
+    # Unbounded, because a foreign image keeps no coverage record — that record
+    # is something this project's writer produces, and expecting one is the same
+    # assumption as expecting a `t` axis, one layer up.
+    harness_page.open(
+        store="foreign", draw="none", channels="fromTheStore", bounded="0",
+    )
+    harness_page.settle(tries=20)
+    showing = _share_of_the_window_showing_picture(harness_page.photograph())
+    assert showing > 0.2, (
+        "an image from another microscope drew nothing: only "
+        f"{showing:.1%} of the window is picture. An option that asks a "
+        "three-axis image for an axis it does not have is refused every piece "
+        "of it, and says nothing about being refused."
+    )
+
+
+@pytest.mark.parametrize("option", EVERY_OPTION)
 def test_a_drawing_at_the_wrong_size_is_noticed(harness_page, option):
     """The reading that catches the two layers disagreeing about *size*.
 
