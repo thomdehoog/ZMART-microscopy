@@ -553,20 +553,23 @@ canvas.livecv[hidden] { display: none; }
    change `THE_COLOUR_BEHIND_THE_PICTURE` in `src/canvas/panel.js` with it. */
 .viewer-box { position: absolute; inset: 0; background: #05070d; }
 
-/* The three engines, side by side, drawing the same run.
+/* The engines, side by side, drawing the same run.
 
    Equal columns, because the comparison is between pictures and a picture given
    more room looks better for a reason that has nothing to do with the engine.
-   `min-width: 0` on the columns because a grid track otherwise refuses to shrink
-   below the width of what is in it, and a canvas will happily claim more than its
-   share and push the third engine off the side. */
-/* A panel is ordinarily a toolbar, its content and a foot. This one has no
+   The columns come from `grid-auto-flow: column` rather than a fixed count, so
+   adding or removing an engine is a change to the markup and not also to this
+   file. `min-width: 0` because a grid track otherwise refuses to shrink below the
+   width of what is in it, and a canvas will happily claim more than its share and
+   push its neighbour off the side.
+
+   A panel is ordinarily a toolbar, its content and a foot. This one has no
    toolbar of its own — each column carries its own — so it is two rows, and the
    pictures take everything that is left. */
 #panel-viewer-viv.on { grid-template-rows: minmax(0, 1fr) auto; }
 .three-viewers {
   min-height: 0;
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 8px;
+  display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; gap: 8px; padding: 8px;
 }
 .one-viewer {
   position: relative; min-width: 0; min-height: 0;
@@ -575,13 +578,15 @@ canvas.livecv[hidden] { display: none; }
 /* The box is the only part that grows, and it grows from nothing — `flex: 1 1 0`
    rather than `auto`, so its height comes from the room left over rather than
    from whatever the engine put inside it. With `auto` a canvas sizes the box and
-   the box sizes the column, and three engines with three ideas about how large a
-   canvas should be give three different pictures. */
+   the box sizes the column, and two engines with two ideas about how large a
+   canvas should be give two differently sized pictures. */
 .one-viewer .viewer-box { position: relative; inset: auto; flex: 1 1 0; min-height: 0; }
 
 /* `hidden` is an attribute and `display: flex` is a rule, and the rule wins. The
    engine chooser is `hidden` here because each column is fixed to one engine, so
-   it has to be said in CSS or all three choosers show up under the pictures. */
+   it has to be said in CSS or every column's chooser shows up under its picture.
+   This is generic rather than aimed at the chooser; deleting that markup, which
+   is on the list of things to decide, frees nothing here. */
 .seg[hidden] { display: none; }
 .one-viewer .live-note { bottom: 8px; max-width: calc(100% - 16px); }
 .viewer-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }

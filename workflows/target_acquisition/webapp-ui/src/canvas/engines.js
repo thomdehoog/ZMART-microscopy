@@ -2,32 +2,37 @@
  * Which drawing engines this page can open the canvas with.
  *
  * The canvas is the picture of a run that the operator pans and zooms. It is
- * being written three times over, once for each of three drawing engines, and
- * all three are kept behind one small interface so that they can be compared
- * fairly. `viz_studio/options/contract.md` sets that interface out in full; the
- * short version is that an engine is a folder holding a `viewer.js` which
- * exports exactly one function, `openViewer`, and the page reaches it through
- * that function and through nothing else.
+ * written more than once, one folder per drawing engine, and every one of them is
+ * kept behind one small interface so that they can be compared fairly.
+ * `viz_studio/options/contract.md` sets that interface out in full; the short
+ * version is that an engine is a folder holding a `viewer.js` which exports
+ * exactly one function, `openViewer`, and the page reaches it through that
+ * function and through nothing else.
  *
- * Keeping to that has a purpose worth stating, because it is easy to lose. Three
- * viewers with three different interfaces cannot be compared: any difference you
- * notice might be the engine, or might be the way somebody happened to wire that
- * one up. Three viewers behind an identical interface, opened by the same page
- * on the same run, differ only in the thing being compared.
+ * Keeping to that has a purpose worth stating, because it is easy to lose.
+ * Viewers with different interfaces cannot be compared: any difference you notice
+ * might be the engine, or might be the way somebody happened to wire that one up.
+ * Viewers behind an identical interface, opened by the same page on the same run,
+ * differ only in the thing being compared.
  *
- * Adding an engine is one line below. Nothing else in this page needs to change:
- * the panel and the little row of buttons that chooses between engines both work
- * by name. The two gestures need no thought either — a canvas arrives with
- * dragging and the wheel already attached, all three engines sharing one piece
- * of code for them.
+ * Adding an engine is one line below **and one column of markup in
+ * `index.html`**, which is one place more than this file used to promise. The
+ * page now shows every engine at once rather than offering a chooser, so the
+ * columns are written out rather than generated; whether to generate them from
+ * `enginesOnOffer()` instead is an open question. The two gestures still need no
+ * thought — a canvas arrives with dragging and the wheel already attached, every
+ * engine sharing one piece of code for them.
  *
- * ## The third engine, and what it costs to have it here
+ * `viz_studio/options/` also holds `viv-inside`, which this page no longer
+ * offers: it drew the operator's layer inside the engine as a texture, so every
+ * change to that layer cost an engine frame. It is still in the comparison there.
  *
- * All three engines in `viz_studio/options/` are offered. Two of them, the ones
- * that draw with Viv, are ordinary JavaScript and live entirely inside the page.
- * The third, neuroglancer, does not: it hands the fetching and the unpacking of
- * image pieces to background programs, and a browser will only start one of
- * those from a file of its own.
+ * ## Neuroglancer, and what it costs to have it here
+ *
+ * `viv-under` is ordinary JavaScript and lives entirely inside the page.
+ * Neuroglancer does not: it hands the fetching and the unpacking of image pieces
+ * to background programs, and a browser will only start one of those from a file
+ * of its own.
  *
  * That matters here because this page is otherwise built into a single
  * self-contained file — one HTML document with everything folded inside it —
@@ -79,7 +84,6 @@
    quietly while adding one. */
 const HOW_TO_OPEN = {
   "viv-under": () => import("../../../../../viz_studio/options/viv-under/viewer.js"),
-  "viv-inside": () => import("../../../../../viz_studio/options/viv-inside/viewer.js"),
   "neuroglancer-under": () =>
     import("../../../../../viz_studio/options/neuroglancer-under/viewer.js"),
 };
@@ -90,7 +94,6 @@ const HOW_TO_OPEN = {
  */
 const WHAT_IT_IS = {
   "viv-under": "the picture underneath, the operator's own drawing on a second surface above it",
-  "viv-inside": "one surface, with the picture and the operator's own drawing as layers in it",
   "neuroglancer-under":
     "neuroglancer draws the picture underneath, the operator's own drawing on a " +
     "second surface above it",

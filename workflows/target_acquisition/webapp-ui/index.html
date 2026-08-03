@@ -89,22 +89,29 @@
         </div>
       </div>
 
-      <!-- The canvas demonstration: one step, all three engines drawing the same
-           run side by side.
+      <!-- The canvas demonstration: one step, both engines drawing the same run
+           side by side.
 
            This was two steps, one engine each, and then one step with a row of
            buttons that swapped the engine in place. Both compared the engines one
            after the other, which asks an operator to remember what the last one
-           looked like. Three at once does not: a difference between two pictures
-           standing beside each other is seen rather than recalled, and the one
+           looked like. Side by side does not: a difference between two pictures
+           standing next to each other is seen rather than recalled, and the one
            difference that decides what can be built — whether a drawing handed to
            the bottom slot really ends up beneath the picture — shows itself
-           immediately, because two of these draw the wash and the third does not.
+           immediately, because one of these draws the wash and the other says in
+           its own words why it cannot.
 
            Each column is a viewer of its own, with its own engine, its own view
            and its own buttons. They share nothing, which is also the check that
            the canvas keeps no state belonging to its file rather than to the
-           viewer — three at once would fall over if it did. -->
+           viewer — two at once would fall over if it did.
+
+           There was a third, `viv-inside`, which drew the operator's layer inside
+           the engine as a texture rather than on a surface of its own. It is out
+           of the page because every change to that layer then costs an engine
+           frame; it is still in `viz_studio/options/` and still in the
+           comparison. -->
       <div class="panel" id="panel-viewer-viv" role="tabpanel">
         <div class="three-viewers">
           <div class="one-viewer">
@@ -118,19 +125,6 @@
             <div class="viewer-box" id="viewer-vivunder-box"></div>
             <div class="live-note" id="viewer-vivunder-note" hidden></div>
             <div class="seg" id="viewer-vivunder-engine" hidden></div>
-          </div>
-
-          <div class="one-viewer">
-            <div class="viewer-head">
-              <span class="viewer-name">viv-inside</span>
-              <div class="readout" id="viewer-vivinside-readout">—</div>
-            </div>
-            <div class="seg" id="viewer-vivinside-layers"
-                 aria-label="Which of the three layers are drawn, under viv-inside"></div>
-            <span class="action-hint layer-why" id="viewer-vivinside-why"></span>
-            <div class="viewer-box" id="viewer-vivinside-box"></div>
-            <div class="live-note" id="viewer-vivinside-note" hidden></div>
-            <div class="seg" id="viewer-vivinside-engine" hidden></div>
           </div>
 
           <div class="one-viewer">

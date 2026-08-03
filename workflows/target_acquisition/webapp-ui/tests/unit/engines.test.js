@@ -7,7 +7,7 @@
  * this project days at a time.
  *
  * There is a real reason the list can be shorter than what was built in. One of
- * the three engines, neuroglancer, hands part of its work to a background
+ * the two engines, neuroglancer, hands part of its work to a background
  * program, and a browser will not start one of those for a page that was opened
  * straight off the disk. `src/canvas/engines.js` explains that at length. What
  * these tests do is hold the page to it in both directions: the engine is
@@ -31,8 +31,8 @@ function pageOpenedFrom(protocol) {
 afterEach(() => { delete globalThis.location; });
 
 describe("what the page was built with", () => {
-  it("carries all three engines, so all three can be compared", () => {
-    expect(enginesBuiltIn()).toEqual(["viv-under", "viv-inside", "neuroglancer-under"]);
+  it("carries both engines, so the two can be compared", () => {
+    expect(enginesBuiltIn()).toEqual(["viv-under", "neuroglancer-under"]);
   });
 
   it("says in plain words what each one does, for the note beside the buttons", () => {
@@ -61,7 +61,7 @@ describe("what the page offers, which depends on where it was opened from", () =
 
   it("leaves out the engine that needs a background program when opened off the disk", () => {
     pageOpenedFrom("file:");
-    expect(enginesOnOffer()).toEqual(["viv-under", "viv-inside"]);
+    expect(enginesOnOffer()).toEqual(["viv-under"]);
   });
 
   it("says which engine is missing and what to do about it", () => {
