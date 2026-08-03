@@ -431,31 +431,61 @@ function voxelSizeUm(metadata, labels) {
  * scan of `viz_studio/options/RESULTS.md` measurement 8 landed 898 micrometres
  * from where its store says it is.
  *
- * The number is written beside the multiscale block as a translation, in the
- * same units as the axes. Viv's own reading of a store does not carry it, so it
- * is taken from the description here, exactly as the size of a voxel is.
+ * The number is written as a translation, in the same units as the axes. Viv's
+ * own reading of a store does not carry it, so it is taken from the description
+ * here, exactly as the size of a voxel is.
+ *
+ * **It can be written in two places, and both have to be read.** OME-Zarr lets
+ * an image state a transformation beside each resolution and another beside the
+ * multiscale block that holds them, and the second is applied to the result of
+ * the first. This project's own writer uses the outer one
+ * (`zmart_storage/canvas.py`); the images other instruments send arrive with the
+ * inner one and no outer block at all. Reading only the outer place is therefore
+ * right for our runs and silently wrong for everybody else's — every foreign
+ * image reports itself as beginning at the stage's zero, and a run of many tiles
+ * draws all of them on top of one another.
+ *
+ * That is the same fault as the 898 micrometres above, in the one form the first
+ * fix did not cover: the readers were taught this project's convention rather
+ * than the format's. So the two are composed the way the format says and the way
+ * neuroglancer's own reader does it — the outer scale applies to the inner
+ * translation, and the outer translation is added to it. Where either is absent
+ * the arithmetic collapses to the other, which is why one expression serves both
+ * conventions rather than a test for which kind of store this is.
  */
 function originUm(metadata, labels) {
   const found = { x: 0, y: 0, z: 0 };
   const multiscale = metadata?.multiscales?.[0];
   if (!multiscale) return found;
   const axes = multiscale.axes || labels;
-  for (const step of multiscale.coordinateTransformations || []) {
-    if (step.type !== "translation") continue;
-    axes.forEach((axis, at) => {
-      const name = typeof axis === "string" ? axis : axis.name;
-      const unit = typeof axis === "string" ? "" : axis.unit || "";
-      if (!(name in found)) return;
-      const distance = Number(step.translation?.[at]);
-      if (!Number.isFinite(distance)) return;
-      const toMicrometres =
-        unit === "meter" || unit === "m" ? 1e6
-        : unit === "millimeter" || unit === "mm" ? 1e3
-        : unit === "nanometer" || unit === "nm" ? 1e-3
-        : 1;
-      found[name] = distance * toMicrometres;
-    });
-  }
+  const saying = (transformations, kind) => {
+    for (const step of transformations || []) {
+      if (step.type === kind) return step[kind];
+    }
+    return null;
+  };
+  // The full-resolution copy: every level states the same position, and this is
+  // the one whose voxels the rest of this file counts in.
+  const beside = saying(multiscale.datasets?.[0]?.coordinateTransformations, "translation");
+  const around = saying(multiscale.coordinateTransformations, "translation");
+  const stretch = saying(multiscale.coordinateTransformations, "scale");
+  axes.forEach((axis, at) => {
+    const name = typeof axis === "string" ? axis : axis.name;
+    const unit = typeof axis === "string" ? "" : axis.unit || "";
+    if (!(name in found)) return;
+    const inner = Number(beside?.[at]);
+    const outer = Number(around?.[at]);
+    const factor = Number(stretch?.[at]);
+    const toMicrometres =
+      unit === "meter" || unit === "m" ? 1e6
+      : unit === "millimeter" || unit === "mm" ? 1e3
+      : unit === "nanometer" || unit === "nm" ? 1e-3
+      : 1;
+    found[name] = (
+      (Number.isFinite(inner) ? inner : 0) * (Number.isFinite(factor) ? factor : 1)
+      + (Number.isFinite(outer) ? outer : 0)
+    ) * toMicrometres;
+  });
   return found;
 }
 

@@ -163,22 +163,44 @@ def origin_um(image: Path) -> dict:
     long way from the survey's, and a drawing placed without this would sit at
     the wrong end of the specimen.
 
-    The number is written in the image's own description, as the translation
-    beside the multiscale block, and it is read from there rather than passed in
-    so that the record and the picture cannot disagree about it.
+    The number is written in the image's own description as a translation, and
+    it is read from there rather than passed in so that the record and the
+    picture cannot disagree about it.
+
+    **It can be written in two places, and both have to be read.** OME-Zarr lets
+    an image state a transformation beside each resolution and another beside
+    the multiscale block that holds them, and the second is applied to the
+    result of the first. This project's writer uses the outer one; images from
+    other instruments carry the inner one and no outer block at all. Reading
+    only the outer place reports every foreign image as beginning at the stage's
+    zero — which is what the viewers did until the same fix was made in each of
+    them. The two are composed here the way the format says: the outer scale
+    applies to the inner translation, and the outer translation is added.
     """
     described = json.loads((image / ".zattrs").read_text())
     multiscales = described["multiscales"][0]
     names = [axis["name"] for axis in multiscales["axes"]]
     found = {name: 0.0 for name in names if name in ("x", "y", "z")}
-    for step in multiscales.get("coordinateTransformations", []):
-        if step.get("type") != "translation":
+
+    def saying(transformations, kind):
+        for step in transformations or []:
+            if step.get("type") == kind:
+                return step.get(kind, [])
+        return []
+
+    # The full-resolution copy: every level states the same position, and it is
+    # the one whose voxels the coverage record counts in.
+    datasets = multiscales.get("datasets", [])
+    beside = saying(datasets[0].get("coordinateTransformations") if datasets else [], "translation")
+    around = saying(multiscales.get("coordinateTransformations"), "translation")
+    stretch = saying(multiscales.get("coordinateTransformations"), "scale")
+    for at, name in enumerate(names):
+        if name not in found:
             continue
-        for name, distance in zip(
-                names, step.get("translation", []), strict=False
-            ):
-            if name in found:
-                found[name] = float(distance)
+        inner = float(beside[at]) if at < len(beside) else 0.0
+        outer = float(around[at]) if at < len(around) else 0.0
+        factor = float(stretch[at]) if at < len(stretch) else 1.0
+        found[name] = inner * factor + outer
     return found
 
 

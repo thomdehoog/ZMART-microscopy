@@ -40,5 +40,17 @@ if (already && !already.isSymbolicLink()) {
   );
 }
 if (already) unlinkSync(link);
-symlinkSync(relative(options, theViewers), link, "dir");
+// Windows gets a junction rather than a symbolic link. For a directory the two
+// are the same thing to everything that reads them — Node reports a junction as
+// a link, so the check above still holds — but a symbolic link needs a
+// privilege an ordinary account does not have and a junction does not. The
+// microscope computer is an ordinary account, and a build that cannot run there
+// is no use to this comparison. A junction has to be given the whole path
+// rather than a relative one, which is the only reason the two differ here.
+const windows = process.platform === "win32";
+symlinkSync(
+  windows ? theViewers : relative(options, theViewers),
+  link,
+  windows ? "junction" : "dir",
+);
 console.log(`options/node_modules -> ${relative(options, theViewers)}`);

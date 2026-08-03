@@ -602,9 +602,27 @@ function voxelSizeUm(metadata, name) {
  * scan of `viz_studio/options/RESULTS.md` measurement 8 landed 898 micrometres
  * from where its store says it is.
  *
- * The number is written beside the multiscale block as a translation, in the
- * same units as the axes. Viv's own reading of a store does not carry it, so it
- * is taken from the description here, exactly as the size of a voxel is.
+ * The number is written as a translation, in the same units as the axes. Viv's
+ * own reading of a store does not carry it, so it is taken from the description
+ * here, exactly as the size of a voxel is.
+ *
+ * **It can be written in two places, and both have to be read.** OME-Zarr lets
+ * an image state a transformation beside each resolution and another beside the
+ * multiscale block that holds them, and the second is applied to the result of
+ * the first. This project's own writer uses the outer one
+ * (`zmart_storage/canvas.py`); the images other instruments send arrive with the
+ * inner one and no outer block at all. Reading only the outer place is therefore
+ * right for our runs and silently wrong for everybody else's — every foreign
+ * image reports itself as beginning at the stage's zero, and a run of many tiles
+ * draws all of them on top of one another.
+ *
+ * That is the same fault as the 898 micrometres above, in the one form the first
+ * fix did not cover: the readers were taught this project's convention rather
+ * than the format's. So the two are composed the way the format says and the way
+ * neuroglancer's own reader does it — the outer scale applies to the inner
+ * translation, and the outer translation is added to it. Where either is absent
+ * the arithmetic collapses to the other, which is why one expression serves both
+ * conventions rather than a test for which kind of store this is.
  */
 function originUm(metadata) {
   const multiscale = metadata?.multiscales?.[0];
@@ -613,16 +631,29 @@ function originUm(metadata) {
   const axes = multiscale.axes || [];
   const names = axes.map((axis) => (typeof axis === "string" ? axis : axis.name));
   const units = axes.map((axis) => (typeof axis === "string" ? "" : axis.unit || ""));
-  for (const step of multiscale.coordinateTransformations || []) {
-    if (step.type !== "translation") continue;
-    names.forEach((axisName, at) => {
-      if (!(axisName in found)) return;
-      const perUnit = UM_PER_UNIT[String(units[at] || "").toLowerCase()];
-      const distance = Number(step.translation?.[at]);
-      if (perUnit === undefined || !Number.isFinite(distance)) return;
-      found[axisName] = distance * perUnit;
-    });
-  }
+  const saying = (transformations, kind) => {
+    for (const step of transformations || []) {
+      if (step.type === kind) return step[kind];
+    }
+    return null;
+  };
+  // The full-resolution copy: every level states the same position, and this is
+  // the one whose voxels the rest of the file counts in.
+  const beside = saying(multiscale.datasets?.[0]?.coordinateTransformations, "translation");
+  const around = saying(multiscale.coordinateTransformations, "translation");
+  const stretch = saying(multiscale.coordinateTransformations, "scale");
+  names.forEach((axisName, at) => {
+    if (!(axisName in found)) return;
+    const perUnit = UM_PER_UNIT[String(units[at] || "").toLowerCase()];
+    if (perUnit === undefined) return;
+    const inner = Number(beside?.[at]);
+    const outer = Number(around?.[at]);
+    const factor = Number(stretch?.[at]);
+    found[axisName] = (
+      (Number.isFinite(inner) ? inner : 0) * (Number.isFinite(factor) ? factor : 1)
+      + (Number.isFinite(outer) ? outer : 0)
+    ) * perUnit;
+  });
   return found;
 }
 
@@ -958,15 +989,36 @@ LetTheUnimagedGroundShowThrough.extensionName = "LetTheUnimagedGroundShowThrough
 function layersFor(own) {
   return own.images.map((image, at) => {
     const shown = image.channels;
+    // Viv gives every resolution of an image the same list of axis names, so
+    // the first is as good as any and is the one already read elsewhere here.
+    const labels = image.sources?.[0]?.labels || [];
     return new MultiscaleImageLayer({
       id: `zmart-acquisition-${at}`,
       loader: image.sources,
-      // Which plane, which moment, and which channel each colour comes from.
-      selections: shown.map((channel) => ({
-        t: image.moment,
-        c: channel.within,
-        z: image.plane,
-      })),
+      // Which plane, which moment, and which channel each colour comes from —
+      // naming only the axes this image actually has.
+      //
+      // Asking for all three regardless looks harmless and is not. Every image
+      // this project writes declares five axes whether or not the run had a
+      // moment or a colour to put in them, so a fixed `{t, c, z}` is right on
+      // every acquisition of our own and cannot be wrong on any of them. A
+      // light-sheet transfer declares `z, y, x` and nothing else, and asking
+      // such an image for its `t` is refused rather than ignored: every piece
+      // of it fails to load, one quiet rejection at a time, and what is left is
+      // a viewer reporting itself perfectly well over an empty window.
+      //
+      // The same reasoning as `originUm` above, one layer up: what the store
+      // says about itself is the only thing worth trusting, and a constant that
+      // happens to match our own writer is not a substitute for reading it.
+      // `viv-inside` asks the same question of its own store; the two are
+      // written separately on purpose, so change both together.
+      selections: shown.map((channel) => {
+        const asked = {};
+        if (labels.includes("t")) asked.t = image.moment;
+        if (labels.includes("c")) asked.c = channel.within;
+        if (labels.includes("z")) asked.z = image.plane;
+        return asked;
+      }),
       contrastLimits: shown.map((channel) => [
         channel.window.low,
         channel.window.high,
