@@ -73,7 +73,7 @@
 import { build } from "esbuild";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -193,9 +193,30 @@ export async function theUnpackingProgram() {
   return source;
 }
 
-// Run directly (`node neuroglancer-workers.mjs`), this does the preparation and
-// says what it produced, so a build log shows plainly that it happened.
-if (import.meta.url === `file://${process.argv[1]}`) {
+/* Run directly (`node neuroglancer-workers.mjs`), this does the preparation and
+   says what it produced, so a build log shows plainly that it happened.
+
+   The address is built with `pathToFileURL` rather than by putting `file://` in
+   front of the path, and the difference is the whole of a day's confusion. On
+   Windows the path is `C:\…`, so the hand-built string is `file://C:\…` while
+   `import.meta.url` is `file:///C:/…` — three slashes, forward, with the drive
+   as the authority. They never match, so on Windows this block never ran, the
+   two background programs were never compiled, and what stayed in `node_modules`
+   was neuroglancer's uncompiled twenty-line stub.
+
+   What that looked like, which is why it survived: `predev` printed nothing and
+   failed nothing. The page loaded. The engine opened, reported itself ready,
+   built its layers, compiled its shader, computed which pieces of image it
+   needed — and then its background program died on load with an opaque error,
+   so not one of those pieces was ever asked for. Every pixel of the box was the
+   background colour, and it read as a picture drawn too dark. Three different
+   brightness windows were tried against it and the pixels were byte-identical
+   every time, because no pixel of image was ever drawn at all.
+
+   The block at the top of this file already predicted exactly this: "the program
+   never starts, and — this is the part that costs days — nothing reports an
+   error." It cost a day. */
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const sizes = await readyTheBackgroundPrograms();
   for (const [name, bytes] of Object.entries(sizes)) {
     console.log(`neuroglancer's ${name} is ready: ${Math.round(bytes / 1024)} KB`);
