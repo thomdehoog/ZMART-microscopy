@@ -63,6 +63,7 @@ measurement is meant to read off the picture.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -479,13 +480,104 @@ def write_the_survey_and_the_detail(
     fine.close()
 
 
+FOREIGN_VOXELS = 512
+FOREIGN_TILE = 256
+FOREIGN_VOXEL_UM = 1.1
+# Far from the stage's zero, the way an instrument that reports real stage
+# coordinates writes it. Nothing else here is written more than 896 µm out.
+FOREIGN_ORIGIN_UM = (0.0, 69499.57, 28835.03)
+FOREIGN_VALUE = 2000
+
+
+def write_a_foreign_store(folder: Path) -> None:
+    """An acquisition written by somebody else's microscope, by hand.
+
+    **This is the one store here not written by this project's writer, and the
+    exception is the whole point of it.** Every acquisition
+    :class:`zmart_storage.TileCanvases` produces declares five axes — time,
+    channel, and the three of space — so every other store in this file has a
+    `t` axis and a `c` axis whether or not the run had anything to put in them.
+    An option that assumes those axes are always there is therefore correct on
+    every one of them, and cannot be caught by any of them.
+
+    Foreign images are not written that way. A light-sheet transfer states three
+    axes, `z`, `y` and `x`, and no more, because it has one channel per store and
+    no timelapse; asking such an image for its `t` index is an error rather than
+    a harmless nought. Reading other people's acquisitions is the point of
+    standing on OME-Zarr at all, so an option that can only read our own is only
+    half an option — and until this store existed, nothing said so.
+
+    It is written out by hand, as plain zarr version 2, rather than through the
+    writer, because the writer cannot express it. That is not a shortcut around
+    the rule in this module's docstring; it is the one case the rule cannot
+    reach, and it is written to look like what really arrives: OME-Zarr 0.4, two
+    resolutions, micrometre units, a scale and a translation on each, and a
+    position far from the stage's zero.
+
+    Filled solid so that "did anything draw at all" needs no judgement: every
+    voxel is bright, so a viewer that reads it shows a block and one that cannot
+    shows nothing.
+    """
+    store = folder / "foreign.ome.zarr"
+    store.mkdir(parents=True, exist_ok=True)
+    (store / ".zgroup").write_text(json.dumps({"zarr_format": 2}), encoding="utf-8")
+
+    levels = []
+    for level in (0, 1):
+        step = 2**level
+        voxels = FOREIGN_VOXELS // step
+        tile = FOREIGN_TILE // step
+        um = FOREIGN_VOXEL_UM * step
+        array = store / str(level)
+        array.mkdir(exist_ok=True)
+        (array / ".zarray").write_text(
+            json.dumps({
+                "chunks": [1, tile, tile],
+                "compressor": None,
+                "dtype": "<u2",
+                "fill_value": 0,
+                "filters": None,
+                "order": "C",
+                "shape": [1, voxels, voxels],
+                "zarr_format": 2,
+            }),
+            encoding="utf-8",
+        )
+        block = np.full((1, tile, tile), FOREIGN_VALUE, dtype="<u2")
+        for row in range(voxels // tile):
+            for column in range(voxels // tile):
+                (array / f"0.{row}.{column}").write_bytes(block.tobytes())
+        levels.append({
+            "path": str(level),
+            "coordinateTransformations": [
+                {"type": "scale", "scale": [10.0, um, um]},
+                {"type": "translation", "translation": list(FOREIGN_ORIGIN_UM)},
+            ],
+        })
+
+    (store / ".zattrs").write_text(
+        json.dumps({
+            "multiscales": [{
+                "version": "0.4",
+                "axes": [
+                    {"name": "z", "type": "space", "unit": "micrometer"},
+                    {"name": "y", "type": "space", "unit": "micrometer"},
+                    {"name": "x", "type": "space", "unit": "micrometer"},
+                ],
+                "datasets": levels,
+            }],
+        }),
+        encoding="utf-8",
+    )
+
+
 # Every store the suite needs, by the name its folder is called. Kept here beside
 # the writers so that whoever adds an acquisition adds it in one place, and so
 # that a run can tell "the stores were never written" from "the stores were
 # written before this one existed".
 EVERY_STORE = (
     "square", "lopsided", "sparse", "scattered", "fine", "colours",
-    "survey", "detail",
+    "survey", "detail", "foreign",
 )
 
 
@@ -504,6 +596,8 @@ def write_them_all(folder: Path) -> None:
     # The survey and the detail scan are a pair rather than a single store, and
     # each is closed as it is written, so they are handled on their own here.
     write_the_survey_and_the_detail(folder)
+    # Not written through the writer at all, and closing does not apply to it.
+    write_a_foreign_store(folder)
 
 
 if __name__ == "__main__":

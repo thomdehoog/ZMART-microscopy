@@ -538,6 +538,10 @@ async function start(own, acquisitions) {
         // most of them, and the only thing that puts two runs of different voxel
         // sizes in the same place when it is not.
         originUm: originUm(metadata, data[0].labels),
+        // Read here rather than where the rows are built, because that is not a
+        // place that can wait for anything. Only wanted when the run describes
+        // no colours of its own, and cheap enough to take either way.
+        heldRange: await theRangeItActuallyHolds(data),
       };
     }),
   );
@@ -675,6 +679,53 @@ function colourFromTheStore(hex) {
  * When the run asked for nothing, the ordinary window above is used — the same
  * one this viewer would have used had there been no description at all.
  */
+/**
+ * The brightness range an image actually holds, read from its smallest copy.
+ *
+ * Only used when nobody said anything: the page named no colours and the run
+ * describes none. The fixed range above is a good guess for the cameras this
+ * project's own runs come from and a poor one for anybody else's — a light-sheet
+ * transfer sits between about 200 and 1400 of a possible 65535, which drawn
+ * against nought-to-4095 is a picture in the bottom third of black. Guessing a
+ * constant where the picture itself can be asked is the same mistake as assuming
+ * an axis, one function over.
+ *
+ * The smallest copy in the pyramid is a few hundred numbers, so this is one small
+ * read rather than a pass over the image, and it happens once when the
+ * acquisition opens. The lowest and highest are taken rather than percentiles: on
+ * the coarsest copy every number is already an average of many, so the extremes
+ * are not the lone bright specks they would be at full resolution.
+ *
+ * Written the same way in `viv-under`; change both together.
+ *
+ * @returns the range, or null if it cannot be read — in which case the caller
+ *          keeps the fixed guess rather than showing nothing.
+ */
+async function theRangeItActuallyHolds(sources) {
+  const smallest = sources?.[sources.length - 1];
+  if (!smallest) return null;
+  try {
+    // Whatever axes this image has beyond the two on screen, take the first of
+    // each -- one plane, one moment, one colour.
+    const selection = {};
+    for (const name of smallest.labels || []) {
+      if (name !== "x" && name !== "y") selection[name] = 0;
+    }
+    const raster = await smallest.getRaster({ selection });
+    let low = Infinity;
+    let high = -Infinity;
+    for (const value of raster?.data || []) {
+      if (value < low) low = value;
+      if (value > high) high = value;
+    }
+    return high > low ? { low, high } : null;
+  } catch {
+    // An image that will not give up its smallest copy is not a reason to refuse
+    // to draw it; the fixed guess is still better than nothing.
+    return null;
+  }
+}
+
 function windowFromTheStore(described) {
   const range = described?.window ?? {};
   if (Number.isFinite(range.start) && Number.isFinite(range.end)) {
@@ -732,7 +783,11 @@ function rowsFor(opened) {
       asked.channels && asked.channels.length
         ? asked.channels
         : channelsTheStoreDescribes(store.metadata)
-          || [{ name: asked.name, colour: [...WHITE], window: { ...AN_ORDINARY_WINDOW } }];
+          || [{
+            name: asked.name,
+            colour: [...WHITE],
+            window: store.heldRange || { ...AN_ORDINARY_WINDOW },
+          }];
     channels.forEach((channel, within) => {
       rows.push({
         atStore,
