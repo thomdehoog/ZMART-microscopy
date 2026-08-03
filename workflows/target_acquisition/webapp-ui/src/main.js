@@ -6,11 +6,11 @@ import { blockedBecause, isReachable, panelsFor } from "./frame/steps.js";
    this file as well, and the two copies drifted apart in silence. */
 import { WORKFLOWS, DEFAULT_WORKFLOW } from "./workflows/index.js";
 import {
-  MICROSCOPES, DEFAULT_SESSION, DEMO_PRESETS, apisFor, defaultApiFor,
+  MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
   describeSession, describeConnection, CONNECT_CHECKS,
   SETTING_TYPES, settingType, sampleReading, STAGE_LIMITS_MM,
 } from "./lib/microscopes.js";
-import { DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
+import { centres, DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
 import carrierWidget from "./widgets/carrier.js";
 import scanfieldsWidget from "./widgets/scanfields.js";
 
@@ -102,13 +102,21 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   /* ============================================================
      run state
      ============================================================ */
-  // The focus strategy is its own little document: which approach, that
-  // approach's parameters, and whatever it has produced so far.
+  /* The focus strategy is its own little document: which approach, that
+     approach's parameters, and whatever it has produced so far.
+
+     Only "plane" can be reached at the moment — the bar that chose between the
+     four went, and comes back carrying whichever of them turns out to be
+     wanted. The rest are parked rather than deleted: the model is what the step
+     is about, and the readiness rules, the drawing and the trace all still ask
+     which strategy this is. One row of markup arms them again. */
   function newFocus() {
     return {
       strategy: "plane",
       metric: "brenner",   // which sharpness score the sweep is scored with
       points: [],          // picked positions, plane strategy only
+      pickScope: "canvas", // random points over the plan, or inside every area
+      pickCount: 5,
       selected: 0,         // which point's trace is charted
       zFixed: -412,
       reuse: "run_0714_a",
@@ -138,16 +146,13 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     run_0709_c: { label: "2026-07-09 · slide C", plane: { a: 71, b: 88, c: -389 }, residual: 3.1, ageDays: 19 },
   };
 
-  /* The bars a run starts with: the demo presets as though the controller had
-     already been read for them, and under those the one open bar that is
-     always waiting. Built fresh each time, because a bar is edited in place
-     and a shared one would carry the last run's typing into the next. */
+  /* The bars a run starts with: nothing recorded and one open bar waiting,
+     because a preset is a reading taken off this instrument today and a run
+     that begins with three of them begins by telling the operator something
+     untrue. Built fresh each time, because a bar is edited in place and a
+     shared one would carry the last run's typing into the next. */
   function startingBars() {
-    const recorded = DEMO_PRESETS.map(({ name, type, nth }) => {
-      const reading = sampleReading(type, nth);
-      return { type, name, state: reading.summary, detail: reading.detail, frameUm: reading.frameUm };
-    });
-    return [...recorded, { type: SETTING_TYPES[0].key, name: "" }];
+    return [{ type: SETTING_TYPES[0].key, name: "" }];
   }
 
   const state = {
@@ -224,14 +229,14 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       cellsShown: false, gate: null, gated: new Set(), acquired: [], verdicts: {},
       locked: false,
     });
-    view.fitted = false; fview.fitted = false;
+    view.fitted = false;
     // the presets a run starts with complete their step, by the same rule any
     // other recorded preset does
     settingsChanged();
     focusPanelsFor(0);
     el("gate-readout").textContent = "drag a rectangle to gate";
     el("pairs").textContent = "";
-    renderFocusToolbar();
+    renderPointList();
     renderAll();
   }
 
@@ -351,6 +356,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     const started = performance.now();
     let raf = null;
 
+    /** How far through the plan the scan is, worded once. */
+    const scanNote = () => `${state.tilesShown} / ${state.plan.length} tiles`;
+
     /* Connecting is a handful of questions, not one action. Each answer lands
        as it arrives, so a session that fails does so at a named check rather
        than as a spinner that stops. */
@@ -375,7 +383,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       const tick = () => {
         const t = Math.min(1, (performance.now() - started) / s.ms);
         state.tilesShown = Math.round(t * total);
-        state.notes[s.id] = `${state.tilesShown} / ${total} tiles`;
+        state.notes[s.id] = scanNote();
         /* Each position the scan reports is a reason to read the run again,
            because the tile it just saved is new picture that nothing on disk
            announces — the images were declared at their full size before any of
@@ -409,9 +417,15 @@ import scanfieldsWidget from "./widgets/scanfields.js";
           : f.strategy === "fixed" ? `fixed z ${f.zFixed} µm`
           : f.strategy === "auto" ? `autofocus per position · ${METRICS[f.metric].label}`
           : `reusing ${PREVIOUS_SURFACES[f.reuse].label}`;
-        renderFocusToolbar(); drawTrace();
+        renderPointList(); drawTrace();
       }
-      if (s.mode === "scan") { state.tilesShown = state.plan.length; }
+      /* Say the finished count, not whatever the last animation frame got to
+         before it was cancelled. The tiles and the sentence about them come
+         from one place, or a run that scanned everything reports one short. */
+      if (s.mode === "scan") {
+        state.tilesShown = state.plan.length;
+        state.notes[s.id] = scanNote();
+      }
       if (s.mode === "detect") {
         // the settings proven on one tile, now applied to every tile
         state.detected = new Set(sample.cells.filter(detects).map((c) => c.id));
@@ -442,7 +456,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      They are three different things — a session, a list of presets, a carrier —
      and a tab beside the canvas should say which of them it opens. They draw
      into the same element because only one is ever shown. */
-  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer-viv", "foot-viewer-neuroglancer", "foot-detect", "foot-focus", "foot-analysis", "foot-gallery"];
+  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer-viv", "foot-viewer-neuroglancer", "foot-detect", "foot-analysis", "foot-gallery"];
 
   /* Every panel a step may ask for, by the name a step uses for it. `whenShown`
      is how a panel that has to build something of its own — a picture drawn by a
@@ -465,7 +479,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       whenShown: () => theNeuroglancerCanvas.whenShown(),
     },
     detect: { label: "Detection", panel: "panel-detect" },
-    focus: { label: "Focus strategy", panel: "panel-focus" },
     analysis: { label: "Analysis", panel: "panel-analysis" },
     gallery: { label: "Gallery", panel: "panel-gallery" },
   };
@@ -934,14 +947,48 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      drawn on it — so each docks its controls in the same column and the
      heading says which. One column, because two would take the picture's width
      to show controls for a step nobody is on. */
-  const SIDE_WIDGETS = { carrier: carrierWidget, scanfields: scanfieldsWidget };
+  /* Focus is not a widget module yet — its controls are markup that was built
+     once and is moved into the channel, not rebuilt from a declaration. It
+     stands in the same list because the frame only asks two things of an owner:
+     what it is called, and that it can be mounted. */
+  const focusWidget = {
+    id: "focus",
+    label: "Focus strategy",
+    mount(host) {
+      focusControls.hidden = false;
+      host.append(focusControls);
+      renderPointList();
+      drawTrace();
+    },
+  };
+
+  const SIDE_WIDGETS = {
+    carrier: carrierWidget, scanfields: scanfieldsWidget, focus: focusWidget,
+  };
 
   const sideWidget = () => SIDE_WIDGETS[step(state.activeIdx).id] ?? null;
 
+  /* The plan stops being editable when something has been imaged against it —
+     not when a later step has merely been done.
+
+     The focus map is the one in between, and it does not depend on the plan: a
+     fitted surface is a statement about the plate, measured at points that stay
+     where they were put whatever the scan fields do. So walking back past it
+     and moving a field is safe, and needs no ceremony to make it safe.
+
+     The overview is where that stops being true. Its tiles are pictures taken
+     at those positions, and a field moved afterwards would leave images
+     claiming a place they were not taken from — which nothing downstream could
+     detect, because a tile does not know where it should have been. Everything
+     after the scan depends on the scan, so anchoring here covers all of it. */
   const scanfieldsLocked = () => {
-    const i = indexOfStep("scanfields");
-    return !!state.running || (i >= 0 && steps().slice(i + 1).some((s) => state.done.has(s.id)));
+    const i = indexOfStep("scan");
+    return !!state.running || (i >= 0 && steps().slice(i).some((s) => state.done.has(s.id)));
   };
+
+  /* Held rather than looked up: emptying the channel takes these out of the
+     document, and getElementById cannot find what is not in it. */
+  const focusControls = el("focus-controls");
 
   function renderSide(show) {
     const host = el("canvas-side");
@@ -955,6 +1002,8 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     state.editor = null;
     host.textContent = "";
     if (!widget) return;
+
+    if (widget.id === "focus") { widget.mount(host); return; }
 
     if (widget.id === "carrier") {
       widget.render(host, {
@@ -1125,7 +1174,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     liveOverview.showFor(step(state.activeIdx), show);
     if (show === "canvas") { sizeCanvas(stageCv); drawStage(); }
     if (show === "detect") { renderDetectToolbar(); drawTilePreview(); }
-    if (show === "focus") { renderFocusToolbar(); drawFocus(); drawTrace(); }
     if (show === "analysis") { sizeCanvas(scatterCv); drawScatter(); }
   }
 
@@ -1585,14 +1633,35 @@ import scanfieldsWidget from "./widgets/scanfields.js";
        was told to do, so it stays readable once the tiles start landing on top
        of it. Dimmed once the scan has begun, because by then the images are
        the answer and this is only the question. */
-    scanfieldsWidget.drawOn(ctx, {
-      fields: state.fields, presets: recordedPresets(),
-      toScreen: place, scale: view.scale, dim: shown > 0,
-    });
+    /* The focus map goes over the plan, before the editing chrome: it is what
+       the run knows about the plate, and the plan is what it is going to do
+       with it. Only while standing on that step — walking away leaves the
+       canvas the plain picture every other step reads. */
+    if (step(state.activeIdx).mode === "focus") drawFocusLayer(ctx, place, view.scale, w, h);
+
+    const editing = sideWidget()?.id === "scanfields" ? state.editor : null;
+    /* Not before the step that says where to scan. Walking back to the carrier
+       is walking back to a question the plan is an answer to — the fields were
+       placed against these areas, and drawing them over a plate that is still
+       being changed shows a plan for a carrier that may be about to stop
+       existing. The fields are kept, not discarded: coming forward again finds
+       them where they were. */
+    if (state.activeIdx >= indexOfStep("scanfields")) {
+      scanfieldsWidget.drawOn(ctx, {
+        fields: state.fields, presets: recordedPresets(),
+        toScreen: place, scale: view.scale, dim: shown > 0,
+        marked: editing?.marked(),
+      });
+    }
 
     // and the editing itself only while somebody is standing in it
-    if (sideWidget()?.id === "scanfields") {
-      state.editor?.drawChrome(ctx, { toScreen: place, scale: view.scale });
+    if (editing) {
+      editing.drawChrome(ctx, { toScreen: place, scale: view.scale });
+      /* Set here rather than on the pointer alone, so a tool armed from the
+         panel or a key says so before the mouse is moved to find out. */
+      stageCv.style.cursor = editing.cursor();
+    } else {
+      stageCv.style.cursor = "";
     }
 
     drawScaleBar(ctx, w, h);
@@ -1611,15 +1680,11 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      it turns down pans or picks, so drawing a region does not drag the stage
      out from under the shape being drawn. */
   function editorTook(kind, e) {
-    if (sideWidget()?.id !== "scanfields" || !state.editor) {
-      stageCv.classList.remove("over-field");
-      return false;
-    }
+    if (sideWidget()?.id !== "scanfields" || !state.editor) return false;
     const { x, y } = toCarrier(e.offsetX, e.offsetY);
     const took = state.editor.pointer(kind, { x, y, shift: e.shiftKey, scale: view.scale });
-    // after the editor has been told, not before, or the cursor answers for
-    // where the pointer was last time rather than where it is
-    stageCv.classList.toggle("over-field", !!state.editor.overField());
+    // the redraw is also what puts the cursor right, and it has to happen after
+    // the editor has been told, or the answer is for where the pointer was
     if (took) drawStage();
     /* Only a true means the editor claimed the event. Anything else it answers
        is "the picture changed" — the pointer moved over a field — and the
@@ -1649,39 +1714,41 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   }
 
   /* ---- stage interaction ------------------------------------------------
-     Which button does what, said once. The left one belongs to whatever is on
-     the canvas: picking a field, dragging it, drawing the next one. The stage
-     itself moves under the right one — and the middle, since a mouse that has
-     it expects that.
+     One button does everything, and what it does is decided by what is under
+     it. The editor is asked first: a field is picked up, a tool draws. Only
+     what it turns down moves the stage, so a press on empty canvas pans and a
+     press on a shape does not drag the picture out from under it.
 
-     They used to share the left button, which meant a press that missed a
-     field by a pixel dragged the whole picture instead of deselecting. Pan is
-     the rarer thing and the one that is never ambiguous, so it gets a button
-     of its own rather than the fallthrough. */
-  let dragging = false, dragMoved = false, lastX = 0, lastY = 0;
+     A double-click ends an outline that has no last point of its own — the
+     same press that places the final vertex, said twice.
 
-  const PAN_BUTTONS = new Set([1, 2]);
+     Alt+drag pans regardless. Without it there is no way to move the stage
+     while a drawing tool is armed, since then the editor wants every press on
+     empty canvas for the shape it is about to make. */
+  let dragging = false, panMoved = false, lastX = 0, lastY = 0;
 
-  // the right button is a pan here, so it must not also open a menu
+  const startPan = (e) => {
+    dragging = true; panMoved = false;
+    lastX = e.offsetX; lastY = e.offsetY;
+    stageCv.setPointerCapture(e.pointerId);
+  };
+
+  // the canvas has no menu of its own, and a borrowed one over the plan is noise
   stageCv.addEventListener("contextmenu", (e) => e.preventDefault());
+  stageCv.addEventListener("dblclick", (e) => editorTook("finish", e));
 
   stageCv.addEventListener("pointerdown", (e) => {
-    if (PAN_BUTTONS.has(e.button)) {
-      e.preventDefault();
-      dragging = true; dragMoved = false;
-      lastX = e.offsetX; lastY = e.offsetY;
-      stageCv.setPointerCapture(e.pointerId);
-      return;
-    }
+    if (e.button === 0 && e.altKey) { e.preventDefault(); startPan(e); return; }
     if (e.button !== 0) return;
-    if (editorTook("down", e)) stageCv.setPointerCapture(e.pointerId);
+    if (editorTook("down", e)) { stageCv.setPointerCapture(e.pointerId); return; }
+    startPan(e);
   });
 
   stageCv.addEventListener("pointermove", (e) => {
     if (!dragging && editorTook("move", e)) return;
     if (dragging) {
       const dx = e.offsetX - lastX, dy = e.offsetY - lastY;
-      if (Math.abs(dx) + Math.abs(dy) > 2) dragMoved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 2) panMoved = true;
       view.tx += dx; view.ty += dy;
       lastX = e.offsetX; lastY = e.offsetY;
       drawStage();
@@ -1723,7 +1790,12 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     if (e && stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
   };
   stageCv.addEventListener("pointerup", (e) => {
-    if (PAN_BUTTONS.has(e.button)) { endDrag(e); return; }
+    if (dragging) {
+      const still = !panMoved;
+      endDrag(e);
+      if (still) focusPressed(e.offsetX, e.offsetY);
+      return;
+    }
     if (editorTook("up", e)) {
       if (stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
       renderRail();
@@ -1762,8 +1834,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      the focus strategy panel — positions come from the microscope
      software; the operator drops focus points onto them
      ============================================================ */
-  const focusCv = el("focus-canvas");
-  const focusTip = el("focus-tip");
 
   // ground truth the "microscope" would measure, so picked points behave
   /* The sample is not flat and not level: a gentle tilt across the plate. Over
@@ -1960,29 +2030,145 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   /* Its own camera. Sharing one with the canvas was tempting, but the two
      panels are different sizes, so a fit computed against one of them puts
      the sample off the edge of the other and clicks land nowhere. */
-  const fview = { scale: 0.03, tx: 0, ty: 0, fitted: false };
 
-  function fitFocusView() {
-    const w = focusCv.cssW || 800, h = focusCv.cssH || 600;
-    const pad = 26;
-    const b = planBox();
-    const bw = b.xMax - b.xMin, bh = b.yMax - b.yMin;
-    const s = Math.min((w - 2 * pad) / bw, (h - 2 * pad) / bh);
-    fview.scale = s;
-    fview.tx = (w - bw * s) / 2 - b.xMin * s;
-    fview.ty = (h - bh * s) / 2 - b.yMin * s;
-    fview.fitted = true;
-  }
-
-  const fToScreen = (x, y) => [x * fview.scale + fview.tx, y * fview.scale + fview.ty];
-  const fToWorld = (px, py) => [(px - fview.tx) / fview.scale, (py - fview.ty) / fview.scale];
-
-  /* What the focus panel frames: the positions the run is going to visit, or
-     the whole carrier while there are none. */
-  function planBox() {
-    if (sample.bounds) return sample.bounds;
+  /** The plate, in the frame the plan is written in. */
+  function carrierBox() {
     const [w, h] = carrierSpan();
     return { xMin: 0, yMin: 0, xMax: w, yMax: h };
+  }
+
+  /* How far the positions themselves reach — the plate while there are none. */
+  function planBox() {
+    return sample.bounds ?? carrierBox();
+  }
+
+  /* Every position inside one compartment, by where it is rather than by any
+     tag it carries: the plan is a flat list of tiles and a tile does not know
+     which well it fell in, but the carrier says where every well is. */
+  function tilesInArea(area) {
+    const [w, h] = [state.carrier.w * 1000, state.carrier.h * 1000];
+    const cx = area.x * 1000, cy = area.y * 1000;
+    return state.plan.filter((t) =>
+      Math.abs(t.x - cx) <= w / 2 && Math.abs(t.y - cy) <= h / 2);
+  }
+
+  /** A compartment's own rectangle, in the frame the plan is written in. */
+  function areaBox(area) {
+    const [w, h] = [state.carrier.w * 1000, state.carrier.h * 1000];
+    const cx = area.x * 1000, cy = area.y * 1000;
+    return { xMin: cx - w / 2, yMin: cy - h / 2, xMax: cx + w / 2, yMax: cy + h / 2 };
+  }
+
+  /**
+   * A lattice point that landed between compartments, moved the shortest way
+   * onto the position it was nearest to.
+   *
+   * A focus height measured on the plastic between two wells is a real number
+   * and a worthless one to fit a sample's surface through. Dropping such points
+   * instead would be the textbook answer, but it makes the count a lottery —
+   * and the count is what the operator asked for.
+   */
+  function ontoTile(x, y, tiles, used) {
+    let pick = -1, pickD = Infinity, any = -1, anyD = Infinity;
+    for (let i = 0; i < tiles.length; i++) {
+      const t = tiles[i];
+      const half = t.frameUm / 2;
+      const dx = Math.max(Math.abs(x - t.x) - half, 0);
+      const dy = Math.max(Math.abs(y - t.y) - half, 0);
+      const d = dx * dx + dy * dy;
+      if (d < anyD) { anyD = d; any = i; }
+      /* Nearest position that has not already taken a point. Two cells either
+         side of a gap both snap inwards, and without this they can land on the
+         one position between them — two measurements of the same spot, which
+         is the clumping the lattice was there to prevent. */
+      if (!used.has(i) && d < pickD) { pickD = d; pick = i; }
+    }
+    const idx = pick >= 0 ? pick : any;
+    if (idx < 0) return { x, y, z: null };
+    used.add(idx);
+    const t = tiles[idx], half = t.frameUm / 2;
+    return {
+      x: Math.min(Math.max(x, t.x - half), t.x + half),
+      y: Math.min(Math.max(y, t.y - half), t.y + half),
+      z: null,
+    };
+  }
+
+  /**
+   * Systematic uniform random sampling, as metrology does it.
+   *
+   * A regular lattice over the region, one uniform random position drawn inside
+   * the first cell, and a point at that same relative position in every cell.
+   * One random number decides the whole set. That is the point of it: the set
+   * still covers the region evenly, where independent random points clump and
+   * leave gaps — and a surface fitted through a clumped sample is confident
+   * where the points were and guessing everywhere else.
+   *
+   * The lattice is chosen by trying every width and keeping the one that trades
+   * best between square cells and a full last row: sixteen points want four by
+   * four, not five by five with a row of one left over. Squareness alone picks
+   * the ragged one, and a full grid alone will lay five points in a line.
+   */
+  function latticeFor(n, w, h) {
+    let best = { cols: 1, rows: n, cost: Infinity };
+    for (let cols = 1; cols <= n; cols++) {
+      const rows = Math.ceil(n / cols);
+      const squareness = Math.abs(Math.log((w / cols) / (h / rows)));
+      const ragged = (cols * rows - n) / n;
+      const cost = squareness + 2 * ragged;
+      if (cost < best.cost) best = { cols, rows, cost };
+    }
+    return best;
+  }
+
+  function surs(box, n, tiles) {
+    const w = Math.max(box.xMax - box.xMin, 1), h = Math.max(box.yMax - box.yMin, 1);
+    const { cols, rows } = latticeFor(n, w, h);
+    const cw = w / cols, ch = h / rows;
+    const ox = Math.random() * cw, oy = Math.random() * ch;
+    const used = new Set();
+    const out = [];
+    for (let r = 0; r < rows && out.length < n; r++) {
+      for (let c = 0; c < cols && out.length < n; c++) {
+        out.push(ontoTile(box.xMin + c * cw + ox, box.yMin + r * ch + oy, tiles, used));
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Where to measure the focus, laid out rather than scattered.
+   *
+   * Over the whole canvas the count is the total. Per compartment it is the
+   * count inside every area, so each one is measured whatever the others do —
+   * which is what a plate that is not flat well by well needs.
+   *
+   * Each compartment draws its own random start. One start shared across the
+   * plate would be more systematic and wrong: the compartments are themselves a
+   * regular lattice, so a single offset would sample every well at the identical
+   * spot within it, and any variation that follows position inside a well would
+   * come back as a constant instead of as noise.
+   */
+  function randomFocusPoints() {
+    const f = state.focus;
+    const n = Math.max(1, Math.round(f.pickCount) || 1);
+    if (!state.plan.length) return [];
+    if (f.pickScope === "canvas") return surs(planBox(), n, state.plan);
+    const out = [];
+    for (const area of centres(state.carrier)) {
+      const tiles = tilesInArea(area);
+      if (tiles.length) out.push(...surs(areaBox(area), n, tiles));
+    }
+    return out;
+  }
+
+  /** How many the two answers actually come to — one of them multiplies. */
+  function focusPickTotal() {
+    const f = state.focus;
+    const n = Math.max(1, Math.round(f.pickCount) || 1);
+    if (!state.plan.length) return 0;
+    if (f.pickScope === "canvas") return n;
+    return centres(state.carrier).filter((a) => tilesInArea(a).length).length * n;
   }
 
   /* The position under the pointer, if it is over one. A list of positions has
@@ -2018,17 +2204,16 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     fctx.putImageData(img, 0, 0);
   }
 
-  function drawFocus() {
-    if (!sizeCanvas(focusCv)) return;
-    if (!fview.fitted) fitFocusView();
-    const ctx = focusCv.getContext("2d");
-    const w = focusCv.cssW, h = focusCv.cssH;
+  /**
+   * The focus map, drawn onto the canvas rather than onto a map of its own.
+   *
+   * It is the same plate the rest of the run is looking at, so it is drawn in
+   * the same place with the same projection: the carrier, the positions and
+   * where the surface says each of them sits. A second map with a second
+   * camera meant two answers to where a well is, and the operator holding both.
+   */
+  function drawFocusLayer(ctx, toScreen, scale, w, h) {
     const f = state.focus;
-
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = css("--screen");
-    ctx.fillRect(0, 0, w, h);
-
     const surf = focusSurface();
     const showSurface = surf && (f.strategy !== "plane" || f.applied);
 
@@ -2051,12 +2236,25 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       if (zHi - zLo < 1) { zLo -= 0.5; zHi += 0.5; }
     }
 
-    // ---- the surface, as one continuous field rather than tile blocks
-    if (showSurface) {
-      const [sx0, sy0] = fToScreen(box.xMin, box.yMin);
-      const sw = (box.xMax - box.xMin) * fview.scale, sh = (box.yMax - box.yMin) * fview.scale;
+    /* ---- the surface: fitted everywhere, shown only where it is used.
+       The fit is global on purpose — every measured point informs it, and the
+       ramp and its legend keep the range across the whole sample, so a tile's
+       colour means the same thing wherever it sits. What gets painted is
+       clipped to the positions, because the z it predicts between them is
+       never going to be driven to: colouring the gaps states a focus for
+       places this run does not visit. */
+    if (showSurface && state.plan.length) {
+      const [sx0, sy0] = toScreen(box.xMin, box.yMin);
+      const sw = (box.xMax - box.xMin) * scale, sh = (box.yMax - box.yMin) * scale;
       paintSurface(surf, zLo, zHi, planBox());
       ctx.save();
+      ctx.beginPath();
+      for (const t of state.plan) {
+        const [tx, ty] = toScreen(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
+        const sz = t.frameUm * scale;
+        ctx.rect(tx, ty, sz, sz);
+      }
+      ctx.clip();
       ctx.globalAlpha = 0.82;
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = "high";
@@ -2068,8 +2266,8 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     /* The positions themselves, as the scan fields laid them out. This panel
        works on the list the run is going to drive, not on a grid of its own. */
     for (const t of state.plan) {
-      const [tx, ty] = fToScreen(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
-      const sz = t.frameUm * fview.scale;
+      const [tx, ty] = toScreen(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
+      const sz = t.frameUm * scale;
       ctx.strokeStyle = showSurface ? "rgba(255,255,255,0.30)" : css("--line-strong");
       ctx.lineWidth = 1;
       if (sz < 2) { ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(tx, ty, 2, 2); continue; }
@@ -2081,32 +2279,40 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       ctx.font = '11px ui-monospace, Consolas, monospace';
       ctx.textAlign = "center";
       for (const t of state.plan) {
-        const [tx, ty] = fToScreen(t.x, t.y);
-        if (t.frameUm * fview.scale > 34) ctx.fillText("AF", tx, ty + 4);
+        const [tx, ty] = toScreen(t.x, t.y);
+        if (t.frameUm * scale > 34) ctx.fillText("AF", tx, ty + 4);
       }
       ctx.textAlign = "left";
     }
 
-    // ---- focus points
+    /* ---- focus points, as a reticle rather than a dot.
+       Open in the middle, because the middle is the thing being pointed at:
+       a filled marker hides the one pixel of the map it is about. The height
+       is not written beside it either — the map says it in colour and the list
+       says it in numbers, and a label per point tiles over the field it is
+       annotating once there are more than a handful. */
     if (f.strategy === "plane") {
+      const R = 4.5, ARM_IN = 6.5, ARM_OUT = 11;
+      const reticle = (x, y) => {
+        ctx.beginPath();
+        ctx.arc(x, y, R, 0, Math.PI * 2);
+        ctx.moveTo(x - ARM_OUT, y); ctx.lineTo(x - ARM_IN, y);
+        ctx.moveTo(x + ARM_IN, y); ctx.lineTo(x + ARM_OUT, y);
+        ctx.moveTo(x, y - ARM_OUT); ctx.lineTo(x, y - ARM_IN);
+        ctx.moveTo(x, y + ARM_IN); ctx.lineTo(x, y + ARM_OUT);
+      };
       for (const p of f.points) {
-        const [x, y] = fToScreen(p.x, p.y);
-        ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2);
-        if (p.z === null) {
-          ctx.strokeStyle = css("--accent"); ctx.lineWidth = 2; ctx.stroke();
-        } else {
-          ctx.fillStyle = "#0284c7"; ctx.fill();
-          ctx.lineWidth = 2; ctx.strokeStyle = css("--screen"); ctx.stroke();
-          // the label sits on viridis, which runs dark to bright — so it
-          // carries its own contrast instead of trusting the background
-          ctx.font = '11px ui-monospace, Consolas, monospace';
-          ctx.lineJoin = "round";
-          ctx.lineWidth = 3;
-          ctx.strokeStyle = "rgba(10, 14, 20, 0.72)";
-          ctx.strokeText(`${p.z.toFixed(1)} µm`, x + 10, y + 4);
-          ctx.fillStyle = "#ffffff";
-          ctx.fillText(`${p.z.toFixed(1)} µm`, x + 10, y + 4);
-        }
+        const [x, y] = toScreen(p.x, p.y);
+        // viridis runs dark to bright, so the mark carries its own contrast
+        reticle(x, y);
+        ctx.lineWidth = 3.6; ctx.lineCap = "round";
+        ctx.strokeStyle = "rgba(10, 14, 20, 0.45)";
+        ctx.stroke();
+        reticle(x, y);
+        ctx.lineWidth = 1.7;
+        ctx.strokeStyle = p.z === null ? css("--accent") : "#e0f2fe";
+        ctx.stroke();
+        ctx.lineCap = "butt";
       }
     }
 
@@ -2141,65 +2347,27 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       ctx.textAlign = "left";
     }
 
-    drawScaleBar(ctx, w, h, fview.scale);
   }
 
-  // pan / zoom shared with the stage, so the two never disagree about where things are
-  let fDrag = false, fMoved = false, fLastX = 0, fLastY = 0;
-  focusCv.addEventListener("pointerdown", (e) => {
-    fDrag = true; fMoved = false; fLastX = e.offsetX; fLastY = e.offsetY;
-    focusCv.setPointerCapture(e.pointerId);
-  });
-  focusCv.addEventListener("pointermove", (e) => {
-    if (fDrag) {
-      const dx = e.offsetX - fLastX, dy = e.offsetY - fLastY;
-      if (Math.abs(dx) + Math.abs(dy) > 2) fMoved = true;
-      fview.tx += dx; fview.ty += dy;
-      fLastX = e.offsetX; fLastY = e.offsetY;
-      drawFocus();
-      return;
-    }
-    const [wx, wy] = fToWorld(e.offsetX, e.offsetY);
-    const near = nearestPosition(wx, wy);
-    if (near) {
-      const { t, i } = near;
-      focusTip.classList.add("on");
-      const surf = focusSurface();
-      const showSurface = surf && (state.focus.strategy !== "plane" || state.focus.applied);
-      focusTip.innerHTML =
-        `<b>position</b> ${i + 1} of ${state.plan.length}<br>` +
-        `<b>centre</b> ${(t.x / 1000).toFixed(2)}, ${(t.y / 1000).toFixed(2)} mm` +
-        (showSurface ? `<br><b>z</b> ${surfaceZ(surf, t.x, t.y).toFixed(1)} µm` : "");
-      focusTip.style.left = `${Math.min(e.offsetX + 14, focusCv.cssW - 190)}px`;
-      focusTip.style.top = `${Math.max(6, e.offsetY - 62)}px`;
-    } else {
-      focusTip.classList.remove("on");
-    }
-  });
-  focusCv.addEventListener("pointerup", (e) => {
-    if (!fDrag) return;
-    fDrag = false;
-    focusCv.releasePointerCapture?.(e.pointerId);
-    if (fMoved) return;
+  /* Placing a point is a press on the canvas that did not become a drag: the
+     left button already pans, and asking the operator to remember a modifier
+     for the one thing this step is for would be the wrong way round. A press
+     on a point that is already there takes it away again. */
+  function focusPressed(px, py) {
     const f = state.focus;
-    if (f.strategy !== "plane" || f.applied) return;
-    const [wx, wy] = fToWorld(e.offsetX, e.offsetY);
-    const b = planBox();
-    if (wx < b.xMin || wy < b.yMin || wx > b.xMax || wy > b.yMax) return;
-    const near = f.points.findIndex((p) => Math.hypot(p.x - wx, p.y - wy) < 9 / fview.scale);
+    if (step(state.activeIdx).mode !== "focus") return false;
+    if (f.strategy !== "plane" || f.applied || state.running) return false;
+    const [wx, wy] = toWorld(px, py);
+    const [ox, oy] = carrierOriginUm();
+    const x = wx - ox, y = wy - oy;
+    const b = carrierBox();
+    if (x < b.xMin || y < b.yMin || x > b.xMax || y > b.yMax) return false;
+    const near = f.points.findIndex((p) => Math.hypot(p.x - x, p.y - y) < 9 / view.scale);
     if (near >= 0) f.points.splice(near, 1);
-    else f.points.push({ x: wx, y: wy, z: null });
-    drawFocus(); renderFocusToolbar(); renderActionBar();
-  });
-  focusCv.addEventListener("pointerleave", () => { fDrag = false; focusTip.classList.remove("on"); });
-  focusCv.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    const [wx, wy] = fToWorld(e.offsetX, e.offsetY);
-    fview.scale = Math.max(0.004, Math.min(3, fview.scale * Math.exp(-e.deltaY * 0.0016)));
-    fview.tx = e.offsetX - wx * fview.scale;
-    fview.ty = e.offsetY - wy * fview.scale;
-    drawFocus();
-  }, { passive: false });
+    else f.points.push({ x, y, z: null });
+    drawStage(); renderPointList(); renderActionBar();
+    return true;
+  }
 
   /* ---- the sweep behind one focus point -----------------------------------
      Both metrics score the same stack, differently: Brenner's gradient is
@@ -2290,10 +2458,41 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     return (wide.length ? wide : candidates).reduce((a, b) => (b.s > a.s ? b : a));
   }
 
+  /* The bar that makes the points and the list of the ones there are: one
+     section, so they are drawn together and cannot disagree about how many. */
+  function renderFocusBar() {
+    if (!focusMounted()) return;
+    const f = state.focus;
+    const frozen = f.applied || !!state.running || f.strategy !== "plane";
+    for (const b of el("fp-scope").querySelectorAll("button")) {
+      b.setAttribute("aria-checked", String(b.dataset.scope === f.pickScope));
+      b.disabled = frozen;
+    }
+    const count = el("fp-count");
+    // never while it is being typed into, or a 1 on its way to 12 is corrected
+    if (document.activeElement !== count) count.value = String(f.pickCount);
+    count.disabled = frozen;
+
+    const total = focusPickTotal();
+    el("fp-hint").textContent = !state.plan.length
+      ? "no positions yet"
+      : `${total} point${total === 1 ? "" : "s"}`;
+    el("fp-place").disabled = frozen || !state.plan.length;
+    el("fp-clear").disabled = frozen || !f.points.length;
+  }
+
+  /* The focus controls are in the document only while their step is standing —
+     the channel takes them in and gives them back. Anything that writes into
+     them has to ask first, or a redraw from somewhere else reaches for an
+     element that is not there. */
+  const focusMounted = () => focusControls.isConnected;
+
   function renderPointList() {
+    if (!focusMounted()) return;
     const f = state.focus;
     const host = el("point-list");
     host.textContent = "";
+    renderFocusBar();
 
     if (f.strategy !== "plane") {
       const d = document.createElement("div");
@@ -2330,7 +2529,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         `${p.z === null ? "—" : (p.manual ? "✎ " : suspect ? "⚠ " : "") + p.z.toFixed(1) + " µm"}</span>`;
       b.addEventListener("click", () => {
         f.selected = i;
-        renderPointList(); drawTrace(); drawFocus();
+        renderPointList(); drawTrace(); drawStage();
       });
       host.append(b);
     });
@@ -2339,6 +2538,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   const traceCv = el("trace-canvas");
 
   function drawTrace() {
+    if (!focusMounted()) return;
     const f = state.focus;
     const has = f.strategy === "plane" && f.applied && f.points.length > f.selected;
     el("trace-empty").classList.toggle("hidden", has);
@@ -2622,7 +2822,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     p.z = zLo + t * (zHi - zLo);
     p.manual = Math.abs(p.z - p.zAuto) > 0.05;
     refitSurface();
-    drawTrace(); renderPointList(); drawFocus(); renderFocusToolbar();
+    drawTrace(); renderPointList(); drawStage();
   }
 
   traceCv.addEventListener("pointerdown", (e) => {
@@ -2635,7 +2835,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       if (hit.key !== f.metric) {
         f.metric = hit.key;
         remeasure();
-        drawTrace(); renderPointList(); drawFocus(); renderFocusToolbar(); renderActionBar();
+        drawTrace(); renderPointList(); drawStage(); renderActionBar();
       }
       return;
     }
@@ -2671,15 +2871,34 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     p.z += nudge * (e.shiftKey ? 4 : 1);
     p.manual = Math.abs(p.z - p.zAuto) > 0.05;
     refitSurface();
-    drawTrace(); renderPointList(); drawFocus(); renderFocusToolbar();
+    drawTrace(); renderPointList(); drawStage();
   });
 
-  // ---- strategy control and its parameters
-  el("focus-strategy").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-strat]");
-    if (!b || state.focus.applied || state.running) return;
-    state.focus.strategy = b.dataset.strat;
-    renderFocusToolbar(); drawFocus(); renderActionBar();
+  // ---- placing the points, rather than clicking them one at a time
+  el("fp-scope").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-scope]");
+    if (!b || b.disabled) return;
+    state.focus.pickScope = b.dataset.scope;
+    renderFocusBar();
+  });
+  el("fp-count").addEventListener("input", () => {
+    const v = parseInt(el("fp-count").value, 10);
+    if (Number.isNaN(v)) return;
+    state.focus.pickCount = Math.min(99, Math.max(1, v));
+    renderFocusBar();
+  });
+  el("fp-count").addEventListener("blur", () => { renderFocusBar(); });
+  el("fp-place").addEventListener("click", () => {
+    const f = state.focus;
+    // a fresh set, not more on top: the layout is the point, and adding to it
+    // would leave a lattice with somebody else's lattice through it
+    f.points = randomFocusPoints();
+    f.selected = 0;
+    drawStage(); renderPointList(); drawTrace(); renderActionBar();
+  });
+  el("fp-clear").addEventListener("click", () => {
+    state.focus.points = [];
+    drawStage(); renderPointList(); drawTrace(); renderActionBar();
   });
 
   // measure every placed point with the current metric, then fit the plane
@@ -2704,82 +2923,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     let worst = -1;
     errs.forEach((e, i) => { if (worst < 0 || Math.abs(e) > Math.abs(errs[worst])) worst = i; });
     f.worst = errs.length ? worst : -1;
-  }
-
-  function renderFocusToolbar() {
-    const f = state.focus;
-    for (const b of el("focus-strategy").querySelectorAll("button")) {
-      b.setAttribute("aria-checked", String(b.dataset.strat === f.strategy));
-      b.disabled = f.applied;
-    }
-    renderPointList();
-
-    const host = el("focus-params");
-    host.textContent = "";
-    const add = (html) => {
-      const d = document.createElement("div");
-      d.className = "param";
-      d.innerHTML = html;
-      host.append(d);
-      return d;
-    };
-
-    if (f.strategy === "plane") {
-      // the instruction is only worth its width until the first point exists
-      const d = add(f.points.length
-        ? `<span class="hint">${f.points.length} point${f.points.length === 1 ? "" : "s"}</span>`
-        : '<span class="hint">click the map to place focus points</span>');
-      if (f.points.length && !f.applied) {
-        const b = document.createElement("button");
-        b.className = "ghost"; b.type = "button"; b.textContent = "Clear points";
-        b.addEventListener("click", () => { f.points = []; renderFocusToolbar(); drawFocus(); renderActionBar(); });
-        d.append(b);
-      }
-    } else if (f.strategy === "fixed") {
-      const d = add('<label for="zfix">Z</label><input type="number" id="zfix" step="1"><span class="hint">µm</span>');
-      const inp = d.querySelector("input");
-      inp.value = f.zFixed;
-      inp.disabled = f.applied;
-      inp.addEventListener("input", () => {
-        f.zFixed = Number(inp.value) || 0;
-        drawFocus();
-      });
-    } else if (f.strategy === "auto") {
-      const n = state.plan.length;
-      add(`<span class="hint">${n} position${n === 1 ? "" : "s"} × ~4 s ≈ ${Math.max(1, Math.round((n * 4) / 60))} min added to the scan</span>`);
-    } else if (f.strategy === "reuse") {
-      const opts = Object.entries(PREVIOUS_SURFACES)
-        .map(([k, v]) => `<option value="${k}">${v.label}</option>`).join("");
-      const d = add(`<label for="reuse-sel">Surface</label><select id="reuse-sel">${opts}</select>`);
-      const sel = d.querySelector("select");
-      sel.value = f.reuse;
-      sel.disabled = f.applied;
-      sel.addEventListener("change", () => { f.reuse = sel.value; renderFocusToolbar(); drawFocus(); });
-      const s = PREVIOUS_SURFACES[f.reuse];
-      add(`<span class="hint">residual ${s.residual} µm · measured ${s.ageDays} days ago</span>`);
-    }
-
-    const out = el("focus-readout");
-    if (f.applied && f.strategy === "plane") {
-      const narrow = f.points.filter((p) => p.onNarrow).length;
-      const hand = f.points.filter((p) => p.manual).length;
-      const model = f.surface ? f.surface.model : "—";
-      const worstErr = f.worst >= 0 ? f.points[f.worst].residual : null;
-      out.textContent =
-        `${model} · ${f.points.length} points · rms ${f.residual.toFixed(1)} µm` +
-        (worstErr !== null && Math.abs(worstErr) > 0.05
-          ? ` · worst ${worstErr >= 0 ? "+" : ""}${worstErr.toFixed(1)} µm at point ${f.worst + 1}`
-          : "") +
-        (narrow ? ` · ${narrow} on a narrow peak` : "") +
-        (hand ? ` · ${hand} by hand` : "");
-      out.style.color = narrow ? "var(--bad)" : "";
-    } else if (f.applied) {
-      out.style.color = "";
-      out.textContent = `${STRATEGIES[f.strategy].label} applied`;
-    } else {
-      out.style.color = "";
-      out.textContent = STRATEGIES[f.strategy].blurb;
-    }
   }
 
   /* ============================================================
@@ -3200,18 +3343,17 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   const ro = new ResizeObserver(() => {
     if (el("panel-canvas").classList.contains("on")) { sizeCanvas(stageCv); drawStage(); }
     if (el("panel-detect").classList.contains("on")) drawTilePreview();
-    if (el("panel-focus").classList.contains("on")) { drawFocus(); drawTrace(); }
+    drawTrace();
     if (el("panel-analysis").classList.contains("on")) { sizeCanvas(scatterCv); drawScatter(); }
   });
   ro.observe(el("panel-canvas"));
   ro.observe(el("panel-detect"));
-  ro.observe(el("panel-focus"));
   ro.observe(el("panel-analysis"));
 
-  const mo = new MutationObserver(() => { drawStage(); drawTilePreview(); drawFocus(); drawTrace(); drawScatter(); });
+  const mo = new MutationObserver(() => { drawStage(); drawTilePreview(); drawTrace(); drawScatter(); });
   mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
-  renderFocusToolbar();
+  renderPointList();
   renderDetectToolbar();
   settingsChanged();
   rebuildSample();

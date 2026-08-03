@@ -245,6 +245,26 @@ export function handles(f) {
 }
 
 /**
+ * A vertex list with its last point removed when it repeats the one before it.
+ *
+ * What a double-click leaves behind: the press that finishes an outline is the
+ * same press that placed its last vertex, so the second half of the gesture
+ * lands a second vertex within a pixel or two of the first. Carried into the
+ * region that is a zero-length edge — an invisible grip sitting on top of
+ * another, found later by whoever tries to drag one of them.
+ *
+ * `nearer` is in the same units as the points, so the caller decides what
+ * counts as the same place: a few screen pixels converted at the current zoom,
+ * rather than a distance in micrometres that means different things at
+ * different scales.
+ */
+export function withoutTrailingDuplicate(points, nearer) {
+  if (points.length < 2) return points;
+  const [a, b] = [points[points.length - 1], points[points.length - 2]];
+  return Math.hypot(a.x - b.x, a.y - b.y) < nearer ? points.slice(0, -1) : points;
+}
+
+/**
  * A block of positions centred on a point.
  *
  * What the grid mode places in every area the carrier declares: the span is
