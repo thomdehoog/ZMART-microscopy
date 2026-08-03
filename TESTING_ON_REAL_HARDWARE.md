@@ -92,6 +92,11 @@ should be re-measured rather than trusted. The one that decides the most:
 That number is what decides whether a store on a shared drive is comfortable to
 work in. Measure it where the store really lives, not on a local disk.
 
+While you are measuring, re-draw the drawing-rate line as well — see the note on
+the one failing test further down. It is currently set from a machine with no
+graphics card, which makes it close to meaningless for the machine an operator
+actually sits at.
+
 ---
 
 ## Known, expected, and not worth chasing
@@ -124,12 +129,37 @@ On the merged branch: the writer's **86 tests pass**, the operator page builds,
 its **112 unit tests pass**, and its **38 browser tests pass** — the ones that
 photograph the picture rather than asking the engine whether it is content.
 
-The viewer's own suite was still running on the merged tree when this was
-written. It reads **557 passed, 10 skipped, 2 xfailed** on the branch this was
-merged from, and the merge changed nothing under `viz_studio/`, so it is expected
-to hold — but expected is not measured. If it has not been confirmed in the
-commit history by the time you read this, run it: `cd viz_studio && python
-run_tests.py`, about twenty minutes.
+The viewer's own suite on the merged tree reads **1 failed, 556 passed, 10
+skipped, 2 xfailed**. The one failure needs explaining, because it is not what it
+looks like and you will meet it again.
+
+### The one failing test, and why the line is not being moved
+
+`test_the_drawing_rate_has_not_slid_further` guards against the viewer getting
+slower as more of the specimen is opened. It opens twenty positions, counts
+frames, opens two hundred, counts again, and asks what fraction of the rate
+survived. The line is a quarter.
+
+When that line was drawn, this development machine measured 40%, 35% and 38% —
+comfortably clear of it. Measured four times today, it gives **24%, 25%, 26% and
+30%**. The machine has drifted down onto the line, so the test now passes or
+fails depending on how busy the container happens to be. The first failure came
+while three test suites were competing for the same processor.
+
+**This is not a regression, and nothing about the merge caused it.** The merge
+changed nothing under `viz_studio/`, and the same code measured 557 passed
+earlier the same day.
+
+The line is deliberately left where it is. Moving it to make the run green would
+throw away the only thing the test is for — noticing a genuine slide — and would
+be fitting the test to one tired container rather than to the viewer. The real
+answer is that this measurement has to be taken again on the microscope
+computer, where there is a graphics card and where the numbers will be entirely
+different. **Re-draw the line there, from three quiet runs, and write down what
+the machine was doing at the time.**
+
+Until then: if this test fails, run it again on a quiet machine before believing
+it. The test's own failure message says so too.
 
 One thing worth knowing about that operator-page browser suite: until 2 August it
 had **never actually run in the development container**. It failed outright, all
