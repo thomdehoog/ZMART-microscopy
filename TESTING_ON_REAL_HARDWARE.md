@@ -27,6 +27,26 @@ rather than on the system path, and everything has to stay under
 `C:\ProgramData\MinicondaZMB\` because the machine refuses to run programs from
 folders a user can write to. The exact paths are in that folder's `README.md`.
 
+**Two environments, and they are not interchangeable.** `zmart-microscopy` has
+Node and pywebview; `zmart-viz` has zarr and Playwright. Nothing has all four, so
+`npm` comes from the first and every Python command below from the second. This
+is not tidiness: the writer that produces a demo run needs zarr, and asked to run
+from `zmart-microscopy` it fails with `No module named 'zarr'` — which, reached
+through the browser suite, appears as every test timing out in `beforeAll` with
+nothing said about zarr at all.
+
+Three variables, for the same reason:
+
+* `PYTHON` → `zmart-viz`'s interpreter. The browser suite spawns
+  `process.env.PYTHON ?? "python"` to write its demo run, and plain `python` here
+  is the wrong one.
+* `PLAYWRIGHT_BROWSERS_PATH` → `C:\ProgramData\MinicondaZMB\home\t.de\ms-playwright`.
+  Chromium downloaded anywhere a user can write to is refused at launch with
+  `spawn UNKNOWN`. The webapp's config defaults this; `viz_studio`'s does not.
+* `ZMART_REQUIRE_BROWSER=1`. Without it, a missing build makes the tests that
+  photograph the screen **skip**, and a skip reads as a pass. This machine is
+  supposed to be able to draw, so make it fail instead.
+
 ### 2. Serve one of your own acquisitions
 
 ```bash
@@ -44,10 +64,24 @@ instead. Nothing leaves your machine.
 
 ### 3. Find the viewer
 
-It is its own workflow, with **two independent steps** — one opens with Viv, one
-with neuroglancer, and neither disturbs the other, so you can look at the same
-scene in both. Each has buttons for the three layers: the drawing beneath the
-picture, the picture itself, and the drawing above it.
+**Canvas demonstration** in the chooser at the top left, then **Viewer
+comparison**. One step, holding a column per drawing engine — `viv-under` and
+`neuroglancer-under` — both drawing the same run side by side, each with its own
+view and its own buttons for the three layers: the drawing beneath the picture,
+the picture itself, and the drawing above it.
+
+They open looking at the same place. The engines do not agree about where to
+open on their own — Viv fits the acquisition to its box, neuroglancer starts at
+one voxel to the screen pixel, which on a 1.1 µm store is twenty times closer —
+so the page puts them both on the first view either of them reports. After that
+each is panned on its own; they are not locked together.
+
+This was two steps, one per engine, and before that one step with a row of
+buttons that swapped the engine in place. Both asked you to remember what the
+last engine looked like. There was also a third engine here, `viv-inside`, which
+drew the operator's layer inside the engine as a texture so that every change to
+it cost an engine frame; it is out of the page and still in
+`viz_studio/options/`.
 
 ---
 
@@ -105,7 +139,36 @@ work in. Measure it where the store really lives, not on a local disk.
   finishes opening. The page gives up after twenty-five seconds and says what
   happened rather than waiting for ever.
 - **Neuroglancer needs the page to be served**, not opened from the disk. Opened
-  straight off the disk the chooser offers the other two engines and says why.
+  straight off the disk it is not on offer, so its column falls back to the engine
+  that is, and says so in the corner. The heading names whichever engine is
+  actually drawing, so two columns showing the same engine on a page opened off
+  the disk is that, and not a fault.
+- **Neuroglancer draws a foreign store very dark.** It has no way to read the
+  brightness range out of the picture — that is Viv's loader, which it does not
+  use — so it opens on a fixed guess of nought to 4095. A light-sheet transfer
+  sits at a few hundred to a couple of thousand of a possible 65535, so it is
+  visible but dim, and the column beside it, which does read the range, is not.
+  A difference in brightness between the two columns is this, not the engines
+  disagreeing about the picture.
+
+### Found on 3 August, fixed, and worth knowing about
+
+- **`viv-under` drew nothing at all on a light-sheet transfer.** It asked for a
+  time axis that such a store does not declare, so every piece of image was
+  refused — quietly, one refusal at a time, with the page reporting itself
+  perfectly content over an empty window.
+- **Both Viv engines drew foreign stores at the stage's zero.** They read an
+  image's position from the multiscales block only; OME-Zarr also allows it
+  beside each resolution, which is where the transfers other instruments send
+  put it. A run of many tiles therefore stacked every tile on every other.
+- **Serving a run to more than one viewer starved the slowest engine.**
+  `serve_a_run.py` answered one request at a time, so neuroglancer never finished
+  opening and looked broken. It is threaded now.
+
+Neither of the first two has a regression test. They were confirmed by hand, on
+the transfer at `Z:\zmbstaff\10637\Raw_Data\mesoSPIM_transfer_20260626_1700\`,
+by watching the refusals stop and the reported centre move to the position the
+store states. Treat them as smoke-checked rather than proven.
 
 ---
 

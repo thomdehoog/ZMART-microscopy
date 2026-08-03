@@ -227,7 +227,7 @@ export const disconnect = {
 export const theCanvas = {
   id: "canvas-picture",
   title: "Viewer comparison",
-  why: "Opens the run and draws its three layers. The engines above the picture draw the same scene in turn, so they can be held against one another.",
+  why: "Opens the run and draws its three layers, once per drawing engine, side by side on the same scene.",
   panels: ["viewer-viv"],
   nothingWaitsOnThis: true,
 };
