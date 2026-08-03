@@ -556,9 +556,6 @@ export function putTheCanvasIn({
   }
 
   const handle = {
-    /** TEMPORARY INSTRUMENTATION — remove. */
-    get __viewer() { return viewer; },
-
     /** Which engine is drawing now. */
     get engine() { return wanted; },
 
@@ -606,11 +603,6 @@ export function putTheCanvasIn({
          meant to catch — so the tests photograph the box and this is only the
          means to ask the picture to move. */
       if (!destroyed) window.__theCanvas = handle;
-      /* TEMPORARY INSTRUMENTATION — remove. */
-      if (!destroyed) {
-        window.__panels = window.__panels || {};
-        window.__panels[box.id] = handle;
-      }
       if (destroyed || viewer || opening) return;
       if (!acquisitions.length) {
         say(
