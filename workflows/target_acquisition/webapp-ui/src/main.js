@@ -467,26 +467,44 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     connect: { label: "Microscope configuration", panel: "panel-setup" },
     optics: { label: "Optical configuration", panel: "panel-setup" },
     canvas: { label: "Canvas", panel: "panel-canvas" },
-    /* The canvas demonstration's one panel. There were two, one per engine, until
-       the row of engine buttons above the picture made them redundant: changing
-       engine keeps the view where it is, so one panel shown through each engine
-       in turn is a closer comparison than two panels looking at the same run
-       from wherever each happened to be. */
+    /* The canvas demonstration's one panel, holding a column per engine. There
+       was a panel per engine and a step to match, so the engines were compared by
+       walking from one step to the other and remembering. Side by side they are
+       compared by looking.
+
+       The id still says `viv` for a panel that is no longer about Viv. Renaming
+       it reaches both browser specs, so it waits until those are rewritten. */
     "viewer-viv": {
       label: "Canvas", panel: "panel-viewer-viv",
       whenShown: async () => {
-        await Promise.all(theThreeCanvases.map((canvas) => canvas.whenShown()));
-        /* Put them all where the first one is looking. Each engine picks its own
-           opening view and they do not agree — Viv fits the acquisition, and
-           neuroglancer opens at one voxel to the pixel, which on this data is
-           twenty times closer. Three pictures at three zooms compare nothing, so
-           the page says which view they share. Only at opening: after that each
-           is panned on its own, because locking them together is a different
-           thing and is not built. */
-        const first = theThreeCanvases.find((canvas) => canvas.view);
-        if (!first) return;
-        for (const canvas of theThreeCanvases) {
-          if (canvas !== first) canvas.lookAt(first.view);
+        const open = (await Promise.all(
+          theCanvases.map((canvas) => canvas.whenShown()),
+        )).filter(Boolean);
+        /* Put them both where the first one to open was looking. Each engine
+           picks its own opening view and they do not agree: Viv fits the
+           acquisition into its box, and neuroglancer opens at one canonical voxel
+           to the screen pixel, which on a 1.1 µm store is twenty times closer.
+           Two pictures of one run at two zooms compare nothing, so the page says
+           which view they share.
+
+           Each column only once, when it opens. After that it is panned on its
+           own, because keeping them together while somebody drags is a different
+           thing — it needs the engines' own view reports fed back out, a guard
+           against the two of them echoing each other, and a tolerance, because
+           each snaps zoom to its own steps and would otherwise ratchet. */
+        for (const canvas of open) theViewTheyShare ??= canvas.view;
+        if (!theViewTheyShare) return;
+        for (const canvas of open) {
+          /* A column with no view has not opened — it may still be opening, or it
+             may have given up and be waiting to be asked again. Either way there
+             is nothing to move yet, and it must stay unrecorded so that the next
+             time this runs it is put on the view rather than skipped as done.
+             Recording it here regardless is how a column that opened late would
+             be stranded on its own view for ever, which is the one thing this is
+             for. */
+          if (alreadyPutOnIt.has(canvas) || !canvas.view) continue;
+          canvas.lookAt(theViewTheyShare);
+          alreadyPutOnIt.add(canvas);
         }
       },
     },
@@ -1253,17 +1271,20 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   })();
   const RUN_TO_WATCH = ACQUISITIONS[0] ?? null;
 
-  /* Which engine to open both steps of the canvas demonstration with —
-     `?engine=viv-inside`.
+  /* Which engine to open the canvas columns with — `?engine=neuroglancer-under`.
 
-     Ordinarily each of the two steps names its own engine, which is the whole
-     point of having two of them. This overrides both, and it is there for asking
-     a page one question about one engine: whether a page delivered in a
-     particular way can draw with it at all. That is what the checks on the built
-     page use it for. Left out, each step opens with the engine it is named
-     after, and the row of buttons at the top of either panel still changes
-     between them without losing the view. `src/canvas/engines.js` says what
-     engines there are, and when one of the three cannot be offered. */
+     It is there for asking a page one question about one engine: whether a page
+     delivered in a particular way can draw with it at all. That is what the
+     checks on the built page use it for. Left out, each column opens with the
+     engine it is named after. `src/canvas/engines.js` says what engines there
+     are, and when one of them cannot be offered.
+
+     **It overrides every column at once, which now defeats the point of the
+     layout** — the columns exist to be seen against one another, and this makes
+     them all the same. It made sense when the page showed one picture at a time.
+     Whether it should be per column, or go, is on the list of things to decide;
+     it is left as it was rather than changed in passing, because both checks on
+     the built page stand on it. */
   const ENGINE_ASKED_FOR = new URLSearchParams(location.search).get("engine");
 
   /* What colour to paint the room the run declared, underneath the picture, as
@@ -1436,9 +1457,23 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       return building;
     };
     return {
+      /* Resolves to the canvas itself, not to what showing it returned, because
+         the page has to be able to ask a column where it is looking once it is
+         up. One object answers for a column rather than two that each partly do.
+
+         It resolves to the canvas whether or not the run opened: a run that
+         could not be opened is reported by the canvas itself, on the page, and
+         is not an error here. Only a canvas that could not be *built* — the
+         module missing, the boxes absent — resolves to nothing, because then
+         there is no column at all. Anything asking where a column is looking
+         must therefore ask it, not assume that having a canvas means having a
+         picture. */
       whenShown: () =>
         build()
-          .then((canvas) => canvas.whenShown())
+          .then(async (canvas) => {
+            await canvas.whenShown();
+            return canvas;
+          })
           /* Said on the page as well as on the console. A box that is broken and
              a box that is still loading look exactly alike, and this project has
              lost days to the difference. */
@@ -1446,18 +1481,34 @@ import scanfieldsWidget from "./widgets/scanfields.js";
             const note = el(`viewer-${which}-note`);
             note.hidden = false;
             note.textContent = `the canvas could not be loaded — ${why.message}`;
+            return null;
           }),
     };
   };
-  /* Three viewers side by side in the one step, each fixed to an engine. They
-     share nothing — three separate viewers on the same run — which is both what
-     makes them comparable and what proves the canvas keeps no state belonging to
-     its file rather than to the viewer. */
-  const theThreeCanvases = [
+  /* The two viewers, side by side, each fixed to an engine. They share nothing —
+     two separate viewers on the same run — which is both what makes them
+     comparable and what proves the canvas keeps no state belonging to its file
+     rather than to the viewer. */
+  const theCanvases = [
     aCanvasPanel("vivunder", "viv-under"),
-    aCanvasPanel("vivinside", "viv-inside"),
     aCanvasPanel("neuro", "neuroglancer-under"),
   ];
+  /* The view they share — the first view any column reports, taken in the order
+     the columns are listed — and the columns that have already been put on it.
+
+     Per column rather than one flag for the page, because a column can open on a
+     later visit than its neighbour: `whenShown` tries again for a viewer that
+     failed, and a slow engine giving up under contention is the expected failure
+     rather than a rare one. A single flag would leave that column — the one whose
+     opening view disagrees, which is the whole reason for this — on its own view
+     for ever.
+
+     Remembering the view rather than re-reading the first column's is what makes
+     the late arrival land in the right place: by then the neighbour may have been
+     panned somewhere else, and the newcomer should join what they opened on, not
+     chase whatever one of them is looking at now. */
+  let theViewTheyShare = null;
+  const alreadyPutOnIt = new Set();
 
   /* ============================================================
      the stage viewer — one projection, layers on top
