@@ -1,0 +1,40 @@
+{
+  "name": "zmart-webapp-ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Front end for the target-acquisition operator page. Built to one self-contained page, with neuroglancer's two background programs beside it.",
+  "scripts": {
+    "predev": "node neuroglancer-workers.mjs",
+    "dev": "vite",
+    "prebuild": "node neuroglancer-workers.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:unit": "vitest run",
+    "test:ui": "playwright test",
+    "test": "vitest run && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "esbuild": "^0.28.1",
+    "vite": "^8.1.5",
+    "vite-plugin-singlefile": "^2.3.0",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@deck.gl/core": "9.3.7",
+    "@deck.gl/geo-layers": "9.3.7",
+    "@deck.gl/layers": "9.3.7",
+    "@luma.gl/constants": "9.3.6",
+    "@luma.gl/core": "9.3.6",
+    "@luma.gl/engine": "9.3.6",
+    "@luma.gl/shadertools": "9.3.6",
+    "@luma.gl/webgl": "9.3.6",
+    "@math.gl/core": "4.1.0",
+    "@vivjs/extensions": "0.22.0",
+    "@vivjs/layers": "0.22.0",
+    "@vivjs/loaders": "0.22.0",
+    "@vivjs/views": "0.22.0",
+    "neuroglancer": "2.41.2"
+  }
+}
