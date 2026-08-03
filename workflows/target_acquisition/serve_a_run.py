@@ -37,7 +37,7 @@ from __future__ import annotations
 import argparse
 import socket
 from functools import partial
-from http.server import HTTPServer
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from live_overview_demo import Handler
@@ -107,8 +107,14 @@ def main() -> None:
     # The run's parent is served rather than the run itself, so that the run keeps
     # its own name in the address. A viewer is given the address of the run, and a
     # run that had been served as the bare root would have no name to be given.
+    # Threaded, because a picture is not one request. An engine asks for every
+    # piece of image it needs to draw a view, and a page may hold several viewers
+    # at once — measured, three of them on one run against a single-threaded
+    # server queue behind one another badly enough that the slowest engine gives
+    # up before it has finished opening. The run is only being read, so answering
+    # several at once is free.
     port = chosen.port or a_free_port()
-    server = HTTPServer(
+    server = ThreadingHTTPServer(
         ("127.0.0.1", port),
         partial(ServeWhatIsAlreadyThere, directory=str(run.parent)),
     )
