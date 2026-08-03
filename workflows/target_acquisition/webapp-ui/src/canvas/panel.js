@@ -535,6 +535,24 @@ export function putTheCanvasIn({
     /** Which layers are being drawn, for a test to read back. */
     get layers() { return { ...showing }; },
 
+    /**
+     * Where this picture is looking, and a way to put it somewhere else.
+     *
+     * Wanted because several of these can be on screen at once, each with its own
+     * engine, and three pictures of the same run at three different zooms are not
+     * a comparison. Each engine chooses its own opening view — measured, Viv fits
+     * the acquisition's extent and neuroglancer opens at one voxel to the pixel,
+     * which on a 1.1 µm store is twenty times closer — so somebody has to say
+     * which of them they should all be at, and the page is the only thing that
+     * can see more than one of them.
+     *
+     * Null before the picture has opened; setting it then does nothing, rather
+     * than throwing, because the panels open independently and one being ready
+     * before another is ordinary.
+     */
+    get view() { return viewer?.getView?.() ?? null; },
+    lookAt(where) { if (where) viewer?.setView?.(where); },
+
     changeTo,
     showTheLayer,
 

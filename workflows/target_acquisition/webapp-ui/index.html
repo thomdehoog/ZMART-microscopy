@@ -89,61 +89,64 @@
         </div>
       </div>
 
-      <!-- The canvas, twice over: one panel for each of the two steps of the
-           canvas demonstration. Each is the picture of a run with the whole
-           width of the window and no panel of controls beside it. The first row
-           of buttons chooses which engine draws; the second turns each of the
-           three layers on and off, named from the bottom of the stack upwards.
+      <!-- The canvas demonstration: one step, all three engines drawing the same
+           run side by side.
 
-           There are two panels rather than one because the two steps have to be
-           genuinely independent. Each holds its own picture, opened with its own
-           engine, remembering its own buttons and its own view, so that walking
-           from one step to the other is a fair comparison: nothing the operator
-           did in the first can have reached the second. Every id below appears
-           twice for that reason and the two blocks are otherwise identical, so
-           a change to one wants the same change to the other. -->
+           This was two steps, one engine each, and then one step with a row of
+           buttons that swapped the engine in place. Both compared the engines one
+           after the other, which asks an operator to remember what the last one
+           looked like. Three at once does not: a difference between two pictures
+           standing beside each other is seen rather than recalled, and the one
+           difference that decides what can be built — whether a drawing handed to
+           the bottom slot really ends up beneath the picture — shows itself
+           immediately, because two of these draw the wash and the third does not.
+
+           Each column is a viewer of its own, with its own engine, its own view
+           and its own buttons. They share nothing, which is also the check that
+           the canvas keeps no state belonging to its file rather than to the
+           viewer — three at once would fall over if it did. -->
       <div class="panel" id="panel-viewer-viv" role="tabpanel">
-        <div class="toolbar focus-toolbar viewer-toolbar">
-          <div class="tb-row">
-            <span class="tb-label">Engine</span>
-            <div class="seg" id="viewer-viv-engine" role="radiogroup"
-                 aria-label="Which engine draws the picture"></div>
-            <div class="readout" id="viewer-viv-readout">—</div>
+        <div class="three-viewers">
+          <div class="one-viewer">
+            <div class="viewer-head">
+              <span class="viewer-name">viv-under</span>
+              <div class="readout" id="viewer-vivunder-readout">—</div>
+            </div>
+            <div class="seg" id="viewer-vivunder-layers"
+                 aria-label="Which of the three layers are drawn, under viv-under"></div>
+            <span class="action-hint layer-why" id="viewer-vivunder-why"></span>
+            <div class="viewer-box" id="viewer-vivunder-box"></div>
+            <div class="live-note" id="viewer-vivunder-note" hidden></div>
+            <div class="seg" id="viewer-vivunder-engine" hidden></div>
           </div>
-          <div class="tb-row layer-row">
-            <span class="tb-label">Layers</span>
-            <div class="seg" id="viewer-viv-layers"
-                 aria-label="Which of the three layers are drawn"></div>
-            <span class="action-hint layer-why" id="viewer-viv-why"></span>
+
+          <div class="one-viewer">
+            <div class="viewer-head">
+              <span class="viewer-name">viv-inside</span>
+              <div class="readout" id="viewer-vivinside-readout">—</div>
+            </div>
+            <div class="seg" id="viewer-vivinside-layers"
+                 aria-label="Which of the three layers are drawn, under viv-inside"></div>
+            <span class="action-hint layer-why" id="viewer-vivinside-why"></span>
+            <div class="viewer-box" id="viewer-vivinside-box"></div>
+            <div class="live-note" id="viewer-vivinside-note" hidden></div>
+            <div class="seg" id="viewer-vivinside-engine" hidden></div>
           </div>
-        </div>
-        <div class="plot-host">
-          <div class="viewer-box" id="viewer-viv-box"></div>
-          <div class="live-note" id="viewer-viv-note" hidden></div>
+
+          <div class="one-viewer">
+            <div class="viewer-head">
+              <span class="viewer-name">neuroglancer-under</span>
+              <div class="readout" id="viewer-neuro-readout">—</div>
+            </div>
+            <div class="seg" id="viewer-neuro-layers"
+                 aria-label="Which of the three layers are drawn, under neuroglancer"></div>
+            <span class="action-hint layer-why" id="viewer-neuro-why"></span>
+            <div class="viewer-box" id="viewer-neuro-box"></div>
+            <div class="live-note" id="viewer-neuro-note" hidden></div>
+            <div class="seg" id="viewer-neuro-engine" hidden></div>
+          </div>
         </div>
         <div class="panel-foot" id="foot-viewer-viv"></div>
-      </div>
-
-      <div class="panel" id="panel-viewer-neuroglancer" role="tabpanel">
-        <div class="toolbar focus-toolbar viewer-toolbar">
-          <div class="tb-row">
-            <span class="tb-label">Engine</span>
-            <div class="seg" id="viewer-neuroglancer-engine" role="radiogroup"
-                 aria-label="Which engine draws the picture"></div>
-            <div class="readout" id="viewer-neuroglancer-readout">—</div>
-          </div>
-          <div class="tb-row layer-row">
-            <span class="tb-label">Layers</span>
-            <div class="seg" id="viewer-neuroglancer-layers"
-                 aria-label="Which of the three layers are drawn"></div>
-            <span class="action-hint layer-why" id="viewer-neuroglancer-why"></span>
-          </div>
-        </div>
-        <div class="plot-host">
-          <div class="viewer-box" id="viewer-neuroglancer-box"></div>
-          <div class="live-note" id="viewer-neuroglancer-note" hidden></div>
-        </div>
-        <div class="panel-foot" id="foot-viewer-neuroglancer"></div>
       </div>
 
       <!-- detection panel: tune on one tile, then run them all -->

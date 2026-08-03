@@ -159,19 +159,8 @@ describe("panels follow the step", () => {
 
   it("gives the whole window to a step in a workflow that never asks for the canvas", () => {
     expect(panelsOf("canvas_layers")).toEqual({
-      "canvas-viv": ["viewer-viv"],
-      "canvas-neuroglancer": ["viewer-neuroglancer"],
+      "canvas-picture": ["viewer-viv"],
     });
-  });
-
-  /* Each of the two demonstration steps has a panel to itself, and that is what
-     keeps them from sharing anything. Two steps naming one panel would be two
-     steps looking at one picture, and whatever the operator had done to it in
-     the first step would still be done to it in the second — which is exactly
-     the comparison the demonstration exists to make impossible to spoil. */
-  it("gives each demonstration step a picture of its own", () => {
-    const panels = Object.values(panelsOf("canvas_layers")).flat();
-    expect(new Set(panels).size).toBe(panels.length);
   });
 });
 
@@ -234,7 +223,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
 
   it("every step names panels the page can supply", () => {
     const known = new Set([
-      "canvas", "viewer-viv", "viewer-neuroglancer",
+      "canvas", "viewer-viv",
       "connect", "optics", "focus", "detect", "analysis", "gallery"]);
     for (const wf of Object.keys(WORKFLOWS)) {
       for (const s of WORKFLOWS[wf].steps) {
@@ -284,13 +273,16 @@ describe("workflows compose the catalogue rather than restating it", () => {
 describe("the canvas demonstration", () => {
   const steps = WORKFLOWS.canvas_layers.steps;
 
-  it("is two steps, one for each engine", () => {
-    expect(ids("canvas_layers")).toEqual(["canvas-viv", "canvas-neuroglancer"]);
+  /* One step, not one per engine. The engines are compared inside it, by the row
+     of buttons above the picture, which keeps the view where it is as the engine
+     changes — a closer comparison than two pictures that were never guaranteed to
+     be looking at the same place. */
+  it("is one step, with the engines compared inside it", () => {
+    expect(ids("canvas_layers")).toEqual(["canvas-picture"]);
   });
 
-  it("each wants a picture and nothing beside it", () => {
+  it("wants a picture and nothing beside it", () => {
     expect(panelsFor(steps, 0)).toEqual(["viewer-viv"]);
-    expect(panelsFor(steps, 1)).toEqual(["viewer-neuroglancer"]);
   });
 
   it("has nothing to run, because standing on a step is the whole of it", () => {
@@ -304,10 +296,8 @@ describe("the canvas demonstration", () => {
      waiting on the other, and the operator may open either one first. Without
      this the second step would be greyed out for ever, because the first can
      never be marked as finished — there is nothing to finish. */
-  it("lets the operator open either step, in either order, having done nothing", () => {
-    const nothingDone = new Set();
-    expect(isReachable(steps, nothingDone, 0)).toBe(true);
-    expect(isReachable(steps, nothingDone, 1)).toBe(true);
+  it("lets the operator open it having done nothing", () => {
+    expect(isReachable(steps, new Set(), 0)).toBe(true);
   });
 
   it("says in plain words that it is a demonstration rather than a run", () => {
@@ -328,9 +318,12 @@ describe("the canvas demonstration", () => {
     }
   });
 
-  it("names the engine each step opens with, where the operator will read it", () => {
-    expect(steps[0].title).toMatch(/Viv/);
-    expect(steps[1].title).toMatch(/neuroglancer/);
+  /* The step names no engine, and that is the point of there being one of them.
+     A step called after an engine is a promise that the engine is what the step
+     is for; here the step is the picture, and which engine draws it is a button
+     above it that can be changed without losing the view. */
+  it("names no engine, because the engine is chosen inside the step", () => {
+    expect(steps[0].title).not.toMatch(/viv|neuroglancer/i);
   });
 
   it("leaves target acquisition exactly as it was", () => {

@@ -215,19 +215,20 @@ export const disconnect = {
  * There is no panel of controls down the right-hand side, because these steps
  * want only the picture and the handful of buttons above it.
  */
-export const theCanvasDrawnByViv = {
-  id: "canvas-viv",
-  title: "The picture drawn by Viv",
-  why: "Opens the run with Viv, so the three layers can be watched with an engine that can draw all of them.",
+/**
+ * The one bench step: a run, and the engines compared against each other in it.
+ *
+ * There were two of these, one per engine. They were dropped into one because the
+ * row of engine buttons above the picture already does the comparing, and does it
+ * better: changing engine keeps the view exactly where it is, so the same scene
+ * is seen through each in turn rather than through two pictures that were never
+ * guaranteed to be looking at the same place.
+ */
+export const theCanvas = {
+  id: "canvas-picture",
+  title: "Viewer comparison",
+  why: "Opens the run and draws its three layers. The engines above the picture draw the same scene in turn, so they can be held against one another.",
   panels: ["viewer-viv"],
-  nothingWaitsOnThis: true,
-};
-
-export const theCanvasDrawnByNeuroglancer = {
-  id: "canvas-neuroglancer",
-  title: "The picture drawn by neuroglancer",
-  why: "Opens the same run with neuroglancer, which draws the picture and the layer above it but cannot draw the layer beneath.",
-  panels: ["viewer-neuroglancer"],
   nothingWaitsOnThis: true,
 };
 
