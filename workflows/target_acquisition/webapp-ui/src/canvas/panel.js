@@ -368,13 +368,24 @@ export function putTheCanvasIn({
 
   /** Show each button in the state its layer is actually in. */
   function markTheButtons() {
-    const nothingToPressYet = !viewer || opening;
+    /* Only while an open is in flight. Not "while there is no picture", which is
+       what this used to say and which was a trap: these buttons decide what the
+       next open will contain, so when there is no picture they are the way back
+       to one.
+
+       What that cost, exactly. Turning the picture off asks the canvas to open
+       with no acquisition at all. One engine never finishes that — it cannot
+       learn what space to draw in with no image layer to read it from — so the
+       wait runs out, the box is emptied and no viewer is left. Every button was
+       then disabled, including the one that would have put the picture back, and
+       the only way out was to reload the page. An engine that cannot do one
+       thing should cost you that one thing, not the panel. */
     for (const [key, button] of buttons) {
       button.setAttribute("aria-pressed", String(showing[key]));
       /* The picture cannot be turned on when this page was never pointed at a
          run: there would be nothing to turn on, and a button that does nothing
          is a worse answer than a button that is plainly unavailable. */
-      button.disabled = nothingToPressYet || (key === "picture" && !acquisitions.length);
+      button.disabled = opening || (key === "picture" && !acquisitions.length);
     }
   }
 
@@ -545,6 +556,9 @@ export function putTheCanvasIn({
   }
 
   const handle = {
+    /** TEMPORARY INSTRUMENTATION — remove. */
+    get __viewer() { return viewer; },
+
     /** Which engine is drawing now. */
     get engine() { return wanted; },
 
@@ -592,6 +606,11 @@ export function putTheCanvasIn({
          meant to catch — so the tests photograph the box and this is only the
          means to ask the picture to move. */
       if (!destroyed) window.__theCanvas = handle;
+      /* TEMPORARY INSTRUMENTATION — remove. */
+      if (!destroyed) {
+        window.__panels = window.__panels || {};
+        window.__panels[box.id] = handle;
+      }
       if (destroyed || viewer || opening) return;
       if (!acquisitions.length) {
         say(
