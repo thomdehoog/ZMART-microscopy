@@ -92,49 +92,53 @@
         <div class="panel-foot" id="foot-detect"></div>
       </div>
 
-      <!-- focus strategy panel -->
-      <div class="panel" id="panel-focus" role="tabpanel">
-        <div class="toolbar focus-toolbar">
-          <div class="tb-row">
-            <span class="tb-label">Strategy</span>
-            <div class="seg" id="focus-strategy" role="radiogroup" aria-label="Focus strategy">
-              <button type="button" role="radio" data-strat="plane" aria-checked="true">Fit from points</button>
-              <button type="button" role="radio" data-strat="fixed" aria-checked="false">Fixed Z</button>
-              <button type="button" role="radio" data-strat="auto" aria-checked="false">Per-tile autofocus</button>
-              <button type="button" role="radio" data-strat="reuse" aria-checked="false">Reuse surface</button>
+      <!-- Focus strategy has no panel of its own: it happens on the canvas, and
+           these are its controls. Parked here in the markup and moved into the
+           channel beside the canvas while that step is standing, so everything
+           in them is built and wired once. -->
+      <div id="focus-controls" hidden>
+          <div class="focus-side">
+            <div class="side-head">Select focus points</div>
+            <div class="fp-bar">
+              <div class="seg" id="fp-scope" role="radiogroup" aria-label="Where the points go">
+                <button type="button" role="radio" data-scope="canvas" aria-checked="true">Whole canvas</button>
+                <button type="button" role="radio" data-scope="area" aria-checked="false">Per compartment</button>
+              </div>
+              <div class="fp-row">
+                <label class="fp-label" for="fp-count">How many</label>
+                <input type="number" id="fp-count" min="1" max="99" step="1">
+                <span class="fp-hint" id="fp-hint"></span>
+              </div>
+              <div class="fp-row">
+                <button type="button" class="ghost" id="fp-place">Place</button>
+                <button type="button" class="ghost" id="fp-clear">Clear</button>
+              </div>
             </div>
-            <div class="group" id="focus-params"></div>
-            <div class="readout" id="focus-readout">—</div>
-          </div>
-        </div>
-        <div class="focus-body">
-          <div class="plot-host">
-            <canvas class="plot focuscv" id="focus-canvas"></canvas>
-            <div class="tip" id="focus-tip"></div>
-          </div>
-          <aside class="focus-side">
             <div class="side-head">Focus points</div>
             <div class="point-list" id="point-list"></div>
-          </aside>
+          </div>
           <div class="focus-strip">
             <div class="side-head trace-head">
               Focus trace <span id="trace-which"></span>
             </div>
             <div class="trace-host">
-              <canvas id="trace-canvas"></canvas>
               <div class="zpreview">
-                <canvas id="zpreview-canvas" width="256" height="256"
-                        aria-label="image at the selected focus height"></canvas>
-                <div class="zcap">
-                  <span class="zval" id="zpreview-z">—</span>
-                  <span class="zstate" id="zpreview-state"></span>
+                <div class="zframe">
+                  <canvas id="zpreview-canvas" width="256" height="256"
+                          aria-label="image at the selected focus height"></canvas>
+                  <div class="zcap">
+                    <span class="zval" id="zpreview-z">—</span>
+                    <span class="zstate" id="zpreview-state"></span>
+                  </div>
                 </div>
+              </div>
+              <!-- its own host: the canvas is sized from its parent's box -->
+              <div class="trace-plot">
+                <canvas id="trace-canvas"></canvas>
               </div>
               <div class="trace-empty" id="trace-empty">Run the strategy to measure each point, then its sweep appears here.</div>
             </div>
           </div>
-        </div>
-        <div class="panel-foot" id="foot-focus"></div>
       </div>
 
       <!-- analysis panel -->
