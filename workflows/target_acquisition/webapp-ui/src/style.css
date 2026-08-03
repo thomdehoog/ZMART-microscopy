@@ -100,6 +100,9 @@
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px rgba(15, 23, 42, 0.07);
 }
 
+/* the width of the column beside a canvas, wherever one stands */
+:root { --side-w: 320px; }
+
 * { box-sizing: border-box; }
 
 body {
@@ -312,6 +315,7 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 }
 .tab:hover { color: var(--ink); }
 .tab[aria-selected="true"] { color: var(--accent-deep); border-bottom-color: var(--accent); }
+
 .tab .count {
   font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums;
   background: var(--surface-3); border: 1px solid var(--line);
@@ -409,28 +413,44 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .param select { width: auto; font-family: var(--sans); font-weight: 600; }
 .param .hint { color: var(--ink-3); }
 
-/* focus strategy: map on the left, points + trace on the right */
-/* map and point list on top, the trace on a full-width strip beneath —
-   the sweep needs room, and the preview matches its height */
-.focus-body {
-  display: grid;
-  grid-template-columns: 1fr minmax(248px, 306px);
-  grid-template-rows: 1fr 248px;
-  min-height: 0;
-  /* the trace strip is a fixed height, so the body has to clip rather than
-     spill over the action at the end of the panel */
-  overflow: hidden;
-}
-.focus-body > .plot-host { grid-column: 1; grid-row: 1; }
-.focus-side {
-  grid-column: 2; grid-row: 1;
-  border-left: 1px solid var(--line); background: var(--surface-2);
-  display: grid; grid-template-rows: auto 1fr; min-height: 0;
-}
+/* The focus controls, stacked down the channel beside the canvas. There is no
+   map here any more — the map is the canvas — so this is only what is said
+   about it: how the points are made, which ones there are, and the sweep
+   behind whichever one is picked.
+
+   The list is the part that grows, so it is the part that scrolls: sixteen
+   points must not push the trace off the bottom of the column, because the
+   trace is what a point is picked in order to look at. */
+#focus-controls { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+#focus-controls[hidden] { display: none; }
+.focus-side { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .focus-strip {
-  grid-column: 1 / -1; grid-row: 2;
-  border-top: 1px solid var(--line); background: var(--surface-2);
-  display: grid; grid-template-rows: auto 1fr; min-height: 0;
+  display: flex; flex-direction: column; flex: none;
+  border-top: 1px solid var(--line);
+}
+
+.fp-bar {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px 12px; border-bottom: 1px solid var(--line);
+}
+/* the choice is the width of the column, because it is the first thing asked */
+.fp-bar .seg { width: 100%; }
+.fp-bar .seg button { flex: 1; min-width: 0; }
+.fp-row { display: flex; align-items: center; gap: 8px; }
+.fp-row button.ghost { flex: 1; }
+.fp-label {
+  font-size: 11px; font-family: var(--mono); font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3);
+}
+.fp-bar input[type="number"] {
+  width: 58px; font: inherit; font-size: 13px; font-family: var(--mono);
+  padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--screen); color: var(--ink);
+}
+/* what the two answers actually come to, since one of them multiplies */
+.fp-hint {
+  margin-left: auto; font-size: 11.5px; font-family: var(--mono); color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .side-head {
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
@@ -439,7 +459,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 }
 .side-head span { font-family: var(--mono); font-size: 11px; letter-spacing: 0; text-transform: none; color: var(--ink-2); }
 .trace-head { border-top: 1px solid var(--line); }
-.point-list { overflow-y: auto; min-height: 0; }
+.point-list { overflow-y: auto; min-height: 0; flex: 1; }
 .point-row {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 6px 12px; border: none; border-bottom: 1px solid var(--line);
@@ -456,20 +476,28 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .point-row .res + .z { margin-left: 0; min-width: 62px; text-align: right; }
 .point-row .z.pending { color: var(--ink-3); font-weight: 400; }
 .point-list .none { padding: 12px; font-size: 12.5px; color: var(--ink-3); font-family: var(--sans); }
-.trace-host { position: relative; min-height: 0; display: grid; grid-template-columns: 1fr auto; }
+/* Stacked, now that this sits in a column: the image the sweep picks out on
+   top, the sweep beneath it. The image first because it is the answer — the
+   curve is the working — and the curve is given a modest fixed height, since
+   its shape is what is being read and no amount of extra height adds to that. */
+.trace-host { position: relative; min-height: 0; display: grid; grid-template-rows: auto 152px; }
+/* Every canvas here is measured from its parent, so each one needs a parent
+   that is its own box and nothing else's. */
+.trace-plot { position: relative; min-height: 0; }
 #trace-canvas { display: block; width: 100%; height: 100%; cursor: ew-resize; touch-action: none; }
-/* square, and the same height as the plot beside it — the readings sit on
-   the image rather than stealing height from it */
 .zpreview {
-  position: relative; border-left: 1px solid var(--line);
-  display: flex; justify-content: center; padding: 12px 14px; min-height: 0;
+  display: flex; justify-content: center; padding: 12px 14px 14px; min-height: 0;
 }
+/* The readings sit on the image, so they are placed against the image's own box
+   rather than the column's — a caption wider than what it captions reads as a
+   band across the panel. */
+.zframe { position: relative; width: 100%; max-width: 176px; }
 .zpreview canvas {
-  height: 100%; width: auto; aspect-ratio: 1 / 1;
+  width: 100%; height: auto; aspect-ratio: 1 / 1;
   border-radius: 6px; background: #05090e; display: block;
 }
 .zcap {
-  position: absolute; left: 14px; right: 14px; bottom: 12px;
+  position: absolute; left: 0; right: 0; bottom: 0;
   display: flex; flex-direction: column; align-items: center; gap: 1px;
   padding: 5px 6px 6px; border-radius: 0 0 6px 6px;
   background: linear-gradient(rgba(5, 9, 14, 0), rgba(5, 9, 14, 0.82) 38%);
@@ -494,11 +522,10 @@ canvas.plot { display: block; width: 100%; height: 100%; touch-action: none; }
    of paper being shoved about, and a hand on it says the panning is the point
    when the point is what is drawn.
 
-   The cursor answers one question instead: is there something here to pick.
-   So it changes over a field and nowhere else — not while one is being
-   dragged, because by then the question is already answered. */
+   The cursor answers what the next press will do instead, which only the scan
+   fields editor knows — so while that step is standing here it sets the cursor
+   itself and this is the resting state underneath. */
 canvas.stagecv { cursor: default; }
-canvas.stagecv.over-field { cursor: pointer; }
 canvas.scattercv { cursor: crosshair; }
 
 /* The acquired overview lies over the plan, in the same place and at the same
@@ -587,8 +614,6 @@ canvas.livecv[hidden] { display: none; }
   .screen { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .rail { border-right: none; border-bottom: 1px solid var(--line); }
   .steps { max-height: 200px; }
-  .focus-body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
-  .focus-side { border-left: none; border-top: 1px solid var(--line); }
 }
 
 /* ---- setup panel -------------------------------------------------------
@@ -849,7 +874,6 @@ canvas.livecv[hidden] { display: none; }
 /* The canvas keeps the room; a step whose work is about the frame gets a
    column beside it. Scrolls on its own so the picture never moves. */
 /* one width, so the channel and the name above it stand in the same column */
-.stage { --side-w: 320px; }
 .canvas-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 0; }
 .canvas-side {
   width: var(--side-w); overflow-y: auto; min-height: 0;
@@ -965,6 +989,14 @@ canvas.livecv[hidden] { display: none; }
 .sf-tool.on { color: var(--accent-deep); border-color: var(--accent); background: var(--accent-tint); }
 .sf-glyph { font-size: 19px; line-height: 24px; }
 .sf-tool.on .sf-glyph { font-weight: 700; }
+/* Drawn rather than typed, so it takes its weight from the stroke instead of
+   the font — and its colour from the button, like every other glyph here. */
+.sf-glyph-drawn {
+  width: 21px; height: 21px; display: block;
+  fill: none; stroke: currentColor; stroke-width: 1.5;
+  stroke-linejoin: round; stroke-linecap: round;
+}
+.sf-tool.on .sf-glyph-drawn { stroke-width: 2; }
 
 .sf-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .sf-num { display: flex; flex-direction: column; gap: 4px; min-width: 0; }

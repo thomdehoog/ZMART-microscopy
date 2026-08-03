@@ -101,7 +101,7 @@ export const focusStrategy = {
   title: "Focus strategy",
   why: "Choose how this run keeps every image sharp across the sample.",
   btn: "Apply strategy",
-  panels: ["focus"],
+  panels: [],
   ms: 1400,
   mode: "focus",
   /* Only one of the strategies has anything to wait for. Fitting a surface to
