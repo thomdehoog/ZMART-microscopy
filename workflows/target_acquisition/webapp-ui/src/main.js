@@ -1450,6 +1450,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
           layers: el(`viewer-${which}-layers`),
           why: el(`viewer-${which}-why`),
           readout: el(`viewer-${which}-readout`),
+          name: el(`viewer-${which}-name`),
           acquisitions: ACQUISITIONS,
           engine: ENGINE_ASKED_FOR ?? engine,
         }),

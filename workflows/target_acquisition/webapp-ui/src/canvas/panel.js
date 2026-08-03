@@ -233,7 +233,7 @@ async function beforeWeGiveUp(promise, sayWhat) {
  *   tearing itself down need not keep track of the order.
  */
 export function putTheCanvasIn({
-  box, note, chooser, layers, why, readout, acquisitions, engine,
+  box, note, chooser, layers, why, readout, name, acquisitions, engine,
 }) {
   /* What can be drawn with here, which is not always everything this page was
      built with — `engines.js` explains why. Asking for one that is not on offer
@@ -243,6 +243,18 @@ export function putTheCanvasIn({
   const missing = whyOneIsMissing();
   const askedForSomethingAbsent = engine && !built.includes(engine);
   let wanted = built.includes(engine) ? engine : built[0];
+
+  /* The heading says which engine is drawing here, and it is written from
+     `wanted` rather than left as whatever the markup said.
+
+     That matters where several of these sit side by side. A column asked for an
+     engine that cannot be offered — neuroglancer, on a page opened straight off
+     the disk, which cannot start its background programs — falls back to the
+     first that can. Written into the markup, the heading would then name an
+     engine that is not drawing, over a picture identical to its neighbour's, and
+     two columns claiming to be different engines while showing the same thing is
+     the most misleading state this page could be in. */
+  if (name) name.textContent = wanted;
 
   let viewer = null;      // the picture, once an engine has been opened on it
   let opening = false;
@@ -345,6 +357,13 @@ export function putTheCanvasIn({
     } else {
       why.textContent = "";
     }
+
+    /* The same words again where hovering finds them. On a page showing several
+       pictures at once the sentence is given a fixed few lines, so that a picture
+       is never made smaller than the one beside it by an engine having more to
+       say about itself — and an engine that has a great deal to say would then be
+       cut off. This is where the rest of it goes. */
+    why.title = why.textContent;
   }
 
   /** Show each button in the state its layer is actually in. */

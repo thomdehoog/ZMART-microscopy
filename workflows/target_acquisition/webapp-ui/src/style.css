@@ -596,9 +596,24 @@ canvas.livecv[hidden] { display: none; }
 }
 .viewer-head .readout { margin-left: auto; font-size: 10.5px; }
 /* Reserved whether or not there is anything to say, so that a sentence appearing
-   when a button is pressed cannot shove the picture down under the cursor. */
+   when a button is pressed cannot shove the picture down under the cursor.
+
+   `flex: 0 0 auto` is the important part and it is easy to lose. The rule this
+   inherits from was written for the engine's sentence sitting *beside* its
+   buttons in a horizontal toolbar, where `flex: 1 1 240px` means "take the rest
+   of the row". Here the column runs downwards, so the same rule means "take the
+   rest of the height" — and it did: measured, it grew to 475px and left the
+   picture 235px at the bottom of a 774px column.
+
+   A fixed height rather than a minimum, and the same for every column, because
+   the columns are there to be compared: an engine with more to say about itself
+   must not be given a smaller picture than the one beside it. Three lines holds
+   the sentence that matters; the whole of it is on the element's `title`, which
+   is where hovering finds it. */
 .one-viewer .layer-why {
-  min-height: 2.6em; font-size: 10.5px; line-height: 1.3; white-space: normal;
+  flex: 0 0 auto;
+  height: 3.9em; overflow: hidden;
+  font-size: 10.5px; line-height: 1.3; white-space: normal;
 }
 
 /* What the picture is doing, said quietly in the corner of it: which run is
