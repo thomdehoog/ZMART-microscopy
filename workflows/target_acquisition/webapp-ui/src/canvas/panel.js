@@ -244,16 +244,18 @@ export function putTheCanvasIn({
   const askedForSomethingAbsent = engine && !built.includes(engine);
   let wanted = built.includes(engine) ? engine : built[0];
 
-  /* The heading says which engine is drawing here, and it is written from
-     `wanted` rather than left as whatever the markup said.
+  /* The heading says which engine is drawing, written from `wanted` rather than
+     left as whatever the markup said — and rewritten whenever `wanted` changes,
+     which `markTheButtons` does.
 
-     That matters where several of these sit side by side. A column asked for an
-     engine that cannot be offered — neuroglancer, on a page opened straight off
-     the disk, which cannot start its background programs — falls back to the
-     first that can. Written into the markup, the heading would then name an
-     engine that is not drawing, over a picture identical to its neighbour's, and
-     two columns claiming to be different engines while showing the same thing is
-     the most misleading state this page could be in. */
+     Both halves have been wrong on screen. An engine that cannot be offered —
+     neuroglancer, on a page opened straight off the disk, which cannot start its
+     background programs — falls back to one that can, so a heading written into
+     the markup names an engine that is not drawing. And a heading written only
+     once goes stale the first time somebody presses the other button, which is
+     worse here than it was when a panel was fixed to one engine: the whole point
+     of the chooser is that the picture changes underneath you, and the heading is
+     what says which picture you are looking at. */
   if (name) name.textContent = wanted;
 
   let viewer = null;      // the picture, once an engine has been opened on it
@@ -387,6 +389,7 @@ export function putTheCanvasIn({
          is a worse answer than a button that is plainly unavailable. */
       button.disabled = opening || (key === "picture" && !acquisitions.length);
     }
+    if (name) name.textContent = wanted;
   }
 
   /**
@@ -409,11 +412,11 @@ export function putTheCanvasIn({
     const openViewer = await openerFor(wanted);
     const opened = await beforeWeGiveUp(
       openViewer(box, {
-        /* No acquisitions at all is a state the canvas is asked for deliberately,
-           by the button that turns the picture off — see the note at the top of
-           this file. It is not an accident and it is not the same as this page
-           never having been given a run. */
-        acquisitions: (showing.picture ? acquisitions : []).map((url) => ({
+        /* Every acquisition this page was given, whether or not the picture is
+           being shown: the picture is switched with `showPicture` below rather
+           than by opening without it. Opening with none is now only what happens
+           when the page was never given a run at all. */
+        acquisitions: acquisitions.map((url) => ({
           url,
           // The last part of the address, which is what the run is called on disk
           // and the only name this page has for it.
@@ -427,9 +430,14 @@ export function putTheCanvasIn({
         background: THE_COLOUR_BEHIND_THE_PICTURE,
         onViewChanged: sayWhereTheViewIs,
       }),
-      showing.picture ? wanted : `${wanted}, opened with no acquisition,`,
+      acquisitions.length ? wanted : `${wanted}, opened with no acquisition,`,
     );
     handTheSlotsTheirDrawings(opened, { openedJustNow: true });
+    /* A viewer opens drawing its acquisitions, so the switch only has to be said
+       when it is off — but it is said either way, so that a canvas opened again
+       for a change of engine comes back in the state the buttons show rather than
+       in the one it happens to open in. */
+    opened.showPicture(showing.picture);
     if (carriedOver) opened.setView(carriedOver);
     viewer = opened;
     sayWhichEngineIsDrawing();
@@ -509,24 +517,25 @@ export function putTheCanvasIn({
   /**
    * Turn one of the three layers on or off.
    *
-   * Two of the three cost nothing to change: the drawing beneath and the drawing
-   * above are handed to the engine as they are, and the next frame has them. The
-   * picture is different, because whether there is an acquisition open is
-   * settled when a viewer is opened — so turning the picture on or off means
-   * opening the canvas again, which is why it takes a moment and why the view is
-   * carried across.
+   * All three cost the same now — one frame — because all three are switches the
+   * canvas offers rather than states it is opened in: the drawing beneath and
+   * the drawing above are handed over as they are, and the picture is switched
+   * with `showPicture`.
+   *
+   * **It used to reopen the canvas with no acquisitions**, and that is worth
+   * remembering rather than quietly deleting, because it looked reasonable and
+   * measured badly. Under Viv it cost 1.6 seconds each way and 45 requests to
+   * fetch the picture again on the way back, since a new viewer knows nothing of
+   * what the old one had decoded. Under neuroglancer it did not work at all: that
+   * engine takes its axes from its image layers, so with none it never finished
+   * opening — 26.7 seconds a press, both presses, with the picture never going
+   * off. What looked like a slow button was a button that did nothing.
    */
   async function showTheLayer(key, on) {
     if (destroyed || opening || !viewer || showing[key] === on) return;
-    if (key === "picture") {
-      await openItAgain(
-        { picture: on },
-        on ? "opening the acquisition…" : "opening with no acquisition…",
-      );
-      return;
-    }
     showing[key] = on;
-    handTheSlotsTheirDrawings();
+    if (key === "picture") viewer.showPicture(on);
+    else handTheSlotsTheirDrawings();
     markTheButtons();
     sayWhatTheLayersAreDoing();
   }

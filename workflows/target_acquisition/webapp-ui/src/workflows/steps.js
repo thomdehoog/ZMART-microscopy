@@ -228,7 +228,7 @@ export const theCanvas = {
   id: "canvas-picture",
   title: "Viewer comparison",
   why: "Opens the run and draws its three layers, once per drawing engine, side by side on the same scene.",
-  panels: ["viewer-viv"],
+  panels: ["viewer-canvas"],
   nothingWaitsOnThis: true,
 };
 

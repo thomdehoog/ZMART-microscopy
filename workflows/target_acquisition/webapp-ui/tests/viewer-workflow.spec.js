@@ -83,11 +83,18 @@ const A_LAYER_IS_ABSENT = 0.002;
    to draw — rather than a step of its own, which is what they used to be when
    there was a step per engine. The panel is the same one either way, so the
    selectors below take the panel from here rather than from the key. */
-const THE_PANEL = "viv";
+const THE_PANEL = "canvas";
 const VIEWS = {
   viv: { engine: "viv-under" },
   neuroglancer: { engine: "neuroglancer-under" },
 };
+
+/* Which engine the page opens on when the address does not name one, and the
+   other one the chooser offers. Named here because several tests below turn on
+   the pair rather than on either alone: what an operator meets is whichever the
+   page prefers, and what the chooser is for is reaching the other. */
+const THE_ENGINE_IT_PREFERS = "neuroglancer-under";
+const THE_OTHER_ENGINE = "viv-under";
 
 const boxOf = () => `#viewer-${THE_PANEL}-box`;
 const layerButton = (layer) => `#viewer-${THE_PANEL}-layers button[data-layer="${layer}"]`;
@@ -106,7 +113,8 @@ test.afterAll(() => { run?.stop(); });
  *
  * `which` names a view rather than a step: it decides which engine the page is
  * asked to open with, through the same `?engine=` the built page is checked
- * with one engine at a time.
+ * with one engine at a time. Pass `null` to name none, which is what an operator
+ * does — the page then opens on whichever engine it prefers.
  */
 async function standOn(page, which = "viv", { engine = null } = {}) {
   const asked = new URLSearchParams({ overview: run.store });
@@ -208,19 +216,21 @@ async function zoomOutABitWithTheWheel(page, which, notches = 5) {
   await rest(900);
 }
 
-test("the first step opens with Viv, and a photograph says it drew the run", async ({ page }) => {
+test("the step opens on its own engine, and a photograph says it drew the run", async ({ page }) => {
   test.setTimeout(180_000);
 
-  await standOn(page, "viv");
-  await untilTheEngineIsDrawing(page, VIEWS.viv.engine);
+  /* No engine named in the address, so the page opens on whichever it prefers —
+     which is the state an operator meets, and the one worth photographing. */
+  await standOn(page, null);
+  await untilTheEngineIsDrawing(page, THE_ENGINE_IT_PREFERS);
   await run.acquire(25);
 
-  const measured = await fullestPictureOf(page, "viv", "canvas-layers-viv-under");
+  const measured = await fullestPictureOf(page, "canvas", "canvas-layers-as-it-opens");
   console.log(
-    `the Viv step drew: ${(measured.lit * 100).toFixed(1)}% of the box lit, ` +
+    `the step drew: ${(measured.lit * 100).toFixed(1)}% of the box lit, ` +
       `${measured.distinct} distinct colours, spread ${measured.spread.toFixed(1)}`,
   );
-  itIsReallyDrawing(measured, "viv-under");
+  itIsReallyDrawing(measured, THE_ENGINE_IT_PREFERS);
 });
 
 test("neuroglancer draws the same run, when it is the engine asked for",
@@ -293,7 +303,7 @@ test("the layer beneath the picture appears under Viv", async ({ page }) => {
     .toBeGreaterThan(THE_WASH_IS_THERE);
 
   // And the page does not warn about something that is working perfectly well.
-  expect(await page.locator("#viewer-viv-why").textContent()).not.toMatch(/cannot/);
+  expect(await page.locator("#viewer-canvas-why").textContent()).not.toMatch(/cannot/);
 });
 
 test("the layer beneath the picture does not appear under neuroglancer, and the page says why",
@@ -330,7 +340,7 @@ test("the layer beneath the picture does not appear under neuroglancer, and the 
        they just pressed. A button that appears to do nothing teaches somebody
        that the page is broken; a reason beside it teaches them something true
        about the engine. */
-    const said = await page.locator("#viewer-viv-why").textContent();
+    const said = await page.locator("#viewer-canvas-why").textContent();
     console.log(`the page said: ${said}`);
     expect(said).toMatch(/cannot|will not/);
     // The engine's own words, not a sentence this page made up about a name it
@@ -349,10 +359,10 @@ test("the layer beneath the picture does not appear under neuroglancer, and the 
 test("turning the picture off leaves the operator's own drawing on screen", async ({ page }) => {
   test.setTimeout(180_000);
 
-  /* Opening the canvas with no acquisition at all is what an operator sees
-     before a run has started, laying positions out on an empty plate. What has
-     to survive it is the operator's own drawing: the picture goes, and the
-     things the operator put above and below it stay exactly where they were. */
+  /* Switching the picture off is what an operator does to look at what they have
+     planned without the run under it. What has to survive it is the operator's
+     own drawing: the picture goes, and the things put above and below it stay
+     exactly where they were. */
   await standOn(page, "viv");
   await untilTheEngineIsDrawing(page, VIEWS.viv.engine);
   await run.acquire(25);
@@ -391,127 +401,143 @@ test("turning the picture off leaves the operator's own drawing on screen", asyn
      handful of colours; a picture of a specimen holds hundreds, so the variety
      collapsing is the acquisition leaving rather than the box going dark — which
      is what the wash covering most of the box already rules out. */
-  expect(withoutIt.distinct, "colours left with no acquisition open")
+  expect(withoutIt.distinct, "colours left with the picture switched off")
     .toBeLessThan(withThePicture.distinct / 4);
-
-  // Said on the page too, so nobody has to wonder where the picture went.
-  expect(await page.locator("#viewer-viv-note").textContent())
-    .toMatch(/opened with no acquisition/);
 });
 
-test("neuroglancer cannot open with no acquisition, and the page says so rather than hanging",
+test("the picture switches off and back on without fetching anything",
   async ({ page }) => {
     test.setTimeout(240_000);
 
-    /* The gap this demonstration found. Asked to open with no acquisitions at
-       all, neuroglancer's `openViewer` never finishes — it waits for the engine
-       to say what space the picture lives in, and with no layers to read that
-       from it never does. Measured from this page: the two Viv engines open with
-       no acquisition in under a quarter of a second, and this one is still not
-       ready after twenty-five.
+    /* On neuroglancer, because this is the engine the switch used not to work on
+       at all, and the way it failed is worth remembering. Turning the picture off
+       once meant opening the canvas again with no acquisitions, and this engine
+       takes its axes from its image layers — with none there is nothing to take
+       them from and opening never finishes. Measured from this page: 26.7 seconds
+       a press, both presses, and the picture never went off. What looked like a
+       slow button was a button that did nothing.
 
-       Nothing here works around that. What is checked is what an operator meets:
-       the page waits, gives up out loud, and puts the picture that was working
-       back rather than leaving a box that will never fill. */
+       Hiding the layers instead is one frame either way and fetches nothing,
+       because the viewer is never rebuilt and keeps everything it has decoded.
+       Both halves are checked: that the picture really goes and really comes
+       back, and that nothing was asked of the server to do it.
+
+       An engine that cannot open with no acquisitions is still an engine that
+       cannot, and the page still gives up out loud rather than hanging — that
+       path is simply no longer reached by this button. It is reached now only by
+       a page that was never given a run at all. */
     await standOn(page, "neuroglancer");
     await untilTheEngineIsDrawing(page, VIEWS.neuroglancer.engine);
     await run.acquire(25);
-    await page.locator(layerButton("above")).click();
+
+    const withThePicture = await fullestPictureOf(
+      page, "neuroglancer", "canvas-picture-on", { seconds: 3 });
+
+    let fetched = 0;
+    const count = (request) => { if (request.url().includes(run.store)) fetched += 1; };
+    page.on("request", count);
 
     await page.locator(layerButton("picture")).click();
-
-    // The page says what it is doing while it waits, rather than looking frozen.
-    await expect(page.locator("#viewer-viv-note"))
-      .toContainText("opening with no acquisition", { timeout: 10_000 });
-
-    /* And then gives up and says so. The wait is deliberately generous, so this
-       is the one place a test here waits a long time on purpose. */
-    await expect(page.locator("#viewer-viv-note"))
-      .toContainText("never finished opening", { timeout: 90_000 });
-
-    const said = await page.locator("#viewer-viv-note").textContent();
-    console.log(`the page said: ${said}`);
-    expect(said).toMatch(/no acquisition/);
-    expect(said).toMatch(/drawing as it was/);
-
-    // The button went back to on, because the layer it names never went off.
     await expect(page.locator(layerButton("picture")))
-      .toHaveAttribute("aria-pressed", "true");
+      .toHaveAttribute("aria-pressed", "false", { timeout: 10_000 });
+    await rest(1500);
+    const withoutIt = await fullestPictureOf(
+      page, "neuroglancer", "canvas-picture-off", { seconds: 3 });
 
-    /* And the picture that was working is working still. Giving up on an engine
-       that will not open must not cost the operator the one that had. */
-    const measured = await fullestPictureOf(
-      page, "neuroglancer", "canvas-layers-neuroglancer-recovered");
+    await page.locator(layerButton("picture")).click();
+    await expect(page.locator(layerButton("picture")))
+      .toHaveAttribute("aria-pressed", "true", { timeout: 10_000 });
+    await rest(1500);
+    page.off("request", count);
+
+    const back = await fullestPictureOf(
+      page, "neuroglancer", "canvas-picture-on-again", { seconds: 3 });
     console.log(
-      `after giving up, neuroglancer still drew: ${(measured.lit * 100).toFixed(1)}% ` +
-        `of the box lit, ${measured.distinct} distinct colours`,
+      `off and on again: ${withThePicture.distinct} distinct colours with the ` +
+        `picture, ${withoutIt.distinct} without it, ${back.distinct} when it came ` +
+        `back, and ${fetched} requests to do it`,
     );
-    itIsReallyDrawing(measured, "neuroglancer-under after giving up");
+
+    /* The picture really went. A picture of a specimen holds hundreds of colours;
+       what is left when it goes is the engine's own background. */
+    expect(withoutIt.distinct, "colours left with the picture off")
+      .toBeLessThan(withThePicture.distinct / 4);
+
+    // And really came back, drawn as it was.
+    itIsReallyDrawing(back, "neuroglancer-under with the picture back on");
+
+    /* And nothing was fetched for either press. This is the half that says it is
+       a switch rather than a reopen: a rebuilt viewer has decoded nothing and
+       would fetch the whole view again. */
+    expect(fetched, "requests made to switch the picture off and back on").toBe(0);
   });
 
 test("the same run, drawn by another engine, from the same view", async ({ page }) => {
   test.setTimeout(180_000);
 
-  await standOn(page, "viv");
-  await untilTheEngineIsDrawing(page, VIEWS.viv.engine);
+  await standOn(page, null);
+  await untilTheEngineIsDrawing(page, THE_ENGINE_IT_PREFERS);
   await run.acquire(25);
-  await fullestPictureOf(page, "viv", "canvas-layers-before-the-change", { seconds: 6 });
+  await fullestPictureOf(page, "canvas", "canvas-layers-before-the-change", { seconds: 6 });
 
-  const before = await page.locator("#viewer-viv-readout").textContent();
-  await page.locator('#viewer-viv-engine button[data-engine="viv-inside"]').click();
-  await untilTheEngineIsDrawing(page, "viv-inside");
+  const before = await page.locator("#viewer-canvas-readout").textContent();
+  await page.locator(`#viewer-canvas-engine button[data-engine="${THE_OTHER_ENGINE}"]`).click();
+  await untilTheEngineIsDrawing(page, THE_OTHER_ENGINE);
 
-  const measured = await fullestPictureOf(page, "viv", "canvas-layers-viv-inside");
+  const measured = await fullestPictureOf(page, "canvas", "canvas-layers-the-other-engine");
   console.log(
     `the other engine drew: ${(measured.lit * 100).toFixed(1)}% of the box lit, ` +
       `${measured.distinct} distinct colours`,
   );
-  itIsReallyDrawing(measured, "viv-inside");
+  itIsReallyDrawing(measured, THE_OTHER_ENGINE);
 
   /* Changing engine has to keep the view. Two ways of drawing the same thing can
      only be compared if the second one is looked at from where the first one
      was; a difference of half a pixel is invisible if reaching the second
      picture means finding your way back. */
-  expect(await page.locator("#viewer-viv-readout").textContent()).toBe(before);
+  expect(await page.locator("#viewer-canvas-readout").textContent()).toBe(before);
 
-  /* And the layers work on this engine too, which is the third of the three and
-     the only one that draws all three of them in a single pass rather than as
-     surfaces stacked in the page. The page's drawing code is identical for all
-     three — that is the whole point of the interface — so this is asking whether
-     the third engine really carries it out. */
+  /* And both layers work on this engine, which the one it replaced cannot say:
+     neuroglancer forces its canvas opaque, so nothing put behind it is ever seen.
+     The page's drawing code is identical whichever engine is underneath — that is
+     the whole point of the interface — so this asks whether this one carries it
+     out, and it is the reason the engine that can draw a layer beneath is the one
+     tested for it. */
   await page.locator(layerButton("above")).click();
-  const above = await howMuchOfTheBoxIs(page, "viv", THE_COLOUR_ABOVE);
-  await zoomOutABitWithTheWheel(page, "viv");
+  const above = await howMuchOfTheBoxIs(page, "canvas", THE_COLOUR_ABOVE);
+  await zoomOutABitWithTheWheel(page, "canvas");
   await page.locator(layerButton("beneath")).click();
-  const beneath = await howMuchOfTheBoxIs(page, "viv", THE_COLOUR_BENEATH);
-  await keep(page, "viv", "canvas-layers-viv-inside-both-layers");
+  const beneath = await howMuchOfTheBoxIs(page, "canvas", THE_COLOUR_BENEATH);
+  await keep(page, "canvas", "canvas-layers-the-other-engine-both-layers");
 
   console.log(
-    `on viv-inside the layer above covers ${(above * 100).toFixed(2)}% and the ` +
-      `layer beneath ${(beneath * 100).toFixed(1)}% of the box`,
+    `on ${THE_OTHER_ENGINE} the layer above covers ${(above * 100).toFixed(2)}% and ` +
+      `the layer beneath ${(beneath * 100).toFixed(1)}% of the box`,
   );
-  expect(above, "the layer above, on viv-inside").toBeGreaterThan(THE_LATTICE_IS_THERE);
-  expect(beneath, "the layer beneath, on viv-inside").toBeGreaterThan(THE_WASH_IS_THERE);
+  expect(above, `the layer above, on ${THE_OTHER_ENGINE}`).toBeGreaterThan(THE_LATTICE_IS_THERE);
+  expect(beneath, `the layer beneath, on ${THE_OTHER_ENGINE}`).toBeGreaterThan(THE_WASH_IS_THERE);
 });
 
 test("the step offers every engine the page was built with, and no others", async ({ page }) => {
-  /* Served over HTTP, which is how an operator meets the page, all three can
-     draw and all three are offered. The point of this test is the "no others"
+  /* Served over HTTP, which is how an operator meets the page, so both engines
+     can draw and both are offered. The point of this test is the "no others"
      half: a button for an engine the page cannot open would draw nothing, and a
      box that never fills looks exactly like one that is still loading. The same
      rule is checked from the other side, without a browser, in
      `tests/unit/engines.test.js`.
 
-     This row is the whole of the comparison now that there is one step, so
-     everything the page can draw with has to be in it. */
-  const three = ["viv-under", "viv-inside", "neuroglancer-under"];
+     `viv-inside` is deliberately not here. It drew the operator's layer inside
+     the engine as a texture, so every change to that layer cost an engine frame;
+     it is out of this page and still in the comparison rig. A page offering it
+     again should fail here and be thought about, rather than pass quietly. */
+  const both = ["viv-under", "neuroglancer-under"];
 
   /* The row is built when the step is first opened rather than when the page
      loads, because building it means fetching the engine, so it is waited for
      rather than read the instant the step is clicked. */
-  await standOn(page, "viv");
-  await expect(page.locator("#viewer-viv-engine button")).toHaveCount(three.length);
-  expect(await page.locator("#viewer-viv-engine button").allTextContents()).toEqual(three);
+  await standOn(page, null);
+  await expect(page.locator("#viewer-canvas-engine button")).toHaveCount(both.length);
+  expect(await page.locator("#viewer-canvas-engine button").allTextContents()).toEqual(both);
 });
 
 test("the step gives the whole window to the picture, and says it is a demonstration",
@@ -523,7 +549,7 @@ test("the step gives the whole window to the picture, and says it is a demonstra
     await expect(page.locator("#tabs .tab")).toHaveText("Canvas");
     // Nothing docked down the right-hand side, and nothing to press.
     await expect(page.locator("#canvas-side")).toBeHidden();
-    await expect(page.locator("#panel-viewer-viv button.step-run")).toHaveCount(0);
+    await expect(page.locator("#panel-viewer-canvas button.step-run")).toHaveCount(0);
 
     /* One step in the rail, and it names no engine. There were two, one per
        engine; the row of buttons above the picture compares them better, because
@@ -555,7 +581,7 @@ test("the step gives the whole window to the picture, and says it is a demonstra
     expect(reachable, "the Restart button is what is at the middle of itself").toBe(true);
 
     // The three layer buttons, named from the bottom of the stack upwards.
-    await expect(page.locator("#viewer-viv-layers button")).toHaveCount(3);
-    expect(await page.locator("#viewer-viv-layers button").allTextContents())
+    await expect(page.locator("#viewer-canvas-layers button")).toHaveCount(3);
+    expect(await page.locator("#viewer-canvas-layers button").allTextContents())
       .toEqual(["Beneath", "Picture", "Above"]);
   });
