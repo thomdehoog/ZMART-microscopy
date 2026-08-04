@@ -1433,6 +1433,28 @@ function handleFor(own) {
      * Moving through the stack lives on a slider rather than on a gesture, where
      * it is visible and labelled — see `CONTROLS.md`.
      */
+    /**
+     * How deep the stack is, so a page can offer a way through it.
+     *
+     * `setPlane` has always been here and there has never been a way to learn
+     * what to pass it — so an application could move through a stack only by
+     * guessing how far it went. A skin biopsy met here is 833 planes deep and the
+     * page could offer nothing at all for them.
+     *
+     * In micrometres, like everything else an option says, and measured from the
+     * same zero `setPlane` counts from. Nothing at all when the run has no depth:
+     * a single plane is not a stack and a page should not draw a control for it.
+     */
+    theDepthItCanShow() {
+      const first = own.images[0];
+      const source = first?.sources?.[0];
+      const at = source?.labels?.indexOf("z") ?? -1;
+      const deep = at >= 0 ? source.shape[at] : 0;
+      const um = first?.um?.z;
+      if (!(deep > 1) || !(um > 0)) return null;
+      return { lowUm: 0, highUm: (deep - 1) * um, stepUm: um };
+    },
+
     setPlane(z) {
       let changed = false;
       for (const image of own.images) {

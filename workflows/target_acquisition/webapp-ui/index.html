@@ -125,6 +125,14 @@
                aria-label="Which engine draws the picture"></div>
           <div class="seg" id="viewer-canvas-layers"
                aria-label="Which of the three layers are drawn"></div>
+          <!-- Where in the stack the picture is taken from. Hidden until a run
+               is open and known to have depth, because a control for a stack
+               that is one plane deep is a control that does nothing. -->
+          <div class="through-the-stack" id="viewer-canvas-depth" hidden>
+            <label for="viewer-canvas-plane">Depth</label>
+            <input type="range" id="viewer-canvas-plane" min="0" max="0" value="0" step="1">
+            <span class="readout" id="viewer-canvas-plane-readout">—</span>
+          </div>
           <span class="action-hint layer-why" id="viewer-canvas-why"></span>
           <div class="viewer-box" id="viewer-canvas-box"></div>
           <div class="live-note" id="viewer-canvas-note" hidden></div>

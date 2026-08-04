@@ -46,6 +46,11 @@ from live_overview_demo import Handler
 # ready-made address; nothing here depends on the page being at this port.
 THE_PAGE_IN_DEVELOPMENT = "http://127.0.0.1:5174"
 
+# The workflow that opens straight onto the canvas. Serving a run that has already
+# been acquired is not a run being made, so the steps of an acquisition are not
+# what somebody pointing this at a folder wants to see first.
+THE_WORKFLOW_THAT_JUST_LOOKS = "canvas_layers"
+
 
 class ServeWhatIsAlreadyThere(Handler):
     """The demo's file server, with the parts about a running scan taken out.
@@ -122,7 +127,12 @@ def main() -> None:
 
     print(f"serving {run}")
     print(f"the run is at       {where}")
-    print(f"open the page at    {THE_PAGE_IN_DEVELOPMENT}/?overview={where}")
+    # Naming the workflow as well as the run, so the address lands on the picture
+    # rather than on the first step of an acquisition nobody here is making.
+    print(
+        f"open the page at    {THE_PAGE_IN_DEVELOPMENT}"
+        f"/?workflow={THE_WORKFLOW_THAT_JUST_LOOKS}&overview={where}"
+    )
     print("press Ctrl-C to stop")
     try:
         server.serve_forever()

@@ -272,6 +272,7 @@ async function beforeWeGiveUp(promise, sayWhat) {
  */
 export function putTheCanvasIn({
   box, note, chooser, layers, why, readout, name, acquisitions, engine,
+  depth, plane, planeReadout,
 }) {
   /* What can be drawn with here, which is not always everything this page was
      built with — `engines.js` explains why. Asking for one that is not on offer
@@ -476,6 +477,7 @@ export function putTheCanvasIn({
        for a change of engine comes back in the state the buttons show rather than
        in the one it happens to open in. */
     opened.showPicture(showing.picture);
+    offerTheStack(opened);
     if (carriedOver) opened.setView(carriedOver);
     viewer = opened;
     sayWhichEngineIsDrawing();
@@ -545,6 +547,84 @@ export function putTheCanvasIn({
       sayWhatTheLayersAreDoing();
     }
   }
+
+  /* Where in the stack the picture is taken from.
+   *
+   * Kept here rather than in the viewer because it is the same question of both
+   * engines and neither should answer it differently: the operator moves through
+   * the specimen, and which engine happens to be drawing is not part of that. The
+   * position is remembered across a change of engine for the same reason the view
+   * is — flicking between two engines to compare them is useless if the second
+   * one starts somewhere else.
+   */
+  let throughTheStack = null;
+  let showingUm = null;
+
+  function offerTheStack(viewerNow) {
+    throughTheStack = viewerNow.theDepthItCanShow?.() ?? null;
+    if (!depth) return;
+    if (!throughTheStack) {
+      depth.hidden = true;
+      return;
+    }
+    const { lowUm, highUm, stepUm } = throughTheStack;
+    /* The middle until the operator says otherwise, which is where the canvas
+       opens: `viz_studio/options/planes.js` says why, and a control that started
+       at nought would put the picture at the edge of the specimen the moment it
+       was touched. */
+    if (showingUm === null) showingUm = lowUm + (highUm - lowUm) / 2;
+    showingUm = Math.min(Math.max(showingUm, lowUm), highUm);
+    plane.min = String(lowUm);
+    plane.max = String(highUm);
+    plane.step = String(stepUm);
+    plane.value = String(showingUm);
+    depth.hidden = false;
+    goToPlane(showingUm, viewerNow);
+  }
+
+  /* A drag can ask for a plane oftener than a frame is drawn, so only the last
+     one asked for in any frame is acted on. Nothing on screen can show a plane
+     that has already been replaced, so asking for the ones in between is work
+     nobody sees.
+
+     **It is not why a drag is expensive, and the measurement is worth keeping so
+     nobody comes back expecting it to be.** Twenty steps through an 833-plane
+     biopsy cost Viv 1266 requests before this and 980 after; neuroglancer 303
+     and 352, which is noise. The cost is per *plane*: Viv asks for about sixty
+     pieces for each one and sees every load through, where neuroglancer asks for
+     about fifteen and lets its queue drop work that has been superseded. Visiting
+     twenty planes is therefore expensive on Viv however tidily they are asked
+     for, and that is a property of the engine rather than of this page.
+
+     Coalescing per frame rather than waiting for the drag to stop, because a
+     control that shows nothing until you let go is a control you cannot aim. */
+  let planeWanted = null;
+  let framePending = false;
+
+  function goToPlane(um, viewerNow = viewer) {
+    showingUm = um;
+    sayWhichPlane(um);
+    planeWanted = { um, viewerNow };
+    if (framePending) return;
+    framePending = true;
+    requestAnimationFrame(() => {
+      framePending = false;
+      const asked = planeWanted;
+      planeWanted = null;
+      asked?.viewerNow?.setPlane?.(asked.um);
+    });
+  }
+
+  /** The reading, written straight away so the number keeps up with the hand. */
+  function sayWhichPlane(um) {
+    if (!planeReadout || !throughTheStack) return;
+    const { lowUm, stepUm } = throughTheStack;
+    const which = Math.round((um - lowUm) / (stepUm || 1));
+    const many = Math.round((throughTheStack.highUm - lowUm) / (stepUm || 1)) + 1;
+    planeReadout.textContent = `${Math.round(um)} µm · plane ${which + 1} of ${many}`;
+  }
+
+  plane?.addEventListener("input", () => goToPlane(Number(plane.value)));
 
   /** Change the engine underneath, keeping the view exactly where it is. */
   async function changeTo(name) {
