@@ -306,6 +306,60 @@ class Scan:
         self.canvases.close()
 
 
+# What a store may call a micrometre, against the one name the format asks for.
+# Every one of these is a real spelling met in the wild; none of them is legal.
+THE_STANDARD_UNIT = "micrometer"
+WAYS_OF_WRITING_MICROMETRE = {"um", "µm", "μm", "micron", "microns"}
+
+
+def a_description_every_viewer_can_read(described: dict) -> tuple[dict, list[str]]:
+    """The store's own description, with the parts no reader will accept removed.
+
+    **This exists because we do not own most of the data we are asked to open.**
+    A run arrives from another laboratory, written by another program, and it is
+    either readable as it is or it is not; changing somebody else's acquisition to
+    suit our viewer is not an option and would be the wrong instinct anyway.
+
+    Two faults, both met on one real 75 GB light-sheet acquisition, each on its
+    own enough to stop the store opening at all, and neither of them reported:
+
+    * **an axis unit written `um`.** The format asks for the UDUNITS name,
+      `micrometer`. Measured against stores differing in nothing else,
+      neuroglancer opens the standard spelling and never finishes opening the
+      other.
+    * **a channel whose `window` is `null`.** The format treats the window as
+      part of a channel; written as nothing at all it is worse than left out. The
+      key is dropped and the rest of the channel — its name and its colour — is
+      kept, because those are worth having and are not what the reader chokes on.
+
+    Nothing else is touched, and in particular nothing is invented: a channel with
+    no window still has no window afterwards, and what to draw it with is the
+    viewer's decision rather than a number made up here.
+
+    :returns: the description, and one line per correction so the server can say
+        what it did. A viewer that silently improves data teaches people that
+        their files are fine when they are not.
+    """
+    corrected: list[str] = []
+    for multiscale in described.get("multiscales", []):
+        for axis in multiscale.get("axes", []):
+            if axis.get("unit") in WAYS_OF_WRITING_MICROMETRE:
+                corrected.append(
+                    f"axis {axis.get('name', '?')} says its unit is "
+                    f"{axis['unit']!r}; the format asks for {THE_STANDARD_UNIT!r}"
+                )
+                axis["unit"] = THE_STANDARD_UNIT
+    for at, channel in enumerate(described.get("omero", {}).get("channels", [])):
+        window = channel.get("window")
+        if "window" in channel and not isinstance(window, dict):
+            corrected.append(
+                f"channel {channel.get('label', at)} has no display window "
+                f"({window!r}); the key is left out rather than left empty"
+            )
+            channel.pop("window")
+    return described, corrected
+
+
 class Handler(SimpleHTTPRequestHandler):
     """Hands out the run's files, and answers the two questions the test asks.
 
@@ -387,8 +441,43 @@ class Handler(SimpleHTTPRequestHandler):
         if not self._control():
             self.send_error(404)
 
+    def _hand_over_a_readable_description(self) -> bool:
+        """Answer a request for a store's description, correcting it if it needs it.
+
+        :returns: whether it was answered here. A description that needs nothing
+            is left to the ordinary file path, so the common case is untouched and
+            this cannot become a second way of serving files.
+        """
+        described = Path(self.translate_path(self.path))
+        if not described.is_file():
+            return False
+        try:
+            readable, corrected = a_description_every_viewer_can_read(
+                json.loads(described.read_text(encoding="utf-8"))
+            )
+        except (OSError, ValueError):
+            # Not readable as JSON, so it is not ours to interpret. The ordinary
+            # file path will hand it over and the reader can say what it makes
+            # of it.
+            return False
+        if not corrected:
+            return False
+        for line in corrected:
+            # Said once per request rather than remembered, because a run being
+            # written into can gain a description while somebody is watching.
+            print(f"  {described.parent.name}: {line}", flush=True)
+        body = json.dumps(readable).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return True
+
     def do_GET(self) -> None:
         if self._control():
+            return
+        if self.path.endswith("/.zattrs") and self._hand_over_a_readable_description():
             return
         header = self.headers.get("Range")
         if not header:

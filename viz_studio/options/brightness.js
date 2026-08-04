@@ -148,16 +148,18 @@ export function theWindowThesePixelsAskFor(values) {
  * of the same thing.
  *
  * @param {Array<object>} sources the image's resolutions, sharpest first.
+ * @param {{channel?: number}} which colour of the picture to ask about; a
+ *   store holding several does not hold one range. Left out, the first.
  * @returns {Promise<{low: number, high: number}|null>} what the picture holds,
  *   or nothing when it cannot be read or holds a single value — in which case
  *   the caller keeps whatever it would have used.
  */
-export async function theRangeTheseSourcesHold(sources) {
+export async function theRangeTheseSourcesHold(sources, { channel = 0 } = {}) {
   if (!sources?.length) return null;
   const reading = theCopyToRead(sources);
   if (!reading) return null;
   try {
-    const selection = theMiddleOfEveryOtherAxis(reading.labels, reading.shape);
+    const selection = theMiddleOfEveryOtherAxis(reading.labels, reading.shape, { channel });
 
     // The tile in the middle, counted in tiles rather than in pixels, because
     // that is the unit the reader fetches in and the file is stored in.
@@ -196,18 +198,19 @@ export async function theRangeTheseSourcesHold(sources) {
  * a layer and then keeps it to itself, so the only honest way for its adapter to
  * learn what the picture holds is to ask for the image itself.
  *
+ * @param {{channel?: number}} which colour to ask about, as above.
  * @param {string} url  the store's address; anything after a `|` is a reader's
  *   own suffix and is taken off, so an address written for one engine can be
  *   handed here unchanged.
  * @returns {Promise<{low: number, high: number}|null>} what the picture holds,
  *   or nothing, as above.
  */
-export async function theRangeAStoreHolds(url) {
+export async function theRangeAStoreHolds(url, { channel = 0 } = {}) {
   const bar = url.indexOf("|");
   const address = (bar < 0 ? url : url.slice(0, bar)).replace(/\/+$/, "");
   try {
     const opened = await loadOmeZarr(address, { type: "multiscales" });
-    return theRangeTheseSourcesHold(opened?.data);
+    return theRangeTheseSourcesHold(opened?.data, { channel });
   } catch (whyNot) {
     console.warn(`could not read the brightness range of ${address}`, whyNot);
     return null;

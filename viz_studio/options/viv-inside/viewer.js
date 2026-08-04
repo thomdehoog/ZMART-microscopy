@@ -554,7 +554,7 @@ async function start(own, acquisitions) {
         // Read here rather than where the rows are built, because that is not a
         // place that can wait for anything. Only wanted when the run describes
         // no colours of its own, and cheap enough to take either way.
-        heldRange: await theRangeTheseSourcesHold(data),
+        heldRanges: await everyChannelsRange(data, metadata),
       };
     }),
   );
@@ -708,7 +708,12 @@ function windowFromTheStore(described) {
   if (Number.isFinite(range.start) && Number.isFinite(range.end)) {
     return { low: range.start, high: range.end };
   }
-  return { ...AN_ORDINARY_WINDOW };
+  /* Nothing, rather than the ordinary window. A run that names a colour and says
+     nothing about how to display it is not the same as a run that asked for the
+     ordinary window, and answering as though it were is what put a real skin
+     biopsy on a milky grey field. The caller reads the picture instead; only if
+     that cannot be read does the guess come back. */
+  return null;
 }
 
 /**
@@ -763,14 +768,20 @@ function rowsFor(opened) {
           || [{
             name: asked.name,
             colour: [...WHITE],
-            window: store.heldRange || { ...AN_ORDINARY_WINDOW },
+            window: store.heldRanges?.[0] || { ...AN_ORDINARY_WINDOW },
           }];
     channels.forEach((channel, within) => {
       rows.push({
         atStore,
         name: channel.name,
         colour: channel.colour || [...WHITE],
-        window: channel.window || { ...AN_ORDINARY_WINDOW },
+        /* What the run asked for; failing that what this channel's own pixels
+           ask for; and only failing both, a guess about a camera. The middle one
+           is what a run that names its colours without saying how to display
+           them needs, which is commoner than it sounds. */
+        window: channel.window
+          || store.heldRanges?.[within]
+          || { ...AN_ORDINARY_WINDOW },
         // Which position along the store's channel axis this row reads from.
         // Nothing splits the data — one store feeds every row that reads from it.
         channelIndex: within,
@@ -970,6 +981,26 @@ function layersFor(own) {
   layers.push(...imageLayersFor(own));
   layers.push(theOperatorsDrawingLayer(own));
   return layers;
+}
+
+/**
+ * What each of a store's channels asks to be drawn through.
+ *
+ * Read here rather than where the rows are built, because that is not a place
+ * that can wait for anything, and read per channel because two channels of one
+ * acquisition are routinely far apart — measured on a skin biopsy, one reaches
+ * 4573 counts and the other 8859, so one window across the pair flattens
+ * whichever is fainter. Only wanted where the run gave no window of its own; the
+ * read is a single small chunk per channel and costs little either way.
+ */
+async function everyChannelsRange(sources, metadata) {
+  const described = metadata?.omero?.channels;
+  const many = Array.isArray(described) && described.length ? described.length : 1;
+  const ranges = [];
+  for (let channel = 0; channel < many; channel += 1) {
+    ranges.push(await theRangeTheseSourcesHold(sources, { channel }));
+  }
+  return ranges;
 }
 
 /** One layer per acquisition, drawn in the order they were given. */
