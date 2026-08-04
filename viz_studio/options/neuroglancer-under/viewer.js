@@ -118,6 +118,10 @@ import "./engine-chrome.css";
 // The two gestures, from the one copy every option shares. See `../gestures.js`
 // for why there is only one copy and what it costs to have three.
 import { onlyPanAndZoom } from "../gestures.js";
+import { theRangeAStoreHolds } from "../brightness.js";
+// And where to open looking, which the engines disagree about by a factor of
+// twenty if left to themselves. See `../opening-view.js`.
+import { theViewThatShowsAllOf } from "../opening-view.js";
 
 /**
  * Which of the engine's panel layouts to ask for, and which way round the axes
@@ -676,6 +680,18 @@ async function start(own, acquisitions) {
   own.viewer.navigationState.zoomFactor.reset();
   own.viewer.perspectiveNavigationState.zoomFactor.reset();
 
+  /* Having let the engine choose again, choose for it. Left alone it opens at one
+     voxel to one screen pixel, which on a 1.1 µm store drops the operator inside
+     the specimen at full magnification with nothing on screen to say where they
+     are. Where a run opens is not a property of an engine — `../opening-view.js`
+     holds the rule, and the Viv options obey the same one. Skipped where the box
+     has not been measured yet, since fitting to a box of no size would be worse
+     than the engine's own guess. */
+  if (own.size?.width > 0 && own.size?.height > 0) {
+    const showingAllOfIt = theViewThatShowsAllOf(theGroundTheRunCovers(own), own.size);
+    if (showingAllOfIt) writeTheView(own, showingAllOfIt);
+  }
+
   // -- the repaint discipline ---------------------------------------------
   //
   // The engine announces the end of every frame, and it does so from inside its
@@ -884,7 +900,19 @@ async function rowsFor(acquisitions) {
     const channels = acquisition.channels && acquisition.channels.length
       ? acquisition.channels
       : channelsTheStoreDescribes(await theRunsOwnDescription(acquisition.url))
-        || [{ name: acquisition.name, colour: [...WHITE], window: { ...AN_ORDINARY_WINDOW } }];
+        || [{
+          name: acquisition.name,
+          colour: [...WHITE],
+          /* Read out of the picture rather than guessed. The fixed range below
+             is a guess about a camera, and on an image from somebody else's
+             instrument it is a bad one — measured beside an option that reads
+             the picture, at the same view on the same tile, this engine had one
+             per cent of its pixels above mid-grey against the other's
+             forty-six. What that looks like on screen is a black box next to a
+             picture, which reads as an engine that cannot draw. */
+          window: (await theRangeAStoreHolds(acquisition.url))
+            || { ...AN_ORDINARY_WINDOW },
+        }];
     channels.forEach((channel, within) => {
       rows.push({
         url: acquisition.url,
@@ -1198,6 +1226,33 @@ function howFarThePatchIsOffCentre(own) {
   };
 }
 
+/**
+ * How much ground the open acquisitions cover, in micrometres.
+ *
+ * Read out of the engine's own coordinate space rather than from the stores,
+ * because by this point the engine has read every store it was given and its
+ * space spans all of them — so a page opening a wide survey and a detailed scan
+ * over it gets the pair, without this having to know there were two.
+ *
+ * The bounds are in voxels of each axis, so each is turned into micrometres by
+ * that axis's own scale; the two axes of a light-sheet store are rarely the same
+ * size.
+ */
+function theGroundTheRunCovers(own) {
+  const axes = axesOnScreen(own.viewer);
+  const space = own.viewer.navigationState.position.coordinateSpace.value;
+  const bounds = space?.bounds;
+  if (!bounds || !(axes.umAcross > 0) || !(axes.umDown > 0)) return null;
+  const low = { x: bounds.lowerBounds[axes.across], y: bounds.lowerBounds[axes.down] };
+  const high = { x: bounds.upperBounds[axes.across], y: bounds.upperBounds[axes.down] };
+  if (![low.x, low.y, high.x, high.y].every(Number.isFinite)) return null;
+  return {
+    atUm: { x: low.x * axes.umAcross, y: low.y * axes.umDown },
+    wideUm: (high.x - low.x) * axes.umAcross,
+    tallUm: (high.y - low.y) * axes.umDown,
+  };
+}
+
 /** The view the engine is showing now, in micrometres. */
 function readTheView(own) {
   const axes = axesOnScreen(own.viewer);
@@ -1482,12 +1537,42 @@ function handleFor(own) {
      * `index` counts across all the acquisitions in the order they are drawn,
      * which is the order they appear in a list on screen.
      */
+    /**
+     * Draw the acquisitions, or do not — the viewer stays open either way.
+     *
+     * Turning the picture off used to mean opening the canvas again with no
+     * acquisitions at all, and on this engine that does not work: neuroglancer
+     * takes its axes from its image layers, so with no images there is nothing
+     * to take them from and opening never finishes. Measured from the page, both
+     * presses of the button cost 26.7 seconds and the picture never went off —
+     * the wait ran out, the page gave up and put the picture back.
+     *
+     * Hiding the layers instead costs one frame, in both directions, and keeps
+     * everything the engine has decoded, so the picture comes back without a
+     * single request. What is deliberately *not* changed is which channels the
+     * operator had switched off: they stay off when the picture comes back, so
+     * this is a switch over the whole picture rather than a way of losing what
+     * was set.
+     */
+    showPicture(on) {
+      own.showingPicture = on !== false;
+      for (const row of own.rows) {
+        if (!row.managed) continue;
+        row.managed.setVisible(own.showingPicture && row.visible !== false);
+      }
+    },
+
     setChannel(index, { visible, colour, window: brightness } = {}) {
       const row = own.rows[index];
       if (!row || !row.managed) return;
-      if (visible !== undefined && row.managed.visible !== visible) {
-        row.managed.setVisible(visible);
-        row.visible = visible;
+      if (visible !== undefined) row.visible = visible;
+      /* A channel switched on while the whole picture is off stays off on
+         screen, and comes on with the picture. Without this the page could
+         contradict itself: one channel drawn over a picture that is meant not to
+         be there. */
+      const shouldShow = own.showingPicture !== false && row.visible !== false;
+      if (row.managed.visible !== shouldShow) {
+        row.managed.setVisible(shouldShow);
       }
       const layer = row.managed.layer;
       if (!layer) return;
