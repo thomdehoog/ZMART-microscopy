@@ -110,6 +110,9 @@
 import "neuroglancer/unstable/util/polyfills.js";
 import "neuroglancer/unstable/layer/enabled_frontend_modules.js";
 import "neuroglancer/unstable/datasource/enabled_frontend_modules.js";
+import {
+  setDefaultInputEventBindings,
+} from "neuroglancer/unstable/ui/default_input_event_bindings.js";
 import "neuroglancer/unstable/kvstore/enabled_frontend_modules.js";
 import { makeMinimalViewer } from "neuroglancer/unstable/ui/minimal_viewer.js";
 import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
@@ -126,6 +129,9 @@ import { theViewThatShowsAllOf } from "../opening-view.js";
 // middle of the volume, which is the same answer — but agreeing by coincidence
 // is not agreeing. See `../planes.js`.
 import { theMiddlePlaneOf } from "../planes.js";
+// And where the specimen sits in the ground the run declared. This engine
+// keeps the store to itself, so it is read here the way the window is.
+import { whereTheSpecimenIsInThisStore } from "../where-the-specimen-is.js";
 
 /**
  * Which of the engine's panel layouts to ask for, and which way round the axes
@@ -144,6 +150,19 @@ import { theMiddlePlaneOf } from "../planes.js";
  * `tests/test_the_picture_is_not_mirrored.py` is what stops it coming back.
  */
 const FLAT_LAYOUT = "xy";
+
+/* And the arrangement for looking at the whole stack at once.
+ *
+ * The engine draws a volume by ray-casting through the layers it already holds,
+ * so this is a change of layout and a mode on each layer rather than anything
+ * being loaded again — which is why the switch is instant and why it costs
+ * nothing to offer. The same two names are what the standalone viewer switches
+ * between; see `viz_studio/frontend/src/App.jsx`.
+ */
+const VOLUME_LAYOUT = "3d";
+
+/** How much to lift a volume's brightness over what suits the flat picture. */
+const A_VOLUME_NEEDS_LIFTING = 3;
 
 /** Metres to micrometres. The store speaks metres; the operator speaks µm. */
 const UM_PER_M = 1e6;
@@ -703,11 +722,24 @@ async function start(own, acquisitions) {
      holds the rule, and the Viv options obey the same one. Skipped where the box
      has not been measured yet, since fitting to a box of no size would be worse
      than the engine's own guess. */
+  /* Where the specimen is, so the view opens on it rather than on the middle of
+     the ground the run declared — and so a volume turns about the specimen
+     instead of swinging around a point outside it. One small read; nothing else
+     waits on it. */
+  const specimen = acquisitions.length
+    ? await whereTheSpecimenIsInThisStore(acquisitions[0].url)
+    : null;
   if (own.size?.width > 0 && own.size?.height > 0) {
-    const showingAllOfIt = theViewThatShowsAllOf(theGroundTheRunCovers(own), own.size);
+    const ground = theGroundTheRunCovers(own);
+    const showingAllOfIt = theViewThatShowsAllOf(
+      ground && specimen
+        ? { ...ground, specimenUm: theSpecimenInMicrometres(own, ground, specimen) }
+        : ground,
+      own.size,
+    );
     if (showingAllOfIt) writeTheView(own, showingAllOfIt);
   }
-  openOnTheMiddlePlane(own);
+  openOnThePlaneWhereTheSpecimenIs(own, specimen);
 
   // -- the repaint discipline ---------------------------------------------
   //
@@ -1192,14 +1224,40 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
  * already compiled instead of causing a fresh one to be built several times a
  * second.
  */
-function shaderFor(colour) {
+function shaderFor(colour, { asAVolume = false } = {}) {
   const [r, g, b] = colour;
+  /* Two different programs, because a flat layer and a volume ask opposite
+     things of the same numbers.
+     
+     **Flat**: the colour carries the brightness and the transparency says only
+     whether this spot was imaged — `colour × v`, alpha one wherever the value
+     clears the window's floor. Turning the contrast handles then changes what
+     the picture looks like, and ground nobody has imaged stays clear so the
+     layers under it show through.
+     
+     **A volume**: the colour is emitted at full strength and the *alpha* carries
+     the value. That is what makes a ray accumulate — a sample contributes in
+     proportion to what is there — and it is what `viz_studio/frontend/src/scene.js`
+     has always done, which is the copy of this that demonstrably renders volumes.
+     
+     Getting this wrong is quiet and was: emitting `colour × v` with alpha `v`
+     attenuates twice, and the volume came out at 1.0% of the window lit against
+     15.7% for the same data flat. It looked like the engine failing to render and
+     was arithmetic. */
+  if (asAVolume) {
+    return (
+      "#uicontrol invlerp normalized\n" +
+      "#uicontrol float opacity slider(min=0, max=1, default=1)\n" +
+      `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized() * opacity)); }`
+    );
+  }
   return (
     "#uicontrol invlerp normalized\n" +
     "void main() { float v = normalized();" +
     ` emitRGBA(vec4(vec3(${r}, ${g}, ${b}) * v, v > 0.0 ? 1.0 : 0.0)); }`
   );
 }
+
 
 // ---------------------------------------------------------------------------
 // Micrometres in, micrometres out
@@ -1257,6 +1315,36 @@ function howFarThePatchIsOffCentre(own) {
 }
 
 /**
+ * Whose gestures are in charge, which depends on what is being looked at.
+ *
+ * **Flat: ours, and only two of them.** Dragging pans, the wheel zooms, nothing
+ * rotates. That is decided in `viz_studio/CONTROLS.md` and it is not a
+ * preference: the operator's carrier outline and tile positions are drawn in
+ * stage coordinates over the picture, and a rotated flat view breaks that
+ * correspondence silently — nothing errors, the drawing simply stops lining up.
+ * So the engine's own bindings are cleared when a viewer opens.
+ *
+ * **A volume: the engine's own.** That same document says rotation is removed
+ * *from the flat view*, and that a rotated view "comes back as a deliberate
+ * control" when somebody needs it. A volume is that moment. There is no flat
+ * drawing to line up with, turning the specimen over is the whole point of
+ * looking at one, and neuroglancer already does it properly: drag rotates,
+ * shift and drag moves the centre, and the wheel is left to us so that zooming
+ * needs no modifier.
+ *
+ * Restored and cleared rather than merged, because a half-bound engine is the
+ * state nobody can reason about — every gesture then belongs to whichever of the
+ * two got to it first.
+ */
+function handTheEngineItsOwnGestures(own) {
+  if (own.showingVolume) {
+    setDefaultInputEventBindings(own.viewer.inputEventBindings);
+    return;
+  }
+  emptyTheEnginesOwnBindings(own.viewer);
+}
+
+/**
  * Put the view on the plane a stack should open on.
  *
  * Said rather than inherited. Left alone this engine opens in the middle of its
@@ -1265,7 +1353,21 @@ function howFarThePatchIsOffCentre(own) {
  * on a version bump would have shown one engine a different slice of tissue from
  * the other, and nothing in the comparison would have said so.
  */
-function openOnTheMiddlePlane(own) {
+/**
+ * The specimen's position turned from voxels of the store into micrometres of
+ * stage, which is what every option speaks.
+ */
+function theSpecimenInMicrometres(own, ground, specimen) {
+  const axes = axesOnScreen(own.viewer);
+  if (!(axes.umAcross > 0) || !(axes.umDown > 0)) return null;
+  if (specimen.x === undefined || specimen.y === undefined) return null;
+  return {
+    x: ground.atUm.x + specimen.x * axes.umAcross,
+    y: ground.atUm.y + specimen.y * axes.umDown,
+  };
+}
+
+function openOnThePlaneWhereTheSpecimenIs(own, specimen) {
   const info = own.viewer.navigationState.displayDimensionRenderInfo.value;
   const space = own.viewer.navigationState.position.coordinateSpace.value;
   const depth = info?.displayDimensionIndices?.[2] ?? -1;
@@ -1275,7 +1377,11 @@ function openOnTheMiddlePlane(own) {
   );
   if (!(planes > 1)) return;
   const moved = Float32Array.from(own.viewer.navigationState.position.value);
-  moved[depth] = space.bounds.lowerBounds[depth] + theMiddlePlaneOf(planes) + 0.5;
+  // Where the specimen is, where it could be found; the middle of the declared
+  // stack otherwise, which is what this did before and is right when a run fills
+  // the room it asked for.
+  const plane = specimen?.z ?? theMiddlePlaneOf(planes);
+  moved[depth] = space.bounds.lowerBounds[depth] + plane + 0.5;
   own.viewer.navigationState.position.value = moved;
 }
 
@@ -1584,7 +1690,14 @@ function handleFor(own) {
          counts plane k at k voxels from the store's origin, and it has to match
          what the other options answer, or the same stack is two different
          depths depending on which engine happens to be drawing. */
-      return { lowUm: 0, highUm: (planes - 1) * umPerVoxel, stepUm: umPerVoxel };
+      const now = own.viewer.navigationState.position.value[depth];
+      return {
+        lowUm: 0,
+        highUm: (planes - 1) * umPerVoxel,
+        stepUm: umPerVoxel,
+        // Where the picture is now, counted from the first plane like the rest.
+        atUm: Math.max(now - space.bounds.lowerBounds[depth] - 0.5, 0) * umPerVoxel,
+      };
     },
 
     setPlane(z) {
@@ -1620,6 +1733,51 @@ function handleFor(own) {
      * `index` counts across all the acquisitions in the order they are drawn,
      * which is the order they appear in a list on screen.
      */
+    /** Whether this engine can draw the stack as a volume. */
+    canShowVolume: true,
+
+    canShowVolumeBecause:
+      "neuroglancer ray-casts through the layers it already holds, so the whole "
+      + "stack is drawn from what is open rather than fetched again",
+
+    /**
+     * Draw the whole stack rather than one plane of it.
+     *
+     * Two things at once, and both are needed: the engine is asked for its
+     * three-dimensional arrangement, and every image layer is told to render as
+     * a volume. Either alone gives a picture that looks like a mistake — the
+     * layout without the mode shows one flat plane floating in a rotatable space,
+     * and the mode without the layout changes nothing anybody can see.
+     *
+     * Nothing is fetched. The volume is drawn out of the pieces already decoded,
+     * which is what makes this a switch rather than an operation.
+     */
+    showVolume(on) {
+      own.showingVolume = on !== false;
+      own.viewer.layout.restoreState(own.showingVolume ? VOLUME_LAYOUT : FLAT_LAYOUT);
+      handTheEngineItsOwnGestures(own);
+      for (const row of own.rows) {
+        const layer = row.managed?.layer;
+        if (!layer?.volumeRenderingMode) continue;
+        layer.volumeRenderingMode.restoreState(own.showingVolume ? "on" : "off");
+        /* How brightly a volume is drawn, which is a separate number from the
+           window and starts at nought — so a volume drawn through a window that
+           suits the flat picture comes out barely visible. Measured on a skin
+           biopsy: 1.3% of the window lit as a volume against 15.7% flat, with
+           this untouched. It is a logarithmic gain, so a few counts is a large
+           change; this is a starting point an operator should be able to move,
+           and a control for it is the obvious next thing this panel wants. */
+        if (layer.volumeRenderingGain) {
+          layer.volumeRenderingGain.value = own.showingVolume ? A_VOLUME_NEEDS_LIFTING : 0;
+        }
+        // And the little program, because how a sample contributes is the whole
+        // difference between a volume and a fog. See `shaderFor`.
+        if (layer.fragmentMain) {
+          layer.fragmentMain.value = shaderFor(row.colour, { asAVolume: own.showingVolume });
+        }
+      }
+    },
+
     /**
      * Draw the acquisitions, or do not — the viewer stays open either way.
      *

@@ -53,10 +53,15 @@ export function theViewThatShowsAllOf(extent, box) {
   if (!(wideUm > 0) || !(tallUm > 0)) return null;
   const width = Math.max(box?.width ?? 0, 1);
   const height = Math.max(box?.height ?? 0, 1);
+  /* Centred on the specimen where somebody has found it, and on the ground
+     otherwise. A run declares the room it might cover and images part of it, so
+     the middle of the declared ground is the middle of the *room* — measured on
+     a skin biopsy, 250 µm from the specimen in depth and a couple of hundred
+     laterally. See `where-the-specimen-is.js`. */
   return {
     centre: {
-      x: (extent.atUm?.x ?? 0) + wideUm / 2,
-      y: (extent.atUm?.y ?? 0) + tallUm / 2,
+      x: extent.specimenUm?.x ?? ((extent.atUm?.x ?? 0) + wideUm / 2),
+      y: extent.specimenUm?.y ?? ((extent.atUm?.y ?? 0) + tallUm / 2),
     },
     /* The larger of the two ratios, so that the long side is what fits: taking
        the smaller would fit one side and run the other off the edges, which is

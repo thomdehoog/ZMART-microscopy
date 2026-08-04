@@ -88,6 +88,8 @@ import { theRangeTheseSourcesHold } from "../brightness.js";
 // And where to open looking, which the engines disagree about by a factor of
 // twenty if left to themselves. See `../opening-view.js`.
 import { theViewThatShowsAllOf } from "../opening-view.js";
+// And where the specimen sits inside the declared ground; see that file.
+import { whereTheSpecimenIs } from "../where-the-specimen-is.js";
 
 /**
  * How dim a spot may be before it is treated as ground nobody has been to.
@@ -555,6 +557,7 @@ async function start(own, acquisitions) {
         // place that can wait for anything. Only wanted when the run describes
         // no colours of its own, and cheap enough to take either way.
         heldRanges: await everyChannelsRange(data, metadata),
+        specimen: await whereTheSpecimenIs(data),
       };
     }),
   );
@@ -568,7 +571,9 @@ async function start(own, acquisitions) {
      as nought without a special case. */
   const sharpest = own.opened[0]?.pyramid?.[0];
   const looking = theMiddleOfEveryOtherAxis(sharpest?.labels, sharpest?.shape);
-  own.plane = (looking.z ?? 0) * (own.umPerVoxel.z || 1);
+  // Where the specimen is, in micrometres, where that could be found.
+  const specimen = own.opened[0]?.specimen;
+  own.plane = (specimen?.z ?? looking.z ?? 0) * (own.umPerVoxel.z || 1);
   own.moment = looking.t ?? 0;
   own.rows = rowsFor(own.opened);
 
@@ -805,6 +810,10 @@ function openingViewFor(own) {
     atUm: first.originUm,
     wideUm: across.width * um.x,
     tallUm: across.height * um.y,
+    specimenUm: first.specimen ? {
+      x: first.originUm.x + first.specimen.x * um.x,
+      y: first.originUm.y + first.specimen.y * um.y,
+    } : null,
   }, own.size) || NOWHERE_IN_PARTICULAR;
 }
 
@@ -1443,7 +1452,8 @@ function handleFor(own) {
       const deep = at >= 0 ? source.shape[at] : 0;
       const um = first?.umPerVoxel?.z;
       if (!(deep > 1) || !(um > 0)) return null;
-      return { lowUm: 0, highUm: (deep - 1) * um, stepUm: um };
+      return { lowUm: 0, highUm: (deep - 1) * um, stepUm: um,
+               atUm: own.plane ?? 0 };
     },
 
     setPlane(z) {
@@ -1464,6 +1474,17 @@ function handleFor(own) {
      * `index` counts across all the acquisitions in the order they are drawn,
      * which is the order they appear in a list on screen.
      */
+    /** Whether this engine can draw the stack as a volume. */
+    canShowVolume: false,
+
+    canShowVolumeBecause: "this option draws one plane through an orthographic view; Viv has a volume view, and wiring it up is work rather than a setting",
+
+    /* Says no rather than doing nothing quietly. A page asks `canShowVolume`
+       first and does not offer what cannot be done, so this is only reached by
+       an application that asked anyway — and an application that asked anyway is
+       better told than ignored. */
+    showVolume() {},
+
     /**
      * Draw the acquisitions, or do not — the viewer stays open either way.
      *

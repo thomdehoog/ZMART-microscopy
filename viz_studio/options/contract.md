@@ -44,10 +44,13 @@ and the handle:
 ```js
 viewer.setView({ centre, zoom })   // centre in micrometres, zoom in µm per screen pixel
 viewer.getView()                   // → { centre, zoom }, the view now on screen
-viewer.theDepthItCanShow()         // → { lowUm, highUm, stepUm }, or null when flat
+viewer.theDepthItCanShow()         // → { lowUm, highUm, stepUm, atUm }, or null when flat
 viewer.setPlane(z)                 // which plane of the stack, in micrometres
 viewer.setMoment(t)                // which moment of a timelapse, counted from the first
 viewer.showPicture(on)             // draw the acquisitions, or not; the viewer stays open
+viewer.canShowVolume               // true or false: can it draw the stack as a volume?
+viewer.canShowVolumeBecause        // one sentence saying why it is what it is
+viewer.showVolume(on)              // draw the whole stack rather than one plane of it
 viewer.setChannel(index, { visible, colour, window })
 viewer.handDragsTo(handler)        // a drag means something other than panning; null gives panning back
 viewer.drawUnder(paint)            // the application's drawing beneath the picture

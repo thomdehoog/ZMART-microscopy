@@ -106,6 +106,9 @@ import { theRangeTheseSourcesHold } from "../brightness.js";
 // And where to open looking, which the engines disagree about by a factor of
 // twenty if left to themselves. See `../opening-view.js`.
 import { theViewThatShowsAllOf } from "../opening-view.js";
+// And where the specimen sits inside the ground the run declared, which is
+// not the middle of it. See `../where-the-specimen-is.js`.
+import { whereTheSpecimenIs } from "../where-the-specimen-is.js";
 
 /**
  * How far outside the imaged ground the engine is still allowed to draw, in
@@ -814,6 +817,7 @@ async function openOneAcquisition(acquisition) {
   const um = voxelSizeUm(opened.metadata, acquisition.name);
   const at = originUm(opened.metadata);
   const looking = theMiddleOfEveryOtherAxis(opened.data[0]?.labels, opened.data[0]?.shape);
+  const specimen = await whereTheSpecimenIs(opened.data);
   // What the page said, where it said anything; otherwise what the run says
   // about itself; and only if the run says nothing either, one white channel.
   // Viv hands back the store's whole description alongside the picture, so
@@ -858,7 +862,10 @@ async function openOneAcquisition(acquisition) {
     // micrometres and moments and converts. Which ones to start on is not this
     // option's to decide — every option opens on the same plane or they cannot
     // be compared. See `../planes.js`.
-    plane: looking.z ?? 0,
+    // Where the specimen is, where that could be found; the middle of the
+    // declared stack otherwise.
+    plane: Math.round(specimen?.z ?? looking.z ?? 0),
+    specimen,
     moment: looking.t ?? 0,
     channels: withWindows.map((channel, within) => ({
       name: channel.name,
@@ -940,6 +947,10 @@ function openingViewFor(own) {
     atUm: first.at,
     wideUm: across.width * first.um.x,
     tallUm: across.height * first.um.y,
+    specimenUm: first.specimen ? {
+      x: first.at.x + first.specimen.x * first.um.x,
+      y: first.at.y + first.specimen.y * first.um.y,
+    } : null,
   }, own.size) || NOWHERE_IN_PARTICULAR;
 }
 
@@ -1452,7 +1463,13 @@ function handleFor(own) {
       const deep = at >= 0 ? source.shape[at] : 0;
       const um = first?.um?.z;
       if (!(deep > 1) || !(um > 0)) return null;
-      return { lowUm: 0, highUm: (deep - 1) * um, stepUm: um };
+      // And where it is now, so a page drawing a control for this starts it
+      // where the picture already is. Without it the control re-centres the
+      // stack the moment it appears, undoing an opening plane chosen from the
+      // specimen — measured: the view opened on plane 467 and the slider put
+      // it back to 417 before anybody touched it.
+      return { lowUm: 0, highUm: (deep - 1) * um, stepUm: um,
+               atUm: (first.plane ?? 0) * um };
     },
 
     setPlane(z) {
@@ -1489,6 +1506,17 @@ function handleFor(own) {
      * `index` counts across all the acquisitions in the order they are drawn,
      * which is the order they appear in a list on screen.
      */
+    /** Whether this engine can draw the stack as a volume. */
+    canShowVolume: false,
+
+    canShowVolumeBecause: "this option draws one plane through an orthographic view; Viv has a volume view, and wiring it up is work rather than a setting",
+
+    /* Says no rather than doing nothing quietly. A page asks `canShowVolume`
+       first and does not offer what cannot be done, so this is only reached by
+       an application that asked anyway — and an application that asked anyway is
+       better told than ignored. */
+    showVolume() {},
+
     /**
      * Draw the acquisitions, or do not — the viewer stays open either way.
      *
