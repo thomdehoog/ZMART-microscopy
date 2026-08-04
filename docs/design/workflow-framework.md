@@ -94,6 +94,45 @@ Applied honestly, that leaves a surprisingly small core.
 
 ---
 
+## Two things at the top
+
+Everything below lives in one of two places, and the split is the first thing
+somebody should understand about the folder.
+
+```
+src/
+  interface/     the window itself — this ships with the application
+  workflows/     what people write, and hand to each other
+```
+
+**`workflows/` is yours. `interface/` is the window.** Somebody writing a
+workflow never opens the second folder. That is the whole explanation, and it is
+worth having an explanation that short, because the people we most want writing
+workflows are the ones who will stop reading if it is longer.
+
+Inside `interface/` there are two parts, and they are separated by a different
+question — not "may I edit this?", which is answered above for both, but **"may
+this know what a microscope is?"**
+
+```
+src/interface/
+  core/          the six things below. Never knows any subject.
+  catalogue/     reusable parts. May know about microscopes, freely.
+```
+
+### The rule that keeps the catalogue a library
+
+Putting the catalogue beside the core invites a misreading worth heading off: it
+is not a second gate a workflow has to get through. It is a shelf a workflow
+takes things off.
+
+The test is about which way the naming points. **A workflow names a catalogue
+part, and a version of it. The catalogue never names a workflow.** If anything in
+`catalogue/` ever has to know which workflow is running, it has stopped being a
+library and become a layer, and the boundary needs pushing back.
+
+---
+
 ## The core: six things
 
 These are the six, and each is here because no workflow could provide it from
@@ -114,7 +153,7 @@ the inside.
    taking it off again when you leave.
 
 ```
-src/core/
+src/interface/core/
   contract.js     what a step is handed, and what it must declare
   load.js         find a workflow, resolve its names, refuse it with a reason
   state.js        the run document — the only thing that persists
@@ -136,7 +175,7 @@ already exists, reviewing a gallery, exporting a table — these appear in many
 workflows and should be written once.
 
 ```
-src/catalogue/
+src/interface/catalogue/
   steps/      parts that are a step
   panels/     parts that fill the channel — a set of controls
   views/      parts that fill the main area
@@ -174,7 +213,7 @@ We call it a **bundle**, meaning simply a folder that holds everything belonging
 to one workflow. Copy the folder and you have moved the workflow.
 
 ```
-workflows/target_acquisition/
+src/workflows/target_acquisition/
   workflow.json     the wiring: which steps, in what order, revisited how
   steps/            the steps only this workflow uses
   panels/           the panels only this workflow uses
@@ -412,7 +451,7 @@ involved. A message of that quality is worth more than a page of documentation.
 ### A microscope run
 
 ```
-workflows/target_acquisition/
+src/workflows/target_acquisition/
   workflow.json    steps: connect, optics, carrier, scanfields, focus,
                           overview, detect, select, ./steps/curate,
                           save, disconnect
@@ -429,7 +468,7 @@ scan fields', and so on.
 ### An analysis pass, with no instrument at all
 
 ```
-workflows/segment_and_count/
+src/workflows/segment_and_count/
   workflow.json    steps: open-run, detect, review, export-table
 ```
 
@@ -445,7 +484,7 @@ never handed an instrument to ask about.
 ### A lesson
 
 ```
-workflows/photosynthesis/
+src/workflows/photosynthesis/
   workflow.json     steps: watch, ./steps/quiz, summary
   steps/quiz/       step.js      produces "answers", names view "quiz"
   views/quiz/       the questions themselves
@@ -497,10 +536,13 @@ working. In rough order:
 
 1. **Write the contract first.** Nothing else is decidable until it exists, and it
    doubles as the brief given to anybody writing a step.
-2. **Lift the shell out of `main.js`.** That file is about 134 KB and is
-   currently most of the application. The browser suite is the check, and it is a
-   good one, because the page is nearly all picture and driving it has repeatedly
-   caught what reading the source did not.
+2. **Lift the shell out of `main.js`, into `src/interface/core/`.** That file is
+   about 134 KB and is currently most of the application. The browser suite is
+   the check, and it is a good one, because the page is nearly all picture and
+   driving it has repeatedly caught what reading the source did not. Making
+   `src/interface/` and `src/workflows/` the only two folders at the top can be
+   done first and on its own, since it moves files without changing what any of
+   them does.
 3. **Close the three facts that are defined twice** — the surface fitting, the
    sweep and peak rules, and the synthetic sample all exist both inline in
    `main.js` and in the modules beside it. `main.js` is what runs and the modules
