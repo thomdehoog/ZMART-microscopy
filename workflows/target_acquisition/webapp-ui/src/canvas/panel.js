@@ -590,6 +590,8 @@ export function putTheCanvasIn({
           showingVolume = key;
           viewer?.showVolume(key);
           markTheVolume();
+          // The plane slider goes with it: a volume is of every plane at once.
+          if (viewer) offerTheStack(viewer);
           sayWhatTheLayersAreDoing();
         });
         volume.append(button);
@@ -597,6 +599,7 @@ export function putTheCanvasIn({
     }
     viewerNow.showVolume(showingVolume);
     markTheVolume();
+    offerTheStack(viewerNow);
   }
 
   function markTheVolume() {
@@ -609,7 +612,12 @@ export function putTheCanvasIn({
   function offerTheStack(viewerNow) {
     throughTheStack = viewerNow.theDepthItCanShow?.() ?? null;
     if (!depth) return;
-    if (!throughTheStack) {
+    /* Not while a volume is drawn. The slider says which plane of the stack the
+       picture is of, and a volume is of all of them at once — so there is no
+       plane for it to name, and a control that names one would be describing a
+       picture nobody is looking at. Depth in a volume means how thick a slab the
+       engine draws, which is the engine's own control and a different question. */
+    if (showingVolume || !throughTheStack) {
       depth.hidden = true;
       return;
     }

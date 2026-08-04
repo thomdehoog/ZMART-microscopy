@@ -1338,10 +1338,84 @@ function howFarThePatchIsOffCentre(own) {
  */
 function handTheEngineItsOwnGestures(own) {
   if (own.showingVolume) {
-    setDefaultInputEventBindings(own.viewer.inputEventBindings);
+    /* Ours come off entirely, and that is the part that was missing.
+       
+       Installing the engine's bindings is not enough on its own: our handler
+       takes the pointer on `pointerdown` and calls `preventDefault`, which
+       suppresses the compatibility `mousedown` the engine's bindings are written
+       against. So the engine never saw a drag, our pan won, and the measurement
+       said so plainly — a drag moved the flat view's centre by 900 µm and turned
+       nothing. Two sets of handlers over one surface is not a thing to arbitrate;
+       one of them has to go. */
+    own.gestures?.stop();
+    own.gestures = null;
+    theTwoGesturesAVolumeNeeds(own, true);
+    theWheelZoomsTheCamera(own);
     return;
   }
+  own.stopTheWheel?.();
+  own.stopTheWheel = null;
+  theTwoGesturesAVolumeNeeds(own, false);
   emptyTheEnginesOwnBindings(own.viewer);
+  own.gestures = own.gestures || onlyPanAndZoom(own.element, {
+    getView: () => readTheView(own),
+    setView: (view) => writeTheView(own, view),
+  });
+}
+
+/**
+ * Turning and moving a volume, bound by name rather than by restoring defaults.
+ *
+ * `setDefaultInputEventBindings` was the obvious way and does not work here, for
+ * a reason worth writing down: the engine's defaults live in tables shared by the
+ * whole page, and `emptyTheEnginesOwnBindings` empties those tables rather than
+ * detaching them. Once emptied they stay empty, so re-adding them as parents adds
+ * nothing — measured, a drag then did nothing at all rather than rotating.
+ *
+ * So the two gestures a volume needs are named here. It is also the smaller
+ * claim: a volume gets turning and moving, and not the twenty-odd other bindings
+ * the engine ships, several of which `viz_studio/CONTROLS.md` removed on purpose.
+ */
+function theTwoGesturesAVolumeNeeds(own, wanted) {
+  const table = own.viewer.inputEventBindings?.perspectiveView;
+  if (!table?.set) return;
+  const turning = "at:mousedown0";
+  const moving = "at:shift+mousedown0";
+  if (!wanted) {
+    table.delete(turning);
+    table.delete(moving);
+    return;
+  }
+  // Plain drag turns it; shift and drag moves it. That is the engine's own
+  // arrangement for a three-dimensional view and what an operator asked for.
+  table.set(turning, { action: "rotate-via-mouse-drag", stopPropagation: true });
+  table.set(moving, { action: "translate-via-mouse-drag", stopPropagation: true });
+}
+
+/**
+ * The plain wheel zooms the camera, without a modifier.
+ *
+ * The engine binds zoom to *control* and the wheel, and leaves the plain wheel
+ * for stepping through slices — which a volume has none of. An operator turning
+ * a specimen over expects the wheel to bring it closer, so the plain wheel is
+ * bound here, to the camera the perspective view actually draws with.
+ *
+ * That is a different number from the flat view's magnification, and mixing them
+ * up is what made zooming feel broken: the wheel moved `µm per pixel` from 6.45
+ * to 1.07 while the specimen on screen did not change size by a single pixel,
+ * because the flat view's zoom is not what a perspective camera draws with.
+ */
+function theWheelZoomsTheCamera(own) {
+  if (own.stopTheWheel) return;
+  const zoom = own.viewer.perspectiveNavigationState.zoomFactor;
+  const wheel = (event) => {
+    event.preventDefault();
+    // The same feel as the flat view's wheel, which is one shared constant away
+    // from being literally the same line; see `../gestures.js`.
+    zoom.value *= Math.exp(event.deltaY * 0.0015);
+  };
+  own.element.addEventListener("wheel", wheel, { passive: false });
+  own.stopTheWheel = () => own.element.removeEventListener("wheel", wheel);
 }
 
 /**
