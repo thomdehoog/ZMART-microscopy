@@ -49,22 +49,35 @@ const asCss = ([red, green, blue], alpha = 1) =>
   `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 
 /**
- * A round number of micrometres that comes out about `wanted` pixels apart.
+ * How far apart the two lattices are ruled, in micrometres of stage.
  *
- * The lattice below is ruled in micrometres, so at some magnifications a fixed
- * spacing would be a single smudge and at others a single line across the whole
- * window. Choosing 1, 2 or 5 times a power of ten keeps the spacing on screen
- * roughly steady while the number itself stays one an operator can read off —
- * 200 µm rather than 187 µm.
+ * **Fixed, and that is the whole point of them.** These stand in for the things
+ * an operator draws over a run — the carrier, the positions the microscope will
+ * visit — and those are somewhere on the stage rather than somewhere on the
+ * screen. A drawing in stage micrometres does exactly one thing when the view is
+ * magnified: it gets bigger. Anything else and it is not describing the
+ * specimen.
+ *
+ * It was written the other way first, and the fault is worth keeping because it
+ * looked like a feature. The spacing was re-chosen at every magnification — one,
+ * two or five times a power of ten, whichever came nearest a steady 130 pixels
+ * apart — so the lattice stayed comfortable to look at however far you zoomed.
+ * What that costs is the one question these layers exist to answer: zoom in and
+ * the grid re-rules itself, so you cannot tell a drawing that is following the
+ * specimen from one that is following the window. An operator noticed within a
+ * minute of looking at it.
+ *
+ * The two are different numbers so that with both layers on, one cannot hide the
+ * other: ruled the same they would land on the same lines and two drawings would
+ * look like one.
+ *
+ * What a fixed spacing costs, said plainly: zoomed far enough in, no line is on
+ * screen; zoomed far enough out, they crowd. The first is what a scale bar is
+ * for and the second is guarded against in `ruleALattice`. Both are better than
+ * a grid that moves under you.
  */
-function aRoundSpacing(umPerPixel, wanted) {
-  const rough = Math.max(umPerPixel * wanted, 1e-6);
-  const power = 10 ** Math.floor(Math.log10(rough));
-  for (const step of [1, 2, 5]) {
-    if (step * power >= rough) return step * power;
-  }
-  return 10 * power;
-}
+const THE_LATTICE_ABOVE_UM = 1000;
+const THE_LATTICE_BENEATH_UM = 250;
 
 /**
  * Rule a lattice across the whole box, every `spacing` micrometres.
@@ -74,15 +87,30 @@ function aRoundSpacing(umPerPixel, wanted) {
  * from the corners of the box means only the handful on screen are drawn,
  * however far the view has travelled from the stage's zero.
  */
-function ruleALattice({ context, width, height, project, unproject }, spacing, lineWidth) {
+function ruleALattice({ context, width, height, zoom, project, unproject }, spacing, lineWidth) {
   const corners = [unproject(0, 0), unproject(width, height)];
   const from = { x: Math.min(corners[0].x, corners[1].x), y: Math.min(corners[0].y, corners[1].y) };
   const to = { x: Math.max(corners[0].x, corners[1].x), y: Math.max(corners[0].y, corners[1].y) };
-  /* A guard, not tidiness. If a view ever arrives with a magnification that
-     makes the spacing vanishingly small on screen, drawing every line between
-     the corners would be hundreds of thousands of them and the page would stop
-     answering. Well before that happens the lattice is a solid block anyway, so
-     there is nothing lost by giving up on it. */
+  /* Not drawn at all once the lines are too close together to be lines.
+     A lattice fixed in micrometres crowds as the view pulls back, and there is a
+     magnification for every spacing beyond which it stops being a grid and
+     becomes a texture: measured on this page, the 250 µm lattice beneath the
+     picture reached a line every 3.5 pixels when zoomed out, and the blue wash it
+     is ruled on measured 26% of the window where it should be 92% — the drawing
+     underneath had been painted over by its own grid.
+
+     The alternative is re-spacing the lattice as the view moves, which is what
+     this did before and is worse: a grid that changes what it measures cannot be
+     used to see whether a drawing is following the specimen, which is the one
+     thing these layers are for. So it keeps its meaning and goes away instead.
+     Ten times its own width is where a line stops reading as a line; the floor is
+     for a hairline, where ten times almost nothing is still almost nothing. */
+  if (spacing / Math.max(zoom, 1e-9) < Math.max(lineWidth * 10, 8)) return;
+  /* And a second guard for the far end of the same problem: a magnification that
+     makes the spacing vanishingly small would otherwise be hundreds of thousands
+     of lines and the page would stop answering. The legibility guard above
+     catches this first in every case met so far; this one is kept because it
+     bounds the work rather than the appearance. */
   if ((to.x - from.x) / spacing > 400 || (to.y - from.y) / spacing > 400) return;
 
   context.lineWidth = lineWidth;
@@ -116,15 +144,11 @@ function ruleALattice({ context, width, height, project, unproject }, spacing, l
  * canvas. Pan the view and the lattice travels with the specimen.
  */
 export function theGroundBeneath(frame) {
-  const { context, width, height, zoom } = frame;
+  const { context, width, height } = frame;
   context.fillStyle = asCss(THE_COLOUR_BENEATH);
   context.fillRect(0, 0, width, height);
-  /* Ruled finer than the drawing above, and that is the point rather than a
-     preference. If the two lattices were spaced the same they would land on the
-     same lines and one would hide the other, so with both layers on you could
-     not tell whether you were looking at one drawing or two. */
   context.strokeStyle = "rgba(255, 255, 255, 0.30)";
-  ruleALattice(frame, aRoundSpacing(zoom, 55), 1);
+  ruleALattice(frame, THE_LATTICE_BENEATH_UM, 1);
 }
 
 /**
@@ -140,8 +164,8 @@ export function theGroundBeneath(frame) {
  * it easy to see that the drawing and the picture move together.
  */
 export function theOperatorsMarks(frame) {
-  const { context, zoom, project } = frame;
-  const spacing = aRoundSpacing(zoom, 130);
+  const { context, project } = frame;
+  const spacing = THE_LATTICE_ABOVE_UM;
 
   /* Wide enough to be unmistakable, and no wider. This drawing sits over the
      acquisition, so every pixel it takes is a pixel of specimen an operator
