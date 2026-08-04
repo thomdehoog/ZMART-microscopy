@@ -44,6 +44,7 @@ and the handle:
 ```js
 viewer.setView({ centre, zoom })   // centre in micrometres, zoom in µm per screen pixel
 viewer.getView()                   // → { centre, zoom }, the view now on screen
+viewer.theDepthItCanShow()         // → { lowUm, highUm, stepUm }, or null when flat
 viewer.setPlane(z)                 // which plane of the stack, in micrometres
 viewer.setMoment(t)                // which moment of a timelapse, counted from the first
 viewer.showPicture(on)             // draw the acquisitions, or not; the viewer stays open

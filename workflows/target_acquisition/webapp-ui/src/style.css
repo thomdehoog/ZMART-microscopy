@@ -579,6 +579,16 @@ canvas.livecv[hidden] { display: none; }
 /* `hidden` is an attribute and `display: flex` is a rule, and the rule wins, so a
    row of buttons the page has hidden would otherwise still be on the screen. */
 .seg[hidden] { display: none; }
+/* Where in the stack the picture comes from. A row rather than a column so it
+   costs one line of the picture's height, and the reading sits beside the slider
+   because "plane 417 of 833" is what an operator is actually navigating by. */
+.through-the-stack {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  font-size: 10.5px; color: var(--ink-2);
+}
+.through-the-stack input[type="range"] { flex: 1 1 auto; min-width: 0; }
+.through-the-stack .readout { flex: 0 0 auto; white-space: nowrap; }
+
 .one-viewer .live-note { bottom: 8px; max-width: calc(100% - 16px); }
 .viewer-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .viewer-name {

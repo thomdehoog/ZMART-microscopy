@@ -1435,6 +1435,17 @@ function handleFor(own) {
      * Moving through the stack lives on a slider rather than on a gesture,
      * where it is visible and labelled — see `CONTROLS.md`.
      */
+    /** How deep the stack is, in micrometres; see `viv-under` for why. */
+    theDepthItCanShow() {
+      const first = own.opened[0];
+      const source = first?.pyramid?.[0];
+      const at = source?.labels?.indexOf("z") ?? -1;
+      const deep = at >= 0 ? source.shape[at] : 0;
+      const um = first?.umPerVoxel?.z;
+      if (!(deep > 1) || !(um > 0)) return null;
+      return { lowUm: 0, highUm: (deep - 1) * um, stepUm: um };
+    },
+
     setPlane(z) {
       own.plane = z;
       showTheView(own);

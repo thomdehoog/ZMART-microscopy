@@ -155,6 +155,22 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     return [{ type: SETTING_TYPES[0].key, name: "" }];
   }
 
+  /* Which workflow to open on — `?workflow=canvas_layers`.
+   *
+   * For pointing this page at a run and looking at it, which is what somebody
+   * with an acquisition in their hand wants and what `serve_a_run.py` prints an
+   * address for. Without it that address lands on the first step of the ordinary
+   * run and the picture is two clicks away, every time.
+   *
+   * A name that is not a workflow is ignored rather than refused: the page is
+   * still perfectly usable on its ordinary workflow, and an address that opens
+   * something slightly unexpected is a smaller failure than one that opens
+   * nothing. The first step is then shown as it always is — there is no separate
+   * path here, and no `?step=`, because a workflow whose first step is not where
+   * you want to start is a workflow that has its steps in the wrong order.
+   */
+  const WORKFLOW_ASKED_FOR = new URLSearchParams(location.search).get("workflow");
+
   const state = {
     session: { ...DEFAULT_SESSION },
     recordings: [],
@@ -164,7 +180,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     plan: [],
     editor: null,
     checks: [],
-    wf: DEFAULT_WORKFLOW,
+    wf: WORKFLOWS[WORKFLOW_ASKED_FOR] ? WORKFLOW_ASKED_FOR : DEFAULT_WORKFLOW,
     activeIdx: 0,
     done: new Set(),
     running: null,
@@ -1417,6 +1433,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
           why: el(`viewer-${which}-why`),
           readout: el(`viewer-${which}-readout`),
           name: el(`viewer-${which}-name`),
+          depth: el(`viewer-${which}-depth`),
+          plane: el(`viewer-${which}-plane`),
+          planeReadout: el(`viewer-${which}-plane-readout`),
           acquisitions: ACQUISITIONS,
           engine: ENGINE_ASKED_FOR ?? engine,
         }),

@@ -42,6 +42,21 @@
 const READ_THE_MIDDLE_OF = new Set(["z"]);
 
 /**
+ * Which plane of a stack that many deep is the one to open on.
+ *
+ * Exported on its own for an option that has no list of axes to hand — an engine
+ * that read the store itself and will only say how deep the result is. It is the
+ * same arithmetic either way, and being the same is the point: neuroglancer's own
+ * default is the middle of the volume, so it agreed with the others by
+ * coincidence, and a coincidence is not something a comparison can rest on. One
+ * of them changing its default would have gone unnoticed until somebody
+ * photographed two engines showing different tissue.
+ */
+export function theMiddlePlaneOf(howManyPlanes) {
+  return Math.floor(Math.max(howManyPlanes, 1) / 2);
+}
+
+/**
  * Which index of each axis that is not on screen should be looked at.
  *
  * The two axes being drawn are left out, so that what comes back is exactly what
@@ -67,7 +82,7 @@ export function theMiddleOfEveryOtherAxis(labels, shape, { channel = 0 } = {}) {
       selection[name] = Math.min(Math.max(channel, 0), Math.max(along - 1, 0));
       return;
     }
-    selection[name] = READ_THE_MIDDLE_OF.has(name) ? Math.floor(along / 2) : 0;
+    selection[name] = READ_THE_MIDDLE_OF.has(name) ? theMiddlePlaneOf(along) : 0;
   });
   return selection;
 }

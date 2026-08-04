@@ -122,6 +122,10 @@ import { theRangeAStoreHolds } from "../brightness.js";
 // And where to open looking, which the engines disagree about by a factor of
 // twenty if left to themselves. See `../opening-view.js`.
 import { theViewThatShowsAllOf } from "../opening-view.js";
+// And which plane of a stack to open on. This engine's own default is the
+// middle of the volume, which is the same answer — but agreeing by coincidence
+// is not agreeing. See `../planes.js`.
+import { theMiddlePlaneOf } from "../planes.js";
 
 /**
  * Which of the engine's panel layouts to ask for, and which way round the axes
@@ -639,6 +643,18 @@ async function start(own, acquisitions) {
       // stored number is nought, so ground a channel never imaged still lets the
       // layers beneath it show through.
       opacity: 1,
+      /* Channels are added to one another, not painted over one another.
+       *
+       * They are separate colours of one specimen: a place that recorded both
+       * green and red is yellow, and nothing about it is "green seen through
+       * red". Stacked the ordinary way it is exactly that, because the shader
+       * below is opaque wherever the stored number clears the window's floor —
+       * so the channel drawn last covers every other one everywhere it has any
+       * signal at all. Measured on a two-colour skin biopsy: 0.011% of the
+       * window showed green against Viv's 0.029% on the same view, and Viv is
+       * doing the arithmetic this asks the engine for.
+       */
+      blend: "additive",
       // Where a store keeps its channels inside one array, this is what picks
       // the channel out: the engine offers it as a dimension belonging to the
       // layer, and each row pins it to its own index. Nothing splits the data —
@@ -691,6 +707,7 @@ async function start(own, acquisitions) {
     const showingAllOfIt = theViewThatShowsAllOf(theGroundTheRunCovers(own), own.size);
     if (showingAllOfIt) writeTheView(own, showingAllOfIt);
   }
+  openOnTheMiddlePlane(own);
 
   // -- the repaint discipline ---------------------------------------------
   //
@@ -1240,6 +1257,29 @@ function howFarThePatchIsOffCentre(own) {
 }
 
 /**
+ * Put the view on the plane a stack should open on.
+ *
+ * Said rather than inherited. Left alone this engine opens in the middle of its
+ * volume, which is the answer `planes.js` gives — so the three options agreed
+ * because two of them were told and the third happened to. A default that changed
+ * on a version bump would have shown one engine a different slice of tissue from
+ * the other, and nothing in the comparison would have said so.
+ */
+function openOnTheMiddlePlane(own) {
+  const info = own.viewer.navigationState.displayDimensionRenderInfo.value;
+  const space = own.viewer.navigationState.position.coordinateSpace.value;
+  const depth = info?.displayDimensionIndices?.[2] ?? -1;
+  if (depth < 0 || !space?.bounds) return;
+  const planes = Math.round(
+    space.bounds.upperBounds[depth] - space.bounds.lowerBounds[depth],
+  );
+  if (!(planes > 1)) return;
+  const moved = Float32Array.from(own.viewer.navigationState.position.value);
+  moved[depth] = space.bounds.lowerBounds[depth] + theMiddlePlaneOf(planes) + 0.5;
+  own.viewer.navigationState.position.value = moved;
+}
+
+/**
  * How much ground the open acquisitions cover, in micrometres.
  *
  * Read out of the engine's own coordinate space rather than from the stores,
@@ -1517,6 +1557,36 @@ function handleFor(own) {
      * Moving through the stack lives on a slider rather than on a gesture,
      * where it is visible and labelled — see `CONTROLS.md`.
      */
+    /**
+     * How deep the stack is, so a page can offer a way through it.
+     *
+     * Read out of the engine's own coordinate space, which spans every
+     * acquisition it has been given, and in the same micrometres `setPlane`
+     * counts in — the two are useless apart. Nothing when there is no depth to
+     * speak of: a single plane is not a stack.
+     */
+    theDepthItCanShow() {
+      const info = own.viewer.navigationState.displayDimensionRenderInfo.value;
+      const space = own.viewer.navigationState.position.coordinateSpace.value;
+      const depth = info?.displayDimensionIndices?.[2] ?? -1;
+      if (depth < 0 || !space?.bounds) return null;
+      const umPerVoxel = space.scales[depth] * UM_PER_M;
+      const planes = Math.round(
+        space.bounds.upperBounds[depth] - space.bounds.lowerBounds[depth],
+      );
+      if (!(umPerVoxel > 0) || !(planes > 1)) return null;
+      /* Counted from the first plane, not from the engine's own lower bound.
+         Those differ by half a voxel — this engine puts its bounds at voxel
+         *edges*, so a 833-plane stack at 5 µm reports itself as starting at
+         −2.5 µm — and a depth control that opens at minus two and a half
+         micrometres is describing the engine's arithmetic rather than the
+         specimen. It also has to match what `setPlane` below consumes, which
+         counts plane k at k voxels from the store's origin, and it has to match
+         what the other options answer, or the same stack is two different
+         depths depending on which engine happens to be drawing. */
+      return { lowUm: 0, highUm: (planes - 1) * umPerVoxel, stepUm: umPerVoxel };
+    },
+
     setPlane(z) {
       const info = own.viewer.navigationState.displayDimensionRenderInfo.value;
       const space = own.viewer.navigationState.position.coordinateSpace.value;
