@@ -125,6 +125,11 @@
                aria-label="Which engine draws the picture"></div>
           <div class="seg" id="viewer-canvas-layers"
                aria-label="Which of the three layers are drawn"></div>
+          <!-- Flat or the whole stack at once. Only shown for an engine that can
+               draw a volume; the others say why they cannot rather than offering
+               a button that does nothing. -->
+          <div class="seg" id="viewer-canvas-volume" role="radiogroup"
+               aria-label="Draw one plane or the whole stack" hidden></div>
           <!-- Where in the stack the picture is taken from. Hidden until a run
                is open and known to have depth, because a control for a stack
                that is one plane deep is a control that does nothing. -->

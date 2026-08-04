@@ -272,7 +272,7 @@ async function beforeWeGiveUp(promise, sayWhat) {
  */
 export function putTheCanvasIn({
   box, note, chooser, layers, why, readout, name, acquisitions, engine,
-  depth, plane, planeReadout,
+  depth, plane, planeReadout, volume,
 }) {
   /* What can be drawn with here, which is not always everything this page was
      built with — `engines.js` explains why. Asking for one that is not on offer
@@ -477,6 +477,7 @@ export function putTheCanvasIn({
        for a change of engine comes back in the state the buttons show rather than
        in the one it happens to open in. */
     opened.showPicture(showing.picture);
+    offerTheVolume(opened);
     offerTheStack(opened);
     if (carriedOver) opened.setView(carriedOver);
     viewer = opened;
@@ -560,6 +561,51 @@ export function putTheCanvasIn({
   let throughTheStack = null;
   let showingUm = null;
 
+  /* Flat, or the whole stack at once.
+   *
+   * Offered only by an engine that can do it, and remembered across a change of
+   * engine only in the sense that an engine which cannot draw a volume shows a
+   * flat picture and says so — the alternative, silently carrying "3D" onto an
+   * engine that ignores it, would leave a button reading 3D over a flat picture.
+   */
+  let showingVolume = false;
+
+  function offerTheVolume(viewerNow) {
+    if (!volume) return;
+    const can = viewerNow.canShowVolume === true;
+    volume.hidden = !can;
+    if (!can) {
+      showingVolume = false;
+      return;
+    }
+    if (!volume.childElementCount) {
+      for (const [key, label] of [[false, "Flat"], [true, "Volume"]]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("role", "radio");
+        button.dataset.volume = String(key);
+        button.textContent = label;
+        button.addEventListener("click", () => {
+          if (showingVolume === key) return;
+          showingVolume = key;
+          viewer?.showVolume(key);
+          markTheVolume();
+          sayWhatTheLayersAreDoing();
+        });
+        volume.append(button);
+      }
+    }
+    viewerNow.showVolume(showingVolume);
+    markTheVolume();
+  }
+
+  function markTheVolume() {
+    for (const button of volume?.querySelectorAll("button") ?? []) {
+      button.setAttribute("aria-checked",
+        String((button.dataset.volume === "true") === showingVolume));
+    }
+  }
+
   function offerTheStack(viewerNow) {
     throughTheStack = viewerNow.theDepthItCanShow?.() ?? null;
     if (!depth) return;
@@ -572,7 +618,11 @@ export function putTheCanvasIn({
        opens: `viz_studio/options/planes.js` says why, and a control that started
        at nought would put the picture at the edge of the specimen the moment it
        was touched. */
-    if (showingUm === null) showingUm = lowUm + (highUm - lowUm) / 2;
+    /* Where the picture already is, not the middle of the stack. The canvas opens
+       on the specimen rather than on the middle of the declared room, and a
+       control that started in the middle would undo that before anybody touched
+       it — measured, it put a biopsy back from plane 467 to 417. */
+    if (showingUm === null) showingUm = throughTheStack.atUm ?? (lowUm + (highUm - lowUm) / 2);
     showingUm = Math.min(Math.max(showingUm, lowUm), highUm);
     plane.min = String(lowUm);
     plane.max = String(highUm);

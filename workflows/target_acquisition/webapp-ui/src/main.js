@@ -1433,6 +1433,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
           why: el(`viewer-${which}-why`),
           readout: el(`viewer-${which}-readout`),
           name: el(`viewer-${which}-name`),
+          volume: el(`viewer-${which}-volume`),
           depth: el(`viewer-${which}-depth`),
           plane: el(`viewer-${which}-plane`),
           planeReadout: el(`viewer-${which}-plane-readout`),
