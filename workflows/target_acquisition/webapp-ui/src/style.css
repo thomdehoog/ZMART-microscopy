@@ -553,26 +553,20 @@ canvas.livecv[hidden] { display: none; }
    change `THE_COLOUR_BEHIND_THE_PICTURE` in `src/canvas/panel.js` with it. */
 .viewer-box { position: absolute; inset: 0; background: #05070d; }
 
-/* The engines, side by side, drawing the same run.
+/* The viewer: one picture, taking the whole panel.
 
-   Equal columns, because the comparison is between pictures and a picture given
-   more room looks better for a reason that has nothing to do with the engine.
-   The columns come from `grid-auto-flow: column` rather than a fixed count, so
-   adding or removing an engine is a change to the markup and not also to this
-   file. `min-width: 0` because a grid track otherwise refuses to shrink below the
-   width of what is in it, and a canvas will happily claim more than its share and
-   push its neighbour off the side.
+   This held two columns until the operator page stopped being a place to compare
+   engines; comparing them side by side is what the rig in `viz_studio/options/`
+   is for. `min-width: 0` stays and is not decoration — without it a canvas
+   refuses to shrink below the width of what it has put inside itself, so the
+   picture pushes the panel wider instead of fitting it.
 
    A panel is ordinarily a toolbar, its content and a foot. This one has no
-   toolbar of its own — each column carries its own — so it is two rows, and the
-   pictures take everything that is left. */
-#panel-viewer-viv.on { grid-template-rows: minmax(0, 1fr) auto; }
-.three-viewers {
-  min-height: 0;
-  display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; gap: 8px; padding: 8px;
-}
+   toolbar of its own — the viewer carries its own buttons — so it is two rows,
+   and the picture takes everything that is left. */
+#panel-viewer-canvas.on { grid-template-rows: minmax(0, 1fr) auto; }
 .one-viewer {
-  position: relative; min-width: 0; min-height: 0;
+  position: relative; min-width: 0; min-height: 0; padding: 8px;
   display: flex; flex-direction: column; gap: 5px;
 }
 /* The box is the only part that grows, and it grows from nothing — `flex: 1 1 0`
@@ -582,11 +576,8 @@ canvas.livecv[hidden] { display: none; }
    canvas should be give two differently sized pictures. */
 .one-viewer .viewer-box { position: relative; inset: auto; flex: 1 1 0; min-height: 0; }
 
-/* `hidden` is an attribute and `display: flex` is a rule, and the rule wins. The
-   engine chooser is `hidden` here because each column is fixed to one engine, so
-   it has to be said in CSS or every column's chooser shows up under its picture.
-   This is generic rather than aimed at the chooser; deleting that markup, which
-   is on the list of things to decide, frees nothing here. */
+/* `hidden` is an attribute and `display: flex` is a rule, and the rule wins, so a
+   row of buttons the page has hidden would otherwise still be on the screen. */
 .seg[hidden] { display: none; }
 .one-viewer .live-note { bottom: 8px; max-width: calc(100% - 16px); }
 .viewer-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
@@ -605,11 +596,12 @@ canvas.livecv[hidden] { display: none; }
    rest of the height" — and it did: measured, it grew to 475px and left the
    picture 235px at the bottom of a 774px column.
 
-   A fixed height rather than a minimum, and the same for every column, because
-   the columns are there to be compared: an engine with more to say about itself
-   must not be given a smaller picture than the one beside it. Three lines holds
-   the sentence that matters; the whole of it is on the element's `title`, which
-   is where hovering finds it. */
+   A fixed height rather than a minimum, so that changing engine cannot resize the
+   picture: one of them has a paragraph to say about what it cannot draw and the
+   other has a line, and a picture that jumped every time the button was pressed
+   would make the two impossible to compare by flicking between them. Three lines
+   holds the sentence that matters; the whole of it is on the element's `title`,
+   which is where hovering finds it. */
 .one-viewer .layer-why {
   flex: 0 0 auto;
   height: 3.9em; overflow: hidden;

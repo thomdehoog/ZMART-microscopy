@@ -159,7 +159,7 @@ describe("panels follow the step", () => {
 
   it("gives the whole window to a step in a workflow that never asks for the canvas", () => {
     expect(panelsOf("canvas_layers")).toEqual({
-      "canvas-picture": ["viewer-viv"],
+      "canvas-picture": ["viewer-canvas"],
     });
   });
 });
@@ -223,7 +223,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
 
   it("every step names panels the page can supply", () => {
     const known = new Set([
-      "canvas", "viewer-viv",
+      "canvas", "viewer-canvas",
       "connect", "optics", "focus", "detect", "analysis", "gallery"]);
     for (const wf of Object.keys(WORKFLOWS)) {
       for (const s of WORKFLOWS[wf].steps) {
@@ -282,7 +282,7 @@ describe("the canvas demonstration", () => {
   });
 
   it("wants a picture and nothing beside it", () => {
-    expect(panelsFor(steps, 0)).toEqual(["viewer-viv"]);
+    expect(panelsFor(steps, 0)).toEqual(["viewer-canvas"]);
   });
 
   it("has nothing to run, because standing on a step is the whole of it", () => {

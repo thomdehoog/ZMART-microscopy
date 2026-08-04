@@ -89,58 +89,47 @@
         </div>
       </div>
 
-      <!-- The canvas demonstration: one step, both engines drawing the same run
-           side by side.
+      <!-- The canvas: one viewer, with the engine drawing it chosen by a button.
 
-           This was two steps, one engine each, and then one step with a row of
-           buttons that swapped the engine in place. Both compared the engines one
-           after the other, which asks an operator to remember what the last one
-           looked like. Side by side does not: a difference between two pictures
-           standing next to each other is seen rather than recalled, and the one
-           difference that decides what can be built — whether a drawing handed to
-           the bottom slot really ends up beneath the picture — shows itself
-           immediately, because one of these draws the wash and the other says in
-           its own words why it cannot.
+           It has been all three arrangements now, and the reason it is this one is
+           worth keeping. A step per engine came first, then one step with a row of
+           buttons, then two columns side by side. The columns were built to
+           *compare* the engines: a difference between two pictures standing next
+           to each other is seen rather than recalled, and that is genuinely the
+           only way to catch a small one.
 
-           Each column is a viewer of its own, with its own engine, its own view
-           and its own buttons. They share nothing, which is also the check that
-           the canvas keeps no state belonging to its file rather than to the
-           viewer — two at once would fall over if it did.
+           Comparing is not what an operator does. An operator looks at their run,
+           through whichever engine draws it best, and two half-width pictures of
+           the same thing cost them half their screen to answer a question they are
+           not asking. So the chooser is back and the picture is whole. Nothing is
+           lost that mattered: the comparison rig in `viz_studio/options/` still
+           puts every engine side by side, measured rather than eyeballed, which is
+           where that work belongs.
 
-           There was a third, `viv-inside`, which drew the operator's layer inside
-           the engine as a texture rather than on a surface of its own. It is out
-           of the page because every change to that layer then costs an engine
+           Changing engine keeps the view exactly where it is — centre,
+           magnification, plane and moment all carry across — so the two can still
+           be compared by flicking between them on one picture.
+
+           There is a third engine, `viv-inside`, which drew the operator's layer
+           inside the engine as a texture rather than on a surface of its own. It is
+           out of this page because every change to that layer then costs an engine
            frame; it is still in `viz_studio/options/` and still in the
            comparison. -->
-      <div class="panel" id="panel-viewer-viv" role="tabpanel">
-        <div class="three-viewers">
-          <div class="one-viewer">
-            <div class="viewer-head">
-              <span class="viewer-name" id="viewer-vivunder-name">viv-under</span>
-              <div class="readout" id="viewer-vivunder-readout">—</div>
-            </div>
-            <div class="seg" id="viewer-vivunder-layers"
-                 aria-label="Which of the three layers are drawn, under viv-under"></div>
-            <span class="action-hint layer-why" id="viewer-vivunder-why"></span>
-            <div class="viewer-box" id="viewer-vivunder-box"></div>
-            <div class="live-note" id="viewer-vivunder-note" hidden></div>
-            <div class="seg" id="viewer-vivunder-engine" hidden></div>
+      <div class="panel" id="panel-viewer-canvas" role="tabpanel">
+        <div class="one-viewer">
+          <div class="viewer-head">
+            <span class="viewer-name" id="viewer-canvas-name">—</span>
+            <div class="readout" id="viewer-canvas-readout">—</div>
           </div>
-
-          <div class="one-viewer">
-            <div class="viewer-head">
-              <span class="viewer-name" id="viewer-neuro-name">neuroglancer-under</span>
-              <div class="readout" id="viewer-neuro-readout">—</div>
-            </div>
-            <div class="seg" id="viewer-neuro-layers"
-                 aria-label="Which of the three layers are drawn, under neuroglancer"></div>
-            <span class="action-hint layer-why" id="viewer-neuro-why"></span>
-            <div class="viewer-box" id="viewer-neuro-box"></div>
-            <div class="live-note" id="viewer-neuro-note" hidden></div>
-            <div class="seg" id="viewer-neuro-engine" hidden></div>
-          </div>
+          <div class="seg" id="viewer-canvas-engine" role="radiogroup"
+               aria-label="Which engine draws the picture"></div>
+          <div class="seg" id="viewer-canvas-layers"
+               aria-label="Which of the three layers are drawn"></div>
+          <span class="action-hint layer-why" id="viewer-canvas-why"></span>
+          <div class="viewer-box" id="viewer-canvas-box"></div>
+          <div class="live-note" id="viewer-canvas-note" hidden></div>
         </div>
-        <div class="panel-foot" id="foot-viewer-viv"></div>
+        <div class="panel-foot" id="foot-viewer-canvas"></div>
       </div>
 
       <!-- detection panel: tune on one tile, then run them all -->

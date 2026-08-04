@@ -127,7 +127,7 @@ async function standOnTheViewerStep(page, where, { engine = null } = {}) {
   if (engine) asked.set("engine", engine);
   await page.goto(`${where}?${asked}`);
   await page.selectOption("#wf-select", "canvas_layers");
-  await expect(page.locator("#panel-viewer-viv")).toHaveClass(/\bon\b/);
+  await expect(page.locator("#panel-viewer-canvas")).toHaveClass(/\bon\b/);
 }
 
 /**
@@ -143,11 +143,11 @@ async function fullestPictureOf(page, name, { seconds = 15 } = {}) {
   const until = Date.now() + seconds * 1000;
   let best = null;
   do {
-    const pixels = await photograph(page, "#viewer-viv-box", 0.5);
+    const pixels = await photograph(page, "#viewer-canvas-box", 0.5);
     const lit = fractionLit(pixels);
     if (!best || lit > best.lit) {
       best = { lit, ...colourSpread(pixels) };
-      best.shot = await page.locator("#viewer-viv-box").screenshot();
+      best.shot = await page.locator("#viewer-canvas-box").screenshot();
     }
     await rest(700);
   } while (Date.now() < until);
@@ -202,7 +202,7 @@ test("served over HTTP, the built page draws with every engine it offers", async
   await standOnTheViewerStep(page, where);
   await run.acquire(25);
 
-  const offered = await page.locator("#viewer-viv-engine button").allTextContents();
+  const offered = await page.locator("#viewer-canvas-engine button").allTextContents();
   expect(offered).toEqual(["viv-under", "viv-inside", "neuroglancer-under"]);
 
   /* Each in turn, on the same run, from the same view. Doing all three in one
@@ -210,9 +210,9 @@ test("served over HTTP, the built page draws with every engine it offers", async
      the page takes a few seconds, and what is being asked is a single question
      about one delivered page. */
   for (const engine of offered) {
-    if ((await page.locator("#viewer-viv-engine button[aria-checked='true']").textContent()) !== engine) {
-      await page.locator(`#viewer-viv-engine button[data-engine="${engine}"]`).click();
-      await expect(page.locator(`#viewer-viv-engine button[data-engine="${engine}"]`))
+    if ((await page.locator("#viewer-canvas-engine button[aria-checked='true']").textContent()) !== engine) {
+      await page.locator(`#viewer-canvas-engine button[data-engine="${engine}"]`).click();
+      await expect(page.locator(`#viewer-canvas-engine button[data-engine="${engine}"]`))
         .toHaveAttribute("aria-checked", "true");
     }
     const measured = await fullestPictureOf(page, `viewer-built-http-${engine}`);
@@ -237,7 +237,7 @@ test("opened straight off the disk, it offers only what can draw there, and says
   await standOnTheViewerStep(page, where, { engine: "neuroglancer-under" });
   await run.acquire(25);
 
-  const offered = await page.locator("#viewer-viv-engine button").allTextContents();
+  const offered = await page.locator("#viewer-canvas-engine button").allTextContents();
   expect(offered).toEqual(["viv-under", "viv-inside"]);
 
   /* And it says where the third one went, in a sentence somebody can act on.
@@ -248,8 +248,8 @@ test("opened straight off the disk, it offers only what can draw there, and says
      most needs told apart. Reading it before the engine has opened catches
      "opening viv-under…" instead, which is a true sentence about a moment that
      has not finished. */
-  await expect(page.locator("#viewer-viv-note")).not.toContainText("opening", { timeout: 60_000 });
-  const note = await page.locator("#viewer-viv-note").textContent();
+  await expect(page.locator("#viewer-canvas-note")).not.toContainText("opening", { timeout: 60_000 });
+  const note = await page.locator("#viewer-canvas-note").textContent();
   expect(note).toContain("neuroglancer-under");
   expect(note).toContain("HTTP");
 
