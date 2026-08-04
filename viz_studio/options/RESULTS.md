@@ -18,6 +18,92 @@ readings — including everything the table has no room for — are in
 
 ---
 
+## The table below is stale, and this section is what replaced it for a day
+
+Everything under "Read this before the table" describes stores this rig writes for
+itself: a few thousand voxels each, both engines opening them in under a second.
+On 4 August a real acquisition was opened instead — 75 GB, from another
+laboratory, written by something that is not this project — and it moved more than
+the table did. **Every column of the table predates the plane, window, opening
+view, picture switch and channel blending as they now stand, and none of it has
+been re-taken.** Read this section first; read the table as history until somebody
+runs `measure/run.py --option all` on a quiet machine.
+
+### The acquisition
+
+`Z:\transfer\Nikita-ZMB-transfer\Regina-skin\fused.zarr` — a punch biopsy of skin,
+two colours, one moment, 833 planes.
+
+| axis | length | step | extent |
+| --- | --- | --- | --- |
+| t | 1 | 1 ms | one moment; the axis is a formality |
+| c | 2 | | 561 nm, 638 nm |
+| z | 833 | 5 µm | 4165 µm |
+| y | 4613 | 0.85 µm | 3921 µm |
+| x | 4734 | 0.85 µm | 4024 µm |
+
+Six resolutions, `>u2` big-endian, bare `zstd`, nested chunk keys, `"filters": []`.
+Every one of those was measured harmless: a synthetic store combining all of them
+opens.
+
+### What it found
+
+| | before | after |
+| --- | --- | --- |
+| **neuroglancer opening it at all** | never finished; the page gave up at 25 s | opens |
+| green on screen, neuroglancer | 0.011% of the window | **0.045%** |
+| green on screen, `viv-under` | 0.029% | 0.043% |
+| distinct colours, neuroglancer | 808 | **14 153** |
+| distinct colours, `viv-under` | 13 874 | 13 874 |
+| background, neuroglancer | screen median 78 | **8.3** |
+| background, `viv-under` | screen median 117 | **8.3** |
+| the depth of the stack, either engine | not answerable | `0..4160 µm`, step 5, opens at plane 417 |
+
+**Two faults were in the store and are not ours to fix.** An axis unit written
+`um` where the format asks for `micrometer`, and `omero` channels whose `window`
+is `null`. Either alone stops neuroglancer opening the store, with no error and no
+rejected promise — it simply never finishes. Viv reads it regardless, which is why
+the two engines disagreed and why the disagreement looked like an engine fault.
+The file server repairs both on the way out and says what it corrected;
+`what-a-reader-refuses.js` names them on screen when a store still will not open.
+
+**One was ours.** A run that names its colours without saying how to display them
+fell through to a guess about a camera, and this specimen's background sits at
+1990 counts — hence the milky field. Read per channel now, which matters here:
+one channel reaches 4573 counts and the other 8859.
+
+### What it says about the two engines
+
+| | neuroglancer | viv-under |
+| --- | --- | --- |
+| background programs, counted at run time | **4** | **0** |
+| one plane change, settled | 3.0 s, 268 requests | 3.5 s, 200 requests |
+| a drag of 20 planes | 303 requests | **1266** |
+| the same drag, coalesced to one a frame | 352 (noise) | 980 |
+| pieces asked for per plane | about 15 | about 60 |
+
+**A single plane costs the same on both. Movement does not.** Neuroglancer's queue
+drops work that has been superseded and its fetching happens off the drawing
+thread; Viv sees every load through, on the thread it draws with. That is the
+whole of why it feels slower on a large run, and it is a property of the engines
+rather than of this page — coalescing was worth about a fifth of it and no more.
+
+### How these were taken, and what they are not
+
+By hand, with Playwright driving the operator page against the store served
+locally, photographing `#viewer-canvas-box` and measuring the photograph — the
+same method as the table, not the same program. The rig cannot be pointed at a
+foreign store: `--data` says where to *write* its own acquisitions, not where to
+find somebody else's. Making it able to is the obvious next piece of work, and
+this section is the argument for it — every one of the numbers above was invisible
+to a suite that only ever opens stores it wrote itself.
+
+The machine had a viewer open on the same 75 GB store while some of this was
+taken, so the timings are honest about ranking and unreliable in absolute terms.
+The counts — requests, colours, background programs — are not affected by that.
+
+---
+
 ## Read this before the table
 
 ### It was measured on a machine with no graphics card
