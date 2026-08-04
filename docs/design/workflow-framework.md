@@ -138,14 +138,23 @@ workflows and should be written once.
 ```
 src/catalogue/
   steps/      parts that are a step
+  panels/     parts that fill the channel — a set of controls
   views/      parts that fill the main area
-  lib/        parts that are neither — geometry, fitting, formatting
+  lib/        parts that are none of those — geometry, fitting, formatting
 ```
 
 The catalogue is **shared, versioned, and not privileged**. It is a library a
 workflow draws on, not a layer the workflow has to negotiate with. A workflow
 names the parts it uses and gets them; it names nothing else and gets nothing
 else.
+
+**Panels are parts in their own right, and not the property of one step.** It is
+tempting to file a panel inside the step it was first written for, since that is
+usually where it starts. But the second step that wants the same controls then
+has to copy them, and a copied panel is a correction that has to be made twice.
+Notes, a channel's brightness and colour, a list of what is about to happen — all
+of these are wanted by several steps in the same run. A step therefore *names*
+the panels it wants, exactly as it names its view.
 
 The versioning matters more than it looks. If workflows copy parts out of the
 catalogue instead of naming them, every correction has to be carried by hand
@@ -168,12 +177,13 @@ to one workflow. Copy the folder and you have moved the workflow.
 workflows/target_acquisition/
   workflow.json     the wiring: which steps, in what order, revisited how
   steps/            the steps only this workflow uses
+  panels/           the panels only this workflow uses
   views/            the views only this workflow uses
   README.md         what it is for, written for the person who will run it
 ```
 
-A bundle that only rearranges parts already in the catalogue has no `steps/` or
-`views/` folder at all. It is one small file, it contains no code, and it
+A bundle that only rearranges parts already in the catalogue has none of those
+three folders at all. It is one small file, it contains no code, and it
 therefore cannot break the window it is opened in. That is the case worth
 optimising for, because it is the common one.
 
@@ -232,11 +242,11 @@ export default {
   produces: "focus",
   cost:     "cheap",
 
-  view:  "canvas",
-  ready: (run) => run.focus.points.length >= 3 ? null : "Measure three points",
+  view:   "canvas",
+  panels: ["focus-controls", { panel: "notes", key: "notes" }],
 
+  ready: (run) => run.focus.points.length >= 3 ? null : "Measure three points",
   async run(ctx) { … },
-  panel: { mount(host, ctx) { … } },
 };
 ```
 
@@ -248,6 +258,26 @@ surface through measured points needs at least three of them.
 `reads` and `produces` are what let the core work out, without anybody
 maintaining a list by hand, that changing the carrier unsettles the scan fields
 and everything that followed from them.
+
+`view` and `panels` are names, resolved the same way step names are: the
+bundle's own folders first, then the catalogue. A step naming more than one
+panel gets them as tabs in the channel, in the order given.
+
+### Who owns what a shared panel writes
+
+Making panels reusable raises a fair question. If two steps both show the notes
+panel, where does what you type go?
+
+The answer keeps one owner per fact: **the step owns the state, and the panel is
+told where to put it.** A panel never decides that for itself. In the example
+above, the focus step produces `focus`, so the notes panel it names writes into
+`run.focus.notes` — the `key` says which corner of the step's own slice it may
+use. The same panel named by the carrier step writes into `run.carrier.notes`,
+and neither can reach the other's.
+
+This is what makes a panel genuinely reusable rather than merely copied. It
+carries no opinion about where in a run it is being used, so it can be used
+anywhere.
 
 **A step imports nothing.** Everything it needs arrives in the `ctx` it is
 handed, and `ctx` is assembled from what the workflow named. This single
@@ -364,6 +394,7 @@ why:
 - `step "curate" reads "focus", which nothing before it produces`
 - `step "acquire" is marked irreversible; this workflow may not set downstream: discard`
 - `no step named "segment" in this bundle or in catalogue v1`
+- `step "curate" names panel "notes" without a key; two panels would write to the same place`
 - `this workflow was written for catalogue v2; this window has v1`
 
 Refusing at load rather than partway through matters most for the long jobs. Told
@@ -385,13 +416,15 @@ workflows/target_acquisition/
   workflow.json    steps: connect, optics, carrier, scanfields, focus,
                           overview, detect, select, ./steps/curate,
                           save, disconnect
-  steps/curate/    step.js  panel.js
+  steps/curate/    step.js          names view "canvas" and panel "gallery"
 ```
 
-Everything but the curation step comes from the catalogue. The main area holds a
-picture of the stage drawn to scale from the carrier step onwards, because from
-that point everything happens on a stage. The channel holds the carrier's
-controls, then the scan fields', and so on.
+Everything but the curation step comes from the catalogue, and even that step
+writes no panel of its own: the gallery panel it wants is a catalogue part, so
+the bundle is one manifest and one small file. The main area holds a picture of
+the stage drawn to scale from the carrier step onwards, because from that point
+everything happens on a stage. The channel holds the carrier's controls, then the
+scan fields', and so on.
 
 ### An analysis pass, with no instrument at all
 
@@ -400,8 +433,8 @@ workflows/segment_and_count/
   workflow.json    steps: open-run, detect, review, export-table
 ```
 
-No `steps/` folder, no code, four parts from the catalogue. The main area holds
-a picture for the first three steps and a table for the last. There is no
+No folders at all, no code, four parts from the catalogue. The main area holds a
+picture for the first three steps and a table for the last. There is no
 instrument in this workflow's `ctx`, so nothing in it can drive one.
 
 Note that **`detect` is the same part in both**. Finding cells needs images, not
@@ -413,13 +446,18 @@ never handed an instrument to ask about.
 
 ```
 workflows/photosynthesis/
-  workflow.json    steps: watch, ./steps/quiz, summary
-  steps/quiz/      step.js  panel.js
+  workflow.json     steps: watch, ./steps/quiz, summary
+  steps/quiz/       step.js      produces "answers", names view "quiz"
+  views/quiz/       the questions themselves
 ```
 
-The main area holds a video, then the questions, then the summary. Going back to
-the video keeps your answers, because they live in the run document under
-`answers` rather than inside the panel. Redoing the quiz is `cheap`, so the
+The main area holds a video, then the questions, then the summary. All three
+steps also name the catalogue's `notes` panel in the channel, each with its own
+`key`, so a thought jotted down during the video is still there beside it when
+you come back and is not muddled with one jotted during the quiz.
+
+Going back to the video keeps your answers, because they live in the run document
+under `answers` rather than inside the panel. Redoing the quiz is `cheap`, so the
 framework simply lets you.
 
 Nothing in `core/` had to change to make this possible, which is the point of the
@@ -432,12 +470,15 @@ whole arrangement.
 One of the aims was that an assistant should be able to build a workflow without
 being able to break the window. The structure gives that in three ways.
 
-**There are only two things to write.** A manifest, which is data, and a step
-folder, which is code confined to itself. Everything else is sealed.
+**There is usually only one thing to write.** A manifest, which is data and
+contains no code, is the whole of a workflow that arranges parts already in the
+catalogue. Only a workflow that genuinely needs something new writes a part as
+well — a step, a panel or a view — and a part is code confined to its own folder.
+Everything else is sealed.
 
 **What is sealed is genuinely out of reach.** The layout, the render loop, the
 drawing engines, the coordinate arithmetic, the instrument's limits, the
-ordering rules. A step author never converts a coordinate, never touches the
+ordering rules. A part's author never converts a coordinate, never touches the
 page outside their own panel, and cannot move a stage past a limit. Each of those
 is a whole category of mistake that is now impossible rather than discouraged.
 
