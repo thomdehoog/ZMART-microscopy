@@ -46,6 +46,7 @@ viewer.setView({ centre, zoom })   // centre in micrometres, zoom in µm per scr
 viewer.getView()                   // → { centre, zoom }, the view now on screen
 viewer.setPlane(z)                 // which plane of the stack, in micrometres
 viewer.setMoment(t)                // which moment of a timelapse, counted from the first
+viewer.showPicture(on)             // draw the acquisitions, or not; the viewer stays open
 viewer.setChannel(index, { visible, colour, window })
 viewer.handDragsTo(handler)        // a drag means something other than panning; null gives panning back
 viewer.drawUnder(paint)            // the application's drawing beneath the picture
@@ -324,6 +325,39 @@ should until the shape of that is settled; publishing the transform is what make
 it possible for an application to. Which side of the canvas such an element may
 go on is the same question `drawsUnder` answers: above works everywhere, below
 only where the engine's canvas lets what is behind it through.
+
+### 4b. The picture is a switch, not a state the viewer is opened in
+
+`showPicture(false)` stops the acquisitions being drawn and leaves everything else
+exactly as it is: the viewer stays open, the view does not move, the operator's
+two drawings stay on screen, and every piece of image the engine has decoded is
+kept. `showPicture(true)` puts it back in the next frame, with no request made.
+
+**This is the third of the three layers, and it was the one without a switch.**
+The application had only one way to draw no picture — open the canvas with an
+empty acquisition list — and that is a different thing wearing the same clothes.
+It cost, measured from the operator page on a light-sheet tile:
+
+| | turning the picture off | and back on |
+| --- | --- | --- |
+| by reopening, `viv-under` | 1.6 s, 0 requests | 1.6 s, **45 requests** |
+| by reopening, `neuroglancer-under` | **26.7 s, and the picture stayed on** | 26.7 s, still on |
+| `showPicture`, either engine | one frame | one frame, no requests |
+
+The requests are the point on Viv: a reopened viewer has never decoded anything,
+so the picture is fetched again from nothing. Neuroglancer is worse than slow —
+it takes its axes from its image layers, so asked to open with none it never
+finishes at all, and the page's twenty-five-second give-up meant a button that
+looked slow and in fact did nothing.
+
+**Opening with no acquisitions is still allowed and still means what it says:**
+there is no run to draw, which is what an operator meets before one exists. An
+engine that cannot do it says so through the same give-up path as before. What
+changed is that the *button* no longer reaches for it.
+
+A channel switched off by `setChannel` stays off when the picture comes back on;
+`showPicture` is a switch over the whole picture and does not tidy away what the
+operator set.
 
 ### 5. Nothing in a module variable
 

@@ -93,6 +93,60 @@ def test_the_adapter_does_not_work_out_its_own_addresses():
         )
 
 
+def test_no_option_decides_for_itself_which_plane_to_open_on():
+    """Every option opens on the plane `planes.js` names, and none picks its own.
+
+    This is the same argument as the two gestures, and it was learned the same
+    way — by looking. `viv-under` opened every acquisition at plane 0 while
+    neuroglancer opened in the middle of the volume, so the operator page drew
+    two engines side by side showing plainly different pictures of one
+    light-sheet tile: the left one the stack's edge, out of focus and nearly
+    empty, the right one the specimen. Nothing was disagreeing about how to draw
+    a picture; they were drawing different pictures, and every reading taken
+    across the two columns was a reading of two different things.
+
+    A hard-coded first plane is therefore what this looks for, since that is the
+    shape the fault had. It cannot catch every way of choosing a plane privately,
+    and it does not need to: it holds the line that was actually crossed.
+    """
+    for option in EVERY_OPTION:
+        source = _without_comments((_OPTIONS / option / "viewer.js").read_text())
+        if "plane" not in source:
+            continue
+        assert re.search(r"""from\s+["']\.\./planes\.js["']""", source), (
+            f"{option}/viewer.js decides which plane to show without asking "
+            "options/planes.js, so it can open on a different plane from the "
+            "other options and the comparison stops meaning anything."
+        )
+        assert not re.search(r"\bplane:\s*0\b", source), (
+            f"{option}/viewer.js opens at a hard-coded first plane. On a stack "
+            "that is its edge; see options/planes.js."
+        )
+
+
+def test_every_option_can_switch_the_picture_off_without_reopening():
+    """`showPicture` is on every handle, so no page has to reopen to hide a run.
+
+    The three layers each have a switch now; the picture was the one without, and
+    the workaround for that was opening the canvas with an empty acquisition list.
+    Measured on the operator page, that cost `viv-under` 45 requests to fetch the
+    picture again on the way back, and did not work at all on `neuroglancer-under`
+    — which takes its axes from its image layers, so with none it never finished
+    opening, and both presses of the button cost 26.7 seconds with the picture
+    never going off.
+
+    An option that leaves this out puts that back, so it is checked here rather
+    than left to whoever writes the next one to read `contract.md` §4b.
+    """
+    for option in EVERY_OPTION:
+        source = _without_comments((_OPTIONS / option / "viewer.js").read_text())
+        assert re.search(r"\bshowPicture\s*\(", source), (
+            f"{option}/viewer.js has no showPicture, so a page can only hide its "
+            "run by opening the canvas again with no acquisitions; see "
+            "options/contract.md §4b for what that costs."
+        )
+
+
 def _without_comments(source: str) -> str:
     """The code with the prose taken out, roughly but well enough for this.
 

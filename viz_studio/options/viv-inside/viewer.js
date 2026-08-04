@@ -78,6 +78,16 @@ import { loadOmeZarr } from "@vivjs/loaders";
 // The two gestures, from the one copy every option shares. See `../gestures.js`
 // for why there is only one copy and what it costs to have three.
 import { onlyPanAndZoom } from "../gestures.js";
+// Which plane of a stack to open on, shared for the same reason: three options
+// opening on three planes would be three different pictures. See `../planes.js`.
+import { theMiddleOfEveryOtherAxis } from "../planes.js";
+// And what window to draw it through, from the same plane. The two have to come
+// from one place: a window measured on a plane the operator is not being shown
+// describes a picture that is not on the screen. See `../brightness.js`.
+import { theRangeTheseSourcesHold } from "../brightness.js";
+// And where to open looking, which the engines disagree about by a factor of
+// twenty if left to themselves. See `../opening-view.js`.
+import { theViewThatShowsAllOf } from "../opening-view.js";
 
 /**
  * How dim a spot may be before it is treated as ground nobody has been to.
@@ -200,8 +210,11 @@ export async function openViewer(element, options = {}) {
     opened: [],
     rows: [],
     // Which plane of the stack and which moment of a timelapse are on screen.
-    plane: 0,
-    moment: 0,
+    // Both are settled in `start`, once a store has been read and there is a
+    // stack to have a middle; nothing can draw before that, because `openViewer`
+    // waits for it.
+    plane: null,
+    moment: null,
     paint: null,
     counted: {
       overlayPaints: 0, groundPaints: 0, enginePaints: 0, letGoes: 0, lastAsked: 0,
@@ -541,11 +554,22 @@ async function start(own, acquisitions) {
         // Read here rather than where the rows are built, because that is not a
         // place that can wait for anything. Only wanted when the run describes
         // no colours of its own, and cheap enough to take either way.
-        heldRange: await theRangeItActuallyHolds(data),
+        heldRange: await theRangeTheseSourcesHold(data),
       };
     }),
   );
   if (own.opened.length) own.umPerVoxel = own.opened[0].umPerVoxel;
+  /* Which plane to open on cannot be settled before a store has been read, since
+     where the middle of a stack is depends on how deep it is — and it is not this
+     option's to decide in any case, or the options draw different pictures and
+     stop comparing. See `../planes.js`. In micrometres here, because that is what
+     this viewer counts its plane in; `selectionFor` turns it back into an index
+     per store. With nothing open there is no stack and no plane, which comes out
+     as nought without a special case. */
+  const sharpest = own.opened[0]?.pyramid?.[0];
+  const looking = theMiddleOfEveryOtherAxis(sharpest?.labels, sharpest?.shape);
+  own.plane = (looking.z ?? 0) * (own.umPerVoxel.z || 1);
+  own.moment = looking.t ?? 0;
   own.rows = rowsFor(own.opened);
 
   // Somewhere sensible to be looking before the page says where it wants to be,
@@ -679,53 +703,6 @@ function colourFromTheStore(hex) {
  * When the run asked for nothing, the ordinary window above is used — the same
  * one this viewer would have used had there been no description at all.
  */
-/**
- * The brightness range an image actually holds, read from its smallest copy.
- *
- * Only used when nobody said anything: the page named no colours and the run
- * describes none. The fixed range above is a good guess for the cameras this
- * project's own runs come from and a poor one for anybody else's — a light-sheet
- * transfer sits between about 200 and 1400 of a possible 65535, which drawn
- * against nought-to-4095 is a picture in the bottom third of black. Guessing a
- * constant where the picture itself can be asked is the same mistake as assuming
- * an axis, one function over.
- *
- * The smallest copy in the pyramid is a few hundred numbers, so this is one small
- * read rather than a pass over the image, and it happens once when the
- * acquisition opens. The lowest and highest are taken rather than percentiles: on
- * the coarsest copy every number is already an average of many, so the extremes
- * are not the lone bright specks they would be at full resolution.
- *
- * Written the same way in `viv-under`; change both together.
- *
- * @returns the range, or null if it cannot be read — in which case the caller
- *          keeps the fixed guess rather than showing nothing.
- */
-async function theRangeItActuallyHolds(sources) {
-  const smallest = sources?.[sources.length - 1];
-  if (!smallest) return null;
-  try {
-    // Whatever axes this image has beyond the two on screen, take the first of
-    // each -- one plane, one moment, one colour.
-    const selection = {};
-    for (const name of smallest.labels || []) {
-      if (name !== "x" && name !== "y") selection[name] = 0;
-    }
-    const raster = await smallest.getRaster({ selection });
-    let low = Infinity;
-    let high = -Infinity;
-    for (const value of raster?.data || []) {
-      if (value < low) low = value;
-      if (value > high) high = value;
-    }
-    return high > low ? { low, high } : null;
-  } catch {
-    // An image that will not give up its smallest copy is not a reason to refuse
-    // to draw it; the fixed guess is still better than nothing.
-    return null;
-  }
-}
-
 function windowFromTheStore(described) {
   const range = described?.window ?? {};
   if (Number.isFinite(range.start) && Number.isFinite(range.end)) {
@@ -810,24 +787,18 @@ function rowsFor(opened) {
  */
 function openingViewFor(own) {
   const first = own.opened[0];
-  const { width, height } = own.size;
-  if (!first) return { centre: { x: 0, y: 0 }, zoom: 1 };
+  if (!first) return NOWHERE_IN_PARTICULAR;
   const across = widthAndHeightInVoxels(first.pyramid[0]);
   const um = first.umPerVoxel;
-  return {
-    // The middle of the first acquisition, counted from where that acquisition
-    // says it begins rather than from the stage's zero — otherwise a run written
-    // some way along the stage opens looking at empty room beside it.
-    centre: {
-      x: first.originUm.x + (across.width * um.x) / 2,
-      y: first.originUm.y + (across.height * um.y) / 2,
-    },
-    zoom: Math.max(
-      (across.width * um.x) / width,
-      (across.height * um.y) / height,
-    ),
-  };
+  return theViewThatShowsAllOf({
+    atUm: first.originUm,
+    wideUm: across.width * um.x,
+    tallUm: across.height * um.y,
+  }, own.size) || NOWHERE_IN_PARTICULAR;
 }
+
+/** Where to look when there is no acquisition to look at. */
+const NOWHERE_IN_PARTICULAR = { centre: { x: 0, y: 0 }, zoom: 1 };
 
 /** How many voxels across and down the full-resolution image is. */
 function widthAndHeightInVoxels(source) {
@@ -1003,6 +974,11 @@ function layersFor(own) {
 
 /** One layer per acquisition, drawn in the order they were given. */
 function imageLayersFor(own) {
+  /* The picture switched off is no image layers in the next frame; the
+     operator's own layers are added around this and are unaffected. Hiding them
+     with deck.gl's own `visible: false` instead was tried and measured worse —
+     see the note in `viv-under`, where the numbers are. */
+  if (own.showingPicture === false) return [];
   const regions = own.boundToCoverage ? imagedVoxelRanges(own.coverage) : [];
   return own.opened.map((store, atStore) => {
     const rows = own.rows.filter((row) => row.atStore === atStore);
@@ -1446,6 +1422,19 @@ function handleFor(own) {
      * `index` counts across all the acquisitions in the order they are drawn,
      * which is the order they appear in a list on screen.
      */
+    /**
+     * Draw the acquisitions, or do not — the viewer stays open either way.
+     *
+     * Leaving the image layers out of the next frame, rather than opening the
+     * canvas again with no acquisitions, which is how this used to be done: a
+     * reopen costs the picture being fetched and decoded from nothing on the way
+     * back, and on one of the three engines it never finishes at all.
+     */
+    showPicture(on) {
+      own.showingPicture = on !== false;
+      showTheView(own);
+    },
+
     setChannel(index, { visible, colour, window: brightness } = {}) {
       const row = own.rows[index];
       if (!row) return;

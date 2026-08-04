@@ -143,13 +143,40 @@ work in. Measure it where the store really lives, not on a local disk.
   that is, and says so in the corner. The heading names whichever engine is
   actually drawing, so two columns showing the same engine on a page opened off
   the disk is that, and not a fault.
-- **Neuroglancer draws a foreign store very dark.** It has no way to read the
-  brightness range out of the picture — that is Viv's loader, which it does not
-  use — so it opens on a fixed guess of nought to 4095. A light-sheet transfer
-  sits at a few hundred to a couple of thousand of a possible 65535, so it is
-  visible but dim, and the column beside it, which does read the range, is not.
-  A difference in brightness between the two columns is this, not the engines
-  disagreeing about the picture.
+- **The two columns are not looking at the same plane of the stack.** `viv-under`
+  opens every acquisition at `plane: 0` (`viv-under/viewer.js:873`); neuroglancer
+  opens in the middle of the volume. On a light-sheet stack the first plane is
+  the edge, so the columns show different pictures of the same store and the left
+  one looks empty and out of focus — confirmed by rendering both planes out of
+  the file and matching them against the screen. **Do not read the two columns
+  against each other for brightness or for sharpness until this is settled**;
+  only an engine against itself is a fair comparison today.
+- **A foreign store used to be drawn dim, and neuroglancer no longer is.** It
+  reads the range out of the picture now — `viz_studio/options/brightness.js`,
+  the middle plane of the sharpest copy, first to ninety-ninth percentile — and
+  on the transfer below it draws a screen median of 48 where it drew 17 before,
+  same engine and same view. `viv-under` does not use that file: it keeps its own
+  copy, which reads the *smallest* copy of the image, its *first* plane, and takes
+  the smallest and largest value it finds there. All three are wrong in the same
+  direction, but what that costs on screen has not been measured on its own,
+  because of the plane difference above.
+
+### Found on 4 August, fixed, and worth knowing about
+
+- **Reading the picture was worse than the guess it replaced, in two ways at
+  once.** `brightness.js` took the *first* plane of a stack, which on a
+  light-sheet tile is its edge — 203 to 503, where the middle plane holds 609 to
+  23103 — and it took the smallest and largest value it found rather than
+  percentiles, so one saturated pixel at 65535 against tissue at 1750 stretched
+  the window elevenfold. The picture came out at a screen median of 12.9 against
+  the 108.7 the fixed nought-to-4095 guess gave. Both are fixed and pinned by
+  `webapp-ui/tests/unit/brightness.test.js`; measured on the transfer below, the
+  neuroglancer column went from a screen median of 17 to 48.
+- **The two Viv options still carry the old reading**, in a private copy called
+  `theRangeItActuallyHolds`, and it has a third fault besides those two: it reads
+  the *smallest* copy of the image, whose values describe the averaging rather
+  than the picture. `brightness.js` says on its face that it is shared by every
+  option the way `gestures.js` is. It is not yet — only neuroglancer uses it.
 
 ### Found on 3 August, fixed, and worth knowing about
 
