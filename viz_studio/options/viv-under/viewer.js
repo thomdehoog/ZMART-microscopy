@@ -746,7 +746,12 @@ function windowFromTheStore(described) {
   if (Number.isFinite(range.start) && Number.isFinite(range.end)) {
     return { low: range.start, high: range.end };
   }
-  return { ...AN_ORDINARY_WINDOW };
+  /* Nothing, rather than the ordinary window. A run that names a colour and says
+     nothing about how to display it is not the same as a run that asked for the
+     ordinary window, and answering as though it were is what put a real skin
+     biopsy on a milky grey field. The caller reads the picture instead; only if
+     that cannot be read does the guess come back. */
+  return null;
 }
 
 /**
@@ -819,8 +824,23 @@ async function openOneAcquisition(acquisition) {
       || [{
         name: acquisition.name,
         colour: [...WHITE],
-        window: (await theRangeTheseSourcesHold(opened.data)) || { ...AN_ORDINARY_WINDOW },
+        window: null,
       }];
+  /* Whatever the run did not say how to display is read out of the picture, one
+     channel at a time. Not only the run that describes nothing: a run may name
+     its colours and still give no window — a skin biopsy met here has `omero`
+     present with `"window": null` on both channels — and a guess about a camera
+     puts a specimen whose background sits at 1990 counts on a milky grey field.
+     Per channel, because on that biopsy one channel reaches 4573 counts and the
+     other 8859, and one window across the pair flattens whichever is fainter. */
+  const withWindows = [];
+  for (const [within, channel] of channels.entries()) {
+    withWindows.push(channel.window ? channel : {
+      ...channel,
+      window: (await theRangeTheseSourcesHold(opened.data, { channel: within }))
+        || { ...AN_ORDINARY_WINDOW },
+    });
+  }
   return {
     name: acquisition.name,
     url: acquisition.url,
@@ -840,7 +860,7 @@ async function openOneAcquisition(acquisition) {
     // be compared. See `../planes.js`.
     plane: looking.z ?? 0,
     moment: looking.t ?? 0,
-    channels: channels.map((channel, within) => ({
+    channels: withWindows.map((channel, within) => ({
       name: channel.name,
       within,
       colour: channel.colour || [...WHITE],

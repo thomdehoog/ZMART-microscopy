@@ -74,6 +74,12 @@
 
 import { theGroundBeneath, theOperatorsMarks } from "./demonstration-drawings.js";
 import { describeEngine, enginesOnOffer, openerFor, whyOneIsMissing } from "./engines.js";
+// What a strict reader will refuse in a store's own description, so bad news
+// can name a cause instead of reporting a silence. See that file for why the
+// engine cannot be asked directly.
+import {
+  whyAReaderMayRefuse,
+} from "../../../../../viz_studio/options/what-a-reader-refuses.js";
 
 /**
  * The colour of the box the picture is drawn in.
@@ -172,6 +178,38 @@ const THE_LAYERS = [
  *   that gives up must also assume whatever it started is still running. There
  *   is a note about what that costs where this is called.
  */
+/**
+ * What the run's own description says about why it might not have opened.
+ *
+ * An engine that will not accept a store does not always say so — the strict one
+ * never finishes opening and reports nothing at all — so what an operator meets
+ * is a silence, and a message about a silence tells them only that something is
+ * wrong somewhere. The description is small, it is already being served, and it
+ * is where both faults met so far are plainly visible. So it is read once, here,
+ * at the moment there is bad news to deliver.
+ *
+ * Nothing is asserted that has not been measured: `whyAReaderMayRefuse` reports
+ * the two faults that were shown to stop a store opening and stays quiet about
+ * everything else, so an empty answer leaves the original message exactly as it
+ * was rather than adding a guess to it.
+ */
+async function whatTheRunItselfMaySayAboutThat(acquisitions) {
+  const first = acquisitions?.[0];
+  if (!first) return "";
+  try {
+    const address = first.split("|")[0].replace(/\/+$/, "");
+    const answer = await fetch(`${address}/.zattrs`, { cache: "no-store" });
+    if (!answer.ok) return "";
+    const refusals = whyAReaderMayRefuse(await answer.json());
+    if (!refusals.length) return "";
+    return ` The run itself may be the reason: ${refusals.join("; and ")}.`;
+  } catch {
+    // The description could not be read, which is worth nothing extra on screen:
+    // the message already says the run could not be opened.
+    return "";
+  }
+}
+
 async function beforeWeGiveUp(promise, sayWhat) {
   let ringTheBell = null;
   const theWaitRunningOut = new Promise((_, giveUp) => {
@@ -637,7 +675,8 @@ export function putTheCanvasIn({
         return await openTheCanvas();
       } catch (whyNot) {
         emptyTheBox();
-        say(`the run could not be opened — ${whyNot.message}`);
+        say(`the run could not be opened — ${whyNot.message}`
+            + await whatTheRunItselfMaySayAboutThat(acquisitions));
       } finally {
         opening = false;
         markTheButtons();

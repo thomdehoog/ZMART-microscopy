@@ -798,7 +798,12 @@ function windowFromTheStore(described) {
   if (Number.isFinite(range.start) && Number.isFinite(range.end)) {
     return { low: range.start, high: range.end };
   }
-  return { ...AN_ORDINARY_WINDOW };
+  /* Nothing, rather than the ordinary window. A run that names a colour and says
+     nothing about how to display it is not the same as a run that asked for the
+     ordinary window, and answering as though it were is what put a real skin
+     biopsy on a milky grey field. The caller reads the picture instead; only if
+     that cannot be read does the guess come back. */
+  return null;
 }
 
 /**
@@ -897,22 +902,30 @@ async function rowsFor(acquisitions) {
   for (const acquisition of acquisitions) {
     // What the page said, where it said anything; otherwise what the run says
     // about itself; and only if the run says nothing either, one white channel.
-    const channels = acquisition.channels && acquisition.channels.length
+    const described = acquisition.channels && acquisition.channels.length
       ? acquisition.channels
       : channelsTheStoreDescribes(await theRunsOwnDescription(acquisition.url))
-        || [{
-          name: acquisition.name,
-          colour: [...WHITE],
-          /* Read out of the picture rather than guessed. The fixed range below
-             is a guess about a camera, and on an image from somebody else's
-             instrument it is a bad one — measured beside an option that reads
-             the picture, at the same view on the same tile, this engine had one
-             per cent of its pixels above mid-grey against the other's
-             forty-six. What that looks like on screen is a black box next to a
-             picture, which reads as an engine that cannot draw. */
-          window: (await theRangeAStoreHolds(acquisition.url))
-            || { ...AN_ORDINARY_WINDOW },
-        }];
+        || [{ name: acquisition.name, colour: [...WHITE], window: null }];
+    /* Whatever is still without a window is read out of the picture, one channel
+       at a time.
+
+       Not only the run that describes nothing. A run may name its colours and
+       still say nothing about how to display them — a skin biopsy met here does
+       exactly that, `omero` present with `"window": null` on both channels — and
+       filling that gap with a guess about a camera puts a specimen whose
+       background sits at 1990 counts on a milky grey field. Per channel, because
+       two channels of one acquisition are routinely far apart: on that biopsy one
+       reaches 4573 counts and the other 8859, and one window across the pair
+       flattens whichever is fainter. That fault is already fixed once, in the
+       viewer's own backend; this is the same fault in the canvas. */
+    const channels = [];
+    for (const [within, channel] of described.entries()) {
+      channels.push(channel.window ? channel : {
+        ...channel,
+        window: (await theRangeAStoreHolds(acquisition.url, { channel: within }))
+          || { ...AN_ORDINARY_WINDOW },
+      });
+    }
     channels.forEach((channel, within) => {
       rows.push({
         url: acquisition.url,

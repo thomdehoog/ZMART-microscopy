@@ -52,11 +52,21 @@ const READ_THE_MIDDLE_OF = new Set(["z"]);
  * @param {number[]} shape how long the image is along each of them.
  * @returns {Object<string, number>} an index per axis that is not `x` or `y`.
  */
-export function theMiddleOfEveryOtherAxis(labels, shape) {
+export function theMiddleOfEveryOtherAxis(labels, shape, { channel = 0 } = {}) {
   const selection = {};
   (labels || []).forEach((name, at) => {
     if (name === "x" || name === "y") return;
     const along = shape?.[at] ?? 1;
+    if (name === "c") {
+      /* Which colour is being asked about, since a store holding several does not
+         hold one picture. Two channels of one acquisition are routinely orders of
+         magnitude apart — measured on a skin biopsy, one runs to 4573 counts and
+         the other to 8859 — so a range taken from the first and applied to the
+         second describes a picture nobody is looking at. Left alone this is the
+         first channel, which is what a caller that has only one wants. */
+      selection[name] = Math.min(Math.max(channel, 0), Math.max(along - 1, 0));
+      return;
+    }
     selection[name] = READ_THE_MIDDLE_OF.has(name) ? Math.floor(along / 2) : 0;
   });
   return selection;
