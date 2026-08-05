@@ -302,5 +302,7 @@ work rather than a detail, and it is not done.
 The three layers are real; the placing behaviour in the middle is not. The server
 passes files through today, and everything above about tiles being kept apart and
 assembled on the way out is measured but unbuilt. `TILES_IN_ONE_STORE.md` has the
-measurements, `PLAN_the_placing_server.md` has a plan for building it, and both
-should be read with the reviews recorded in them.
+measurements, and `PLAN_keeping_the_overlap.md` weighs it against the simpler
+arrangement this repository had already measured -- dealing tiles across four
+ordinary images -- and recommends that instead, for reasons that are about what the
+data is worth to somebody else rather than about speed.
