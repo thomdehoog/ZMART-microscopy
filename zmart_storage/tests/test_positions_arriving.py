@@ -20,7 +20,11 @@ import numpy as np
 import pytest
 
 from zmart_storage.canvas import Channel
-from zmart_storage.positions import POSITIONS_FOLDER, start_a_run
+from zmart_storage.positions import (
+    POSITIONS_FOLDER,
+    how_many_copies_a_position_can_keep,
+    start_a_run,
+)
 
 # Small on purpose. These tests are about how a run is arranged, not about how a
 # picture looks, so the pictures only have to differ from one another.
@@ -76,7 +80,7 @@ def test_the_run_writes_one_image_per_position_and_one_picture_to_open(tmp_path)
     assert imaged == ACROSS * ACROSS
     assert view == folder / "overview.ome.zarr"
 
-    positions = folder / POSITIONS_FOLDER / "overview"
+    positions = folder / POSITIONS_FOLDER
     stored = sorted(one.name for one in positions.iterdir())
     assert len(stored) == ACROSS * ACROSS, (
         "one image per place on the stage, and nothing else in the positions folder"
@@ -90,9 +94,14 @@ def test_the_picture_holds_no_full_size_voxels_of_its_own(tmp_path):
     """Nothing is copied, which is the whole reason for this arrangement.
 
     The view's full-size level is a description and nothing else: every voxel of
-    it is answered by handing over a position's own file. The smaller copies *are*
-    written, because these positions keep none of their own to point at, and they
-    come to about a quarter of one picture rather than a second copy of the run.
+    it is answered by handing over a position's own file.
+
+    Only the full-size level is checked here, because the positions in this
+    particular run are exactly one piece across and so can carry no zoomed-out
+    copies of their own — the view has to make those. The test below,
+    ``test_each_position_carries_its_own_zoomed_out_copies``, uses positions large
+    enough to keep their own and shows the view then writing nothing whatever, at
+    any zoom, which is the arrangement a real run gets.
     """
     folder = tmp_path / "experiment"
     view, _ = _a_run(folder)
@@ -115,7 +124,7 @@ def test_every_position_opens_on_its_own(tmp_path):
     """
     folder = tmp_path / "experiment"
     _a_run(folder)
-    positions = sorted((folder / POSITIONS_FOLDER / "overview").iterdir())
+    positions = sorted((folder / POSITIONS_FOLDER).iterdir())
 
     corners = []
     for store in positions:
@@ -145,7 +154,7 @@ def test_nothing_of_ours_is_inside_an_image(tmp_path):
     view, _ = _a_run(folder)
     belongs_to_zarr = {".zattrs", ".zgroup", ".zarray", "zarr.json"}
 
-    images = [view, *(folder / POSITIONS_FOLDER / "overview").iterdir()]
+    images = [view, *(folder / POSITIONS_FOLDER).iterdir()]
     for image in images:
         for child in image.iterdir():
             if child.name in belongs_to_zarr:
@@ -172,7 +181,7 @@ def test_a_position_imaged_again_goes_into_the_image_it_already_had(tmp_path):
         "imaging a place in two colours and two moments made more than one image "
         "of it"
     )
-    stored = list((folder / POSITIONS_FOLDER / "overview").iterdir())
+    stored = list((folder / POSITIONS_FOLDER).iterdir())
     assert len(stored) == ACROSS * ACROSS
 
     listed = json.loads(
@@ -220,6 +229,96 @@ def test_declaring_generous_room_costs_almost_nothing(tmp_path):
         f"declaring 64 times the room cost {generous_run / tight_run:.1f} times the "
         "disk, so empty room is not free after all and the advice above is wrong"
     )
+
+
+def test_each_position_carries_its_own_zoomed_out_copies(tmp_path):
+    """A position is self-contained: the whole pyramid is inside the position file.
+
+    This is what lets the picture the viewer opens store nothing at all, at any
+    zoom. It also means a position handed to somebody on its own opens and zooms
+    like a proper image rather than a single flat plane.
+
+    How many copies a position can keep is decided by its own size: halving stops
+    when a copy would be smaller than one piece, since a piece is the smallest
+    thing that can be handed to the browser.
+    """
+    folder = tmp_path / "experiment"
+    tile = (1, 512, 512)
+    piece = 128
+    expected = how_many_copies_a_position_can_keep(tile, piece)
+    assert expected == 3, "512 halves to 256 and 128 before reaching one piece"
+
+    with start_a_run(
+        folder, name="overview", room=(1, 4096, 4096), tile_shape=tile,
+        voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+        channels=[Channel("488", window=(0, 4000))], piece=piece,
+    ) as run:
+        for row in range(2):
+            for column in range(2):
+                rng = np.random.default_rng(row * 2 + column)
+                run.write((400 + rng.normal(0, 300, tile)).clip(0, 4000).astype("uint16"),
+                          at=(0, row * 512, column * 512))
+        view = run.path
+
+    for store in (folder / POSITIONS_FOLDER).iterdir():
+        described = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
+        levels = described["attributes"]["ome"]["multiscales"][0]["datasets"]
+        assert [one["path"] for one in levels] == ["0", "1", "2"], (
+            f"{store.name} does not carry its own zoomed-out copies"
+        )
+
+    # And the picture the viewer opens writes nothing, at any zoom, because every
+    # level of it is answered by pointing at a position.
+    describing = {".zarray", ".zattrs", "zarr.json"}
+    written = [one.name for one in view.rglob("*")
+               if one.is_file() and one.name not in describing]
+    assert written == [], (
+        f"the view wrote {len(written)} pieces of picture even though the positions "
+        "carry their own copies, so the run is being held twice over"
+    )
+
+
+def test_a_zoomed_out_picture_holds_the_voxels_it_should(tmp_path):
+    """The copies inside the positions really are the picture's own copies.
+
+    This is the claim the whole arrangement rests on, so it is checked against the
+    specimen rather than argued. A position's zoomed-out copy is read back and
+    compared with the picture that was written shrunk by the same amount — every
+    voxel, not a sample.
+
+    It holds because shrinking keeps every second voxel counted from the image's
+    own corner, and a position begins on a whole number of pieces times the largest
+    shrink. Average four voxels instead and this stops being true at once, because
+    a coarse voxel near the edge of a position would be made partly of its
+    neighbour's specimen.
+    """
+    import zarr
+
+    folder = tmp_path / "experiment"
+    tile = (1, 512, 512)
+    rng = np.random.default_rng(0)
+    picture = (400 + rng.normal(0, 300, tile)).clip(0, 4000).astype("uint16")
+
+    with start_a_run(
+        folder, name="overview", room=(1, 2048, 2048), tile_shape=tile,
+        voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+        channels=[Channel("488", window=(0, 4000))], piece=128,
+    ) as run:
+        run.write(picture, at=(0, 0, 0))
+
+    store = next((folder / POSITIONS_FOLDER).iterdir())
+    held = zarr.open_group(str(store), mode="r")
+    for level in range(3):
+        factor = 2 ** level
+        should_be = picture[:, ::factor, ::factor]
+        found = np.asarray(held[str(level)][0, 0])
+        assert found.shape == should_be.shape, (
+            f"level {level} is {found.shape} and shrinking gives {should_be.shape}"
+        )
+        assert np.array_equal(found, should_be), (
+            f"level {level} of the position is not the picture shrunk by {factor}; "
+            "the viewer would show something the microscope never recorded"
+        )
 
 
 def test_a_position_of_the_wrong_size_is_refused(tmp_path):

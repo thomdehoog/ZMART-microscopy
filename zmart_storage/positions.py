@@ -10,11 +10,17 @@ What a run leaves on disk::
         zarr.json             no picture of its own beyond the zoomed-out copies.
         0/ 1/ 2/ 3/
       positions/
-        overview/
-          overview_pos00000.ome.zarr    one position, exactly as the camera saw it
-          overview_pos00001.ome.zarr
+        overview_pos00000.ome.zarr      one position, exactly as the camera saw it
+        overview_pos00001.ome.zarr
       zmart-links/            ours: which piece of the picture is which position
       zmart-coverage/         ours: where the run has actually imaged so far
+
+A smart experiment usually has more than one kind of scan — a wide survey and the
+detailed scans it led to — and each gets a run of its own, so ``overview.ome.zarr``
+and ``targetscan.ome.zarr`` sit side by side at the top with their positions
+together in one ``positions`` folder. They are told apart by the name each
+position carries, which it needs anyway to be worth anything on its own; a folder
+per kind was tried and only repeated the name one level up.
 
 Three things sit at the top and each is one idea. **The image you open**, which is
 a view: it stores no full-size picture at all and instead says which piece of the
@@ -71,6 +77,67 @@ from .linked import GrowingLinkedView, LinkedView, PlacedTile, start_a_growing_v
 POSITIONS_FOLDER = "positions"
 
 
+def how_many_copies_a_position_can_keep(
+    tile_shape: tuple[int, int, int], piece: int
+) -> int:
+    """How many zoomed-out copies one position can usefully keep, counting itself.
+
+    This is the number that decides whether the picture the viewer opens has to
+    write anything at all, so it is worth understanding rather than tuning.
+
+    A view points at a position's own zoomed-out copies instead of computing its
+    own, which it may do because shrinking here keeps every second voxel rather
+    than averaging four — so a voxel of a position's smaller copy is a voxel of the
+    whole picture's smaller copy, and belongs to that one position and no other.
+
+    Halving stops when a copy would be smaller than one piece, because a piece is
+    the smallest thing that can be handed to the browser. A position 2048 voxels
+    across kept in pieces of 128 therefore carries five copies — 2048, 1024, 512,
+    256, 128 — and a view over such positions writes no picture at any zoom.
+
+    **The catch, and it is the reason a run can end up writing copies anyway.** A
+    position has to begin on a multiple of the piece size times the largest shrink,
+    or its copy would keep a different set of voxels from the ones the picture
+    would have kept — a different picture, not a rounding difference. A position
+    the same size as a piece can only ever carry one copy, whatever is asked for.
+    """
+    across = min(int(tile_shape[1]), int(tile_shape[2]))
+    kept = 1
+    while across // 2 >= int(piece):
+        across //= 2
+        kept += 1
+    return kept
+
+
+class _Position:
+    """One place on the stage, stored whole, with its own zoomed-out copies.
+
+    An ordinary OME-Zarr image and nothing more. It is written here rather than
+    borrowed from :mod:`zmart_storage.cropped` because that module writes a second
+    trimmed copy of the whole run beside the positions, which is exactly what this
+    arrangement exists to avoid.
+    """
+
+    def __init__(self, folder: Path, arrays: list) -> None:
+        self.folder = folder
+        self._arrays = arrays
+
+    def put(self, picture: np.ndarray, *, frame: int, channel: int) -> None:
+        """Store one position, and shrink it into each of its own smaller copies.
+
+        The shrinking keeps **every second voxel** and discards the rest, which has
+        to match how the picture's own copies would have been made, voxel for
+        voxel. Averaging instead would give a smoother zoomed-out picture and
+        quietly break the whole arrangement: a coarse voxel would then be made of
+        four fine ones, which near the edge of a position come from its neighbour,
+        and no position could supply that piece on its own.
+        """
+        for level, array in enumerate(self._arrays):
+            factor = 2 ** level
+            array[frame, channel] = (picture if factor == 1
+                                     else picture[:, ::factor, ::factor])
+
+
 class Run:
     """A run being acquired, writing each position as it arrives.
 
@@ -98,7 +165,7 @@ class Run:
                  levels: int | None, ome_zarr_version: str) -> None:
         self.folder = Path(folder)
         self.name = name
-        self.positions_folder = self.folder / POSITIONS_FOLDER / name
+        self.positions_folder = self.folder / POSITIONS_FOLDER
         self.positions_folder.mkdir(parents=True, exist_ok=True)
 
         self._room = tuple(int(n) for n in room)
@@ -111,6 +178,11 @@ class Run:
         self._piece = int(piece)
         self._levels = levels
         self._ome_zarr_version = ome_zarr_version
+        # How many copies each position keeps of itself. This is what lets the
+        # picture the viewer opens store nothing at all: it points at these instead
+        # of computing its own, so a run holds each voxel once and only once.
+        self._position_levels = how_many_copies_a_position_can_keep(
+            self._tile_shape, self._piece)  # type: ignore[arg-type]
 
         # Which position store belongs to each place on the stage, and the array
         # inside it. A place visited again — in another colour, or at a later
@@ -233,27 +305,34 @@ class Run:
 
     # -- the two halves of writing a position ------------------------------
 
-    def _declare_the_position(self, where: tuple[int, int, int]):
+    def _declare_the_position(self, where: tuple[int, int, int]) -> _Position:
         """Write the empty image for one place on the stage, at its true corner.
 
         The corner recorded is where this position really sits, so opening the
         positions folder in napari or Fiji lays them out as the specimen rather
         than piling them all on the origin.
         """
-        from .cropped import _WholeTileImage
-
         number = len(self._written)
-        return _WholeTileImage.declare(
+        depth_max = int(np.iinfo(np.dtype(self._dtype)).max)
+        corner_um = tuple(
+            self._origin_um[axis] + where[axis] * self._voxel_size_um[axis]
+            for axis in range(3)
+        )
+        arrays = _declare_one(
             self.positions_folder / f"{self.name}_pos{number:05d}.ome.zarr",
-            origin=where,
-            tile_shape=self._tile_shape,  # type: ignore[arg-type]
-            voxel_size_um=self._voxel_size_um,  # type: ignore[arg-type]
-            origin_um=self._origin_um,  # type: ignore[arg-type]
-            channels=self._channels,
+            canvas_shape=self._tile_shape,  # type: ignore[arg-type]
             frames=self._frames,
+            channels=len(self._channels),
             dtype=self._dtype,
+            chunk=self._piece,
+            levels=self._position_levels,
+            voxel_size_um=self._voxel_size_um,  # type: ignore[arg-type]
+            origin_um=corner_um,  # type: ignore[arg-type]
+            channel_blocks=[one.described(depth_max) for one in self._channels],
             ome_zarr_version=self._ome_zarr_version,
         )
+        return _Position(
+            self.positions_folder / f"{self.name}_pos{number:05d}.ome.zarr", arrays)
 
     def _start_the_view(self, like: Path) -> GrowingLinkedView:
         """Declare the view, once the first position exists to describe it.
