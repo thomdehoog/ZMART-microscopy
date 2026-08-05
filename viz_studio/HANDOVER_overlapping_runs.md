@@ -4,6 +4,18 @@ Written 5 August 2026, for whoever picks this up — and particularly for whoeve
 first runs it on a machine with a graphics card, because that is the one thing this
 session could not do.
 
+**Read this one first.** Several documents were written while this was being worked
+out and most of them argue for arrangements that were not built. This is the one
+that describes what exists:
+
+| | |
+| --- | --- |
+| `HANDOVER_overlapping_runs.md` | this file — what was built, and the numbers |
+| `LINKING_INSTEAD_OF_COPYING.md` | how to show a run without copying it, and what that still needs |
+| `ARCHITECTURE.md` §7 | the three layers the whole tool is made of |
+| `PLAN_keeping_the_overlap.md` | **superseded** — two arrangements that were weighed and not built |
+| `TILES_IN_ONE_STORE.md` | the bench measurements behind all of it |
+
 **Status.** The reasoning is settled, the code exists, and it has now been run. The
 snapshot in `a9b7b5c` was taken mid-session with nothing yet proven; this document
 has since been brought up to date. Every test in `zmart_storage/tests/test_cropped.py`
