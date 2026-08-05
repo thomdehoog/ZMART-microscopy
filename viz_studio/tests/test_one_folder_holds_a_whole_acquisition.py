@@ -430,8 +430,7 @@ def test_the_newer_format_works_in_one_folder_too(tmp_path):
 
     # The list of pointers records the spelling rather than assuming one, so the
     # test reads it from there instead of hard-coding what it expects to find.
-    listed = json.loads(
-        linking.where_the_list_is(view.path)[0].read_text(encoding="utf-8"))
+    listed = linking.the_map_inside(view.path)
     assert listed["prefix"] == "c", (
         "0.5 files a piece under a 'c' part of its own; without that recorded, "
         "every request would be answered 'nothing here'"

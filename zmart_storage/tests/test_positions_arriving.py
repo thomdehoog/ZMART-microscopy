@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from zmart_storage.canvas import Channel
+from zmart_storage.linked import the_map_inside
 from zmart_storage.positions import (
     POSITIONS_FOLDER,
     how_many_copies_a_position_can_keep,
@@ -36,6 +37,17 @@ VOXEL_UM = (2.0, 0.35, 0.35)
 # Deliberately not the origin: a run at nought would let a mistake that lost the
 # corner entirely still look right.
 ORIGIN_UM = (11.0, 5.5, 7.25)
+
+
+def _the_positions_in(view: Path) -> list[Path]:
+    """The position images inside a picture, without the group's own description.
+
+    The positions live in a zarr *group* inside the picture, so the folder holds
+    a ``zarr.json`` of its own beside them — that file is what makes zarr treat
+    the folder as part of the hierarchy rather than warning about it.
+    """
+    return sorted(one for one in (view / POSITIONS_FOLDER).iterdir()
+                  if one.name.endswith(".ome.zarr"))
 
 
 def _a_picture(seed: int) -> np.ndarray:
@@ -80,13 +92,9 @@ def test_the_run_writes_one_image_per_position_and_one_picture_to_open(tmp_path)
     assert imaged == ACROSS * ACROSS
     assert view == folder / "overview.ome.zarr"
 
-    positions = folder / POSITIONS_FOLDER
-    stored = sorted(one.name for one in positions.iterdir())
+    stored = _the_positions_in(view)
     assert len(stored) == ACROSS * ACROSS, (
         "one image per place on the stage, and nothing else in the positions folder"
-    )
-    assert all(name.endswith(".ome.zarr") for name in stored), (
-        f"something that is not a position was left in the positions folder: {stored}"
     )
 
 
@@ -123,8 +131,8 @@ def test_every_position_opens_on_its_own(tmp_path):
     else, and it carries its own true place on the stage.
     """
     folder = tmp_path / "experiment"
-    _a_run(folder)
-    positions = sorted((folder / POSITIONS_FOLDER).iterdir())
+    view, _ = _a_run(folder)
+    positions = _the_positions_in(view)
 
     corners = []
     for store in positions:
@@ -144,27 +152,34 @@ def test_every_position_opens_on_its_own(tmp_path):
     assert min(corners) == (ORIGIN_UM[1], ORIGIN_UM[2])
 
 
-def test_nothing_of_ours_is_inside_an_image(tmp_path):
-    """Every ``.ome.zarr`` folder holds zarr's own files and the levels, nothing else.
+def test_zarr_itself_is_happy_with_everything_inside_the_picture(tmp_path):
+    """Opening the run in other software must produce no complaints at all.
 
-    Anything else in there makes zarr complain to whoever opens the run in other
-    software, which is most of the reason for writing OME-Zarr at all.
+    This is the check that keeps the data yours rather than ours, and the rule is
+    narrower than it first looks. Zarr does not mind what a group *contains* — it
+    minds finding something that is not part of the hierarchy. A loose file, or a
+    plain folder, gets *"Object at ... is not recognized as a component of a Zarr
+    hierarchy"*. A proper group does not, which is why the positions live in one.
+
+    So this asks zarr directly rather than guessing from names, which is how the
+    earlier version of this got it wrong and pushed everything out of the picture
+    that did not need to leave.
     """
+    import warnings
+
+    import zarr
+
     folder = tmp_path / "experiment"
     view, _ = _a_run(folder)
-    belongs_to_zarr = {".zattrs", ".zgroup", ".zarray", "zarr.json"}
 
-    images = [view, *(folder / POSITIONS_FOLDER).iterdir()]
-    for image in images:
-        for child in image.iterdir():
-            if child.name in belongs_to_zarr:
-                continue
-            if child.is_dir() and child.name.lstrip("0123456789") == "":
-                continue
-            raise AssertionError(
-                f"{child.name} sits inside the image {image.name}, where zarr "
-                "warns anyone who opens it"
-            )
+    for image in [view, view / POSITIONS_FOLDER, *_the_positions_in(view)]:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            list(zarr.open_group(str(image), mode="r").members())
+        complaints = [str(one.message) for one in caught]
+        assert complaints == [], (
+            f"opening {image.name} made zarr complain: {complaints}"
+        )
 
 
 def test_a_run_leaves_nothing_behind_that_nothing_reads(tmp_path):
@@ -183,8 +198,8 @@ def test_a_run_leaves_nothing_behind_that_nothing_reads(tmp_path):
     _a_run(folder)
 
     left = sorted(one.name for one in folder.iterdir())
-    assert left == ["overview.ome.zarr", "overview.writing", "positions",
-                    "zmart-links"], f"something unexpected was left behind: {left}"
+    assert left == ["overview.ome.zarr", "overview.writing"], (
+        f"something unexpected was left behind: {left}")
 
     assert not (folder / "zmart-coverage").exists(), (
         "a view kept a record of what it imaged, which for a view is always "
@@ -210,14 +225,14 @@ def test_the_picture_is_what_lets_the_viewer_open_the_run_at_all(tmp_path):
     from stores import discover
 
     folder = tmp_path / "experiment"
-    _a_run(folder)
+    view, _ = _a_run(folder)
 
     _, offered = discover(folder)
     assert offered == ["overview.ome.zarr"], (
         "opening the run should offer exactly one image to draw"
     )
 
-    _, every_position = discover(folder / POSITIONS_FOLDER)
+    _, every_position = discover(view / POSITIONS_FOLDER)
     assert len(every_position) == ACROSS * ACROSS, (
         "without the picture the viewer would be handed one image per position, "
         "which is the arrangement that does not scale"
@@ -238,11 +253,9 @@ def test_a_position_imaged_again_goes_into_the_image_it_already_had(tmp_path):
         "imaging a place in two colours and two moments made more than one image "
         "of it"
     )
-    stored = list((folder / POSITIONS_FOLDER).iterdir())
-    assert len(stored) == ACROSS * ACROSS
+    assert len(_the_positions_in(view)) == ACROSS * ACROSS
 
-    listed = json.loads(
-        (folder / "zmart-links" / "overview.ome.zarr.json").read_text(encoding="utf-8"))
+    listed = the_map_inside(view)
     places = [tuple(one["at"]) for one in listed["tiles"]]
     assert len(places) == len(set(places)) == ACROSS * ACROSS, (
         "a place was written into the list of pointers more than once"
@@ -317,7 +330,7 @@ def test_each_position_carries_its_own_zoomed_out_copies(tmp_path):
                           at=(0, row * 512, column * 512))
         view = run.path
 
-    for store in (folder / POSITIONS_FOLDER).iterdir():
+    for store in _the_positions_in(view):
         described = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
         levels = described["attributes"]["ome"]["multiscales"][0]["datasets"]
         assert [one["path"] for one in levels] == ["0", "1", "2"], (
@@ -327,11 +340,14 @@ def test_each_position_carries_its_own_zoomed_out_copies(tmp_path):
     # And the picture the viewer opens writes nothing, at any zoom, because every
     # level of it is answered by pointing at a position.
     describing = {".zarray", ".zattrs", "zarr.json"}
-    written = [one.name for one in view.rglob("*")
+    # Everything in the picture except the positions, which are inside it and are
+    # where the voxels are supposed to be.
+    written = [one.name for level in range(3)
+               for one in (view / str(level)).rglob("*")
                if one.is_file() and one.name not in describing]
     assert written == [], (
-        f"the view wrote {len(written)} pieces of picture even though the positions "
-        "carry their own copies, so the run is being held twice over"
+        f"the picture wrote {len(written)} pieces of its own even though the "
+        "positions carry their own copies, so the run is being held twice over"
     )
 
 
@@ -362,8 +378,9 @@ def test_a_zoomed_out_picture_holds_the_voxels_it_should(tmp_path):
         channels=[Channel("488", window=(0, 4000))], piece=128,
     ) as run:
         run.write(picture, at=(0, 0, 0))
+        view = run.path
 
-    store = next((folder / POSITIONS_FOLDER).iterdir())
+    store = _the_positions_in(view)[0]
     held = zarr.open_group(str(store), mode="r")
     for level in range(3):
         factor = 2 ** level

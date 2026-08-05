@@ -67,7 +67,9 @@ from pathlib import Path
 
 import numpy as np
 
-from .canvas import Channel, _declare_one
+import zarr
+
+from .canvas import _IMAGE_SUFFIX, Channel, _declare_one
 from .linked import GrowingLinkedView, LinkedView, PlacedTile, start_a_growing_view
 
 # The folder the positions go in, inside the run's own folder, with one folder per
@@ -165,8 +167,19 @@ class Run:
                  levels: int | None, ome_zarr_version: str) -> None:
         self.folder = Path(folder)
         self.name = name
-        self.positions_folder = self.folder / POSITIONS_FOLDER
+        # The positions sit inside the picture itself, so the whole run is one
+        # zarr: one thing to open, to move and to copy, with nothing of ours loose
+        # beside it. The folder holding them is made a proper zarr **group**
+        # rather than a plain folder, and that is not decoration — an ordinary
+        # folder inside an image makes zarr warn whoever opens the run in other
+        # software ("Object at positions is not recognized as a component of a
+        # Zarr hierarchy"), while a group is simply part of the hierarchy and
+        # passes without comment.
+        self.positions_folder = (
+            self.folder / f"{name}{_IMAGE_SUFFIX}" / POSITIONS_FOLDER)
         self.positions_folder.mkdir(parents=True, exist_ok=True)
+        zarr.open_group(str(self.positions_folder), mode="a",
+                        zarr_format=3 if ome_zarr_version == "0.5" else 2)
 
         self._room = tuple(int(n) for n in room)
         self._tile_shape = tuple(int(n) for n in tile_shape)
@@ -349,6 +362,11 @@ class Run:
             levels=self._levels,
             origin_um=self._origin_um,  # type: ignore[arg-type]
             discard_existing_run=True,
+            # The positions are already inside this folder, and declaring an image
+            # normally empties the folder it is declared in. Naming them here is
+            # what makes the writer step around them — without it, the first
+            # position would be deleted by the picture that is meant to show it.
+            keeps_its_tiles_in=POSITIONS_FOLDER,
         )
         return view
 

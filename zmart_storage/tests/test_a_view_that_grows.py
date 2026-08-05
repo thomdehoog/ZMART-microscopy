@@ -23,6 +23,7 @@ import pytest
 
 from zmart_storage.canvas import Channel, _declare_one
 from zmart_storage.linked import (
+    the_map_inside,
     where_the_list_goes,
     PlacedTile,
     link_the_tiles,
@@ -103,8 +104,7 @@ def test_a_grown_view_is_the_same_as_one_built_all_at_once(tmp_path):
     )
 
     def pointers(folder):
-        held = json.loads(
-            where_the_list_goes(folder / "v.ome.zarr")[0].read_text())
+        held = the_map_inside(folder / "v.ome.zarr")
         # The tiles live in different folders, so compare everything but the name.
         return sorted(
             (one["at"], one["size"], one["from"], one["held_as"])
@@ -346,23 +346,25 @@ def test_the_list_of_pointers_is_never_seen_half_written(tmp_path):
 
     with start_a_growing_view(folder, name="v", like=arriving[0],
                               view_shape=shape) as view:
-        held = where_the_list_goes(view.path)[0]
+        held = view.path
         for expected, tile in enumerate(arriving, start=1):
             view.add(tile)
             # Read it back the way the viewer's server does. It must always parse,
             # and it must never claim a tile that has not been added -- a list that
             # is a little behind is fine and is what the throttling is for, but a
             # list running ahead of the run would point at nothing.
-            listed = json.loads(held.read_text())
+            listed = the_map_inside(held)
             assert 0 <= len(listed["tiles"]) <= expected
-        # Nothing left behind beside it.
-        leftover = [one.name for one in held.parent.iterdir()
-                    if one.name.startswith(".")]
+        # The half-written copy is renamed over the description rather than left
+        # beside it, so nothing of that kind should be in the picture's folder.
+        # ``.zattrs`` and ``.zgroup`` are zarr's own and belong here.
+        leftover = [one.name for one in held.iterdir()
+                    if one.name.endswith(".being-written")]
         assert leftover == [], f"a temporary file was left behind: {leftover}"
         path = view.path
 
     # Closed, the list holds the whole run -- whatever the throttling deferred.
-    listed = json.loads(where_the_list_goes(path)[0].read_text())
+    listed = the_map_inside(path)
     assert len(listed["tiles"]) == len(arriving), (
         "a view closed after its last tile does not hold the whole run on disk"
     )
