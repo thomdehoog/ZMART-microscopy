@@ -189,6 +189,105 @@ def test_adding_a_tile_does_not_get_slower_as_the_run_goes_on(tmp_path):
     )
 
 
+def a_tile_with_moments_and_colours(folder, index: int, across: int,
+                                    frames: int, channels: int):
+    """One tile of a mosaic that holds several moments and several colours.
+
+    The pixels encode the moment, the colour and the place they came from, so that
+    the picture can be checked for having put every one of them where it belongs
+    rather than merely for having something in it.
+    """
+    lands_y = (index // across) * TILE[1]
+    lands_x = (index % across) * TILE[2]
+    store = folder / f"tile{index:04d}.ome.zarr"
+    arrays = _declare_one(
+        store,
+        canvas_shape=TILE,
+        frames=frames,
+        channels=channels,
+        dtype="uint16",
+        chunk=PIECE,
+        levels=1,
+        voxel_size_um=VOXEL_UM,
+        origin_um=(ORIGIN_UM[0],
+                   ORIGIN_UM[1] + lands_y * VOXEL_UM[1],
+                   ORIGIN_UM[2] + lands_x * VOXEL_UM[2]),
+        channel_blocks=[
+            Channel(name, window=(0, 65535)).described(65535)
+            for name in ("488", "561", "640")[:channels]
+        ],
+    )
+    y, x = np.indices(TILE[1:], dtype=np.int32)
+    for frame in range(frames):
+        for channel in range(channels):
+            coded = (100 + frame * 10000 + channel * 1000
+                     + (lands_y + y) * 3 + (lands_x + x)).astype("uint16")
+            arrays[0][frame, channel] = np.broadcast_to(coded, TILE)
+    return PlacedTile(store=store, lands_at=(0, lands_y, lands_x))
+
+
+def test_a_run_with_several_moments_and_colours_grows_the_same_way(tmp_path):
+    """A run is five axes — moment, colour, depth, and across the specimen.
+
+    Every other test here uses a single moment and a single colour, which is the
+    simplest case and not the usual one: a timelapse in three colours is ordinary
+    work. The moments and the colours pass through a view untouched, so they are
+    the part most likely to be quietly forgotten, and this checks they are not.
+    """
+    import zarr
+
+    across, how_many, frames, channels = 3, 9, 3, 2
+    at_once = tmp_path / "at_once"
+    grown = tmp_path / "grown"
+    at_once.mkdir()
+    grown.mkdir()
+    shape = (TILE[0], across * TILE[1], across * TILE[2])
+
+    together = [a_tile_with_moments_and_colours(at_once, index, across,
+                                                frames, channels)
+                for index in range(how_many)]
+    built = link_the_tiles(at_once, name="v", tiles=together, view_shape=shape,
+                           levels=3)
+
+    arriving = [a_tile_with_moments_and_colours(grown, index, across,
+                                                frames, channels)
+                for index in range(how_many)]
+    with start_a_growing_view(grown, name="v", like=arriving[0],
+                              view_shape=shape, levels=3) as view:
+        for tile in arriving:
+            view.add(tile)
+
+    assert built.frames == frames and built.channels == channels
+
+    def described(folder):
+        held = json.loads((folder / "v.ome.zarr" / ".zattrs").read_text())
+        names = [axis["name"] for axis in held["multiscales"][0]["axes"]]
+        return names, held["multiscales"], held["omero"]
+
+    names, _, _ = described(grown)
+    assert names == ["t", "c", "z", "y", "x"], (
+        f"a grown view does not declare the five axes a run has: {names}"
+    )
+    assert described(grown) == described(at_once)
+
+    # The zoomed-out copies keep every moment and every colour, and each of them
+    # holds what that moment and colour actually recorded.
+    for level in ("1", "2"):
+        one = np.asarray(zarr.open_group(str(at_once / "v.ome.zarr"), mode="r")[level])
+        other = np.asarray(zarr.open_group(str(grown / "v.ome.zarr"), mode="r")[level])
+        assert one.shape[0] == frames and one.shape[1] == channels, (
+            f"copy {level} lost a moment or a colour: {one.shape}"
+        )
+        assert np.array_equal(one, other)
+        # Different moments and colours must not have been written over each other.
+        for frame in range(frames):
+            for channel in range(channels):
+                block = other[frame, channel]
+                assert block.max() > 0, (
+                    f"moment {frame} colour {channel} of copy {level} is empty"
+                )
+
+
 def test_a_tile_that_lands_outside_the_declared_room_is_refused(tmp_path):
     """Room is declared before the run, so a tile beyond the edge has to be refused.
 
