@@ -395,6 +395,73 @@ def test_a_zoomed_out_picture_holds_the_voxels_it_should(tmp_path):
         )
 
 
+def test_a_run_can_be_added_to_after_it_has_started(tmp_path):
+    """The four things a smart experiment does to a run already going.
+
+    A colour, a moment, and a slab of depth are three different questions and it
+    is worth being exact about which of them makes a new image and which does not.
+
+    A place imaged **again** — in another colour, at a later moment, or simply
+    written over — goes into the image that place already has, because everything
+    recorded of one field of view belongs together. A slab of depth **above** a
+    place is somewhere else on the stage, so it is a position of its own.
+
+    Which of the two happened matters for more than tidiness: the picture is told
+    about a *place*, so a second colour must not add a second entry to the map,
+    while a slab must.
+    """
+    folder = tmp_path / "experiment"
+    deep = (4, 128, 128)
+    piece = 128
+
+    with start_a_run(
+        folder, name="experiment",
+        # Room for two slabs of depth, so the slab below has somewhere to land.
+        room=(2 * deep[0], 512, 512), tile_shape=deep,
+        voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+        channels=[Channel("488", window=(100, 4000)),
+                  Channel("561", window=(100, 4000))],
+        frames=3, piece=piece,
+    ) as run:
+        here = (0, 0, 0)
+        run.write(np.full(deep, 1000, "uint16"), at=here, channel=0, frame=0)
+        assert run.positions == 1
+
+        run.write(np.full(deep, 2000, "uint16"), at=here, channel=1, frame=0)
+        run.write(np.full(deep, 3000, "uint16"), at=here, channel=0, frame=2)
+        run.write(np.full(deep, 1500, "uint16"), at=here, channel=0, frame=0)
+        assert run.positions == 1, (
+            "imaging a place again made a second image of it; everything recorded "
+            "of one field of view should stay together"
+        )
+
+        # A slab of depth above the same y and x is a different place.
+        run.write(np.full(deep, 4000, "uint16"), at=(deep[0], 0, 0))
+        assert run.positions == 2
+        view = run.path
+
+    stored = _the_positions_in(view)
+    assert len(stored) == 2
+
+    # Everything written at the first place is in its image, in the right slots,
+    # and the rewrite replaced what was there rather than landing beside it.
+    import zarr
+    held = zarr.open_array(str(stored[0] / "0"), mode="r")
+    assert held.shape[:2] == (3, 2), "room for three moments and two colours"
+    assert int(np.asarray(held[0, 0]).max()) == 1500, "the rewrite did not take"
+    assert int(np.asarray(held[0, 1]).max()) == 2000, "the second colour is missing"
+    assert int(np.asarray(held[2, 0]).max()) == 3000, "the later moment is missing"
+
+    # And the map holds one entry per place, not one per picture written.
+    listed = the_map_inside(view)
+    places = [tuple(one["at"]) for one in listed["tiles"]]
+    assert len(places) == len(set(places)) == 2, (
+        f"the map holds {places}, so a place was written into it more than once"
+    )
+    assert (0, 0, 0) in places
+    assert (deep[0], 0, 0) in places
+
+
 def test_a_position_of_the_wrong_size_is_refused(tmp_path):
     """Refused rather than drawn in the wrong place.
 

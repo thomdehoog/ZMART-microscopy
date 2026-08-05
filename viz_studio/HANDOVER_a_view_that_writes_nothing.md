@@ -140,6 +140,38 @@ are looking at before quoting a saving.
 
 ---
 
+**What one more position costs a run already going.** Measured with
+`viz_studio/measure_what_one_more_position_costs.py`, over positions of 256
+voxels. Each arrival is timed *on its own*, with the run grown to the size in the
+first column first — which is the question that matters, since a microscope hands
+positions over one at a time rather than in a loop.
+
+| run already holds | a new place | another colour | a later moment | a slab of z |
+|---|---|---|---|---|
+| 10 positions | 62.98 ms | 13.72 ms | 14.01 ms | 61.58 ms |
+| 100 positions | 63.78 ms | 13.61 ms | 13.87 ms | 62.42 ms |
+| 500 positions | 65.58 ms | 13.43 ms | 13.42 ms | 64.83 ms |
+| 1 000 positions | 59.45 ms | 12.98 ms | 12.61 ms | 58.33 ms |
+| 2 000 positions | 63.87 ms | 13.26 ms | 12.69 ms | 62.47 ms |
+
+**Flat across a two hundred-fold range** — 63 ms at ten positions and 64 ms at two
+thousand. Nothing is being paid per position already written, so an acquisition
+does not slow down as it goes. Closing the run costs 63 ms once, when the
+positions added a line at a time are folded into the picture's description.
+
+Another colour or a later moment costs about a fifth of a new place, and the
+reason is worth knowing: they go into the image that place already has, and the
+map is not touched at all. The view is told about a *place* once rather than once
+per picture.
+
+Timing each arrival by itself rather than in a loop is deliberate, and the older
+arrangement is why. It measured 0.32 ms a position when thousands were added in a
+loop and **89 ms** for one arriving after a quiet moment, because every arrival
+rewrote the whole map. The loop was paying that too; it was simply spread over
+positions that were all already in it.
+
+---
+
 ## Opening a run in napari or Fiji — read this before somebody is surprised
 
 **Point other software at `positions`, never at the picture.**
