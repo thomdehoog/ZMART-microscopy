@@ -390,6 +390,45 @@ decoding. Task 4 of the same plan suggests overlapping neighbours by at least tw
 pieces for that reason — with pieces of 128 that is 256 voxels, about 12% of a
 2048-voxel tile, which is an ordinary overlap for stitching anyway.
 
+**What we actually want is for the overlap not to be shown at all**, and that is
+worth stating as the goal rather than leaving it implied. Crop each position back
+so the overlapping strip is gone, and place what is left so the cropped positions
+sit next to one another. There is still a disagreement where they meet, because
+two positions photographed from two stage positions do not quite agree; if you do
+not want that, the answer is to stitch. Nothing short of stitching removes it.
+
+Two things make this much cheaper than it sounds, and both are already here.
+
+**The interface already says it.** `PlacedTile` takes `taken_from` — where the
+shown part begins inside the position — and `size`, how much of it to show. Its
+own docstring says this is for "a run whose tiles overlap … to skip the strip its
+neighbour is showing". Nothing needs inventing; `positions.py` simply does not use
+those two fields yet, because it does not handle overlap.
+
+**And cropping costs nothing at all.** This is the part worth understanding.
+Cropping by pointing does not cut a single pixel: the view just points at *fewer
+pieces* of each position. The bytes handed over are the same whole files they
+always were, and the strip that is cropped away is simply never asked for. It
+stays on disk inside the position, untouched, which is exactly what a stitcher
+will want later.
+
+The one rule is that the crop and the placement have to land on whole pieces —
+`_refuse_a_placement_that_does_not_land_on_whole_pieces` checks `lands_at`,
+`taken_from` and `size` all three. So the way to arrange it is from the piece
+outwards rather than from the overlap inwards: **have the acquisition step by a
+whole number of pieces, and show exactly that many pieces of each position.** The
+cropped positions then tile the picture exactly, with no gap and no overlap, and
+the leftover strip on each position is whatever the stage happened to give you.
+With pieces of 128 and a 2048-voxel tile, stepping 1792 shows 14 pieces of 16 and
+keeps an overlap of 256 voxels — about 12%, an ordinary overlap for stitching.
+
+Note this is the same idea `cropped.py` already implements for the *copying*
+arrangement — trim half the shared strip off each tile so neighbours butt up — but
+done by pointing instead of by writing a second copy. That is strictly better, and
+it is a reason to read `cropped.py`'s `Trimming` before writing the arithmetic
+again: it has already worked out how to halve an overlap, which edges of the scan
+pattern must not be trimmed, and why.
+
 The honest summary is that the seam is a day's work, the phase belongs in the
 acquisition, and the disagreement is a stitching problem this project has
 deliberately not taken on. Deciding which of the three is actually being asked
