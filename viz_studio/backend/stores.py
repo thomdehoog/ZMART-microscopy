@@ -811,7 +811,7 @@ def written_timepoints(store: Path) -> int | None:
     datasets = (_read_attrs_at(store).get("multiscales") or [{}])[0].get("datasets") or []
     if not datasets:
         return None
-    level = store / str(datasets[0].get("path"))
+    level = _the_copy_that_holds_the_picture(store, datasets)
     # Which folder gains an entry as each moment lands depends on how the store names
     # its pieces, so it has to be worked out rather than assumed to be this one. Watch
     # the wrong folder and its modification time never moves, which would leave the
@@ -839,6 +839,38 @@ def written_timepoints(store: Path) -> int | None:
     answer = _count_frames(level)
     _frame_counts[str(watched)] = (stamp, answer)
     return None if answer is _TOO_MANY else answer
+
+
+def _the_copy_that_holds_the_picture(store: Path, datasets: list[dict]) -> Path:
+    """Which copy of the image to count the moments from.
+
+    Almost always the full-size one, which is where the picture is, and it is asked
+    first for exactly that reason: it is the copy that gains a file the instant a
+    frame lands, so it gives the freshest answer during a run.
+
+    There is one arrangement where it holds nothing at all, and it is not damage. An
+    acquisition can be shown as one image whose full-size picture is never written
+    down — it is a list of pointers into the tiles that already exist, and only the
+    zoomed-out copies are written (see ``linking.py``). Counting frames from a copy
+    that is empty by design would say the run had imaged nothing, and the time slider
+    would offer no frames at all for a timelapse that is plainly on screen. So where
+    the full-size copy holds no picture, the next copy down is asked instead, and so
+    on. Every copy is written as each tile arrives, so they all reach the same moment
+    and the answer is the same one by a slightly longer road.
+
+    The look is a single reading of a folder that holds one entry per moment, so it
+    costs nothing worth measuring, and it stops at the first copy that has anything
+    in it.
+    """
+    copies = [store / str(entry.get("path")) for entry in datasets]
+    for level in copies:
+        holder = _moments_folder(level)
+        try:
+            if any(entry.name not in DESCRIPTION_FILES for entry in holder.iterdir()):
+                return level
+        except OSError:
+            continue
+    return copies[0]
 
 
 def _moments_folder(level: Path) -> Path:

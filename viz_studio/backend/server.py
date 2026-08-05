@@ -48,6 +48,7 @@ from pathlib import Path
 # inside the function that uses them, which keeps import errors surfacing at
 # startup instead of on the first request an operator makes.
 import announcements as announcements_mod
+import linking
 from announcements import Announcements, FolderWatcher
 from contrast import coarsest_level_is_written, intensity_histogram, measure
 from library import Library
@@ -325,6 +326,16 @@ class _Handler(SimpleHTTPRequestHandler):
             self._send_empty(HTTPStatus.FORBIDDEN)
             return
         if not target.is_file():
+            # Before deciding there is nothing here: some pictures are never
+            # written down at all. An acquisition can be shown as one image whose
+            # full-size picture is a list of pointers into the tiles that already
+            # exist, so a piece of it lives in a file somewhere else, byte for
+            # byte. See linking.py. Nothing is assembled and no pixel is touched --
+            # the file that already holds those exact bytes is handed over as it is.
+            elsewhere = self._pointed_at(rel)
+            if elsewhere is not None:
+                self._send_file(elsewhere)
+                return
             # A piece that was never imaged is the *ordinary* case, not an error:
             # most of a live acquisition has not been written yet, and the engine
             # asks about those regions constantly.
@@ -337,6 +348,35 @@ class _Handler(SimpleHTTPRequestHandler):
             self._send_empty(HTTPStatus.NOT_FOUND)
             return
         self._send_file(target)
+
+    def _pointed_at(self, rel: str) -> Path | None:
+        """The file that really holds this piece, when the picture was never written.
+
+        ``rel`` is what came after ``/data/``: the opened folder's number, then the
+        image, then the piece inside it. A view built by
+        :mod:`zmart_storage.linked` keeps a small list saying which piece of it is
+        which piece of which tile, and this turns one into the other.
+
+        The answer comes back from that list as a path *relative to the opened
+        folder* and is then resolved by the library, exactly as the original request
+        was. That is deliberate: a pointer is therefore held to the same rule as
+        everything else — it can only reach inside a folder somebody opened — and
+        there is no second guard here that could come to disagree with the first.
+
+        ``None`` means this is not a pointed-at piece, which is the answer for every
+        ordinary image and costs one look at whether a file exists.
+        """
+        number, _, rest = rel.partition("/")
+        image, _, inside = rest.partition("/")
+        if not inside:
+            return None
+        store = self._library.resolve(f"{number}/{image}")
+        if store is None:
+            return None
+        found = linking.the_file_behind(store, inside)
+        if found is None:
+            return None
+        return self._library.resolve(f"{number}/{found}")
 
     def _send_empty(self, status: HTTPStatus) -> None:
         """Answer with a bare status, keeping the connection open for the next ask."""
@@ -764,6 +804,7 @@ class _Handler(SimpleHTTPRequestHandler):
         # again, the small files describing it are simply read again.
         for _, root, name in closed:
             forget(root / name)
+            linking.forget(root / name)
             self.forget_described(root / name)
         self._forget_measurements(closed)
         self._send_json(self._config())
