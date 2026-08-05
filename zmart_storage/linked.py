@@ -189,7 +189,7 @@ LINKS_ADDED_FILE = "zmart-links-added.jsonl"
 
 # What that companion file is called beside the images, where it has to carry the
 # name of the view it belongs to: ``zmart-links/overview.ome.zarr-added.jsonl``.
-LINKS_ADDED_ENDING = "-added.jsonl"
+LINKS_ADDED_ENDING = "-positions-arriving.jsonl"
 
 
 def the_map_inside(view: str | Path) -> dict | None:
@@ -247,13 +247,20 @@ def where_the_list_goes(view: Path) -> tuple[Path, Path]:
     position at a time, and rewriting the whole map for each of them grows with
     the run — measured at 89 milliseconds for one position once a picture held six
     thousand four hundred. Appending a line costs the same whether it is the first
-    position or the ten thousandth. So while a run is going there is one extra
-    file, hidden, beside the picture; when the run finishes its lines are folded
-    into the description and it is deleted. **A finished run is a single zarr with
-    nothing of ours outside it**, which is the thing worth having.
+    position or the ten thousandth.
+
+    So while a run is going there is one extra file beside the picture, named
+    after it and ending ``-positions-arriving.jsonl``. When the run finishes its
+    lines are folded into the description and it is deleted, so **a finished run
+    is a single zarr with nothing of ours outside it**.
+
+    It is deliberately *not* hidden. A file an operator can see is a file they can
+    ask about, and its name says what it is and that it belongs to a run still
+    going. A dot in front would only mean that somebody finding their acquisition
+    behaving oddly would have to know to look for it.
     """
     return (_the_description_file_of(view),
-            view.parent / f".{view.name}{LINKS_ADDED_ENDING}")
+            view.parent / f"{view.name}{LINKS_ADDED_ENDING}")
 
 # Which shape of that file this is. A reader that meets a number it does not know
 # should refuse rather than guess, because guessing wrongly would draw somebody
