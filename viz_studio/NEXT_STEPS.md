@@ -869,6 +869,16 @@ what the next session should do about it is set out under "Start here" at the to
 document. What follows is the evidence, kept here because it is worth reading before
 building anything on top of it.
 
+> **There may be a way to have this without giving up the overlap**, which this section
+> and Decision 1b both treat as the unavoidable price. `TILES_IN_ONE_STORE.md` measures
+> it: keep every tile whole in one image, each in a slot of its own, and place them where
+> they truly belong when the picture is *read* rather than when it is written. Measured at
+> about four times a plain read and, unlike stitching on the spot, **flat as the tile count
+> grows** — the same cost per piece at 576 tiles as at 16, and the same picture voxel for
+> voxel. It is not built, and one question about the coarse copies is still open, but it is
+> the first arrangement measured that does not force a choice between one store and keeping
+> the overlap. Read it before acting on the paragraphs below.
+
 The two questions this section used to leave open — how large to make the image, and how to
 write into it safely from more than one place at once — have both since been answered. See
 "Start here", or `DATA_LAYOUT.md` for the full reasoning.
