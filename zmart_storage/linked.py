@@ -139,7 +139,7 @@ from pathlib import Path
 import numpy as np
 import zarr
 
-from .canvas import Channel, TileCanvases, copies_for_a_canvas
+from .canvas import _IMAGE_SUFFIX, Channel, TileCanvases, copies_for_a_canvas
 
 # The small file, written inside the view's own folder, that says which piece of
 # the view is which piece of which tile. The viewer's server reads it by this name;
@@ -682,6 +682,51 @@ def _refuse_a_placement_that_does_not_land_on_whole_pieces(
 # -- building the view ---------------------------------------------------------
 
 
+def _refuse_tiles_that_are_not_where_the_view_says_they_are(
+    tiles: list[PlacedTile], folder: Path, name: str, inside: str,
+) -> None:
+    """Stop a view claiming to hold its tiles when some of them live elsewhere.
+
+    A view asked to keep its tiles inside itself is making a promise to the
+    operator: this one folder is the whole acquisition, so moving it moves
+    everything and copying it copies everything. A tile left outside would break
+    that promise silently — the folder would copy without complaint and the
+    picture would come out empty at the other end, with nothing on screen to say
+    which tiles had been left behind.
+
+    So it is checked here, before anything is written, and every tile that is in
+    the wrong place is named rather than only the first. Somebody who has put
+    their positions in one wrong folder has usually put all of them there, and one
+    name at a time would mean running this once per tile to find that out.
+    """
+    wanted = (folder / f"{name}{_IMAGE_SUFFIX}" / inside).resolve()
+    astray = []
+    for tile in tiles:
+        where = Path(tile.store).resolve()
+        if wanted != where and wanted not in where.parents:
+            astray.append(where)
+    if not astray:
+        return
+    shown = "\n".join(f"  {one}" for one in astray[:5])
+    if len(astray) > 5:
+        shown += f"\n  ... and {len(astray) - 5} more"
+    raise ValueError(
+        f"this view was asked to keep its tiles in {inside!r}, inside its own "
+        f"folder, but {len(astray)} of the {len(tiles)} tiles given live "
+        f"somewhere else:\n{shown}\n\n"
+        f"They were expected under {wanted}.\n\n"
+        "The point of keeping the tiles inside the view is that the folder is "
+        "then the whole acquisition: one thing to open, to move and to copy. A "
+        "tile outside it would be left behind by any of those, and the picture "
+        "would come out with holes in it and nothing to say why — so this is "
+        "refused rather than written.\n\n"
+        "Either write the positions into that subfolder in the first place, "
+        "which is what an acquisition meaning to use this arrangement should do, "
+        "or leave keeps_its_tiles_in out and let the view sit beside its tiles "
+        "as it normally does."
+    )
+
+
 def link_the_tiles(
     folder: str | Path,
     *,
@@ -690,6 +735,7 @@ def link_the_tiles(
     view_shape: tuple[int, int, int] | None = None,
     levels: int | None = None,
     discard_existing_run: bool = False,
+    keeps_its_tiles_in: str | None = None,
 ) -> LinkedView:
     """Present a folder of tiles to the viewer as one image, copying no full-size pixel.
 
@@ -719,6 +765,36 @@ def link_the_tiles(
             canvas uses decides it from the size of the picture.
         discard_existing_run: whether to throw away a view already built in this
             folder under this name. The tiles are never touched either way.
+        keeps_its_tiles_in: the name of a subfolder *inside* the view where the
+            tiles live, such as ``"positions"``. Left out — the usual arrangement
+            — the view is a folder beside the tiles and each is separate.
+
+            Giving it says the view and its tiles are one thing on disk::
+
+                plate.ome.zarr/          <- open this; it is one whole picture
+                  .zattrs .zgroup        <- what the picture is
+                  0/ 1/ 2/ 3/            <- descriptions only, no picture at all
+                  zmart-links.json       <- which piece is which piece of which tile
+                  positions/
+                    pos00000.ome.zarr/   <- a complete image in its own right
+                    pos00001.ome.zarr/
+
+            The reason to want it is that there is then **one folder to open, to
+            move and to copy**, and nothing of a run can be separated from the
+            rest of it by accident. Each position inside stays an ordinary
+            OME-Zarr image that opens perfectly well on its own, and no picture is
+            copied to achieve any of this.
+
+            What it costs is that deleting that one folder now deletes the
+            acquisition rather than only the view. The writer is careful about the
+            half of that it can control — ``discard_existing_run`` clears the
+            view's description and leaves the positions exactly as they are — but
+            nothing can help with an operator deleting the folder in a file
+            manager. Weigh that against the tidiness before choosing it.
+
+            The tiles must really be inside that subfolder, and this is checked:
+            a view that claimed to hold its tiles and did not would be a folder
+            you could copy and find empty at the far end.
 
     Returns:
         A :class:`LinkedView` saying where the view is and what it points at.
@@ -735,6 +811,9 @@ def link_the_tiles(
                    tuple(int(n) for n in one.taken_from), one.size)  # type: ignore[arg-type]
         for one in tiles
     ]
+    if keeps_its_tiles_in is not None:
+        _refuse_tiles_that_are_not_where_the_view_says_they_are(
+            placed, folder, name, keeps_its_tiles_in)
     stored = _what_the_tiles_are(placed)
     shown = [
         tuple(int(n) for n in (one.size if one.size is not None else stored.shape))
@@ -782,6 +861,7 @@ def link_the_tiles(
         levels=levels,
         discard_existing_run=discard_existing_run,
         ome_zarr_version=stored.ome_zarr_version,
+        keeps_its_tiles_in=keeps_its_tiles_in,
     )
     view = canvas.paths[0]
     try:
@@ -815,6 +895,7 @@ def start_a_growing_view(
     levels: int | None = None,
     origin_um: tuple[float, float, float] | None = None,
     discard_existing_run: bool = False,
+    keeps_its_tiles_in: str | None = None,
 ) -> GrowingLinkedView:
     """Open a view for a run that has not happened yet, and add tiles as they land.
 
@@ -847,6 +928,16 @@ def start_a_growing_view(
             Give it outright when it is not.
         discard_existing_run: whether to throw away a view already built here under
             this name.
+        keeps_its_tiles_in: the name of a subfolder inside the view where the
+            positions will be written, such as ``"positions"``. See
+            :func:`link_the_tiles`, which describes the arrangement and what it
+            costs.
+
+            This is the comfortable way round to build it. The view is declared
+            first, while its folder is still empty, and the run then writes each
+            position into that subfolder and hands it to :meth:`add` as it lands.
+            Nothing has to be moved afterwards, and the operator can open the
+            folder and watch the picture fill in.
 
     Returns:
         A :class:`GrowingLinkedView`. Add tiles to it with
@@ -883,6 +974,7 @@ def start_a_growing_view(
         levels=levels,
         discard_existing_run=discard_existing_run,
         ome_zarr_version=stored.ome_zarr_version,
+        keeps_its_tiles_in=keeps_its_tiles_in,
     )
     view = canvas.paths[0]
     try:
@@ -895,7 +987,7 @@ def start_a_growing_view(
     pointing_at = _how_far_down_the_zooms_it_can_point(stored.keeps, kept)
     growing = GrowingLinkedView(
         canvas, folder, stored, shape, corner, kept, example.store,
-        pointing_at)  # type: ignore[arg-type]
+        pointing_at, keeps_its_tiles_in)  # type: ignore[arg-type]
     # An empty list, written straight away, so that a viewer opened before the
     # first tile lands finds a view that is complete and simply has nothing in it
     # yet, rather than one whose list of pointers is missing.
@@ -947,9 +1039,16 @@ class GrowingLinkedView:
     def __init__(self, canvas: TileCanvases, folder: Path,
                  stored: _HowTheTilesAreStored, shape: tuple[int, int, int],
                  origin_um: tuple[float, float, float], levels: int,
-                 like: Path, pointing_at: int = 1) -> None:
+                 like: Path, pointing_at: int = 1,
+                 keeps_its_tiles_in: str | None = None) -> None:
         self._canvas = canvas
         self._folder = folder
+        # The subfolder inside the view where the positions are meant to live, or
+        # ``None`` for the ordinary arrangement where the view sits beside them.
+        # Checked for every tile added rather than once at the end, so that a run
+        # writing to the wrong place is told at the first tile rather than after
+        # a night of imaging.
+        self._keeps_its_tiles_in = keeps_its_tiles_in
         self._stored = stored
         self._shape = shape
         self._origin_um = origin_um
@@ -1005,6 +1104,10 @@ class GrowingLinkedView:
         placed = PlacedTile(
             Path(tile.store), tuple(int(n) for n in tile.lands_at),  # type: ignore[arg-type]
             tuple(int(n) for n in tile.taken_from), tile.size)  # type: ignore[arg-type]
+        if self._keeps_its_tiles_in is not None:
+            _refuse_tiles_that_are_not_where_the_view_says_they_are(
+                [placed], self._folder, self._view.name[:-len(_IMAGE_SUFFIX)],
+                self._keeps_its_tiles_in)
         arriving = _what_the_tiles_are([placed])
         _refuse_tiles_stored_differently(
             self._like, placed.store, self._stored, arriving,
