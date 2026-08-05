@@ -306,7 +306,7 @@ def report(rows: list[dict]) -> None:
             print(
                 f"{row['tiles'] if at == 0 else '':>7} {named:>18} {first:>12} "
                 f"{found['requests']:>9} {found['flatFrames']:>12} "
-                f"{found['contrastMs']:>7} ms {share:>7} {weight:>6.0f} MB"
+                f"{found['contrastMs']:>7} ms {share:>7} {weight:>7.1f} MB"
             )
         print()
 
@@ -318,7 +318,7 @@ def report(rows: list[dict]) -> None:
     for row in rows:
         share = "-" if not row["canvasMB"] else f"{row['viewMB'] / row['canvasMB']:.0%}"
         print(
-            f"{row['tiles']:>7} {row['archiveMB']:>7.0f} MB "
+            f"{row['tiles']:>7} {row['archiveMB']:>7.1f} MB "
             f"{row['writing']:>11.0f} s {row['pointing']:>8.0f} s {share:>14}"
         )
 

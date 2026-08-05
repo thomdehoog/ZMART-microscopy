@@ -366,20 +366,41 @@ SAMPLE_SECONDS = 5
 PATIENCE_SECONDS = 600
 
 
-def _lit(page, where) -> float:
+def _lit(page, where, patience_ms: int = 30_000) -> float:
     """How much of the middle of the picture is showing specimen rather than nothing.
 
     A photograph, not a number the engine reports about itself. The two have come
     apart before: the viewer once held every piece of image it needed and drew the
     specimen a ten-thousandth of a pixel wide, with the engine perfectly content.
+
+    ``patience_ms`` is how long to wait for the photograph. Taking one means asking
+    the browser to compose the window, and a machine drawing a volume through
+    software can be busy enough that the ordinary half-minute is not enough — see
+    :func:`_lit_if_it_can_be`, which is where that is dealt with.
     """
     import io
 
     from PIL import Image
 
-    shot = page.screenshot(clip=where)
+    shot = page.screenshot(clip=where, timeout=patience_ms)
     pixels = np.array(Image.open(io.BytesIO(shot)).convert("RGB"))
     return float((pixels.max(axis=2) > 40).mean())
+
+
+def _lit_if_it_can_be(page, where, patience_ms: int) -> float | None:
+    """The same photograph, but ``None`` rather than an abandoned sweep if it fails.
+
+    This is used only for the volume, and only for the last look of a size. A volume
+    drawn through software keeps the browser busy enough that composing the window
+    for a photograph sometimes does not finish at all — which is worth knowing about
+    the machine and is not worth losing a sweep of several sizes to, since nothing in
+    either table is worked out from this number.
+    """
+    try:
+        return _lit(page, where, patience_ms=patience_ms)
+    except Exception:  # noqa: BLE001 -- reported as a missing reading, never hidden
+        print("    (the volume could not be photographed in time; carrying on)")
+        return None
 
 
 def _the_middle_of(page) -> dict:
@@ -472,7 +493,7 @@ def look_at_it(folder: Path, store: str = "overview.ome.zarr") -> dict:
             result["volumeFrames"] = page.evaluate(
                 HOW_FAST_IT_DRAWS, {"seconds": SAMPLE_SECONDS}
             )
-            result["volumeLit"] = _lit(page, where)
+            result["volumeLit"] = _lit_if_it_can_be(page, where, 120_000)
         finally:
             page.close()
             browser.close()
