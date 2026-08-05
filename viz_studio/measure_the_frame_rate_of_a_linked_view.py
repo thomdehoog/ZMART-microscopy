@@ -53,6 +53,7 @@ and removes them afterwards.
 from __future__ import annotations
 
 import argparse
+import math
 import shutil
 import sys
 import tempfile
@@ -80,6 +81,21 @@ PIECE = 64
 VOXEL_UM = (2.0, 0.35, 0.35)
 ORIGIN_UM = (11.0, 5.5, 7.25)
 
+# What the test picture is made of. A pattern rather than one flat value, so that
+# it does not compress away to nothing and draw unrealistically fast — and bright,
+# spanning most of what a sixteen-bit number can hold.
+#
+# The brightness matters more than it looks. An earlier version drew the same
+# pattern between 400 and 800, which is perfectly good specimen but reaches the
+# screen at about one per cent of full brightness once it is spread across the
+# whole sixteen-bit range. The picture was there and drawing, and the check that
+# asks "was anything actually drawn" reported an empty panel — so every rate in
+# the table was dismissed as measured on nothing. Painting near the top of the
+# range removes the ambiguity: if the panel comes out dark now, something is
+# genuinely wrong rather than merely dim.
+MID = 32000
+SWING = 15000
+
 # How long to count frames for, at each size, for each arrangement. Long enough to
 # average over a slow patch, short enough that the climb stays affordable.
 SAMPLE_SECONDS = 3.0
@@ -87,7 +103,7 @@ SAMPLE_SECONDS = 3.0
 # How far to climb unless told otherwise. Each step is a few times the one before,
 # because the fault being looked for shows up as an *order of magnitude* rather
 # than a few per cent.
-STEPS = (1, 5, 20, 50, 100, 200, 400, 800, 1600)
+STEPS = (1, 5, 20, 100, 400, 1600, 6400)
 
 # Counting frames the way the browser really draws them. Started once and only
 # once: two loops would both count and read as the page having doubled its rate.
@@ -128,17 +144,26 @@ HELD = """() => window.zmartViewer.layerManager.managedLayers
            .reduce((total, managed) => total + managed.layer.dataSources.length, 0)"""
 
 
-def a_row_of_tiles(folder: Path, count: int) -> list[PlacedTile]:
-    """Write ``count`` tiles side by side, each landing on a whole piece boundary.
+def a_grid_of_tiles(folder: Path, count: int) -> list[PlacedTile]:
+    """Write ``count`` tiles laid out as a mosaic, roughly square.
 
-    They butt up against one another rather than overlapping, which is the
-    arrangement a linked view can always take, so that what is being compared is
-    the number of things open and nothing else.
+    **A square-ish grid rather than a row, and it matters more than it sounds.** An
+    earlier version of this laid every tile in one line, which at eight hundred
+    tiles is a picture fifty thousand voxels wide and sixty-four tall — a hair on
+    the screen. Almost nothing was drawn, so the rate being measured was mostly the
+    cost of drawing an empty panel, which flatters whichever arrangement is being
+    asked to draw the least. A mosaic fills the view the way a real acquisition
+    does, so the drawing being counted is drawing of the specimen.
+
+    Tiles butt up against one another and each lands on a whole piece boundary, so
+    the picture can always be pointed at.
     """
     folder.mkdir(parents=True, exist_ok=True)
+    across = max(1, math.ceil(math.sqrt(count)))
     placed = []
     for index in range(count):
-        lands_x = index * TILE[2]
+        lands_y = (index // across) * TILE[1]
+        lands_x = (index % across) * TILE[2]
         store = folder / f"tile{index:05d}.ome.zarr"
         arrays = _declare_one(
             store,
@@ -149,18 +174,23 @@ def a_row_of_tiles(folder: Path, count: int) -> list[PlacedTile]:
             chunk=PIECE,
             levels=1,
             voxel_size_um=VOXEL_UM,
-            origin_um=(ORIGIN_UM[0], ORIGIN_UM[1],
+            origin_um=(ORIGIN_UM[0],
+                       ORIGIN_UM[1] + lands_y * VOXEL_UM[1],
                        ORIGIN_UM[2] + lands_x * VOXEL_UM[2]),
-            channel_blocks=[Channel("488", window=(0, 4000)).described(65535)],
+            channel_blocks=[Channel("488", window=(0, 65535)).described(65535)],
         )
-        # Something with structure in it, so the picture is not one flat value that
-        # compresses to nothing and draws unrealistically fast.
+        # Something with structure in it, so the picture is not one flat value
+        # that compresses to nothing and draws unrealistically fast. The
+        # brightness window above is set to suit these numbers: with a window of
+        # nought to four thousand the same picture draws at about a tenth
+        # brightness, which reads as an empty panel to anything checking whether
+        # a specimen was drawn at all.
         y, x = np.indices(TILE[1:], dtype=np.float32)
-        across = (
-            400 + 200 * np.sin(y / 7) + 200 * np.cos((x + lands_x) / 9)
+        picture = (
+            MID + SWING * np.sin((y + lands_y) / 7) + SWING * np.cos((x + lands_x) / 9)
         ).astype("uint16")
-        arrays[0][0, 0] = np.broadcast_to(across, TILE)
-        placed.append(PlacedTile(store=store, lands_at=(0, 0, lands_x)))
+        arrays[0][0, 0] = np.broadcast_to(picture, TILE)
+        placed.append(PlacedTile(store=store, lands_at=(0, lands_y, lands_x)))
     return placed
 
 
@@ -210,7 +240,13 @@ def how_it_drew(browser, built_dist: Path, folder: Path, store, expect: int) -> 
         gaps = sorted(later - earlier for earlier, later in zip(at, at[1:]))
         middle = gaps[len(gaps) // 2] if gaps else 0.0
         worst = gaps[-1] if gaps else 0.0
+        # How much of the screen actually has specimen on it. Without this the
+        # whole measurement can be flattered by drawing nothing: an empty panel
+        # redraws beautifully. It is reported on every row so that a suspiciously
+        # good rate can always be checked against whether there was a picture.
+        from pixels import fraction_lit
         return {
+            "lit": fraction_lit(page),
             "opened": opened,
             "frames": drawn,
             "per_second": drawn / SAMPLE_SECONDS,
@@ -226,6 +262,98 @@ def how_it_drew(browser, built_dist: Path, folder: Path, store, expect: int) -> 
 def frames_counted(browser, built_dist: Path, folder: Path, store, expect: int) -> int:
     """Just the number of frames, for callers that want only the comparison."""
     return how_it_drew(browser, built_dist, folder, store, expect)["frames"]
+
+
+# -- the realistic arrangement: tiles that overlap, off a stage that drifts ------
+
+# A tile wide enough to overlap its neighbour by two whole pieces. Two is the
+# smallest that always works: a tile can only supply pieces it fills completely, so
+# it loses up to one at each edge, and two pieces of overlap covers that loss
+# whatever the stage did.
+WIDE_TILE = (1, 64, 256)
+OVERLAP_STEP = 128
+
+# How far past its nominal place each tile really landed, in voxels, cycled through
+# so that every tile sits differently against the grid. None of them is a whole
+# number of pieces, which is the entire point — this is what a real stage does and
+# what a neat grid never exercises.
+DRIFTS = (0, 1, 2, 7, 3, 5, 6, 4)
+
+
+def a_drifted_overlapping_run(folder: Path, count: int):
+    """Tiles that overlap and that landed a few voxels off, written so they still link.
+
+    This is what a real acquisition looks like: neighbours overlap so a stitcher can
+    afterwards work out where the stage truly went, and the stage did not go exactly
+    where it was asked. Neither is a difficulty for showing the tiles separately —
+    each simply records where it is — but a view built out of pointers needs a tile's
+    own grid of pieces to sit on the run's grid, and a tile that began seven voxels
+    late does not.
+
+    So each tile is written with its low edge padded by however far it overshot,
+    which puts its pieces back on the grid without moving a single voxel of
+    specimen. Then each piece of the view is given to exactly one tile, with the
+    seam between neighbours landing on a piece boundary inside the strip both of
+    them can fill.
+
+    Returns the tiles as placed, and how wide the resulting picture is.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    written = []
+    for index in range(count):
+        lands_x = index * OVERLAP_STEP + DRIFTS[index % len(DRIFTS)]
+        pad = lands_x % PIECE
+        array_origin = lands_x - pad
+        width = pad + WIDE_TILE[2]
+
+        store = folder / f"tile{index:05d}.ome.zarr"
+        arrays = _declare_one(
+            store,
+            canvas_shape=(WIDE_TILE[0], WIDE_TILE[1], width),
+            frames=1,
+            channels=1,
+            dtype="uint16",
+            chunk=PIECE,
+            levels=1,
+            voxel_size_um=VOXEL_UM,
+            origin_um=(ORIGIN_UM[0], ORIGIN_UM[1],
+                       ORIGIN_UM[2] + array_origin * VOXEL_UM[2]),
+            channel_blocks=[Channel("488", window=(0, 65535)).described(65535)],
+        )
+        y, x = np.indices((WIDE_TILE[1], WIDE_TILE[2]), dtype=np.float32)
+        picture = (
+            MID + SWING * np.sin(y / 7) + SWING * np.cos((x + lands_x) / 9)
+        ).astype("uint16")
+        arrays[0][0, 0, :, :, pad:] = np.broadcast_to(picture, WIDE_TILE)
+
+        # The pieces of the view this tile can fill entirely from its own specimen:
+        # the first whole one at or after its real pixels begin, through the last
+        # whole one ending before they run out.
+        fills = (
+            array_origin + (PIECE if pad else 0),
+            array_origin + (width // PIECE) * PIECE,
+        )
+        written.append((store, array_origin, fills))
+
+    placed, owned_up_to = [], written[0][2][0]
+    for index, (store, array_origin, fills) in enumerate(written):
+        low = owned_up_to
+        high = fills[1] if index == len(written) - 1 else written[index + 1][2][0]
+        if high <= low:
+            raise SystemExit(
+                f"tile {index} and its neighbour do not overlap by enough for a "
+                "seam to be put between them. Widen the overlap: a tile needs two "
+                "whole pieces of it so that what it loses to its own edges is "
+                "covered by its neighbour."
+            )
+        placed.append(PlacedTile(
+            store=store,
+            lands_at=(0, 0, low),
+            taken_from=(0, 0, low - array_origin),
+            size=(WIDE_TILE[0], WIDE_TILE[1], high - low),
+        ))
+        owned_up_to = high
+    return placed, owned_up_to
 
 
 def a_browser():
@@ -271,8 +399,9 @@ def main() -> int:
         help="tile counts to climb through, comma separated",
     )
     asked = parsing.parse_args()
-    steps = (
-        [int(n) for n in asked.steps.split(",")] if asked.steps else list(STEPS)
+    steps = sorted(
+        int(n) for n in (asked.steps.split(",") if asked.steps else
+                         [str(n) for n in STEPS])
     )
 
     built = _VIZ / "frontend" / "dist"
@@ -287,88 +416,67 @@ def main() -> int:
     started, browser = a_browser()
     work = Path(tempfile.mkdtemp(prefix="frame-rate-"))
     began = time.time()
-    print()
-    print("How it draws, once everything has finished arriving. Separate = one store")
-    print("per tile; linked = the same tiles as one picture. 'usual' is the middle")
-    print("frame, 'worst' the longest the picture ever sat still — which is what an")
-    print("operator actually feels.")
-    print()
-    print(f"{'':>6}  {'--------- separate ---------':^28}  "
-          f"{'---------- linked ----------':^28}")
-    print(f"{'tiles':>6}  {'fps':>6} {'usual':>7} {'worst':>7} {'open':>5}  "
-          f"{'fps':>6} {'usual':>7} {'worst':>7} {'open':>5}  {'faster':>7}")
-    print("-" * 78)
 
-    took_last = 0.0
-    last_count = 0
+    # Written once, at the largest size, and every step points at the first so many
+    # of them. Rewriting the tiles for every step was most of what an earlier
+    # version of this spent its time on, and it measured nothing.
+    print(f"\nWriting {steps[-1]} tiles once, to be shared by every step...")
+    writing = time.time()
+    folder = work / "tiles"
+    every = a_grid_of_tiles(folder, steps[-1])
+    print(f"  written in {time.time() - writing:.0f}s")
+
+    print()
+    print("How one picture draws, however many tiles are under it. 'usual' is the")
+    print("middle frame, 'worst' the longest the picture ever sat still, 'lit' how")
+    print("much of the screen had specimen on it — a rate measured on an empty")
+    print("panel would mean nothing, so it is reported alongside.")
+    print()
+    print(f"{'tiles':>6}  {'fps':>6}  {'usual':>7}  {'worst':>7}  {'open':>5}  "
+          f"{'lit':>5}  {'linking':>8}")
+    print("-" * 56)
+
+    took_last, last_count = 0.0, 0
     try:
         for count in steps:
             spent = time.time() - began
-            # What this step will cost, guessed from the last one. The work grows
-            # with the number of tiles, so scaling the last measurement by how much
-            # bigger this step is gets close enough to decide by.
-            likely = (
-                took_last * (count / last_count) if last_count else 90.0
-            )
+            likely = took_last * (count / last_count) if last_count else 60.0
             if spent + likely > asked.budget:
                 print(f"\nStopping before {count} tiles: it would likely take "
-                      f"{likely:.0f}s and only {asked.budget - spent:.0f}s of the "
-                      f"budget is left. Everything above is measured.")
+                      f"{likely:.0f}s and only {asked.budget - spent:.0f}s is left. "
+                      "Everything above is measured.")
                 break
 
             step_began = time.time()
-            folder = work / f"run{count:05d}"
-            writing = time.time()
-            placed = a_row_of_tiles(folder, count)
-            wrote = time.time() - writing
             linking = time.time()
+            reaches = tuple(
+                max(one.lands_at[axis] + TILE[axis] for one in every[:count])
+                for axis in range(3)
+            )
             link_the_tiles(
-                folder, name="linked", tiles=placed,
-                view_shape=(TILE[0], TILE[1], count * TILE[2]),
+                folder, name="linked", tiles=every[:count],
+                view_shape=reaches, discard_existing_run=True,
+                # Only the full-size picture, which is the one made of pointers.
+                # The smaller copies are genuinely written and cost a read of every
+                # tile to build, and leaving them out both makes the climb
+                # affordable and means what is drawn here is the pointed-at picture
+                # rather than a copy of it.
+                levels=1,
             )
             linked_in = time.time() - linking
-            names = sorted(p.name for p in folder.glob("tile*.ome.zarr"))
 
-            nothing = {"frames": -1, "per_second": 0.0, "usual_ms": 0.0,
-                       "worst_ms": 0.0, "opened": 0.0}
-            try:
-                apart = how_it_drew(browser, built, folder, names, count)
-            except Exception as why:
-                apart = nothing
-                print(f"  ({count} separate stores did not finish: "
-                      f"{type(why).__name__})")
             try:
                 one = how_it_drew(browser, built, folder, "linked.ome.zarr", 1)
             except Exception as why:
-                one = nothing
-                print(f"  (the linked view did not finish: {type(why).__name__})")
+                print(f"{count:>6}  did not finish: {type(why).__name__}")
+                took_last, last_count = time.time() - step_began, count
+                continue
 
-            took_last = time.time() - step_began
-            last_count = count
-            faster = (
-                f"{one['frames'] / apart['frames']:>6.1f}x"
-                if apart["frames"] > 0 and one["frames"] > 0 else f"{'—':>7}"
-            )
-            print(
-                f"{count:>6}  "
-                f"{apart['per_second']:>6.1f} {apart['usual_ms']:>6.0f}ms "
-                f"{apart['worst_ms']:>6.0f}ms {apart['opened']:>4.0f}s  "
-                f"{one['per_second']:>6.1f} {one['usual_ms']:>6.0f}ms "
-                f"{one['worst_ms']:>6.0f}ms {one['opened']:>4.0f}s  {faster}"
-            )
-            # Where the step's own seconds went. Opening is counted above, per
-            # arrangement; what is left is this measurement's own housekeeping —
-            # writing the tiles and building the view — which an operator never
-            # pays, plus the fixed twelve seconds of settling and counting.
-            print(
-                f"        step {took_last:.0f}s = writing {wrote:.0f}s "
-                f"+ linking {linked_in:.0f}s + opening "
-                f"{apart['opened'] + one['opened']:.0f}s + watching "
-                f"{2 * (SAMPLE_SECONDS + 3):.0f}s"
-            )
-            # Each size is written fresh, and at the top of the climb that is a lot
-            # of small files. Letting them go as we climb keeps the disk flat.
-            shutil.rmtree(folder, ignore_errors=True)
+            took_last, last_count = time.time() - step_began, count
+            warn = "  <- nearly blank, so this rate means little" if one["lit"] < 0.1 else ""
+            print(f"{count:>6}  {one['per_second']:>6.1f}  {one['usual_ms']:>5.0f}ms  "
+                  f"{one['worst_ms']:>5.0f}ms  {one['opened']:>4.0f}s  "
+                  f"{one['lit']:>5.2f}  {linked_in:>7.0f}s{warn}")
     except KeyboardInterrupt:
         print("\nStopped. Everything above is measured.")
     finally:
@@ -377,9 +485,9 @@ def main() -> int:
         shutil.rmtree(work, ignore_errors=True)
 
     print()
-    print("A linked view hands the viewer one store however many tiles are under")
-    print("it, so if the drawing cost is paid per position the last column should")
-    print("climb with the first. If it stays near 1, the cost is somewhere else.")
+    print("One picture is one store however many tiles are under it, so the rate")
+    print("should hardly move down the table. 'linking' is the cost of building the")
+    print("view, paid once when a run is opened, not on every frame.")
     return 0
 
 
