@@ -27,6 +27,17 @@ the seams, which is exactly what you want when tiles are rotated or shifted by
 fractions of a voxel, and it is why `multiview-stitcher` uses this to inspect a
 few dozen tiles rather than to browse thousands.
 
+**Doing several pieces at once helps, and does not rescue it.** That is the obvious
+hope and it is measured here too, because it is worth answering with a number. On
+four cores, stitching twelve pieces in a thread pool rather than one after another
+raised the rate from 6.0 pieces a second to 13.2 -- a gain of 2.2 times -- while the
+time for any *single* piece went the wrong way, from 184 ms to 316 ms. That is what
+parallel work does: it lets more pieces arrive together, each having waited longer.
+A viewer trying to draw is waiting on one piece.
+
+At that rate a screenful, which is roughly thirty-five pieces, takes about two and a
+half seconds, and again on every pan.
+
 This script is kept so the finding can be re-checked rather than believed. If the
 library gets faster, or if your tiles are much larger than the ones here and the
 fixed costs amortise better, this is what will say so.
@@ -51,12 +62,15 @@ from __future__ import annotations
 
 import contextlib
 import io
+import itertools
 import json
+import os
 import shutil
 import statistics
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -170,8 +184,64 @@ def main() -> None:
             if read_ms:
                 print(f"  -> stitching on the spot costs "
                       f"{stitched_ms / read_ms:.0f}x a plain read")
+
+        _how_much_does_doing_several_at_once_help(pretend)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _how_much_does_doing_several_at_once_help(pretend) -> None:
+    """Does stitching several pieces at once make this usable?
+
+    The hope is that a piece taking hundreds of milliseconds does not matter,
+    because a server can work on several at a time. What this shows is that the
+    hope is half right: more pieces arrive per second, and each individual piece
+    takes *longer*, because they are now competing for the same processors. A
+    viewer waiting to draw is waiting on one piece, so the second number is the one
+    it feels.
+    """
+    workers = min(8, os.cpu_count() or 1)
+    level = pretend.paths[0]
+    described = pretend.array_zarray(level)
+    if isinstance(described, (str, bytes)):
+        described = json.loads(described)
+    across = [max(1, -(-size // piece))
+              for size, piece in zip(described["shape"], described["chunks"],
+                                     strict=True)]
+    wanted = ["/".join(str(i) for i in where)
+              for where in itertools.islice(
+                  itertools.product(*[range(n) for n in across]), 12)]
+    if len(wanted) < 2:
+        return
+
+    # One piece first, so neither arrangement pays a first-call cost the other
+    # avoids.
+    pretend.read_chunk(level, wanted[0])
+
+    def one(key):
+        started = time.perf_counter()
+        pretend.read_chunk(level, key)
+        return (time.perf_counter() - started) * 1000
+
+    started = time.perf_counter()
+    alone = [one(key) for key in wanted]
+    serially = time.perf_counter() - started
+
+    started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        together = list(pool.map(one, wanted))
+    at_once = time.perf_counter() - started
+
+    print(f"\nstitching {len(wanted)} pieces, on {os.cpu_count()} processors")
+    print(f"  one after another   {serially:5.2f} s   "
+          f"{statistics.median(alone):7.1f} ms a piece   "
+          f"{len(wanted)/serially:5.2f} a second")
+    print(f"  {workers} at a time         {at_once:5.2f} s   "
+          f"{statistics.median(together):7.1f} ms a piece   "
+          f"{len(wanted)/at_once:5.2f} a second")
+    print(f"  -> {serially/at_once:.1f}x more pieces a second, and one piece went "
+          f"from {statistics.median(alone):.0f} to "
+          f"{statistics.median(together):.0f} ms")
 
 
 if __name__ == "__main__":

@@ -227,3 +227,53 @@ Read from the `main` tarball of both repositories as of 3 August 2026, locally
 rather than through rendered pages. Every claim above about their code was read in
 source; the file and function names are given so they can be checked. Claims about
 our own code cite the files in this repository at `6c54c81`.
+
+---
+
+## 5. Their stitching is slow for a reason they have already half-fixed
+
+Read on 5 August 2026 from the `main` tarball, in source, alongside the
+measurements in `measure_live_fusion_cost.py`.
+
+`multiview-stitcher` can present a set of tiles to a browser as though they were
+one stitched image, without writing anything — `serve_virtual_ome_zarrs`. It is an
+attractive idea for this project, because the viewer's whole difficulty is holding
+many sources at once, and this would hand it one. It is far too slow to look at a
+specimen through: **one piece of picture took 647 ms to stitch against 4.6 ms to
+read the same piece from disk**, and a piece covering the whole specimen took three
+seconds, because every tile overlaps it.
+
+**Where the time goes, and it is not where you would hope.** They detect when a
+tile's transform is a plain translation, and when that translation lands on whole
+voxels — `_is_grid_aligned`, `_get_axis_aligned_translation_dims` and
+`_get_grid_aligned_translation_dims` in `fusion/_core.py`. But the answer is used
+only to plan *which tiles touch which piece*, cheaply. The list of whole-voxel
+dimensions is stored on the plan as `fix_dims` at `fusion/_core.py:717` and, as far
+as reading the package goes, **is never used again**. Meanwhile
+`transformation.transform_sim` calls `scipy.ndimage.affine_transform`
+unconditionally.
+
+So an ordinary mosaic — tiles shifted by a whole number of voxels and nothing else
+— is resampled through a general affine transformation anyway, when moving it would
+have been a copy. That is the difference between their 647 ms and the 6 ms measured
+in `TILES_IN_ONE_STORE.md` for putting the same tiles in the same places by copying
+rectangles.
+
+**Doing several at once does not rescue it.** Measured on four processors: nine
+pieces took 3.41 s one after another and 1.26 s four at a time, so 2.7 times more
+pieces a second — while a single piece went from 266 ms to 306 ms, because the
+pieces now compete. Parallel work raises how many pieces arrive per second and
+lengthens the wait for any one of them, and a viewer trying to draw is waiting for
+one.
+
+**What to take and what to leave.** The blending formula is worth having and is
+already recommended in §3 above: a cosine ramp from each tile's own edge. What is
+not worth copying is *where they compute it* — in Python, once per piece, ahead of
+time. Computed in the shader instead it is nearly free, because the graphics card
+is already visiting every pixel to draw it and the distance to the edge of an
+upright rectangle is a subtraction.
+
+**Worth telling them.** A shortcut in `transform_sim` for the whole-voxel
+translation case would be a large speed-up for exactly the mosaic arrangement most
+of their users have, and the detection needed for it is already written and sitting
+unused.
