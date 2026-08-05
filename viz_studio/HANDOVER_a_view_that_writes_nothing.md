@@ -249,12 +249,14 @@ lost message costs a moment's delay rather than a wrong picture.
 
 ## Smaller things left open
 
-- **The view could be the plate folder itself**, rather than a subfolder beside the
-  positions. Tested and it reads correctly; `link_the_tiles` needs an option for it.
-  Weigh it against losing the safety of a view you can delete wholesale.
-- **`cropped.py` writes one piece per plane** (`canvas.py:949`), which makes a tile
-  a single indivisible block that nothing can be pointed at inside. It needs a piece
-  size of 128 or 256.
+- ~~**The view could be the plate folder itself.**~~ **Done, and further than that.**
+  The whole run is now one zarr: the picture is the folder you open, and the
+  positions live in a zarr *group* inside it. See "The shape it has arrived at".
+- ~~**`cropped.py` writes one piece per plane.**~~ **Gone around rather than fixed.**
+  `zmart_storage/positions.py` writes its own position images, with pieces of 128
+  and their own zoomed-out copies, so the limitation no longer stands in the way.
+  `cropped.py` itself is untouched and now unused by this path — see the note on
+  simplifying below.
 - **The seam rule is written but not built.** `PLAN_showing_many_stores_as_one.md`
   task 3 decides which of two overlapping tiles supplies a shared piece, on the
   acquisition's own grid rather than on distances between tile centres.
@@ -265,6 +267,170 @@ lost message costs a moment's delay rather than a wrong picture.
   your stores are really written and what fraction begin on a piece boundary, which
   is the number that decides how much of a real transfer can be pointed at. Run it
   on the microscope machine before building anything else.
+
+---
+
+## What to do next
+
+Two things, and they pull in the same direction: less of our own machinery, and
+more that other people's tools can read.
+
+### 1. Simplify further
+
+The arrangement got much smaller today and there is more to take out. These are
+listed with what each would actually remove, because "simplify" on its own is not
+a task anybody can pick up.
+
+- **`zmart_storage/cropped.py` is 965 lines and nothing on this path uses it.**
+  It writes the acquisition *twice* — every position, and a trimmed copy of the
+  whole run into one image — and roughly half of it is the trimming arithmetic
+  that exists only to make tiles butt up inside that copy. The picture replaced
+  the job the copy was doing. Outside its own tests it is imported by
+  `zmart_storage/__init__.py` and two measurement scripts. **Decide whether it is
+  the older arrangement kept deliberately, or dead.** If deliberately kept, say so
+  at the top of the file; a reader today cannot tell.
+
+- **The map can be found in three places and only one is written.** The reader
+  looks in the picture's description, then in a `zmart-links` folder beside the
+  images, then inside the image itself. The last two are runs written earlier
+  today. Once nothing on disk needs them, this is one lookup instead of three.
+  The same goes for `LINKS_VERSIONS_UNDERSTOOD`, which is `(1, 2, 3)`.
+
+- **`start_a_run` has knobs that could be answers.** `piece`, `levels` and `dtype`
+  are all asked for and all have one sensible answer. `levels` is already worked
+  out from the room when left out; the other two could be.
+
+- **`viz_studio` holds about thirty markdown files** and several describe
+  arrangements that no longer exist. A reader cannot tell which is current truth
+  without reading most of them. Merging or plainly marking the superseded ones is
+  worth more than any of the code above.
+
+### 2. Make a run readable by napari and Fiji
+
+Today the picture opens **silently black** in anything but our own viewer, which
+is set out in its own section above. That is the single worst property of the
+arrangement, because it does not announce itself. Options, cheapest first, with
+what each actually buys:
+
+- **Write the coarse levels for real.** Point at the positions for full
+  resolution as now, but let the picture *store* its smallest two or three
+  levels as ordinary pixels. They are tiny — a few megabytes against a run of
+  many gigabytes — and a reader opening the picture anywhere would then see a
+  real, low-resolution image of the whole specimen instead of nothing. This does
+  not make full resolution portable, but it turns a silent failure into an
+  obviously-low-resolution picture, which is a completely different experience
+  for somebody who does not know how any of this works. **Probably the best
+  value of anything on this list.**
+
+- **Put a plain note in the run folder.** A short `README.txt` beside the
+  positions saying which folder to open and why the other one looks empty. No
+  code, no cost, and it removes the silence even if it does not remove the
+  limitation.
+
+- **A reader for Python.** Something like `zmart_storage.open_run(folder)` handing
+  back an array-like that resolves the map itself. napari opens array-likes
+  happily, so that would make napari work at full resolution. It does nothing for
+  Fiji, which is Java.
+
+- **A standard reference file beside the run** — Kerchunk or VirtualiZarr. Then
+  anything built on `fsspec` can read the mosaic natively, at full resolution and
+  with no copy. Also nothing for Fiji. `PLAN_showing_many_stores_as_one.md` task 5
+  works through this, including why the Parquet form matters at this scale.
+
+- **Export a stitched image when somebody asks for one.** Honest, portable, and a
+  full second copy — which is fine as a deliberate act and not as a default.
+
+Worth being clear that **none of these makes Fiji read a mosaic at full
+resolution without a copy**, and that is not something this project can fix from
+its side.
+
+### 3. Overlap, which is harder than it looks and is really three questions
+
+Today a later position simply wins for any piece two of them share. That is the
+simplest rule there is, it is honest while a run is arriving, and it is not good
+enough for a finished picture. Before anyone designs the replacement, the three
+questions underneath need separating, because they are constantly confused and
+only one of them is cheap.
+
+**The seam.** Where two positions cover the same ground, which one supplies this
+piece? Answerable anywhere, cheaply, and it has to be answered however the bytes
+are served. The obvious rule — give the piece to whichever position's centre is
+nearest — should *not* be built, and `PLAN_showing_many_stores_as_one.md` task 3
+sets out why at length: in two dimensions the boundary between two centres is
+diagonal unless they happen to be level, so a position's owned region comes out
+stair-stepped rather than rectangular, can be split into disconnected parts, and
+changes *shape* when the stage moves slightly — so two runs of the same plate do
+not produce the same picture. It also needs units, and these voxels are not cubes.
+The plan proposes deciding on the acquisition's own grid of rows and columns
+instead, which gives every position a plain rectangle and the same answer every
+time.
+
+**The phase.** Does a position's grid of pieces line up with the picture's? This
+is the one that stops real data today, and **the seam rule cannot touch it** —
+that was tried and produces an empty view. Deciding *which* position supplies a
+piece cannot change *where* that position begins, and a position out of phase is
+out of phase for every one of its pieces. No scheme of pointers can fix it,
+because a pointer means *these bytes, verbatim*; that is equally true of Kerchunk
+and VirtualiZarr. It is fixed in the acquisition or by decoding and recombining
+pixels.
+
+**The disagreement.** Two overlapping positions photograph the same specimen from
+two stage positions, and until a stitcher has measured them they disagree slightly
+about where things are. So when ownership hands a piece from one to the other, a
+structure can appear to jump by that disagreement. **This is not bounded by
+anything in the seam rule and is not improved by choosing a better seam.** It is
+what stitching exists to remove, and it should be reported separately from
+anything else the picture is measured on, so that one number does not hide the
+other.
+
+There is also a constraint the pointing arrangement adds. A position can only
+supply pieces it fills *completely*, so it loses up to one piece at each edge and
+an overlap cannot be trimmed to anything finer than a piece boundary without
+decoding. Task 4 of the same plan suggests overlapping neighbours by at least two
+pieces for that reason — with pieces of 128 that is 256 voxels, about 12% of a
+2048-voxel tile, which is an ordinary overlap for stitching anyway.
+
+The honest summary is that the seam is a day's work, the phase belongs in the
+acquisition, and the disagreement is a stitching problem this project has
+deliberately not taken on. Deciding which of the three is actually being asked
+for is the first move.
+
+### 4. Then take it to real data on a real machine
+
+This is the one that matters, and everything above is tidying by comparison.
+Nothing here has met a microscope. Every measurement in this file was made on
+stores written for the purpose, on a sandbox with no graphics card, by a program
+that also wrote the thing it was measuring.
+
+**Expect drift to stop it at the first attempt, and that is the useful outcome.**
+A stage asked to step 1792 voxels steps 1792 give or take two, and a position that
+does not begin on a whole piece boundary is refused outright rather than drawn
+slightly wrong. So the first real plate will very likely not open at all. That is
+the refusal doing its job, not a surprise, and the fix is set out under "A drifted
+run is refused" above — it belongs in the acquisition rather than here.
+
+Run **`viz_studio/measure_what_a_transfer_looks_like.py` on the microscope
+computer before building anything else.** It reports how your stores are really
+written, whether any are sharded, and what fraction of them begin on a piece
+boundary. That last number decides how much of a real transfer can be pointed at,
+and everything else is guesswork until it is known. It has still never been run.
+
+Three other things only real hardware can answer:
+
+- **What a camera tile really costs.** Positions here were 256 to 512 voxels
+  across; a real tile is 2048, which is sixteen to sixty-four times the area. The
+  63 milliseconds a new position costs is mostly compressing pixels, so expect it
+  to follow the area. Whether the writer keeps up with the camera is a question
+  only the camera can answer.
+- **What a graphics card does to the drawing.** Every frame rate here came from a
+  software renderer, and two rows of an older comparison in
+  `HANDOVER_overlapping_runs.md` were noise for exactly that reason.
+- **Windows, and the microscope PC's own constraints.** See
+  `TESTING_ON_REAL_HARDWARE.md`: two conda environments that are not
+  interchangeable, everything confined under `C:\ProgramData\MinicondaZMB\`, and a
+  machine that refuses to run programs from folders a user can write to. It also
+  records how a missing dependency shows up there — every test timing out with
+  nothing said about the real cause.
 
 ---
 
