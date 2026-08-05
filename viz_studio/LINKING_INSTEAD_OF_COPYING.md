@@ -112,15 +112,47 @@ extend the record `zmart_storage/coverage.py` already keeps, rather than becomin
 second record that can disagree with the first.
 
 **Answer for ground no tile covers.** Most of a scattered run's bounding box is
-empty. The server already answers a plain "nothing here" for that case and the
-comment in `backend/server.py` explains why it matters; the pointing path has to do
-the same rather than returning a piece of black.
+empty. The server already answers a plain "nothing here" — a 404 — and the pointing
+path must do exactly the same.
 
-**Make the encodings agree, exactly.** Bytes are handed over untouched, so the
-compression, the number type, the fill value and the generation of zarr the view
-declares must all match what the tiles really contain. A mismatch here fails
-silently, which is the worst way for it to fail. `stores.zarr_scheme` decides which
-reader the engine is told to use by looking at the disk, so it needs care.
+It is worth knowing *why* that is right, because it looks like an error returned for
+an ordinary case and a reviewer will suggest something politer. Neuroglancer's
+`isNotFoundError` treats 403, 404 and a failed connection as "this piece is absent"
+and nothing worse: the engine fills the region from the fill value and carries on.
+There is no retrying and no error state. A 204, which reads as the more courteous
+answer, is **not** in that list — it would be taken as a successful reply with an
+empty body, and fail to decode. The polite answer is the broken one.
+
+**Make the encodings agree, exactly.** Bytes are handed over untouched, so
+everything the view says about them has to match what the tiles really contain. A
+mismatch fails silently — the picture is wrong and nothing reports it — which makes
+this the longest list here and the one to check at the door rather than in the
+field. Each of these has its own way of going wrong:
+
+- **the number type, including which way round the bytes go.** A big-endian tile
+  handed to a graphics card expecting little-endian draws as noise, with no error
+  anywhere.
+- **the compression, and its settings.**
+- **the fill value**, since it decides what unwritten ground looks like.
+- **how the pieces are named.** Zarr allows a dot or a nested folder, and serving
+  one where the reader expects the other gives a black screen rather than a
+  complaint. This writer chooses folders; a tile that chose dots cannot be served
+  beside one that did not.
+- **which way the numbers are laid out in memory**, row by row or column by column.
+- **the order of the axes.** A tile declaring colour, depth, height, width cannot
+  be served alongside one declaring depth, height, width — the same bytes would be
+  read as a different picture, and the only sign would be a specimen that looks
+  strange.
+- **the generation of zarr.** `stores.zarr_scheme` decides which reader the engine
+  is told to use by looking at the disk, so a view declaring one generation over
+  tiles written in another does not open at all.
+
+**And one that is not a mismatch, which is why it is easy to miss.** Zarr stores the
+piece at the edge of an image at full size, padded out with the fill value. That is
+right for the tile it belongs to. But hand that piece over at a place that is
+*inside* the view rather than at its edge, and the padding is served as though it
+were specimen — a band of blank ground in the middle of the picture, from a file
+that is not corrupt and a server that did nothing wrong.
 
 **Decide about sharding.** If tiles are written as sharded zarr, a piece lives
 *inside* a file rather than being one, so handing it over means serving part of a
