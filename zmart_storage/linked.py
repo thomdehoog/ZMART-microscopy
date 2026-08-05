@@ -742,7 +742,7 @@ def link_the_tiles(
     try:
         _refuse_a_view_stored_differently_from_its_tiles(view, stored)
         _say_where_each_resolution_sits(view, origin_um, stored.ome_zarr_version)
-        pointers = _fill_in_the_zoomed_out_copies(canvas, placed, shown)
+        pointers = _fill_in_the_zoomed_out_copies(canvas, placed, shown, stored)
         links = _write_the_list_of_pointers(view, folder, placed, shown, stored)
     finally:
         canvas.close()
@@ -901,7 +901,8 @@ def _say_where_each_resolution_sits(
 
 
 def _fill_in_the_zoomed_out_copies(
-    canvas: TileCanvases, tiles: list[PlacedTile], shown: list[tuple[int, int, int]]
+    canvas: TileCanvases, tiles: list[PlacedTile], shown: list[tuple[int, int, int]],
+    stored: _HowTheTilesAreStored,
 ) -> int:
     """Write the smaller copies of the picture, and count the pieces that are pointed at.
 
@@ -916,33 +917,42 @@ def _fill_in_the_zoomed_out_copies(
     because only the smaller copies come out of it.
     """
     # A view asked to keep only the full-size picture has no smaller copies to fill,
-    # and then there is nothing here to do. Reading every tile's pixels anyway is
-    # the most expensive thing this module does — it is the whole cost of building a
-    # view — so it is worth not doing when it buys nothing. How much each tile
-    # supplies is still counted, from what the tile *says* about itself rather than
-    # from its pixels, which costs one small file read apiece.
+    # and then there is nothing here to do at all — not the reading of pixels, and
+    # not even the opening of the tiles.
+    #
+    # That second part is worth spelling out, because leaving it in cost far more
+    # than it looked like it should. Every tile still had to be opened to ask how
+    # many moments and colours it held, and opening a store is not the small thing
+    # it sounds: at sixteen hundred tiles it was 86% of the time spent building the
+    # view. The answer was already to hand — the tiles have all been read once
+    # already, by ``_what_the_tiles_are``, which refuses any set of them that
+    # disagrees about how many moments and colours there are. So there is exactly
+    # one answer for the whole run and it is in ``stored``.
     nothing_to_fill = canvas._levels <= 1
+    if nothing_to_fill:
+        return sum(
+            stored.frames * stored.channels * size[0] for size in shown
+        )
 
     pointed_at = 0
     for placed, size in zip(tiles, shown, strict=True):
         held = zarr.open_group(str(placed.store), mode="r")["0"]
         frames, channels = held.shape[0], held.shape[1]
-        if not nothing_to_fill:
-            low = placed.taken_from
-            picture = np.asarray(held[
-                :, :,
-                low[0]:low[0] + size[0],
-                low[1]:low[1] + size[1],
-                low[2]:low[2] + size[2],
-            ])
-            for frame in range(frames):
-                for channel in range(channels):
-                    canvas.only_the_zoomed_out_copies(
-                        picture[frame, channel],
-                        origin=placed.lands_at,
-                        channel=channel,
-                        frame=frame,
-                    )
+        low = placed.taken_from
+        picture = np.asarray(held[
+            :, :,
+            low[0]:low[0] + size[0],
+            low[1]:low[1] + size[1],
+            low[2]:low[2] + size[2],
+        ])
+        for frame in range(frames):
+            for channel in range(channels):
+                canvas.only_the_zoomed_out_copies(
+                    picture[frame, channel],
+                    origin=placed.lands_at,
+                    channel=channel,
+                    frame=frame,
+                )
         pointed_at += frames * channels * size[0]
     return pointed_at
 
