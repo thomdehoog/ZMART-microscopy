@@ -111,7 +111,8 @@ def test_the_list_says_how_a_tile_keeps_its_pieces(tmp_path):
     """Written down rather than assumed, so a sharded tile can be described later."""
     run = tmp_path / "run"
     view = _a_small_view(run)
-    listed = json.loads((view / "zmart-links.json").read_text(encoding="utf-8"))
+    listed = json.loads(
+        linking.where_the_list_is(view)[0].read_text(encoding="utf-8"))
 
     # Version 3 is version 2 with the companion file a growing view adds tiles to.
     # This asserted 2 for a while after the writer had moved on, which made it a
@@ -134,7 +135,7 @@ def test_a_view_written_before_this_change_is_still_read(tmp_path):
     """
     run = tmp_path / "run"
     view = _a_small_view(run)
-    listing = view / "zmart-links.json"
+    listing = linking.where_the_list_is(view)[0]
     older = json.loads(listing.read_text(encoding="utf-8"))
     older["version"] = 1
     for tile in older["tiles"]:
@@ -156,7 +157,7 @@ def test_a_way_of_holding_pieces_we_do_not_know_is_refused(tmp_path):
     """
     run = tmp_path / "run"
     view = _a_small_view(run)
-    listing = view / "zmart-links.json"
+    listing = linking.where_the_list_is(view)[0]
     listed = json.loads(listing.read_text(encoding="utf-8"))
     for tile in listed["tiles"]:
         tile["held_as"] = "packed-somehow"

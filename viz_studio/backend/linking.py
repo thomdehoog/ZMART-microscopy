@@ -78,9 +78,34 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from pathlib import Path
 
-# The file, inside a view's own folder, that holds the list of pointers. The same
-# name is written down in ``zmart_storage/linked.py``, which writes the file; the
-# two have to be changed together.
+# The folder, sitting *beside* the images rather than inside any of them, that
+# holds one list of pointers per view. Inside it there is one file named after the
+# image it describes — ``zmart-links/overview.ome.zarr.json``.
+#
+# **Why beside the images and not inside them.** Putting it inside was tried first
+# and looked tidier. Anything at all added inside an image folder, whatever it is
+# called, makes zarr complain the moment another program asks the image what it
+# contains: ``Object at zmart-links.json is not recognized as a component of a
+# Zarr hierarchy``. Nothing breaks — the picture still reads — but somebody opening
+# our run in napari or Fiji should not have to work out whether a warning about a
+# file they have never heard of matters.
+#
+# There is a second reason, and it is the one that would have hurt. A run still
+# being acquired appends to its list as each position lands, and the viewer decides
+# whether anything has changed by looking at when a folder was last touched. A list
+# rewritten inside the image folder would have looked, on every tile, like the
+# acquisition itself having changed, and the viewer would have rebuilt its whole
+# description of the run each time — which on a folder of a few thousand positions
+# takes over a second by itself. One folder across, the writing is invisible to
+# that check.
+#
+# This is the same arrangement, and the same reasoning, as ``zmart-coverage`` in
+# ``zmart_storage/coverage.py``, which measured both of these before deciding.
+LINKS_FOLDER = "zmart-links"
+
+# What one view's list of pointers is called inside that folder, and the older
+# place it used to live. ``zmart_storage/linked.py`` writes both names; the two
+# modules have to be changed together.
 LINKS_FILE = "zmart-links.json"
 
 # The shape of that file this reader understands. A file saying anything else is
@@ -105,6 +130,11 @@ LINKS_VERSIONS_UNDERSTOOD = (1, 2, 3)
 # from both. When the run finishes the lines are folded back into the list and this
 # file goes away, which is why most views never have one.
 LINKS_ADDED_FILE = "zmart-links-added.jsonl"
+
+# What that companion file is called in the newer arrangement, where it sits beside
+# the images and so has to carry the name of the view it belongs to:
+# ``zmart-links/overview.ome.zarr-added.jsonl``.
+LINKS_ADDED_ENDING = "-added.jsonl"
 
 # The ways a tile can keep one of its pieces. Only the plain one is read today; a
 # name not in here is refused rather than guessed at, because guessing would hand
@@ -342,6 +372,28 @@ _known: dict[str, tuple[tuple[int, int], _WhereThePiecesReallyAre]] = {}
 _known_lock = threading.Lock()
 
 
+def where_the_list_is(store: Path) -> tuple[Path, Path]:
+    """Where a view's list of pointers and its companion file are, if anywhere.
+
+    Two places are looked at, newest first. A view built today keeps its list
+    *beside* the images, in ``zmart-links``, for the reasons set out at the top of
+    this module. A view built before that kept it inside its own folder, and those
+    still open exactly as they did — a run already on disk does not have to be
+    rebuilt to keep working.
+
+    Args:
+        store: the view's own OME-Zarr folder.
+
+    Returns:
+        The list of pointers and the companion file a growing run appends to.
+        Neither is promised to exist; the caller asks the filesystem.
+    """
+    beside = store.parent / LINKS_FOLDER / f"{store.name}.json"
+    if beside.is_file():
+        return beside, beside.with_name(f"{store.name}{LINKS_ADDED_ENDING}")
+    return store / LINKS_FILE, store / LINKS_ADDED_FILE
+
+
 def the_bytes_behind(store: Path, inside: str) -> Held | None:
     """Where this piece of a pointed-at picture really is, if it is one.
 
@@ -361,8 +413,7 @@ def the_bytes_behind(store: Path, inside: str) -> Held | None:
     nothing. It is asked afresh every time rather than remembered, so that a view
     built after the viewer was opened is answered for straight away.
     """
-    listing = store / LINKS_FILE
-    added = store / LINKS_ADDED_FILE
+    listing, added = where_the_list_is(store)
     try:
         written = listing.stat().st_mtime_ns
     except OSError:
@@ -449,4 +500,8 @@ def forget(store: Path) -> None:
     holds, so it is worth dropping.
     """
     with _known_lock:
+        listing, _ = where_the_list_is(store)
+        _known.pop(str(listing), None)
+        # Also under the older name, since a view can be closed after its list has
+        # been moved and the two would then be remembered under different keys.
         _known.pop(str(store / LINKS_FILE), None)

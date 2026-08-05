@@ -29,7 +29,7 @@ import linking  # noqa: E402
 
 from zmart_storage.canvas import Channel, _declare_one  # noqa: E402
 from zmart_storage.linked import (  # noqa: E402
-    LINKS_ADDED_FILE,
+
     PlacedTile,
     start_a_growing_view,
 )
@@ -136,7 +136,7 @@ def test_the_view_still_reads_after_the_run_has_finished(tmp_path):
     }
     finished = view.finish()
 
-    assert not (finished.path / LINKS_ADDED_FILE).exists(), (
+    assert not linking.where_the_list_is(finished.path)[1].exists(), (
         "the companion file was left behind on a finished run"
     )
     after = {
@@ -169,7 +169,7 @@ def test_a_line_caught_half_written_is_simply_not_there_yet(tmp_path):
             view.add(tile)
 
         # Truncate the final line, the way a reader arriving mid-write would see it.
-        added = view.path / LINKS_ADDED_FILE
+        added = linking.where_the_list_is(view.path)[1]
         whole = added.read_text(encoding="utf-8")
         lines = whole.splitlines()
         added.write_text("\n".join(lines[:-1]) + "\n" + lines[-1][: len(lines[-1]) // 2],

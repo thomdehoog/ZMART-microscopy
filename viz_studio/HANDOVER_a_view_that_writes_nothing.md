@@ -17,15 +17,30 @@ file saying which piece of one big picture is which piece of which position. The
 viewer opens the view and sees a single ordinary image.
 
 ```
-run_folder/
-  tile00000.ome.zarr        one per position, with its own 2–5 levels
-  tile00001.ome.zarr        this is where all the data lives
-  ...
-  linked.ome.zarr/          the view
-    .zattrs .zgroup         says what the picture is
+run_folder/                 one folder holds the whole run
+  overview_tiles/           one image per position, with its own 2–5 levels
+    overview_pos00000.ome.zarr    this is where all the data lives
+    overview_pos00001.ome.zarr
+    ...
+  linked.ome.zarr/          the view — an ordinary OME-Zarr image and nothing else
+    zarr.json               says what the picture is
     0/ 1/ 2/ 3/             levels — descriptions only, no picture at all
-    zmart-links.json        which piece is which piece of which tile
+  zmart-links/              ours, beside the images rather than inside one
+    linked.ome.zarr.json    which piece is which piece of which tile
+  zmart-coverage/           ours — where the run actually imaged
 ```
+
+**Everything of ours sits beside the images, never inside one.** That is worth
+stating because it was the other way round for a while and it is easy to drift
+back. Anything added inside an `.ome.zarr` folder makes zarr complain to whoever
+opens it — *"Object at zmart-links.json is not recognized as a component of a
+Zarr hierarchy"* — so a colleague opening the run in napari or Fiji meets a
+warning about a file of ours they have never heard of. Keeping every image folder
+pure is what lets the positions and the view be ordinary images to everybody
+else, which is the whole point of writing OME-Zarr rather than a format of our
+own. It also keeps a live run quiet: the viewer notices change by when a folder
+was last touched, so a list rewritten inside the image on every tile would look
+like the acquisition itself changing, thousands of times over.
 
 Two things make this worth having, and they are the whole point:
 
