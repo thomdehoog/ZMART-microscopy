@@ -310,9 +310,38 @@ writer already knew, so 6 400 tiles went from 22.5 s to 1.7 s.
 
 But a faster rebuild is not the answer. The cost is proportional to the run, so
 across a whole acquisition it is the *square*: 6 400 tiles at around a second each
-is hours of cumulative rebuilding for a run whose tiles arrive one at a time. What
-is needed is an **append** — the list of pointers is a list, and adding a line to it
-should not depend on how many lines are already there.
+is hours of cumulative rebuilding for a run whose tiles arrive one at a time.
+
+**So the view can now be held open instead.** `start_a_growing_view` in
+`zmart_storage/linked.py` opens it once and adds tiles one at a time. Measured on a
+view already holding 6 400 tiles:
+
+| | one more tile | filesystem calls |
+|---|---|---|
+| arriving after a quiet moment | 88.9 ms | 9 — eight stat, one rename |
+| arriving inside a burst | 0.53 ms | 8 stat |
+
+**The first row is the one that matters for an acquisition**, because a microscope's
+tiles arrive seconds apart and every one of them therefore lands after a quiet
+moment. The second only applies to adding thousands in a loop, where the list of
+pointers is written a few times a second rather than once per tile.
+
+That distinction is worth stating plainly because it was got wrong once already: the
+throttling was measured in a tight loop, reported as "0.32 ms and flat", and that
+figure is real but describes the burst case rather than a run on an instrument.
+
+The call counts say where the work is. **Eight stat calls is the whole of checking
+the tile** — reading its description, confirming it is stored like the others, that
+it lands on whole pieces, and that it agrees with the rest about where the picture's
+corner is. That part costs nothing and does not grow. **The single rename is the
+88 ms**: writing six thousand four hundred lines of JSON and swapping the file into
+place.
+
+So building the view of 6 400 takes 2.6 s, and one more tile after that takes 89 ms
+rather than the 1 540 ms a rebuild took — about seventeen times better, and 89 ms
+between tiles that arrive seconds apart is not a bottleneck. But it still grows with
+the run, and the fix is an **append**: the list of pointers is a list, and adding a
+line to it should not depend on how many lines are already there.
 
 ---
 
