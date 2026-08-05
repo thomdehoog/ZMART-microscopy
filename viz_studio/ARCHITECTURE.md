@@ -205,13 +205,40 @@ is the frame the rest of it hangs on.
 There are three layers, and it is worth being able to name them:
 
 ```
-FRONT                MIDDLE                BACK
-Neuroglancer    <-   the server        <-  what is on disk
-                     (viz_studio/backend)
-draws the        turns whatever is      one image, or many,
-picture,         on disk into one       or images nested
-in 2D and 3D     ordinary picture       inside one another
+        FRONT                     MIDDLE                      BACK
+   Neuroglancer and          backend/server.py           OME-Zarr on disk
+   our interface
+
+  +------------------+      +-------------------+      +-------------------+
+  |  draws 2D and 3D |      | answers questions |      | tiles, however the|
+  |  chooses the     |      | about a picture   |      | microscope wrote  |
+  |  zoom level      |      | that need not     |      | them: one image,  |
+  |  softens the     |      | exist on disk in  |      | four images, one  |
+  |  seams           |      | that shape        |      | per well, nested  |
+  +------------------+      +-------------------+      +-------------------+
+           |                          |                          |
+           |   "the piece at          |   "the part of tile 42   |
+           |    z=3, y=7, x=2"        |    that falls in it"     |
+           |------------------------->|------------------------->|
+           |                          |                          |
+           |<-------------------------|<-------------------------|
+           |   one piece of picture   |   the bytes on disk      |
+           |                          |                          |
+
+   speaks: one ordinary       speaks: both, and           speaks: whatever
+   OME-Zarr, one source,      translates between          suits the run
+   with a pyramid             them
 ```
+
+Reading one request end to end: the operator drags the view, so the engine works
+out which pieces of picture it is missing and asks for them by position. The
+server takes each of those positions, works out which tiles cover that piece of
+the specimen and where those tiles are kept, reads them, and hands back one piece.
+The engine never learns that tiles were involved.
+
+The whole of this section follows from one thing: the question the front asks and
+the question the back answers are allowed to be different questions, because the
+middle translates between them.
 
 **The front is the engine and our interface around it.** It draws, it navigates,
 and it does the whole of the three-dimensional work. What matters here is that it
