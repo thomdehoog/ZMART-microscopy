@@ -133,6 +133,7 @@ the placement harder to satisfy, not easier.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -146,6 +147,12 @@ from .canvas import Channel, TileCanvases, copies_for_a_canvas
 # the shape of what is in it is described in ``viz_studio/backend/linking.py``, and
 # the two have to be changed together.
 LINKS_FILE = "zmart-links.json"
+
+# How long to wait, at least, between writing out the list of pointers while a run
+# is still arriving. Short enough that the viewer is never noticeably behind, long
+# enough that a run adding tiles as fast as it can does not spend its time writing
+# a file over and over.
+_HOW_OFTEN_THE_LIST_IS_WRITTEN = 0.2
 
 # Which shape of that file this is. A reader that meets a number it does not know
 # should refuse rather than guess, because guessing wrongly would draw somebody
@@ -864,9 +871,19 @@ class GrowingLinkedView:
     Measured at six thousand four hundred tiles, one more tile cost 1.5 seconds,
     which across a whole acquisition is hours of work that produces nothing new.
 
-    This is the same view, kept open. Adding a tile checks that one tile, writes
-    that one tile's share of the zoomed-out copies, and adds one line to the list of
-    pointers — none of which depends on how many tiles have already landed.
+    This is the same view, kept open. Adding a tile checks that one tile and writes
+    that one tile's share of the zoomed-out copies, neither of which depends on how
+    many tiles have already landed. Measured against rebuilding: about 4 ms for a
+    tile rather than 1 500.
+
+    **One part of it does depend on the run's length**, and it is worth knowing
+    where. The list of pointers is a single file, so adding a line means writing the
+    whole file again — which at sixteen hundred tiles had grown from 4 ms to 19 ms.
+    Tiles from a microscope arrive seconds apart and 19 ms is nothing beside that,
+    but adding thousands in a tight loop would spend most of its time rewriting. So
+    the file is rewritten at most a few times a second: a tile arriving after a
+    quiet moment is written out at once, and a burst of them shares one write. The
+    view is always written out in full when it is closed.
 
     Held open matters for a second reason. Everything that keeps a tile safe lives
     in the writer rather than on disk: which parts of the picture have been imaged,
@@ -903,6 +920,11 @@ class GrowingLinkedView:
         self._listed: list[dict] = []
         self._pointers = 0
         self._open = True
+        # When the list was last written out, and whether tiles have landed since.
+        # Together these keep the viewer close behind without rewriting the whole
+        # list for every tile of a fast run.
+        self._last_written = 0.0
+        self._unwritten = False
 
     @property
     def path(self) -> Path:
@@ -961,7 +983,24 @@ class GrowingLinkedView:
         )
         self._listed.append(
             _one_line_of_the_list(placed, size, self._folder, self._stored))  # type: ignore[arg-type]
+        self._tell_the_viewer_if_it_is_time()
+
+    def _tell_the_viewer_if_it_is_time(self) -> None:
+        """Write the list out, unless it was written a moment ago.
+
+        Writing it means writing all of it, so a run adding tiles as fast as it can
+        would spend most of its effort rewriting a file nobody has had time to read.
+        Waiting a fraction of a second between writes puts a ceiling on that without
+        the viewer ever being far behind: a tile arriving after a quiet moment --
+        which is what a microscope does -- is written out immediately.
+        """
+        now = time.monotonic()
+        if now - self._last_written < _HOW_OFTEN_THE_LIST_IS_WRITTEN:
+            self._unwritten = True
+            return
         _put_the_list_where_the_viewer_looks(self._view, self._listed, self._stored)
+        self._last_written = now
+        self._unwritten = False
 
     def _fill_this_tile_in(self, placed: PlacedTile,
                            size: tuple[int, int, int]) -> None:
@@ -998,6 +1037,12 @@ class GrowingLinkedView:
             :func:`link_the_tiles` returns.
         """
         if self._open:
+            # Whatever landed since the last write goes out now, so that a view
+            # closed straight after its final tile is complete on disk.
+            if self._unwritten:
+                _put_the_list_where_the_viewer_looks(
+                    self._view, self._listed, self._stored)
+                self._unwritten = False
             self._canvas.close()
             self._open = False
         return LinkedView(
