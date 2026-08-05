@@ -422,6 +422,56 @@ the leftover strip on each position is whatever the stage happened to give you.
 With pieces of 128 and a 2048-voxel tile, stepping 1792 shows 14 pieces of 16 and
 keeps an overlap of 256 voxels — about 12%, an ordinary overlap for stitching.
 
+**Where would the cropping live?** Outside the zarr entirely, which is the part
+worth being clear about. A position's entry in the map is counted in pieces:
+
+    {"store": "positions/experiment_pos00042.ome.zarr",
+     "at":   [0, 5, 3],      where its pieces begin in the picture
+     "size": [1, 16, 16],    how many of them it supplies
+     "from": [0, 0, 0]}      which of its own pieces the first one is
+
+Cropping the overlap away is a change to two of those numbers — `"size"` becomes
+`[1, 14, 14]` and `"from"` becomes `[0, 1, 1]`. **The position on disk is
+byte-identical**, same file and same checksum; the trimmed strip is still inside
+it and is simply never asked for, which is what a stitcher will want later. No
+pixel is read, cut or rewritten anywhere.
+
+There are two OME-Zarrs in play and it is worth keeping them apart. The
+**positions** stay exactly as they were, down to the checksum — not even a
+description is rewritten. The **picture's** own description is where the crop is
+recorded, because that is where the whole map already lives::
+
+    experiment.ome.zarr/zarr.json
+      attributes:
+        ome:    { multiscales, omero, ... }      the standard's
+        zmart:  { tiles: [{store, at, size, from}, ...] }   ours, crop included
+
+So the crop travels with the picture rather than in a file loose beside it, which
+is the property this arrangement went to some trouble for. It sits under a key of
+ours because the standard has no way to say "this image is assembled from these
+sub-regions of those images" — which is the gap the map exists to fill in the
+first place. Another tool reading the picture sees a well-formed attribute block
+it does not understand, and ignores it. That is the same interoperability boundary
+as everything else here rather than a new one.
+
+Who decides is a separate question, and it has to be the **acquisition** rather
+than the view builder. In a live run a position is handed over the moment it
+lands, and its neighbour does not exist yet — so "half the shared strip" cannot be
+worked out by looking at the positions, because the other half of the pair has not
+been imaged. The acquisition is the only thing that knows the step before the run
+happens. For a finished transfer somebody else wrote there is no acquisition to
+ask, so there the view builder would have to infer the overlaps from the positions:
+two callers, one piece of arithmetic between them.
+
+The **server does nothing at all** here, and should not. It resolves what the map
+says. The choice must not depend on which path served a piece, or the picture
+would change as a cache filled.
+
+The one thing `start_a_run` would need is the **step**. It knows `tile_shape`
+today, and positions butt up only because the caller happens to pass `at` a whole
+tile apart; it would have to be told `tile_step` up front, exactly as `cropped.py`
+takes it.
+
 Note this is the same idea `cropped.py` already implements for the *copying*
 arrangement — trim half the shared strip off each tile so neighbours butt up — but
 done by pointing instead of by writing a second copy. That is strictly better, and
