@@ -95,7 +95,12 @@ COUNT_FRAMES = """() => {
   if (window.__counting) return;
   window.__counting = true;
   window.__drawn = 0;
-  const tick = () => { window.__drawn += 1; requestAnimationFrame(tick); };
+  window.__at = [];
+  const tick = (now) => {
+    window.__drawn += 1;
+    window.__at.push(now);
+    requestAnimationFrame(tick);
+  };
   requestAnimationFrame(tick);
 }"""
 
@@ -159,11 +164,16 @@ def a_row_of_tiles(folder: Path, count: int) -> list[PlacedTile]:
     return placed
 
 
-def frames_counted(browser, built_dist: Path, folder: Path, store, expect: int) -> int:
-    """Open what ``store`` names, wait until it has all arrived, then count frames.
+def how_it_drew(browser, built_dist: Path, folder: Path, store, expect: int) -> dict:
+    """Open what ``store`` names, wait until it is all there, then watch it draw.
 
-    Waiting matters. Counting while stores are still being fetched would measure
-    the loading, which is a different question with its own measurement.
+    Waiting matters, and it is measured separately rather than folded in. Counting
+    frames while stores are still arriving would measure the *loading*, which is a
+    different question — and, at these sizes, the one that takes all the time.
+
+    Returns how long the opening took, and then what the drawing looked like once
+    it had settled: how many frames, how often they came, and — the number that
+    says how it *feels* — the longest the picture ever sat still.
     """
     server = make_server(
         port=0, data_dir=folder, site_dir=built_dist, store=store, live=False,
@@ -172,6 +182,7 @@ def frames_counted(browser, built_dist: Path, folder: Path, store, expect: int) 
     thread.start()
     page = browser.new_page(viewport={"width": 900, "height": 700})
     try:
+        opening = time.time()
         page.goto(
             f"http://127.0.0.1:{server.server_address[1]}",
             wait_until="domcontentloaded",
@@ -181,18 +192,40 @@ def frames_counted(browser, built_dist: Path, folder: Path, store, expect: int) 
         page.wait_for_function(
             "() => window.zmartSourcesWaiting() === 0", timeout=300_000
         )
+        opened = time.time() - opening
+
         page.wait_for_timeout(3000)
         page.evaluate(KEEP_MOVING)
         page.evaluate(COUNT_FRAMES)
-        page.evaluate("() => { window.__drawn = 0; }")
+        page.evaluate("() => { window.__drawn = 0; window.__at = []; }")
         page.wait_for_timeout(int(SAMPLE_SECONDS * 1000))
         drawn = int(page.evaluate("() => window.__drawn"))
+        at = [float(n) for n in page.evaluate("() => window.__at")]
         page.evaluate("() => clearInterval(window.__nudge)")
-        return drawn
+
+        # How long each frame took, in milliseconds. The *middle* of these says the
+        # rate the viewer is really holding; the *largest* says the worst pause an
+        # operator would feel, which is what makes a viewer feel broken even when
+        # the average looks respectable.
+        gaps = sorted(later - earlier for earlier, later in zip(at, at[1:]))
+        middle = gaps[len(gaps) // 2] if gaps else 0.0
+        worst = gaps[-1] if gaps else 0.0
+        return {
+            "opened": opened,
+            "frames": drawn,
+            "per_second": drawn / SAMPLE_SECONDS,
+            "usual_ms": middle,
+            "worst_ms": worst,
+        }
     finally:
         page.close()
         server.shutdown()
         thread.join(timeout=5)
+
+
+def frames_counted(browser, built_dist: Path, folder: Path, store, expect: int) -> int:
+    """Just the number of frames, for callers that want only the comparison."""
+    return how_it_drew(browser, built_dist, folder, store, expect)["frames"]
 
 
 def a_browser():
@@ -255,13 +288,16 @@ def main() -> int:
     work = Path(tempfile.mkdtemp(prefix="frame-rate-"))
     began = time.time()
     print()
-    print("Frames drawn in "
-          f"{SAMPLE_SECONDS:.0f} seconds of moving through the specimen.")
-    print("Separate = one store per tile.  Linked = the same tiles as one picture.")
+    print("How it draws, once everything has finished arriving. Separate = one store")
+    print("per tile; linked = the same tiles as one picture. 'usual' is the middle")
+    print("frame, 'worst' the longest the picture ever sat still — which is what an")
+    print("operator actually feels.")
     print()
-    print(f"{'tiles':>7}  {'separate':>9}  {'linked':>7}  {'linked keeps':>13}  "
-          f"{'step took':>10}")
-    print("-" * 58)
+    print(f"{'':>6}  {'--------- separate ---------':^28}  "
+          f"{'---------- linked ----------':^28}")
+    print(f"{'tiles':>6}  {'fps':>6} {'usual':>7} {'worst':>7} {'open':>5}  "
+          f"{'fps':>6} {'usual':>7} {'worst':>7} {'open':>5}  {'faster':>7}")
+    print("-" * 78)
 
     took_last = 0.0
     last_count = 0
@@ -282,35 +318,54 @@ def main() -> int:
 
             step_began = time.time()
             folder = work / f"run{count:05d}"
+            writing = time.time()
             placed = a_row_of_tiles(folder, count)
+            wrote = time.time() - writing
+            linking = time.time()
             link_the_tiles(
                 folder, name="linked", tiles=placed,
                 view_shape=(TILE[0], TILE[1], count * TILE[2]),
             )
+            linked_in = time.time() - linking
             names = sorted(p.name for p in folder.glob("tile*.ome.zarr"))
 
+            nothing = {"frames": -1, "per_second": 0.0, "usual_ms": 0.0,
+                       "worst_ms": 0.0, "opened": 0.0}
             try:
-                separate = frames_counted(browser, built, folder, names, count)
+                apart = how_it_drew(browser, built, folder, names, count)
             except Exception as why:
-                separate = -1
+                apart = nothing
                 print(f"  ({count} separate stores did not finish: "
                       f"{type(why).__name__})")
             try:
-                linked = frames_counted(
-                    browser, built, folder, "linked.ome.zarr", 1
-                )
+                one = how_it_drew(browser, built, folder, "linked.ome.zarr", 1)
             except Exception as why:
-                linked = -1
+                one = nothing
                 print(f"  (the linked view did not finish: {type(why).__name__})")
 
             took_last = time.time() - step_began
             last_count = count
-            keeps = (
-                f"{linked / separate:>12.2f}x" if separate > 0 and linked > 0
-                else f"{'—':>13}"
+            faster = (
+                f"{one['frames'] / apart['frames']:>6.1f}x"
+                if apart["frames"] > 0 and one["frames"] > 0 else f"{'—':>7}"
             )
-            print(f"{count:>7}  {separate:>9}  {linked:>7}  {keeps}  "
-                  f"{took_last:>9.0f}s")
+            print(
+                f"{count:>6}  "
+                f"{apart['per_second']:>6.1f} {apart['usual_ms']:>6.0f}ms "
+                f"{apart['worst_ms']:>6.0f}ms {apart['opened']:>4.0f}s  "
+                f"{one['per_second']:>6.1f} {one['usual_ms']:>6.0f}ms "
+                f"{one['worst_ms']:>6.0f}ms {one['opened']:>4.0f}s  {faster}"
+            )
+            # Where the step's own seconds went. Opening is counted above, per
+            # arrangement; what is left is this measurement's own housekeeping —
+            # writing the tiles and building the view — which an operator never
+            # pays, plus the fixed twelve seconds of settling and counting.
+            print(
+                f"        step {took_last:.0f}s = writing {wrote:.0f}s "
+                f"+ linking {linked_in:.0f}s + opening "
+                f"{apart['opened'] + one['opened']:.0f}s + watching "
+                f"{2 * (SAMPLE_SECONDS + 3):.0f}s"
+            )
             # Each size is written fresh, and at the top of the climb that is a lot
             # of small files. Letting them go as we climb keeps the disk flat.
             shutil.rmtree(folder, ignore_errors=True)
