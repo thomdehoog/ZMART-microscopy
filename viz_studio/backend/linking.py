@@ -160,6 +160,10 @@ class _WhereThePiecesReallyAre:
 
     def __init__(self, listed: dict) -> None:
         self.level = str(listed.get("level", "0"))
+        # How many copies of the picture are pointed at, counting the full-size
+        # one. A view over tiles that carry their own zoomed-out copies points at
+        # those as well, so that nothing of the picture is written at any zoom.
+        self.pointed_levels = max(1, int(listed.get("pointed_levels", 1) or 1))
         self.separator = str(listed.get("separator") or "/")
         self.prefix = str(listed.get("prefix") or "")
         # For each row of the picture's grid of pieces, the tiles that cross it.
@@ -254,13 +258,22 @@ class _WhereThePiecesReallyAre:
         named = self._numbers_in(inside)
         if named is None:
             return None
-        frame, channel, z, y, x = named
-        found = self._tile_covering((z, y, x))
+        level, frame, channel, z, y, x = named
+        # A smaller copy is the same arrangement with every number across the
+        # specimen halved once per level, because shrinking halves the picture and
+        # leaves the pieces the same size. A tile is required to begin on a
+        # multiple of the piece size times the largest shrink, so these divisions
+        # are exact rather than rounded -- and if that were ever not so, the tile
+        # would be found at the wrong place rather than not found, which is why the
+        # writer refuses such a placement rather than trusting this.
+        shrink = 2 ** level
+        found = self._tile_covering((z, y * shrink, x * shrink))
         if found is None:
             return None
         store, (from_z, from_y, from_x), held_as = found
-        piece = self._named(frame, channel, from_z, from_y, from_x)
-        where = f"{store}/{self.level}/{piece}"
+        piece = self._named(frame, channel, from_z,
+                            from_y // shrink, from_x // shrink)
+        where = f"{store}/{level}/{piece}"
         # One piece, one file: all of it, from the beginning. A store that packs
         # several pieces into one file would work out the place and the length from
         # that file's own index here instead, which is why this is not simply a path.
@@ -284,14 +297,24 @@ class _WhereThePiecesReallyAre:
             parts.insert(0, self.prefix)
         return self.separator.join(parts)
 
-    def _numbers_in(self, inside: str) -> tuple[int, int, int, int, int] | None:
-        """The five numbers naming a piece of the pointed-at copy, or ``None``.
+    def _numbers_in(self, inside: str) -> tuple[int, int, int, int, int, int] | None:
+        """Which copy, and the five numbers naming a piece of it, or ``None``.
 
-        Anything that is not a piece of that copy — a description file, a piece of
-        one of the smaller copies, a name in a spelling this view does not use — is
-        answered ``None`` and looked for on disk in the ordinary way.
+        Anything that is not a pointed-at piece — a description file, a copy zoomed
+        out further than any tile goes, a name in a spelling this view does not use
+        — is answered ``None`` and looked for on disk in the ordinary way.
         """
-        wanted = f"{self.level}/"
+        which, _, _ = inside.partition("/")
+        try:
+            level = int(which)
+        except ValueError:
+            return None
+        # Only the copies the tiles themselves carry can be pointed at. Anything
+        # zoomed out further than that was written by the view in the ordinary way
+        # and is found on disk without coming here.
+        if not 0 <= level < self.pointed_levels:
+            return None
+        wanted = f"{which}/"
         if not inside.startswith(wanted):
             return None
         rest = inside[len(wanted):]
@@ -308,7 +331,7 @@ class _WhereThePiecesReallyAre:
             frame, channel, z, y, x = (int(part) for part in parts)
         except ValueError:
             return None
-        return frame, channel, z, y, x
+        return level, frame, channel, z, y, x
 
 
 # What has been read from each view, against the moment its list of pointers was
