@@ -297,11 +297,14 @@ or the previous whole list. Renaming a file this way is a single step that eithe
 happened or did not, on every system this runs on. The server already notices when
 the file's timestamp changes and reads it afresh, so the rest follows.
 
-**Prove it against the copy.** The arrangement that copies is measured and
-correct, which makes it the ideal control: the same run, the same viewer, the same
-machine, and the only difference is whether the picture was written down or pointed
-at. If a linked view does not match a written canvas voxel for voxel, it is wrong.
-This comparison has not been run.
+**Prove it against the copy.** *Written, and passing.* The arrangement that copies
+is measured and correct, which makes it the ideal control: the same run, the same
+viewer, the same machine, and the only difference is whether the picture was
+written down or pointed at. `viz_studio/tests/test_the_linked_view_matches_the_canvas.py`
+writes both over the same tiles and compares every voxel, at every zoom, in every
+moment and colour, reading the pointed-at view through the viewer's own server the
+way the browser does. What it does not yet cover is a run that has drifted, because
+such a run is refused before it can be compared.
 
 ---
 
