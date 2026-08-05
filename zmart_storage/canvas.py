@@ -996,7 +996,8 @@ class TileCanvases:
 
     def __init__(self, folder: Path, image: _Image, *, shape: tuple[int, ...],
                  levels: int, tile_shape: tuple[int, int, int],
-                 claim: _WritingClaim | None = None) -> None:
+                 claim: _WritingClaim | None = None,
+                 records_coverage: bool = True) -> None:
         self.folder = folder
         self._image = image
         self._shape = shape
@@ -1020,9 +1021,17 @@ class TileCanvases:
         # unchanged if it cannot be kept — but with it, anything reading the store
         # afterwards can bound itself to the ground the run actually covered
         # instead of the far larger room the run declared.
+        #
+        # A **view** keeps none, and asks for none. A view holds no picture of its
+        # own — it says which piece of the picture is which piece of which position
+        # — so it never writes a tile and its record would say, for ever, that
+        # nothing had been imaged. That is worse than keeping nothing: a reader
+        # bounding itself to such a record would draw an empty screen over a run
+        # that imaged perfectly well. The positions are what were imaged, and they
+        # are what a record should be kept of.
         image.record = Recorder(
             folder, image.folder.name, canvas_shape=shape, tile_shape=tile_shape
-        )
+        ) if records_coverage else None
 
     def close(self) -> None:
         """Let go of this image, so that another writer may take it on.
@@ -1078,6 +1087,7 @@ class TileCanvases:
         discard_existing_run: bool = False,
         ome_zarr_version: str = "0.4",
         keeps_its_tiles_in: str | None = None,
+        records_coverage: bool = True,
     ) -> TileCanvases:
         """Declare the image for an acquisition, before anything has been imaged.
 
@@ -1209,6 +1219,17 @@ class TileCanvases:
                 clears the view's description and its zoomed-out copies while
                 leaving the positions untouched, because throwing the view away is
                 meant to cost you a few kilobytes rather than the acquisition.
+            records_coverage: whether to keep a note beside the image of where it
+                has actually been imaged. Normally left alone.
+
+                Set it to ``False`` for an image that will never have a tile
+                written into it — a **view**, which holds no picture of its own and
+                only says which piece of the picture is which piece of which
+                position. Its record would say for ever that nothing had been
+                imaged, which is worse than keeping no record at all: a reader
+                bounding itself to it would show an empty screen over a run that
+                imaged perfectly well. The positions are what were imaged, and they
+                are what a record should be kept of.
 
         Returns:
             The image, ready to be written into. When the run is over it can be
@@ -1299,6 +1320,7 @@ class TileCanvases:
             levels=levels,
             tile_shape=tile_shape,
             claim=claim,
+            records_coverage=records_coverage,
         )
 
     # -- writing ----------------------------------------------------------
