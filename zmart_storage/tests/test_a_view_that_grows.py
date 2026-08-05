@@ -23,7 +23,7 @@ import pytest
 
 from zmart_storage.canvas import Channel, _declare_one
 from zmart_storage.linked import (
-    LINKS_FILE,
+    where_the_list_goes,
     PlacedTile,
     link_the_tiles,
     start_a_growing_view,
@@ -103,7 +103,8 @@ def test_a_grown_view_is_the_same_as_one_built_all_at_once(tmp_path):
     )
 
     def pointers(folder):
-        held = json.loads((folder / "v.ome.zarr" / LINKS_FILE).read_text())
+        held = json.loads(
+            where_the_list_goes(folder / "v.ome.zarr")[0].read_text())
         # The tiles live in different folders, so compare everything but the name.
         return sorted(
             (one["at"], one["size"], one["from"], one["held_as"])
@@ -345,7 +346,7 @@ def test_the_list_of_pointers_is_never_seen_half_written(tmp_path):
 
     with start_a_growing_view(folder, name="v", like=arriving[0],
                               view_shape=shape) as view:
-        held = view.path / LINKS_FILE
+        held = where_the_list_goes(view.path)[0]
         for expected, tile in enumerate(arriving, start=1):
             view.add(tile)
             # Read it back the way the viewer's server does. It must always parse,
@@ -355,13 +356,13 @@ def test_the_list_of_pointers_is_never_seen_half_written(tmp_path):
             listed = json.loads(held.read_text())
             assert 0 <= len(listed["tiles"]) <= expected
         # Nothing left behind beside it.
-        leftover = [one.name for one in view.path.iterdir()
-                    if one.name.startswith(f".{LINKS_FILE}")]
+        leftover = [one.name for one in held.parent.iterdir()
+                    if one.name.startswith(".")]
         assert leftover == [], f"a temporary file was left behind: {leftover}"
         path = view.path
 
     # Closed, the list holds the whole run -- whatever the throttling deferred.
-    listed = json.loads((path / LINKS_FILE).read_text())
+    listed = json.loads(where_the_list_goes(path)[0].read_text())
     assert len(listed["tiles"]) == len(arriving), (
         "a view closed after its last tile does not hold the whole run on disk"
     )

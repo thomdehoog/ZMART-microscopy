@@ -156,6 +156,43 @@ def test_the_viewer_is_offered_one_image_rather_than_every_position(tmp_path):
     assert root == view.path.parent
 
 
+def test_nothing_of_ours_is_left_inside_an_image_folder(tmp_path):
+    """Every ``.ome.zarr`` folder holds zarr's own files and nothing else.
+
+    This is what keeps the run readable by other people's software. Anything at all
+    added inside an image folder makes zarr complain the moment another program
+    asks the image what it contains — *"Object at zmart-links.json is not
+    recognized as a component of a Zarr hierarchy"*. Nothing breaks and every
+    picture still reads, but a colleague opening the run in napari or Fiji should
+    not have to work out whether a warning about a file of ours matters.
+
+    Our own files live beside the images instead, in ``zmart-links`` and
+    ``zmart-coverage``, where zarr has no opinion about them. The same reasoning
+    is set out in :mod:`zmart_storage.coverage`, which measured it first.
+    """
+    placed, view = _a_plate_in_one_folder(tmp_path / "run")
+
+    # What zarr itself puts in an image folder: the descriptions, and the numbered
+    # levels. Anything else is ours and should not be here.
+    belongs_to_zarr = {".zattrs", ".zgroup", ".zarray", "zarr.json"}
+
+    for image in [view.path, *(tile.store for tile in placed)]:
+        for child in image.iterdir():
+            if child.name in belongs_to_zarr:
+                continue
+            # A level of the image, named in its own description.
+            if child.is_dir() and child.name.lstrip("0123456789") == "":
+                continue
+            # The positions subfolder is the one deliberate exception, and it holds
+            # images rather than files of ours. It is what this arrangement is for.
+            if child.name == POSITIONS:
+                continue
+            raise AssertionError(
+                f"{child.name} sits inside the image {image.name}, where zarr will "
+                "complain about it to anyone who opens the run in other software"
+            )
+
+
 def test_every_position_is_still_a_complete_image_on_its_own(tmp_path):
     """A position inside the view is an ordinary OME-Zarr image, not a fragment.
 
@@ -393,7 +430,8 @@ def test_the_newer_format_works_in_one_folder_too(tmp_path):
 
     # The list of pointers records the spelling rather than assuming one, so the
     # test reads it from there instead of hard-coding what it expects to find.
-    listed = json.loads((view.path / "zmart-links.json").read_text(encoding="utf-8"))
+    listed = json.loads(
+        linking.where_the_list_is(view.path)[0].read_text(encoding="utf-8"))
     assert listed["prefix"] == "c", (
         "0.5 files a piece under a 'c' part of its own; without that recorded, "
         "every request would be answered 'nothing here'"

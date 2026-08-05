@@ -141,10 +141,29 @@ import zarr
 
 from .canvas import _IMAGE_SUFFIX, Channel, TileCanvases, copies_for_a_canvas
 
-# The small file, written inside the view's own folder, that says which piece of
-# the view is which piece of which tile. The viewer's server reads it by this name;
-# the shape of what is in it is described in ``viz_studio/backend/linking.py``, and
-# the two have to be changed together.
+# The folder, sitting beside the images rather than inside any of them, holding one
+# list of pointers per view: ``zmart-links/overview.ome.zarr.json`` says which piece
+# of the ``overview`` view is which piece of which tile.
+#
+# **Beside rather than inside, and it was inside first.** Anything added inside an
+# image folder makes zarr complain to whoever opens it — ``Object at
+# zmart-links.json is not recognized as a component of a Zarr hierarchy`` — so a
+# colleague opening the run in napari or Fiji meets a warning about a file of ours
+# they have never heard of. Keeping every ``.ome.zarr`` folder pure is what lets the
+# positions and the view be ordinary images to everybody else, which is the whole
+# reason for writing OME-Zarr rather than something of our own.
+#
+# It also keeps a live run quiet. The viewer notices change by looking at when a
+# folder was last touched, so a list rewritten inside the image on every tile would
+# look like the acquisition itself changing, thousands of times over.
+#
+# This mirrors ``zmart-coverage`` in :mod:`zmart_storage.coverage`, which measured
+# both of those before settling on the same arrangement.
+LINKS_FOLDER = "zmart-links"
+
+# The older place the list lived: inside the view's own folder. Still written down
+# here because the viewer goes on reading views built that way, so a run already on
+# disk keeps working without being rebuilt.
 LINKS_FILE = "zmart-links.json"
 
 # The companion file a run still being acquired adds its tiles to, one line each.
@@ -157,6 +176,30 @@ LINKS_FILE = "zmart-links.json"
 # back into the list itself and this file goes away, so a finished run is a single
 # file again and nothing reading one has to know this existed.
 LINKS_ADDED_FILE = "zmart-links-added.jsonl"
+
+# What that companion file is called beside the images, where it has to carry the
+# name of the view it belongs to: ``zmart-links/overview.ome.zarr-added.jsonl``.
+LINKS_ADDED_ENDING = "-added.jsonl"
+
+
+def where_the_list_goes(view: Path) -> tuple[Path, Path]:
+    """Where to write a view's list of pointers and its companion file.
+
+    Both sit beside the images, in the ``zmart-links`` folder, named after the view
+    they belong to — so two acquisitions in one run keep separate lists and neither
+    puts anything inside an image folder.
+
+    Args:
+        view: the view's own OME-Zarr folder.
+
+    Returns:
+        The list of pointers, and the file a growing run appends its tiles to. The
+        folder holding them is made if it is not there yet.
+    """
+    beside = view.parent / LINKS_FOLDER
+    beside.mkdir(parents=True, exist_ok=True)
+    return (beside / f"{view.name}.json",
+            beside / f"{view.name}{LINKS_ADDED_ENDING}")
 
 # Which shape of that file this is. A reader that meets a number it does not know
 # should refuse rather than guess, because guessing wrongly would draw somebody
@@ -1093,7 +1136,9 @@ class GrowingLinkedView:
         # run. Opened for appending, so every line goes on the end and nothing
         # already written is touched -- which is what makes a tile cost the same
         # however long the run has been going.
-        self._added = (self._view / LINKS_ADDED_FILE).open("a", encoding="utf-8")
+        _, adding_to = where_the_list_goes(self._view)
+        self._adding_to = adding_to
+        self._added = adding_to.open("a", encoding="utf-8")
 
     @property
     def path(self) -> Path:
@@ -1209,12 +1254,12 @@ class GrowingLinkedView:
             self._added.close()
             _put_the_list_where_the_viewer_looks(
                 self._view, self._listed, self._stored, self._pointing_at)
-            (self._view / LINKS_ADDED_FILE).unlink(missing_ok=True)
+            self._adding_to.unlink(missing_ok=True)
             self._canvas.close()
             self._open = False
         return LinkedView(
             path=self._view,
-            links=self._view / LINKS_FILE,
+            links=where_the_list_goes(self._view)[0],
             shape=self._shape,
             frames=self._stored.frames,
             channels=self._stored.channels,
@@ -1598,7 +1643,7 @@ def _put_the_list_where_the_viewer_looks(view: Path, listed: list[dict],
     the old one, and never a piece of either. This is the ordinary way of replacing
     a file that something else may be reading, and it costs nothing.
     """
-    held = view / LINKS_FILE
+    held, _ = where_the_list_goes(view)
     body = json.dumps({
         "version": LINKS_VERSION,
         "what": (
@@ -1617,9 +1662,11 @@ def _put_the_list_where_the_viewer_looks(view: Path, listed: list[dict],
         "prefix": stored.prefix,
         "tiles": listed,
     }, indent=1)
-    beside = view / f".{LINKS_FILE}.being-written"
-    beside.write_text(body, encoding="utf-8")
-    beside.replace(held)
+    # Written next to where it is going, so that the rename below is within one
+    # folder and therefore a single step the filesystem cannot show half of.
+    part_written = held.with_name(f".{held.name}.being-written")
+    part_written.write_text(body, encoding="utf-8")
+    part_written.replace(held)
     return held
 
 

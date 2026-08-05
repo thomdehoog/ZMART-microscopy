@@ -225,8 +225,12 @@ written beside each resolution, not once for the image; the reasoning is in
 
 **Keep the index.** *Written, and it has a problem worth fixing before this meets a
 real run.* Which piece of the view is which piece of which tile is written to a
-small file called `zmart-links.json`, which lists each tile once — ten thousand
-tiles are ten thousand lines, and that part is fine.
+small file kept beside the images, in `zmart-links/` and named after the view it
+describes, which lists each tile once — ten thousand tiles are ten thousand lines,
+and that part is fine. (It sat *inside* the view's own folder at first; it was
+moved out because anything inside an `.ome.zarr` makes zarr warn whoever opens it,
+and because rewriting it there on every tile looked to the viewer like the
+acquisition itself changing.)
 
 The trouble is what the server does with it on opening. `linking.py` spreads that
 list out into one entry per *piece*, so it can find a piece in a single step. A
