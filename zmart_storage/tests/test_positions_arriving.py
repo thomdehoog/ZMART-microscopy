@@ -167,6 +167,63 @@ def test_nothing_of_ours_is_inside_an_image(tmp_path):
             )
 
 
+def test_a_run_leaves_nothing_behind_that_nothing_reads(tmp_path):
+    """Four things in the folder, and each of them earns its place.
+
+    The picture to open, the positions, the list of pointers that joins them, and
+    the note saying a writer has the run open. Anything else would be something an
+    operator has to ask about.
+
+    A coverage record used to be kept for the picture as well, and it was worse
+    than useless: a view never has a tile written into it, so the record said
+    ``tiles_written: 0`` for ever. A reader bounding itself to that would have
+    shown an empty screen over a run that imaged perfectly well.
+    """
+    folder = tmp_path / "experiment"
+    _a_run(folder)
+
+    left = sorted(one.name for one in folder.iterdir())
+    assert left == ["overview.ome.zarr", "overview.writing", "positions",
+                    "zmart-links"], f"something unexpected was left behind: {left}"
+
+    assert not (folder / "zmart-coverage").exists(), (
+        "a view kept a record of what it imaged, which for a view is always "
+        "nothing, and would tell a reader the run was empty"
+    )
+
+
+def test_the_picture_is_what_lets_the_viewer_open_the_run_at_all(tmp_path):
+    """Why the picture cannot simply be deleted, which is a fair thing to ask.
+
+    It holds no voxels, so it is tempting to think the positions alone would do.
+    They would not. The viewer draws with neuroglancer, which builds drawing
+    layers for every image it is handed, so a folder of positions is a folder of
+    layers — a few thousand of them for a real run, which never opens in any
+    useful sense.
+
+    Handed the picture instead, the viewer sees **one** image and does not care
+    what is underneath. That is the whole mechanism, and this is what it looks
+    like from the viewer's own side.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "viz_studio" / "backend"))
+    from stores import discover
+
+    folder = tmp_path / "experiment"
+    _a_run(folder)
+
+    _, offered = discover(folder)
+    assert offered == ["overview.ome.zarr"], (
+        "opening the run should offer exactly one image to draw"
+    )
+
+    _, every_position = discover(folder / POSITIONS_FOLDER)
+    assert len(every_position) == ACROSS * ACROSS, (
+        "without the picture the viewer would be handed one image per position, "
+        "which is the arrangement that does not scale"
+    )
+
+
 def test_a_position_imaged_again_goes_into_the_image_it_already_had(tmp_path):
     """A second colour or a later moment is the same place, not a new one.
 

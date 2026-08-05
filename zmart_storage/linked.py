@@ -933,6 +933,9 @@ def link_the_tiles(
         discard_existing_run=discard_existing_run,
         ome_zarr_version=stored.ome_zarr_version,
         keeps_its_tiles_in=keeps_its_tiles_in,
+        # A view never has a tile written into it -- it points at the positions
+        # instead -- so a record of what it imaged would say "nothing" for ever.
+        records_coverage=False,
     )
     view = canvas.paths[0]
     try:
@@ -1046,6 +1049,9 @@ def start_a_growing_view(
         discard_existing_run=discard_existing_run,
         ome_zarr_version=stored.ome_zarr_version,
         keeps_its_tiles_in=keeps_its_tiles_in,
+        # A view never has a tile written into it -- it points at the positions
+        # instead -- so a record of what it imaged would say "nothing" for ever.
+        records_coverage=False,
     )
     view = canvas.paths[0]
     try:
