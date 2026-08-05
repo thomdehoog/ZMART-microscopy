@@ -1556,6 +1556,16 @@ class TileCanvases:
 
         Only y and x are shrunk. Planes are left alone because scrolling through
         a stack should show the planes that were actually acquired.
+
+        **The shrinking takes every second voxel rather than averaging four**, and
+        that is now depended on elsewhere rather than merely being the simplest
+        thing. Because no voxels are combined, a voxel of a smaller copy comes from
+        exactly one voxel of the full-size picture, and therefore from exactly one
+        tile. That is what lets a view point at the tiles' own smaller copies
+        instead of writing its own -- see ``viz_studio/PLAN_nothing_copied_at_all.md``.
+        Changing this to average would give a smoother zoomed-out picture and would
+        quietly break that, because an averaged voxel near a join really does come
+        from two tiles.
         """
         for level in range(1, self._levels):
             factor = 2 ** level

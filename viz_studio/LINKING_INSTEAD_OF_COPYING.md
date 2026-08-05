@@ -182,8 +182,13 @@ Free, because they only rearrange:
 
 Not free, because the pixels genuinely change:
 
-- **the zoomed-out copies**, because shrinking averages across the join between
-  tiles and no existing piece holds that answer;
+- ~~**the zoomed-out copies**, because shrinking averages across the join between
+  tiles and no existing piece holds that answer~~ — **this was wrong.** The
+  shrinking does not average: `canvas.py:1562` is `image[:, ::factor, ::factor]`,
+  which takes every second voxel and discards the rest, so a zoomed-out voxel comes
+  from exactly one tile and there is no join to average across. A tile that carries
+  its own zoomed-out copies can therefore be pointed at at every zoom, and a view
+  need write nothing at all. `PLAN_nothing_copied_at_all.md` sets that out;
 - blending overlap, for the same reason;
 - anything rotated, or shifted by less than a piece, which needs resampling;
 - changing the compression or the number type, since the bytes themselves change.
