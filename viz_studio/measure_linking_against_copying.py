@@ -337,18 +337,34 @@ def _say_what_it_means(rows: list[dict]) -> None:
         if copied
     ]
     if drawn:
-        worst = min(drawn)
-        print(
-            f"Pointing draws at between {min(drawn):.0%} and {max(drawn):.0%} of the "
-            f"rate the copied canvas draws at.\n"
-            + (
-                "That is the same rate within the noise of this measurement, so the\n"
-                "picture being pointed at rather than written down costs nothing to\n"
-                "look at."
-                if worst > 0.9 else
-                f"At its worst, pointing costs {1 - worst:.0%} of the frame rate. That\n"
-                "is a real cost and it should be weighed against the disk it saves."
+        worst, best = min(drawn), max(drawn)
+        # Read carefully rather than by the worst row alone. A frame count taken over
+        # five seconds on a busy machine moves by a good deal from one run to the
+        # next, so a single row below one means very little; what would mean
+        # something is *every* row below one, which is a difference rather than a
+        # wobble.
+        if best < 0.95:
+            said = (
+                f"Every size drew more slowly when pointed at, by between "
+                f"{1 - best:.0%} and {1 - worst:.0%}.\nThat is a real cost, because it "
+                "is in the same direction at every size, and it\nshould be weighed "
+                "against the disk it saves."
             )
+        elif worst > 1.05:
+            said = (
+                "Every size drew *faster* when pointed at, which is not a result to "
+                "believe\nwithout a reason for it. Look for one before quoting this."
+            )
+        else:
+            said = (
+                "Those straddle a hundred per cent, so the two arrangements draw at "
+                "the same\nrate as far as this measurement can tell. A five-second "
+                "frame count on a busy\nmachine moves by about this much between two "
+                "runs of the same thing."
+            )
+        print(
+            f"Pointing draws at between {worst:.0%} and {best:.0%} of the rate the "
+            f"copied canvas\ndraws at. {said}"
         )
 
     opening = [
