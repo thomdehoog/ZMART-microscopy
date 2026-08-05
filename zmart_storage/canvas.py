@@ -1273,6 +1273,69 @@ class TileCanvases:
                 by another writer in this same program, which leaves this one no
                 longer able to say truthfully where anything is.
         """
+        return self._put_a_tile_in(
+            image, origin=origin, channel=channel, frame=frame,
+            tile_index=tile_index, at_full_size=True,
+        )
+
+    def only_the_zoomed_out_copies(
+        self,
+        image: np.ndarray,
+        *,
+        origin: tuple[int, int, int],
+        channel: int = 0,
+        frame: int = 0,
+        tile_index: tuple[int, int, int] | None = None,
+    ) -> Path:
+        """Fill in a tile's part of the zoomed-out copies, and nothing else.
+
+        This does everything :meth:`write` does except put the tile into the
+        full-size picture. It exists for a view whose full-size picture is not
+        written down at all but pointed at — the tiles themselves already hold
+        those voxels, so copying them into a second image would be writing the same
+        bytes twice. See :mod:`zmart_storage.linked`, which is the only thing that
+        should be calling this.
+
+        The zoomed-out copies cannot be pointed at in the same way, because
+        shrinking the picture makes new numbers that exist nowhere on disk. They are
+        therefore written here exactly as they would be for an ordinary run, which
+        is what keeps a pointed-at view and a written-out one showing the same
+        picture at every zoom.
+
+        Args:
+            image: the part of the tile the view shows, shaped ``(z, y, x)``.
+            origin: where that part's low corner sits in the view, as ``(z, y, x)``
+                in voxels.
+            channel: which colour of light this tile was recorded in.
+            frame: which moment it belongs to.
+            tile_index: the tile's place in the scan pattern, if it has one.
+
+        Returns:
+            The image folder the copies were written into.
+        """
+        return self._put_a_tile_in(
+            image, origin=origin, channel=channel, frame=frame,
+            tile_index=tile_index, at_full_size=False,
+        )
+
+    def _put_a_tile_in(
+        self,
+        image: np.ndarray,
+        *,
+        origin: tuple[int, int, int],
+        channel: int,
+        frame: int,
+        tile_index: tuple[int, int, int] | None,
+        at_full_size: bool,
+    ) -> Path:
+        """The body of :meth:`write`, shared with :meth:`only_the_zoomed_out_copies`.
+
+        The two differ in one line — whether the tile is put into the full-size
+        picture — and agree about everything else: the checks, the waiting that
+        keeps two tiles out of one file, the zoomed-out copies, and the record of
+        where the run has imaged. Keeping them one piece of code is what stops those
+        agreements drifting apart.
+        """
         self._check_these_images_are_still_ours()
         picture = self._image
         depth, height, width = image.shape
@@ -1292,9 +1355,10 @@ class TileCanvases:
             origin, image.shape, frame=frame, channel=channel
         ):
             at = (frame, channel)
-            picture.arrays[0][
-                *at, z0:z0 + depth, y0:y0 + height, x0:x0 + width
-            ] = image
+            if at_full_size:
+                picture.arrays[0][
+                    *at, z0:z0 + depth, y0:y0 + height, x0:x0 + width
+                ] = image
             self._write_smaller_copies(image, origin, channel, frame)
             picture.written.append(occupied)
             # Written down only now, with the tile's voxels safely on disk, so
