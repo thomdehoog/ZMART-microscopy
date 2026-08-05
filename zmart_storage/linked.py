@@ -560,24 +560,34 @@ def _where_the_view_begins(
 
 
 def _refuse_a_placement_that_does_not_land_on_whole_pieces(
-    tiles: list[PlacedTile], chunk: tuple[int, int], shown: list[tuple[int, int, int]],
+    tiles: list[PlacedTile], stored: _HowTheTilesAreStored,
+    shown: list[tuple[int, int, int]],
 ) -> None:
-    """Stop a view whose pointers would not be whole pieces of a tile.
+    """Stop a view whose pointers would not be whole files of a tile.
 
-    This is the whole mechanism stated as a rule. A piece of the view can be a piece
-    of a tile only if the two grids line up, which means a tile has to land on a
-    piece boundary and the part of it being shown has to start and finish on one
-    too. Where that does not hold, answering a request would mean cutting pixels out
-    of one file and pasting them into another — which is exactly the copying this
-    module exists to avoid, so it is refused rather than done slowly.
+    This is the whole mechanism stated as a rule. A piece of the view can be handed
+    over from a tile only if the two grids line up, which means a tile has to land on
+    a boundary of whatever the tile keeps in one file, and the part of it being shown
+    has to start and finish on one too. Where that does not hold, answering a request
+    would mean cutting pixels out of one file and pasting them into another — which
+    is exactly the copying this module exists to avoid, so it is refused rather than
+    done slowly.
 
-    Only ``y`` and ``x`` are looked at. A piece holds a single moment, a single
+    **What counts as the unit depends on how the tiles were written.** Ordinarily it
+    is a piece. But a tile may *bundle* many pieces into one file — sharding, which
+    OME-Zarr 0.5 allows — and then the bundle is what exists as a file, so the bundle
+    is what has to line up. That is worth saying plainly in the message, because it
+    is the opposite of what an operator expects: choosing a larger bundle to keep the
+    file count down makes this rule harder to satisfy, not easier.
+
+    Only ``y`` and ``x`` are looked at. One file holds a single moment, a single
     colour and a single plane, so along those axes there is nothing to line up.
     """
+    bundled = stored.inside_a_bundle is not None
     awkward = []
     for placed, size in zip(tiles, shown, strict=True):
         for axis, name in ((1, "y"), (2, "x")):
-            piece = chunk[axis - 1]
+            piece = stored.chunk[axis - 1]
             for what, value in (
                 ("lands at", placed.lands_at[axis]),
                 ("is taken from", placed.taken_from[axis]),
@@ -588,6 +598,31 @@ def _refuse_a_placement_that_does_not_land_on_whole_pieces(
     if not awkward:
         return
     placed, name, what, value, piece = awkward[0]
+
+    if bundled:
+        inside = stored.inside_a_bundle[name == "x"]  # type: ignore[index]
+        raise ValueError(
+            f"{placed.store} {what} {value} voxels in {name}, and the tiles bundle "
+            f"their picture into files {piece} voxels across — each bundle holding "
+            f"pieces of {inside} — so that is {value / piece:.2f} bundles rather "
+            "than a whole number of them.\n\n"
+            "A view shows part of a tile by handing over a file that already exists, "
+            "and where pieces are bundled it is the **bundle** that is the file. So "
+            "it is the bundle that has to line up, not the piece inside it. Part of "
+            "a bundle out, answering would mean opening one file, taking pixels out "
+            "of it and writing them into another — which is the copying this whole "
+            "arrangement exists to avoid.\n\n"
+            "This is the part that catches people out, so it is worth stating: a "
+            "larger bundle makes this harder to satisfy, not easier. Bundling exists "
+            "to keep a long run from leaving millions of small files behind, and the "
+            "right size is the smallest that does that.\n\n"
+            f"Two things put it right, and either will do. Acquire with bundles that "
+            f"divide {value} — {inside} would do here if the pieces are left as they "
+            "are, since a bundle has only to hold a whole number of pieces. Or place "
+            "the tiles on a grid of whole bundles, which for a run whose tiles butt "
+            "up happens on its own."
+        )
+
     raise ValueError(
         f"{placed.store} {what} {value} voxels in {name}, and the tiles keep their "
         f"picture in pieces {piece} voxels across, so that is "
@@ -666,7 +701,7 @@ def link_the_tiles(
         for one in placed
     ]
     _refuse_a_part_of_a_tile_that_is_not_there(placed, shown, stored.shape)
-    _refuse_a_placement_that_does_not_land_on_whole_pieces(placed, stored.chunk, shown)  # type: ignore[arg-type]
+    _refuse_a_placement_that_does_not_land_on_whole_pieces(placed, stored, shown)  # type: ignore[arg-type]
 
     reaches = tuple(
         max(one.lands_at[axis] + size[axis] for one, size in zip(placed, shown, strict=True))

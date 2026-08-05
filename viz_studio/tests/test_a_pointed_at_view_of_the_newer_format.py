@@ -303,6 +303,42 @@ def test_a_bundled_run_draws_every_voxel_where_it_was_acquired(tmp_path):
     )
 
 
+def test_a_bundled_tile_placed_off_the_grid_is_told_about_bundles(tmp_path):
+    """The refusal names the bundle, because the bundle is what has to line up.
+
+    A message about pieces would send an operator to change the piece size, which
+    would not help at all: where pieces are bundled it is the bundle that exists as a
+    file, so the bundle is the thing that has to line up. The message also has to say
+    the counter-intuitive part out loud — that a *larger* bundle makes this harder to
+    satisfy — because keeping the file count down is exactly why somebody would have
+    chosen a large one.
+    """
+    import pytest
+    run = tmp_path / "run"
+    run.mkdir()
+    store = _a_bundled_tile(run / "bundled.ome.zarr", 0)
+
+    with pytest.raises(ValueError) as refused:
+        link_the_tiles(
+            run, name="pointed",
+            # Half a bundle along: a placement that would be perfectly fine if the
+            # pieces inside the bundle were what had to line up.
+            tiles=[PlacedTile(store=store, lands_at=(0, 0, PIECE))],
+            view_shape=(TILE[0], BUNDLE, BUNDLE + PIECE),
+        )
+    said = str(refused.value)
+    assert "bundle" in said, (
+        "the refusal talks about pieces where the tiles bundle them, which would "
+        f"send an operator to change the wrong number. It said:\n{said}"
+    )
+    assert f"{BUNDLE} voxels across" in said, "the bundle's own size is not named"
+    assert str(PIECE) in said, "the size of a piece inside the bundle is not named"
+    assert "larger bundle" in said, (
+        "the message does not warn that a larger bundle makes this harder, which is "
+        "the part an operator would otherwise get backwards"
+    )
+
+
 def test_bundling_needs_the_newer_format_and_says_so(tmp_path):
     """Asked for with 0.4, bundling is refused with the reason rather than ignored."""
     import pytest
