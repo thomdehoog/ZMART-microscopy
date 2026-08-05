@@ -246,14 +246,30 @@ class _WhereThePiecesReallyAre:
         if found is None:
             return None
         store, (from_z, from_y, from_x), held_as = found
-        piece = self.separator.join(
-            str(n) for n in (frame, channel, from_z, from_y, from_x)
-        )
-        where = f"{store}/{self.level}/{self.prefix}{piece}"
+        piece = self._named(frame, channel, from_z, from_y, from_x)
+        where = f"{store}/{self.level}/{piece}"
         # One piece, one file: all of it, from the beginning. A store that packs
         # several pieces into one file would work out the place and the length from
         # that file's own index here instead, which is why this is not simply a path.
         return Held(path=where, offset=0, length=None)
+
+    def _named(self, *numbers: int) -> str:
+        """What a piece at this position is called, in the spelling this view uses.
+
+        A piece is filed under its position. The two generations of zarr spell that
+        differently: version 2 simply joins the numbers with whatever the store
+        declares — ``0.0.0.1.2`` — while version 3 usually puts a ``c`` in front of
+        them as a part of the name in its own right, giving ``c/0/0/0/1/2``.
+
+        The ``c`` being a separate part is easy to miss and was: joining it straight
+        onto the first number gives ``c0/0/0/1/2``, which is a file that exists
+        nowhere, so every request for a piece of a version 3 view was answered
+        "there is nothing here" and the picture came out blank at full size.
+        """
+        parts = [str(n) for n in numbers]
+        if self.prefix:
+            parts.insert(0, self.prefix)
+        return self.separator.join(parts)
 
     def _numbers_in(self, inside: str) -> tuple[int, int, int, int, int] | None:
         """The five numbers naming a piece of the pointed-at copy, or ``None``.
@@ -262,11 +278,17 @@ class _WhereThePiecesReallyAre:
         one of the smaller copies, a name in a spelling this view does not use — is
         answered ``None`` and looked for on disk in the ordinary way.
         """
-        wanted = f"{self.level}/{self.prefix}"
+        wanted = f"{self.level}/"
         if not inside.startswith(wanted):
             return None
         rest = inside[len(wanted):]
         parts = rest.split(self.separator) if self.separator else [rest]
+        if self.prefix:
+            # The ``c`` version 3 puts in front is a part of the name of its own,
+            # so it is taken off here rather than being read as a number.
+            if not parts or parts[0] != self.prefix:
+                return None
+            parts = parts[1:]
         if len(parts) != 5:
             return None
         try:
