@@ -50,6 +50,10 @@ second kind: one store per tile and channel, each carrying its own position on t
 stage, which is what lets them be drawn as one specimen rather than as a pile of
 separate pictures.
 
+**A folder of many positions is the natural way to store a run, and it used to be
+the slow way to look at one.** It no longer has to be. See "One picture out of many
+stores" below.
+
 A window of its own rather than a browser tab needs `pywebview`, which comes with
 the install above. Without it the page still serves and prints an address you can
 open in any browser.
@@ -67,6 +71,83 @@ screen for the specimen: what is open, the channels inside it, and the brightnes
 and colour controls for whichever channel you have picked.
 
 `viz_studio/README.md` describes all of it properly.
+
+## One picture out of many stores
+
+A microscope naturally leaves one store per position: the acquisition writes each
+tile as it is taken, each store records where on the stage it came from, and
+anything that reads OME-Zarr can open any one of them. That is the layout most
+people already think in, and it is the one other tools expect.
+
+It has one difficulty, and it is not a small one. The drawing engine treats every
+store as a separate picture and takes part of every frame for each, so a plate of a
+few thousand positions handed over as a few thousand stores does not open in any
+useful sense. The pictures are all there; the viewer simply cannot hold that many
+at once.
+
+The old answer was to write the run a second time, as one large image. That works
+and it is measured — but it is a second copy of everything, and for a run of a few
+terabytes there is neither the disk nor the time.
+
+**So the run can instead be presented as one picture without any of it being
+copied.** `zmart_storage.linked` writes a small file beside the tiles saying which
+piece of the picture is which piece of which tile. The viewer is told that describes
+a single ordinary image, and when the browser asks for a piece, the server hands
+over the tile's own file exactly as it is. Nothing is assembled, nothing is
+decompressed, and not one pixel is copied.
+
+For a run that has finished:
+
+```python
+from zmart_storage.linked import link_the_tiles, PlacedTile
+
+link_the_tiles(
+    run_folder,
+    tiles=[PlacedTile(store=path, lands_at=(0, y, x)) for path, y, x in positions],
+)
+```
+
+For a run still on the microscope, the view is opened once and tiles are added as
+they land:
+
+```python
+from zmart_storage.linked import start_a_growing_view
+
+with start_a_growing_view(run_folder, like=first_tile,
+                          view_shape=stage_travel_in_voxels) as view:
+    for tile in as_they_arrive():
+        view.add(tile)
+```
+
+What that buys, measured on a machine with no graphics card at all:
+
+- **The tile count stops mattering.** A hundred tiles and six thousand four hundred
+  draw at the same rate and open in the same second, because the engine is handed
+  one image either way.
+- **The browser stops asking for more.** Sixteen hundred tiles and six thousand four
+  hundred both take 124 requests to open — it fetches what is on the screen, and
+  that does not depend on how large the run is.
+- **A tile arriving costs 0.87 milliseconds**, whether the view already holds six
+  thousand four hundred tiles or twelve thousand eight hundred.
+- **The disk it uses is about a quarter of the picture**, rather than the eighty per
+  cent more that a second full copy costs. That quarter is the zoomed-out copies,
+  which genuinely cannot be pointed at: shrinking a picture makes numbers that exist
+  in no file, and where two tiles meet those numbers come from both.
+
+A view holds no pixels of its own, which makes it comfortable to experiment with —
+build one wrongly and you delete it and build it again, and the tiles have no idea
+it ever existed.
+
+**One condition, and it will bite before anything else does.** Handing over a
+tile's own file only works when the tile begins exactly on one of the picture's
+piece boundaries. A stage asked to step 1792 voxels steps 1792 give or take a
+couple, and two voxels out is as bad as half a piece — the bytes wanted are then
+spread across two of the tile's files, and no single file holds them. Such a run is
+**refused** rather than drawn slightly wrong, so this opens tidy grids today and not
+yet a plate off a real stage. `viz_studio/PLAN_showing_many_stores_as_one.md` sets
+out the fix, which is for the acquisition to pad each tile's low edge by however far
+the stage overshot — putting the tile's own grid back on the run's grid without
+moving a single voxel of specimen.
 
 ## Watching a run as it happens
 
@@ -124,9 +205,19 @@ Written down because finding out for yourself is worse:
   controls**, so they cannot be adjusted apart. This is the next thing worth fixing
   and it is pinned by a failing test rather than left to be discovered.
 - **A folder of many separate positions is slow to open** — around ten minutes for
-  two thousand. Every position does arrive and none is lost; it simply takes that
-  long. A run written into one image per acquisition type opens in seconds, which is
-  the arrangement to prefer.
+  two thousand — if it is opened as separate positions. Every position does arrive
+  and none is lost; it simply takes that long. Presenting them as one picture is
+  what "One picture out of many stores" above is for, and it opens in about a
+  second at any size tried.
+- **A view over stores can only be built where the tiles land on exact piece
+  boundaries**, which a real stage does not do. This is the one thing standing
+  between the arrangement above and everyday use, and the fix is written out step by
+  step in `viz_studio/PLAN_showing_many_stores_as_one.md`.
+- **A run that re-images a position it has already imaged is not noticed** by a
+  viewer watching it, because nothing about the view changes when a tile is written
+  over in place. The operator keeps seeing the old picture with nothing to say so.
+  `viz_studio/OPEN_a_run_that_changes_while_you_watch.md` sets out the question and
+  what the answer probably looks like.
 - **A run cannot be resumed.** Pointing the writer at a folder that already holds
   images is refused rather than allowed to overwrite them.
 
