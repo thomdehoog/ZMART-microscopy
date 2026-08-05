@@ -1,0 +1,256 @@
+"""Adding a tile to a view while the run is still going.
+
+A run being acquired hands the viewer one tile at a time, and the view has to keep
+up. Building it again for every tile that lands works and costs the same each time
+as building the whole thing, so a long run spends most of its effort redoing what it
+already knew — measured at six thousand four hundred tiles, one more tile cost a
+second and a half.
+
+:func:`zmart_storage.linked.start_a_growing_view` opens the view once and keeps it
+open. These tests check the two things that has to be true about: that the picture
+it produces is the same one, and that adding a tile does not get slower as the run
+goes on.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+
+import numpy as np
+import pytest
+
+from zmart_storage.canvas import Channel, _declare_one
+from zmart_storage.linked import (
+    LINKS_FILE,
+    PlacedTile,
+    link_the_tiles,
+    start_a_growing_view,
+)
+
+# Small enough that a test writes a hundred of them in a moment, and cut into
+# pieces smaller than the tile so that a tile is several pieces of the view rather
+# than one indivisible block.
+TILE = (2, 64, 64)
+PIECE = 32
+VOXEL_UM = (2.0, 0.35, 0.35)
+ORIGIN_UM = (3.0, 1.5, 2.25)
+
+
+def a_tile(folder, index: int, across: int):
+    """Write one tile of a mosaic, and say where it belongs in the picture.
+
+    The pixels encode where the tile came from, so that a picture built out of them
+    can be checked against where each tile was meant to land rather than merely
+    checked for being non-empty.
+    """
+    lands_y = (index // across) * TILE[1]
+    lands_x = (index % across) * TILE[2]
+    store = folder / f"tile{index:04d}.ome.zarr"
+    arrays = _declare_one(
+        store,
+        canvas_shape=TILE,
+        frames=1,
+        channels=1,
+        dtype="uint16",
+        chunk=PIECE,
+        levels=1,
+        voxel_size_um=VOXEL_UM,
+        origin_um=(ORIGIN_UM[0],
+                   ORIGIN_UM[1] + lands_y * VOXEL_UM[1],
+                   ORIGIN_UM[2] + lands_x * VOXEL_UM[2]),
+        channel_blocks=[Channel("488", window=(0, 65535)).described(65535)],
+    )
+    y, x = np.indices(TILE[1:], dtype=np.int32)
+    coded = (1000 + (lands_y + y) * 41 + (lands_x + x)).astype("uint16")
+    arrays[0][0, 0] = np.broadcast_to(coded, TILE)
+    return PlacedTile(store=store, lands_at=(0, lands_y, lands_x))
+
+
+def test_a_grown_view_is_the_same_as_one_built_all_at_once(tmp_path):
+    """The picture must not depend on whether the tiles arrived together.
+
+    This is the check the whole idea rests on. If a view grown a tile at a time
+    differed from one built in a single call, the faster path would be a different
+    picture rather than the same picture sooner, and nothing on screen would say
+    which one the operator was looking at.
+    """
+    across, how_many = 4, 16
+    at_once = tmp_path / "at_once"
+    grown = tmp_path / "grown"
+    at_once.mkdir()
+    grown.mkdir()
+
+    together = [a_tile(at_once, index, across) for index in range(how_many)]
+    link_the_tiles(at_once, name="v", tiles=together,
+                   view_shape=(TILE[0], across * TILE[1], across * TILE[2]))
+
+    arriving = [a_tile(grown, index, across) for index in range(how_many)]
+    with start_a_growing_view(
+        grown, name="v", like=arriving[0],
+        view_shape=(TILE[0], across * TILE[1], across * TILE[2]),
+    ) as view:
+        for tile in arriving:
+            view.add(tile)
+
+    def described(folder):
+        held = json.loads((folder / "v.ome.zarr" / ".zattrs").read_text())
+        return held["multiscales"], held["omero"]
+
+    assert described(grown) == described(at_once), (
+        "a grown view describes itself differently from one built all at once"
+    )
+
+    def pointers(folder):
+        held = json.loads((folder / "v.ome.zarr" / LINKS_FILE).read_text())
+        # The tiles live in different folders, so compare everything but the name.
+        return sorted(
+            (one["at"], one["size"], one["from"], one["held_as"])
+            for one in held["tiles"]
+        )
+
+    assert pointers(grown) == pointers(at_once), (
+        "a grown view points at different pieces from one built all at once"
+    )
+
+
+def test_the_zoomed_out_copies_come_out_the_same(tmp_path):
+    """The smaller copies are the part that is genuinely written, so compare them.
+
+    The full-size picture is pointed at and identical by construction. The smaller
+    copies are made from the tiles' own pixels as they land, which is where the two
+    paths could really differ, so they are compared voxel for voxel.
+    """
+    import zarr
+
+    across, how_many = 4, 16
+    at_once = tmp_path / "at_once"
+    grown = tmp_path / "grown"
+    at_once.mkdir()
+    grown.mkdir()
+    shape = (TILE[0], across * TILE[1], across * TILE[2])
+
+    together = [a_tile(at_once, index, across) for index in range(how_many)]
+    built = link_the_tiles(at_once, name="v", tiles=together, view_shape=shape,
+                           levels=3)
+
+    arriving = [a_tile(grown, index, across) for index in range(how_many)]
+    with start_a_growing_view(grown, name="v", like=arriving[0],
+                              view_shape=shape, levels=3) as view:
+        for tile in arriving:
+            view.add(tile)
+
+    assert built.levels == 3
+    for level in ("1", "2"):
+        one = np.asarray(zarr.open_group(str(at_once / "v.ome.zarr"), mode="r")[level])
+        other = np.asarray(zarr.open_group(str(grown / "v.ome.zarr"), mode="r")[level])
+        assert np.array_equal(one, other), (
+            f"the zoomed-out copy {level} differs between a grown view and one "
+            "built all at once"
+        )
+
+
+def test_adding_a_tile_does_not_get_slower_as_the_run_goes_on(tmp_path):
+    """The whole point: the cost of a tile must not depend on how many came before.
+
+    Rebuilding the view for each tile costs more and more as the run grows, which
+    over a long acquisition is most of the work done. This checks the cost is flat
+    instead, by comparing the last tiles of a run against the first.
+
+    The threshold is deliberately loose. What is being guarded against is a cost
+    that grows *with the run* — the difference between flat and not is a factor of
+    many, not a few per cent — and a tight threshold on a shared machine would fail
+    for reasons that have nothing to do with the code.
+    """
+    across, how_many = 12, 144
+    folder = tmp_path / "run"
+    folder.mkdir()
+    arriving = [a_tile(folder, index, across) for index in range(how_many)]
+
+    each = []
+    with start_a_growing_view(
+        folder, name="v", like=arriving[0],
+        view_shape=(TILE[0], across * TILE[1], across * TILE[2]),
+    ) as view:
+        for tile in arriving:
+            began = time.perf_counter()
+            view.add(tile)
+            each.append(time.perf_counter() - began)
+
+    first = sorted(each[:20])[10]
+    last = sorted(each[-20:])[10]
+    assert last < first * 5 + 0.01, (
+        f"adding a tile got slower as the run went on: about {first * 1000:.1f} ms "
+        f"at the start and {last * 1000:.1f} ms at the end. The cost of one tile "
+        "should not depend on how many have already landed."
+    )
+
+
+def test_a_tile_that_lands_outside_the_declared_room_is_refused(tmp_path):
+    """Room is declared before the run, so a tile beyond the edge has to be refused.
+
+    The alternative would be to quietly grow the picture, which cannot be done while
+    the viewer is reading its description.
+    """
+    folder = tmp_path / "run"
+    folder.mkdir()
+    first = a_tile(folder, 0, 2)
+    beyond = a_tile(folder, 1, 2)
+
+    with start_a_growing_view(folder, name="v", like=first,
+                              view_shape=TILE) as view:
+        view.add(first)
+        with pytest.raises(ValueError, match="declared with room for"):
+            view.add(beyond)
+
+
+def test_a_tile_from_somewhere_else_is_refused(tmp_path):
+    """A tile that says it was acquired elsewhere is refused rather than misplaced.
+
+    Each tile records where it came from and is told where it goes, so each says on
+    its own where the picture's corner must be. One disagreeing means it is being
+    put somewhere it was not acquired, or that it belongs to another run — and drawn
+    rather than refused, it would be a specimen in the wrong place with nothing to
+    say so.
+    """
+    folder = tmp_path / "run"
+    folder.mkdir()
+    first = a_tile(folder, 0, 4)
+    second = a_tile(folder, 1, 4)
+    shape = (TILE[0], 4 * TILE[1], 4 * TILE[2])
+
+    with start_a_growing_view(folder, name="v", like=first,
+                              view_shape=shape) as view:
+        view.add(first)
+        # Put the second tile where the third belongs, a whole tile out.
+        misplaced = PlacedTile(store=second.store, lands_at=(0, 0, 2 * TILE[2]))
+        with pytest.raises(ValueError, match="corner"):
+            view.add(misplaced)
+
+
+def test_the_list_of_pointers_is_never_seen_half_written(tmp_path):
+    """The list is replaced in one step, so a reader gets all of it or none.
+
+    The viewer reads this file while the run is going. Written straight into place
+    there is an instant when it is a truncated fragment, and a reader catching it
+    then sees a run with most of its tiles missing. Renaming a finished file over
+    the old one removes that instant.
+    """
+    folder = tmp_path / "run"
+    folder.mkdir()
+    arriving = [a_tile(folder, index, 4) for index in range(16)]
+    shape = (TILE[0], 4 * TILE[1], 4 * TILE[2])
+
+    with start_a_growing_view(folder, name="v", like=arriving[0],
+                              view_shape=shape) as view:
+        held = view.path / LINKS_FILE
+        for expected, tile in enumerate(arriving, start=1):
+            view.add(tile)
+            # Read it back the way the viewer's server does. It must always parse
+            # and must always hold every tile added so far.
+            listed = json.loads(held.read_text())
+            assert len(listed["tiles"]) == expected
+        # Nothing left behind beside it.
+        leftover = [one.name for one in view.path.iterdir()
+                    if one.name.startswith(f".{LINKS_FILE}")]
+        assert leftover == [], f"a temporary file was left behind: {leftover}"

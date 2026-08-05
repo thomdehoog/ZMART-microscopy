@@ -759,6 +759,324 @@ def link_the_tiles(
     )
 
 
+def start_a_growing_view(
+    folder: str | Path,
+    *,
+    like: str | Path | PlacedTile,
+    view_shape: tuple[int, int, int],
+    name: str = "linked",
+    levels: int | None = None,
+    origin_um: tuple[float, float, float] | None = None,
+    discard_existing_run: bool = False,
+) -> GrowingLinkedView:
+    """Open a view for a run that has not happened yet, and add tiles as they land.
+
+    Use this while a run is being acquired. :func:`link_the_tiles` is for a run that
+    has finished — it reads every tile and builds the whole view, which is right
+    once and ruinous per tile.
+
+    Args:
+        folder: the run's own folder, which is where the view is put.
+        like: one tile that shows what the rest will be like — an already written
+            store, or a :class:`PlacedTile` naming one. Everything the view has to
+            declare about itself is read from it: how large a voxel is, what the
+            colours are called, the kind of number a voxel holds, how it is
+            compressed, how large a piece is. Every tile added later has to match,
+            and is refused if it does not.
+        view_shape: how large the picture will be, as ``(z, y, x)`` in voxels. This
+            has to be decided before the run because the viewer may be reading the
+            description throughout. Across the specimen, the stage's travel range is
+            a good choice: the stage cannot reach outside it, and declaring room
+            costs no disk until something is imaged there. Depth is the exception —
+            give it the depth the run means to image with a little to spare, for the
+            reason set out in :meth:`zmart_storage.canvas.TileCanvases.create`.
+        name: what to call the view. The operator sees it as the heading in the
+            viewer's panel.
+        levels: how many progressively smaller copies to keep, counting the
+            full-size one. Normally left out, so the size of the picture decides.
+        origin_um: where the picture's corner sits on the stage, in micrometres.
+            Left out, it is taken from the tile given as ``like``, which is right
+            when that tile is the run's first and lands at the picture's corner.
+            Give it outright when it is not.
+        discard_existing_run: whether to throw away a view already built here under
+            this name.
+
+    Returns:
+        A :class:`GrowingLinkedView`. Add tiles to it with
+        :meth:`GrowingLinkedView.add` and close it with
+        :meth:`GrowingLinkedView.finish`, or use it in a ``with`` block so it is
+        closed even if the run fails.
+
+    Raises:
+        ValueError: for any of the reasons :func:`link_the_tiles` refuses a run.
+    """
+    folder = Path(folder)
+    example = (like if isinstance(like, PlacedTile)
+               else PlacedTile(Path(like), (0, 0, 0)))
+    example = PlacedTile(Path(example.store), tuple(int(n) for n in example.lands_at),  # type: ignore[arg-type]
+                         tuple(int(n) for n in example.taken_from), example.size)  # type: ignore[arg-type]
+    stored = _what_the_tiles_are([example])
+    shape = tuple(int(n) for n in view_shape)
+    corner = (tuple(float(n) for n in origin_um) if origin_um is not None
+              else _where_the_view_begins([example], stored.voxel_size_um))
+
+    canvas = TileCanvases.create(
+        folder,
+        name=name,
+        canvas_shape=shape,  # type: ignore[arg-type]
+        tile_shape=stored.shape,
+        tile_step=stored.shape,
+        voxel_size_um=stored.voxel_size_um,
+        channels=_the_colours_the_tiles_record(stored),
+        origin_um=corner,  # type: ignore[arg-type]
+        frames=stored.frames,
+        dtype=_a_numpy_name_for(stored.dtype),
+        chunk=(stored.inside_a_bundle or stored.chunk)[0],
+        shard=stored.chunk[0] if stored.inside_a_bundle else None,
+        levels=levels,
+        discard_existing_run=discard_existing_run,
+        ome_zarr_version=stored.ome_zarr_version,
+    )
+    view = canvas.paths[0]
+    try:
+        _refuse_a_view_stored_differently_from_its_tiles(view, stored)
+        _say_where_each_resolution_sits(view, corner, stored.ome_zarr_version)  # type: ignore[arg-type]
+    except Exception:
+        canvas.close()
+        raise
+    kept = levels if levels is not None else copies_for_a_canvas(shape)  # type: ignore[arg-type]
+    growing = GrowingLinkedView(
+        canvas, folder, stored, shape, corner, kept, example.store)  # type: ignore[arg-type]
+    # An empty list, written straight away, so that a viewer opened before the
+    # first tile lands finds a view that is complete and simply has nothing in it
+    # yet, rather than one whose list of pointers is missing.
+    _put_the_list_where_the_viewer_looks(view, [], stored)
+    return growing
+
+
+class GrowingLinkedView:
+    """A view held open while the run is still arriving, so a tile landing is cheap.
+
+    :func:`link_the_tiles` builds a view from the tiles that exist when it is
+    called. That is right for a run that has finished, and wrong for one that has
+    not: calling it again for each tile that lands costs as much as building the
+    whole view, so a run of ten thousand tiles pays that ten thousand times over.
+    Measured at six thousand four hundred tiles, one more tile cost 1.5 seconds,
+    which across a whole acquisition is hours of work that produces nothing new.
+
+    This is the same view, kept open. Adding a tile checks that one tile, writes
+    that one tile's share of the zoomed-out copies, and adds one line to the list of
+    pointers — none of which depends on how many tiles have already landed.
+
+    Held open matters for a second reason. Everything that keeps a tile safe lives
+    in the writer rather than on disk: which parts of the picture have been imaged,
+    and which pieces are being written at this instant so that two tiles are never
+    halfway through the same one. Closing and reopening throws that away, so the
+    view is opened once for the run and closed once at the end of it.
+
+    Use it with ``with``, so the view is closed even if the run fails::
+
+        with start_a_growing_view(folder, view_shape=(60, 40000, 40000),
+                                  like=first_tile) as view:
+            for tile in as_they_arrive():
+                view.add(tile)
+
+    The viewer may be open on the run throughout. It notices the list of pointers
+    changing and reads it afresh, and the list is replaced in a single step, so a
+    reader never catches it half-written.
+    """
+
+    def __init__(self, canvas: TileCanvases, folder: Path,
+                 stored: _HowTheTilesAreStored, shape: tuple[int, int, int],
+                 origin_um: tuple[float, float, float], levels: int,
+                 like: Path) -> None:
+        self._canvas = canvas
+        self._folder = folder
+        self._stored = stored
+        self._shape = shape
+        self._origin_um = origin_um
+        self._levels = levels
+        self._view = canvas.paths[0]
+        # Which tile the view took its description from, so that a refusal can
+        # name both stores rather than only the one that disagreed.
+        self._like = like
+        self._listed: list[dict] = []
+        self._pointers = 0
+        self._open = True
+
+    @property
+    def path(self) -> Path:
+        """The view's own folder, which is what the viewer is opened on."""
+        return self._view
+
+    @property
+    def tiles(self) -> int:
+        """How many tiles have been added so far."""
+        return len(self._listed)
+
+    def add(self, tile: PlacedTile) -> None:
+        """Add one tile that has just landed, and make it visible.
+
+        Args:
+            tile: the tile and where it belongs in the view. See :class:`PlacedTile`.
+
+        Raises:
+            ValueError: if the tile was stored differently from the ones already in
+                the view, if it would not land on a whole piece boundary, if it
+                falls outside the room the view declared, or if it disagrees with
+                the others about where the view's corner sits.
+
+        Everything this refuses would otherwise show a picture that is quietly
+        wrong rather than reporting anything, so it is all checked here — but only
+        for the tile that arrived, which is why it stays quick however long the run
+        has been going.
+        """
+        if not self._open:
+            raise ValueError(
+                "this view has been closed, so no more tiles can be added to it. "
+                "A view is held open for the length of a run and closed once at "
+                "the end; to add to a run that has already finished, build the "
+                "view again with link_the_tiles."
+            )
+        placed = PlacedTile(
+            Path(tile.store), tuple(int(n) for n in tile.lands_at),  # type: ignore[arg-type]
+            tuple(int(n) for n in tile.taken_from), tile.size)  # type: ignore[arg-type]
+        arriving = _what_the_tiles_are([placed])
+        _refuse_tiles_stored_differently(
+            self._like, placed.store, self._stored, arriving,
+        )
+        size = tuple(int(n) for n in
+                     (placed.size if placed.size is not None else arriving.shape))
+        _refuse_a_part_of_a_tile_that_is_not_there([placed], [size], arriving.shape)  # type: ignore[arg-type]
+        _refuse_a_placement_that_does_not_land_on_whole_pieces(
+            [placed], self._stored, [size])  # type: ignore[arg-type]
+        _refuse_a_tile_that_lands_outside_the_view(placed, size, self._shape)  # type: ignore[arg-type]
+        _refuse_a_tile_that_disagrees_about_the_corner(
+            placed, self._origin_um, self._stored.voxel_size_um)
+
+        if self._levels > 1:
+            self._fill_this_tile_in(placed, size)  # type: ignore[arg-type]
+        self._pointers += (
+            self._stored.frames * self._stored.channels * size[0]
+        )
+        self._listed.append(
+            _one_line_of_the_list(placed, size, self._folder, self._stored))  # type: ignore[arg-type]
+        _put_the_list_where_the_viewer_looks(self._view, self._listed, self._stored)
+
+    def _fill_this_tile_in(self, placed: PlacedTile,
+                           size: tuple[int, int, int]) -> None:
+        """Write one tile's share of the zoomed-out copies.
+
+        The full-size picture is pointed at and so nothing of it is written. The
+        smaller copies cannot be pointed at, because shrinking makes numbers that
+        exist in no file, so this tile's part of them is written now — from its own
+        pixels, which is the one place in adding a tile where pixels are read at
+        all. It costs the same for the first tile of a run as for the last.
+        """
+        held = zarr.open_group(str(placed.store), mode="r")["0"]
+        low = placed.taken_from
+        picture = np.asarray(held[
+            :, :,
+            low[0]:low[0] + size[0],
+            low[1]:low[1] + size[1],
+            low[2]:low[2] + size[2],
+        ])
+        for frame in range(self._stored.frames):
+            for channel in range(self._stored.channels):
+                self._canvas.only_the_zoomed_out_copies(
+                    picture[frame, channel],
+                    origin=placed.lands_at,
+                    channel=channel,
+                    frame=frame,
+                )
+
+    def finish(self) -> LinkedView:
+        """Close the view and say what it ended up holding.
+
+        Returns:
+            A :class:`LinkedView` describing the finished view, the same as
+            :func:`link_the_tiles` returns.
+        """
+        if self._open:
+            self._canvas.close()
+            self._open = False
+        return LinkedView(
+            path=self._view,
+            links=self._view / LINKS_FILE,
+            shape=self._shape,
+            frames=self._stored.frames,
+            channels=self._stored.channels,
+            levels=self._levels,
+            tiles=len(self._listed),
+            pointers=self._pointers,
+        )
+
+    def __enter__(self) -> GrowingLinkedView:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.finish()
+
+
+def _refuse_a_tile_that_lands_outside_the_view(
+    placed: PlacedTile, size: tuple[int, int, int], shape: tuple[int, int, int],
+) -> None:
+    """Stop a tile that would fall outside the room the view declared.
+
+    A growing view declares how large the picture will be before the run has
+    happened, normally from the stage's travel range, and that size cannot change
+    afterwards without rewriting the description the viewer is already reading. So a
+    tile landing beyond the edge is refused, and the message says to declare more
+    room — which costs nothing, because a declared picture takes space only where
+    something has actually been imaged.
+    """
+    for axis, name in ((0, "z"), (1, "y"), (2, "x")):
+        reaches = placed.lands_at[axis] + size[axis]
+        if reaches > shape[axis]:
+            raise ValueError(
+                f"{placed.store} reaches {reaches} voxels along {name} and the view "
+                f"was declared with room for {shape[axis]}.\n\n"
+                "A view says how large the picture is before the run starts, and "
+                "the viewer may already be reading that. Declare the room the run "
+                "could possibly need when starting the view -- across the specimen "
+                "the stage's travel range is a good choice, since the stage cannot "
+                "reach outside it and declaring more room costs no disk until "
+                "something is imaged there."
+            )
+
+
+def _refuse_a_tile_that_disagrees_about_the_corner(
+    placed: PlacedTile, origin_um: tuple[float, float, float],
+    voxel_size_um: tuple[float, float, float],
+) -> None:
+    """Stop a tile whose own recorded position does not match where it is being put.
+
+    Each tile records the place on the stage its first voxel came from, and it is
+    also being told where it lands in the view. Those two together say where the
+    view's corner must be, and every tile has to agree about that. A tile placed a
+    row out implies a different corner, and catching it here is the difference
+    between a refusal and a specimen quietly drawn in the wrong place.
+
+    The comparison allows a tenth of a voxel, because these are decimal numbers
+    written to a file and read back, and two ways of arriving at the same position
+    can differ in the last digit without meaning anything.
+    """
+    corner = _where_the_view_begins([placed], voxel_size_um)
+    for axis, name in ((0, "z"), (1, "y"), (2, "x")):
+        adrift = abs(corner[axis] - origin_um[axis])
+        if adrift > voxel_size_um[axis] / 10:
+            raise ValueError(
+                f"{placed.store} records that it was acquired somewhere that puts "
+                f"the view's corner at {corner[axis]:.3f} micrometres along {name}, "
+                f"and the tiles already in this view put it at "
+                f"{origin_um[axis]:.3f}.\n\n"
+                "Every tile knows where it came from and is being told where it "
+                "goes, so each of them on its own says where the picture's corner "
+                "must be. When one disagrees, either it is being placed somewhere "
+                "it was not acquired or it belongs to a different run."
+            )
+
+
 def _refuse_a_part_of_a_tile_that_is_not_there(
     tiles: list[PlacedTile], shown: list[tuple[int, int, int]],
     tile_shape: tuple[int, int, int],
@@ -957,6 +1275,71 @@ def _fill_in_the_zoomed_out_copies(
     return pointed_at
 
 
+def _one_line_of_the_list(
+    placed: PlacedTile, size: tuple[int, int, int], folder: Path,
+    stored: _HowTheTilesAreStored,
+) -> dict:
+    """One tile's line in the list of pointers.
+
+    Split out from writing the whole list because a run still being acquired adds
+    one tile at a time, and it should not have to work out afresh what it already
+    knew about the tiles that arrived before.
+    """
+    piece_y, piece_x = stored.chunk
+    return {
+        # Where the tile lives, said relative to the folder the view sits in,
+        # so that a run can be moved or copied elsewhere and still be readable.
+        "store": _said_relative_to(placed.store, folder),
+        "at": [placed.lands_at[0], placed.lands_at[1] // piece_y,
+               placed.lands_at[2] // piece_x],
+        "size": [size[0], size[1] // piece_y, size[2] // piece_x],
+        "from": [placed.taken_from[0], placed.taken_from[1] // piece_y,
+                 placed.taken_from[2] // piece_x],
+        # How one piece of this tile is stored. A piece of an ordinary zarr
+        # image is a file of its own, so asking where a piece is gives back
+        # the whole of that file. It is written down rather than assumed
+        # because a sharded tile keeps many pieces inside one larger file, and
+        # a piece of that is a stretch in the middle of it — which the reader
+        # can be taught without every view already written becoming unreadable.
+        "held_as": "file",
+    }
+
+
+def _put_the_list_where_the_viewer_looks(view: Path, listed: list[dict],
+                                         stored: _HowTheTilesAreStored) -> Path:
+    """Write the list of pointers, so that a reader never sees it half-written.
+
+    A run being acquired rewrites this file every time a tile lands, and the viewer
+    may be reading it at that moment. Written straight into place, there is an
+    instant when the file is a truncated fragment — and a reader catching it then
+    sees a run with most of its tiles missing, or no list at all.
+
+    So it is written beside itself under a temporary name and then **renamed** over
+    the old one. Renaming a file is a single step that either has happened or has
+    not: a reader opening the file gets the whole of the new list or the whole of
+    the old one, and never a piece of either. This is the ordinary way of replacing
+    a file that something else may be reading, and it costs nothing.
+    """
+    held = view / LINKS_FILE
+    body = json.dumps({
+        "version": LINKS_VERSION,
+        "what": (
+            "Which piece of this view's full-size picture is which piece of which "
+            "tile. Nothing of the full-size picture is stored here: the viewer's "
+            "server reads this and hands over the tile's own file. Positions are "
+            "counted in pieces, not voxels."
+        ),
+        "level": "0",
+        "separator": stored.separator,
+        "prefix": stored.prefix,
+        "tiles": listed,
+    }, indent=1)
+    beside = view / f".{LINKS_FILE}.being-written"
+    beside.write_text(body, encoding="utf-8")
+    beside.replace(held)
+    return held
+
+
 def _write_the_list_of_pointers(
     view: Path, folder: Path, tiles: list[PlacedTile],
     shown: list[tuple[int, int, int]], stored: _HowTheTilesAreStored,
@@ -973,41 +1356,11 @@ def _write_the_list_of_pointers(
     instead of a hundred thousand, and the server spreads them out into a lookup
     when it first needs one.
     """
-    piece_y, piece_x = stored.chunk
-    listed = []
-    for placed, size in zip(tiles, shown, strict=True):
-        listed.append({
-            # Where the tile lives, said relative to the folder the view sits in,
-            # so that a run can be moved or copied elsewhere and still be readable.
-            "store": _said_relative_to(placed.store, folder),
-            "at": [placed.lands_at[0], placed.lands_at[1] // piece_y,
-                   placed.lands_at[2] // piece_x],
-            "size": [size[0], size[1] // piece_y, size[2] // piece_x],
-            "from": [placed.taken_from[0], placed.taken_from[1] // piece_y,
-                     placed.taken_from[2] // piece_x],
-            # How one piece of this tile is stored. A piece of an ordinary zarr
-            # image is a file of its own, so asking where a piece is gives back
-            # the whole of that file. It is written down rather than assumed
-            # because a sharded tile keeps many pieces inside one larger file, and
-            # a piece of that is a stretch in the middle of it — which the reader
-            # can be taught without every view already written becoming unreadable.
-            "held_as": "file",
-        })
-    held = view / LINKS_FILE
-    held.write_text(json.dumps({
-        "version": LINKS_VERSION,
-        "what": (
-            "Which piece of this view's full-size picture is which piece of which "
-            "tile. Nothing of the full-size picture is stored here: the viewer's "
-            "server reads this and hands over the tile's own file. Positions are "
-            "counted in pieces, not voxels."
-        ),
-        "level": "0",
-        "separator": stored.separator,
-        "prefix": stored.prefix,
-        "tiles": listed,
-    }, indent=1), encoding="utf-8")
-    return held
+    listed = [
+        _one_line_of_the_list(placed, size, folder, stored)
+        for placed, size in zip(tiles, shown, strict=True)
+    ]
+    return _put_the_list_where_the_viewer_looks(view, listed, stored)
 
 
 def _said_relative_to(store: Path, folder: Path) -> str:
