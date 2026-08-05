@@ -302,6 +302,34 @@ def _storage_description_of(level: Path) -> dict:
     )
 
 
+# Parts of an array's description that say what the picture *means* rather than
+# how its bytes are packed, and which therefore may differ between a view and the
+# tiles it points at without anything being wrong.
+#
+# The distinction matters more than it looks. A view hands a tile's file over
+# untouched, so anything affecting how those bytes are laid out — the piece size,
+# the kind of number, the compression, the bundling — has to agree exactly or the
+# picture comes out as noise. Names and labels affect none of that.
+#
+# Being strict about them is not merely pedantic, it is harmful: ``dimension_names``
+# is required by OME-Zarr 0.5 and a tile written by another program may carry it,
+# omit it, or spell it differently, and refusing such a tile would turn a
+# perfectly readable transfer away for a reason that has no effect on any voxel.
+# ``shape`` is here because a tile is smaller than the view by design.
+_SAYS_WHAT_IT_MEANS_NOT_HOW_IT_IS_STORED = ("shape", "dimension_names", "attributes")
+
+
+def _only_how_it_is_stored(described: dict) -> dict:
+    """An array's description with the parts that do not affect its bytes removed.
+
+    Used for the one comparison that has to be exact — a view against the tiles it
+    hands over — so that it is exact about the right things. See
+    :data:`_SAYS_WHAT_IT_MEANS_NOT_HOW_IT_IS_STORED`.
+    """
+    return {key: value for key, value in described.items()
+            if key not in _SAYS_WHAT_IT_MEANS_NOT_HOW_IT_IS_STORED}
+
+
 def _how_the_pieces_are_named(described: dict) -> tuple[str, str]:
     """What goes between the numbers of a piece's name, and what goes in front.
 
@@ -427,7 +455,7 @@ def _what_the_tiles_are(tiles: list[PlacedTile]) -> _HowTheTilesAreStored:
             )
         this_one = _HowTheTilesAreStored(
             ome_zarr_version=version,
-            described={key: value for key, value in described.items() if key != "shape"},
+            described=_only_how_it_is_stored(described),
             dtype=str(described.get("dtype") or described.get("data_type")),
             chunk=(chunk[-2], chunk[-1]),
             inside_a_bundle=(inside[-2], inside[-1]) if inside else None,
@@ -1402,8 +1430,7 @@ def _refuse_a_view_stored_differently_from_its_tiles(
     that nothing reports. If it ever does fail, something in the canvas writer has
     changed and this is the honest place to find out.
     """
-    described = _storage_description_of(view / "0")
-    mine = {key: value for key, value in described.items() if key != "shape"}
+    mine = _only_how_it_is_stored(_storage_description_of(view / "0"))
     if mine == stored.described:
         return
     differing = sorted(

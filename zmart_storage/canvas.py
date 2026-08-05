@@ -277,6 +277,17 @@ def _a_picture_already_written(store: Path,
 # the usual convention for an OME-Zarr image and is what the viewer looks for.
 _IMAGE_SUFFIX = ".ome.zarr"
 
+# What the five dimensions of every image here are called, in the order they are
+# stored: the moment, the colour, and then depth and the two directions across the
+# specimen.
+#
+# Written down once and used in both places that need it, which is not tidiness
+# but a requirement. OME-Zarr 0.5 states that the names on each level of the
+# image "MUST match the names in the axes metadata" of the group, and two lists
+# written separately are two lists that can drift apart. A reader finding them
+# disagreeing has no way to tell which is right.
+_AXIS_NAMES = ("t", "c", "z", "y", "x")
+
 
 def _refuse_a_name_that_is_not_a_plain_file_name(name: str) -> None:
     """Stop an acquisition type whose name cannot be part of a file name.
@@ -1817,11 +1828,11 @@ def _declare_one(
     # "there is nothing here" for a frame looked at too early and does not look
     # again -- see `written_timepoints` in the viewer's `stores.py`.
     axes = [
-        {"name": "t", "type": "time", "unit": "second"},
-        {"name": "c", "type": "channel"},
-        {"name": "z", "type": "space", "unit": "micrometer"},
-        {"name": "y", "type": "space", "unit": "micrometer"},
-        {"name": "x", "type": "space", "unit": "micrometer"},
+        {"name": _AXIS_NAMES[0], "type": "time", "unit": "second"},
+        {"name": _AXIS_NAMES[1], "type": "channel"},
+        {"name": _AXIS_NAMES[2], "type": "space", "unit": "micrometer"},
+        {"name": _AXIS_NAMES[3], "type": "space", "unit": "micrometer"},
+        {"name": _AXIS_NAMES[4], "type": "space", "unit": "micrometer"},
     ]
 
     arrays, datasets = _make_the_copies(
@@ -1938,6 +1949,19 @@ def _make_the_copies(
             chunks=(1, 1, 1, min(chunk, shape[-2]), min(chunk, shape[-1])),
             shards=bundled,
             dtype=dtype,
+            # What each dimension of this array is called. OME-Zarr 0.5 requires
+            # it -- the specification says the names "MUST be included in the
+            # zarr.json of the Zarr array of a multiscale level and MUST match
+            # the names in the axes metadata" -- and it is genuinely useful: it
+            # is what lets a reader open one level on its own and still know
+            # which dimension is depth and which is time, without having to go
+            # up to the group description to find out.
+            #
+            # The older generation has nowhere to put it. In 0.4 the array
+            # description is a fixed set of fields with no room for names, so the
+            # axes in the group description are the only statement of them, and
+            # asking for names here would simply be dropped.
+            **({"dimension_names": _AXIS_NAMES} if newer else {}),
             # Pieces filed in folders rather than side by side in one directory.
             # A long run otherwise puts millions of files in a single folder,
             # which most filesystems handle badly.
