@@ -334,7 +334,8 @@ class _Handler(SimpleHTTPRequestHandler):
             # the file that already holds those exact bytes is handed over as it is.
             elsewhere = self._pointed_at(rel)
             if elsewhere is not None:
-                self._send_file(elsewhere)
+                target, begins_at, how_many = elsewhere
+                self._send_file(target, begins_at=begins_at, how_many=how_many)
                 return
             # A piece that was never imaged is the *ordinary* case, not an error:
             # most of a live acquisition has not been written yet, and the engine
@@ -349,7 +350,7 @@ class _Handler(SimpleHTTPRequestHandler):
             return
         self._send_file(target)
 
-    def _pointed_at(self, rel: str) -> Path | None:
+    def _pointed_at(self, rel: str) -> tuple[Path, int, int | None] | None:
         """The file that really holds this piece, when the picture was never written.
 
         ``rel`` is what came after ``/data/``: the opened folder's number, then the
@@ -373,10 +374,13 @@ class _Handler(SimpleHTTPRequestHandler):
         store = self._library.resolve(f"{number}/{image}")
         if store is None:
             return None
-        found = linking.the_file_behind(store, inside)
+        found = linking.the_bytes_behind(store, inside)
         if found is None:
             return None
-        return self._library.resolve(f"{number}/{found}")
+        where = self._library.resolve(f"{number}/{found.path}")
+        if where is None:
+            return None
+        return where, found.offset, found.length
 
     def _send_empty(self, status: HTTPStatus) -> None:
         """Answer with a bare status, keeping the connection open for the next ask."""
@@ -419,14 +423,33 @@ class _Handler(SimpleHTTPRequestHandler):
             for key in [key for key in cls._described if key.startswith(inside)]:
                 del cls._described[key]
 
-    def _send_file(self, target: Path) -> None:
+    def _send_file(
+        self, target: Path, *, begins_at: int = 0, how_many: int | None = None
+    ) -> None:
+        """Answer with a file, or with one stretch of bytes out of the middle of it.
+
+        ``begins_at`` and ``how_many`` say which part of the file is the thing being
+        asked for. Left alone they mean all of it, which is the ordinary case: a
+        piece of a zarr image is a file of its own. A pointed-at view supplies them
+        when a piece lives *inside* a larger file — as it does in a sharded store —
+        so that the answer is that piece and not the file around it.
+
+        Everything after this treats that stretch as though it were the whole file,
+        which matters: a browser asking for a range of a piece means a range of the
+        *piece*, so its request is measured from ``begins_at`` rather than from the
+        beginning of the file.
+        """
         describing = target.name in self._DESCRIBING_FILES
         # A description is read whole because it is small and because it may have
         # been repaired on the way out, so what is on disk is not what is served.
         # Image data is not: a range of a shard is read out of the file directly
         # rather than pulling the whole thing into memory to slice it.
         data = self._read(target) if describing else None
-        total = len(data) if data is not None else target.stat().st_size
+        on_disk = len(data) if data is not None else target.stat().st_size
+        total = (
+            max(0, on_disk - begins_at) if how_many is None
+            else max(0, min(how_many, on_disk - begins_at))
+        )
         try:
             wanted = self._wanted_range(total)
         except ValueError:
@@ -441,10 +464,10 @@ class _Handler(SimpleHTTPRequestHandler):
             start, length = wanted
         if data is None:
             with target.open("rb") as handle:
-                handle.seek(start)
+                handle.seek(begins_at + start)
                 body = handle.read(length)
         else:
-            body = data[start : start + length]
+            body = data[begins_at + start : begins_at + start + length]
         self.send_response(HTTPStatus.PARTIAL_CONTENT if wanted else HTTPStatus.OK)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(len(body)))

@@ -132,7 +132,12 @@ LINKS_FILE = "zmart-links.json"
 # Which shape of that file this is. A reader that meets a number it does not know
 # should refuse rather than guess, because guessing wrongly would draw somebody
 # else's tile in the wrong place with nothing on screen to say so.
-LINKS_VERSION = 1
+#
+# Version 2 added ``held_as`` to each tile, saying how one of its pieces is stored.
+# Every tile written here says ``"file"`` — a piece of an ordinary zarr image is a
+# file of its own — but saying it out loud is what lets a store that keeps many
+# pieces inside one larger file be described later without the readers changing.
+LINKS_VERSION = 2
 
 
 # -- one tile, and where it appears in the view --------------------------------
@@ -868,6 +873,13 @@ def _write_the_list_of_pointers(
             "size": [size[0], size[1] // piece_y, size[2] // piece_x],
             "from": [placed.taken_from[0], placed.taken_from[1] // piece_y,
                      placed.taken_from[2] // piece_x],
+            # How one piece of this tile is stored. A piece of an ordinary zarr
+            # image is a file of its own, so asking where a piece is gives back
+            # the whole of that file. It is written down rather than assumed
+            # because a sharded tile keeps many pieces inside one larger file, and
+            # a piece of that is a stretch in the middle of it — which the reader
+            # can be taught without every view already written becoming unreadable.
+            "held_as": "file",
         })
     held = view / LINKS_FILE
     held.write_text(json.dumps({
