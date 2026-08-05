@@ -942,7 +942,13 @@ def test_the_size_of_a_voxel_is_written_into_the_description(tmp_path, version):
     """Every measurement made in the viewer rests on this one line of description."""
     canvases = _canvases(tmp_path, ome_zarr_version=version)
     full_size = _multiscale(canvases.paths[0])["datasets"][0]
-    (transformation,) = full_size["coordinateTransformations"]
+    # Each copy states two things: how large its voxels are, and where it begins on
+    # the stage. Only the first is under examination here; the corner has tests of
+    # its own further down.
+    (transformation,) = [
+        step for step in full_size["coordinateTransformations"]
+        if step["type"] == "scale"
+    ]
 
     # The last three numbers are the specimen's depth, height and width in microns.
     # The two in front of them are time and colour, which have no size in microns
@@ -973,7 +979,10 @@ def test_each_smaller_copy_says_how_much_ground_its_voxels_cover(tmp_path, versi
     assert len(copies) == 2, "this run was declared with two copies"
 
     for level, copy in enumerate(copies):
-        (transformation,) = copy["coordinateTransformations"]
+        (transformation,) = [
+            step for step in copy["coordinateTransformations"]
+            if step["type"] == "scale"
+        ]
         depth, height, width = transformation["scale"][-3:]
         assert copy["path"] == str(level)
         assert depth == 2.0, (
@@ -1001,19 +1010,45 @@ def test_where_the_images_sit_on_the_stage_is_written_down(tmp_path, version):
     those two the OME-Zarr standard intends is genuinely unsettled, and
     ``zmart_storage/VOXEL_PLACEMENT.md`` sets out the evidence and why this writer
     chose the corner. It is checked here so that nobody changes it by accident.
+
+    It is written beside **each** resolution rather than once for the image as a
+    whole. Both places are allowed by the format, but only the per-resolution one
+    is compulsory, so it is the place every reader looks. Writing it in both would
+    be worse than picking wrongly: a reader applies the second to the result of the
+    first, so the image would be placed twice as far from the stage's zero as it
+    really is.
     """
     corner = (10.0, 250.5, 900.25)
     canvases = _canvases(tmp_path, origin_um=corner, ome_zarr_version=version)
 
     (store,) = canvases.paths
-    (transformation,) = _multiscale(store)["coordinateTransformations"]
-    assert transformation["type"] == "translation"
-    assert transformation["translation"][-3:] == list(corner), (
-        f"{store.name} puts its corner at "
-        f"{transformation['translation'][-3:]}, where the run was declared "
-        f"from {list(corner)} — so it would be drawn away from the run's other "
-        f"acquisition types"
+    multiscale = _multiscale(store)
+
+    assert "coordinateTransformations" not in multiscale, (
+        f"{store.name} states its corner beside the list of copies as well as "
+        f"beside each copy. A reader that composes the two — which the format "
+        f"asks for, and which neuroglancer does — would draw the image at twice "
+        f"its true distance from the stage's zero."
     )
+
+    for level, copy in enumerate(multiscale["datasets"]):
+        placements = [
+            step for step in copy["coordinateTransformations"]
+            if step["type"] == "translation"
+        ]
+        assert placements, (
+            f"copy {level} of {store.name} does not say where it begins. A reader "
+            f"that looks only beside the copy — which is the compulsory place, and "
+            f"so the usual one — would draw it at the stage's zero, on top of every "
+            f"other acquisition in the run."
+        )
+        (placement,) = placements
+        assert placement["translation"][-3:] == list(corner), (
+            f"copy {level} of {store.name} puts its corner at "
+            f"{placement['translation'][-3:]}, where the run was declared "
+            f"from {list(corner)} — so it would be drawn away from the run's other "
+            f"acquisition types"
+        )
     canvases.close()
 
 

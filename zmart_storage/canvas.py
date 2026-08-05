@@ -1642,33 +1642,16 @@ def _declare_one(
         chunk=chunk,
         levels=levels,
         voxel_size_um=voxel_size_um,
+        origin_um=origin_um,
         newer=newer,
     )
 
+    # Where the image sits on the stage is written beside each resolution, in
+    # ``_make_the_copies``, rather than once for the image as a whole. OME-Zarr
+    # allows both places, and the reason for choosing the first is recorded there.
     multiscale = {
         "axes": axes,
         "datasets": datasets,
-        # Where this image sits in the world. Every image in a run shares the
-        # same corner, which is what makes them line up on screen.
-        #
-        # This number is the **corner** of the first voxel, not its middle, and
-        # every smaller copy is given the same one. That is a choice rather than
-        # a rule: OME-Zarr does not say which is meant, and the question has been
-        # open with the format's authors since 2022. Under the corner reading the
-        # copies nest perfectly -- every level begins at exactly this point, and a
-        # coarse voxel covers precisely the fine ones it was built from. Under the
-        # other reading they would not, so a level would have to be shifted by half
-        # of its own voxel to mean the same thing.
-        #
-        # Readers disagree about this, and some will place the picture half a voxel
-        # off. That is theirs to correct, not ours: a file that shifts itself to
-        # suit one reader is wrong for every other. The reasoning, the arithmetic
-        # and what each reader does are in VOXEL_PLACEMENT.md beside this file.
-        "coordinateTransformations": [{
-            "type": "translation",
-            "translation": [0.0, 0.0,
-                            origin_um[0], origin_um[1], origin_um[2]],
-        }],
     }
 
     _write_the_description(store, group, multiscale, channel_blocks, newer=newer)
@@ -1684,6 +1667,7 @@ def _make_the_copies(
     chunk: int,
     levels: int,
     voxel_size_um: tuple[float, float, float],
+    origin_um: tuple[float, float, float],
     newer: bool,
 ) -> tuple[list[zarr.Array], list[dict]]:
     """Make the full-size image and each progressively smaller copy of it.
@@ -1706,6 +1690,8 @@ def _make_the_copies(
         chunk: how large one piece of image is, in y and x.
         levels: how many copies to make, counting the full-size one.
         voxel_size_um: how large one voxel is, as ``(z, y, x)`` in microns.
+        origin_um: where the low corner of the image sits on the stage, as
+            ``(z, y, x)`` in microns. Every copy is given the same corner.
         newer: ``True`` when writing OME-Zarr 0.5, which files the pieces of an
             image its own way, ``False`` for 0.4.
 
@@ -1744,14 +1730,53 @@ def _make_the_copies(
         ))
         datasets.append({
             "path": str(level),
-            "coordinateTransformations": [{
-                "type": "scale",
-                # Only the height and the width of a voxel double from one copy to
-                # the next. Its depth stays as it was, because no plane is ever
-                # dropped.
-                "scale": [1.0, 1.0, voxel_size_um[0],
-                          voxel_size_um[1] * factor, voxel_size_um[2] * factor],
-            }],
+            # How large this copy's voxels are, and where the image begins on the
+            # stage. Both are written here, beside the copy they describe.
+            #
+            # OME-Zarr offers two places to say where an image sits: beside each
+            # resolution, as here, or once beside the block that lists them all.
+            # A reader is meant to apply the second to the result of the first, so
+            # a writer must pick one and only one -- saying it in both places
+            # places the image twice as far out as it really is.
+            #
+            # This writer says it here, because this is the place the format makes
+            # compulsory: every resolution must carry a transformation, while the
+            # block-level one is optional. Tools that read only the compulsory
+            # place are therefore common, and a picture written only in the
+            # optional place arrives at the stage's zero for all of them, with
+            # every acquisition of a run stacked on top of the others. That is
+            # what used to happen to our images in the wider Python ecosystem,
+            # and it is what `viz_studio/INTEROP.md` records.
+            #
+            # The number is the **corner** of the first voxel, not its middle, and
+            # every smaller copy is given the same one. That is a choice rather
+            # than a rule: OME-Zarr does not say which is meant, and the question
+            # has been open with the format's authors since 2022. Under the corner
+            # reading the copies nest perfectly -- every level begins at exactly
+            # this point, and a coarse voxel covers precisely the fine ones it was
+            # built from. Under the other reading they would not, so a level would
+            # have to be shifted by half of its own voxel to mean the same thing.
+            #
+            # Readers disagree about this second question, and some will place the
+            # picture half a voxel off. That is theirs to correct, not ours: a file
+            # that shifts itself to suit one reader is wrong for every other. The
+            # reasoning, the arithmetic and what each reader does are in
+            # VOXEL_PLACEMENT.md beside this file.
+            "coordinateTransformations": [
+                {
+                    "type": "scale",
+                    # Only the height and the width of a voxel double from one copy
+                    # to the next. Its depth stays as it was, because no plane is
+                    # ever dropped.
+                    "scale": [1.0, 1.0, voxel_size_um[0],
+                              voxel_size_um[1] * factor, voxel_size_um[2] * factor],
+                },
+                {
+                    "type": "translation",
+                    "translation": [0.0, 0.0,
+                                    origin_um[0], origin_um[1], origin_um[2]],
+                },
+            ],
         })
     return arrays, datasets
 

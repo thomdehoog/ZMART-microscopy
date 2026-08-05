@@ -35,10 +35,37 @@ project's convention rather than the format's.
 
 ---
 
-## 1. Our files are mispositioned by a large part of the ecosystem
+## 1. Our files are mispositioned by a large part of the ecosystem — **fixed**
 
-**This is the finding with the widest blast radius and nothing has been done
-about it.**
+**This was the finding with the widest blast radius. It is now fixed, and the
+description below is what it used to do.** `zmart_storage/canvas.py` writes the
+translation beside each resolution, which is the place the format makes
+compulsory, and no longer writes one beside the multiscale block. Images written
+from now on open correctly in `ngff-zarr`, and so in `multiview-stitcher` and the
+rest of the ecosystem built on it.
+
+`zmart_storage/tests/test_other_tools_can_read_us.py` holds it there. It writes a
+run at a known corner, reads it back with `ngff-zarr` rather than with our own
+reader, and fails if the corner comes back as anything else. Confirmed to fail
+against the old writer, reporting a corner of 0.0 where 10.0 was declared — which
+is exactly the fault described below.
+
+**One correction to the advice this section used to give**, because following it
+would have caused a second fault rather than curing the first. It said that
+"writing it in both places costs nothing and is understood by both conventions."
+That is not so. A reader applies the multiscale-level transformation to the result
+of the per-resolution one, so an image stating its position in both places is
+placed **twice as far** from the stage's zero as it really is. Neuroglancer
+composes them exactly this way — `datasource/zarr/ome.js`, where
+`parseOmeMultiscale` multiplies the two together — so writing both would have
+broken our own viewer as well as everyone else's. The position must be stated in
+one place only, and the per-resolution one is the place to choose.
+
+Removing the outer block is safe for the same reason, checked in the same file:
+`parseOmeCoordinateTransforms` returns the identity when the block is absent.
+
+Everything below is the original finding, kept because the mechanism is worth
+understanding and because the same shape of fault can return.
 
 multiview-stitcher does not parse NGFF itself. It calls
 `ngff_zarr.from_ngff_zarr`, and in `ngff-zarr`'s
@@ -64,11 +91,11 @@ and it is ours, not theirs:
 Today's fix made us read everyone else's files correctly. It did nothing to make
 our files readable by anyone else.
 
-**What to do about it.** Write the translation per dataset as well as, or instead
-of, at the multiscales level. The spec's own examples put it per dataset. Writing
-it in both places costs nothing and is understood by both conventions; writing it
-only per dataset is cleaner but would need our own reader's composition to stay
-exactly as it now is, which it should anyway.
+**What was done about it.** The translation is written per dataset, and the
+multiscales-level block is gone. It is written in one place only, for the reason
+given at the top of this section: the two compose, so saying it twice would place
+the image twice as far out. This relies on our own reader continuing to compose
+both, which it does and should.
 
 ### 1a. And while that file is open: the half-voxel question
 
