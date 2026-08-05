@@ -397,8 +397,14 @@ def _the_middle_of(page) -> dict:
     }
 
 
-def look_at_it(folder: Path) -> dict:
-    """Open the viewer on the run's canvas and measure what it costs to work in."""
+def look_at_it(folder: Path, store: str = "overview.ome.zarr") -> dict:
+    """Open the viewer on one image of a run and measure what it costs to work in.
+
+    ``store`` names the image inside ``folder`` to open, and naming it matters as
+    soon as a run holds more than one. ``measure_linking_against_copying.py`` writes
+    the same tiles both ways into one folder and opens each in turn, so that the only
+    thing differing between two rows of its table is which arrangement was opened.
+    """
     from playwright.sync_api import sync_playwright
     from server import make_server
 
@@ -407,7 +413,7 @@ def look_at_it(folder: Path) -> dict:
         port=0,
         data_dir=folder,
         site_dir=VIZ / "frontend" / "dist",
-        store="overview.ome.zarr",
+        store=store,
         live=False,
     )
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
