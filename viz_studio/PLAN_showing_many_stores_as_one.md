@@ -203,11 +203,23 @@ bytes over without decoding.
 Three reasons it is worth doing, and two cautions.
 
 Worth doing because a reference of the form *(file, offset, length)* can point
-**inside** a file, which our "hand over this file" cannot. That means sharded
-stores become servable, where sharding packs many pieces into one larger file. It
-means stores that are not zarr at all — TIFF, HDF5 — could be presented as one
-picture with nothing converted, which is the real answer to "any format". And it
-means other Python tools can read the same mosaic.
+**inside** a file, which our "hand over this file" cannot. It means stores that are
+not zarr at all — TIFF, HDF5 — could be presented as one picture with nothing
+converted, which is the real answer to "any format". And it means other Python
+tools can read the same mosaic.
+
+Note that **sharded stores no longer need this.** An earlier draft listed them as
+the main reason to adopt it, on the assumption that a bundle's index would have to
+be read here. It does not: what gets handed over is the whole bundle, and the
+viewer's engine reads the index itself and asks for the piece it wants by byte
+offset, which the server already answers. A sharded 0.5 run is pointed at today —
+measured, and covered by
+`viz_studio/tests/test_a_pointed_at_view_of_the_newer_format.py`. The one thing to
+know is that the **bundle becomes the unit**: a tile has to begin on a whole bundle
+boundary, and the smallest strip that can be trimmed where two tiles overlap is a
+whole bundle. Larger bundles therefore make the placement rules in task 4 harder to
+satisfy, not easier, so the bundle should be chosen as the smallest that keeps the
+file count reasonable rather than as large as possible.
 
 Caution one: use the **Parquet** form of references rather than JSON. References
 are recorded per piece, and this project already learned what that costs — the note

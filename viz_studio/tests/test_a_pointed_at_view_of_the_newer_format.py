@@ -39,6 +39,7 @@ from zmart_storage.linked import PlacedTile, link_the_tiles  # noqa: E402
 PIECE = 64
 TILE = (1, 64, 64)
 ACROSS = 2                      # two tiles side by side
+BUNDLE = 128                    # how much picture one file holds when pieces are bundled
 VOXEL_UM = (2.0, 0.35, 0.35)
 ORIGIN_UM = (11.0, 5.5, 7.25)
 
@@ -164,6 +165,157 @@ def test_a_newer_format_view_draws_the_specimen_and_not_blankness(tmp_path):
         f"{len(wrong)} of {picture.size} voxels came back from somewhere other than "
         "where they were acquired"
     )
+
+
+def _a_bundled_tile(store: Path, lands_x: int) -> Path:
+    """One 0.5 tile that keeps several pieces inside each file, rather than one.
+
+    This is sharding: a bundle of pieces in a single file with a small index saying
+    where each of them begins. A long run otherwise leaves millions of small files
+    behind, which most filesystems handle badly, so real 0.5 acquisitions do it.
+    """
+    import zarr
+    store.mkdir(parents=True, exist_ok=True)
+    group = zarr.open_group(str(store), mode="w", zarr_format=3)
+    array = group.create_array(
+        "0", shape=(1, 1, TILE[0], BUNDLE, BUNDLE), dtype="uint16",
+        chunks=(1, 1, 1, PIECE, PIECE),
+        shards=(1, 1, 1, BUNDLE, BUNDLE),
+    )
+    across = np.arange(lands_x, lands_x + BUNDLE, dtype=np.uint16)
+    array[0, 0] = np.broadcast_to(1000 + across, (TILE[0], BUNDLE, BUNDLE))
+
+    document = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
+    document.setdefault("attributes", {})["ome"] = {
+        "version": "0.5",
+        "multiscales": [{
+            "name": store.name,
+            "axes": [
+                {"name": "t", "type": "time"}, {"name": "c", "type": "channel"},
+                {"name": "z", "type": "space", "unit": "micrometer"},
+                {"name": "y", "type": "space", "unit": "micrometer"},
+                {"name": "x", "type": "space", "unit": "micrometer"},
+            ],
+            "datasets": [{"path": "0", "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 1.0, *VOXEL_UM]},
+                {"type": "translation",
+                 "translation": [0.0, 0.0, 0.0, 0.0, lands_x * VOXEL_UM[2]]},
+            ]}],
+        }],
+    }
+    (store / "zarr.json").write_text(json.dumps(document, indent=2), encoding="utf-8")
+    return store
+
+
+def test_tiles_that_bundle_their_pieces_are_pointed_at_too(tmp_path):
+    """A sharded run opens, and the view is declared bundled exactly as its tiles are.
+
+    What gets handed over is the bundle rather than a single piece, which changes
+    nothing about the idea: the engine reads the bundle's own index and asks for the
+    piece it wants by byte offset. What it does change is the *declaration* — a view
+    stored differently from its tiles is a picture of noise, so the view has to
+    bundle its pieces the same way round.
+    """
+    run = tmp_path / "run"
+    run.mkdir()
+    placed = [
+        PlacedTile(
+            store=_a_bundled_tile(run / f"bundled{index}.ome.zarr", index * BUNDLE),
+            lands_at=(0, 0, index * BUNDLE),
+        )
+        for index in range(ACROSS)
+    ]
+    view = link_the_tiles(
+        run, name="pointed", tiles=placed,
+        view_shape=(TILE[0], BUNDLE, ACROSS * BUNDLE),
+    )
+
+    described = json.loads(
+        (view.path / "0" / "zarr.json").read_text(encoding="utf-8")
+    )
+    bundling = [
+        codec for codec in described["codecs"]
+        if codec["name"] == "sharding_indexed"
+    ]
+    assert bundling, (
+        "the view was declared with every piece in a file of its own while its "
+        "tiles bundle theirs, so its description and their bytes disagree"
+    )
+    assert bundling[0]["configuration"]["chunk_shape"][-2:] == [PIECE, PIECE], (
+        "the view's pieces inside a bundle are not the size the tiles' are"
+    )
+    assert (
+        described["chunk_grid"]["configuration"]["chunk_shape"][-2:]
+        == [BUNDLE, BUNDLE]
+    ), "the view's bundles are not the size the tiles' bundles are"
+
+
+def test_a_bundled_run_draws_every_voxel_where_it_was_acquired(tmp_path):
+    """Read back through the server, a sharded run is the specimen and not noise."""
+    run = tmp_path / "run"
+    run.mkdir()
+    placed = [
+        PlacedTile(
+            store=_a_bundled_tile(run / f"bundled{index}.ome.zarr", index * BUNDLE),
+            lands_at=(0, 0, index * BUNDLE),
+        )
+        for index in range(ACROSS)
+    ]
+    width = ACROSS * BUNDLE
+    link_the_tiles(
+        run, name="pointed", tiles=placed,
+        view_shape=(TILE[0], BUNDLE, width),
+    )
+
+    server = make_server(
+        port=0, data_dir=run, site_dir=run, store="pointed.ome.zarr", live=False,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    address = f"http://127.0.0.1:{server.server_address[1]}/data/0/pointed.ome.zarr"
+    rebuilt = tmp_path / "asked" / "pointed.ome.zarr"
+    rebuilt.mkdir(parents=True)
+    served = 0
+    try:
+        _grab(f"{address}/zarr.json", rebuilt / "zarr.json")
+        _grab(f"{address}/0/zarr.json", rebuilt / "0" / "zarr.json")
+        for x in range(width // BUNDLE):
+            name = f"c/0/0/0/0/{x}"
+            if _grab(f"{address}/0/{name}", rebuilt / "0" / name):
+                served += 1
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    assert served == width // BUNDLE, (
+        f"only {served} of {width // BUNDLE} bundles were served"
+    )
+
+    import zarr
+    picture = np.asarray(zarr.open_group(str(rebuilt), mode="r")["0"][0, 0, 0])
+    expected = np.broadcast_to(
+        1000 + np.arange(width, dtype=np.uint16), (BUNDLE, width)
+    )
+    wrong = np.argwhere(picture != expected)
+    assert len(wrong) == 0, (
+        f"{len(wrong)} of {picture.size} voxels of a bundled run came back from "
+        "somewhere other than where they were acquired"
+    )
+
+
+def test_bundling_needs_the_newer_format_and_says_so(tmp_path):
+    """Asked for with 0.4, bundling is refused with the reason rather than ignored."""
+    import pytest
+    with pytest.raises(ValueError) as refused:
+        _declare_one(
+            tmp_path / "old.ome.zarr",
+            canvas_shape=TILE, frames=1, channels=1, dtype="uint16",
+            chunk=PIECE, levels=1, voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+            channel_blocks=[Channel("488", window=(0, 4000)).described(65535)],
+            ome_zarr_version="0.4",
+            shard=BUNDLE,
+        )
+    assert "0.5" in str(refused.value)
 
 
 def test_the_older_format_still_names_its_pieces_the_old_way(tmp_path):
