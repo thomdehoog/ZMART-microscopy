@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import json
 import threading
+from bisect import bisect_right
 from pathlib import Path
 
 # The file, inside a view's own folder, that holds the list of pointers. The same
@@ -64,30 +65,93 @@ LINKS_VERSION = 1
 
 
 class _WhereThePiecesReallyAre:
-    """One view's pointers, spread out so a piece can be found in a single step.
+    """One view's pointers, held as the tiles themselves rather than piece by piece.
 
     The file on disk lists each tile once, saying which block of the view's pieces
-    it supplies. That is short — ten thousand tiles are ten thousand lines — but
-    answering a request from it would mean looking through every tile. So it is
-    spread out into a lookup here, once, the first time the view is asked about.
+    it supplies. That is short: ten thousand tiles are ten thousand lines.
+
+    It is tempting to spread that out into a lookup holding every piece, so a
+    request can be answered in a single step, and an earlier version of this did
+    exactly that. It does not survive a real run. A tile 2048 voxels across, kept in
+    pieces of 128, is sixteen by sixteen pieces — multiply that by its planes, its
+    colours and its moments, then by ten thousand tiles, and a list that was a few
+    megabytes on disk becomes tens of gigabytes in memory. The tests never showed it
+    because test tiles are small.
+
+    So each tile is remembered once, and the only thing spread out is a note of
+    which **rows** of the picture it reaches into. A picture is a grid of pieces;
+    each row of that grid holds a note of the tiles crossing it, and there are as
+    many notes per tile as it is pieces tall — sixteen, in the example above, rather
+    than twenty-five thousand. Finding a piece then means looking in one row and
+    checking the few tiles there, which is quick, and the memory stays in proportion
+    to the number of tiles.
     """
 
     def __init__(self, listed: dict) -> None:
         self.level = str(listed.get("level", "0"))
         self.separator = str(listed.get("separator") or "/")
         self.prefix = str(listed.get("prefix") or "")
-        self._at: dict[tuple[int, int, int], tuple[str, tuple[int, int, int]]] = {}
+        # For each row of the picture's grid of pieces, the tiles that cross it.
+        # A tile is held as (where it begins, how many pieces, which of its own
+        # pieces the first one is, which folder it is in) — all counted in pieces
+        # and given as (z, y, x) — and the same tuple is shared by every row it
+        # appears in rather than copied into each.
+        self._rows: dict[int, list[tuple[
+            tuple[int, int, int], tuple[int, int, int],
+            tuple[int, int, int], str,
+        ]]] = {}
+        # How wide the widest tile is, in pieces. The search below walks back along
+        # a row from the query, and this says when to stop: a tile beginning further
+        # back than the widest tile is wide cannot still be reaching this far.
+        self._widest = 1
         for tile in listed.get("tiles") or []:
             store = str(tile["store"])
-            at = [int(n) for n in tile["at"]]
-            size = [int(n) for n in tile["size"]]
-            low = [int(n) for n in tile["from"]]
-            for dz in range(size[0]):
-                for dy in range(size[1]):
-                    for dx in range(size[2]):
-                        self._at[(at[0] + dz, at[1] + dy, at[2] + dx)] = (
-                            store, (low[0] + dz, low[1] + dy, low[2] + dx)
-                        )
+            at = tuple(int(n) for n in tile["at"])
+            size = tuple(int(n) for n in tile["size"])
+            low = tuple(int(n) for n in tile["from"])
+            if len(at) != 3 or len(size) != 3 or len(low) != 3:
+                raise ValueError("a tile's place in the view needs three numbers")
+            if any(n < 0 for n in at + low) or any(n <= 0 for n in size):
+                raise ValueError("a tile cannot begin before the view or be empty")
+            held = (at, size, low, store)
+            self._widest = max(self._widest, size[2])
+            for row in range(at[1], at[1] + size[1]):
+                self._rows.setdefault(row, []).append(held)
+        for crossing in self._rows.values():
+            crossing.sort(key=lambda tile: tile[0][2])
+
+    def _tile_covering(
+        self, at: tuple[int, int, int]
+    ) -> tuple[str, tuple[int, int, int]] | None:
+        """Which tile supplies the piece at this place, and which of its pieces it is.
+
+        ``at`` is a place in the view's grid of pieces, given as ``(z, y, x)``.
+
+        Only the tiles crossing this one row are looked at, and they are sorted by
+        where they begin across the picture, so the search starts at the nearest one
+        to the left and walks back. It stops as soon as the tiles it is passing
+        began further back than the widest tile is wide, since none of those can
+        still be reaching this far.
+
+        Returns ``None`` when no tile covers this place — the common answer for a
+        scattered run, where most of the picture's area is ground nobody imaged.
+        """
+        crossing = self._rows.get(at[1])
+        if not crossing:
+            return None
+        nearest = bisect_right(crossing, at[2], key=lambda tile: tile[0][2])
+        for index in range(nearest - 1, -1, -1):
+            begins, size, low, store = crossing[index]
+            if at[2] - begins[2] >= self._widest:
+                break
+            if (begins[2] <= at[2] < begins[2] + size[2]
+                    and begins[0] <= at[0] < begins[0] + size[0]):
+                return store, (
+                    low[0] + at[0] - begins[0],
+                    low[1] + at[1] - begins[1],
+                    low[2] + at[2] - begins[2],
+                )
+        return None
 
     def the_file_behind(self, inside: str) -> str | None:
         """Which file holds this piece of the view, said relative to the opened folder.
@@ -106,7 +170,7 @@ class _WhereThePiecesReallyAre:
         if named is None:
             return None
         frame, channel, z, y, x = named
-        found = self._at.get((z, y, x))
+        found = self._tile_covering((z, y, x))
         if found is None:
             return None
         store, (from_z, from_y, from_x) = found
