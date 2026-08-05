@@ -436,6 +436,50 @@ byte-identical**, same file and same checksum; the trimmed strip is still inside
 it and is simply never asked for, which is what a stitcher will want later. No
 pixel is read, cut or rewritten anywhere.
 
+**The coordinate system is the part to be careful about, and it has two halves —
+one of them already safe and one of them not.**
+
+A cropped position has to *move* with its crop. If a piece is taken off its low
+edge, the part now being shown begins one piece further along the stage than the
+position's own first voxel did, so it must be placed there. Leave it where the
+stage was and the specimen is drawn a piece away from where it was acquired.
+
+**That half is enforced.** `_where_the_view_begins` works the picture's corner out
+as `tile_origin + (taken_from - lands_at) x voxel size`, so the crop is in the
+arithmetic, and every position has to agree about the answer. Tried both ways on a
+tile of 512 voxels stepped 384:
+
+| | |
+|---|---|
+| cropped a piece off, **and moved it** by that piece | accepted, pieces `(0,4)` and `(4,7)`, butting up exactly |
+| cropped a piece off, **left it at the stage position** | **refused** — "does not agree about where the view's low corner is" |
+
+So positions ending up further apart than they were acquired cannot happen
+quietly. Forgetting to move a cropped position is a refusal rather than a wrong
+picture.
+
+**The other half is not checked at all, and it is silent.** Nothing verifies that
+the cropped positions actually *meet*. The corner check asks each position whether
+it agrees with the others about where the picture begins; it says nothing about
+whether the shown parts cover the ground between them. A first attempt at writing
+this cropped a piece off each interior position but extended each by only the
+step, which left every fourth piece uncovered — and it was accepted without
+complaint. Ground no position covers is answered "there is nothing here" and drawn
+as background, so **a cropping mistake one piece out appears as a thin blank
+stripe between every pair of positions**, with nothing in the writer objecting.
+
+Whoever builds this should add that check: for a raster, the shown parts must
+tile the declared room with no gap. It is cheap — the map is already counted in
+pieces — and it is the difference between a bug that shows itself and one that
+looks like the specimen simply having nothing there.
+
+And to be clear about what happens today: `positions.py` passes neither
+`taken_from` nor `size`, so positions are shown whole. Hand it true overlapping
+stage positions and both strips go into the map, and the later position wins for
+the pieces they share. **So yes, there is overlap in the viewer today.** That is
+honest while a run is arriving and wrong for a finished picture, which is the
+whole reason this is the next piece of work.
+
 There are two OME-Zarrs in play and it is worth keeping them apart. The
 **positions** stay exactly as they were, down to the checksum — not even a
 description is rewritten. The **picture's** own description is where the crop is
