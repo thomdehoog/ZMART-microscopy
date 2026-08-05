@@ -915,25 +915,34 @@ def _fill_in_the_zoomed_out_copies(
     building a view: about a quarter of what writing the whole picture would cost,
     because only the smaller copies come out of it.
     """
+    # A view asked to keep only the full-size picture has no smaller copies to fill,
+    # and then there is nothing here to do. Reading every tile's pixels anyway is
+    # the most expensive thing this module does — it is the whole cost of building a
+    # view — so it is worth not doing when it buys nothing. How much each tile
+    # supplies is still counted, from what the tile *says* about itself rather than
+    # from its pixels, which costs one small file read apiece.
+    nothing_to_fill = canvas._levels <= 1
+
     pointed_at = 0
     for placed, size in zip(tiles, shown, strict=True):
         held = zarr.open_group(str(placed.store), mode="r")["0"]
         frames, channels = held.shape[0], held.shape[1]
-        low = placed.taken_from
-        picture = np.asarray(held[
-            :, :,
-            low[0]:low[0] + size[0],
-            low[1]:low[1] + size[1],
-            low[2]:low[2] + size[2],
-        ])
-        for frame in range(frames):
-            for channel in range(channels):
-                canvas.only_the_zoomed_out_copies(
-                    picture[frame, channel],
-                    origin=placed.lands_at,
-                    channel=channel,
-                    frame=frame,
-                )
+        if not nothing_to_fill:
+            low = placed.taken_from
+            picture = np.asarray(held[
+                :, :,
+                low[0]:low[0] + size[0],
+                low[1]:low[1] + size[1],
+                low[2]:low[2] + size[2],
+            ])
+            for frame in range(frames):
+                for channel in range(channels):
+                    canvas.only_the_zoomed_out_copies(
+                        picture[frame, channel],
+                        origin=placed.lands_at,
+                        channel=channel,
+                        frame=frame,
+                    )
         pointed_at += frames * channels * size[0]
     return pointed_at
 
