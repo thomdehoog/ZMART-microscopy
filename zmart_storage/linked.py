@@ -105,11 +105,29 @@ What this does not do
 ---------------------
 
 It does not stitch, blend, or move anything by a fraction of a voxel — all of those
-change pixels, and a pointer cannot change a pixel. It does not follow a run as it
-happens: the view is built from the tiles that exist when it is built. And it does
-not read sharded zarr, where a piece lives inside a larger file rather than being
-one; that is possible and is not simple, and it is written down as unfinished in
-``viz_studio/LINKING_INSTEAD_OF_COPYING.md`` rather than half-done here.
+change pixels, and a pointer cannot change a pixel. And it does not follow a run as
+it happens: the view is built from the tiles that exist when it is built.
+
+Tiles that bundle their pieces
+------------------------------
+
+OME-Zarr 0.5 allows an image to keep many pieces inside one file, with a small index
+saying where each of them begins. That is *sharding*, and it exists because a large
+run otherwise leaves millions of small files behind, which most filesystems and most
+backup software handle badly.
+
+A view can be built over such tiles, and nothing about the idea changes — what gets
+handed over is simply the bundle rather than a single piece. The viewer's engine
+reads the bundle's index itself and asks for one piece out of the middle by byte
+offset, which the server answers as an ordinary range of a file.
+
+Two things follow that are worth knowing before choosing a bundle size. The view is
+declared with the tiles' own bundling, because a view stored differently from its
+tiles is a picture of noise. And **the bundle becomes the unit everything is
+measured in**: a tile has to begin on a whole bundle boundary rather than merely a
+whole piece boundary, and the smallest strip that can be trimmed off a tile where it
+overlaps its neighbour is a whole bundle. Bundles that are too large therefore make
+the placement harder to satisfy, not easier.
 """
 
 from __future__ import annotations
@@ -204,7 +222,11 @@ class _HowTheTilesAreStored:
     ome_zarr_version: str
     described: dict          # the level's own storage description, minus its shape
     dtype: str
-    chunk: tuple[int, int]   # how large one piece is across y and x
+    chunk: tuple[int, int]   # how large one handed-over file is, across y and x
+    # When the tiles bundle many pieces into one file -- sharding, which OME-Zarr
+    # 0.5 allows -- this is how large one piece inside a bundle is. ``None`` when
+    # each piece is a file of its own, which is the ordinary case.
+    inside_a_bundle: tuple[int, int] | None
     shape: tuple[int, int, int]
     frames: int
     channels: int
@@ -282,10 +304,40 @@ def _shape_of(described: dict) -> tuple[int, ...]:
 
 
 def _chunk_of(described: dict) -> tuple[int, ...]:
+    """How much picture one **handed-over file** holds.
+
+    For an ordinary image that is one piece. For a *sharded* one — an image that
+    bundles many pieces into a single file, which OME-Zarr 0.5 allows — it is the
+    whole bundle, because the bundle is what exists as a file and therefore what a
+    view can hand over. Zarr writes the bundle's size in the same place an ordinary
+    image writes its piece size, so this needs no special case; what the bundle is
+    made of is read by :func:`_pieces_inside_a_bundle` instead.
+    """
     if described.get("zarr_format") == 2:
         return tuple(int(n) for n in described["chunks"])
     grid = (described.get("chunk_grid") or {}).get("configuration") or {}
     return tuple(int(n) for n in grid["chunk_shape"])
+
+
+def _pieces_inside_a_bundle(described: dict) -> tuple[int, ...] | None:
+    """How large one piece inside a bundle is, or ``None`` if there are no bundles.
+
+    A sharded image keeps many pieces in one file and an index saying where each of
+    them begins. The viewer's engine reads that index and asks for one piece out of
+    the middle by byte offset, which the server answers — so a view over such tiles
+    still hands over files untouched, it just hands over a bundle rather than a
+    single piece.
+
+    What this is needed for is *declaring* the view. The view has to be stored
+    exactly as its tiles are, bundles and all, or its description and their bytes
+    would disagree and the picture would come out as noise.
+    """
+    for codec in described.get("codecs") or []:
+        if str(codec.get("name", "")).lower() == "sharding_indexed":
+            inside = (codec.get("configuration") or {}).get("chunk_shape")
+            if inside:
+                return tuple(int(n) for n in inside)
+    return None
 
 
 def _what_the_tiles_are(tiles: list[PlacedTile]) -> _HowTheTilesAreStored:
@@ -327,6 +379,7 @@ def _what_the_tiles_are(tiles: list[PlacedTile]) -> _HowTheTilesAreStored:
         described = _storage_description_of(level)
         shape = _shape_of(described)
         chunk = _chunk_of(described)
+        inside = _pieces_inside_a_bundle(described)
         separator, prefix = _how_the_pieces_are_named(described)
         if len(shape) != 5:
             raise ValueError(
@@ -346,6 +399,7 @@ def _what_the_tiles_are(tiles: list[PlacedTile]) -> _HowTheTilesAreStored:
             described={key: value for key, value in described.items() if key != "shape"},
             dtype=str(described.get("dtype") or described.get("data_type")),
             chunk=(chunk[-2], chunk[-1]),
+            inside_a_bundle=(inside[-2], inside[-1]) if inside else None,
             shape=(shape[2], shape[3], shape[4]),
             frames=shape[0],
             channels=shape[1],
@@ -640,7 +694,11 @@ def link_the_tiles(
         origin_um=origin_um,
         frames=stored.frames,
         dtype=_a_numpy_name_for(stored.dtype),
-        chunk=stored.chunk[0],
+        # A view stored differently from its tiles is a picture of noise, so where
+        # the tiles bundle their pieces the view is declared to bundle them the same
+        # way: its pieces are the tiles' pieces, and its bundles are their bundles.
+        chunk=(stored.inside_a_bundle or stored.chunk)[0],
+        shard=stored.chunk[0] if stored.inside_a_bundle else None,
         levels=levels,
         discard_existing_run=discard_existing_run,
         ome_zarr_version=stored.ome_zarr_version,

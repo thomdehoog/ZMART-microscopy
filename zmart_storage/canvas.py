@@ -1019,6 +1019,7 @@ class TileCanvases:
         frames: int = 1,
         dtype: str = "uint16",
         chunk: int = 256,
+        shard: int | None = None,
         levels: int | None = None,
         discard_existing_run: bool = False,
         ome_zarr_version: str = "0.4",
@@ -1085,6 +1086,14 @@ class TileCanvases:
             chunk: how large a piece of image is, in y and x. A few hundred is
                 right: pieces that are too large make the viewer read far more
                 than it needs whenever it wants a small sample.
+            shard: how large a **bundle** of pieces is, in y and x, or left out to
+                keep every piece in a file of its own. Bundling many pieces into one
+                file is what OME-Zarr 0.5 calls sharding, and it keeps a long run
+                from leaving millions of small files behind. It needs 0.5, since the
+                older generation has no way to describe it. Only the full-size copy
+                is bundled. A view built by :mod:`zmart_storage.linked` sets this
+                from the tiles it points at, because the view has to be stored
+                exactly as they are for their bytes to be handed over untouched.
             levels: how many progressively smaller copies to keep. These are what
                 let a huge image feel light when zoomed out, and normally this is
                 left out so that the writer can choose the number from
@@ -1208,6 +1217,7 @@ class TileCanvases:
             origin_um=origin_um,
             channel_blocks=[c.described(depth_max) for c in channels],
             ome_zarr_version=ome_zarr_version,
+            shard=shard,
         )
 
         return cls(
@@ -1654,6 +1664,7 @@ def _declare_one(
     origin_um: tuple[float, float, float],
     channel_blocks: list[dict],
     ome_zarr_version: str = "0.4",
+    shard: int | None = None,
 ) -> list[zarr.Array]:
     """Write one empty OME-Zarr image and hand back its levels.
 
@@ -1675,6 +1686,16 @@ def _declare_one(
     # ordering, the sizes, the way a tile is written -- is the same for
     # both, so a run written either way behaves identically once it is open.
     newer = ome_zarr_version == "0.5"
+    if shard is not None and not newer:
+        raise ValueError(
+            "bundling pieces into larger files was asked for, and this image is "
+            f"being written as OME-Zarr {ome_zarr_version}, which has no way to "
+            "describe such a bundle — the older generation of zarr keeps every "
+            "piece in a file of its own and a reader would have no way to find "
+            "anything inside a bundle.\n\n"
+            "Write this run as OME-Zarr 0.5 if the bundling is wanted, or leave "
+            "the bundling out."
+        )
     group = zarr.open_group(str(store), mode="w", zarr_format=3 if newer else 2)
 
     # A time axis is always declared, and is given its full length here rather than
@@ -1707,6 +1728,7 @@ def _declare_one(
         levels=levels,
         voxel_size_um=voxel_size_um,
         newer=newer,
+        shard=shard,
     )
 
     multiscale = {
@@ -1749,6 +1771,7 @@ def _make_the_copies(
     levels: int,
     voxel_size_um: tuple[float, float, float],
     newer: bool,
+    shard: int | None = None,
 ) -> tuple[list[zarr.Array], list[dict]]:
     """Make the full-size image and each progressively smaller copy of it.
 
@@ -1772,6 +1795,13 @@ def _make_the_copies(
         voxel_size_um: how large one voxel is, as ``(z, y, x)`` in microns.
         newer: ``True`` when writing OME-Zarr 0.5, which files the pieces of an
             image its own way, ``False`` for 0.4.
+        shard: how large a **bundle** of pieces is, in y and x, or ``None`` to keep
+            every piece in a file of its own. Bundling many pieces into one file is
+            what OME-Zarr 0.5 calls sharding, and it exists because a large run
+            otherwise leaves millions of small files behind, which most filesystems
+            and most backup software handle badly. Only the full-size copy is
+            bundled: it is the one that has to match the tiles a pointed-at view
+            hands over, and the smaller copies are few enough not to need it.
 
     Returns:
         The copies themselves, largest first, and the block of description that
@@ -1787,12 +1817,20 @@ def _make_the_copies(
             max(1, canvas_shape[1] // factor),
             max(1, canvas_shape[2] // factor),
         )
+        # Bundling applies to the full-size copy only, and only where it was asked
+        # for. A bundle has to hold a whole number of pieces, so it is nudged up to
+        # the piece size if a smaller number was given.
+        bundled = None
+        if shard is not None and level == 0:
+            across = max(int(shard), int(chunk))
+            bundled = (1, 1, 1, min(across, shape[-2]), min(across, shape[-1]))
         arrays.append(group.create_array(
             str(level),
             shape=shape,
             # One plane per piece in time, colour and depth, so showing a single
             # plane never means fetching the ones on either side of it.
             chunks=(1, 1, 1, min(chunk, shape[-2]), min(chunk, shape[-1])),
+            shards=bundled,
             dtype=dtype,
             # Pieces filed in folders rather than side by side in one directory.
             # A long run otherwise puts millions of files in a single folder,
