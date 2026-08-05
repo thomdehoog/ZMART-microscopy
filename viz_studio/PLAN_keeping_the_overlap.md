@@ -3,7 +3,20 @@
 Written 5 August 2026, rewritten the same day after two reviews took the first
 version apart. **Nothing here is built.**
 
-**The recommendation is to build the four-image arrangement and not the placing
+> **Superseded. Do not act on the recommendation below.** This document weighs two
+> ways of keeping the overlap and recommends one of them. Neither was built,
+> because a third answer turned up afterwards that is simpler than both: do not
+> show the overlapping part at all. Trim half of it from each tile, and the tiles
+> no longer overlap — so there is nothing to blend, no chessboard of four images
+> to arrange, and no limit on how much tiles may overlap.
+>
+> **Read `HANDOVER_overlapping_runs.md` instead.** It describes what was built and
+> carries the measurements.
+>
+> This is kept because the comparison in it is sound and because both arrangements
+> will be proposed again by somebody who has not seen the third.
+
+**The recommendation was to build the four-image arrangement and not the placing
 server.** The reasoning is below and the placing server is described honestly
 rather than dismissed, because it may still be the right answer for a run that has
 to be one file — and because the first version of this document proposed it without
