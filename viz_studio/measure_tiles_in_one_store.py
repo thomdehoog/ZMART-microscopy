@@ -110,6 +110,15 @@ LEVELS = 5
 # the whole thing stays under a minute.
 HOW_MANY_PIECES = 40
 
+# How often the alignment between a piece and the tiles beneath it repeats.
+#
+# A piece is 256 voxels across and the stage steps by 224, so where a piece falls
+# against the tile grid shifts by 32 voxels each time and comes back to where it
+# started after seven pieces. Whether a piece covers two rows of tiles or three
+# depends on that alignment, so a measurement has to see all seven -- in both
+# directions -- or it will report whichever case it happened to land on.
+PHASE_REPEATS = CHUNK // (CHUNK - STEP)
+
 
 def build_stores(work: Path, grid: int):
     """Write the slot-per-tile image, and the true-geometry image beside it.
@@ -309,9 +318,33 @@ def main() -> None:
         for level in range(LEVELS):
             tile, step = TILE >> level, STEP >> level
             side = (grid - 1) * step + tile
-            spots = [(0, y, x)
-                     for y in range(0, max(1, side - 1), CHUNK)
-                     for x in range(0, max(1, side - 1), CHUNK)][:12]
+            # Which pieces are sampled matters more than it looks, and getting it
+            # wrong is what an earlier version of this did.
+            #
+            # Two things vary. A piece at the very edge of the picture hangs over
+            # it and so covers fewer tiles than one in the middle. And a piece in
+            # the middle covers two or three rows of tiles depending on where it
+            # happens to fall against the tile grid -- with tiles stepped by 224
+            # and pieces 256 across, that alignment repeats every seven pieces.
+            #
+            # So the pieces are taken **consecutively, from inside the picture**,
+            # enough of them to see every alignment. Taking the first twelve in
+            # reading order instead put every one of them in the top row, which
+            # reported the easiest case in the picture as though it were the
+            # usual one: six tiles where the honest answer is nine.
+            # Every combination of alignment in both directions, which needs a
+            # square of pieces rather than a line of them. Walking seven across
+            # but only two down -- which an earlier attempt at this fix did --
+            # sees every alignment sideways and only two of the seven downwards,
+            # and so still misses the worst case.
+            inside = max(0, min(CHUNK, side - CHUNK))
+            spots = [(0, inside + down * CHUNK, inside + across * CHUNK)
+                     for down in range(PHASE_REPEATS)
+                     for across in range(PHASE_REPEATS)
+                     if inside + down * CHUNK < side
+                     and inside + across * CHUNK < side]
+            if not spots:      # a copy too small to have an inside at all
+                spots = [(0, 0, 0)]
             times, most = [], 0
             for z, y0, x0 in spots:
                 started = time.perf_counter()
