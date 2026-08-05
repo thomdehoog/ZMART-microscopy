@@ -40,6 +40,25 @@ tiles land a whole tile apart. A run whose tiles overlap can satisfy them as wel
 but only if the pieces are small enough to divide the trim; see the table in
 ``viz_studio/LINKING_INSTEAD_OF_COPYING.md``, which works that through.
 
+The limit to know about before using this
+-----------------------------------------
+
+A tile has to land on a piece boundary *exactly*. A stage asked to step 1792 voxels
+steps 1792 give or take a couple, which is a fine result for the microscope and a
+fatal one here: two voxels out is as fatal as half a piece out, because the bytes
+wanted are then spread across two of the tile's files and no single file can be
+handed over. Nothing that can be written in the description gets round this — zarr
+describes an image as one regular grid, so a view can keep a tile's true position
+or hand over its files untouched, but not both.
+
+What this module does about it today is **refuse**, with a message saying what to
+change. That is honest and it is safer than drawing a tile slightly out of place
+with nothing on screen to say so, but it does mean this opens the exact grids the
+tests build and not yet a run off a real stage.
+``viz_studio/LINKING_INSTEAD_OF_COPYING.md`` describes the arrangement that fixes
+it — giving each piece of the view to whichever tile covers it best, so the seam
+lands on a piece boundary near the midline instead of exactly on it.
+
 What still has to be written, and why
 -------------------------------------
 
@@ -48,9 +67,15 @@ picture, and shrinking makes numbers that exist nowhere on disk — a voxel of t
 half-size copy stands for several voxels of the full-size one, and where a tile
 meets its neighbour those come from two different tiles. No existing file holds
 that answer, so it cannot be pointed at and is written out here, once, exactly the
-way :class:`zmart_storage.canvas.TileCanvases` writes it. Those copies come to
-roughly a tenth of the picture, so the disk this arrangement uses is about a tenth
-of what copying the run would use.
+way :class:`zmart_storage.canvas.TileCanvases` writes it.
+
+Those copies come to **about a quarter** of the full-size picture, and that is the
+whole of the disk this arrangement uses. Each copy is half as wide and half as
+tall as the one above, so it holds a quarter as many voxels; adding a quarter and a
+sixteenth and a sixty-fourth and so on comes to a third, and a real run stops
+before the sum runs out, which measures at around 26%. Copying the run instead
+costs about eighty per cent more disk, so this is a large saving — but it is a
+quarter, not the tenth an earlier draft of this docstring claimed.
 
 **The description.** The viewer asks what the image is before it asks for any of
 it: its axes, its size, how large a voxel is, where it sits on the stage, what
@@ -789,7 +814,7 @@ def _fill_in_the_zoomed_out_copies(
     size.
 
     Reading each tile back to do it is real work, and it is the honest cost of
-    building a view: about a tenth of what writing the whole picture would cost,
+    building a view: about a quarter of what writing the whole picture would cost,
     because only the smaller copies come out of it.
     """
     pointed_at = 0

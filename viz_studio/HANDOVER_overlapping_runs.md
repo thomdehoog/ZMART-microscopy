@@ -11,7 +11,7 @@ that describes what exists:
 | | |
 | --- | --- |
 | `HANDOVER_overlapping_runs.md` | this file — what was built, and the numbers |
-| `LINKING_INSTEAD_OF_COPYING.md` | how to show a run without copying it, and what that still needs |
+| `LINKING_INSTEAD_OF_COPYING.md` | showing a run without copying it — now built, and what it still needs |
 | `ARCHITECTURE.md` §7 | the three layers the whole tool is made of |
 | `PLAN_keeping_the_overlap.md` | **superseded** — two arrangements that were weighed and not built |
 | `TILES_IN_ONE_STORE.md` | the bench measurements behind all of it |
@@ -22,6 +22,15 @@ has since been brought up to date. Every test in `zmart_storage/tests/test_cropp
 and `viz_studio/tests/test_the_cropped_canvas_draws.py` passes on this sandbox, and
 the sweep in `measure_the_overlapping_run.py` has been taken from one tile to ten
 thousand — the table is under "What the sweep found" below.
+
+Since then a **second** arrangement has been written, which shows the same run
+without copying it at all: `zmart_storage/linked.py` builds the view and
+`viz_studio/backend/linking.py` answers for it. It passes its tests, and it works
+only for runs whose tiles land on an exact grid — a real stage drifts by a voxel or
+two and such a run is currently refused rather than shown. That is the next piece
+of work and `LINKING_INSTEAD_OF_COPYING.md` sets out how to do it. The measurements
+in this document are all from the copying arrangement; the two have not yet been
+compared on the same run.
 
 What that still does not tell you is anything about drawing on real hardware, for
 the reason immediately below. Read the next section before treating any frame rate
