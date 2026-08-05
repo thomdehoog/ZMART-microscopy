@@ -210,6 +210,65 @@ to write both artefacts, about 22 ms a tile. That figure is the two writes toget
 the split between the raw tile and the canvas was not measured, so "what the second
 write costs during a fast acquisition" is still open.
 
+### What the linked view drew
+
+The table above is the arrangement that **copies**. This one is the arrangement that
+**points**: the same tiles left where they are, shown as one picture through
+`zmart_storage/linked.py`, with nothing of the full-size picture written down.
+Measured with `measure_the_frame_rate_of_a_linked_view.py` on the same sandbox —
+four processors, no graphics card, software rendering — with tiles of 64 × 64 laid
+out as a mosaic:
+
+| tiles | fps | middle frame | longest pause | opening | lit | building the view |
+|---|---|---|---|---|---|---|
+| 100 | 28.0 | 33 ms | 67 ms | 1 s | 0.91 | 0 s |
+| 400 | 27.0 | 33 ms | 50 ms | 1 s | 0.91 | 1 s |
+| 800 | 27.7 | 33 ms | 67 ms | 1 s | 0.91 | 3 s |
+| 1 600 | 25.0 | 33 ms | 100 ms | 1 s | 0.91 | 6 s |
+| 3 200 | 23.7 | 50 ms | 100 ms | 1 s | 0.90 | 12 s |
+| 6 400 | 25.3 | 33 ms | 83 ms | 1 s | 0.90 | 24 s |
+
+**The drawing does not notice the tile count.** The middle frame is 33 ms at every
+size across a sixty-four-fold range, and opening stays at about a second throughout.
+That is the whole claim of the arrangement, measured: the engine is handed one image
+whatever is underneath it, so a picture made of six thousand four hundred tiles
+behaves like a picture made of one hundred.
+
+The 50 ms at 3 200 tiles is worth naming as a warning about reading these tables.
+Taken on its own it looks like the beginning of a slope, and it was written up that
+way before the next row was measured. The 6 400 row came back at 33 ms with a
+*shorter* longest pause, so the 3 200 reading was the machine being busy and nothing
+more. **One row is not a trend**, and this sandbox is contended enough that a single
+figure should never be argued from.
+
+**The `lit` column is a guard, not a result.** It says how much of the screen had
+specimen on it. An empty panel redraws beautifully, so a frame rate measured on one
+means nothing — and this was not a hypothetical: the first run of this climb painted
+its test pattern between 400 and 800 out of a sixteen-bit range, which reaches the
+screen at about one per cent brightness. The picture was there and drawing, the
+brightest pixel on the panel was 3 out of 255, and every rate in the table was
+correctly dismissed as measured on nothing. Any table without such a column should
+be treated with suspicion, this project's own included.
+
+**What building the view costs, and what that figure leaves out.** The last column
+doubles cleanly with each doubling of tiles — 0, 1, 3, 6, 12, 24 seconds — so ten
+thousand tiles projects to about forty. It is paid once, when the view is built, and
+never again while drawing.
+
+But it is measured with the smaller copies left out, because those are the part that
+is genuinely written rather than pointed at and leaving them out is what made the
+climb affordable. Measured separately at 400 tiles: 1.4 s and 0.07 MB for the
+pointers alone, against 4.7 s and 1.04 MB with the copies included, over tiles
+holding 3.78 MB. So **the real cost of opening a run is three to four times the last
+column**, and the copies come to about a quarter of the data — which is the figure
+`LINKING_INSTEAD_OF_COPYING.md` predicts, turning up in a measurement.
+
+None of this is one-time during an acquisition. A tile arriving adds pointers, which
+is cheap; keeping the smaller copies current as tiles land is recorded in
+`ARCHITECTURE.md` §7 as unsolved.
+
+---
+
 `INTEROP.md` §5 explains why live stitching is slow, and it is not what you would
 guess: `multiview-stitcher` already detects when a tile's move is a plain
 whole-voxel translation, stores the answer as `fix_dims`, and then never reads it —
