@@ -75,20 +75,37 @@ zoomed-out copies. Positions of 512 voxels, pieces of 128, one colour.
 | 400 | 0.924 | 28.0 | 33 ms | 83 ms | 0.4 s | 67 | 3.7 MB | 264 MB |
 | 1 000 | 0.678 | 27.0 | 33 ms | 67 ms | 0.6 s | 70 | 8.8 MB | 540 MB |
 | 2 000 | 0.970 | 26.0 | 33 ms | 117 ms | 0.6 s | 74 | 18.5 MB | 1 079 MB |
+| 5 000 | 0.732 | 23.7 | **50 ms** | 83 ms | 0.9 s | 79 | 46.7 MB | 2 699 MB |
+| 10 000 | 0.714 | 25.0 | **50 ms** | 83 ms | 0.8 s | 71 | 93.4 MB | 5 399 MB |
 
-**The middle frame is 33 milliseconds at every one of those sizes**, across a two
-thousand-fold range, and opening never passes 0.8 seconds. Requests climb only
-while the picture is smaller than the window and then stop — the browser fetches
-what is on screen, and that does not depend on how much run is underneath.
+**No cliff out to ten thousand positions, but not perfectly flat either, and the
+difference is worth stating rather than rounding away.**
 
-There is no cliff, and it is worth saying where one could have been. Two things
-grow with the position count rather than with what is on screen: the map, which
-the viewer's server spreads into a lookup when a run is first opened, and the
-opening itself, which has to read that map before the first picture appears. Both
-were watched at two thousand positions and neither moved. The map is the one to
-keep an eye on at ten thousand, because it is held in memory — `linking.py`
-records what an earlier version cost by holding it per *piece* rather than per
-position.
+The middle frame is 33 milliseconds from one position to two thousand, and **50
+milliseconds at five thousand and ten thousand**. That is one step rather than a
+slope: it does not move again between five and ten thousand, and it is exactly the
+size of step this measurement can resolve — frames land on the screen's own
+rhythm, so 33 ms is two of those intervals and 50 ms is three. Whether it is real
+or an artefact of drawing in software is not answerable on a machine with no
+graphics card, and it should be looked at again on one that has.
+
+What did **not** move is the part that would have said the arrangement itself was
+failing. Requests stay at seventy-odd — the browser fetches what is on screen, and
+that does not depend on how much run is underneath. Opening stays under a second
+at ten thousand positions, having been 0.6 at two thousand. And the picture is
+93 MB against 5.4 GB of specimen, still about 1.7%, still description rather than
+copy.
+
+Those two were the places a cliff could have been, and they were named before the
+measurement rather than after: the map, which the viewer's server spreads into a
+lookup when a run is first opened, and the opening itself, which has to read that
+map before the first picture appears. Both grow with the position count rather
+than with what is on screen. `linking.py` records what an earlier version cost by
+holding that lookup per *piece* instead of per position — megabytes on disk
+becoming tens of gigabytes in memory. Neither showed at ten thousand.
+
+Writing the runs took 462 seconds for five thousand positions and 907 for ten
+thousand, which is the flat per-position cost below seen from the other end.
 
 **The picture stays about 1.7% of the run** and follows the number of positions
 rather than the amount of specimen: 18.5 MB of description beside 1.08 GB of
