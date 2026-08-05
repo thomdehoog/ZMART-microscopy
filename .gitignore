@@ -43,3 +43,13 @@ workflows/target_acquisition/zmart_demo_run/
 # it ships in the repo is decided when the page is wired to the Python server —
 # the microscope PC has no toolchain, so it will likely have to.
 workflows/target_acquisition/workflow/webapp/static/
+
+# Acquisitions, and the small files a writer leaves beside one. These are
+# *data* — a run of two thousand positions is over a gigabyte — and git never
+# forgets, so a store committed by accident is paid for by every clone from
+# then on. Nothing here needs keeping: the measurement scripts write their
+# stores from a seed, so any of them can be made again exactly.
+*.ome.zarr/
+*.writing
+*-positions-arriving.jsonl
+zmart-coverage/
