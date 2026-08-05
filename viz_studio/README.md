@@ -62,6 +62,15 @@ A few things worth knowing:
 - **A folder being written to is fine.** Positions that appear while you are
   watching are picked up on their own, usually within a second, and a timelapse
   growing in time extends its own slider as frames arrive.
+- **Many positions can be shown as one picture, without copying any of them.** A
+  folder of a few thousand stores is slow to open as a few thousand pictures,
+  because the drawing engine gives each of them part of every frame. If the run has
+  a *view* built beside it — a small file saying which piece of the picture is which
+  piece of which tile — the viewer opens it as one image instead, and the number of
+  positions stops mattering: a hundred and six thousand four hundred draw at the
+  same rate and open in the same second. Nothing is copied; the tiles stay exactly
+  as the microscope wrote them and stay readable by anything else. The top-level
+  `README.md` shows how to build one, under "One picture out of many stores".
 - **One folder, one acquisition.** What you open becomes a single heading in the
   panel, named after the folder you chose, and every store in it feeds it — the
   positions of a tiled overview are pieces of one specimen, so they are drawn as
