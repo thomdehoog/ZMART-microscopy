@@ -15,6 +15,7 @@ goes on.
 from __future__ import annotations
 
 import json
+import statistics
 import time
 
 import numpy as np
@@ -157,12 +158,14 @@ def test_adding_a_tile_does_not_get_slower_as_the_run_goes_on(tmp_path):
     over a long acquisition is most of the work done. This checks the cost is flat
     instead, by comparing the last tiles of a run against the first.
 
-    The threshold is deliberately loose. What is being guarded against is a cost
-    that grows *with the run* — the difference between flat and not is a factor of
-    many, not a few per cent — and a tight threshold on a shared machine would fail
-    for reasons that have nothing to do with the code.
+    An earlier version of this test allowed the last tiles to be five times the cost
+    of the first, which is so loose that it passed while the cost was in fact
+    climbing steadily — measured at sixteen hundred tiles, from 4 ms to 19 ms. The
+    allowance here is still generous, because a shared machine is noisy and this
+    should not fail for reasons that have nothing to do with the code, but it is now
+    tight enough to notice a cost that grows with the run.
     """
-    across, how_many = 12, 144
+    across, how_many = 24, 576
     folder = tmp_path / "run"
     folder.mkdir()
     arriving = [a_tile(folder, index, across) for index in range(how_many)]
@@ -177,9 +180,9 @@ def test_adding_a_tile_does_not_get_slower_as_the_run_goes_on(tmp_path):
             view.add(tile)
             each.append(time.perf_counter() - began)
 
-    first = sorted(each[:20])[10]
-    last = sorted(each[-20:])[10]
-    assert last < first * 5 + 0.01, (
+    first = statistics.median(each[:100])
+    last = statistics.median(each[-100:])
+    assert last < first * 2 + 0.002, (
         f"adding a tile got slower as the run went on: about {first * 1000:.1f} ms "
         f"at the start and {last * 1000:.1f} ms at the end. The cost of one tile "
         "should not depend on how many have already landed."
@@ -246,11 +249,20 @@ def test_the_list_of_pointers_is_never_seen_half_written(tmp_path):
         held = view.path / LINKS_FILE
         for expected, tile in enumerate(arriving, start=1):
             view.add(tile)
-            # Read it back the way the viewer's server does. It must always parse
-            # and must always hold every tile added so far.
+            # Read it back the way the viewer's server does. It must always parse,
+            # and it must never claim a tile that has not been added -- a list that
+            # is a little behind is fine and is what the throttling is for, but a
+            # list running ahead of the run would point at nothing.
             listed = json.loads(held.read_text())
-            assert len(listed["tiles"]) == expected
+            assert 0 <= len(listed["tiles"]) <= expected
         # Nothing left behind beside it.
         leftover = [one.name for one in view.path.iterdir()
                     if one.name.startswith(f".{LINKS_FILE}")]
         assert leftover == [], f"a temporary file was left behind: {leftover}"
+        path = view.path
+
+    # Closed, the list holds the whole run -- whatever the throttling deferred.
+    listed = json.loads((path / LINKS_FILE).read_text())
+    assert len(listed["tiles"]) == len(arriving), (
+        "a view closed after its last tile does not hold the whole run on disk"
+    )
