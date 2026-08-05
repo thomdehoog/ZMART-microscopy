@@ -339,10 +339,29 @@ corner is. That part costs nothing and does not grow. **The single rename is the
 place.
 
 So building the view of 6 400 takes 2.6 s, and one more tile after that takes 89 ms
-rather than the 1 540 ms a rebuild took — about seventeen times better, and 89 ms
-between tiles that arrive seconds apart is not a bottleneck. But it still grows with
-the run, and the fix is an **append**: the list of pointers is a list, and adding a
-line to it should not depend on how many lines are already there.
+rather than the 1 540 ms a rebuild took. Better by seventeen times, and 89 ms
+between tiles that arrive seconds apart is not a bottleneck — but it still grew with
+the run, because the list of pointers is one file and adding a line meant writing
+all of it.
+
+**Tiles are now added to the end of a companion file instead**, one line each, and
+folded back into the list when the run finishes. Measured by growing a view a tile
+at a time and then adding one more after a pause, so that the last tile really does
+write:
+
+| tiles | growing to that, a tile at a time | one more tile after it | a tile, median |
+|---|---|---|---|
+| 6 400 | 2.73 s | 0.87 ms | 0.378 ms |
+| 12 800 | 4.33 s | 0.85 ms | 0.313 ms |
+
+**Doubling the run does not change what a tile costs.** One more tile is 0.87 ms at
+six thousand four hundred and 0.85 ms at twelve thousand eight hundred, and the
+median tile is the same at both sizes. Growing the whole view roughly doubles with
+the run, which is the right shape — it is the sum of a fixed cost per tile.
+
+Against where this started: one more tile went from 1 540 ms rebuilding the view, to
+89 ms rewriting the list, to 0.87 ms adding a line. The last of those is flat, and
+the first two were not.
 
 ---
 
