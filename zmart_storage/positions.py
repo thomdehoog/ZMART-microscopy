@@ -43,6 +43,44 @@ viewer one thing to open? Because that writes every voxel twice — once as the
 position and once as the copy — and a run is large enough that the second copy is
 a real cost in disk, in time, and in waiting. Nothing here is copied.
 
+Opening a run in napari, Fiji, or anything else
+-----------------------------------------------
+
+**Point other software at ``positions``, never at the picture.** This is the one
+thing about the arrangement that will surprise somebody, and it is worth reading
+before it does.
+
+Each position is an ordinary OME-Zarr image with its own zoomed-out copies and its
+own place on the stage recorded inside it. Opening the ``positions`` group, or any
+single position in it, gives exactly what you would expect anywhere else. Nothing
+about being pointed at changes a position, and no tool needs to know this project
+exists to read one.
+
+The **picture** is a different thing and does not travel. It holds no voxels at
+all: every piece of it is answered, while the viewer is open, by the viewer's own
+server handing over a position's file. Read straight off the disk by anything
+else, it is an image full of nothing.
+
+And it fails in the worst way available, which is why this note is here rather
+than in a footnote. It does not refuse to open, and it does not warn. It opens
+perfectly — the right number of levels, the right size, the right voxel size, the
+right channels — and every voxel in it is nought. Someone opening a run this way
+sees a black picture and reasonably concludes their acquisition is empty::
+
+    opened with plain zarr        levels    shape        max    mean
+    the picture                   0, 1, 2   1024 x 1024      0       0
+    one position                  0, 1, 2    512 x 512    3919    2500
+
+That is the price of not copying, and it is worth being clear that it is a price
+rather than an oversight. The alternative — writing the whole run a second time
+into one image so that any reader could open it — is the thing this arrangement
+exists to avoid, and on a real acquisition it is a second copy of a great many
+gigabytes.
+
+If a colleague needs one file they can open anywhere, the honest answer today is
+to give them the positions, or to write them a stitched image on purpose. There is
+no way to have a single openable picture and no second copy at the same time.
+
 What this deliberately does not do
 ----------------------------------
 

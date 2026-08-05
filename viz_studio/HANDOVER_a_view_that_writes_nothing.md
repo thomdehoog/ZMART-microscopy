@@ -140,6 +140,40 @@ are looking at before quoting a saving.
 
 ---
 
+## Opening a run in napari or Fiji — read this before somebody is surprised
+
+**Point other software at `positions`, never at the picture.**
+
+Every position is an ordinary OME-Zarr image, with its own zoomed-out copies and
+its own place on the stage written inside it. It opens anywhere, and nothing needs
+to know this project exists to read one.
+
+The picture does not travel. It holds no voxels — each piece of it is answered,
+while the viewer is open, by the viewer's server handing over a position's file.
+
+What makes this worth a section rather than a footnote is *how* it fails. It does
+not refuse to open and it does not warn. It opens perfectly, with the right levels,
+size, voxel size and channels, and every voxel in it is nought:
+
+| opened with plain zarr | levels | shape | max | mean |
+|---|---|---|---|---|
+| the picture | 0, 1, 2 | 1024 × 1024 | **0** | **0** |
+| one position | 0, 1, 2 | 512 × 512 | 3919 | 2500 |
+
+So somebody opening a run the obvious way sees a black picture and reasonably
+concludes the acquisition is empty. Nothing on screen tells them otherwise.
+
+That is a real price rather than an oversight, and the alternative is the thing
+this whole arrangement exists to avoid: writing the run a second time into one
+image so any reader could open it. On a real acquisition that is a second copy of
+many gigabytes. **There is no way to have one openable picture and no second copy
+at the same time**, and it is better to know which of the two you are choosing.
+
+If a colleague needs a single file they can open anywhere, give them the
+positions, or write them a stitched image on purpose.
+
+---
+
 ## The two things that block real data
 
 ### 1. A drifted run is refused
