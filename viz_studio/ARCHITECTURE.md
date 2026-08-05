@@ -13,6 +13,11 @@ proposal that sits on top of this, and `NEXT_STEPS.md` for the honest list of wh
 unfinished — with the caveat, below, that several of its remaining items are ruled out by
 the rule in section 2.
 
+Sections 1 to 6 describe the viewer itself. **Section 7 stands back further** and
+describes the three layers the whole tool is made of — what the operator sees, what
+is on disk, and what sits between them. It is the widest frame and a good place to
+start if you are new here.
+
 ## 1. The shape
 
 Neuroglancer is the engine and its own interface is switched off: `NeuroglancerView.jsx`
@@ -191,3 +196,111 @@ its items change character:
 - Its "one store per acquisition type" becomes a statement about **datasets**, which is
   what section 3 defines. One dataset may be one store or many; what the live case needs is
   that the number is fixed by the experiment, not that it is one.
+
+## 7. The three layers: the operator, the disk, and what sits between
+
+Sections 1 to 6 are about the viewer. This section is about the whole tool, and it
+is the frame the rest of it hangs on.
+
+There are three layers, and it is worth being able to name them:
+
+```
+FRONT                MIDDLE                BACK
+Neuroglancer    <-   the server        <-  what is on disk
+                     (viz_studio/backend)
+draws the        turns whatever is      one image, or many,
+picture,         on disk into one       or images nested
+in 2D and 3D     ordinary picture       inside one another
+```
+
+**The front is the engine and our interface around it.** It draws, it navigates,
+and it does the whole of the three-dimensional work. What matters here is that it
+is only ever handed **one ordinary OME-Zarr** — one source, with a pyramid.
+Everything the viewer's speed depends on follows from that, and section 2's rule
+says why we do not try to do its job for it.
+
+**The back is whatever suits the microscope and the experiment.** One large image,
+one image per well, one per position, or images nested inside a parent — the choice
+belongs to how the run is acquired and how the data will be analysed afterwards,
+not to what the viewer would prefer.
+
+**The middle is the server, and its job is to let those two disagree.** It answers
+the front's questions about a picture that need not exist on disk in that shape. It
+is not a new component: `backend/server.py` is already this layer. Today it passes
+files straight through, which is the simplest thing it can do and the right thing
+when the store on disk is already the picture the operator wants to see.
+
+### What this buys, and it is the reason to think in these terms
+
+**Where a tile sits on disk and where it belongs on the stage become separate
+questions.** That is the whole benefit, and everything else is a consequence:
+
+- The back can change without the front noticing, so a storage layout chosen for
+  the microscope does not have to be a layout chosen for drawing.
+- A tile's position can be corrected *after* acquisition — once a stitcher has
+  worked out where the stage really went — without a byte being rewritten.
+- The number of images on disk stops setting the viewer's frame rate, which is
+  what `NEXT_STEPS.md` spends its scale audits establishing.
+
+There is one arrangement this makes possible that is otherwise a straight
+contradiction: **keeping the overlap between tiles while still showing one
+picture**. An image holds a single value per point, so tiles written into one
+image overwrite each other where they meet — `DATA_LAYOUT.md` Decision 1b measures
+that at a fifth of everything the camera recorded. With a middle layer the tiles
+can be kept apart on disk, whole and unspoiled, and put together only on the way
+out. `TILES_IN_ONE_STORE.md` measures what that costs.
+
+### Two rules about what belongs where
+
+**The middle places tiles; the front blends them.** Putting a tile in its proper
+place is moving whole voxels about, and it is cheap — measured at about six
+milliseconds for one piece of picture, and it stays there whether the run holds
+sixteen tiles or ten thousand. *Smoothing* the join between two tiles is a
+different kind of work: `measure_live_fusion_cost.py` measures a stitching library
+doing it live at six hundred to three thousand milliseconds a piece, a hundred times
+dearer. So the seam is softened in the shader, where the picture is already being
+drawn — `INTEROP.md` §3 sets out the fifteen lines it takes — and never in the
+middle.
+
+**The middle only earns its place when the back and the front disagree.** If the
+store on disk is already the picture the operator wants — one image, tiles butted
+up against each other, no overlap to preserve — the front reads it directly and
+the middle has nothing to do. Building a placing layer for a run that does not need
+one is work with no reader.
+
+### What this costs, stated plainly
+
+A store whose tiles are laid out for the microscope rather than for looking at is
+**only a picture while our software is running**. Handed to a colleague, opened in
+napari, or restored from a backup, it is a grid of tiles with no indication that it
+was ever anything else.
+
+That is a real price and it should be paid deliberately. `DATA_LAYOUT.md` records a
+way of keeping the overlap that does *not* pay it — dealing tiles across four
+ordinary images so that neighbours never share one, measured at nothing lost and
+sixty draws a second — where the only cost is that a reader opens four images
+instead of one. Which of those is right depends on how much the data has to travel,
+and it is a decision for the experiment rather than for the viewer.
+
+### Watching a run that is still going
+
+The three layers hold up while data is arriving, which is what a smart-microscopy
+run needs. Tiles kept apart on disk never share a piece of a file, so two of them
+written at the same moment cannot destroy each other — the hazard `DATA_LAYOUT.md`
+measures at up to three quarters of a tile lost. The front already knows how to
+notice new data: an announcement carrying `wrote_image_in_place` makes the engine
+let go of what it has decoded, and it refetches only what is on screen.
+
+The one job that is genuinely new is keeping the **zoomed-out copies** current as
+tiles land. Those copies have to be made once from all the tiles together — made
+separately from separate images, every tile edge would be averaged against the
+empty ground beside it and the specimen would wear a faint grid. That is design
+work rather than a detail, and it is not done.
+
+### Status
+
+The three layers are real; the placing behaviour in the middle is not. The server
+passes files through today, and everything above about tiles being kept apart and
+assembled on the way out is measured but unbuilt. `TILES_IN_ONE_STORE.md` has the
+measurements, `PLAN_the_placing_server.md` has a plan for building it, and both
+should be read with the reviews recorded in them.
