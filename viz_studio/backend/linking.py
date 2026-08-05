@@ -147,7 +147,7 @@ LINKS_ADDED_FILE = "zmart-links-added.jsonl"
 # What that companion file is called in the newer arrangement, where it sits beside
 # the images and so has to carry the name of the view it belongs to:
 # ``zmart-links/overview.ome.zarr-added.jsonl``.
-LINKS_ADDED_ENDING = "-added.jsonl"
+LINKS_ADDED_ENDING = "-positions-arriving.jsonl"
 
 # The ways a tile can keep one of its pieces. Only the plain one is read today; a
 # name not in here is refused rather than guessed at, because guessing would hand
@@ -403,7 +403,7 @@ def where_the_list_is(store: Path) -> tuple[Path, Path]:
     """
     for description in (store / "zarr.json", store / ".zattrs"):
         if description.is_file():
-            return description, store.parent / f".{store.name}{LINKS_ADDED_ENDING}"
+            return description, store.parent / f"{store.name}{LINKS_ADDED_ENDING}"
     beside = store.parent / LINKS_FOLDER / f"{store.name}.json"
     if beside.is_file():
         return beside, beside.with_name(f"{store.name}{LINKS_ADDED_ENDING}")
