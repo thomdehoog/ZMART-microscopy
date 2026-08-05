@@ -263,6 +263,59 @@ holding 3.78 MB. So **the real cost of opening a run is three to four times the 
 column**, and the copies come to about a quarter of the data — which is the figure
 `LINKING_INSTEAD_OF_COPYING.md` predicts, turning up in a measurement.
 
+### Three things measured afterwards, because the table did not answer them
+
+**How many requests does the browser make, and does it grow with the run?** It does
+not, and this is the strongest single result here.
+
+| tiles | requests | of them for pieces | bytes | opening | lit |
+|---|---|---|---|---|---|
+| 100 | 24 | 20 | 0.01 MB | 1.1 s | 0.17 |
+| 400 | 54 | 50 | 0.08 MB | 0.6 s | 0.83 |
+| 1 600 | 124 | 120 | 0.22 MB | 0.6 s | 0.90 |
+| 6 400 | 124 | 120 | 0.11 MB | 0.6 s | 0.90 |
+
+The count climbs while the picture is still smaller than the window, then stops
+entirely: 1 600 tiles and 6 400 tiles ask for the same 124 things and open in the
+same 0.6 seconds. The browser fetches what is on screen, and once the picture is
+larger than the screen that stops depending on how large the run is. The `lit`
+column explains the first row — at 100 tiles the picture does not fill the window,
+so there is less to ask for.
+
+**Is the frame rate hitting a ceiling, or is it real?** It is real. An empty page on
+this sandbox, drawing nothing at all, manages **60.7 frames a second**, and the
+linked view runs at 25 to 28. So the picture is consuming rather more than half the
+frames available, which means the drawing is genuinely working and **a machine with
+a graphics card has something to gain**. The middle frame sitting at 33 ms in row
+after row looks like a fixed tick and is not one — that was checked because it
+looked like one, and the ceiling turned out to be twice as high.
+
+This matters for how the rest of the table is read: a card should move `fps`,
+`middle frame` and `longest pause`, and should move nothing else. Building the view
+is processor and disk, opening is disk and requests, and neither goes near the card.
+
+**What does one more tile cost during a run?** A full rebuild, which is the honest
+problem left in this arrangement.
+
+| tiles | build from nothing | rebuild with one more tile |
+|---|---|---|
+| 800 | 0.25 s | 0.22 s |
+| 3 200 | 0.92 s | 0.78 s |
+| 6 400 | 1.72 s | 1.54 s |
+
+Adding a tile costs the same as building the whole view, because that is literally
+what happens. The figures above are after a thirteen-fold speedup — profiling showed
+86% of the time was opening every tile to ask how many colours it held, which the
+writer already knew, so 6 400 tiles went from 22.5 s to 1.7 s.
+
+But a faster rebuild is not the answer. The cost is proportional to the run, so
+across a whole acquisition it is the *square*: 6 400 tiles at around a second each
+is hours of cumulative rebuilding for a run whose tiles arrive one at a time. What
+is needed is an **append** — the list of pointers is a list, and adding a line to it
+should not depend on how many lines are already there.
+
+---
+
 None of this is one-time during an acquisition. A tile arriving adds pointers, which
 is cheap; keeping the smaller copies current as tiles land is recorded in
 `ARCHITECTURE.md` §7 as unsolved.
