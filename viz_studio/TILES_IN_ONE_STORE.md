@@ -140,6 +140,27 @@ questions, and the second is answered at read time. That means the arrangement c
 be changed afterwards without rewriting anything: butted up, true stage geometry,
 or a stitcher's corrected positions once registration has run.
 
+**A run can be watched while it is still going**, and this layout suits that
+better than a canvas written in true geometry does. Three reasons, and the first
+is the one that costs a canvas real data:
+
+- **No two tiles share a piece of the file**, because no two tiles share ground.
+  The hazard measured in `DATA_LAYOUT.md` — two tiles straddling a piece boundary,
+  written at the same moment, one of them losing up to 75% of its voxels — cannot
+  arise here. Tiles may be written in parallel without arranging anything.
+- **The viewer already knows how to notice.** An announcement carrying
+  `{"wrote_image_in_place": true}` makes the engine let go of the pieces it has
+  decoded, so a tile written where the viewer has already looked does appear. It
+  refetches only what is on screen — nine requests, not nine thousand — and it is
+  pinned by `tests/test_writing_into_one_store.py`.
+- **The lookup index costs nothing to extend.** Seven milliseconds builds it for
+  ten thousand tiles, so adding one as it arrives does not register.
+
+The one thing a live run has to do that a finished one does not: **keep the
+written-out coarse copies up to date** where a new tile lands. A tile's footprint
+on those copies is small, so the work per tile is small, but it is real work and it
+is the piece to design before building rather than after.
+
 ---
 
 ## What it costs, and where it does not apply
@@ -197,6 +218,33 @@ more disk buys a zoomed-out view that is as quick as any ordinary image, while t
 92% that is the full-resolution picture is never duplicated at all, and the overlap
 inside it stays intact.
 
+### At ten thousand tiles, which is the size that matters
+
+The measurements above stop at 576, and something that holds at five hundred and
+fails at ten thousand would be worse than useless — it would look like an answer.
+`measure_ten_thousand_tiles.py` carries it the rest of the way, on a store of
+25 600 × 25 600 voxels:
+
+| | median a piece | tiles touched |
+| --- | --- | --- |
+| tiles on a raster | 13.4 ms | at most 9 |
+| tiles scattered, as smart microscopy leaves them | 6.9 ms | at most 8 |
+| building the lookup index | 7 ms, once, for all ten thousand | |
+
+**Scattered positions are the case that had not been exercised**, and they are the
+case this project actually produces — a run that decides where to look next does
+not leave a neat grid. On a raster, working out which tiles touch a piece is
+closed-form arithmetic. Scattered, it has to be looked up, and without an index
+that would mean examining all ten thousand tiles for every piece.
+
+A coarse bucket index settles it: tiles are filed by which patch of stage they
+fall in, so a piece consults only the buckets it overlaps. It costs 7 ms to build
+for ten thousand tiles and the placement is then no slower than the raster case —
+faster here, only because jittered tiles happen to overlap a little less.
+
+So the arrangement holds at the size the project is aiming for, and it holds for
+the kind of run the project is actually for.
+
 **One rule to get right when acquiring**, and it is quiet rather than loud if
 missed. Placing a tile by whole voxels only works while the stage's step divides
 exactly by the shrinking factor. The step used in these measurements is 224
@@ -213,6 +261,7 @@ rather than like a bug.
 | | |
 | --- | --- |
 | `measure_tiles_in_one_store.py` | the arrangement above, timed against a plain read |
+| `measure_ten_thousand_tiles.py` | the same at ten thousand tiles, on a raster and scattered |
 | `measure_live_fusion_cost.py` | stitching on the spot, timed the same way |
 | `measure_one_stitched_store.py` | one store against many, in the viewer itself |
 | `DATA_LAYOUT.md` Decision 1b | why one image normally destroys the overlap |
