@@ -1126,6 +1126,22 @@ def make_server(
         except OSError:
             return False
 
+    def _the_window_this_channel_asked_for(store, channel):
+        """The brightness this channel's run asked for, or ``None`` if it said none.
+
+        Read from the store's own description, which costs one small file and no
+        image data at all — worth knowing, because everything else in
+        :func:`_measure` is expensive by comparison.
+        """
+        try:
+            described = channels(store)
+        except Exception:
+            return None
+        at = 0 if channel is None else int(channel)
+        if at >= len(described):
+            return None
+        return described[at].get("window")
+
     def _measure(key, root_number, root, name, label, coloured, channel=None) -> dict:
         """Read one store's pixels and work out how it should first be shown.
 
@@ -1156,6 +1172,24 @@ def make_server(
         else:
             found = measure(root / name, channel=channel)
         flat, volume = found["window"], found["volumeWindow"]
+
+        # What the run itself asked this channel to be shown between, if it said.
+        # It is preferred over the measurement, and there are two reasons.
+        #
+        # The plain one is that the run knows better. The window in the store is
+        # what the microscopist chose at the instrument, and reading it back means
+        # an acquisition opens looking the way they left it.
+        #
+        # The other is that for some pictures there is nothing to measure. A
+        # picture assembled by pointing at positions holds no voxels of its own --
+        # every piece of it is answered by handing over a position's file -- so
+        # reading its pixels finds only the empty value. That produces a window
+        # covering the whole range of the data type, which draws the specimen at a
+        # few per cent of its brightness: the picture is there, and looks like a
+        # black screen. Measured at fourteen out of two hundred and fifty-five.
+        asked_for = _the_window_this_channel_asked_for(root / name, channel)
+        if asked_for is not None:
+            flat = volume = (asked_for["low"], asked_for["high"])
         color = channel_color(name) if coloured else None
         described = {
             # A row may be drawn from more than one store: several positions of the

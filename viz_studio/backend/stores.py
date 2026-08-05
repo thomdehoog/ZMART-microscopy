@@ -606,8 +606,37 @@ def channels(store: Path) -> list[dict]:
         entry = described[index] if index < len(described) else {}
         entry = entry if isinstance(entry, dict) else {}
         label = entry.get("label") or entry.get("name") or f"channel {index + 1}"
-        out.append({"name": str(label), "color": _hex_to_rgb(entry.get("color"))})
+        out.append({
+            "name": str(label),
+            "color": _hex_to_rgb(entry.get("color")),
+            "window": _the_window_asked_for(entry),
+        })
     return out
+
+
+def _the_window_asked_for(channel: dict) -> dict | None:
+    """The brightness a run asked this channel to be shown between, if it said.
+
+    This is the ``start`` and ``end`` of the channel's ``window``, and taking the
+    right two of the four numbers there matters more than it looks. A window also
+    carries ``min`` and ``max``, and those are the *camera's whole range* — for a
+    16-bit camera, nought to sixty-five thousand. A real specimen occupies a narrow
+    band inside that, so opening an acquisition on ``min`` and ``max`` shows a
+    picture that is very nearly black and stays that way until somebody thinks to
+    drag a slider. ``start`` and ``end`` are what the run actually asked for.
+
+    Returns ``None`` where the run said nothing, and then the viewer works the
+    brightness out by reading the picture instead.
+    """
+    window = channel.get("window")
+    if not isinstance(window, dict):
+        return None
+    low, high = window.get("start"), window.get("end")
+    if not isinstance(low, (int, float)) or not isinstance(high, (int, float)):
+        return None
+    if high <= low:
+        return None
+    return {"low": float(low), "high": float(high)}
 
 
 def _channel_count(store: Path, names: list[str], described: int) -> int | None:
