@@ -41,7 +41,11 @@ a chessboard never touch. Four images are needed rather than two, because tiles
 that meet only at a corner are diagonal neighbours and would otherwise land
 together. Within any one image nothing overlaps, so nothing is written over.
 
-**This is already measured**, in `DATA_LAYOUT.md` under Decision 1b:
+**This was measured once**, and the measurement is smaller than it looks.
+`DATA_LAYOUT.md` took it on a **9 × 9 raster — 81 tiles — overlapping by 12%, four
+planes deep, one colour, written synthetically on this sandbox**. The plan's first
+version copied the table without that sentence, which made it read as a result
+about scale. It is not one.
 
 | | one image | four images |
 |---|---|---|
@@ -52,9 +56,24 @@ together. Within any one image nothing overlaps, so nothing is written over.
 | description files read to open | 8 | 32 |
 | writing one tile, median | 63.7 ms | 54.1 ms |
 
-Four sources rather than one, and that costs nothing measurable: the frame-rate
-cliff this project keeps meeting is at *thousands* of sources, not at four. The
-count also does not grow — ten thousand tiles is still four images.
+**Read the two "60" rows as a ceiling, not as headroom.** That harness counted the
+browser's own redraw callbacks, which stop at sixty however much time is to spare.
+Sixty against sixty says both arrangements sat on the ceiling with 81 tiles; it
+cannot tell "costs nothing" from "costs a third of the time available". So it does
+not support being set against the placing server as "measured" versus "not
+measured", which is what the first version of this document did.
+
+**And the script that produced it was deleted**, in `652327a`, because it crashed on
+an argument that no longer exists. So the evidence for the recommended option
+cannot currently be re-taken, while the evidence against the other one can. That is
+the wrong way round and it should be repaired before this recommendation is acted
+on.
+
+What genuinely holds up is the arithmetic about sources: four sources is nowhere
+near the cliff, which `NEXT_STEPS.md` puts between a hundred positions at 302
+frames in five seconds and a thousand at 24. And the count does not grow — ten
+thousand tiles is still four images. That is sound, and it is a claim about source
+count rather than about anything else.
 
 It was set aside for one reason, recorded at `DATA_LAYOUT.md`: it "leaves every
 reader — analysis code included — joining four images up instead of reading one
@@ -81,10 +100,10 @@ afterwards, and that is the whole of the decision.
 | | four images | slots and a placing server |
 |---|---|---|
 | overlap kept | yes | yes |
-| frame rate | 60 a second, measured | one source; not yet measured in the viewer |
+| frame rate | at the screen's ceiling on 81 tiles; unmeasured above that | one source; not yet measured in the viewer |
 | what a colleague receives | four ordinary images | a grid of tiles, meaningless without our server |
 | opens in napari, Fiji, a backup | yes | **no** |
-| new code needed | none in the viewer | a placing layer, and everything in "what must be true" below |
+| new code needed | a shader change and a pyramid decision — see below | a placing layer, and everything in "what must be true" below |
 | already measured | yes | on a bench only |
 
 **The objection that set A aside is smaller than the one B carries.** Opening four
@@ -98,8 +117,31 @@ stores were arriving at the origin in half the Python ecosystem. Choosing a layo
 that *no* reader understands, deliberately, is a larger version of the same
 problem.
 
-**So build A.** Section B below stays because a run that must be a single file is a
-real case, and because somebody will propose it again.
+### The condition on A, which has to be said before recommending it
+
+Dealing tiles into four images works **for a run tiled on a regular raster, with a
+fixed step, overlapping by no more than half a tile.** Four is the right number
+because a tile has eight neighbours and only the diagonal ones force a third and
+fourth image. Above half a tile of overlap a tile reaches its second neighbour and
+four is not enough. If a run tiles in depth as well as across, the same argument
+gives **eight**, not four, and this document does not otherwise mention it.
+
+**The case that breaks it is the one this project is for.** A run that returns to
+the same field — a timelapse, or a target scan gathering many tiles around one
+object — puts N tiles on the same ground, and N tiles that all overlap each other
+need N images. The source count then grows with the run, which is the entire
+problem this document exists to remove. `TILES_IN_ONE_STORE.md` says plainly that
+scattered positions are "the case this project actually produces".
+
+That risk appears in the first version of this plan only as an argument *against*
+the placing server, where it is a slowdown. For four images it is not a slowdown,
+it is fatal. It belongs here.
+
+**So: build A for raster mosaics, and treat revisited or clustered positions as
+unsolved.** That is a narrower recommendation than the first version made, and it
+is the honest one. Section B below stays because a run that must be a single file
+is a real case, because it degrades rather than fails when tiles cluster, and
+because somebody will propose it again.
 
 ---
 
@@ -113,21 +155,53 @@ overlapping run outright — `_refuse_overlapping_tiles`, pinned by
 image and has to become a choice between refusing and dealing, which is a change to
 a recorded decision and should be written down as one.
 
-**The seam has to be softened at the front.** Four overlapping images composited
-with "later wins" give a visible join. The cure is in the shader and
-`INTEROP.md` §3 has it: a cosine ramp from each image's own declared rectangle,
-about fifteen lines, replacing the brightness test that "cannot tell 'never
-imaged' from 'imaged and genuinely dark'". This is the same formula
-`multiview-stitcher` uses; what is not portable is where they compute it, which is
-Python once per chunk and is why theirs costs hundreds of milliseconds.
+**The seam has to be softened at the front, and this is harder than it was said to
+be.** Four overlapping images composited with "later wins" give a visible join, and
+`INTEROP.md` §3 offers a cosine ramp from each image's declared edge as the cure,
+"about fifteen lines". That estimate was made against a Viv prototype and **does
+not carry to the engine we actually ship on.** `frontend/src/scene.js` records why,
+and it is worth reading before anybody promises a small change:
 
-**The zoomed-out copies have to be made from all the tiles together.** Each of the
-four images holds a quarter of the tiles with gaps between them, so shrinking each
-one separately averages every tile edge against empty ground and leaves a faint
-grid over the specimen at coarse zoom. One combined pyramid, written once, removes
-it — and costs little, since the coarse copies are roughly a tenth of the data. At
-coarse resolution nothing is lost by combining, because the overlap only matters at
-full resolution, which is exactly where it is kept.
+- Transparency is already spent. `covered = "v > 0.0 ? 1.0 : 0.0"` uses it to say
+  whether a spot was imaged at all, and a ramp needs it to say how much a tile
+  should count. The two want the same channel.
+- For the bottom-most picture the engine switches blending off and treats
+  transparency as a yes-or-no test, so a fractional ramp does nothing there.
+- Both obvious repairs are recorded as wrong in that same comment: multiplying the
+  colour by the value darkens every picture above it twice over, because the
+  engine's blending is straight rather than premultiplied; and additive blending
+  makes overlapping tiles sum into bright seams.
+- A proper weighted average has to divide by the total weight, and where four
+  images meet at a corner no single image's shader knows what that total is.
+
+The formula is still the right one — it is what `multiview-stitcher` uses, and
+computing it at draw time rather than in Python is still the point. But "fifteen
+lines" should be struck, and this wants designing rather than estimating.
+
+**The zoomed-out copies are an open problem, not a solved one.** Each of the four
+images holds a quarter of the tiles with gaps between them, so shrinking each one
+separately averages every tile edge against empty ground and leaves a faint grid
+over the specimen at coarse zoom. That much is certain.
+
+The obvious answer — one combined pyramid, made from all the tiles together — was
+offered here as though it were settled, and it is not. Four questions have no
+answer yet:
+
+- **Where does it live?** A pyramid belongs to one image, so a combined one is a
+  fifth store. The server merges stores of matching voxel size into one row, and
+  the engine picks a level per source and draws later over earlier — so a
+  full-field coarse picture would smear over the four sharp ones at every zoom.
+  Preventing that means choosing which source to show by zoom level, which is the
+  engine's own job and the thing `NEXT_STEPS.md` §1 declines to take over.
+- **Who writes it during a run?** `ARCHITECTURE.md` §7 already calls keeping these
+  copies current as tiles land "design work rather than a detail, and it is not
+  done".
+- **It brings back the hazard four images removed.** A combined image is one image
+  in which tiles do overlap and do share pieces of the file — the concurrent-write
+  fault `DATA_LAYOUT.md` measures at up to three quarters of a tile lost, silently.
+- **It is not as cheap as "a tenth of the data" suggests.** `DATA_LAYOUT.md` records
+  that 44% of the time spent writing a tile already goes on its smaller copies. A
+  fifth pyramid adds that work again, on the live path, for every tile.
 
 **A dataset must be able to be four stores.** `ARCHITECTURE.md` §3 already says a
 dataset is what one load produces, however many stores it spans, so this is a use
@@ -160,8 +234,13 @@ plan got wrong or left out.
    seeks against the control's one.
 
 **Compression is no longer on this list.** It was the first version's headline risk
-and it has been measured: zstd costs **1.4×** when slots line up with chunk
-boundaries and **2.0×** when a tile straddles them. The first version's proposed
+and it has been measured — `measure_compression_cost.py`, added beside the other
+scripts because the first version of this plan quoted these figures with nothing in
+the repository behind them. Reading a compressed store costs roughly **one and a
+half times** an uncompressed one when a tile's slot lines up with the pieces the
+file is stored in, and roughly **twice** when it does not. Two runs gave 1.4× and
+1.6× for the first and 2.0× and 2.3× for the second, so treat them as
+approximate. The first version's proposed
 mitigation was also wrong — lining slots up bounds you at one compressed chunk per
 *tile touched*, not one per piece — but the measured cost is small either way, and
 aligning is worth doing because `DATA_LAYOUT.md` already requires it of the writer
@@ -265,6 +344,14 @@ same honesty as the bench numbers, including if they are bad.
 - **"Synthesising the served chunk keys frees the separator decision."** It does
   not. Both mechanisms in `LIVE_MODE_PLAN.md` §2 read the disk, never the served
   keys, so that trade-off is untouched.
+- **"Four images need no new code in the viewer."** They need a shader change for
+  the seam and a decision about the zoomed-out copies, both of which are open.
+- **"The seam is about fifteen lines."** That estimate was made against a Viv
+  prototype and does not survive `scene.js`, where transparency is already spent on
+  coverage and the engine's blending is not the premultiplied kind.
+- **"One combined coarse pyramid removes the grid."** Probably, but where it lives,
+  who writes it during a run, and how the engine is stopped from drawing it over the
+  sharp data are all unanswered.
 - **"The cost is flat with the size of the run."** Flat while tiles per unit of
   stage stay bounded. Both measurements held density constant, so the bound was
   arithmetic rather than a discovery.
