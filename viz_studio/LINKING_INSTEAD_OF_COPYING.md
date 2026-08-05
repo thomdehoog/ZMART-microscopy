@@ -107,30 +107,49 @@ not currently open a real acquisition.** It opens the synthetic runs in the test
 where the grid is exact by construction. Nobody should read the measurements in
 this document as evidence that a real plate will open.
 
-**The three ways out, and which to build.**
+**The way out, and two that were tried and rejected.**
 
-1. **Round each tile to the nearest whole piece.** Cheap, and it introduces an
-   error of up to half a piece — 64 voxels with pieces of 128, far larger than the
-   drift being corrected. That makes the picture worse than not correcting at all.
-   Not this one.
+The paragraph above is worth reading twice, because it rules out more than it first
+appears to. If a view cannot have both a tile's true position and byte-for-byte
+passthrough, then no rule applied *while building the view* can rescue a tile that
+is already written out of step. The tile's grid has to be right before the view is
+ever built. That is the whole answer, and it is written up as a work order in
+`PLAN_seam_ownership.md`.
 
-2. **Own whole pieces rather than trim fixed amounts.** Instead of asking "where
-   does this tile land", ask "which pieces of the view is this tile the best source
-   for", and give each piece to exactly one tile. The tile still supplies whole
-   pieces of itself, so passthrough survives; what shifts is the *seam*, which lands
-   on a piece boundary near the midline rather than exactly on it. The cost is that
-   the picture is right to within the drift rather than exactly right — which is the
-   same accuracy the copying arrangement gives, since it also places tiles before
-   the stitcher has run. **This is the one to build.** It came out of the second
-   review and it is the best idea any of the reviews produced.
+1. **Align the tile's own pieces when it is written.** Pad each tile's low edge by
+   however far the stage overshot the previous piece boundary, so the tile's grid of
+   pieces sits on the run's grid. Its true position is then a whole number of pieces
+   by construction, and the choice above never has to be made: passthrough survives
+   and no voxel moves. **This is the one to build.** It was measured before being
+   planned — a run drifting by 7 and 16 voxels, built by `linked.py` with no change
+   to it at all, served every one of 163,840 voxels exactly where the stage recorded
+   them. The price is a set of rules the acquisition has to follow, listed in the
+   work order, and up to one piece of padding along each tile's low edge.
 
-3. **Re-encode only the pieces that straddle.** For a drifted tile, most of its
-   pieces still line up and can be pointed at; a thin border does not, and those few
-   are written out properly. Exact, and no longer purely pointers. Worth keeping in
-   mind as the eventual answer for a run that has been stitched and needs to be
-   shown at the stitcher's own accuracy, rather than the stage's.
+2. **Round each tile to the nearest whole piece.** Rejected. It displaces every
+   voxel of the tile by up to half a piece — far larger than the drift being
+   corrected — so the picture ends up worse than if nothing had been done.
 
-Until one of those exists, the honest summary is: **linking is proven on grids and
+3. **Own whole pieces rather than trim fixed amounts.** Rejected *as a fix for
+   drift*, though it survives as the rule for deciding which of two overlapping
+   tiles supplies a piece. An earlier draft of this document proposed it as the
+   answer and claimed the tile still supplies whole pieces of itself *and* the
+   picture stays right to within the drift — which is exactly the "both" that the
+   paragraph above says the format forbids. Tried against the real code, it does
+   what that paragraph predicts: the ownership rule decides *which* tile supplies a
+   piece and has no way to affect *where* that piece's pixels land, so a drifted
+   tile is either drawn displaced by the drift or, under the rule's own
+   "covers completely" test, supplies nothing at all and the view comes out empty.
+   The measurements are in `PLAN_seam_ownership.md`.
+
+4. **Re-encode only the pieces that straddle.** Still open, but it is a larger job
+   than it sounds. A tile out of step is out of step everywhere — *no* piece of it
+   lines up, not merely a thin border — so this means rewriting the whole tile, not
+   a few edges. It becomes worth doing for a run that has been stitched and needs to
+   be shown at the stitcher's accuracy rather than the stage's, where the pixels
+   genuinely have to move.
+
+Until option 1 is built, the honest summary is: **linking is proven on grids and
 refuses everything else.**
 
 ---
