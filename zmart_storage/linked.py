@@ -182,6 +182,7 @@ class _HowTheTilesAreStored:
     channel_blocks: list[dict]
     separator: str
     prefix: str
+    axes: tuple[str, ...]    # what each axis of the picture means, in order
 
 
 def _description_of(store: Path) -> tuple[dict, str]:
@@ -322,6 +323,7 @@ def _what_the_tiles_are(tiles: list[PlacedTile]) -> _HowTheTilesAreStored:
             channel_blocks=list((attributes.get("omero") or {}).get("channels") or []),
             separator=separator,
             prefix=prefix,
+            axes=_axes_in(multiscale),
         )
         if agreed is None:
             agreed = this_one
@@ -372,6 +374,14 @@ def _refuse_tiles_stored_differently(
             "the moments and colours of its tiles as they are, so they all have to "
             "agree about how many there are."
         )
+    if found.axes != agreed.axes:
+        raise ValueError(
+            f"{first} stores its picture as {', '.join(agreed.axes)} and {other} as "
+            f"{', '.join(found.axes)}. A view hands both sets of bytes over under one "
+            "description, so an axis that means a colour in one tile and a plane in "
+            "the other would be read as the wrong thing without anything reporting "
+            "it. Build a view over tiles that agree about what their axes mean."
+        )
     if found.voxel_size_um != agreed.voxel_size_um:
         raise ValueError(
             f"{first} was taken with voxels of {agreed.voxel_size_um} micrometres "
@@ -379,6 +389,24 @@ def _refuse_tiles_stored_differently(
             "magnifications, which makes them two acquisitions rather than two "
             "tiles of one picture."
         )
+
+
+def _axes_in(multiscale: dict) -> tuple[str, ...]:
+    """What each axis of a tile's picture means, in the order they are stored.
+
+    Named separately from everything else because of where it is written down. The
+    rest of how a picture is stored -- its numbers, its compression, how large its
+    pieces are -- lives in the array's own description, which this module compares
+    whole and so cannot miss anything in. What the axes *mean* lives elsewhere, in
+    the image's description, and would otherwise go unchecked.
+
+    That would matter. A tile whose axes run colour, depth, height, width and one
+    whose axes run depth, height, width can hold bytes that are the same length and
+    pass every other check there is. Handed over together under one description,
+    the same bytes are read as a different picture: a colour becomes a plane, and
+    the specimen looks strange for no reason anybody can point at.
+    """
+    return tuple(str(axis.get("name", "")) for axis in multiscale.get("axes") or ())
 
 
 def _voxel_size_in(multiscale: dict) -> tuple[float, float, float]:
