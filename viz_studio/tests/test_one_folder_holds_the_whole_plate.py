@@ -399,6 +399,30 @@ def test_the_newer_format_works_in_one_folder_too(tmp_path):
     assert served.read_bytes() == (
         placed[0].store / "0" / "c" / "0" / "0" / "0" / "0" / "0").read_bytes()
 
+    # A requirement of the 0.5 specification, and one that is easy to miss because
+    # nothing complains when it is absent: each level of the image has to name its
+    # own dimensions, and those names have to be the ones the group's axes give.
+    # It is what lets a reader open a single level and still know which dimension
+    # is depth and which is time. Checked against each other rather than against a
+    # list written here, since the point is that the two agree.
+    described = json.loads((view.path / "zarr.json").read_text(encoding="utf-8"))
+    axes = [one["name"]
+            for one in described["attributes"]["ome"]["multiscales"][0]["axes"]]
+    assert described["attributes"]["ome"]["version"] == "0.5"
+    for level in range(view.levels):
+        array = json.loads(
+            (view.path / str(level) / "zarr.json").read_text(encoding="utf-8"))
+        assert array.get("dimension_names") == axes, (
+            f"level {level} of the view does not name its dimensions the way the "
+            "axes do, which the specification requires"
+        )
+
+    # The positions the view points at have to satisfy it too — they are ordinary
+    # images that somebody may open on their own.
+    of_a_position = json.loads(
+        (placed[0].store / "0" / "zarr.json").read_text(encoding="utf-8"))
+    assert of_a_position.get("dimension_names") == axes
+
     # Sparing the positions has to work the same way whichever generation is used.
     positions = view.path / POSITIONS
     before = sorted(str(one.relative_to(positions)) for one in positions.rglob("*"))
