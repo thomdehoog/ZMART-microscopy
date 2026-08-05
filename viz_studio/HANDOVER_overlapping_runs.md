@@ -12,7 +12,7 @@ that describes what exists:
 | --- | --- |
 | `HANDOVER_overlapping_runs.md` | this file — what was built, and the numbers |
 | `LINKING_INSTEAD_OF_COPYING.md` | showing a run without copying it — now built, and what it still needs |
-| `PLAN_seam_ownership.md` | the next piece of work, written out step by step: making a linked view open a run off a real stage |
+| `PLAN_showing_many_stores_as_one.md` | the next piece of work, written out step by step: showing a folder of stores as one picture without rewriting any of them, so that a real transfer opens |
 | `ARCHITECTURE.md` §7 | the three layers the whole tool is made of |
 | `PLAN_keeping_the_overlap.md` | **superseded** — two arrangements that were weighed and not built |
 | `TILES_IN_ONE_STORE.md` | the bench measurements behind all of it |

@@ -113,8 +113,16 @@ The paragraph above is worth reading twice, because it rules out more than it fi
 appears to. If a view cannot have both a tile's true position and byte-for-byte
 passthrough, then no rule applied *while building the view* can rescue a tile that
 is already written out of step. The tile's grid has to be right before the view is
-ever built. That is the whole answer, and it is written up as a work order in
-`PLAN_seam_ownership.md`.
+ever built.
+
+**Which means this only ever works for tiles we wrote ourselves.** A transfer from
+another microscope was arranged by nobody, and we cannot go back and change how it
+was written. For those runs the picture has to be **assembled** — the few stored
+pieces overlapping each piece of the view are decoded, cut and combined as requests
+arrive, which touches nothing on disk and costs some processor time per piece
+looked at. So pointing is the fast path and assembling is the path; the work order
+in `PLAN_showing_many_stores_as_one.md` builds it that way round, and the options
+below are about how often the fast path is available.
 
 1. **Align the tile's own pieces when it is written.** Pad each tile's low edge by
    however far the stage overshot the previous piece boundary, so the tile's grid of
@@ -140,7 +148,7 @@ ever built. That is the whole answer, and it is written up as a work order in
    piece and has no way to affect *where* that piece's pixels land, so a drifted
    tile is either drawn displaced by the drift or, under the rule's own
    "covers completely" test, supplies nothing at all and the view comes out empty.
-   The measurements are in `PLAN_seam_ownership.md`.
+   The measurements are in `PLAN_showing_many_stores_as_one.md`.
 
 4. **Re-encode only the pieces that straddle.** Still open, but it is a larger job
    than it sounds. A tile out of step is out of step everywhere — *no* piece of it
