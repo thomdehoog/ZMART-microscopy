@@ -58,17 +58,55 @@ zoomed-out copies either. A view holds a few kilobytes whatever the run's size.
 All measured on this sandbox, which has **no graphics card**. Absolute frame rates
 mean nothing off this machine; the shapes do.
 
-**Drawing does not notice the tile count.**
+**Drawing does not notice how many positions there are.**
 
-| tiles | fps | middle frame | opening | requests |
-|---|---|---|---|---|
-| 100 | 28.0 | 33 ms | 1 s | 24 |
-| 1 600 | 25.0 | 33 ms | 1 s | 124 |
-| 6 400 | 25.3 | 33 ms | 1 s | 124 |
+Measured with `viz_studio/measure_a_run_of_positions.py`, over runs written by
+`zmart_storage.positions` — one zarr, the positions inside it with their own
+zoomed-out copies. Positions of 512 voxels, pieces of 128, one colour.
 
-The middle frame is 33 ms at every size across a sixty-four-fold range. Requests
-climb only while the picture is smaller than the window, then stop entirely — the
-browser fetches what is on screen, and that does not depend on the run.
+| positions | lit | fps | middle frame | worst frame | opening | requests | the picture | the positions |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0.850 | 35.7 | 33 ms | 50 ms | 0.8 s | 25 | 0.0 MB | 1 MB |
+| 5 | 0.891 | 25.7 | 33 ms | 117 ms | 0.4 s | 65 | — | — |
+| 10 | 0.513 | 27.3 | 33 ms | 133 ms | 0.4 s | 60 | 0.0 MB | 5 MB |
+| 50 | 0.822 | 30.0 | 33 ms | 117 ms | 0.5 s | 60 | — | — |
+| 100 | 0.771 | 32.0 | 33 ms | 100 ms | 0.6 s | 62 | 0.8 MB | 66 MB |
+| 200 | 0.827 | 30.3 | 33 ms | 67 ms | 0.4 s | 70 | 1.6 MB | 132 MB |
+| 400 | 0.924 | 28.0 | 33 ms | 83 ms | 0.4 s | 67 | 3.7 MB | 264 MB |
+| 1 000 | 0.678 | 27.0 | 33 ms | 67 ms | 0.6 s | 70 | 8.8 MB | 540 MB |
+| 2 000 | 0.970 | 26.0 | 33 ms | 117 ms | 0.6 s | 74 | 18.5 MB | 1 079 MB |
+
+**The middle frame is 33 milliseconds at every one of those sizes**, across a two
+thousand-fold range, and opening never passes 0.8 seconds. Requests climb only
+while the picture is smaller than the window and then stop — the browser fetches
+what is on screen, and that does not depend on how much run is underneath.
+
+There is no cliff, and it is worth saying where one could have been. Two things
+grow with the position count rather than with what is on screen: the map, which
+the viewer's server spreads into a lookup when a run is first opened, and the
+opening itself, which has to read that map before the first picture appears. Both
+were watched at two thousand positions and neither moved. The map is the one to
+keep an eye on at ten thousand, because it is held in memory — `linking.py`
+records what an earlier version cost by holding it per *piece* rather than per
+position.
+
+**The picture stays about 1.7% of the run** and follows the number of positions
+rather than the amount of specimen: 18.5 MB of description beside 1.08 GB of
+picture. None of it is a copy — those are the levels zoomed out further than any
+single position goes, which nothing can be pointed at for.
+
+**Read `lit` before any of the rest.** It says how much of the screen actually had
+specimen on it, and the first run of this table read 0.000 on every row while
+reporting a healthy 35 frames a second — over a completely black screen. The
+picture was being served correctly and drawn at about five per cent of its
+brightness, because the display window was being worked out by reading a picture
+that deliberately holds no pixels. Nothing else in the table so much as twitched.
+See the commit *"Show a run at the brightness it asked for"*.
+
+The older arrangement — a view built by hand over tiles written separately — was
+measured the same way and is kept here as history rather than as current truth:
+28.0 fps at 100 tiles, 25.0 at 1 600 and 25.3 at 6 400, with the middle frame 33 ms
+throughout. The shape is the same one, which is the point.
 
 **A tile arriving during a run went from 1 540 ms to 0.87 ms**, in three steps: not
 rebuilding the view (`start_a_growing_view`), not reopening every tile to ask what
