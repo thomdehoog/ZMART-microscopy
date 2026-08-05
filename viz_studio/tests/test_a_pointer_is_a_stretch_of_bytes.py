@@ -113,7 +113,10 @@ def test_the_list_says_how_a_tile_keeps_its_pieces(tmp_path):
     view = _a_small_view(run)
     listed = json.loads((view / "zmart-links.json").read_text(encoding="utf-8"))
 
-    assert listed["version"] == 2
+    # Version 3 is version 2 with the companion file a growing view adds tiles to.
+    # This asserted 2 for a while after the writer had moved on, which made it a
+    # test of a number nobody was writing any more rather than of the shape below.
+    assert listed["version"] == 3
     for tile in listed["tiles"]:
         assert tile["held_as"] == "file", (
             "every tile written here keeps each piece in a file of its own, and the "

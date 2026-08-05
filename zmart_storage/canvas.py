@@ -230,7 +230,8 @@ def _refuse_overlapping_tiles(tile_shape, tile_step) -> None:
 _DESCRIPTION_FILES = {".zarray", ".zattrs", ".zgroup", ".zmetadata", "zarr.json"}
 
 
-def _a_picture_already_written(store: Path) -> Path | None:
+def _a_picture_already_written(store: Path,
+                               apart_from: str | None = None) -> Path | None:
     """The first piece of acquired picture found inside ``store``, if there is one.
 
     An image that has been declared but never written to contains only its own
@@ -242,12 +243,30 @@ def _a_picture_already_written(store: Path) -> Path | None:
     because a finished run can hold millions of pieces and the answer is the same
     either way.
 
+    Args:
+        store: the image folder to look inside.
+        apart_from: the name of one subfolder to walk straight past, or ``None``
+            to look everywhere. This exists for one deliberate arrangement: a
+            view built by :mod:`zmart_storage.linked` can keep the positions it
+            points at *inside* its own folder, so that the operator has a single
+            folder to open and to copy. The positions are real acquired pictures,
+            and without this they would look exactly like a run about to be
+            written over — so declaring the view would be refused every time.
+            Naming the subfolder here says "those are the tiles I am pointing at,
+            not a run I am about to empty."
+
     Returns:
         The path of a piece of acquired picture, or ``None`` if this image holds
         nothing but its description — which is also the answer for a folder that
         is not there at all, since walking one simply finds nothing.
     """
-    for here, _, files in os.walk(store):
+    for here, folders, files in os.walk(store):
+        if apart_from is not None and Path(here) == store:
+            # Pruned in place, which is what ``os.walk`` reads to decide where to
+            # go next, so the positions are never descended into at all. That
+            # matters for more than tidiness: a finished plate holds millions of
+            # files down there and walking them would take real time.
+            folders[:] = [one for one in folders if one != apart_from]
         for name in files:
             if name not in _DESCRIPTION_FILES:
                 return Path(here) / name
@@ -334,7 +353,8 @@ def _images_belonging_to(folder: Path, name: str) -> list[Path]:
     return sorted(found)
 
 
-def _throw_away_the_existing_run(folder: Path, name: str) -> None:
+def _throw_away_the_existing_run(folder: Path, name: str,
+                                 apart_from: str | None = None) -> None:
     """Remove this acquisition type's image, because the caller said to.
 
     This is what ``discard_existing_run=True`` asks for. Declaring the images
@@ -346,15 +366,33 @@ def _throw_away_the_existing_run(folder: Path, name: str) -> None:
     must leave a prescan beside it untouched, and it must also leave alone an
     acquisition type whose name merely begins the same way, such as
     ``overview_deep``.
+
+    ``apart_from`` names one subfolder that is **never** removed, and it is the
+    reason this function is worth reading twice. A view can hold the positions it
+    points at inside its own folder, and those positions are the only copy of the
+    acquired pictures — the view itself holds no picture at all. Throwing the view
+    away wholesale would therefore throw away the run. So the view's own
+    description and copies go, and the named subfolder is stepped around and left
+    exactly as it was.
     """
     for store in _images_belonging_to(folder, name):
-        if store.is_dir():
-            shutil.rmtree(store)
-        else:
+        if not store.is_dir():
             store.unlink()
+            continue
+        if apart_from is None:
+            shutil.rmtree(store)
+            continue
+        for child in store.iterdir():
+            if child.name == apart_from:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
 
 
-def _refuse_to_write_over_a_finished_run(folder: Path, name: str) -> None:
+def _refuse_to_write_over_a_finished_run(folder: Path, name: str,
+                                         apart_from: str | None = None) -> None:
     """Stop a new run from emptying the images an earlier one filled in.
 
     Declaring images empties whatever is already under their name, which is the
@@ -371,11 +409,16 @@ def _refuse_to_write_over_a_finished_run(folder: Path, name: str) -> None:
     holds each of its acquisition types side by side — an overview, a prescan, a
     targetscan — and each is declared in its own call, so a folder that already
     holds an imaged overview must still accept a prescan being declared beside it.
+
+    ``apart_from`` names one subfolder whose pictures are not the sign of an
+    earlier run and should not be read as one. A view that keeps the positions it
+    points at inside its own folder is the case; see
+    :func:`_a_picture_already_written`, which does the stepping around.
     """
     already = [
         (store, found)
         for store in _images_belonging_to(folder, name)
-        if (found := _a_picture_already_written(store)) is not None
+        if (found := _a_picture_already_written(store, apart_from)) is not None
     ]
     if not already:
         return
@@ -1023,6 +1066,7 @@ class TileCanvases:
         levels: int | None = None,
         discard_existing_run: bool = False,
         ome_zarr_version: str = "0.4",
+        keeps_its_tiles_in: str | None = None,
     ) -> TileCanvases:
         """Declare the image for an acquisition, before anything has been imaged.
 
@@ -1138,6 +1182,22 @@ class TileCanvases:
                 pieces of image are named on disk. Choose ``"0.5"`` when
                 everything that will read the run understands it, and ``"0.4"``
                 when you are not sure.
+            keeps_its_tiles_in: the name of a subfolder inside this image that
+                holds acquired tiles which must survive being declared. Normally
+                left out, and then the image is treated as the only thing in its
+                own folder, which is the ordinary case.
+
+                It is set by :func:`zmart_storage.linked.link_the_tiles` when a
+                view is asked to keep the positions it points at inside itself, so
+                that an operator has one folder to open and one folder to copy.
+                The view holds no picture of its own — every voxel lives in those
+                positions — so two things have to change, and both are handled
+                here. The check that refuses to write over an imaged run steps
+                past that subfolder, since otherwise the positions would look
+                exactly like a run about to be lost. And ``discard_existing_run``
+                clears the view's description and its zoomed-out copies while
+                leaving the positions untouched, because throwing the view away is
+                meant to cost you a few kilobytes rather than the acquisition.
 
         Returns:
             The image, ready to be written into. When the run is over it can be
@@ -1179,7 +1239,7 @@ class TileCanvases:
         # damage: the images are emptied as they are made, so there is no moment
         # afterwards at which this could still be caught.
         if not discard_existing_run:
-            _refuse_to_write_over_a_finished_run(folder, name)
+            _refuse_to_write_over_a_finished_run(folder, name, keeps_its_tiles_in)
 
         # Becoming the one writer comes before anything is emptied or thrown away,
         # for the same reason: if another program is already writing this
@@ -1188,7 +1248,7 @@ class TileCanvases:
         # what is there is somebody's run in progress.
         claim = _claim_the_right_to_write(folder, name)
         if discard_existing_run:
-            _throw_away_the_existing_run(folder, name)
+            _throw_away_the_existing_run(folder, name, keeps_its_tiles_in)
         # Declaring the image empties it, so whatever an earlier attempt at this
         # acquisition recorded about where it had imaged is no longer true and has
         # to go with it. Done for every declaration rather than only for a
@@ -1218,6 +1278,7 @@ class TileCanvases:
             channel_blocks=[c.described(depth_max) for c in channels],
             ome_zarr_version=ome_zarr_version,
             shard=shard,
+            keeps_its_tiles_in=keeps_its_tiles_in,
         )
 
         return cls(
@@ -1684,6 +1745,7 @@ def _declare_one(
     channel_blocks: list[dict],
     ome_zarr_version: str = "0.4",
     shard: int | None = None,
+    keeps_its_tiles_in: str | None = None,
 ) -> list[zarr.Array]:
     """Write one empty OME-Zarr image and hand back its levels.
 
@@ -1715,7 +1777,32 @@ def _declare_one(
             "Write this run as OME-Zarr 0.5 if the bundling is wanted, or leave "
             "the bundling out."
         )
-    group = zarr.open_group(str(store), mode="w", zarr_format=3 if newer else 2)
+    if keeps_its_tiles_in is None:
+        # ``mode="w"`` empties the folder before declaring, which is what a fresh
+        # image wants: nothing an earlier attempt left behind is carried into the
+        # new one.
+        group = zarr.open_group(str(store), mode="w", zarr_format=3 if newer else 2)
+    else:
+        # A view that keeps the acquired positions inside its own folder cannot be
+        # declared that way, and this is worth spelling out because getting it
+        # wrong destroys a night's imaging in a few milliseconds. Emptying the
+        # folder would take the positions with it — they are inside it — and the
+        # view holds no picture of its own, so there would be nothing left to
+        # recover from. Every voxel of the acquisition lives in those positions.
+        #
+        # So the emptying is done here instead, by hand and one child at a time,
+        # stepping around the positions; the group is then opened rather than
+        # remade. The effect on the view's own files is the same as ``mode="w"``:
+        # its description and every zoomed-out copy an earlier attempt wrote are
+        # gone before the new ones are declared.
+        for child in store.iterdir() if store.is_dir() else ():
+            if child.name == keeps_its_tiles_in:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+        group = zarr.open_group(str(store), mode="a", zarr_format=3 if newer else 2)
 
     # A time axis is always declared, and is given its full length here rather than
     # being lengthened as the run goes. This is the same arrangement as the room in
