@@ -16,7 +16,7 @@ The list is written by :mod:`zmart_storage.linked` under the name
 ``zmart-links.json`` inside the view's own folder. Its shape is::
 
     {
-      "version": 1,
+      "version": 2,
       "level": "0",            which copy of the picture is pointed at
       "separator": "/",        what goes between the numbers of a piece's name
       "prefix": "",            what goes in front of them ("c" for zarr version 3)
@@ -24,7 +24,8 @@ The list is written by :mod:`zmart_storage.linked` under the name
         {"store": "overview_tiles/overview_pos00000.ome.zarr",
          "at":   [0, 0, 0],    where this tile's pieces begin in the view
          "size": [2, 1, 1],    how many of them it supplies
-         "from": [0, 0, 0]}    which of its own pieces the first of them is
+         "from": [0, 0, 0],    which of its own pieces the first of them is
+         "held_as": "file"}    how one of its pieces is stored
       ]
     }
 
@@ -36,6 +37,29 @@ straight through. Where a tile lives is written down relative to the folder the
 view itself sits in, which is the same folder the viewer serves the view from — so
 a pointer is an ordinary address inside the opened folder and needs no special
 treatment to be safe.
+
+What a pointer resolves to, and why it is a stretch of bytes
+------------------------------------------------------------
+
+Asking where a piece really is gives back three things rather than one: **a file, a
+place in it, and how many bytes**. For the stores this reads today the answer is
+always the whole of the file — a piece of an ordinary zarr image *is* a file — so
+the place is nought and the length is "to the end".
+
+Saying it as a stretch of bytes anyway is what lets this grow. A **sharded** store
+keeps many pieces inside one larger file, with a small index saying where each of
+them begins; a piece of it is then a stretch in the middle of that file rather than
+a file of its own. Formats that are not zarr at all — a TIFF stack, an HDF5 file —
+are the same shape of problem, and the established tools for describing them
+(Kerchunk, VirtualiZarr) record exactly this triple for the same reason. Answering
+in the general shape now means those become a change to what writes the list rather
+than a change to everything that reads it.
+
+**What is deliberately not done is recording a stretch for every piece.** That is
+how those tools store it, and at the size of run this project is built for it does
+not fit: the note below on holding the list by tile works through how ten thousand
+tiles become tens of gigabytes that way. So the list still says how a *tile* is
+stored, once, and the stretch for any one of its pieces is worked out from that.
 
 Two things this deliberately does not do. It never answers for ground no tile
 covers — such a piece is simply not in the list, and the server then answers "there
@@ -51,6 +75,7 @@ from __future__ import annotations
 import json
 import threading
 from bisect import bisect_right
+from dataclasses import dataclass
 from pathlib import Path
 
 # The file, inside a view's own folder, that holds the list of pointers. The same
@@ -61,7 +86,40 @@ LINKS_FILE = "zmart-links.json"
 # The shape of that file this reader understands. A file saying anything else is
 # ignored rather than guessed at, because guessing wrongly would draw one tile's
 # picture in another tile's place with nothing on screen to say so.
-LINKS_VERSION = 1
+LINKS_VERSION = 2
+
+# Shapes this reader still understands from before. Version 1 said nothing about
+# how a tile's pieces are stored because there was only one way they could be —
+# each piece its own file — so it is read as though it had said so.
+LINKS_VERSIONS_UNDERSTOOD = (1, 2)
+
+# The ways a tile can keep one of its pieces. Only the plain one is read today; a
+# name not in here is refused rather than guessed at, because guessing would hand
+# the viewer bytes from the wrong part of a file and it would draw them.
+HELD_AS_A_FILE = "file"
+
+
+@dataclass(frozen=True)
+class Held:
+    """Where a piece of the picture really is: a file, a place in it, and a length.
+
+    Attributes:
+        path: the file holding those bytes, written relative to the folder the
+            viewer was opened on.
+        offset: how far into that file the piece begins. Nought for an ordinary
+            zarr image, where a piece is the whole file.
+        length: how many bytes the piece is, or ``None`` for "the rest of the
+            file" — which is again the ordinary case.
+    """
+
+    path: str
+    offset: int = 0
+    length: int | None = None
+
+    @property
+    def is_the_whole_file(self) -> bool:
+        """Whether these bytes are simply all of the file, which is the usual case."""
+        return self.offset == 0 and self.length is None
 
 
 class _WhereThePiecesReallyAre:
@@ -98,7 +156,7 @@ class _WhereThePiecesReallyAre:
         # appears in rather than copied into each.
         self._rows: dict[int, list[tuple[
             tuple[int, int, int], tuple[int, int, int],
-            tuple[int, int, int], str,
+            tuple[int, int, int], str, str,
         ]]] = {}
         # How wide the widest tile is, in pieces. The search below walks back along
         # a row from the query, and this says when to stop: a tile beginning further
@@ -113,7 +171,15 @@ class _WhereThePiecesReallyAre:
                 raise ValueError("a tile's place in the view needs three numbers")
             if any(n < 0 for n in at + low) or any(n <= 0 for n in size):
                 raise ValueError("a tile cannot begin before the view or be empty")
-            held = (at, size, low, store)
+            held_as = str(tile.get("held_as") or HELD_AS_A_FILE)
+            if held_as != HELD_AS_A_FILE:
+                raise ValueError(
+                    f"{store} says its pieces are held as {held_as!r}, which this "
+                    "reader does not know how to find. Rather than guess at where "
+                    "in a file a piece begins — and hand the viewer somebody else's "
+                    "bytes to draw — the whole view is left unread."
+                )
+            held = (at, size, low, store, held_as)
             self._widest = max(self._widest, size[2])
             for row in range(at[1], at[1] + size[1]):
                 self._rows.setdefault(row, []).append(held)
@@ -122,7 +188,7 @@ class _WhereThePiecesReallyAre:
 
     def _tile_covering(
         self, at: tuple[int, int, int]
-    ) -> tuple[str, tuple[int, int, int]] | None:
+    ) -> tuple[str, tuple[int, int, int], str] | None:
         """Which tile supplies the piece at this place, and which of its pieces it is.
 
         ``at`` is a place in the view's grid of pieces, given as ``(z, y, x)``.
@@ -141,7 +207,7 @@ class _WhereThePiecesReallyAre:
             return None
         nearest = bisect_right(crossing, at[2], key=lambda tile: tile[0][2])
         for index in range(nearest - 1, -1, -1):
-            begins, size, low, store = crossing[index]
+            begins, size, low, store, held_as = crossing[index]
             if at[2] - begins[2] >= self._widest:
                 break
             if (begins[2] <= at[2] < begins[2] + size[2]
@@ -150,15 +216,21 @@ class _WhereThePiecesReallyAre:
                     low[0] + at[0] - begins[0],
                     low[1] + at[1] - begins[1],
                     low[2] + at[2] - begins[2],
-                )
+                ), held_as
         return None
 
-    def the_file_behind(self, inside: str) -> str | None:
-        """Which file holds this piece of the view, said relative to the opened folder.
+    def the_bytes_behind(self, inside: str) -> Held | None:
+        """Where this piece of the view really is: a file, a place in it, a length.
 
         ``inside`` is the address the browser asked for, with the view's own folder
         taken off the front — for example ``0/3/1/0/5/7``: the copy of the picture,
         then the moment, the colour, the plane, and where across the specimen.
+
+        For a tile whose pieces are each a file of their own — every tile this reads
+        today — the answer is the whole of that file, so the place is nought and the
+        length is "to the end". The answer is given in the general shape all the same,
+        so that a store keeping many pieces inside one larger file can be answered for
+        later without anything that reads this having to change.
 
         Returns ``None`` when this is not a piece of the pointed-at copy, or when no
         tile covers that part of the picture. Both are ordinary answers rather than
@@ -173,11 +245,15 @@ class _WhereThePiecesReallyAre:
         found = self._tile_covering((z, y, x))
         if found is None:
             return None
-        store, (from_z, from_y, from_x) = found
+        store, (from_z, from_y, from_x), held_as = found
         piece = self.separator.join(
             str(n) for n in (frame, channel, from_z, from_y, from_x)
         )
-        return f"{store}/{self.level}/{self.prefix}{piece}"
+        where = f"{store}/{self.level}/{self.prefix}{piece}"
+        # One piece, one file: all of it, from the beginning. A store that packs
+        # several pieces into one file would work out the place and the length from
+        # that file's own index here instead, which is why this is not simply a path.
+        return Held(path=where, offset=0, length=None)
 
     def _numbers_in(self, inside: str) -> tuple[int, int, int, int, int] | None:
         """The five numbers naming a piece of the pointed-at copy, or ``None``.
@@ -208,18 +284,19 @@ _known: dict[str, tuple[int, _WhereThePiecesReallyAre]] = {}
 _known_lock = threading.Lock()
 
 
-def the_file_behind(store: Path, inside: str) -> str | None:
-    """Which file holds this piece of a pointed-at picture, if any.
+def the_bytes_behind(store: Path, inside: str) -> Held | None:
+    """Where this piece of a pointed-at picture really is, if it is one.
 
     Args:
         store: the view's own folder on disk.
         inside: the address asked for, with the view's folder taken off the front.
 
     Returns:
-        Where the bytes really are, as a path relative to the opened folder, or
-        ``None`` if this is not a pointed-at piece. The caller resolves that path
-        through the library, so a pointer can no more reach outside the opened
-        folder than any other request can.
+        A :class:`Held` saying which file the bytes are in, how far into it they
+        begin and how many there are — or ``None`` if this is not a pointed-at
+        piece. The path inside it is relative to the opened folder and the caller
+        resolves it through the library, so a pointer can no more reach outside
+        the opened folder than any other request can.
 
     An ordinary image has no list of pointers, and this costs it one look at
     whether that file exists — which is asked of the operating system and reads
@@ -242,7 +319,7 @@ def the_file_behind(store: Path, inside: str) -> str | None:
             _known[key] = (written, spread)
     else:
         spread = remembered[1]
-    return spread.the_file_behind(inside)
+    return spread.the_bytes_behind(inside)
 
 
 def _read(listing: Path) -> _WhereThePiecesReallyAre | None:
@@ -257,7 +334,7 @@ def _read(listing: Path) -> _WhereThePiecesReallyAre | None:
         held = json.loads(listing.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
-    if not isinstance(held, dict) or held.get("version") != LINKS_VERSION:
+    if not isinstance(held, dict) or held.get("version") not in LINKS_VERSIONS_UNDERSTOOD:
         return None
     try:
         return _WhereThePiecesReallyAre(held)
