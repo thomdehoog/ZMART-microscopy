@@ -159,12 +159,56 @@ answer such as 204 is read as a successful empty reply and fails to decode.
 
 Where two stores both cover a piece, one has to be chosen, and the choice must not
 depend on which path serves it or the picture would change as the cache filled.
-Give the piece to whichever store's centre is nearest to the piece's centre, among
-those that cover it completely, breaking ties by position so that the same run
-always produces the same picture.
 
-This is the part of the earlier plan that survives. It is a real problem and this
-is a good answer to it — it simply never was an answer to phase.
+An earlier draft said "give the piece to whichever store's centre is nearest to the
+piece's centre". That is the obvious rule and it should not be built, for reasons a
+reviewer set out and which hold up. Nearest-centre ownership in two dimensions puts
+the boundary between two stores on the line where the distances are equal, and that
+line is only vertical or horizontal when the two centres happen to be level. In
+general it is diagonal. So a store's owned region comes out stair-stepped rather
+than rectangular; it can be split into disconnected parts; it can be interrupted by
+a third store; and a store can end up owning a single isolated piece in a corner
+where a neighbour was missing. Because it depends on distances, small changes in
+where the stage went change the *shape* of the seams, so two runs of the same plate
+do not have the same picture. The rule also cannot be worked out along `y` and `x`
+separately, which is how it would naturally be written, and a version that does so
+is quietly a different rule.
+
+It is underspecified in another way too. "Nearest" needs units, and these voxels
+are not cubes — about 0.35 µm across and 2 µm deep on this instrument. Nearest in
+voxels and nearest in micrometres are different answers.
+
+**Decide on the acquisition's own grid instead.** Every store carries a position;
+sort those positions into rows and columns and give each store its row and column
+number. Then, for two stores neighbouring in `x`, the shared pieces go to the left
+one up to the piece boundary nearest the middle of their overlap and to the right
+one after it. The same, separately, in `y`. A piece in a corner shared by four
+stores is settled by `y` first and then `x` — stated as an order so it has one
+answer rather than a nearly-tied one.
+
+This gives every store a plain rectangle, puts the seams along the acquisition's own
+rows and columns, and gives the same answer every time. The acquisition is a raster;
+the ownership should be too. Where the stores are not a raster at all — a few
+scattered overview positions — fall back to nearest centre, in micrometres, and say
+in the log that it was used, because there the concerns above do not apply and
+there is no grid to appeal to.
+
+**Test the awkward geometries specifically**, because they are where a seam rule
+goes wrong quietly: a four-store corner; the same with one store missing; a whole
+row missing; two wells with a gap between them; and two stores level in one axis but
+not the other.
+
+This is the part of the earlier plan that survives. It is a real problem and it
+needs a real answer — it simply never was an answer to phase.
+
+**One thing the seam rule cannot fix, and should not be described as fixing.** Two
+overlapping stores hold the same specimen photographed from two stage positions,
+and until a stitcher has measured them they disagree slightly about where things
+are. When ownership hands a piece from one store to the other, a structure can
+appear to jump by that disagreement — which has nothing to do with where the seam
+was put and is not bounded by anything in this document. It is what stitching
+exists to remove. Report it separately from anything else the view is measured on,
+so that one number does not hide the other.
 
 ### 4. Let the acquisition write tiles that need no assembling
 
