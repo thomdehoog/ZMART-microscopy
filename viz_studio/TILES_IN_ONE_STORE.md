@@ -188,11 +188,28 @@ It is set by the copy. Measured at two run sizes:
 
 | copy | 64 tiles | 576 tiles | most tiles touched |
 | --- | --- | --- | --- |
-| 0 (full resolution) | 5.96 ms | 6.11 ms | 4 → 6 |
-| 1 | 12.88 ms | 14.06 ms | 9 → 12 |
-| 2 | 27.86 ms | 41.51 ms | 25 → 36 |
-| 3 | 97.80 ms | 80.92 ms | 64 → 100 |
-| 4 | 95.39 ms | 145.14 ms | 64 → 361 |
+| 0 (full resolution) | 6.21 ms | 5.37 ms | 4 → 9 |
+| 1 | 10.75 ms | 14.37 ms | 9 → 16 |
+| 2 | 39.49 ms | 32.74 ms | 25 → 36 |
+| 3 | 90.36 ms | 80.45 ms | 64 → 100 |
+| 4 | 93.71 ms | 585.05 ms | 64 → 361 |
+
+> **These numbers replace an earlier version of this table, which was wrong in its
+> last column** — it said 6 and 12 where the honest answers are 9 and 16. The fault
+> was in which pieces were sampled rather than in the arrangement, and it is worth
+> knowing about because it is easy to repeat.
+>
+> Two things vary from piece to piece. A piece at the very edge of the picture
+> hangs over it and so covers fewer tiles than one in the middle. And a piece in
+> the middle covers two rows of tiles or three depending on where it happens to
+> fall against the tile grid — with pieces 256 voxels across and the stage stepping
+> by 224, that alignment shifts by 32 each time and comes back after seven pieces.
+>
+> The old measurement took the first twelve pieces in reading order, which were all
+> in the top row of the picture, and so reported the easiest case as though it were
+> the usual one. It now takes a square of seven pieces by seven from inside the
+> picture, which sees every alignment in both directions. The timings barely moved;
+> the tile counts did.
 
 Read the last column. Going from 64 tiles to 576 — nine times as many — the tiles
 touched by one piece rise only from 25 to 36 at copy 2, and from 64 to 100 at copy
@@ -200,6 +217,16 @@ touched by one piece rise only from 25 to 36 at copy 2, and from 64 to 100 at co
 of copy *k* covers `256 × 2^k` voxels of specimen, which spans about
 `(1.14 × 2^k + 1)²` tiles however many the run holds. That predicts 102 at copy 3
 and 372 at copy 4, and the measurements land on 100 and 361.
+
+**And that ceiling only holds while the tiles are spread out.** Both measurements
+here grow the run by covering more stage at the same tile density — one tile per
+step, always — so "the tiles touched by a piece is bounded" was arithmetic rather
+than a discovery. It fails whenever tiles pile up in one place instead: a timelapse
+returning to the same field, or a target scan clustering around one object, puts
+every tile inside one piece and the cost climbs with the run again, which is
+exactly the wall stitching on the spot hit. The honest statement of the property is
+**flat in the number of tiles, provided the tiles per unit of stage stay bounded**,
+and the clustered case is unmeasured.
 
 So the ceiling is real, but it quadruples with every copy. By copy 3 a piece costs
 around 90 ms, which is too slow to pan through.
