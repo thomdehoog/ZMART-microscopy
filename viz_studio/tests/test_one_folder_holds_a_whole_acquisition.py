@@ -1,19 +1,27 @@
-"""One folder is the whole plate: open it, move it, copy it, and nothing is lost.
+"""One folder is a whole acquisition: open it, move it, copy it, nothing is lost.
 
 A run leaves one OME-Zarr image per position on disk, each complete in itself. That
 is the right thing to store and the wrong thing to hand a viewer: neuroglancer
-builds a drawing layer for every image it is given, so a plate of a few thousand
-positions does not open in any useful sense.
+builds a drawing layer for every image it is given, so a few thousand positions do
+not open in any useful sense.
 
 The answer is a **view** — a small file saying which piece of one big picture is
 which piece of which position. The viewer opens the view and sees a single ordinary
 image, and not one voxel has been copied to make it.
 
+**The runs here are smart experiments rather than plates**, and the difference is
+worth holding in mind. A plate is a regular grid of wells, imaged the same way
+throughout. A smart experiment is a wide survey at low magnification followed by
+detailed scans whereever the survey found something worth a closer look — so the
+positions are scattered rather than a raster, and one experiment usually holds more
+than one *kind* of scan, at different magnifications. Each kind is a picture in its
+own right and gets a view of its own; the last test is about exactly that.
+
 These tests are about *where all that sits on disk*. The view can be a folder beside
 the positions, which is the older arrangement and still the default, or it can hold
 the positions inside itself::
 
-    plate.ome.zarr/          <- open this; it is one whole picture
+    overview.ome.zarr/       <- open this; it is one whole picture
       .zattrs .zgroup        <- what the picture is
       0/ 1/ 2/               <- descriptions only, no picture at all
       zmart-links.json       <- which piece is which piece of which position
