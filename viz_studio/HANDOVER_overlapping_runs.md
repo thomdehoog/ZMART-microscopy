@@ -14,6 +14,7 @@ that describes what exists:
 | `LINKING_INSTEAD_OF_COPYING.md` | showing a run without copying it — now built, and what it still needs |
 | `PLAN_showing_many_stores_as_one.md` | the next piece of work, written out step by step: showing a folder of stores as one picture without rewriting any of them, so that a real transfer opens |
 | `ARCHITECTURE.md` §7 | the three layers the whole tool is made of |
+| `OPEN_a_run_that_changes_while_you_watch.md` | an open question — a new position works, but gaining a colour or a moment, or re-imaging a position, does not |
 | `PLAN_keeping_the_overlap.md` | **superseded** — two arrangements that were weighed and not built |
 | `TILES_IN_ONE_STORE.md` | the bench measurements behind all of it |
 

@@ -86,12 +86,25 @@ LINKS_FILE = "zmart-links.json"
 # The shape of that file this reader understands. A file saying anything else is
 # ignored rather than guessed at, because guessing wrongly would draw one tile's
 # picture in another tile's place with nothing on screen to say so.
-LINKS_VERSION = 2
+LINKS_VERSION = 3
 
 # Shapes this reader still understands from before. Version 1 said nothing about
 # how a tile's pieces are stored because there was only one way they could be —
-# each piece its own file — so it is read as though it had said so.
-LINKS_VERSIONS_UNDERSTOOD = (1, 2)
+# each piece its own file — so it is read as though it had said so. Version 2 is
+# version 3 without the companion file below, and a view written that way simply
+# never has one.
+LINKS_VERSIONS_UNDERSTOOD = (1, 2, 3)
+
+# The companion file a run still being acquired adds its tiles to, one line each.
+#
+# A view built from a finished run has none of this: every tile is in the list
+# itself. But a run still on the microscope adds a tile at a time, and rewriting
+# the whole list for each of them costs more the longer the run goes on — measured
+# at 89 milliseconds for one tile once a view held six thousand four hundred. So
+# the writer adds a line to the end of this file instead, and the tiles are taken
+# from both. When the run finishes the lines are folded back into the list and this
+# file goes away, which is why most views never have one.
+LINKS_ADDED_FILE = "zmart-links-added.jsonl"
 
 # The ways a tile can keep one of its pieces. Only the plain one is read today; a
 # name not in here is refused rather than guessed at, because guessing would hand
@@ -302,7 +315,7 @@ class _WhereThePiecesReallyAre:
 # last written. Keyed on when as well as where, so that a view rebuilt while the
 # viewer is open is noticed rather than answered from a list that no longer
 # describes it.
-_known: dict[str, tuple[int, _WhereThePiecesReallyAre]] = {}
+_known: dict[str, tuple[tuple[int, int], _WhereThePiecesReallyAre]] = {}
 _known_lock = threading.Lock()
 
 
@@ -326,25 +339,64 @@ def the_bytes_behind(store: Path, inside: str) -> Held | None:
     built after the viewer was opened is answered for straight away.
     """
     listing = store / LINKS_FILE
+    added = store / LINKS_ADDED_FILE
     try:
         written = listing.stat().st_mtime_ns
     except OSError:
         return None
+    # A run still being acquired grows its companion file as tiles land, and the
+    # file's *length* is what says it has grown — a length rather than a time,
+    # because several tiles can land within the resolution of a clock and the last
+    # of them would then go unnoticed.
+    try:
+        grown = added.stat().st_size
+    except OSError:
+        grown = -1
     key = str(listing)
     with _known_lock:
         remembered = _known.get(key)
-    if remembered is None or remembered[0] != written:
-        spread = _read(listing)
+    if remembered is None or remembered[0] != (written, grown):
+        spread = _read(listing, added)
         if spread is None:
             return None
         with _known_lock:
-            _known[key] = (written, spread)
+            _known[key] = ((written, grown), spread)
     else:
         spread = remembered[1]
     return spread.the_bytes_behind(inside)
 
 
-def _read(listing: Path) -> _WhereThePiecesReallyAre | None:
+def _the_tiles_added_since(added: Path) -> list[dict]:
+    """The tiles a run still being acquired has added, one to a line.
+
+    Returns an empty list when there is no such file, which is the ordinary case —
+    a view built from a finished run keeps every tile in the list itself.
+
+    **A half-written last line is expected and is not a fault.** This is read while
+    the writer is still adding to the file, so the final line can be caught partway
+    through being written. Such a line is left out, and it will be read on the next
+    look a moment later. Only the *last* line is forgiven this way: anything earlier
+    that will not read is a real fault, and the whole view is then left unread
+    rather than shown with tiles missing and nothing on screen to say so.
+    """
+    try:
+        lines = added.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    tiles = []
+    for at, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            tiles.append(json.loads(line))
+        except json.JSONDecodeError:
+            if at == len(lines) - 1:
+                break
+            raise
+    return tiles
+
+
+def _read(listing: Path, added: Path) -> _WhereThePiecesReallyAre | None:
     """Read a view's list of pointers, or ``None`` if it cannot be trusted.
 
     A list that cannot be read, or that was written in a shape this reader does not
@@ -359,8 +411,10 @@ def _read(listing: Path) -> _WhereThePiecesReallyAre | None:
     if not isinstance(held, dict) or held.get("version") not in LINKS_VERSIONS_UNDERSTOOD:
         return None
     try:
+        held = {**held, "tiles": [*(held.get("tiles") or []),
+                                  *_the_tiles_added_since(added)]}
         return _WhereThePiecesReallyAre(held)
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
 
 

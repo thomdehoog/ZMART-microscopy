@@ -133,7 +133,6 @@ the placement harder to satisfy, not easier.
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -148,21 +147,33 @@ from .canvas import Channel, TileCanvases, copies_for_a_canvas
 # the two have to be changed together.
 LINKS_FILE = "zmart-links.json"
 
-# How long to wait, at least, between writing out the list of pointers while a run
-# is still arriving. Short enough that the viewer is never noticeably behind, long
-# enough that a run adding tiles as fast as it can does not spend its time writing
-# a file over and over.
-_HOW_OFTEN_THE_LIST_IS_WRITTEN = 0.2
+# The companion file a run still being acquired adds its tiles to, one line each.
+#
+# The list of pointers is one file, so adding a tile to it means writing all of it
+# again -- which at six thousand four hundred tiles took 89 milliseconds, and grows
+# with the run. This file exists so that a tile arriving costs the same whether it
+# is the first of a run or the ten thousandth: its line is added to the end and
+# nothing already written is touched. When the run is finished the lines are folded
+# back into the list itself and this file goes away, so a finished run is a single
+# file again and nothing reading one has to know this existed.
+LINKS_ADDED_FILE = "zmart-links-added.jsonl"
 
 # Which shape of that file this is. A reader that meets a number it does not know
 # should refuse rather than guess, because guessing wrongly would draw somebody
 # else's tile in the wrong place with nothing on screen to say so.
 #
+# Version 3 allows a run still being acquired to add its tiles to a companion file
+# a line at a time, rather than rewriting the whole list for each one. A reader that
+# does not know about that file would show a run as though the tiles added since it
+# started were missing, so the number is raised rather than left alone: an older
+# reader refuses a view it cannot read in full, which is a blank picture with an
+# explanation rather than a picture quietly missing most of the specimen.
+#
 # Version 2 added ``held_as`` to each tile, saying how one of its pieces is stored.
 # Every tile written here says ``"file"`` — a piece of an ordinary zarr image is a
 # file of its own — but saying it out loud is what lets a store that keeps many
 # pieces inside one larger file be described later without the readers changing.
-LINKS_VERSION = 2
+LINKS_VERSION = 3
 
 
 # -- one tile, and where it appears in the view --------------------------------
@@ -876,14 +887,13 @@ class GrowingLinkedView:
     many tiles have already landed. Measured against rebuilding: about 4 ms for a
     tile rather than 1 500.
 
-    **One part of it does depend on the run's length**, and it is worth knowing
-    where. The list of pointers is a single file, so adding a line means writing the
-    whole file again — which at sixteen hundred tiles had grown from 4 ms to 19 ms.
-    Tiles from a microscope arrive seconds apart and 19 ms is nothing beside that,
-    but adding thousands in a tight loop would spend most of its time rewriting. So
-    the file is rewritten at most a few times a second: a tile arriving after a
-    quiet moment is written out at once, and a burst of them shares one write. The
-    view is always written out in full when it is closed.
+    The list of pointers used to be rewritten in full for every tile, which grew
+    with the run — 89 ms for one tile once a view held six thousand four hundred of
+    them. Tiles are now **added to the end of a companion file**, one line each, so
+    nothing already written is touched and the cost does not depend on how many
+    lines are already there. When the view is closed those lines are folded back
+    into the list itself and the companion file goes away, so a finished view is a
+    single file exactly like one built in a single call.
 
     Held open matters for a second reason. Everything that keeps a tile safe lives
     in the writer rather than on disk: which parts of the picture have been imaged,
@@ -920,11 +930,11 @@ class GrowingLinkedView:
         self._listed: list[dict] = []
         self._pointers = 0
         self._open = True
-        # When the list was last written out, and whether tiles have landed since.
-        # Together these keep the viewer close behind without rewriting the whole
-        # list for every tile of a fast run.
-        self._last_written = 0.0
-        self._unwritten = False
+        # The companion file tiles are added to, held open for the length of the
+        # run. Opened for appending, so every line goes on the end and nothing
+        # already written is touched -- which is what makes a tile cost the same
+        # however long the run has been going.
+        self._added = (self._view / LINKS_ADDED_FILE).open("a", encoding="utf-8")
 
     @property
     def path(self) -> Path:
@@ -981,26 +991,15 @@ class GrowingLinkedView:
         self._pointers += (
             self._stored.frames * self._stored.channels * size[0]
         )
-        self._listed.append(
-            _one_line_of_the_list(placed, size, self._folder, self._stored))  # type: ignore[arg-type]
-        self._tell_the_viewer_if_it_is_time()
-
-    def _tell_the_viewer_if_it_is_time(self) -> None:
-        """Write the list out, unless it was written a moment ago.
-
-        Writing it means writing all of it, so a run adding tiles as fast as it can
-        would spend most of its effort rewriting a file nobody has had time to read.
-        Waiting a fraction of a second between writes puts a ceiling on that without
-        the viewer ever being far behind: a tile arriving after a quiet moment --
-        which is what a microscope does -- is written out immediately.
-        """
-        now = time.monotonic()
-        if now - self._last_written < _HOW_OFTEN_THE_LIST_IS_WRITTEN:
-            self._unwritten = True
-            return
-        _put_the_list_where_the_viewer_looks(self._view, self._listed, self._stored)
-        self._last_written = now
-        self._unwritten = False
+        line = _one_line_of_the_list(placed, size, self._folder, self._stored)  # type: ignore[arg-type]
+        self._listed.append(line)
+        self._added.write(json.dumps(line) + "\n")
+        # Pushed out of this program's own buffer, so that the viewer -- a separate
+        # program -- can see the tile straight away rather than whenever the buffer
+        # happened to fill. It is not asked to go all the way to the physical disk,
+        # which would be far slower and buys nothing here: the operating system will
+        # show the newly written line to any other program reading the file.
+        self._added.flush()
 
     def _fill_this_tile_in(self, placed: PlacedTile,
                            size: tuple[int, int, int]) -> None:
@@ -1037,12 +1036,14 @@ class GrowingLinkedView:
             :func:`link_the_tiles` returns.
         """
         if self._open:
-            # Whatever landed since the last write goes out now, so that a view
-            # closed straight after its final tile is complete on disk.
-            if self._unwritten:
-                _put_the_list_where_the_viewer_looks(
-                    self._view, self._listed, self._stored)
-                self._unwritten = False
+            # The run is over, so the tiles added a line at a time are folded back
+            # into the list itself and the companion file is taken away. A finished
+            # view is then a single file again, exactly as one built in a single
+            # call, and nothing reading it has to know it was grown.
+            self._added.close()
+            _put_the_list_where_the_viewer_looks(
+                self._view, self._listed, self._stored)
+            (self._view / LINKS_ADDED_FILE).unlink(missing_ok=True)
             self._canvas.close()
             self._open = False
         return LinkedView(
