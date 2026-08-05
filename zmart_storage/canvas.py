@@ -1296,6 +1296,7 @@ class TileCanvases:
         channel: int = 0,
         frame: int = 0,
         tile_index: tuple[int, int, int] | None = None,
+        from_level: int = 1,
     ) -> Path:
         """Fill in a tile's part of the zoomed-out copies, and nothing else.
 
@@ -1326,6 +1327,7 @@ class TileCanvases:
         return self._put_a_tile_in(
             image, origin=origin, channel=channel, frame=frame,
             tile_index=tile_index, at_full_size=False,
+            from_level=from_level,
         )
 
     def _put_a_tile_in(
@@ -1337,6 +1339,7 @@ class TileCanvases:
         frame: int,
         tile_index: tuple[int, int, int] | None,
         at_full_size: bool,
+        from_level: int = 1,
     ) -> Path:
         """The body of :meth:`write`, shared with :meth:`only_the_zoomed_out_copies`.
 
@@ -1369,7 +1372,8 @@ class TileCanvases:
                 picture.arrays[0][
                     *at, z0:z0 + depth, y0:y0 + height, x0:x0 + width
                 ] = image
-            self._write_smaller_copies(image, origin, channel, frame)
+            self._write_smaller_copies(image, origin, channel, frame,
+                                       from_level=from_level)
             picture.written.append(occupied)
             # Written down only now, with the tile's voxels safely on disk, so
             # that the record can never claim ground where a write that failed
@@ -1546,7 +1550,8 @@ class TileCanvases:
 
     def _write_smaller_copies(self, image: np.ndarray,
                               origin: tuple[int, int, int],
-                              channel: int, frame: int) -> None:
+                              channel: int, frame: int,
+                              from_level: int = 1) -> None:
         """Fill in this tile's part of each progressively smaller copy.
 
         These are what the viewer draws when zoomed out, and what it measures
@@ -1567,7 +1572,11 @@ class TileCanvases:
         quietly break that, because an averaged voxel near a join really does come
         from two tiles.
         """
-        for level in range(1, self._levels):
+        # ``from_level`` lets a caller skip the copies something else already
+        # supplies. A view built over tiles that carry their own smaller copies
+        # points at those rather than writing its own, and then only the copies
+        # zoomed out further than any tile goes have to be made here.
+        for level in range(from_level, self._levels):
             factor = 2 ** level
             smaller = image[:, ::factor, ::factor]
             if smaller.size == 0:
