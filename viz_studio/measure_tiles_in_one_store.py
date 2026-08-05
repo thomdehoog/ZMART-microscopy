@@ -58,6 +58,11 @@ What it reports
     whether the two actually contain the same picture. A fast answer that is
     slightly wrong would be worse than a slow one.
 
+``by level``
+    the same work on each smaller copy, and the most tiles any one piece had to
+    touch to be produced. This is the part that decides how much of the pyramid
+    can be served this way and how much has to be written out — see below.
+
 Run it with::
 
     python measure_tiles_in_one_store.py            # 8x8 tiles
@@ -89,6 +94,17 @@ STEP = TILE - OVERLAP
 
 DEPTH = 16
 CHUNK = 256
+
+# How many smaller copies to check. Each is half the width and height of the one
+# before it.
+#
+# There is a rule hiding here and it is worth stating, because getting it wrong
+# would be quiet rather than loud: placing a tile by whole voxels only works while
+# the stage's step divides exactly by the shrinking factor. The step used here is
+# 224 voxels, which is 32 x 7, so it divides exactly down to the fifth copy and no
+# further. **Choose the overlap so that the step divides by two as many times as
+# there are copies**, or the coarse copies will place tiles half a voxel out.
+LEVELS = 5
 
 # How many pieces to time. Enough to average over a slow moment, few enough that
 # the whole thing stays under a minute.
@@ -174,6 +190,61 @@ def read_true_piece(montage, grid, true_shape, z, y0, x0, size=CHUNK):
     return piece
 
 
+def smaller_copies(montage, grid: int, work: Path):
+    """Shrink the whole store, once per copy, and write each one out.
+
+    Shrinking the store as a whole is the same thing as shrinking each tile in its
+    own slot, because the slots are a whole number of voxels wide at every copy.
+    That is what keeps a tile's slot exactly where the arithmetic expects it.
+
+    The copies are written to disk rather than kept in memory, and that matters
+    for the measurement rather than for tidiness: reading a slice of an array
+    already in memory is far quicker than reading one out of a store, so copies
+    held in memory would report a speed the viewer could never see.
+    """
+    full = np.asarray(montage[:])
+    copies = [montage]
+    for level in range(1, LEVELS):
+        factor = 2 ** level
+        side = (grid * TILE) // factor
+        shrunk = (full.reshape(DEPTH, side, factor, side, factor)
+                      .mean(axis=(2, 4)).astype(np.uint16))
+        array = zarr.open_array(
+            str(work / f"slot_per_tile_copy{level}.zarr"), mode="w",
+            shape=shrunk.shape, chunks=(1, CHUNK, CHUNK), dtype="uint16")
+        array[:] = shrunk
+        copies.append(array)
+    return copies
+
+
+def place_on_copy(copy, grid: int, level: int, z: int, y0: int, x0: int, shape):
+    """One piece of the true picture, out of a smaller copy of the store.
+
+    The same arithmetic as ``read_true_piece``, with the tile and the stage's step
+    both shrunk by the copy's factor. Also reports how many tiles had to be
+    touched, which is the number that decides whether this scales.
+    """
+    tile, step = TILE >> level, STEP >> level
+    y1, x1 = min(y0 + CHUNK, shape[0]), min(x0 + CHUNK, shape[1])
+    piece = np.zeros((y1 - y0, x1 - x0), dtype=np.uint16)
+    touched = 0
+
+    for iy in range(max(0, (y0 - tile) // step + 1), min(grid - 1, y1 // step) + 1):
+        tile_y = iy * step
+        for ix in range(max(0, (x0 - tile) // step + 1), min(grid - 1, x1 // step) + 1):
+            tile_x = ix * step
+            oy0, oy1 = max(y0, tile_y), min(y1, tile_y + tile)
+            ox0, ox1 = max(x0, tile_x), min(x1, tile_x + tile)
+            if oy0 >= oy1 or ox0 >= ox1:
+                continue
+            touched += 1
+            slot_y = iy * tile + (oy0 - tile_y)
+            slot_x = ix * tile + (ox0 - tile_x)
+            piece[oy0 - y0:oy1 - y0, ox0 - x0:ox1 - x0] = copy[
+                z, slot_y:slot_y + (oy1 - oy0), slot_x:slot_x + (ox1 - ox0)]
+    return piece, touched
+
+
 def _report(name: str, times: list[float]) -> float:
     ordered = sorted(times)
     middle = statistics.median(ordered)
@@ -226,6 +297,31 @@ def main() -> None:
         print(f"  -> largest disagreement with the true picture: {worst} grey levels")
         if worst:
             print("     (anything but zero means the two are not the same picture)")
+
+        # -- the same work on each smaller copy --------------------------------
+        #
+        # A piece of a smaller copy covers more of the specimen, so more tiles
+        # have to be touched to produce it. The question is whether that number is
+        # set by *which copy* -- which is bounded, and therefore fine -- or by how
+        # many tiles the run holds, which would not be.
+        print("\n  on each smaller copy:")
+        copies = smaller_copies(montage, grid, work)
+        for level in range(LEVELS):
+            tile, step = TILE >> level, STEP >> level
+            side = (grid - 1) * step + tile
+            spots = [(0, y, x)
+                     for y in range(0, max(1, side - 1), CHUNK)
+                     for x in range(0, max(1, side - 1), CHUNK)][:12]
+            times, most = [], 0
+            for z, y0, x0 in spots:
+                started = time.perf_counter()
+                _, touched = place_on_copy(copies[level], grid, level, z, y0, x0,
+                                           (side, side))
+                times.append((time.perf_counter() - started) * 1000)
+                most = max(most, touched)
+            print(f"    copy {level}  {statistics.median(times):8.2f} ms   "
+                  f"touching at most {most:4d} tiles"
+                  + ("   <- the whole run" if most >= grid * grid else ""))
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
