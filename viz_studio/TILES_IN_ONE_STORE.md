@@ -157,22 +157,54 @@ separate and stitch afterwards, which is Decision 1 and remains correct.
 every seam — about 14% at a 32-voxel overlap on 256-voxel tiles. Nothing is written
 into the gaps, so it costs description rather than disk.
 
-**The coarse copies are the open question.** Everything above was measured on the
-full-resolution level, where a piece is touched by about four tiles. A coarse copy
-covers more ground per piece, so more tiles overlap it, and there the cost would
-climb with the tile count again — the same wall the stitch-on-the-spot arrangement
-hit.
+**The coarse copies cost more, and the same script now measures how much.** A
+piece of a smaller copy covers more of the specimen, so more tiles have to be
+touched to produce it. The question was whether that number is set by *which copy*
+— bounded, and so survivable — or by *how many tiles the run holds*, which would
+have been the same wall stitching on the spot hit.
 
-The way around it looks cheap and has **not yet been measured**: write the coarse
-copies out once, and serve only the full-resolution level by placing tiles. The
-coarse copies are a small fraction of the data — this document's own estimate
-elsewhere puts a full pyramid at about 14% — so this duplicates very little, while
-the large full-resolution level is never copied at all. A zoomed-out view then
-reads ordinary written-out pieces, and a zoomed-in view pays the four-times cost
-measured above.
+It is set by the copy. Measured at two run sizes:
 
-That is the next measurement to take, and it is the one thing standing between
-this and a design that can be recommended without reservation.
+| copy | 64 tiles | 576 tiles | most tiles touched |
+| --- | --- | --- | --- |
+| 0 (full resolution) | 5.96 ms | 6.11 ms | 4 → 6 |
+| 1 | 12.88 ms | 14.06 ms | 9 → 12 |
+| 2 | 27.86 ms | 41.51 ms | 25 → 36 |
+| 3 | 97.80 ms | 80.92 ms | 64 → 100 |
+| 4 | 95.39 ms | 145.14 ms | 64 → 361 |
+
+Read the last column. Going from 64 tiles to 576 — nine times as many — the tiles
+touched by one piece rise only from 25 to 36 at copy 2, and from 64 to 100 at copy
+3. They are converging on a ceiling set by the copy rather than by the run: a piece
+of copy *k* covers `256 × 2^k` voxels of specimen, which spans about
+`(1.14 × 2^k + 1)²` tiles however many the run holds. That predicts 102 at copy 3
+and 372 at copy 4, and the measurements land on 100 and 361.
+
+So the ceiling is real, but it quadruples with every copy. By copy 3 a piece costs
+around 90 ms, which is too slow to pan through.
+
+**The arrangement that follows is a hybrid, and it is cheap.** Place tiles for the
+sharp copies, and write the coarse ones out once:
+
+- **Copies 0 and 1** — placed on the way out, 6 to 14 ms a piece, flat as the run
+  grows. This is where nearly all the data is.
+- **Copies 2 and beyond** — written out in true geometry, then read as ordinary
+  pieces at a millisecond or two.
+
+The coarse copies are a twelfth of the data — a quarter of the size each time, so
+`1/16 + 1/64 + …` comes to about 8% of the full-resolution level. So roughly 8%
+more disk buys a zoomed-out view that is as quick as any ordinary image, while the
+92% that is the full-resolution picture is never duplicated at all, and the overlap
+inside it stays intact.
+
+**One rule to get right when acquiring**, and it is quiet rather than loud if
+missed. Placing a tile by whole voxels only works while the stage's step divides
+exactly by the shrinking factor. The step used in these measurements is 224
+voxels, which is 32 × 7, so it divides cleanly down to the fifth copy and no
+further. **Choose the overlap so that the step divides by two at least as many
+times as there are copies** — otherwise the coarse copies place tiles half a voxel
+out, which is exactly the kind of fault that looks like a slightly soft picture
+rather than like a bug.
 
 ---
 
@@ -188,3 +220,24 @@ this and a design that can be recommended without reservation.
 
 None of this is built. What is here is a measured case for building it, and two
 scripts that will say plainly if the case stops holding.
+
+---
+
+## What has not been measured, so that nobody reads more into this than is here
+
+Everything above times the **server's** side of the work: producing a piece of
+picture, on this sandbox, with no browser involved. That is deliberate, because it
+is the part that decides the question and it needs no graphics card to measure
+honestly.
+
+What has *not* been done is to put this behind the viewer and watch it draw. So
+these numbers say the arrangement can produce pieces quickly enough; they do not
+yet say what frame rate an operator would see. The step after building it is to
+run `check_scale.py` and `tests/test_the_drawing_keeps_up.py` against a server
+serving a store this way, which is the same bar every other arrangement here was
+judged against.
+
+The tiles were also synthetic and small. Real tiles are larger, which should
+favour this arrangement — the per-piece cost is dominated by working out which
+tiles are involved rather than by moving the voxels — but that is a reasonable
+expectation rather than a measurement.
