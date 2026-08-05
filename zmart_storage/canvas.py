@@ -1849,7 +1849,36 @@ def _declare_one(
     )
 
     multiscale = {
+        # What this picture is called. The specification asks for it, and it is
+        # what a reader shows in its own panel when it has nothing better.
+        "name": store.name[:-len(_IMAGE_SUFFIX)] if store.name.endswith(
+            _IMAGE_SUFFIX) else store.name,
         "axes": axes,
+        # How the smaller copies were made, which the specification asks every
+        # image to say and which matters more here than in most projects.
+        #
+        # They are made by **keeping every second voxel and discarding the rest**,
+        # not by averaging groups of them. Saying so is not a formality. A reader
+        # deserves to know that a zoomed-out picture is a sample of the specimen
+        # rather than a smoothed version of it — bright specks survive at every
+        # zoom instead of fading, and a faint object between two kept rows can
+        # disappear when you zoom out.
+        #
+        # It is also the fact this project's whole arrangement rests on. Because
+        # each coarse voxel comes from exactly one fine voxel, a voxel of a
+        # position's own smaller copy is a voxel of the whole picture's smaller
+        # copy, so a view can point at the positions' zoomed-out copies instead of
+        # computing and storing a second set. Averaging would mix voxels across
+        # the join between two positions, and no position would own its result.
+        # See the note at the shrinking itself, further down this file.
+        "type": "nearest",
+        "metadata": {
+            "description": (
+                "Every second voxel kept along y and x at each level; nothing is "
+                "averaged, so each coarse voxel is one original voxel."
+            ),
+            "method": "slice",
+        },
         "datasets": datasets,
         # Where this image sits in the world. Every image in a run shares the
         # same corner, which is what makes them line up on screen.
