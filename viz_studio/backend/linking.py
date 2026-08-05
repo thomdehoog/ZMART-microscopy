@@ -101,6 +101,19 @@ from pathlib import Path
 #
 # This is the same arrangement, and the same reasoning, as ``zmart-coverage`` in
 # ``zmart_storage/coverage.py``, which measured both of these before deciding.
+# The key, inside a view's own description, under which the list of pointers is
+# kept. An image's description is allowed to carry anything beside the fields the
+# format defines, so putting the list there means the map from picture to
+# positions travels with the picture rather than in a file loose beside it — and
+# the whole run is one zarr with nothing of ours outside it.
+#
+# It is namespaced under one word of ours so it can never be mistaken for
+# something the format defines, which is the same courtesy OME-Zarr 0.5 pays by
+# keeping its own fields under ``ome``.
+OURS_IN_THE_DESCRIPTION = "zmart"
+
+# The folder a view's list lived in for a while, beside the images rather than
+# inside one. Still read, so a run written that way keeps working.
 LINKS_FOLDER = "zmart-links"
 
 # What one view's list of pointers is called inside that folder, and the older
@@ -388,10 +401,51 @@ def where_the_list_is(store: Path) -> tuple[Path, Path]:
         The list of pointers and the companion file a growing run appends to.
         Neither is promised to exist; the caller asks the filesystem.
     """
+    for description in (store / "zarr.json", store / ".zattrs"):
+        if description.is_file():
+            return description, store.parent / f".{store.name}{LINKS_ADDED_ENDING}"
     beside = store.parent / LINKS_FOLDER / f"{store.name}.json"
     if beside.is_file():
         return beside, beside.with_name(f"{store.name}{LINKS_ADDED_ENDING}")
     return store / LINKS_FILE, store / LINKS_ADDED_FILE
+
+
+def the_map_inside(store: Path) -> dict | None:
+    """The map from picture to positions, as this reader finds it.
+
+    Useful to anything that wants to look at a view's map without going through a
+    request — a tool reporting on a run, or a test checking what was written. It
+    finds the map wherever the view keeps it, so a caller never has to know which
+    of the arrangements built that view.
+
+    Returns ``None`` for an ordinary image, which has no map because every voxel
+    of it is really there.
+    """
+    listing, _ = where_the_list_is(store)
+    try:
+        held = json.loads(listing.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return _the_part_that_is_ours(held) if isinstance(held, dict) else None
+
+
+def rewrite_the_map_inside(store: Path, ours: dict) -> None:
+    """Put a different map into a view, leaving the rest of its description alone.
+
+    This exists for tests and for repair tools. Ordinary writing is done by
+    :mod:`zmart_storage.linked`, which builds the map as it builds the view; this
+    only replaces what is already there, and it is careful to keep the format's
+    own fields beside it rather than overwriting the whole description.
+    """
+    listing, _ = where_the_list_is(store)
+    held = json.loads(listing.read_text(encoding="utf-8"))
+    if "version" in held and "tiles" in held:
+        listing.write_text(json.dumps(ours, indent=1), encoding="utf-8")
+        return
+    where = (held.setdefault("attributes", {}) if listing.name == "zarr.json"
+             else held)
+    where[OURS_IN_THE_DESCRIPTION] = ours
+    listing.write_text(json.dumps(held, indent=1), encoding="utf-8")
 
 
 def the_bytes_behind(store: Path, inside: str) -> Held | None:
@@ -470,6 +524,24 @@ def _the_tiles_added_since(added: Path) -> list[dict]:
     return tiles
 
 
+def _the_part_that_is_ours(held: dict) -> dict | None:
+    """The list of pointers inside whatever was just read, or ``None``.
+
+    Three shapes turn up and all three are understood, because a run already on
+    disk should keep working rather than having to be rebuilt:
+
+    - an image description written today, with the list under our own ``zmart``
+      key — inside ``attributes`` for OME-Zarr 0.5, at the top level for 0.4;
+    - a file that is nothing but the list, which is how it was kept for a while;
+    - an ordinary image, which has no list at all and is not a view.
+    """
+    if "version" in held and "tiles" in held:
+        return held
+    inside = held.get("attributes") if isinstance(held.get("attributes"), dict) else held
+    ours = inside.get(OURS_IN_THE_DESCRIPTION) if isinstance(inside, dict) else None
+    return ours if isinstance(ours, dict) else None
+
+
 def _read(listing: Path, added: Path) -> _WhereThePiecesReallyAre | None:
     """Read a view's list of pointers, or ``None`` if it cannot be trusted.
 
@@ -482,7 +554,19 @@ def _read(listing: Path, added: Path) -> _WhereThePiecesReallyAre | None:
         held = json.loads(listing.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
-    if not isinstance(held, dict) or held.get("version") not in LINKS_VERSIONS_UNDERSTOOD:
+    if not isinstance(held, dict):
+        return None
+    # A view written today keeps the list inside its own description, under a key
+    # of ours beside the ones the format defines. That is what lets the whole run
+    # be a single zarr with nothing of ours loose beside it: an image's description
+    # is allowed to carry anything, so the map from picture to positions travels
+    # with the picture it describes.
+    #
+    # 0.5 keeps attributes under ``attributes``; 0.4 writes them at the top of
+    # ``.zattrs``. Both are looked at, and a file that is simply the list itself —
+    # which is how it was written before — is taken as it is.
+    held = _the_part_that_is_ours(held)
+    if held is None or held.get("version") not in LINKS_VERSIONS_UNDERSTOOD:
         return None
     try:
         held = {**held, "tiles": [*(held.get("tiles") or []),

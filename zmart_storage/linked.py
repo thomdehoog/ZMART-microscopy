@@ -159,6 +159,16 @@ from .canvas import _IMAGE_SUFFIX, Channel, TileCanvases, copies_for_a_canvas
 #
 # This mirrors ``zmart-coverage`` in :mod:`zmart_storage.coverage`, which measured
 # both of those before settling on the same arrangement.
+# The key, inside the picture's own description, under which the map from picture
+# to positions is kept. An image's description may carry anything beside the
+# fields the format defines, so the map travels with the picture it describes and
+# the whole run is one zarr with nothing of ours loose beside it. Namespaced under
+# one word of ours, which is the same courtesy OME-Zarr 0.5 pays by keeping its
+# own fields under ``ome``.
+OURS_IN_THE_DESCRIPTION = "zmart"
+
+# The folder the map lived in for a while, beside the images. Nothing writes it
+# now; the reader still understands it so a run already on disk keeps working.
 LINKS_FOLDER = "zmart-links"
 
 # The older place the list lived: inside the view's own folder. Still written down
@@ -182,6 +192,42 @@ LINKS_ADDED_FILE = "zmart-links-added.jsonl"
 LINKS_ADDED_ENDING = "-added.jsonl"
 
 
+def the_map_inside(view: str | Path) -> dict | None:
+    """The map from picture to positions, read out of the picture's description.
+
+    Args:
+        view: the picture's own OME-Zarr folder.
+
+    Returns:
+        What was recorded — which piece of the picture is which piece of which
+        position, counted in pieces — or ``None`` for an ordinary image, which has
+        no map because every voxel of it is really there.
+    """
+    held = _the_description_file_of(Path(view))
+    described = json.loads(held.read_text(encoding="utf-8"))
+    inside = (described.get("attributes") if held.name == "zarr.json"
+              else described)
+    ours = inside.get(OURS_IN_THE_DESCRIPTION) if isinstance(inside, dict) else None
+    return ours if isinstance(ours, dict) else None
+
+
+def _the_description_file_of(view: Path) -> Path:
+    """The file holding an image's own description: ``zarr.json`` or ``.zattrs``.
+
+    Which of the two depends on the generation of the format — 0.5 keeps it in
+    ``zarr.json`` and 0.4 in ``.zattrs`` beside the picture.
+    """
+    for name in ("zarr.json", ".zattrs"):
+        held = view / name
+        if held.is_file():
+            return held
+    raise ValueError(
+        f"{view} has no description of its own, so there is nowhere to record "
+        "which position each piece of it comes from. That image was probably "
+        "never declared."
+    )
+
+
 def where_the_list_goes(view: Path) -> tuple[Path, Path]:
     """Where to write a view's list of pointers and its companion file.
 
@@ -193,13 +239,21 @@ def where_the_list_goes(view: Path) -> tuple[Path, Path]:
         view: the view's own OME-Zarr folder.
 
     Returns:
-        The list of pointers, and the file a growing run appends its tiles to. The
-        folder holding them is made if it is not there yet.
+        The picture's own description, which is where the map is kept, and the
+        scratch file a run still being acquired appends its positions to.
+
+    **Why the scratch file is not in the description too.** It is the one thing
+    that cannot be, and the reason is cost rather than taste. A run adds a
+    position at a time, and rewriting the whole map for each of them grows with
+    the run — measured at 89 milliseconds for one position once a picture held six
+    thousand four hundred. Appending a line costs the same whether it is the first
+    position or the ten thousandth. So while a run is going there is one extra
+    file, hidden, beside the picture; when the run finishes its lines are folded
+    into the description and it is deleted. **A finished run is a single zarr with
+    nothing of ours outside it**, which is the thing worth having.
     """
-    beside = view.parent / LINKS_FOLDER
-    beside.mkdir(parents=True, exist_ok=True)
-    return (beside / f"{view.name}.json",
-            beside / f"{view.name}{LINKS_ADDED_ENDING}")
+    return (_the_description_file_of(view),
+            view.parent / f".{view.name}{LINKS_ADDED_ENDING}")
 
 # Which shape of that file this is. A reader that meets a number it does not know
 # should refuse rather than guess, because guessing wrongly would draw somebody
@@ -1649,14 +1703,13 @@ def _put_the_list_where_the_viewer_looks(view: Path, listed: list[dict],
     the old one, and never a piece of either. This is the ordinary way of replacing
     a file that something else may be reading, and it costs nothing.
     """
-    held, _ = where_the_list_goes(view)
-    body = json.dumps({
+    ours = {
         "version": LINKS_VERSION,
         "what": (
-            "Which piece of this view's full-size picture is which piece of which "
-            "tile. Nothing of the full-size picture is stored here: the viewer's "
-            "server reads this and hands over the tile's own file. Positions are "
-            "counted in pieces, not voxels."
+            "Which piece of this picture is which piece of which position. Nothing "
+            "of the full-size picture is stored here: the viewer's server reads "
+            "this and hands over the position's own file. Counted in pieces, not "
+            "voxels."
         ),
         "level": "0",
         # How many copies of the picture are pointed at rather than written,
@@ -1667,11 +1720,24 @@ def _put_the_list_where_the_viewer_looks(view: Path, listed: list[dict],
         "separator": stored.separator,
         "prefix": stored.prefix,
         "tiles": listed,
-    }, indent=1)
-    # Written next to where it is going, so that the rename below is within one
-    # folder and therefore a single step the filesystem cannot show half of.
+    }
+    held = _the_description_file_of(view)
+    described = json.loads(held.read_text(encoding="utf-8"))
+    # 0.5 keeps a group's attributes under ``attributes``; 0.4 writes them at the
+    # top of ``.zattrs``. Ours goes wherever the format's own do, under one word
+    # of ours so it can never be taken for something the format defines.
+    where = (described.setdefault("attributes", {})
+             if held.name == "zarr.json" else described)
+    where[OURS_IN_THE_DESCRIPTION] = ours
+
+    # Written beside itself and then **renamed** over the old one. A run being
+    # acquired rewrites this as tiles land and the viewer may be reading it at
+    # that moment; written straight into place there is an instant when the file
+    # is a truncated fragment, and a reader catching it then sees a picture with
+    # most of its positions missing. Renaming is a single step that either has
+    # happened or has not, so a reader gets the whole of one version or the other.
     part_written = held.with_name(f".{held.name}.being-written")
-    part_written.write_text(body, encoding="utf-8")
+    part_written.write_text(json.dumps(described, indent=1), encoding="utf-8")
     part_written.replace(held)
     return held
 

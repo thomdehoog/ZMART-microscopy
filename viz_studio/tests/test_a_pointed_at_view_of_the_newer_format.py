@@ -102,8 +102,7 @@ def test_a_newer_format_view_points_at_files_that_exist(tmp_path):
     run = tmp_path / "run"
     view = _a_newer_run(run)
 
-    listed = json.loads(
-        linking.where_the_list_is(view.path)[0].read_text(encoding="utf-8"))
+    listed = linking.the_map_inside(view.path)
     assert listed["prefix"] == "c", (
         "a 0.5 store names its pieces with a c in front, and the view should have "
         f"read that from the tiles rather than saying {listed['prefix']!r}"
@@ -378,8 +377,7 @@ def test_the_older_format_still_names_its_pieces_the_old_way(tmp_path):
         run, name="pointedold", tiles=placed,
         view_shape=(TILE[0], TILE[1], ACROSS * TILE[2]),
     )
-    listed = json.loads(
-        linking.where_the_list_is(view.path)[0].read_text(encoding="utf-8"))
+    listed = linking.the_map_inside(view.path)
     assert listed["prefix"] == "", "an 0.4 store puts nothing in front of a piece name"
 
     found = linking.the_bytes_behind(view.path, f"0/0{listed['separator']}0"

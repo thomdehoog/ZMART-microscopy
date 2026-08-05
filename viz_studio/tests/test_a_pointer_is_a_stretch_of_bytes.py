@@ -111,8 +111,7 @@ def test_the_list_says_how_a_tile_keeps_its_pieces(tmp_path):
     """Written down rather than assumed, so a sharded tile can be described later."""
     run = tmp_path / "run"
     view = _a_small_view(run)
-    listed = json.loads(
-        linking.where_the_list_is(view)[0].read_text(encoding="utf-8"))
+    listed = linking.the_map_inside(view)
 
     # Version 3 is version 2 with the companion file a growing view adds tiles to.
     # This asserted 2 for a while after the writer had moved on, which made it a
@@ -135,12 +134,11 @@ def test_a_view_written_before_this_change_is_still_read(tmp_path):
     """
     run = tmp_path / "run"
     view = _a_small_view(run)
-    listing = linking.where_the_list_is(view)[0]
-    older = json.loads(listing.read_text(encoding="utf-8"))
+    older = linking.the_map_inside(view)
     older["version"] = 1
     for tile in older["tiles"]:
         tile.pop("held_as", None)
-    listing.write_text(json.dumps(older, indent=1), encoding="utf-8")
+    linking.rewrite_the_map_inside(view, older)
 
     found = linking.the_bytes_behind(view, "0/0/0/0/0/0")
     assert found is not None, "a view written before this change stopped being read"
@@ -157,11 +155,10 @@ def test_a_way_of_holding_pieces_we_do_not_know_is_refused(tmp_path):
     """
     run = tmp_path / "run"
     view = _a_small_view(run)
-    listing = linking.where_the_list_is(view)[0]
-    listed = json.loads(listing.read_text(encoding="utf-8"))
+    listed = linking.the_map_inside(view)
     for tile in listed["tiles"]:
         tile["held_as"] = "packed-somehow"
-    listing.write_text(json.dumps(listed, indent=1), encoding="utf-8")
+    linking.rewrite_the_map_inside(view, listed)
 
     assert linking.the_bytes_behind(view, "0/0/0/0/0/0") is None, (
         "a way of holding pieces this reader does not know was answered for anyway"
