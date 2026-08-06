@@ -333,3 +333,94 @@ measurements, and `PLAN_keeping_the_overlap.md` weighs it against the simpler
 arrangement this repository had already measured -- dealing tiles across four
 ordinary images -- and recommends that instead, for reasons that are about what the
 data is worth to somebody else rather than about speed.
+
+---
+
+## 8. Where each file sits, and what it is for
+
+Section 1 gives the shape and section 7 gives the three layers. This is the same
+picture at the level of files, for somebody who has just cloned the repository and
+wants to know which one to open.
+
+```
+                              ┌─────────────────────────────────────┐
+   WHAT YOU RUN               │  viz_studio/run_demo.py             │
+                              │  launcher.py  — opens a window, or  │
+                              │                 prints an address   │
+                              └────────────────┬────────────────────┘
+                                               │ starts
+ ══════════════════════════════════════════════▼══════════════════════════════
+   THE FRONT — what you see            viz_studio/frontend/src/
+ ══════════════════════════════════════════════════════════════════════════════
+
+     App.jsx ─────────────── holds the whole panel's state
+       ├── NeuroglancerView.jsx ── builds the engine (makeMinimalViewer);
+       │                            Neuroglancer's own interface is OFF
+       ├── LayerPanel.jsx ─────── acquisitions, channels, colour, contrast
+       ├── AxisSlider.jsx ─────── depth up the side, time along the bottom
+       ├── ScaleBar.jsx ───────── how large the specimen really is
+       └── TargetsPanel.jsx ───── places you mark, saved to a file
+
+     scene.js ── panel state  →  plain layer descriptions
+                 (no React and no browser in it — the easy part to check)
+     engine.js ─ applies those to the engine WITHOUT rebuilding the scene
+
+ ══════════════════════════════════════════════▲══════════════════════════════
+                                  HTTP         │  pieces, descriptions, events
+ ══════════════════════════════════════════════▼══════════════════════════════
+   THE MIDDLE — what answers            viz_studio/backend/
+ ══════════════════════════════════════════════════════════════════════════════
+
+     server.py ────── answers every request; guards the opened folder
+       ├── stores.py ────── which stores are one acquisition, read from
+       │                    inside them rather than from their names
+       ├── linking.py ───── "no file here?" → which position's file holds
+       │                    those exact bytes.  The view is served here.
+       ├── contrast.py ──── without this, real acquisitions draw black
+       ├── library.py ───── add last week's run beside today's
+       ├── announcements.py ─ tells an open viewer that a position arrived
+       └── demo_data.py ─── a pretend specimen, so it runs with no microscope
+
+     browsercheck.py ─ the safety net: serves the page, opens it, reads the
+                       pixels that came out
+
+ ══════════════════════════════════════════════▼══════════════════════════════
+   THE BACK — what is written            zmart_storage/
+ ══════════════════════════════════════════════════════════════════════════════
+
+     positions.py ── writes a run, one position at a time          ┐
+     canvas.py ───── the image writer; line 1562 is the shrink     ├ writers
+     cropped.py ──── tiles plus a trimmed canvas (the older way)   │
+     linked.py ───── builds a view: pointers, and no pixels        ┘
+     coverage.py ─── where the run has actually imaged
+
+              writes ↓                          ↑ read by linking.py
+
+     experiment/
+       overview.ome.zarr/     the view — a real OME-Zarr image holding no picture
+       positions/
+         overview_pos00000.ome.zarr    ← all of the data is here
+         overview_pos00001.ome.zarr
+       zmart-links/           ours, kept outside the images
+       zmart-coverage/        ours
+```
+
+Three things the drawing is meant to make obvious, each of which is a decision
+rather than an accident.
+
+**At the bottom the arrow only goes one way.** `linking.py` reads the positions and
+nothing in the viewer writes them. That is what lets the viewer be opened on a run
+that is still being acquired, on the machine next to the instrument, without any
+possibility of disturbing it.
+
+**There is no line from anything here to the microscope.** Places an operator marks
+are saved to a file beside the data, and the control application reads them from
+there. A test asserts that no stage-moving endpoint exists, so this cannot drift
+back in by accident.
+
+**`scene.js` and `engine.js` are separate on purpose.** One is pure translation —
+give it the panel's state and it hands back descriptions of layers, with no React
+and no browser involved — and the other holds the fiddly business of applying those
+to a live engine without rebuilding the scene. Splitting them is what made the
+engine's behaviour something a test can check rather than something you have to
+watch.
