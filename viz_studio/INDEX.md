@@ -44,6 +44,30 @@ branch**. It lives on `claude/workflow-safety-features`, commit `209408c`.
 `DRAWING_ENGINES.md` beside this file covers the same ground more recently, and
 `OPTIONS.md` records the three arrangements that were built and measured since.
 
+## Showing many positions as one picture
+
+This is the largest single piece of work on this branch and it has its own small
+shelf of documents. The problem it solves: a plate of thousands of positions is
+thousands of separate stores, and a drawing engine that builds layers per store
+cannot open that. The answer is to leave the positions exactly where the microscope
+wrote them and add a **view** beside them — a complete OME-Zarr image whose pixels
+are the positions' own files, so nothing is copied at any zoom.
+
+Read the first one; open the others when you have the question they answer.
+
+| | The question it answers |
+|---|---|
+| `HANDOVER_a_view_that_writes_nothing.md` | **Start here.** What was built, every measurement out to ten thousand positions, and the two things that still block real data. |
+| `PLAN_showing_many_stores_as_one.md` | **The next piece of work**, written out step by step: making a real acquisition open, when a drifting stage puts every position slightly off the grid. |
+| `HOW_OURS_DIFFERS_FROM_OME_ZARR.md` | Whether a colleague can open our runs in napari or Fiji. One real divergence, four that only look like one. |
+| `LESSONS_ome_zarr_and_neuroglancer.md` | The things that cost us time — each one a mistake actually made here rather than a general warning. Worth reading before writing any OME-Zarr of your own. |
+| `PLAN_nothing_copied_at_all.md` | Why a view need not write even the zoomed-out copies, and what the acquisition has to do for that to hold. |
+| `OPEN_a_run_that_changes_while_you_watch.md` | An open question: a new position works, but re-imaging one is not noticed by a viewer watching the run. |
+| `INTEROP.md` | What happens when other software reads what we write, measured against a real mesoSPIM transfer. |
+| `LINKING_INSTEAD_OF_COPYING.md` | How the idea was arrived at, including the claim that was wrong and what it cost. Reasoning rather than description. |
+| `HANDOVER_overlapping_runs.md` | The older arrangement that copies, and the measurements behind the decision not to. |
+| `TILES_IN_ONE_STORE.md` | The bench measurements of three ways to give the viewer one source without discarding the overlap. |
+
 ## The rest of the documents beside this one
 
 The four above are enough to run the viewer and to work on it. These others were
@@ -62,6 +86,8 @@ when you have the question it answers.
 | `THE_CANVAS.md` | The shape the smart-microscopy front end is meant to take: three layers in one coordinate system. |
 | `CONTROLS.md` | How the viewer is driven — every mouse gesture and key, and why each is what it is. Flat view only. |
 | `LIVE_MODE_PLAN.md` | A proposal, not yet built, for one store per acquisition type declared at the start. Worth reading for what its reviewers disproved. |
+| `HANDOVER_3D.md` | Where three-dimensional navigation got to, and the three commands for getting the volume view up. |
+| `PLAN_three_unfinished.md` | Three pieces of work on the `viewer-plus-scanfields` branch, revised through four rounds of review. |
 
 ## Kept as history, not as description
 
@@ -77,6 +103,8 @@ reached; do not read them to find out how the viewer works.
 | `INTEGRATION_PLAN.md` | The plan for turning the prototype into the real viewer. | Carried out, with the stage-moving part deliberately dropped. |
 | `INTEGRATION_ROADMAP.md` | The decision to make this the one image viewer for the whole workflow. | Still the intent. Not yet done. |
 | `prototype/` | A single self-contained HTML page demonstrating the interface design. | The real viewer exists and keeps that design. |
+| `PLAN_keeping_the_overlap.md` | Two ways of keeping the overlap, weighed against each other after two reviews. | Neither was built. Superseded by the view described above, which keeps the overlap by not showing it. |
+| `PLAN_the_pluggable_viewer.md` | A plan for making the drawing engine replaceable, rewritten against two critiques. | The reasoning stands; `ARCHITECTURE.md` and `DRAWING_ENGINES.md` describe where it actually got to. |
 
 ## The two interfaces at a glance
 
