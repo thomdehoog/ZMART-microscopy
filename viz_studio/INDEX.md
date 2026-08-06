@@ -66,6 +66,7 @@ Read the first one; open the others when you have the question they answer.
 | `INTEROP.md` | What happens when other software reads what we write, measured against a real mesoSPIM transfer. |
 | `LINKING_INSTEAD_OF_COPYING.md` | How the idea was arrived at, including the claim that was wrong and what it cost. Reasoning rather than description. |
 | `HANDOVER_overlapping_runs.md` | The older arrangement that copies, and the measurements behind the decision not to. |
+| `WHAT_CAN_BE_SIMPLIFIED.md` | Where the code can get smaller, what was found broken while looking, and — the useful half — what looks like waste and is load-bearing. **Read section 4 before deleting anything.** |
 | `TILES_IN_ONE_STORE.md` | The bench measurements of three ways to give the viewer one source without discarding the overlap. |
 
 ## The rest of the documents beside this one
