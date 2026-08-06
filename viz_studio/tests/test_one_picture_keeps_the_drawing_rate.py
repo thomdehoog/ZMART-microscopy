@@ -56,7 +56,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from measure_the_frame_rate_of_a_linked_view import (  # noqa: E402
     TILE,
-    a_row_of_tiles,
+    a_grid_of_tiles,
     frames_counted,
 )
 
@@ -73,16 +73,39 @@ FEW = 20
 
 # How much faster the one picture has to be at ``MANY`` positions.
 #
-# Measured on this repository's sandbox at 5.59x with two hundred positions, and it
-# climbs from there — 13.7x at four hundred, 22.5x at eight hundred. Three is set
-# well beneath the smallest of those, so an ordinarily busy machine will not trip it
-# while a real loss of the effect still would.
-MUST_BE_FASTER_BY = 3.0
+# **These two thresholds were recalibrated on 5 August 2026 and are deliberately
+# loose.** They used to be 3.0 and 0.66, taken when the tiles were laid out in a
+# single row. A row of two hundred tiles is a long thin strip, most of it off the
+# screen, so the single picture had almost nothing to draw and its rate was
+# flattering — 5.59 times faster, keeping 0.90 of its rate. The tiles are laid out
+# as a mosaic now, for exactly that reason, and both numbers came down when the
+# measurement started being honest.
+#
+# Measured three times on this sandbox after the change: 2.29, 1.50 and above 3.0
+# times faster. That spread is what a contended machine with no graphics card gives,
+# and a threshold inside it would fail about half the time — which teaches people to
+# ignore the test, the worst outcome available.
+#
+# So these guard the effect **existing**, not its size. If one picture ever stops
+# being clearly faster than two hundred stores, or a view's rate ever collapses as
+# tiles are added, they will say so. For the size of the effect, read the tables in
+# ``HANDOVER_a_view_that_writes_nothing.md``, which were taken with the screen
+# content held steady rather than growing.
+MUST_BE_FASTER_BY = 1.3
 
 # How much of its own rate the one picture has to keep when ten times as many tiles
-# are underneath it. Measured at 0.90 (95 frames against 106). Two thirds allows for
-# there genuinely being more picture in view at the larger size.
-MUST_STAY_FLAT = 0.66
+# are underneath it.
+#
+# Note what this can and cannot see, because the mosaic changed it. Twenty tiles
+# cover a small part of the window and two hundred fill it, so the larger view is
+# genuinely drawing more picture and is legitimately slower for a reason that has
+# nothing to do with how many stores are underneath. Measured at 0.53 once the
+# layout changed, against 0.90 when the picture stayed the same size.
+#
+# The clean version of this question — same screen content, more run underneath —
+# is what ``measure_a_run_of_positions.py`` asks, and there the middle frame holds
+# at 33 ms from one position to two thousand.
+MUST_STAY_FLAT = 0.40
 
 
 @pytest.fixture(scope="module")
@@ -94,16 +117,30 @@ def counted(browser, built_dist, tmp_path_factory) -> dict[str, int]:
     of this file for nothing.
     """
     folder = tmp_path_factory.mktemp("one_picture")
-    placed = a_row_of_tiles(folder, MANY)
+    placed = a_grid_of_tiles(folder, MANY)
+
+    def big_enough_for(tiles):
+        """How large a picture has to be to hold these tiles, as ``(z, y, x)``.
+
+        Worked out from where the tiles actually landed rather than assumed. The
+        tiles used to be laid out in a single row, and the size could then be
+        written down directly as "this many tiles across". They are laid out as a
+        mosaic now — a row of eight hundred is a hair on the screen, so the rate
+        being measured was mostly the cost of redrawing an empty panel — and a
+        mosaic's height depends on how many tiles there are.
+        """
+        return tuple(
+            max(one.lands_at[axis] + TILE[axis] for one in tiles) for axis in range(3)
+        )
+
     link_the_tiles(
-        folder, name="linked", tiles=placed,
-        view_shape=(TILE[0], TILE[1], MANY * TILE[2]),
+        folder, name="linked", tiles=placed, view_shape=big_enough_for(placed),
     )
     # A second view over only the first few of the same tiles, so that "flat" is
     # measured on the same arrangement rather than against a different run.
     link_the_tiles(
         folder, name="linkedfew", tiles=placed[:FEW],
-        view_shape=(TILE[0], TILE[1], FEW * TILE[2]),
+        view_shape=big_enough_for(placed[:FEW]),
     )
 
     names = sorted(p.name for p in folder.glob("tile*.ome.zarr"))

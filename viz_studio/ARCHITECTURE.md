@@ -389,7 +389,7 @@ wants to know which one to open.
  ══════════════════════════════════════════════════════════════════════════════
 
      positions.py ── writes a run, one position at a time          ┐
-     canvas.py ───── the image writer; line 1562 is the shrink     ├ writers
+     canvas.py ───── the image writer; _write_smaller_copies is the shrink     ├ writers
      cropped.py ──── tiles plus a trimmed canvas (the older way)   │
      linked.py ───── builds a view: pointers, and no pixels        ┘
      coverage.py ─── where the run has actually imaged

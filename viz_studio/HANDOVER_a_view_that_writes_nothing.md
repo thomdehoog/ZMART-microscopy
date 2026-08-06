@@ -589,7 +589,7 @@ Three other things only real hardware can answer:
 Written down because each was believed for a while and each changed a decision.
 
 **"Shrinking averages across the join between tiles."** It does not.
-`canvas.py:1562` is `image[:, ::factor, ::factor]` — every second voxel kept, the
+`TileCanvases._write_smaller_copies` in `zmart_storage/canvas.py` is `image[:, ::factor, ::factor]` — every second voxel kept, the
 rest discarded. That mistake was the reason a view wrote a quarter of the picture.
 There is now a comment at that line saying the arrangement depends on it: changing
 it to average would give a smoother zoomed-out picture and quietly break all of
@@ -618,7 +618,7 @@ the instrument actually produces.
 | --- | --- |
 | `zmart_storage/linked.py` | builds a view. `link_the_tiles` for a finished run, `start_a_growing_view` for one in progress |
 | `viz_studio/backend/linking.py` | answers for a view while the viewer is open |
-| `zmart_storage/canvas.py:1562` | the line everything depends on |
+| `TileCanvases._write_smaller_copies` in `zmart_storage/canvas.py` | the line everything depends on |
 | `PLAN_showing_many_stores_as_one.md` | **the next piece of work** |
 | `PLAN_nothing_copied_at_all.md` | why a view writes nothing, and what the acquisition must do |
 | `OPEN_a_run_that_changes_while_you_watch.md` | the re-imaging question |
