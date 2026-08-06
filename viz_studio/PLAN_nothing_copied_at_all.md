@@ -14,7 +14,7 @@ the zoomed-out copies of a picture cannot be pointed at:
 > the zoomed-out copies, because shrinking averages across the join between tiles
 > and no existing piece holds that answer
 
-**It does not average.** `zmart_storage/canvas.py:1562` makes each smaller copy with
+**It does not average.** `TileCanvases._write_smaller_copies` in `zmart_storage/canvas.py` makes each smaller copy with
 
 ```python
 smaller = image[:, ::factor, ::factor]
@@ -171,6 +171,6 @@ python -m pytest viz_studio/tests/test_a_growing_view_is_read_as_it_grows.py -q
 - **Decimation is not the only way to shrink a picture.** Averaging would give a
   smoother zoomed-out view, and it would make all of this impossible, because an
   averaged voxel near a join really does come from two tiles. If anyone ever changes
-  `canvas.py:1562` to average, this whole arrangement goes with it — which is worth
+  `TileCanvases._write_smaller_copies` in `zmart_storage/canvas.py` to average, this whole arrangement goes with it — which is worth
   a comment at that line, and is task 1's real risk rather than anything in the
   linking.

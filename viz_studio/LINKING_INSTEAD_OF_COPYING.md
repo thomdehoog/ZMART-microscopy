@@ -184,7 +184,7 @@ Not free, because the pixels genuinely change:
 
 - ~~**the zoomed-out copies**, because shrinking averages across the join between
   tiles and no existing piece holds that answer~~ — **this was wrong.** The
-  shrinking does not average: `canvas.py:1562` is `image[:, ::factor, ::factor]`,
+  shrinking does not average: `TileCanvases._write_smaller_copies` in `zmart_storage/canvas.py` is `image[:, ::factor, ::factor]`,
   which takes every second voxel and discards the rest, so a zoomed-out voxel comes
   from exactly one tile and there is no join to average across. A tile that carries
   its own zoomed-out copies can therefore be pointed at at every zoom, and a view
