@@ -11,6 +11,7 @@ import {
   sourcesStillWaiting,
   syncLayers,
   syncView,
+  stretchTheDisplay,
 } from "./engine.js";
 import ScaleBar from "./ScaleBar.jsx";
 import AxisSlider from "./AxisSlider.jsx";
@@ -233,7 +234,14 @@ export default function App() {
   // Null until the operator moves it, so the launch flag is respected
   // until somebody overrides it deliberately.
   const [chosenDepthSamples, setChosenDepthSamples] = React.useState(null);
+  const [displayScales, setDisplayScales] = React.useState({ x: 1, y: 1, z: 1 });
   const depthSamples = chosenDepthSamples ?? config?.depthSamples ?? 256;
+
+  // Applied straight to the engine rather than through the scene, because it
+  // is a property of how the picture is viewed and not of any layer in it.
+  React.useEffect(() => {
+    if (viewer) stretchTheDisplay(viewer, displayScales);
+  }, [viewer, displayScales]);
   // Per-layer interface state. Held here rather than in the engine because the
   // panel and the viewer must never disagree about what is showing.
   const [layerState, setLayerState] = React.useState([]);
@@ -1031,6 +1039,8 @@ export default function App() {
               onVolumeAttenuation={setVolumeAttenuation}
               depthSamples={depthSamples}
               onDepthSamples={setChosenDepthSamples}
+              displayScales={displayScales}
+              onDisplayScales={setDisplayScales}
               lookupTables={LOOKUP_TABLE_NAMES}
             />
           )}
