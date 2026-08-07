@@ -269,11 +269,23 @@ large. Keeping the chunk at 128 and bundling:
 | **2048** | **8.4 MB** | **596,000** |
 | 4096 | 33.6 MB | 149,000 |
 
-**Make the bundle exactly one tile plane.** One file is then one plane of one
-tile, the file count is simply the number of planes actually acquired, the files
-come out around eight megabytes — a comfortable size to copy and to back up — and
-the bundle boundary coincides with the tile boundary, which brings "hand over the
-position's own file" back to being very nearly literal.
+**Make the bundle exactly one tile plane — on every level, not only the
+full-resolution one.** One file is then one plane of one tile, the files come out
+around eight megabytes, and the bundle boundary coincides with the tile boundary,
+which brings "hand over the position's own file" back to being very nearly
+literal.
+
+**The writer bundles level 0 only today, and that is not enough.** Its comment
+says the smaller copies are "few enough not to need it". Counted on a
+two-terabyte run at a 128-voxel chunk, level 0 bundled comes to 238,000 files
+while the unbundled pyramid above it comes to **20.3 million** — so once the
+full-resolution level is bundled, the pyramid dominates the count entirely.
+Bundling every level brings the same run to **318,000**.
+
+That is worth stating as a result rather than a detail: it is the file count of a
+2048-voxel chunk together with the 32 KB fetches of a 128-voxel one. The trade
+between a run being copyable and a run being pleasant to look at does not have to
+be made. It was only ever forced by the pyramid being left loose.
 
 **So 0.5 is not merely preferable for light-sheet, it is required.** Version 0.4
 cannot bundle at all, so a five-terabyte run written in 0.4 means a hundred and
