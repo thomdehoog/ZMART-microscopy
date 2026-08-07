@@ -192,6 +192,39 @@ a well to name. If plate-based analysis becomes something people want, the hones
 move is to write plate metadata **as well**, over the same position images, rather
 than to rearrange anything. It is metadata, not a different layout.
 
+### And that case is already here: the HCS screener
+
+Amended 7 August 2026, on being told the instrument list includes a **Molecular
+Devices ImageXpress**. That is a high-content screening system — plates, wells,
+several fields per well — and it is not a hypothetical multiwell future. It is the
+case the paragraph above was holding the door open for.
+
+**So the recommendation splits by instrument rather than applying to the whole
+project:**
+
+- **A confocal or a light-sheet imaging wherever the specimen is** — the runs this
+  project mostly does — stays as it is. A plain group of positions, no plate
+  metadata, for the reasons above.
+- **The HCS screener writes plate metadata as well.** A well is a well, a field is
+  a field, and forcing that into an anonymous list of positions throws away
+  structure the experiment genuinely has. Written as a plate, its runs are
+  addressable by `ngio.open_ome_zarr_plate`, iterable well by well, and readable
+  by any Fractal task without a line of glue.
+
+**It is still additive, not a rearrangement.** The plate layout is a group above
+the images saying which image is which well and field; the images themselves are
+the same ordinary OME-Zarr positions described everywhere else in this document,
+with the same axes, the same transformations and the same `labels` and `tables`
+inside them. Nothing about the viewer changes either — Neuroglancer does not read
+plate metadata, so the view is still what hands it one image.
+
+**What it needs from us** is that the driver reports which well and which field a
+position belongs to, so the writer can name it. The workflow's position label
+already carries the fields: `K` is the carrier, `M` the compartment, `V` the view
+within it. What is missing is the mapping from those to a plate's row-and-column
+naming, and that is a small piece of work in the screener's driver rather than a
+change to the storage layout.
+
 ---
 
 ## Which generation of OME-Zarr to write
@@ -596,8 +629,10 @@ one sentence.
    one.
 7. **Finish the no-copy path for a drifting stage**, so that an ordinary run stops
    falling back to writing every voxel twice.
-8. **Leave the plate layout alone** until a genuine multiwell experiment asks for
-   it, and then add plate metadata over the positions rather than moving them.
+8. **Write plate metadata for the HCS screener**, over the same position images
+   rather than instead of them, and leave every other instrument's runs as a plain
+   group of positions. The mapping from the workflow's carrier and compartment
+   fields to a plate's row-and-column naming belongs in that screener's driver.
 
 ---
 

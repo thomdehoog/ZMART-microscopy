@@ -557,10 +557,18 @@ So a plain ten per cent is not on the list at our chunk size, and **12.5% is the
 nearest thing to it**. Fifteen is not available either; the neighbours are 12.5%
 and 25%.
 
-**Some sensors have no usable chunk at all**, which is what makes the next part
-necessary rather than clever. A Hamamatsu at 2308 across is 4 × 577, and 577 is
-prime — so **not one number between 64 and 256 divides it**. No amount of choosing
-helps; the frame as acquired simply cannot be chunked for pointing.
+**Some frame sizes have no usable chunk at all**, which is what makes the next
+part necessary rather than clever. A frame 2308 voxels across is 4 × 577, and 577
+is prime — so **not one number between 64 and 256 divides it**. No amount of
+choosing helps; that frame simply cannot be chunked for pointing.
+
+That particular width is hypothetical, and it is worth saying so rather than
+leaving a wrong fact in a design document. The real cameras are kinder: a
+Hamamatsu ORCA-Fusion BT is **2304 × 2304**, which is 2⁸ × 9 and divides by 64,
+72, 96, 128, 144, 192 and 256; an ORCA-Flash4.0 is 2048; an ORCA-Quest is
+4096 × 2304. Where arbitrary widths genuinely do arise is a point scanner, whose
+format is whatever the operator set it to — 1608 and 700 in the tables below are
+that case, not a camera.
 
 ##### Let the writer drop a few voxels, and everything lands on 10%
 
@@ -570,14 +578,15 @@ and the whole difficulty evaporates:
 | sensor across | store | dropped | chunk | overlap | which is |
 | ---: | ---: | ---: | ---: | ---: | ---: |
 | 2304 | 2300 | 4 (0.17%) | 115 | 230 | **10.0%** |
-| **2308** | 2300 | 8 (0.35%) | 115 | 230 | **10.0%** |
+| 2308 (hypothetical) | 2300 | 8 (0.35%) | 115 | 230 | **10.0%** |
 | 2048 | 2040 | 8 (0.39%) | 102 | 204 | **10.0%** |
 | 2044 | 2040 | 4 (0.20%) | 102 | 204 | **10.0%** |
 | 1608 | 1600 | 8 (0.50%) | 80 | 160 | **10.0%** |
 
-Every sensor, including the one that has no divisor at all, lands on **exactly
-ten per cent** — the number microscopists actually ask for — by giving up two to
-four voxels at each edge.
+Every width, including the one with no divisor at all, lands on **exactly ten per
+cent** — the number microscopists actually ask for — by giving up two to four
+voxels at each edge. Note the second row of real value here: 2048, the commonest
+sensor there is, gives 12.5% untrimmed and 10.0% for the sake of eight voxels.
 
 **This is a good trade and it is worth being explicit about why.** The alternative
 is accepting 12.5% instead of 10%, and covering a fixed area needs `1/(1−v)²`
