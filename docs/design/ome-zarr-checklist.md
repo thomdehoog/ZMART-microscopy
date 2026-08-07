@@ -2,6 +2,12 @@
 
 Written 7 August 2026, at the end of a session that settled most of this.
 
+**No production code has changed yet.** What follows is a plan and a record of
+measurements, not a description of the system as it stands: the writer still
+bundles only the full-resolution level, the smaller copies are still made by
+taking every nth voxel, and the view, coverage and `cropped.py` modules are all
+still in place.
+
 **Looking for just the decisions?** [`ome-zarr-decisions.md`](ome-zarr-decisions.md)
 is one page listing every choice that is genuinely yours, and nothing else. This
 page is the next level down: the same ground with the reasoning attached.
@@ -59,7 +65,7 @@ arithmetic does better than a person.** Every one of these is arithmetic.
 | question | how to answer it |
 | --- | --- |
 | **Does this instrument need OME-Zarr 0.6?** | Only if its acquisitions cannot be described in 0.5 — a light-sheet deskew (an affine shear), or rotations between views. A confocal or widefield mosaic never needs it. Everything else stays 0.5. |
-| **Snappy viewing or cheap imaging?** | This sets which chunk is chosen. On a 2048 sensor: chunk 204 with a 20% overlap fills a screen in ~209 requests; chunk 128 with 12.5% takes 527. Pick the end you care about; the software does the rest. |
+| **Snappy viewing or cheap imaging?** | This sets which chunk is chosen. On a 2048 sensor: chunk 204 with a 20% overlap fills a screen in ~209 chunks; chunk 128 with 12.5% takes 527. Those are counts of chunks rather than of complete web requests — a bundled read also asks for the bundle's index, usually once — so the real totals run a little higher. Pick the end you care about; the software does the rest. |
 | **What overlap does this instrument actually need?** | Worth measuring once rather than believing. Every tile is kept whole, so a stitcher can report how far each tile really moved from where the stage said. If those offsets are a handful of voxels against a 204-voxel overlap, the run is paying for ten times what it needs. |
 
 ---
@@ -75,6 +81,10 @@ arithmetic does better than a person.** Every one of these is arithmetic.
 | **none** | a survey you will look at and pick targets from, never stitch | 1.00 × the imaging |
 | **modest** | ordinary mosaics, specimen filling the field | ~1.3 × |
 | **generous** | sparse specimens, light-sheet volumes, anything to be stitched properly | ~1.6 × |
+
+Those multiples are of the **unique specimen area** — they say how much extra
+imaging the overlap itself costs. They are not the same scale as the 1.98 ×
+further down this page, which is measured against what the camera produced.
 
 The writer resolves the intent against the actual frame and reports the number it
 arrived at — `modest` is 10% on a 2048 or 2304 sensor and 12.5% on a 1024 scan.
@@ -101,8 +111,12 @@ arrived at — `modest` is 10% on a 2048 or 2304 sensor and 12.5% on a 1024 scan
    well, with position, well and field as columns. Per-tile tables are right for
    writing; the run table is what anything actually queries.
 
-`ngio` in the analysis environment only. It brings sixty packages; the acquisition
-side needs `zarr` and `numpy` and should stay that way.
+`ngio` in the analysis environment, and for now not on the acquisition side, which
+needs only `zarr` and `numpy` where ngio brings about sixty packages. That is a
+"not today" rather than a "never": what settles it for the moment is that ngio
+caps its bundles on the small levels, and a capped bundle cannot be forwarded
+byte-for-byte by the view (see below), and that its behaviour
+on a Windows microscope computer has never been qualified.
 
 ---
 
@@ -133,15 +147,30 @@ Worth recording, because each cost a stretch of worrying:
    it; `ngff-zarr` silently places it at the origin, which means every tile of a
    run lands on top of every other. For light-sheet, where a stitcher is the only
    way to read the data at all, that is the difference between usable and not.
-   The correction is already written on `claude/ngff-translation-per-dataset`.
+   The correction is already written on `claude/ngff-translation-per-dataset`, and
+   it has to land together with the matching change to our reader. The reader
+   currently adds the image-wide translation and then every dataset's translation
+   as well, so the writer's fix arriving on its own would place each position not
+   twice but **N times** further from the origin, where N is the number of pyramid
+   levels — an origin of (3, 5, 7) µm came back as (9, 15, 21) on a three-level
+   pyramid. The reader should combine the image-wide transform with **one** chosen
+   dataset, normally the first, rather than walking every level.
 2. **Serving one chunk from inside a bundle.** Bundling is what makes a
    five-terabyte run copyable. The server already hands over a whole bundle file
    and lets the browser read the bundle's own index, and there is a test that
    builds bundled tiles, serves them and reconstructs the specimen bit-for-bit —
    so bundling works today. What it cannot yet do is hand over a *single* chunk
-   from inside a bundle, and that is what items 3 and the chunk-aligned seam both
+   from inside a bundle, and that is what item 3 and the chunk-aligned seam both
    need, because until the server can do it the viewer has to treat a whole tile
-   plane as the smallest thing it can place.
+   plane as the smallest thing it can place. **Measure TensorStore's overlay
+   driver before building any of it**, on a Windows microscope computer: it may do
+   the same job with a package we do not have to maintain, which is what this
+   project prefers. A warm overlay of ten thousand positions measured 0.505 ms at
+   the median and 1.004 ms at the 95th percentile on Linux, comfortably inside the
+   gate of 5 ms median, 10 ms at the 95th percentile and a rebuild under 100 ms —
+   but that run says nothing about a cold Windows filesystem, several readers
+   filling a screen at once, or positions being added while the viewer is open,
+   which is why the Windows run decides.
 3. **Bundling every level, not only the full-resolution one.** Once level 0 is
    bundled, nearly every file left in a run belongs to the loose pyramid above it,
    so that is where the file count now lives. The writer bundles level 0 and
@@ -150,7 +179,16 @@ Worth recording, because each cost a stretch of worrying:
    against about 1.19 million if every level is bundled — a seventeen-fold
    reduction, and well worth having. Bundling does not merge the levels into one
    another: each level still needs a bundle of its own for every plane, so the
-   figure is level 0's 238,419 files multiplied by the five levels.
+   figure is level 0's 238,419 files multiplied by the five levels. One caution,
+   and it is measured: **do not cap the small levels' bundles at their own extent
+   while the view forwards their bytes.** A capped bundle and an uncapped one
+   holding the same pixels are not the same file — 112,220 bytes against
+   112,412 — because they index a different number of inner chunks, and that
+   index carries a checksum, so a browser handed the capped bytes under the view's
+   declared shape rejects them. Either let the view advertise the small inner
+   chunks and have one chunk served from inside a bundle, which is the same
+   capability as item 2, or point the view at the full-resolution level alone and
+   let it write its own smaller copies.
 
 Everything else on this page can wait. These three cannot.
 
