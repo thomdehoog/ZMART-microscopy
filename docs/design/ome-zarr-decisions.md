@@ -7,8 +7,8 @@ shape and the overlap intent. **Rigid where a person chooses, derived where
 arithmetic does better than a person.**
 
 **No production code has changed yet** — this page is a plan: the writer still
-bundles only level 0, the smaller copies still take every nth voxel, and the view,
-coverage and `cropped.py` are all still there.
+bundles only level 0, the smaller copies still take every nth voxel and never
+shrink the depth, and the view, coverage and `cropped.py` are all still there.
 
 Detail lives in [`ome-zarr-checklist.md`](ome-zarr-checklist.md), the arrangement
 in [`zmart-ome-zarr-recipe.md`](zmart-ome-zarr-recipe.md), the measurements in
@@ -63,6 +63,7 @@ is an overlap near whatever you want, where 2048 offers only 128 and 256.
 | 6 | **Plate layout for screening runs** | **no, on any instrument** | well and field become columns of the run table, so one arrangement serves everywhere |
 | 7 | **What ngio is for** | **reading, validating and analysing — not writing, for now.** See [`ome-zarr-plan-review.md`](ome-zarr-plan-review.md) | **Not today, rather than never**, since permanent rejection would sit badly with this project's preference for ecosystem packages. What decides it now: ngio caps its bundles on the small levels, which a view that forwards bytes cannot use (see B2), and it has never been qualified on a Windows microscope computer. The older reasons stand: it cannot resize an array, so a run must declare its whole extent up front; it cannot write the view; and it brings roughly sixty packages onto a computer where `zmart_storage` needs two. |
 | 8 | **Whether the overlap is trimmed from the pixels** | **no** — it is accounted for in the viewer and in the analysis | the overlap is the only evidence of where the stage really went |
+| 18 | **How much each smaller copy shrinks** | **by half, always** | halving is what the rest of the ecosystem assumes — ngio, ngff-zarr, napari and Fiji all default to it. Quarter- and eighth-step ladders are legal OME-Zarr and much cheaper, 7.6% and 1.8% of the run against **36%**, but interoperability is the whole reason this project chose the format, and disk is not worth being the odd file out for. So the cost is taken: the pyramid adds about a third again to a run, and a 4096-voxel tile gets six levels where quartering needed three. Taking every nth voxel rather than averaging stays as well, since at halving it loses no cells. Which axes halve, and from which level, is **B12**. |
 
 ---
 
@@ -97,7 +98,6 @@ frame.
 | 15 | **Adopt chunk-aligned seams?** | Puts the join between two tiles exactly on a chunk edge, so the viewer *skips* the shared strip instead of the writer *cutting* it: the second copy goes, and the writer's **1.98×** against what the camera produced falls to about **1.3×**, the overlap's own cost against unique specimen area. **Deletes nothing**, since the tiles stay whole; costs a slightly stricter overlap grid. **Recommended.** |
 | 16 | **HTTP/2 for the viewer?** | Takes a screen fill from ~440 ms of round trips to ~26 ms, but browsers speak it only over TLS — a certificate on every microscope PC. **Take the bigger chunk first, since it is free, then measure.** |
 | 17 | **When to adopt scenes (0.6, RFC-5)?** | They describe our workflow exactly and would let the view stop being ours, but Neuroglancer knows nothing of scenes and ngio cannot read 0.6. **Wait for `ngio.NgffVersions` to gain `"0.6"`.** |
-| 18 | **Widen the pyramid ladder, and average instead of stride?** | Measured: a 4× ladder costs 7.6% of the run against 36% for 2×, losing no cells; an 8× ladder costs 1.8%, but *striding* loses 37% of small cells where *averaging* keeps 98%. Shrinking each tile on its own matches shrinking the finished canvas **only where the tiles line up with the blocks being averaged**, and that alignment is much coarser than this page first said. Each level shrinks by the ladder's step *again*, so an 8× ladder stands at total shrinks of 8, then 64, then 512, and a tile's origin and the extent of ground it owns must be whole multiples of the total shrink of **the deepest level the view builds tile by tile** — 512 for a three-level 8× ladder, not 8. At an ordinary seam of 1,632 voxels (chunk 204 × 8) level 1 came out exact, while level 2 was out by 32 and level 3 by 96, each with one coarse voxel no tile could supply. The error is the seam's remainder against that level's total shrink, so seams at 2,048 or 4,096 stay exact throughout. **The reassurance once recorded here was half true**: `linked.py` checks alignment against the levels the view *points at*, not the deeper ones it builds for itself, which is exactly where this appears. The phase check must therefore stay, either widened to the deepest level built that way, or replaced by joining the tiles before shrinking. Costs: a coarse voxel is then an average rather than a real measurement. |
 | 19 | **One file per position per level?** | Bundling taken to its end: roughly **110,000 files** on a 10,000-position run against **5,000,000** for one bundle per tile plane per level. But writing a plane at a time into a whole-position bundle measured **four times slower**, so it needs buffering, which costs memory and delays live viewing; and the view refuses any handed-over piece spanning more than one plane. §8.7 of [`zmart-ome-zarr-recipe.md`](zmart-ome-zarr-recipe.md) has the arithmetic. **Measure first; keep one tile plane per bundle meanwhile.** |
 | 20 | **Fix the no-copy path for a drifting stage?** | It currently refuses runs whose tiles miss an exact grid, so an ordinary run falls back to copying. |
 
@@ -117,10 +117,10 @@ cost of a 12.5% overlap on a 2048 sensor.
 
 ## What has to be built, in order
 
-Decisions above are numbered **1–20**, the work below **B1–B11**.
+Decisions above are numbered **1–20**, the work below **B1–B12**.
 
 > **Revised 7 August 2026, and corrected again each time a reviewer ran the
-> code.** See [`ome-zarr-plan-review.md`](ome-zarr-plan-review.md). Three of these
+> code.** See [`ome-zarr-plan-review.md`](ome-zarr-plan-review.md). Four of these
 > are repairs: the arrangement does not do what this page says until they are done.
 
 | | change | why |
@@ -138,6 +138,7 @@ Decisions above are numbered **1–20**, the work below **B1–B11**.
 | B9 | **Delete `zmart-coverage`, but only once something else records what it records** | ~1,700 lines read by nothing but a benchmark, so removing it looks nearly free — and it is not. Beyond each tile's origin and size, which the pointer map holds, the record keeps the moment in time and the channel, the order things were written in, the exact origin and shape, the scan's own numbering of its tiles, repeated visits to one place, and whether a leg of the run finished or was abandoned. No column of B10's table replaces any of that, so the deletion is safe **after** an append-only record of run events takes those duties over, and not before. `cropped.py` writes this record and is staying, so that writer changes too. |
 | B10 | **A run-level table** | else a question about the run means opening ten thousand tables |
 | B11 | **0.5 as the default in every writer** | both writers need it, because **`cropped.py` is staying** — though not for either reason recorded here before. It is a writer, not a rectangle reader, and not the only path that can represent overlap: a no-copy view of two 128-voxel tiles acquired 96 voxels apart, cropped 16 voxels at the shared seam, was built and read back through `linked.py`'s existing `taken_from` and `size` fields, so the view holds an overlapping run wherever the tiles are aligned. What keeps `cropped.py` is being the only **turnkey writer** for one: in a single pass it trims half the shared strip from each meeting edge so the tiles butt together, keeps every original tile whole in a separate archive for the stitcher, and leaves a **portable OME-Zarr with real pixels in it** that opens in napari or Fiji alone, where the view is meaningless without its positions folder. (`TileCanvases` still refuses overlapping tiles outright, since one voxel holds one value.) Revisit once inner-chunk serving or TensorStore works. |
+| **B12** | **Halve the depth as well, from the level where a voxel becomes cubic** | **repair, and blocking, though not self-contained.** Every smaller copy divides only the height and the width, so on a real 75 GB stack whose planes sit 3.40 µm apart the coarsest level comes out 144 × 147 voxels holding all **833** planes — a voxel eight times deeper than it is wide. Little disk is wasted, but a zoomed-out view fetches eight times the planes it needs for the same picture, a three-dimensional view of that level stands eight times too tall, and anything measured there is measuring a voxel that is not cubic, with nothing to warn of it. Light-sheet and confocal stacks feel that most, and they are most of what this project acquires. The remedy is ordinary practice elsewhere: begin halving the depth too, once a voxel is as wide as the planes are far apart. **Check first** — the view addresses a position's planes directly and refuses any piece spanning more than one plane, so it must shrink the depth in step from that level up, and nobody has looked at what that takes. |
 
 ---
 
@@ -155,13 +156,13 @@ is *correct* rather than a bug; once it can, the view side is **one line**, sinc
 `linked.py` already keeps the small chunk shape and prefers it everywhere except
 the placement check.
 
-**The alignment rule in 18 sharpens the same tension.** A wide ladder and pointing
-at the positions' smaller copies are not inherently at odds: pointing at three
-smaller levels asks for tiles aligned to chunk × 64, as the first review said, and
-pointing at one can work if the inner chunks are exposed and origins and extents
-line up to chunk × 8. What cannot work is pointing at smaller levels while a whole
-2048-voxel tile plane is the smallest thing placeable, since even the first
-smaller level would then need 16,384-voxel alignment.
+**The alignment rule from 18 is simple again.** With a halving ladder, a tile's
+origin and the ground it owns must be whole multiples of the chunk doubled once
+for every smaller level the view points at: on a 2048-voxel tile with a 204-voxel
+chunk that is four levels and an alignment of 1,632 voxels, which is exactly what
+`linked.py` already enforces. What still cannot work is pointing at smaller levels
+while a whole 2048-voxel tile plane is the smallest thing placeable, since even
+the first smaller level would then need 16,384-voxel alignment.
 
 **Benchmark TensorStore first; build the inner-chunk server only if it fails the
 gate.** Its overlay driver may remove the need for that machinery, which is what
@@ -179,4 +180,5 @@ past a terabyte leaves twenty million files; and a two-channel run written today
 looks entirely correct until the operator zooms out, at which point one channel
 goes blank — a bad way to discover a fault in the middle of an experiment, and the
 reason B3 belongs here rather than among the things that can wait. B2 waits on the
-benchmark above.
+benchmark above, and B12 belongs with these three but cannot start until somebody
+has worked out what shrinking the depth asks of the view.
