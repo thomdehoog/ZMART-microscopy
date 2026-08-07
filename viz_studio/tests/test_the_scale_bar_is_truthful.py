@@ -68,13 +68,18 @@ principle be scaled differently from the image beside it. The headless browser
 these tests run in reports one CSS pixel per real pixel, so nothing here can see
 that, and it is worth someone checking by eye on a retina screen.
 
-Nor is there anything here about the drawing engine's own "relative display
-scale" — a control that lets one axis be stretched against another. Where the
-axes are stretched unevenly there is no single length that one screen pixel
-covers, and the engine's own scale bar draws one bar per stretch factor while
-this one draws a single bar for the first spatial axis it finds. The viewer never
-puts that control on screen, so an operator cannot reach the situation; if it is
-ever exposed, the bar will need thinking about again.
+The drawing engine's own "relative display scale" — a control that lets one axis
+be stretched against another — is exercised in
+``test_the_picture_can_be_stretched.py`` rather than here. This file used to say
+that an operator could not reach that situation because the viewer never put the
+control on screen, and that if it were ever exposed the bar would need thinking
+about again. The layer panel now offers a stretch per axis, so it is exposed and
+it has been thought about: where the axes *on screen* are stretched unevenly
+there is no single length that one screen pixel covers, and this viewer draws a
+single bar for the first spatial axis it finds. The answer taken was not a
+cleverer bar but a warning that no single one can be true — including the part
+that is easy to miss, that whether a depth stretch matters depends on whether the
+volume is on screen.
 """
 
 from __future__ import annotations
