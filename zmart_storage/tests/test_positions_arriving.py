@@ -139,7 +139,11 @@ def test_every_position_opens_on_its_own(tmp_path):
         described = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
         multiscale = described["attributes"]["ome"]["multiscales"][0]
         assert multiscale["datasets"], f"{store.name} describes no picture"
-        moved = [one for one in multiscale.get("coordinateTransformations") or []
+        # Where a position sits is written beside each copy of its picture, which
+        # is the place OME-Zarr makes compulsory and so the place another reader
+        # looks. The full-size copy is the one asked here.
+        full_size = multiscale["datasets"][0]
+        moved = [one for one in full_size["coordinateTransformations"]
                  if one["type"] == "translation"]
         assert moved, f"{store.name} does not say where on the stage it was imaged"
         corners.append(tuple(moved[0]["translation"][-2:]))
