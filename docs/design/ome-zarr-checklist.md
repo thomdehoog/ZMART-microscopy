@@ -5,8 +5,8 @@ Written 7 August 2026, at the end of a session that settled most of this.
 **No production code has changed yet.** What follows is a plan and a record of
 measurements, not a description of the system as it stands: the writer still
 bundles only the full-resolution level, the smaller copies are still made by
-taking every nth voxel, and the view, coverage and `cropped.py` modules are all
-still in place.
+taking every nth voxel in height and width alone — never in depth — and the view,
+coverage and `cropped.py` modules are all still in place.
 
 **Looking for just the decisions?** [`ome-zarr-decisions.md`](ome-zarr-decisions.md)
 is one page listing every choice that is genuinely yours, and nothing else. This
@@ -54,6 +54,7 @@ cell or a driver.
 | **how many voxels to shave off the frame** | up to 1% may come off so the frame divides into whole chunks — the one place voxels are genuinely discarded; capped, reported, refused rather than exceeded, and switchable off. Not to be confused with the seam between tiles, which discards nothing. |
 | **bundle (shard) size** | one tile plane, on any run large enough for file counts to matter. |
 | **how many smaller copies** | as many as the tile can support before a level falls below one chunk. |
+| **how much each copy shrinks** | **by half.** Height and width halve at every level; the depth joins in from the level where a voxel has grown as wide as the planes are far apart, and halves from there so the voxel stays cubic. Halving is what ngio, ngff-zarr, napari and Fiji all expect. A quarter- or eighth-step ladder is perfectly legal and much cheaper on disk, but it is unusual, and being easy for other people's software to open is why this format was chosen at all. The price of halving is a pyramid worth about a third of the run again, which is accepted. |
 | **where the position is written** | `scale` then `translation`, beside each resolution, never at the multiscales level. |
 | **the axes** | always five — `t, c, z, y, x` — used or not. |
 | **file and folder naming** | `<name>_pos<NNNNN>.ome.zarr` inside the view's folder. |
@@ -212,9 +213,61 @@ Worth recording, because each cost a stretch of worrying:
    time that place is seen; handing that update the image the writer is already
    holding also spares it re-reading the full-resolution level it has just
    written. The positions' own smaller copies, `canvas.py` and the batch path are
-   all correct.
+   all correct where the channels are concerned; what they do with the depth is
+   item 5.
+5. **The smaller copies never reduce the depth.** Every level halves the height
+   and the width and keeps every plane, so in a stack whose planes sit further
+   apart than its pixels are wide, the coarse levels end up with voxels far
+   deeper than they are wide. A real 75 GB acquisition was inspected, and its
+   pyramid reads like this instead:
 
-Everything else on this page can wait. These four cannot.
+   | level | y × x | planes | voxel width (µm) |
+   | ---: | --- | ---: | --- |
+   | 0 | 4613 × 4734 | 833 | 0.85 |
+   | 1 | 2306 × 2367 | 833 | 1.70 |
+   | 2 | 1153 × 1183 | 833 | 3.40 |
+   | 3 | 576 × 591 | **416** | 6.80 |
+   | 4 | 288 × 295 | **208** | 13.6 |
+   | 5 | 144 × 147 | **104** | 27.2 |
+
+   The depth holds at 833 planes as far as level 2 and then begins halving, and
+   that is not arbitrary. The planes in this acquisition are 3.40 µm apart, so at
+   level 2 the width and height of a voxel have caught up with its depth and the
+   voxel is finally a cube. Halving the depth from there on is what keeps it one.
+   ZMART would instead write its coarsest level as 144 × 147 with all **833**
+   planes and a voxel of 27.2 × 27.2 × 3.40 µm — eight times deeper than it is
+   wide. Checked at three places in `zmart_storage/canvas.py`: the shape declared
+   for each smaller copy divides only the height and the width, the shrinking
+   itself takes every nth voxel in height and width only, and the voxel size
+   written beside each level multiplies only the height and the width, with a
+   comment saying the depth "stays as it was, because no plane is ever dropped".
+   `how_many_copies_a_position_can_keep`, over in `positions.py`, likewise counts
+   the levels from the width and height alone, so the depth takes no part
+   anywhere.
+
+   **The cost is not disk.** Halving the height and width dominates either way,
+   and the pyramid comes to roughly a third of the run whether the depth is
+   reduced or not. The cost is felt three other ways. Scrolling through a coarse
+   level fetches eight times the planes needed for the same picture on screen. A
+   three-dimensional view of that level comes out eight times too tall, because a
+   viewer draws a voxel exactly as the file declares it. And anything measured at
+   a coarse level is measuring a voxel that is not cubic, with nothing in the file
+   to warn of it. All three matter most for light-sheet and confocal stacks, where
+   the planes are far apart — which is most of what this project acquires.
+
+   The rule to build, which is the ecosystem's ordinary practice and what the file
+   above follows: halve the height and width at every level, and begin halving the
+   depth once the width of a voxel has grown to match the spacing between planes.
+
+   **This one is not self-contained, and should not be started as though it
+   were.** The view addresses a position's planes directly, without shrinking
+   them, and it refuses any store whose handed-over piece spans more than one
+   plane. If a position's own pyramid begins halving its depth partway up, the
+   view's addressing has to shrink the depth in step from that level on, and
+   nobody has yet checked what that takes. Treat that check as the first part of
+   the repair.
+
+Everything else on this page can wait. These five cannot.
 
 ---
 

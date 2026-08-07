@@ -63,7 +63,7 @@ is an overlap near whatever you want, where 2048 offers only 128 and 256.
 | 6 | **Plate layout for screening runs** | **no, on any instrument** | well and field become columns of the run table, so one arrangement serves everywhere |
 | 7 | **What ngio is for** | **reading, validating and analysing — not writing, for now.** See [`ome-zarr-plan-review.md`](ome-zarr-plan-review.md) | **Not today, rather than never**, since permanent rejection would sit badly with this project's preference for ecosystem packages. What decides it now: ngio caps its bundles on the small levels, which a view that forwards bytes cannot use (see B2), and it has never been qualified on a Windows microscope computer. The older reasons stand: it cannot resize an array, so a run must declare its whole extent up front; it cannot write the view; and it brings roughly sixty packages onto a computer where `zmart_storage` needs two. |
 | 8 | **Whether the overlap is trimmed from the pixels** | **no** — it is accounted for in the viewer and in the analysis | the overlap is the only evidence of where the stage really went |
-| 18 | **How much each smaller copy shrinks** | **by half, always** | halving is what the rest of the ecosystem assumes — ngio, ngff-zarr, napari and Fiji all default to it. Quarter- and eighth-step ladders are legal OME-Zarr and much cheaper, 7.6% and 1.8% of the run against **36%**, but interoperability is the whole reason this project chose the format, and disk is not worth being the odd file out for. So the cost is taken: the pyramid adds about a third again to a run, and a 4096-voxel tile gets six levels where quartering needed three. Taking every nth voxel rather than averaging stays as well, since at halving it loses no cells. Which axes halve, and from which level, is **B12**. |
+| 18 | **How much each smaller copy shrinks** | **by half, always** | halving is what the ecosystem assumes — ngio, ngff-zarr, napari and Fiji all default to it. Quarter- and eighth-step ladders are legal OME-Zarr and much cheaper, 7.6% and 1.8% of the run against **36%**, but interoperability is the whole reason this project chose the format, and disk is not worth being the odd file out for. So the cost is taken: the pyramid adds about a third again to a run, and a 4096-voxel tile gets six levels where quartering needed three. Taking every nth voxel rather than averaging stays too, since at halving it loses no cells. Which axes halve, and from where, is **B12**. |
 
 ---
 
@@ -128,7 +128,7 @@ Decisions above are numbered **1–20**, the work below **B1–B12**.
 | **B1** | **Per-dataset translation** on positions — **together with the matching change to the reader** | **repair.** Invalid against the official schema, so ngio refuses our tiles and `ngff-zarr` stacks them at the origin. Written on `claude/ngff-translation-per-dataset`. **The two halves must ship together**, because our reader adds the image-wide translation and then every dataset's as well, so the writer's fix arriving alone would multiply each position's offset by the number of levels. |
 | **B2** | **Bundle every level**, not only the full-resolution one — but **not with the bundle capped at the level's own extent** while the view points at those levels | **repair, re-qualified.** Still required — the counts are above. But the capping hazard, recorded here as refuted, is **real**: a capped bundle and an uncapped one holding the same pixels are different files, because they index a different number of inner chunks and that index is checksummed, so a browser handed capped bytes under the view's declared shape rejects them (the checklist has the byte counts). So **B2 must not be built as written while the view points at capped smaller levels.** Preferably, let the view advertise the small inner chunks and have the server, or TensorStore, hand back one inner chunk rather than a whole file; failing that, point the view at full resolution alone and let it write its own smaller copies, giving up the very thing it was built to avoid. |
 | ~~B3~~ | ~~The server reads a bundle index~~ | **deleted — already built**, but only as far as a whole shard file, which the browser then indexes itself. B2 and B7 need one chunk from *inside* a bundle, so it comes back. |
-| **B3** | **Refresh the view's own coarse levels on every write, for the channel being written** — and stop re-reading the tile the writer is still holding | **repair, and blocking.** `positions.Run.write` tells the view about a place only the first time it sees that place, and the view then fills the coarse levels it writes for *itself* by reading the position store at that instant, before the run's later channels exist. Reproduced both ways round: with full resolution holding 11 and 29 for two channels, writing channel 0 first left the view's levels 1 and 2 holding 11 and 0, and writing channel 1 first left 0 and 29. The repair is to update the current moment-and-channel's view levels on **every** write, while still adding the position's pointer the first time only. Handing that update the image already in memory also stops `_fill_this_tile_in` re-reading the array the writer was holding a moment earlier, five terabytes of pointless reading in the live path. `canvas.py`, the positions' own copies and the batch path are all correct. |
+| **B3** | **Refresh the view's own coarse levels on every write, for the channel being written** — and stop re-reading the tile the writer is still holding | **repair, and blocking.** `positions.Run.write` tells the view about a place only the first time it sees that place, and the view then fills the coarse levels it writes for *itself* by reading the position store at that instant, before the run's later channels exist. Reproduced both ways round: whichever channel is written first is the only one with a picture when the operator zooms out, and the checklist has the numbers. The repair is to update the current moment-and-channel's view levels on **every** write, while still adding the position's pointer the first time only. Handing that update the image already in memory also stops `_fill_this_tile_in` re-reading the array the writer was holding a moment earlier, five terabytes of pointless reading in the live path. `canvas.py`, the positions' own copies and the batch path are all correct on this point; what they do with the depth is B12. |
 | B4 | **Two interop tests** — schema validation and an ngio open | how B1 would have been caught the day it appeared |
 | B5 | **`plan_a_grid`** — frame + overlap intent → chunk, overlap, step | the workflow currently takes `piece=128` and hopes it suits the camera |
 | B6 | **`tables/owned_ROI_table`** in every tile | makes the viewer's seam and the analysis filter one decision instead of two |
@@ -138,7 +138,7 @@ Decisions above are numbered **1–20**, the work below **B1–B12**.
 | B9 | **Delete `zmart-coverage`, but only once something else records what it records** | ~1,700 lines read by nothing but a benchmark, so removing it looks nearly free — and it is not. Beyond each tile's origin and size, which the pointer map holds, the record keeps the moment in time and the channel, the order things were written in, the exact origin and shape, the scan's own numbering of its tiles, repeated visits to one place, and whether a leg of the run finished or was abandoned. No column of B10's table replaces any of that, so the deletion is safe **after** an append-only record of run events takes those duties over, and not before. `cropped.py` writes this record and is staying, so that writer changes too. |
 | B10 | **A run-level table** | else a question about the run means opening ten thousand tables |
 | B11 | **0.5 as the default in every writer** | both writers need it, because **`cropped.py` is staying** — though not for either reason recorded here before. It is a writer, not a rectangle reader, and not the only path that can represent overlap: a no-copy view of two 128-voxel tiles acquired 96 voxels apart, cropped 16 voxels at the shared seam, was built and read back through `linked.py`'s existing `taken_from` and `size` fields, so the view holds an overlapping run wherever the tiles are aligned. What keeps `cropped.py` is being the only **turnkey writer** for one: in a single pass it trims half the shared strip from each meeting edge so the tiles butt together, keeps every original tile whole in a separate archive for the stitcher, and leaves a **portable OME-Zarr with real pixels in it** that opens in napari or Fiji alone, where the view is meaningless without its positions folder. (`TileCanvases` still refuses overlapping tiles outright, since one voxel holds one value.) Revisit once inner-chunk serving or TensorStore works. |
-| **B12** | **Halve the depth as well, from the level where a voxel becomes cubic** | **repair, and blocking, though not self-contained.** Every smaller copy divides only the height and the width, so on a real 75 GB stack whose planes sit 3.40 µm apart the coarsest level comes out 144 × 147 voxels holding all **833** planes — a voxel eight times deeper than it is wide. Little disk is wasted, but a zoomed-out view fetches eight times the planes it needs for the same picture, a three-dimensional view of that level stands eight times too tall, and anything measured there is measuring a voxel that is not cubic, with nothing to warn of it. Light-sheet and confocal stacks feel that most, and they are most of what this project acquires. The remedy is ordinary practice elsewhere: begin halving the depth too, once a voxel is as wide as the planes are far apart. **Check first** — the view addresses a position's planes directly and refuses any piece spanning more than one plane, so it must shrink the depth in step from that level up, and nobody has looked at what that takes. |
+| **B12** | **Halve the depth too, once a voxel is as wide as the planes are far apart** | **repair, and blocking, but not self-contained.** Every smaller copy divides only height and width, so on a real 75 GB stack with 3.40 µm between planes the coarsest level comes out 144 × 147 voxels with all **833** planes — a voxel eight times deeper than it is wide. Little disk is wasted, but a zoomed-out view fetches eight times the planes it needs for the same picture, a three-dimensional view of that level stands eight times too tall, and anything measured there is measuring a voxel that is not cubic, with nothing to warn of it. Light-sheet and confocal stacks feel it most, and they are most of what this project acquires. Halving the depth once the voxel turns cubic is ordinary practice, and what real files do. **Check first** — the view addresses a position's planes directly and refuses any piece spanning more than one plane, so it must shrink the depth in step from there; nobody has looked at what that takes. |
 
 ---
 
@@ -156,20 +156,18 @@ is *correct* rather than a bug; once it can, the view side is **one line**, sinc
 `linked.py` already keeps the small chunk shape and prefers it everywhere except
 the placement check.
 
-**The alignment rule from 18 is simple again.** With a halving ladder, a tile's
-origin and the ground it owns must be whole multiples of the chunk doubled once
-for every smaller level the view points at: on a 2048-voxel tile with a 204-voxel
-chunk that is four levels and an alignment of 1,632 voxels, which is exactly what
-`linked.py` already enforces. What still cannot work is pointing at smaller levels
-while a whole 2048-voxel tile plane is the smallest thing placeable, since even
-the first smaller level would then need 16,384-voxel alignment.
+**The alignment rule from 18 is simple again.** A tile's origin and the ground it
+owns must be multiples of the chunk doubled once per smaller level the view points
+at — 1,632 voxels for a 2048-voxel tile at chunk 204, which is what `linked.py`
+already enforces. A bundle-sized placement grid would inflate that to
+16,384.
 
 **Benchmark TensorStore first; build the inner-chunk server only if it fails the
 gate.** Its overlay driver may remove the need for that machinery, which is what
 this project prefers. A warm overlay of ten thousand positions already clears the
-gate on Linux by a wide margin, but says nothing about a cold Windows filesystem
-or several readers filling a screen at once, so **the deciding run is on a
-microscope computer.** The checklist has the gate and the timings.
+gate on Linux, but says nothing about a cold Windows filesystem or several readers
+filling a screen at once, so **the deciding run is on a microscope computer.** The
+checklist has the gate and the timings.
 
 ---
 
@@ -177,8 +175,6 @@ microscope computer.** The checklist has the gate and the timings.
 
 **B1, B2 and B3 come first.** Nobody else's software can open the positions; a run
 past a terabyte leaves twenty million files; and a two-channel run written today
-looks entirely correct until the operator zooms out, at which point one channel
-goes blank — a bad way to discover a fault in the middle of an experiment, and the
-reason B3 belongs here rather than among the things that can wait. B2 waits on the
-benchmark above, and B12 belongs with these three but cannot start until somebody
-has worked out what shrinking the depth asks of the view.
+looks correct until the operator zooms out and one channel goes blank, which is a
+bad way to discover a fault in the middle of an experiment. B2 waits on the
+benchmark above, and B12 belongs with them once its check has been done.
