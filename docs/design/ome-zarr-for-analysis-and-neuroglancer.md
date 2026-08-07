@@ -261,13 +261,19 @@ shared.
 **The way out is that the chunk and the bundle are separate dials pulling opposite
 ways.** The chunk is what a browser fetches and what the pointing uses, so it
 wants to stay modest. The bundle is what the filesystem sees, so it wants to be
-large. Keeping the chunk at 128 and bundling:
+large. Keeping the chunk at 128 and bundling, counting the full-resolution level
+on its own:
 
-| bundle | one file | files on disk |
+| bundle | one file | files on disk, level 0 only |
 | ---: | ---: | ---: |
 | 1024 | 2.1 MB | 2.4 million |
 | **2048** | **8.4 MB** | **596,000** |
 | 4096 | 33.6 MB | 149,000 |
+
+Those are level-0 counts, and it matters not to read them as the whole run. The
+smaller copies above sit in arrays of their own and need bundles of their own, so
+a five-terabyte run with every level bundled comes to roughly 2.98 million files
+in total rather than 596,000.
 
 **Make the bundle exactly one tile plane — on every level, not only the
 full-resolution one.** One file is then one plane of one tile, the files come out
@@ -277,15 +283,20 @@ literal.
 
 **The writer bundles level 0 only today, and that is not enough.** Its comment
 says the smaller copies are "few enough not to need it". Counted on a
-two-terabyte run at a 128-voxel chunk, level 0 bundled comes to 238,000 files
-while the unbundled pyramid above it comes to **20.3 million** — so once the
-full-resolution level is bundled, the pyramid dominates the count entirely.
-Bundling every level brings the same run to **318,000**.
+two-terabyte run at a 128-voxel chunk, level 0 bundled comes to 238,419 files
+while the unbundled pyramid above it comes to **20.3 million**, about 20.6
+million all told — so once the full-resolution level is bundled, the pyramid
+dominates the count entirely. Bundling every level does not fold the levels into
+one another; each level is its own array and still needs a bundle per tile plane.
+So the same run comes to 238,419 × 5 = **about 1.19 million** files.
 
-That is worth stating as a result rather than a detail: it is the file count of a
-2048-voxel chunk together with the 32 KB fetches of a 128-voxel one. The trade
-between a run being copyable and a run being pleasant to look at does not have to
-be made. It was only ever forced by the pyramid being left loose.
+That is worth stating carefully, because it is easy to hear more in it than it
+says. Bundling can never take a run below the count of its full-resolution level,
+so this is a seventeen-fold reduction rather than a collapse to a handful of
+files. It is still the change that matters most, and for a plain reason: once
+level 0 is bundled, the loose pyramid above it is what the file count is made of.
+And it costs the viewer nothing, because the chunk stays at 128 and the browser
+still fetches 32 KB at a time.
 
 **So 0.5 is not merely preferable for light-sheet, it is required.** Version 0.4
 cannot bundle at all, so a five-terabyte run written in 0.4 means a hundred and
@@ -508,6 +519,19 @@ that would bite:
   is entirely normal for an analysis environment and not something to add to the
   microscope computer, where `zmart_storage` today needs `zarr` and `numpy` and
   nothing else.
+
+**A note on speed, because the earlier measurement of it was unfair.** An earlier
+comparison timed writing a position by hand against writing the same position
+through ngio and reported ngio as four and a half to five and a half times
+slower. The two paths were not doing the same amount of work — the hand-written
+one skipped steps the ngio one performed — so that number overstates the gap, and
+it is worth saying so plainly rather than quietly correcting it. Measured again
+like for like, ngio takes between 0.91 and 1.14 times as long as writing by hand,
+which is to say about the same and sometimes quicker. Told to use our chunking
+and bundling but otherwise left alone it costs about 2.1 to 2.3 times as much,
+and on its own default settings 7 to 9 times as much. So ngio's speed is a matter
+of configuring it correctly rather than a penalty that comes with the library, and
+none of the three reasons above rests on it.
 
 That split also fits how the analysis engine already works: ngio lives in the
 analysis conda environment, and the acquisition side never imports it.

@@ -225,7 +225,10 @@ point at it.
 
 **Which puts an eighth-sized averaged ladder on the table: a 1.8% pyramid instead
 of 36%, with 98% of cells surviving rather than 63%.** On five terabytes that is
-the difference between 1.7 TB of smaller copies and 90 GB.
+the difference between about 1.7 TB of smaller copies and about 78–79 GB. That
+last figure is what the ladder works out to on paper; it has not been measured on
+a real run, so it is a guide to the scale of the saving rather than a number to
+plan disk space against.
 
 Two honest costs before adopting it:
 
@@ -250,7 +253,7 @@ Two honest costs before adopting it:
 | --- | --- | --- |
 | OME-Zarr version | **0.5** (zarr v3) by default; 0.4 on request; **0.6 when the acquisition needs a transformation 0.5 cannot express** — see section 6 | 0.5 is read by everything today and can bundle chunks; 0.6 is the only way to state a deskew, a rotation between views, or a place that changes with time |
 | chunk | `(1, 1, 1, piece, piece)`, with `piece` **derived from the tile shape and the wanted overlap** at run setup — see §8.1 | one plane per piece, so showing a single plane never fetches its neighbours; and the chunk cannot be changed afterwards without rewriting every byte, so it must be right the first time |
-| bundling (sharding) | **every level**, one tile plane per bundle, capped at the level's own extent for the small ones | a two-terabyte run at a 128-voxel chunk leaves 20.6 million files if only the full-size level is bundled, because the pyramid then dominates — and 318,000 if every level is. That is the file count of a 2048-voxel chunk with the 32 KB fetches of a 128-voxel one. **The writer bundles level 0 only today**, which is blocking item 3 |
+| bundling (sharding) | **every level**, one tile plane per bundle, capped at the level's own extent for the small ones | a two-terabyte run at a 128-voxel chunk leaves about 20.6 million files if only the full-size level is bundled, because the loose pyramid above it then dominates the count — and about 1.19 million if every level is bundled, since each of the five levels still needs its own bundle per tile plane (238,419 × 5). That is a seventeen-fold reduction rather than a collapse, and it is the change that actually matters. **The writer bundles level 0 only today**, which is blocking item 3 |
 | number type | whatever the camera gives, usually `uint16` | never converted; a run stores what was recorded |
 | compression | zstd | fast enough to keep up with acquisition |
 | unwritten chunks | left unwritten, fill value `0` | a declared canvas is far larger than any run fills, and empty room must cost nothing |
@@ -1425,16 +1428,24 @@ at these coordinates" is one they cannot.
 *Status: an idea with one measurement behind it. Not decided.*
 
 **The idea.** Push bundling to its natural end and make each position's level a
-**single file**. Windows then never sees more than a few tens of thousands of
-files however large the run, while the chunks *inside* each file stay small, so
-the viewer still fetches thirty-two kilobytes at a time rather than eight hundred
-megabytes.
+**single file**. Windows then sees a hundred thousand files or so however large
+the run, while the chunks *inside* each file stay small, so the viewer still
+fetches thirty-two kilobytes at a time rather than eight hundred megabytes.
 
 | bundle is… | files, for 10,000 positions × 100 planes × 5 levels |
 | --- | ---: |
 | nothing — a chunk is a file | ~20 million |
-| one tile **plane** | ~600,000 |
-| **one whole tile level** | **~50,000** |
+| one tile **plane** | **5,000,000** (10,000 × 100 × 5) |
+| **one whole tile level** | **~50,000** (10,000 × 5) |
+
+**Two things to read carefully in that last row**, because it is easy to come away
+with a rosier number than the arrangement really gives. It counts the pixel
+bundles for **one moment in time and one channel**; a run with more of either
+multiplies it. And a store is more than its pixels: each position carries a
+`zarr.json` of its own and one for each of its five levels, which is roughly
+60,000 small metadata files on top, plus the region tables. So the honest
+comparison is something like 110,000 files against 5,000,000 — still a striking
+difference, and one that does not need help.
 
 **First, a premise to correct**, because it is a natural thing to assume: keeping
 the positions *outside* a containing OME-Zarr does not help. Twenty million chunk
@@ -1471,9 +1482,9 @@ to be found out:
 - **Does a large shard cost more to read?** The server reads an index and seeks;
   whether that index grows expensive at whole-tile size is unmeasured.
 
-**Until it is explored, one tile plane per bundle is the safe default** — 600,000
-files on a five-terabyte run, written at full speed, and every plane visible the
-moment it lands.
+**Until it is explored, one tile plane per bundle is the safe default** — about
+2.98 million files on a five-terabyte run with every level bundled, written at
+full speed, and every plane visible the moment it lands.
 
 **One thing this does not change.** The view is still needed, and it is what
 actually delivers the requirement that started this: ten thousand positions,
