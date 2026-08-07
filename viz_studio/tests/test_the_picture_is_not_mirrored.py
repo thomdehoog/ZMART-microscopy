@@ -61,6 +61,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from measure_the_frame_rate_of_a_linked_view import (  # noqa: E402
+    EVERY_SOURCE_RESOLVED,
+)
 from server import make_server
 
 # The little acquisition this file draws. It is one plane of one channel, a few
@@ -245,6 +248,8 @@ def lopsided_page(request, browser, built_dist, tmp_path_factory):
     )
     page.wait_for_function("() => window.zmartViewer !== undefined", timeout=60_000)
     page.wait_for_function("() => window.zmartSourcesWaiting() === 0", timeout=90_000)
+    # A mirroring check run before the picture has arrived is a check of nothing.
+    page.wait_for_function(EVERY_SOURCE_RESOLVED, timeout=300_000)
     page.wait_for_function(_FIRST_DRAW_IS_DONE, timeout=90_000)
     # Holding the pieces is a step ahead of having painted with them, and the
     # painting happens on the engine's own schedule rather than ours. A short

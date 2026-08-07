@@ -34,6 +34,9 @@ import threading
 
 import numpy as np
 from pixels import assert_something_was_drawn
+from measure_the_frame_rate_of_a_linked_view import (  # noqa: E402
+    EVERY_SOURCE_RESOLVED,
+)
 from server import make_server
 
 # Enough positions to show pacing plainly at a small group size, and few enough that
@@ -187,6 +190,9 @@ def test_every_position_reaches_the_engine_and_they_arrive_in_groups(
         # were read too early.
         page.wait_for_function(f"{HELD} === {POSITIONS}", timeout=120_000)
         page.wait_for_function("() => window.zmartSourcesWaiting() === 0", timeout=120_000)
+        # Handed over is not read: that wait empties when the last URL reaches
+        # the engine, with most of the positions still unresolved.
+        page.wait_for_function(EVERY_SOURCE_RESOLVED, timeout=300_000)
         assert page.evaluate(HELD) == POSITIONS
 
         # And they went in as a series of groups rather than in one go. Without the

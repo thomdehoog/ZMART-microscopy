@@ -64,6 +64,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "backend"))
 sys.path.insert(0, str(HERE / "tests"))
 
+sys.path.insert(0, str(HERE))
+
+from measure_the_frame_rate_of_a_linked_view import (  # noqa: E402
+    EVERY_SOURCE_RESOLVED,
+)
 from server import make_server  # noqa: E402
 
 # The specimen being described: eight tiles in each direction, each tile 512 voxels
@@ -292,8 +297,12 @@ def look(pw, root: Path, names, label: str, budget: int = 600) -> dict:
         # thing for both shapes -- otherwise the mosaic would look good simply by having
         # drawn its first few tiles.
         while time.monotonic() < deadline:
-            if page.evaluate("() => !window.zmartSourcesWaiting "
-                             "|| window.zmartSourcesWaiting() === 0"):
+            handed_over = page.evaluate("() => !window.zmartSourcesWaiting "
+                                        "|| window.zmartSourcesWaiting() === 0")
+            # And read, not merely handed over: `zmartSourcesWaiting()` empties when
+            # the last URL has been passed to the engine, which on a mosaic of many
+            # stores is long before they have resolved.
+            if handed_over and page.evaluate(EVERY_SOURCE_RESOLVED):
                 break
             time.sleep(0.25)
         settled = time.monotonic() - started
