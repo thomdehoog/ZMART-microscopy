@@ -637,6 +637,32 @@ designing around until it happens.
 take 12.5% on a 2048 sensor and 11.1% on a 2304, accept the six per cent, and note
 that a 2308 sensor cannot be pointed at and will be written twice.
 
+##### Is ten per cent actually right? Nobody quite knows
+
+Worth recording, because "ten per cent" is repeated as though it were settled and
+it is not. Fiji's Grid/Collection stitching **defaults to 20%**; published practice
+runs from 5% to 30%; and the usual advice is to use the least overlap you can get
+away with, since more costs imaging time and stitching time alike.
+
+What actually sets the floor is two things about a particular setup, neither of
+them a percentage:
+
+- **The stage's positional error.** The overlap has to comfortably exceed how far
+  the stage misses by. At 0.35 µm a voxel, ten per cent of a 2048 frame is 204
+  voxels, about 71 µm — enormous next to any decent stage.
+- **Whether the strip contains anything to correlate.** This is the one that
+  actually bites. On a sparse specimen — a few cells in a mostly empty field — a
+  ten per cent strip can hold no features at all, and the stitch fails however
+  generous the percentage. Sparse samples are why people go to twenty or thirty.
+
+**And we are unusually well placed to stop guessing.** Every tile is kept whole,
+so after a run a stitcher can report how far each tile really moved from where the
+stage said it was. If those offsets are a handful of voxels against an overlap of
+204, the run is paying for ten times what it needs — and that would be known from
+this instrument and this specimen rather than from what people say. Worth doing
+once per microscope, and it is exactly the measurement the archive exists to make
+possible.
+
 **What the overlap is actually for sets the floor.** It exists so a stitcher has a
 strip to correlate, so it needs to be comfortably wider than the stage's own error
 and wide enough to contain real features. At 2048 voxels, ten per cent is 204
