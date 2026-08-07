@@ -25,6 +25,7 @@ import {
   getDefaultPerspectivePanelBindings,
   getDefaultSliceViewPanelBindings,
 } from "neuroglancer/unstable/ui/default_input_event_bindings.js";
+import { registerActionListener } from "neuroglancer/unstable/util/event_action_map.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
 // Loaded after the engine's own stylesheet so it wins: this hides the handful of
 // controls the engine draws inside the image itself. See the file for why.
@@ -141,8 +142,39 @@ export default function NeuroglancerView({ onViewer }) {
     // afternoon and two reviews before the measurement was made with the volume
     // view's own zoom. It refines perfectly well: 20.8 um down to 0.33 um across
     // the projection zooms, the whole pyramid.
+    // A gentler notch than the engine's, and the reason is worth stating because
+    // the engine's is not wrong -- it is simply pitched for travelling.
+    //
+    // `getWheelZoomAmount` returns `exp(deltaY / 200)`, and a wheel notch on
+    // Windows reports a deltaY of 100, so one notch magnifies by about 1.65. A
+    // pyramid level is 2, so a single notch crosses roughly seven-tenths of a
+    // level. Pulled back that is pleasant -- you cross the specimen in a few
+    // turns. Zoomed in on something it is unusable: there is no stop between too
+    // far out and too far in, and because the engine zooms about the *cursor*
+    // rather than the centre, every notch slides the view sideways as well. The
+    // two compound, and it reads as flying rather than zooming.
+    //
+    // A third of the exponent gives about 1.18 a notch, so four notches to a
+    // level. Zooming about the cursor is kept exactly as it was: this hands the
+    // work back to the very method the engine's own action calls, so pointing at
+    // something and turning the wheel still travels towards it.
+    const GENTLER = 3;
+    const howFarToZoom = (event) => {
+      const perPixel = { 0: 1 / 200, 1: 1 / 10, 2: 2 }[event.deltaMode] ?? 1 / 200;
+      return Math.exp((event.deltaY * perPixel) / GENTLER);
+    };
+    registerActionListener(target, "zmart-zoom-via-wheel", (fired) => {
+      const wheel = fired.detail;
+      for (const panel of viewer.display.panels) {
+        if (!panel.element?.contains(wheel.target) || !panel.zoomByMouse) continue;
+        panel.onMousemove?.(wheel, false);
+        panel.zoomByMouse(howFarToZoom(wheel));
+        return;
+      }
+    });
+
     for (const panel of [bindings.sliceView, bindings.perspectiveView]) {
-      panel.set("at:wheel", { action: "zoom-via-wheel", preventDefault: true });
+      panel.set("at:wheel", { action: "zmart-zoom-via-wheel", preventDefault: true });
       panel.set("at:shift+wheel", {
         action: "z+1-via-wheel",
         preventDefault: true,
