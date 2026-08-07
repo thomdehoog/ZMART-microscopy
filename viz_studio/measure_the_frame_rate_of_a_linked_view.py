@@ -267,12 +267,38 @@ KEEP_MOVING = """() => {
   }, 16);
 }"""
 
-# How many pictures the viewer is actually holding. Counted from the engine rather
-# than from what we asked for, so a store that failed to load is not counted as
-# though it had.
+# How many pictures the viewer has been *given*. Counted from the engine rather than
+# from what we asked for -- but **not** how many of them loaded, which this comment
+# used to claim. A source is pushed into `dataSources` synchronously, before it has
+# resolved, and one that fails stays in the list for ever with an error on it and is
+# still counted here. Read it as an upper bound, and use `EVERY_SOURCE_RESOLVED`
+# below to know whether it means anything yet.
 HELD = """() => window.zmartViewer.layerManager.managedLayers
            .filter((managed) => managed.layer && managed.layer.type === 'image')
            .reduce((total, managed) => total + managed.layer.dataSources.length, 0)"""
+
+# Every source has resolved -- succeeded or failed -- rather than merely been handed
+# over.
+#
+# **`zmartSourcesWaiting()` reaching nought does not mean the run is open.** It counts
+# the URLs the page has still to pass to the engine, so it empties when the last one
+# has been handed over and not when it has been read. Measured on a ladder of
+# positions it returned with **thirty of a hundred** resolved and **three hundred of
+# four hundred**, and an opening timed against it read 3.64 s where the truth was
+# 8.96. Anything that waits on it alone is looking at a page that is still filling in
+# -- which for a measurement is an optimistic number, and for a test is an assertion
+# about a picture that has not arrived.
+#
+# A source carries a `loadState` once it has resolved and once it has failed, so
+# waiting for all of them to have one is the honest condition. Pair it with the wait
+# on `zmartSourcesWaiting()`: that one says the list is complete, this one says the
+# list was read.
+EVERY_SOURCE_RESOLVED = """() => {
+  const sources = window.zmartViewer.layerManager.managedLayers
+    .filter((managed) => managed.layer && managed.layer.type === 'image')
+    .flatMap((managed) => managed.layer.dataSources);
+  return sources.length > 0 && sources.every((s) => s.loadState !== undefined);
+}"""
 
 
 def how_long_a_drawing_frame_took(at: list[float], drawn_by: list[int]) -> dict:
@@ -392,6 +418,7 @@ def how_it_drew(browser, built_dist: Path, folder: Path, store, expect: int) -> 
         page.wait_for_function(
             "() => window.zmartSourcesWaiting() === 0", timeout=300_000
         )
+        page.wait_for_function(EVERY_SOURCE_RESOLVED, timeout=600_000)
         opened = time.time() - opening
 
         page.wait_for_timeout(3000)
