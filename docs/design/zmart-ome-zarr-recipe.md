@@ -651,6 +651,51 @@ a fraction and work the chunk out, instead of taking `piece=128` and hoping it
 fits the camera.** That is a small change to one signature, and it is what turns
 "which chunk size?" from a question anybody has to answer into one nobody is asked.
 
+#### Which layer decides — and why the driver must not
+
+Microscopes do not hand us OME-Zarr; we write it. So the question is not how to
+cope with somebody else's choice, it is which of our own layers gets to make it.
+The overlap already lives in the **workflow**, which is correct and should stay
+that way: an overlap is a property of the acquisition *plan*, not of the
+instrument. A stage does not have an overlap; a raster does.
+
+That leaves each layer with exactly one thing to know:
+
+| layer | knows | never hears about |
+| --- | --- | --- |
+| **driver** | the frame shape in voxels, the voxel size, and on a point scanner which formats it can be set to | chunks, overlap, storage |
+| **controller** | passes those through, microscope-agnostic | chunks, overlap, storage |
+| **workflow** | where the tile centres go, hence the overlap | how a chunk is worked out |
+| **`zmart_storage`** | how to turn a tile shape and a wanted overlap into a chunk | anything about instruments |
+
+**Do not instruct the driver to use a chunk size.** Two reasons, and the second is
+the decisive one:
+
+- A chunk is a storage idea, not an instrument idea. Teaching five drivers about
+  it means five drivers to change the next time the storage layout moves.
+- The driver *cannot* work it out even if told to, because it does not know the
+  raster. Only the workflow knows how far apart the centres will be.
+
+**What the workflow needs instead is one small function**, asked *before* it lays
+out the raster — because the step it chooses has to be one the chunk grid allows:
+
+```python
+grid = zmart_storage.plan_a_grid(tile_shape=frame_shape, wanted_overlap=0.10)
+# -> chunk, overlap in voxels, the fraction that really came out, and the step
+```
+
+The workflow takes `frame_shape` from `Session.get_info()`, calls this, lays the
+centres out on `grid.step`, and hands `grid.chunk` to the writer. Nothing new is
+coupled: the driver still knows nothing about storage, the controller still knows
+nothing about storage, and the workflow gets a straight answer before it commits
+to anything.
+
+**The one thing worth saying to a driver** is a *scan format*, and only on a point
+scanner where the format is actually settable — "scan 2048 rather than 2044". That
+is an instrument instruction in an instrument's own vocabulary, and it belongs in
+the driver. But it is a nicety rather than a requirement: with the chunk derived
+per run, 2044 already works.
+
 #### Point scanners, which can scan almost any format
 
 A camera gives one size and that is that. A confocal is a point scanner: the
