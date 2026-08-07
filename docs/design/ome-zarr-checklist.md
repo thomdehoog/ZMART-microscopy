@@ -135,10 +135,15 @@ Worth recording, because each cost a stretch of worrying:
    way to read the data at all, that is the difference between usable and not.
    The correction is already written on `claude/ngff-translation-per-dataset`.
 2. **Reading a bundle index in the viewer's server.** Bundling is what makes a
-   five-terabyte run copyable — 596,000 files instead of 153 million. But a
-   bundled chunk is a byte range inside a file rather than a file, so the server
-   must learn to read the index and seek. Until it does, bundling stays off and
-   large light-sheet runs cannot be handled at all.
+   five-terabyte run copyable. But a bundled chunk is a byte range inside a file
+   rather than a file, so the server must learn to read the index and seek. Until
+   it does, bundling stays off and large light-sheet runs cannot be handled at
+   all.
+3. **Bundling every level, not only the full-resolution one.** The writer bundles
+   level 0 and leaves the pyramid loose, on the grounds that the smaller copies
+   are "few enough not to need it". On a two-terabyte run that is wrong by a
+   factor of sixty-five: 20.6 million files against 318,000 if every level is
+   bundled. Once level 0 is bundled the pyramid dominates the count entirely.
 
 Everything else on this page can wait. These two cannot.
 
