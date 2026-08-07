@@ -207,6 +207,10 @@ export default function App() {
   const engine = React.useRef(null);
   const [config, setConfig] = React.useState(null);
   const [mode, setMode] = React.useState("flat");
+  // A projection by default rather than accumulation; see `VolumeMode`.
+  const [volumeMode, setVolumeMode] = React.useState("max");
+  const [volumeGain, setVolumeGain] = React.useState(0);
+  const [volumeAttenuation, setVolumeAttenuation] = React.useState(0);
   // Per-layer interface state. Held here rather than in the engine because the
   // panel and the viewer must never disagree about what is showing.
   const [layerState, setLayerState] = React.useState([]);
@@ -526,7 +530,8 @@ export default function App() {
   // drawing one must not send the whole scene back through here.
   const scene = React.useMemo(() => {
     if (!config || layerState.length !== config.layers.length) return null;
-    const layers = layersFor(config, mode, layerState, groupState, groupOrder);
+    const layers = layersFor(config, mode, layerState, groupState, groupOrder, volumeMode,
+                              { gain: volumeGain, attenuation: volumeAttenuation });
     // The layer holding drawn targets is added once the saved ones have been read
     // back, so whatever was saved is present from the moment the layer exists.
     if (targetsLoaded) {
@@ -539,6 +544,9 @@ export default function App() {
     layerState,
     groupState,
     groupOrder,
+    volumeMode,
+    volumeGain,
+    volumeAttenuation,
     targetsLoaded,
     targetColor,
     targetsVisible,
@@ -586,6 +594,15 @@ export default function App() {
     // open. So the descriptions are read again on the pass that follows one.
     const reread = rereadWanted.current;
     rereadWanted.current = false;
+    // The descriptions the panel just handed the engine, exactly as they were
+    // handed over. This exists for one test and is worth the line: `engine.js`
+    // carries every field of a description onto the live layer by hand, one line
+    // each, so a field added to `scene.js` and forgotten there is dropped in
+    // silence -- three controls were found dead that way in a single afternoon.
+    // A test can only guard against the *next* one if it can ask what fields are
+    // in a description rather than being told a list somebody has to remember to
+    // update. See tests/test_no_setting_is_dropped_on_the_way_to_the_engine.py.
+    window.zmartScene = scene;
     const reshaped = syncLayers(viewer, scene, { reread });
     window.zmartLayersReshaped = reshaped; // what the browser tests count
     // How many stores are still queued to be handed to the engine. Asked as a question
@@ -887,6 +904,12 @@ export default function App() {
               onOpacity={(i, opacity) => setLayer(i, { opacity })}
               onWindow={(i, window) => setLayer(i, { window })}
               onLut={(i, lut) => setLayer(i, { lut })}
+              volumeMode={volumeMode}
+              onVolumeMode={setVolumeMode}
+              volumeGain={volumeGain}
+              onVolumeGain={setVolumeGain}
+              volumeAttenuation={volumeAttenuation}
+              onVolumeAttenuation={setVolumeAttenuation}
               lookupTables={LOOKUP_TABLE_NAMES}
             />
           )}

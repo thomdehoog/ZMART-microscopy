@@ -152,6 +152,84 @@ function Eye({ open }) {
  * then move to the next. It is the arrangement napari uses, and anyone who has
  * used napari will already know where to look.
  */
+/**
+ * How a ray through the volume becomes a colour.
+ *
+ * Only shown in the volume view, because it means nothing in a flat one. The
+ * default is a projection rather than accumulation: on sparse specimen -- which
+ * is what a fluorescence run is -- accumulating every voxel a ray passes gives a
+ * milky picture with almost no contrast, and a projection needs no transparency
+ * tuned before anything can be seen.
+ */
+function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
+                     attenuation, onAttenuation }) {
+  const accumulating = volumeMode === "on";
+  return (
+    <>
+    <label style={styles.control}>
+      <span
+        style={styles.controlLabel}
+        title="How the voxels along each line of sight are combined into one pixel"
+      >
+        projection
+      </span>
+      <select
+        value={volumeMode}
+        onChange={(event) => onVolumeMode?.(event.target.value)}
+        aria-label="volume projection"
+        title="Brightest keeps the brightest voxel along each ray, which is what most fluorescence is looked at with. Accumulated adds them all up."
+        style={styles.select}
+      >
+        <option value="max">brightest along the ray (mip)</option>
+        <option value="on">accumulated through the volume</option>
+        <option value="min">darkest along the ray</option>
+      </select>
+    </label>
+    {/* Gain belongs to accumulation and to nothing else. The engine swaps the
+        whole colour-emitting function out for a projection and the replacement
+        never mentions its gain, so the slider would sit here looking alive and
+        do nothing -- which is the fault this viewer has now produced three
+        times in one day. Shown disabled rather than hidden, so that somebody
+        looking for it finds it and is told why. */}
+    <label style={{ ...styles.control, opacity: accumulating ? 1 : 0.45 }}>
+      <span
+        style={styles.controlLabel}
+        title={accumulating
+          ? "Brighten a picture that piles up along the ray and washes out"
+          : "Only for the accumulated projection; there is nothing to accumulate in a brightest or darkest one"}
+      >
+        gain
+      </span>
+      <input
+        type="range" min="-3" max="3" step="0.1" value={gain}
+        disabled={!accumulating}
+        onChange={(event) => onGain?.(Number(event.target.value))}
+        aria-label="volume gain"
+        title={accumulating
+          ? "Accumulating along a ray washes a picture out; this brightens it back"
+          : "Only for the accumulated projection"}
+        style={styles.slider}
+      />
+      <output style={styles.value}>{accumulating ? gain.toFixed(1) : "n/a"}</output>
+    </label>
+    <label style={styles.control}>
+      <span style={styles.controlLabel} title="Fade the far side of the specimen, so front reads in front of back">
+        depth fade
+      </span>
+      <input
+        type="range" min="0" max="8" step="0.1" value={attenuation}
+        onChange={(event) => onAttenuation?.(Number(event.target.value))}
+        aria-label="volume depth fade"
+        title="Weighs each voxel by how far along the line of sight it is. Nought is no fading"
+        style={styles.slider}
+      />
+      <output style={styles.value}>{attenuation.toFixed(1)}</output>
+    </label>
+    </>
+  );
+}
+
+
 function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity, onLut }) {
   const measuredWindow = mode === "volume" ? layer.volumeWindow || layer.window : layer.window;
   const window_ = entry.window || measuredWindow || { low: 0, high: 65535 };
@@ -163,6 +241,29 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
     onWindow(index, { low: Math.min(low, window_.high - 1), high: window_.high });
   const setHigh = (high) =>
     onWindow(index, { low: window_.low, high: Math.max(high, window_.low + 1) });
+
+  // Brightness and contrast are not a second setting; they are the same window
+  // described the way a microscopist is used to describing it, which is how Fiji
+  // has always presented it. The two handles say *where* the window is; these two
+  // say how bright the middle of it is and how tightly it is drawn around that
+  // middle. Moving either pair moves the other, because underneath there is only
+  // ever one window.
+  //
+  // Brightness runs backwards on purpose: pulling the window down towards the
+  // dark end makes the picture brighter, since more of the image lands above it.
+  const track = Math.max(1, max - min);
+  const middle = (window_.low + window_.high) / 2;
+  const width = Math.max(1, window_.high - window_.low);
+  const brightness = Math.round((1 - (middle - min) / track) * 100);
+  const contrast = Math.round((1 - width / track) * 100);
+  const windowAround = (centre, spread) => {
+    const half = Math.max(0.5, spread / 2);
+    return onWindow(index, { low: centre - half, high: centre + half });
+  };
+  const setBrightness = (value) =>
+    windowAround(min + (1 - value / 100) * track, width);
+  const setContrast = (value) =>
+    windowAround(middle, Math.max(1, (1 - value / 100) * track));
   const isMask = layer.kind === "segmentation";
 
   return (
@@ -194,10 +295,26 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
             >
               Auto
             </button>
+            {/* Auto and Reset answer different questions and neither replaces the
+                other. Auto reads the brightness actually present in this channel;
+                Reset puts back the window the run itself declared, which is what
+                the operator saw when the images were opened. Somebody who has
+                pulled the handles about wants the second far more often than a
+                fresh measurement. */}
+            <button
+              type="button"
+              onClick={() => onWindow(index, layer.window || layer.histogram?.autoWindow)}
+              disabled={!layer.window && !layer.histogram?.autoWindow}
+              aria-label={`reset contrast ${layer.name}`}
+              title="Put back the window this run was written with"
+              style={styles.autoButton}
+            >
+              Reset
+            </button>
           </div>
           <label style={styles.control}>
             <span style={styles.controlLabel} title="Anything dimmer than this is shown as black">
-              black
+              min
             </span>
             <input
               type="range"
@@ -206,7 +323,7 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               step="1"
               value={window_.low}
               onChange={(event) => setLow(Number(event.target.value))}
-              aria-label={`black ${layer.name}`}
+              aria-label={`min ${layer.name}`}
               title="Anything dimmer than this is shown as black"
               style={styles.range}
             />
@@ -214,7 +331,7 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
           </label>
           <label style={styles.control}>
             <span style={styles.controlLabel} title="Anything brighter than this is shown as white">
-              white
+              max
             </span>
             <input
               type="range"
@@ -223,11 +340,37 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               step="1"
               value={window_.high}
               onChange={(event) => setHigh(Number(event.target.value))}
-              aria-label={`white ${layer.name}`}
+              aria-label={`max ${layer.name}`}
               title="Anything brighter than this is shown as white"
               style={styles.range}
             />
             <output style={styles.value}>{Math.round(window_.high)}</output>
+          </label>
+          <label style={styles.control}>
+            <span style={styles.controlLabel} title="Move the whole window up or down the range at once">
+              brightness
+            </span>
+            <input
+              type="range" min="0" max="100" step="1" value={brightness}
+              onChange={(event) => setBrightness(Number(event.target.value))}
+              aria-label={`brightness ${layer.name}`}
+              title="Slides the window along without changing how wide it is"
+              style={styles.range}
+            />
+            <output style={styles.value}>{brightness}</output>
+          </label>
+          <label style={styles.control}>
+            <span style={styles.controlLabel} title="Draw the window tighter around its middle">
+              contrast
+            </span>
+            <input
+              type="range" min="0" max="99" step="1" value={contrast}
+              onChange={(event) => setContrast(Number(event.target.value))}
+              aria-label={`contrast ${layer.name}`}
+              title="Narrows the window around its middle, so a smaller range of brightness fills the screen"
+              style={styles.range}
+            />
+            <output style={styles.value}>{contrast}</output>
           </label>
         </>
       )}
@@ -295,6 +438,12 @@ export default function LayerPanel({
   onOpacity,
   onWindow,
   onLut,
+  volumeMode = "max",
+  onVolumeMode,
+  volumeGain = 0,
+  onVolumeGain,
+  volumeAttenuation = 0,
+  onVolumeAttenuation,
   selected = 0,
   onSelect,
   canOpen = true,
@@ -393,6 +542,18 @@ export default function LayerPanel({
               {busy ? "…" : "choose folder"}
             </button>
           </div>
+        </div>
+      )}
+      {mode === "volume" && (
+        <div style={styles.loadBox}>
+          <VolumeMode
+            volumeMode={volumeMode}
+            onVolumeMode={onVolumeMode}
+            gain={volumeGain}
+            onGain={onVolumeGain}
+            attenuation={volumeAttenuation}
+            onAttenuation={onVolumeAttenuation}
+          />
         </div>
       )}
       {layers[selected] && state[selected] && (

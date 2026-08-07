@@ -272,7 +272,14 @@ def _in_the_volume(browser, built_dist, folder: Path) -> tuple[float, float]:
         assert state["mode"] == "volume", (
             f"the viewer did not switch to the volume: {state['mode']}"
         )
-        assert state["volumeMode"] == 1, (
+        # Neuroglancer numbers these OFF 0, ON 1, MAX 2, MIN 3. Anything but OFF is
+        # ray-casting; which of the three the viewer opens on is a separate question
+        # and belongs to `test_the_volume_projection_can_be_chosen.py`, not here.
+        # Written as "not off" rather than as the number because this test is about
+        # a *cropped canvas* drawing at all, and it should not fail the next time
+        # somebody changes which projection is the default -- which is what happened
+        # on 6 August 2026 when the default moved from accumulation to a projection.
+        assert state["volumeMode"] != 0, (
             "the engine is not ray-casting, so whatever is on screen is still a "
             "single plane"
         )

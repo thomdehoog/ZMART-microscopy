@@ -171,8 +171,8 @@ def _set_range(page, label: str, value: float) -> None:
 
 
 def test_contrast_handles_reach_the_engine(two_channel_page):
-    _set_range(two_channel_page, "black Ch488", 1200)
-    _set_range(two_channel_page, "white Ch488", 9000)
+    _set_range(two_channel_page, "min Ch488", 1200)
+    _set_range(two_channel_page, "max Ch488", 9000)
     two_channel_page.wait_for_timeout(800)
     assert _window_in_engine(two_channel_page) == [1200, 9000]
 
@@ -186,8 +186,8 @@ def test_moving_contrast_does_not_rebuild_the_shader(two_channel_page):
     acquisition is a visible stutter every time anyone adjusts the brightness.
     """
     before = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
-    _set_range(two_channel_page, "black Ch488", 1300)
-    _set_range(two_channel_page, "white Ch488", 7000)
+    _set_range(two_channel_page, "min Ch488", 1300)
+    _set_range(two_channel_page, "max Ch488", 7000)
     two_channel_page.wait_for_timeout(800)
     after = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
     assert after == before, "the contrast window leaked back into the shader text"
@@ -195,8 +195,8 @@ def test_moving_contrast_does_not_rebuild_the_shader(two_channel_page):
 
 
 def test_contrast_survives_the_three_d_toggle(two_channel_page):
-    _set_range(two_channel_page, "black Ch488", 1500)
-    _set_range(two_channel_page, "white Ch488", 8000)
+    _set_range(two_channel_page, "min Ch488", 1500)
+    _set_range(two_channel_page, "max Ch488", 8000)
     two_channel_page.wait_for_timeout(500)
     two_channel_page.click("text=3D")
     two_channel_page.wait_for_timeout(1500)
@@ -220,7 +220,8 @@ def test_opacity_survives_the_three_d_toggle(two_channel_page):
     # In the volume the intensity drives transparency, so opacity is part of what
     # the shader computes -- but its value, like the contrast window, is sent as a
     # control rather than written into the program.
-    assert "normalized() * opacity" in layer["shader"]
+    assert "float v = normalized();" in layer["shader"]
+    assert "v * opacity" in layer["shader"]
     assert layer["controls"]["opacity"] == pytest.approx(0.42)
 
 
@@ -292,7 +293,7 @@ def test_the_bars_on_screen_are_the_brightness_the_server_measured(two_channel_p
 def test_the_contrast_handles_travel_over_the_brightness_that_is_really_there(
     two_channel_page,
 ):
-    """The black and white sliders must be usable, not merely present.
+    """The min and max sliders must be usable, not merely present.
 
     This is the one control in the panel that is judged by feel rather than by
     whether it works, and it is worth a test because "works" and "usable" came
@@ -323,7 +324,7 @@ def test_the_contrast_handles_travel_over_the_brightness_that_is_really_there(
 
     track = two_channel_page.evaluate(
         """() => {
-          const handle = document.querySelector("[aria-label='black Ch488']");
+          const handle = document.querySelector("[aria-label='min Ch488']");
           return { min: Number(handle.min), max: Number(handle.max) };
         }"""
     )
@@ -341,8 +342,8 @@ def test_the_contrast_handles_travel_over_the_brightness_that_is_really_there(
 
 def test_auto_contrast_restores_the_measured_window(two_channel_page):
     _choose(two_channel_page, "Ch488")
-    _set_range(two_channel_page, "black Ch488", 1200)
-    _set_range(two_channel_page, "white Ch488", 9000)
+    _set_range(two_channel_page, "min Ch488", 1200)
+    _set_range(two_channel_page, "max Ch488", 9000)
     two_channel_page.click("[aria-label='auto contrast Ch488']")
     two_channel_page.wait_for_timeout(800)
     expected = two_channel_page.evaluate(
