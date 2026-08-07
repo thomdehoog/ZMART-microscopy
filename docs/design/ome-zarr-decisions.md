@@ -72,7 +72,7 @@ and 3456 are better still, which is what to ask for when the format is settable.
 | 4 | **Where analysis results go** | **inside the tile** — `labels`, `tables` | where ngio, napari and Fiji look; our viewer already finds them |
 | 5 | **Where our own bookkeeping goes** | **beside the images**, never inside | a stray file inside makes zarr warn whoever opens it |
 | 6 | **Plate layout for screening runs** | **no, on any instrument** | well and field become columns of the run table; one arrangement everywhere |
-| 7 | **What ngio is for** | reading, checking and analysing — **and, on test, writing the positions too**; see [`ome-zarr-writing-through-ngio.md`](ome-zarr-writing-through-ngio.md) | writing through it settles changes 1, 2, 6 and 11 by construction, because the API takes a `translation` and bundles every level. The view stays ours: no library will write an image whose chunks live elsewhere. |
+| 7 | **What ngio is for** | reading, checking and analysing — **and, on test, writing the positions too**; see [`ome-zarr-writing-through-ngio.md`](ome-zarr-writing-through-ngio.md) | writing through it settles changes B1, B2, B6 and B11 by construction, because the API takes a `translation` and bundles every level. The view stays ours: no library will write an image whose chunks live elsewhere. |
 | 8 | **Whether the overlap is trimmed from the pixels** | **no** — it is accounted for in the viewer and in the analysis | the overlap is the only evidence of where the stage really went |
 
 ---
@@ -91,9 +91,9 @@ and 3456 are better still, which is what to ask for when the format is settable.
 
 | # | decision | options |
 | --- | --- | --- |
-| 11b | **On a point scanner, what scan format?** | Where the format is settable, ask for one that aligns: **2880** gives chunk 288, 20% overlap and only 100 requests a tile-plane; 3456 gives 16.7%; 4608 gives 12.5%. Better than 2048 on every axis at once. |
-| 12 | **What kind of scan is this?** | `overview`, `targetscan`, … — it names the folder and separates acquisition types |
-| 13 | **How much overlap?** | **none** (a survey you will never stitch, 1.0×) · **modest** (ordinary mosaics, ~1.3×) · **generous** (sparse specimens, light-sheet, ~1.6×) |
+| 12 | **On a point scanner, what scan format?** | Where the format is settable, ask for one that aligns: **2880** gives chunk 288, 20% overlap and only 100 requests a tile-plane; 3456 gives 16.7%; 4608 gives 12.5%. Better than 2048 on every axis at once. |
+| 13 | **What kind of scan is this?** | `overview`, `targetscan`, … — it names the folder and separates acquisition types |
+| 14 | **How much overlap?** | **none** (a survey you will never stitch, 1.0×) · **modest** (ordinary mosaics, ~1.3×) · **generous** (sparse specimens, light-sheet, ~1.6×) |
 
 Give an **intent**, never a percentage. `modest` resolves to 10% on a 2048 or 2304
 sensor and 12.5% on a 1024 scan — a literal 10% written into a workflow is
@@ -105,12 +105,12 @@ impossible on a 1024 frame and the run would be refused or silently written twic
 
 | # | decision | the trade |
 | --- | --- | --- |
-| 14 | **Adopt chunk-aligned seams?** | Puts the join between two tiles exactly on a chunk edge, so the viewer can *skip* the shared strip instead of the writer *cutting* it. Removes the second copy from every overlapping run — 1.98× down to about 1.3×. **Deletes nothing:** the tiles stay whole. Costs a slightly stricter overlap grid. **Recommended.** |
-| 15 | **HTTP/2 for the viewer?** | Takes a screen fill from ~440 ms of round trips to ~26 ms, but browsers speak it only over TLS, so a certificate on every microscope PC. **Take the bigger chunk first — it is free — then measure.** |
-| 16 | **When to adopt scenes (0.6, RFC-5)?** | They describe our workflow exactly and would make the view stop being ours. But Neuroglancer has no notion of a scene and ngio cannot read 0.6 at all. **Wait for `ngio.NgffVersions` to gain `"0.6"`.** |
-| 17c | **Widen the pyramid ladder, and average instead of stride?** | Measured: a 4× ladder costs 7.6% of the run against 36% for 2×, with no cells lost. An 8× ladder costs 1.8% but *striding* loses 37% of small cells — while *averaging* keeps 98%. And averaging was shown to preserve the pointing exactly (tile-by-tile is bit-for-bit whole-canvas), so the reason for striding does not hold. **An 8× averaged ladder would take the pyramid from 1.7 TB to 90 GB on a five-terabyte run.** Costs: averaging is arithmetic rather than a memory copy, and a coarse voxel stops being a real measurement. |
-| 17b | **One file per position per level?** | Bundling taken to its end: ~50,000 files for a 10,000-position run instead of ~600,000, with small chunks still inside. But writing a plane at a time into a whole-tile shard measured **four times slower**, so it needs buffering — which costs memory and delays live viewing. **Explore; keep one tile plane per bundle meanwhile.** |
-| 17 | **Fix the no-copy path for a drifting stage?** | It currently refuses runs whose tiles miss an exact grid, so an ordinary run falls back to copying. |
+| 15 | **Adopt chunk-aligned seams?** | Puts the join between two tiles exactly on a chunk edge, so the viewer can *skip* the shared strip instead of the writer *cutting* it. Removes the second copy from every overlapping run — 1.98× down to about 1.3×. **Deletes nothing:** the tiles stay whole. Costs a slightly stricter overlap grid. **Recommended.** |
+| 16 | **HTTP/2 for the viewer?** | Takes a screen fill from ~440 ms of round trips to ~26 ms, but browsers speak it only over TLS, so a certificate on every microscope PC. **Take the bigger chunk first — it is free — then measure.** |
+| 17 | **When to adopt scenes (0.6, RFC-5)?** | They describe our workflow exactly and would make the view stop being ours. But Neuroglancer has no notion of a scene and ngio cannot read 0.6 at all. **Wait for `ngio.NgffVersions` to gain `"0.6"`.** |
+| 18 | **Widen the pyramid ladder, and average instead of stride?** | Measured: a 4× ladder costs 7.6% of the run against 36% for 2×, with no cells lost. An 8× ladder costs 1.8% but *striding* loses 37% of small cells — while *averaging* keeps 98%. And averaging was shown to preserve the pointing exactly (tile-by-tile is bit-for-bit whole-canvas), so the reason for striding does not hold. **An 8× averaged ladder would take the pyramid from 1.7 TB to 90 GB on a five-terabyte run.** Costs: averaging is arithmetic rather than a memory copy, and a coarse voxel stops being a real measurement. |
+| 19 | **One file per position per level?** | Bundling taken to its end: ~50,000 files for a 10,000-position run instead of ~600,000, with small chunks still inside. But writing a plane at a time into a whole-tile shard measured **four times slower**, so it needs buffering — which costs memory and delays live viewing. **Explore; keep one tile plane per bundle meanwhile.** |
+| 20 | **Fix the no-copy path for a drifting stage?** | It currently refuses runs whose tiles miss an exact grid, so an ordinary run falls back to copying. |
 
 ---
 
@@ -143,27 +143,28 @@ person chooses, derived where arithmetic does better than a person.**
 
 ## What has to be built, in order
 
-Decisions above; work below. Three of these are repairs — the arrangement does
+Decisions above are numbered **1–20**; the work below is numbered **B1–B11**, so
+a reference is never ambiguous. Three of these are repairs — the arrangement does
 not do what this page says it does until they are done. The rest are improvements.
 
 | | change | why |
 | ---: | --- | --- |
-| **1** | **Per-dataset translation** on positions | **repair.** Invalid against the official schema, so ngio refuses our tiles and `ngff-zarr` stacks them at the origin. Written on `claude/ngff-translation-per-dataset`. |
-| **2** | **Bundle every level**, not only the full-resolution one | **repair.** 2 TB leaves 20.6 million files instead of 318,000. A small change to `_make_the_copies`. |
-| **3** | **The server reads a bundle index** | **repair.** Without it bundling cannot be switched on at all. Goes with 2. |
-| 4 | **Two interop tests** — schema validation and an ngio open | how change 1 would have been caught the day it appeared |
-| 5 | **`plan_a_grid`** — frame + overlap intent → chunk, overlap, step | the workflow currently takes `piece=128` and hopes it suits the camera |
-| 6 | **`tables/owned_ROI_table`** in every tile | makes the viewer's seam and the analysis filter one decision instead of two |
-| 7 | **Chunk-aligned seams** | removes the second copy from every overlapping run |
-| 8 | **Unique label numbers across a run** | else cell 7 in two neighbouring tiles becomes one object |
-| 9 | **A view for segmentations** | else a labelled run meets the cliff the view was built to avoid |
-| 10 | **A run-level table** | else a question about the run means opening ten thousand tables |
-| 11 | **0.5 as the default in every writer** | `start_a_run` already does; `TileCanvases` and `TilesAndCanvas` do not |
+| **B1** | **Per-dataset translation** on positions | **repair.** Invalid against the official schema, so ngio refuses our tiles and `ngff-zarr` stacks them at the origin. Written on `claude/ngff-translation-per-dataset`. |
+| **B2** | **Bundle every level**, not only the full-resolution one | **repair.** 2 TB leaves 20.6 million files instead of 318,000. A small change to `_make_the_copies`. |
+| **B3** | **The server reads a bundle index** | **repair.** Without it bundling cannot be switched on at all. Goes with B2. |
+| B4 | **Two interop tests** — schema validation and an ngio open | how change B1 would have been caught the day it appeared |
+| B5 | **`plan_a_grid`** — frame + overlap intent → chunk, overlap, step | the workflow currently takes `piece=128` and hopes it suits the camera |
+| B6 | **`tables/owned_ROI_table`** in every tile | makes the viewer's seam and the analysis filter one decision instead of two |
+| B7 | **Chunk-aligned seams** | removes the second copy from every overlapping run |
+| B8 | **Unique label numbers across a run** | else cell 7 in two neighbouring tiles becomes one object |
+| B9 | **A view for segmentations** | else a labelled run meets the cliff the view was built to avoid |
+| B10 | **A run-level table** | else a question about the run means opening ten thousand tables |
+| B11 | **0.5 as the default in every writer** | `start_a_run` already does; `TileCanvases` and `TilesAndCanvas` do not |
 
 ---
 
 ## Before any of it
 
-Changes 1, 2 and 3 above. Until they are done, the positions cannot be opened by
+Changes **B1, B2 and B3** above. Until they are done, the positions cannot be opened by
 anybody else's software, and a run past a terabyte cannot be copied off the
 microscope.
