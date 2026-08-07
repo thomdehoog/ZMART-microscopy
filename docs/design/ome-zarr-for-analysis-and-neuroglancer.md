@@ -621,7 +621,8 @@ ngio-written label with nothing told to it.
   measurements with `add_table(...)`, into the position it read.
 - Have it read `tables/owned_ROI_table` and drop objects whose centre falls
   outside, so an overlapping run is not counted twice.
-- Put `ngio` in the analysis environment only, never in the acquisition one.
+- Put `ngio` in the analysis environment, and for now not in the acquisition one —
+  a "not today" rather than a "never", for the reasons given above.
 
 None of this needs the pipeline engine itself to change.
 
