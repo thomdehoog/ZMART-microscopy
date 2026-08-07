@@ -111,6 +111,49 @@ do not.
 rather than waiting a fixed interval. Until then no threshold in positions can be
 quoted for real hardware.
 
+### The limit is the opening, not the frame rate
+
+Measured again with cold openings and a per-position cost, `lit` matched at
+0.83–0.85 for the sources at every rung:
+
+```
+positions   fps            cold opening      one more        requests
+            pic / src      pic / src         pic / src       pic / src
+        5   90 /  88       0.21 / 0.21 s     --              65 /   58
+       50   89 /  58       0.20 / 0.29 s     <10 / 311 us     60 /  238
+      100   87 /  38       0.22 / 0.36 s     <10 / 317 us     62 /  438
+      200   89 /  26       0.24 / 0.81 s     <10 / 310 us     70 /  848
+      400   90 /  15       0.22 / 3.64 s     <10 / 283 us     67 / 1638
+```
+
+`one more` for the sources holds at 283–317 µs across an eightfold range, which is
+what a real linear law looks like. For the picture it is *bounded rather than
+measured* — the rise across the rungs is the same size as the column's own spread,
+so all that can be said is "under about ten microseconds a position".
+
+**Which column decides it changes on real hardware, and the earlier conclusion
+named the wrong one.** At four hundred sources, against the same ladder on the
+card:
+
+```
+                  software      card        recovers?
+drawing frame     121.7 ms      2.4 ms      ~50x
+fps                    15         115       yes
+cold opening         3.64 s      3.50 s     no
+requests               1638       1744      no
+```
+
+Drawing is GPU work and almost all of it comes back. Opening and fetching are
+per-source setup and I/O and do not move at all. So the frame-rate ceiling is an
+artefact of software drawing, and **the durable limit is the cold opening** — the
+worst-behaved column of the four, growing roughly quadratically, with the
+per-position cost of opening itself rising: 3.6 ms at a hundred, 4.1 at two
+hundred, 9.1 at four hundred. Four hundred positions take three and a half seconds
+to open on hardware that then draws them at 115 frames a second.
+
+Sub-second opening holds to somewhere around one to two hundred sources. That is
+the number to design against.
+
 ### What follows from it
 
 - Transforms are an **overlay for small runs** — a detail scan of a dozen positions
