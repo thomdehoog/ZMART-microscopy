@@ -315,7 +315,11 @@ There are two ways out, and they are not equal.
   (or TensorStore) return an inner chunk rather than a whole bundle file.** This
   closes the hazard and keeps the property the whole design exists for — the view
   goes on pointing at the positions' own smaller copies and never builds a
-  pyramid of its own.
+  pyramid of its own. It also sets the price: one pointed smaller level needs
+  origins and owned extents aligned to chunk × 8, and three pointed levels to
+  chunk × 64. Handing over whole 2048-voxel tile planes instead would need
+  16,384-voxel alignment even for the first smaller level, which is why the
+  bundle and the pointing unit cannot both be the whole plane.
 - **Fallback: point only at the full-resolution level and let the view write its
   own smaller copies.** This certainly works, and it surrenders exactly what the
   view was designed to avoid.
@@ -368,7 +372,10 @@ Some candidates we already suspect, offered so they can be confirmed or dismisse
 
 - The **coverage record** — a second bookkeeping mechanism beside the pointer map.
   Could declared geometry replace it? `multiview-stitcher` bounds work from the
-  stores' own extents and needs no such record.
+  stores' own extents and needs no such record. Only in part, on review: it also
+  holds the moment, the channel, the write order, repeated visits to one place
+  and whether a leg was abandoned, so it can go only once an append-only run
+  event manifest exists.
 - **Two writers** — `canvas.py` copies, `linked.py`/`positions.py` points. If
   chunk-aligned seams (B7) make pointing work for overlapping runs too, does the
   copying writer still need to exist for anything but foreign data?
@@ -395,13 +402,19 @@ Then the specific places we are least confident, in rough order.
 
 3. **The pyramid.** It costs 36% of a run at a halving ladder. A quartering ladder
    costs 7.6% and loses nothing; an eighth costs 1.8% but *striding* loses 37% of
-   small cells while *averaging* keeps 98%. We also showed averaging within a tile
-   is bit-for-bit averaging the whole canvas, so the stated reason for striding
-   ("averaging would mix voxels across the join between two positions") appears not
-   to hold. Is that reasoning right? Would you take an eighth-sized averaged
-   ladder — **about 90 GB** instead of 1.8 TB on five terabytes? That is the
-   measured 1.8% applied to five terabytes; the arithmetic alone gives a little
-   under 79 GB, the gap being compression bookkeeping and bundle indexes.
+   small cells while *averaging* keeps 98%. Averaging within a tile equals
+   averaging the whole canvas, but only where the tile's origin and owned extent
+   are whole multiples of the total shrink of the deepest level built tile by
+   tile — 512 for three levels of an eighth-sized ladder, not the 8 an earlier
+   pass recorded. A seam at voxel 1,632 is out by 32.0 at level 2 and 96.0 at
+   level 3, and the existing guard does not catch it, since it checks only the
+   levels the view points at. So the stated reason for striding ("averaging would
+   mix voxels across the join between two positions") holds only off that grid,
+   and the phase check has to stay. Is that reasoning right? Would you take an
+   eighth-sized averaged ladder — **about 90 GB** instead of 1.8 TB on five
+   terabytes? That is the measured 1.8% applied to five terabytes; the arithmetic
+   alone gives a little under 79 GB, the gap being compression bookkeeping and
+   bundle indexes.
 
 4. **Adopting ngio on the acquisition machine.** Sixty-one packages, on a Windows
    microscope PC, in the path of a live experiment. Is the standards-compliance
@@ -432,8 +445,8 @@ Worth separating, since the plan leans on all three.
 **Measured here:** the schema violation; ngio and ZMART's reader both accepting an
 ngio-written position; view against N sources at 50/200/600 positions; the copying
 writer at 1.98×; ladder cost and cell survival at 2×, 4× and 8×; averaging within
-a tile equalling averaging the canvas; bundle write speed; a view served from
-memory; every frame width from 512 to 5000 having a workable chunk; a TensorStore
+a tile equalling averaging the canvas where the placements line up, and the errors
+at a seam of 1,632 where they do not; bundle write speed; a view served from memory; every frame width from 512 to 5000 having a workable chunk; a TensorStore
 overlay of ten thousand positions read over local HTTP at a median of 0.586 ms,
 reproduced independently at 0.505 ms; the capped and uncapped bundles at 112,220
 against 112,412 bytes; the byte ranges a small read really asks for; the

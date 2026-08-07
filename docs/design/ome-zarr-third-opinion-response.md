@@ -4,11 +4,13 @@ A reply to the review recorded in
 [`ome-zarr-plan-third-opinion.md`](ome-zarr-plan-third-opinion.md), written after
 re-running its probes rather than reading them.
 
-**Nine of its findings are accepted. Four of those nine needed a correction of
+**Nine of its findings are accepted. Three of those nine needed a correction of
 their own, because re-running the probe showed something the review had not
-looked for. One recommendation is declined, for a reason the reviewer could not
-have known.** Everything below was measured on this machine; nothing is taken on
-report.
+looked for. A fourth correction we offered has since been withdrawn: on the 8×
+ladder the reviewer's arithmetic was right and ours was not. One recommendation
+is declined, and that is a preference of ours rather than an oversight of
+theirs.** Everything below was measured rather than taken on report; where a
+figure comes from the reviewer's machine and not ours, it says so.
 
 Before any of it, the plainest thing: **no production code has changed.** Every
 commit in this line of work touches documentation. The writer still bundles only
@@ -47,26 +49,36 @@ small levels.**
 
 ---
 
-## The one recommendation declined
+## The one recommendation declined, and the question it leaves open
 
 The review's preferred way out of the capping hazard is to point only at the
 full-resolution level and let the view write its own smaller copies. That
 certainly works, and it is recorded as the fallback.
 
-It is not the plan, because it gives up the one property this whole arrangement
+It is not our plan, because it gives up the one property this whole arrangement
 was built to have: the view holds no pixels and points at the positions' own
 smaller copies, so a run never pays for a second pyramid. That was a deliberate
-choice made early and for good reasons, and the review had no way to know it.
+choice made early, and declining the recommendation is a preference of ours, not
+something the review missed.
 
-The review's *own* second suggestion keeps it — let the view advertise the small
-inner chunks, and have the server or TensorStore return an inner chunk rather than
-a whole bundle file. That closes the same hazard at no cost to the design, and it
-is the same change the chunk-aligned seam already needs. It is recorded as
-preferred, with the reviewer's route beneath it.
+The reviewer's answer to that belongs here rather than left out, because it is a
+good one. A second pyramid is cheap: on an 8× ladder it adds roughly **1.6 to 1.8
+per cent** to a run — about 79 GB in theory, or 90 GB as measured, for every five
+terabytes acquired. Against that, the fallback removes a great deal of machinery,
+and this project has said plainly that it prefers less code to more. On those
+terms it may well be worth what it costs, unless the Windows benchmark gives a
+reason it is not. **That choice is still open, and it is the project owner's to
+make; nothing here settles it.**
+
+The review's *own* second suggestion keeps that property — let the view advertise
+the small inner chunks, and have the server or TensorStore return an inner chunk
+rather than a whole bundle file. That closes the same hazard at no cost to the
+design, and it is the same change the chunk-aligned seam already needs. It is
+recorded as preferred, with the reviewer's route beneath it.
 
 ---
 
-## Accepted, with a correction the review had not looked for
+## Accepted, with corrections of our own — one of them now withdrawn
 
 ### The multi-channel bug: right to delete, wrong that nothing is there
 
@@ -132,17 +144,25 @@ The review is also right that `cropped.py` is a **writer**, not a
 rectangle-reading tool — its own docstring says it writes the acquisition twice,
 once whole and once trimmed, and there is no rectangle-reading function in it.
 
-One refinement to the review's account of what would be lost. It describes the
-module as a fallback for acquisitions whose tiles do not land on an aligned grid.
-It is narrower and more important than that: it is **the only path that handles
-overlapping tiles at all**, because `TileCanvases` refuses them outright — one
-image can hold only one value per voxel. `cropped.py` trims half the shared strip
-from each meeting edge so the tiles butt together, and keeps every tile whole in a
-separate archive so a stitcher still has the overlap it needs. The second lost
-capability, a portable materialised OME-Zarr that opens in napari or Fiji on its
-own, is confirmed as stated.
+On what would be lost, an earlier draft of this reply overstated the case. It
+called `cropped.py` **the only path that handles overlapping tiles at all**. That
+is too strong, and the reviewer has shown why: they built a working linked view,
+holding no pixels of its own, out of two 128-voxel tiles acquired 96 voxels
+apart, trimming 16 voxels at the seam where they meet. `linked.py` already allows
+this, because each entry records which part of its tile is taken (`taken_from`)
+and how much ground that piece covers (`size`). A linked view can therefore
+describe an overlapping acquisition, as long as the placements line up.
 
-### Averaging and phase: confirmed to the digit, but the prescription overshoots
+What is genuinely at stake is narrower. `cropped.py` is the only ready-made
+writer that does three things for you at once: it trims half the shared strip
+from each meeting edge so the tiles butt together, it keeps every original tile
+whole in a separate archive so a stitcher still has the overlap it needs, and it
+leaves behind a portable, finished OME-Zarr image that opens in napari or Fiji on
+its own. Assembling that by hand is possible; having it done automatically is the
+capability at risk. It remains true that `TileCanvases` refuses overlapping tiles
+outright, because one image can hold only one value per voxel.
+
+### Averaging and phase: confirmed to the digit, and our own correction withdrawn
 
 The review's number reproduces exactly. A seam at voxel 144 with averaging blocks
 of 64 gives a maximum difference of **16.000000** on a ramp, and **49.2** on noisy
@@ -150,21 +170,63 @@ data, and leaves one coarse voxel that no tile can supply at all. An aligned
 origin owning only 160 voxels gives **52.4**. Swept a voxel at a time, the error is
 exactly the seam's remainder.
 
-Two corrections, both of which make the situation easier than the review implies.
+An earlier draft of this reply answered that with a correction of its own: that
+the governing number is the deepest level's total shrink, which is 8 for an 8×
+ladder, so a seam at 144 was already harmless for the ladder under discussion.
+**That correction was wrong and is withdrawn. The reviewer's arithmetic was
+right.**
 
-**The governing number is the deepest level's total shrink, not 64.** For an 8×
-ladder that is 8 — and 144 is already a multiple of 8, so the review's own example
-is harmless for the ladder actually under discussion. Its block of 64 models a
-seven-level ladder. The rule, stated once: a tile's origin and the extent of the
-ground it owns must both be whole multiples of the deepest level's total shrink,
-on every coarsened axis.
+The mistake is plain once written out. On a ladder whose *step* is 8×, every
+level shrinks by another factor of eight, so the totals are 8, then 64, then 512.
+The figure of 8 holds only where there is exactly one reduced level. The probe
+behind it had measured three successive 2× shrinks, which do come to 8 at the
+deepest level — a different ladder from the one under discussion, labelled as
+though it were the same one.
 
-**And this was never peculiar to averaging.** Today's every-nth-voxel shrinking
-has exactly the same requirement, and fails the same seam by **592.9**. The reason
-today's arrangement is safe is that `linked.py` already refuses any placement that
-does not line up when shrunk. So moving to an averaged ladder does not need a new
-guard — only that the existing one goes on being enforced. That is a good deal
-more reassuring than "one check too many was deleted".
+Re-measured here, with a seam at voxel 1,632 — chunk 204 × 8, a placement a real
+run could easily produce:
+
+| level | total shrink | maximum error | coarse voxels no tile can supply |
+| --- | ---: | ---: | ---: |
+| 1 | 8 | 0.0000 | 0 |
+| 2 | 64 | **32.0000** | 1 |
+| 3 | 512 | 96.0000 | 1 |
+
+Seams at 2,048 and at 4,096 come out exact at every level. The error is always
+the seam's remainder against that level's own total shrink, which is why a seam
+that looks harmless one level down can be badly wrong two levels down.
+
+The rule, corrected and stated once: **a tile's origin and the extent of the
+ground it owns must both be whole multiples of the total shrink of the deepest
+level that is built tile by tile** — 512 for a three-level 8× ladder — on every
+axis that is coarsened.
+
+Three things follow.
+
+- An 8× ladder and pointing at the positions' own smaller copies are not
+  inherently incompatible, but pointing at three levels asks for placements
+  aligned to the chunk size × 64.
+- Pointing at one smaller level is workable, provided the small inner chunks are
+  exposed and both the origins and the owned extents line up with the chunk
+  size × 8.
+- If a whole 2,048-voxel tile plane is the unit being pointed at, even the first
+  smaller level asks for alignment to 16,384 voxels, which no real acquisition
+  can be expected to deliver.
+
+**The reassurance attached to that correction is withdrawn as well.** Part of it
+holds: this was never peculiar to averaging, and today's every-nth-voxel
+shrinking has the same requirement, failing the seam at 144 by **592.9**. What
+does not hold is the conclusion — that `linked.py` already refuses any placement
+that does not line up, so an averaged ladder would need no new rule. The existing
+guard checks alignment against `pointing_at`, which covers the levels the view
+*points at*. It says nothing about the deeper levels the view **builds for
+itself, one tile at a time**, and those are precisely where the error in the
+table above appears.
+
+So the phase check must not be dropped. Either it is tightened to require
+alignment against the deepest level actually built that way, or the tiles are
+joined together before they are shrunk, so an averaging block never straddles a
+seam to begin with.
 
 ---
 
@@ -208,9 +270,10 @@ more reassuring than "one check too many was deleted".
 
 ## What the passing tests do and do not tell us
 
-The suites pass — 148 in the storage tests, and 105 passed with 1 skipped across
-the storage, server and linking suites, the skip being a real-browser rendering
-test with no built front end. That confirms the whole-bundle design as it stands
+The suites pass. Re-run by the reviewer on the unchanged code: **148 passed in
+the storage suite**, and **74 passed with 7 skipped** across the server and
+linking subset, those skips being tests that need a real browser, which was not
+available on that machine. That confirms the whole-bundle design as it stands
 today.
 
 It confirms nothing about the three things the targeted probes broke: capped
@@ -219,16 +282,37 @@ per-dataset translation across several levels. All three had passing tests aroun
 them and were wrong anyway. That is the argument for the two interop tests, and it
 is a better argument than the one originally written for them.
 
+And it says nothing about where the code stands: every production problem on
+these pages is still unfixed — the capping hazard, the translation repair and the
+display window it needs, bundling every level, the interop tests, and now the
+multi-channel defect diagnosed above. These documents are a plan; nothing in them
+has been built yet.
+
 ---
 
 ## What to do next
 
-1. **The writer fix and the reader fix, together, with the interop tests.** They
+1. **Repair the live multi-channel defect** described above. Nothing should land
+   ahead of it, since it makes the coarse levels of any multi-channel run wrong.
+   It has now been reproduced independently, and the surviving channel does
+   follow the write order:
+
+   ```
+   write order 0 then 1:   position level 0: 11, 29   view levels 1 and 2: 11, 0
+   write order 1 then 0:   position level 0: 11, 29   view levels 1 and 2: 0, 29
+   ```
+
+   The repair is worth recording now. Refresh the view levels for the current
+   moment and channel on **every** write, while still adding the position's
+   pointer only the first time that place is seen. Handing that refresh the image
+   already in hand also does away with re-reading the full-resolution level back
+   off disk, which is wasted work today.
+2. **The writer fix and the reader fix, together, with the interop tests.** They
    are one change; landing the writer alone puts every position as many times too
    far as the pyramid has levels. The tests must cover the display window as well
    as the translation.
-2. **The TensorStore benchmark on a Windows microscope computer.** It is one
+3. **The TensorStore benchmark on a Windows microscope computer.** It is one
    measurement, and it decides whether a large piece of custom machinery is needed
    at all.
-3. **Only then** choose between TensorStore and a custom inner-chunk path, and
+4. **Only then** choose between TensorStore and a custom inner-chunk path, and
    only then revisit bundling every level.

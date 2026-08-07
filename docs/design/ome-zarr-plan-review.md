@@ -213,18 +213,23 @@ a rectangle-reading tool at all: it is a **writer**, whose own docstring says it
 writes the acquisition twice, once whole and once trimmed. There is no
 rectangle-reading function in it.
 
-Two capabilities do earn its place, and both were checked:
+An earlier pass here called `cropped.py` the only path that handles overlapping
+tiles at all. That is too strong. A linked view *can* describe an overlapping
+acquisition when the tiles are aligned: two 128-voxel tiles acquired 96 voxels
+apart, with a 16-voxel crop taken at the shared seam, were built into a working
+no-copy view through `linked.py`'s own `taken_from` and `size` fields.
+`TileCanvases` does still refuse overlapping tiles outright, since one image can
+hold only one value per voxel.
 
-- It is the only path that handles an acquisition whose **tiles overlap**.
-  `TileCanvases` refuses overlapping tiles outright, since one image can hold
-  only one value per voxel. `cropped.py` trims half the shared strip from each
-  meeting edge so the tiles butt together, and keeps every tile whole in a
-  separate archive, so a stitcher still has the overlap to work from.
-- It produces a **portable, materialised OME-Zarr** — a real single image with
-  pixels in it, which opens in napari or Fiji on its own. The view holds no
-  pixels and means nothing without its pointer list and its positions folder.
+What `cropped.py` alone offers is being the **turnkey writer** for such a run,
+doing three things at once with nothing asked of the operator. It trims half the
+shared strip from each meeting edge so the tiles butt together; it archives every
+original tile whole, so a stitcher still has the overlap to work from; and it
+leaves behind a **portable, materialised OME-Zarr**, a real single image with
+pixels in it that opens in napari or Fiji on its own. The view holds no pixels
+and means nothing without its pointer list and its positions folder.
 
-Keep it for those two, and revisit once inner-chunk serving or TensorStore works.
+Keep it for that, and revisit once inner-chunk serving or TensorStore works.
 B7 is still worth doing on its own merits; it simply retires no module.
 
 **The pointer map — keep it, and stop calling it per-chunk.** The plan
@@ -317,25 +322,36 @@ the map is in memory either way, and is already built from an appended sidecar a
 O(1) per tile.
 
 **The pyramid, and averaging.** **The reasoning in the plan is right**, and the
-docstring in `canvas.py` states the wrong reason for a rule the code already makes
-unnecessary: the placement rule already requires every tile to begin on a multiple
-of chunk × largest-shrink, so every averaging block lies wholly inside one tile.
+docstring in `canvas.py` states the wrong reason for the rule. But an earlier
+pass went too far the other way, saying the code already makes the rule
+unnecessary. It does not: `linked.py` checks a placement against the levels the
+view *points at*, while the levels it **builds itself, tile by tile** go
+unchecked — and those are the deep ones where an averaging block can straddle a
+join. The number that governs is the total shrink of the deepest level built that
+way, which is 512 for three levels of an eighth-sized ladder, not 8. Re-measured,
+a seam at voxel 1,632 is exact at level 1 and out by 32.0 at level 2 and 96.0 at
+level 3. The phase check stays.
 
-**But there is an interaction the plan missed.** That same alignment rule scales
-with the ladder: at an eighth-sized ladder with three pointed levels it becomes
-chunk × 64 — with chunk 192, a 12,288-voxel placement granularity. Unachievable.
-**An 8× ladder and pointing at sub-levels are mutually exclusive.**
+**And the interaction with pointing is a price rather than a prohibition.**
+Pointing at three levels of an eighth-sized ladder needs placements aligned to
+chunk × 64 — with chunk 192, a 12,288-voxel granularity, unreachable in practice.
+One pointed smaller level needs only chunk × 8, and works if the view advertises
+the small levels' inner chunks. But with a whole 2048-voxel tile plane as the
+unit handed over, even that first smaller level would need 16,384-voxel
+alignment, which no stage plan can meet. **So an 8× ladder and pointing at
+smaller levels are not mutually exclusive, as this review first said** — the
+whole-tile-plane bundle and pointing at smaller levels very nearly are.
 
-They need not coexist. At 1.8% of the run, the view can simply **write its whole
+The cheaper escape stays open. At 1.8% of the run, the view can **write its whole
 pyramid and point only at level 0** — which is *simpler* than what exists:
-`pointed_levels` disappears, the shrink-alignment refusal disappears, and the
-`// shrink` arithmetic of item 1 goes with them. Since item 1's hazard is real
-after all, that is both a simplification and one way out of it, though the
-costlier way: it gives up pointing at the positions' own smaller copies.
-**Take the eighth-sized
-averaged ladder and the code deletion that comes with it:** **about 90 GB**
-instead of 1.8 TB, which is what the measured overheads of 1.8% and 36% come to on five
-terabytes, minus about 150 lines of the most delicate arithmetic in the project.
+`pointed_levels` disappears and the `// shrink` arithmetic of item 1 goes with
+it. The phase check does not, because the view still shrinks tile by tile. Since
+item 1's hazard is real after all, that is both a simplification and one way out
+of it, though the costlier way: it gives up pointing at the positions' own
+smaller copies. **Take the eighth-sized averaged ladder and the code deletion
+that comes with it:** **about 90 GB** instead of 1.8 TB, which is what the
+measured overheads of 1.8% and 36% come to on five terabytes, minus much of the
+pointing arithmetic — though not the phase check, which survives either way.
 One caveat for operators — an averaged coarse voxel is no longer a measurement, so
 brightness readings and thresholds must be taken at full resolution, and
 `contrast.py` measures from the coarsest level and needs re-checking.
@@ -445,7 +461,8 @@ it should be demonstrated in the plan rather than asserted.
    pass and since reinstated on measurement; see item 1.** Underneath it sits a
    second fault the plan had also not considered: `canvas.py:1992` bundles only
    the full-resolution level and leaves the whole pyramid above it unbundled.
-2. The ladder width and the pointing alignment rule cannot both widen.
+2. The ladder width and the pointing alignment rule widen together, and the
+   number that sets the alignment is the deepest level built tile by tile.
 3. What happens when a run outgrows its declared canvas mid-acquisition: currently
    a refusal with no recovery path.
 4. Crash recovery for the view — the sidecar survives and is merged on read, but
