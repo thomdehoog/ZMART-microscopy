@@ -163,6 +163,69 @@ This ran in the constrained regime rather than an easy one. Tiles of 64 with 32-
 pieces stepped 32 give `gcd(32, 64) / 32 = 1`, so exactly one pointable level -- the
 same restriction a 2304 tile with 288 pieces imposes at 12.5% overlap.
 
+### How far down a view can point, corrected
+
+The line above reads `gcd(step, tile) / chunk` as the number of pointable levels. It
+is not: that quotient is how much slack the placement has, counted in pieces, and
+each level spends half of it. The count is
+
+    1 + log2( gcd(step, tile) / chunk )
+
+The two expressions agreed above only because the slack there was exactly one piece,
+which is the single point where they meet.
+
+There is a second gate the line did not mention, and it is the one that binds in
+practice: **a view can point no deeper than its tiles go.**
+`_how_far_down_the_zooms_it_can_point` is `min(keeps, levels)`, where `keeps` is how
+many copies the tiles kept for themselves. Tiles written with `levels=1` cap the view
+at one pointed level however well the steps line up, and the chunk-alignment guard is
+never reached. Every earlier run here wrote single-level tiles, which is why the depth
+looked like a property of the overlap when half of it was a property of the writer.
+
+Both gates opened, 2026-08-07, `scratchpad/six_levels.py` -- 3x3 tiles of 2048 at 50%
+overlap, a 4096-voxel view asked for six levels:
+
+| pieces | tiles keep | pointed | the view on disk  | tile files | writing |
+|--------|-----------|---------|-------------------|-----------|---------|
+| 32     | 6         | 6 of 6  | 0.01 MB, 14 files |    49,266 |  34.1 s |
+| 128    | 4         | 4 of 6  | 0.14 MB, 19 files |     3,150 |   2.5 s |
+
+Each pointed level was composed back out of what `the_bytes_behind` hands a browser
+and compared with the specimen it was cut from: **0 voxels differ, at all six**, and
+no chunk went unresolved. The two levels the second arrangement could not reach came
+back unresolved rather than wrong, which is the failure to want -- the view declares
+them and the writer fills them.
+
+The rule is easier to hold as a count than as a logarithm: **measure the step in
+pieces, and halve that number as long as it stays whole.** A step of 1024 in 32-voxel
+pieces is 32, which halves five times, so six levels; the same step in 128-voxel
+pieces is 8, which halves three times, so four.
+
+**None of this survives an arbitrary overlap.** The step must be a whole number of
+pieces before one level works, and a power-of-two multiple of them for depth. What
+rescues it is that the step is *chosen*: an operator asking for 10% on a 2048 tile
+can be handed 12.5% by snapping 1843 down to 1792, and rounding the step down only
+ever adds overlap, never removes ground. Positions that are measured rather than
+commanded -- stage error, a drift correction applied afterwards -- are outside this
+altogether, and are where pointing stops and stitching begins.
+
+**Depth past two or three levels is not worth buying.** Each level is a quarter of the
+one above, so a view pointing at the first two writes 8.3% of one full-resolution
+copy, at three 2.1%, at four 0.5%. The 32-piece arrangement bought that last half of
+one percent for sixteen times the files and fourteen times the writing.
+
+**Under OME-Zarr 0.5 this gets harder, not easier.** Everything measured here is 0.4:
+the writer defaults to it (`canvas.py:1088`) and nothing outside the tests asks for
+0.5, so sharding was never in play. What happens when it is: a sharded tile bundles
+many pieces into one file, the view is declared to bundle them the same way
+(`linked.py:991`), and a browser therefore asks for whole bundles -- so it is the
+**bundle** that has to line up, not the piece inside it. The bundle is exactly the
+thing made large to stop a long run leaving millions of small files behind, so
+sharding does not buy back the file count that deep pointing costs; it trades against
+it. `Held` carries an offset and a length, so handing over part of a file is possible
+in principle, but the guard at `linked.py:758` measures against `stored.chunk`, which
+is the bundle wherever one exists.
+
 **So overlapping runs at survey scale are not the problem.** What stands between this
 and an acquisition is the writer computing ownership, which is the ten lines above
 done automatically rather than by hand.
