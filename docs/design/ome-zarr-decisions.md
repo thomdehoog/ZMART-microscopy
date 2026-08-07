@@ -5,8 +5,10 @@ what it affects. Everything not listed here is worked out by the software from
 the frame shape and the overlap you asked for.
 
 Detail lives in [`ome-zarr-checklist.md`](ome-zarr-checklist.md), the arrangement
-in [`zmart-ome-zarr-recipe.md`](zmart-ome-zarr-recipe.md), and the measurements in
-[`ome-zarr-for-analysis-and-neuroglancer.md`](ome-zarr-for-analysis-and-neuroglancer.md).
+in [`zmart-ome-zarr-recipe.md`](zmart-ome-zarr-recipe.md), the measurements in
+[`ome-zarr-for-analysis-and-neuroglancer.md`](ome-zarr-for-analysis-and-neuroglancer.md),
+and the case for letting ngio write the positions in
+[`ome-zarr-writing-through-ngio.md`](ome-zarr-writing-through-ngio.md).
 
 ---
 
@@ -70,7 +72,7 @@ and 3456 are better still, which is what to ask for when the format is settable.
 | 4 | **Where analysis results go** | **inside the tile** — `labels`, `tables` | where ngio, napari and Fiji look; our viewer already finds them |
 | 5 | **Where our own bookkeeping goes** | **beside the images**, never inside | a stray file inside makes zarr warn whoever opens it |
 | 6 | **Plate layout for screening runs** | **no, on any instrument** | well and field become columns of the run table; one arrangement everywhere |
-| 7 | **What ngio is for** | **reading, checking and analysing — never writing** | its version ceiling would otherwise become ours |
+| 7 | **What ngio is for** | reading, checking and analysing — **and, on test, writing the positions too**; see [`ome-zarr-writing-through-ngio.md`](ome-zarr-writing-through-ngio.md) | writing through it settles changes 1, 2, 6 and 11 by construction, because the API takes a `translation` and bundles every level. The view stays ours: no library will write an image whose chunks live elsewhere. |
 | 8 | **Whether the overlap is trimmed from the pixels** | **no** — it is accounted for in the viewer and in the analysis | the overlap is the only evidence of where the stage really went |
 
 ---
