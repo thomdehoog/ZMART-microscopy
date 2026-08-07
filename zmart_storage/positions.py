@@ -41,7 +41,20 @@ drawing rate measured flat from a hundred positions to six thousand four hundred
 And why not copy the positions into one big image, which would also give the
 viewer one thing to open? Because that writes every voxel twice — once as the
 position and once as the copy — and a run is large enough that the second copy is
-a real cost in disk, in time, and in waiting. Nothing here is copied.
+a real cost in disk, in time, and in waiting. **No voxel of a position is written
+twice here**, which is the claim that matters and the one this arrangement rests
+on.
+
+It is not quite "nothing is written". A position keeps only as many zoomed-out
+copies of itself as halving allows before one would be smaller than a single piece
+— see :func:`how_many_copies_a_position_can_keep` — and the picture is deeper than
+that as soon as a run is wide. Every level past what a position can supply has
+nothing to point at, so it is written, from the positions' own pixels. Measured on
+runs of 512-voxel positions in 128-voxel pieces: levels 0 to 2 hold **no chunk
+files at all**, and a run of four hundred positions writes 3.4 MB in 125 chunks of
+levels 3 and 4, against 216 MB of positions. It grows with the *area* of the run
+rather than with the amount of data in it, so the ratio only improves as the
+positions get deeper or more numerous.
 
 Opening a run in napari, Fiji, or anything else
 -----------------------------------------------
@@ -133,7 +146,13 @@ def how_many_copies_a_position_can_keep(
     Halving stops when a copy would be smaller than one piece, because a piece is
     the smallest thing that can be handed to the browser. A position 2048 voxels
     across kept in pieces of 128 therefore carries five copies — 2048, 1024, 512,
-    256, 128 — and a view over such positions writes no picture at any zoom.
+    256, 128 — and a view over such positions writes nothing at all at those five
+    zooms. **Anything coarser than the last of them is a different matter**: it has
+    no copy to point at, so it is written from the positions' pixels. Which zooms a
+    picture has is decided by how wide the run is, not by the position, so a wide
+    enough run always writes its coarse end however many copies a position keeps.
+    That is the only thing a run writes twice, it is small, and the note at the top
+    of this module gives the measurement.
 
     **The catch, and it is the reason a run can end up writing copies anyway.** A
     position has to begin on a multiple of the piece size times the largest shrink,

@@ -64,20 +64,36 @@ at zmart-links.json is not recognized as a component of a Zarr hierarchy"*, and 
 colleague meets a warning about a file they have never heard of. Reading the images
 never requires reading ours.
 
-**We write the position beside each resolution, and only there.** OME-Zarr allows
-`coordinateTransformations` on the multiscales as a whole *or* on each dataset, and
-the two **compose** — write both and the image is moved twice. We write the
-per-dataset one, which the format's own examples use and which is the only one a
-large part of the Python world reads. Writing it the other way makes `ngff-zarr` and
-anything built on it, including `multiview-stitcher`, place the image at the origin
-with nothing to say so.
+**We write the scale beside each resolution and the position above all of them.**
+OME-Zarr allows `coordinateTransformations` on the multiscales as a whole *or* on
+each dataset, and the two **compose**. Read off disk, a store of ours carries a
+`scale` in each dataset and a single `translation` on the multiscales block, and no
+per-dataset translation at all.
+
+**Which is legal, and is still the item on this page most likely to bite somebody.**
+This paragraph used to say we write the translation per dataset; read off disk we
+do not. The format allows either place, so this is not a divergence from OME-Zarr —
+it is a divergence from what a large part of the ecosystem reads. `ngff-zarr`, and
+so `multiview-stitcher` and much of the Python imaging world with it, takes the
+position **only** from the per-dataset block and never composes the outer one, so
+every ZMART acquisition opens there stacked on the origin with nothing to say so.
+`INTEROP.md` has the reading of their source and what to do about it, which is to
+write the translation per dataset as well.
 
 **We shrink by taking every second voxel rather than averaging.** The format says
-nothing about how the smaller copies are made, so this is within it. It is worth
-stating because it is deliberate and load-bearing rather than lazy: because no voxels
-are combined, a zoomed-out voxel comes from exactly one position, which is what lets
-a view point at the positions' own zoomed-out copies instead of writing its own.
-Averaging would look smoother and would quietly make that impossible.
+nothing about how the smaller copies are made, so this is within it, and the writer
+declares it — `"type": "nearest"`, with a `metadata` block saying every second
+voxel is kept along y and x. It is worth stating because it is deliberate and
+load-bearing rather than lazy: because no voxels are combined, a zoomed-out voxel
+comes from exactly one position, which is what lets a view point at the positions'
+own zoomed-out copies instead of writing its own. Averaging would look smoother and
+would quietly make that impossible.
+
+The catch that goes with it is written up in `zmart_storage/VOXEL_PLACEMENT.md`
+§3a: a coarse voxel's value is the fine voxel at the *low corner* of the block it
+covers, not the block's average, so a reader that assumes averaging places it
+`(2^k − 1)/2` fine voxels too far along in y and x. Nothing is out along z, because
+z is not shrunk at all.
 
 **We use the `omero` block for channel names, colours and brightness.** That block is
 a transitional part of the specification rather than a permanent one, and a future
