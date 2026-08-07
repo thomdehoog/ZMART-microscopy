@@ -643,6 +643,39 @@ and wide enough to contain real features. At 2048 voxels, ten per cent is 204
 voxels, which is generous. Well below about five per cent a stage error can exceed the
 overlap itself, and then the strip cannot do its job.
 
+##### How flexible is it, and should we fix one number?
+
+Measured, for a trim of up to one per cent:
+
+| asked for | 2048 sensor gives | 2304 sensor gives |
+| ---: | ---: | ---: |
+| 5% | 6.25% | 5.56% |
+| 7.5% | 7.69% | 7.41% |
+| **10%** | **10.00%** | **10.00%** |
+| 12.5% | 12.50% | 12.50% |
+| 15% | 15.38% | 14.81% |
+| 20% | 20.00% | 20.00% |
+| 25% | 25.00% | 25.00% |
+
+Ten, twelve and a half, twenty and twenty-five are hit **exactly**; seven and a
+half and fifteen land within four tenths of a per cent. Only five per cent misses,
+because a 64-voxel floor on the chunk makes the smallest possible overlap 128
+voxels, which is 6.25% of a 2048 frame. The rigid case is a small frame: a
+512-wide confocal scan comes out at 25% whatever is asked, since it is only eight
+chunks across.
+
+**So: default to ten per cent, and do not fix it.** Ten earns the default — it is
+exactly achievable on every real sensor and it is the number microscopists expect —
+but it has to stay adjustable, because a light-sheet often wants fifteen or twenty
+for reliable stitching through a volume, a fast survey that will never be stitched
+should not pay for overlap it will not use, and a 512 format cannot do better than
+twenty-five however politely it is asked.
+
+One default, freely overridden, and the writer reports what it actually managed:
+*"overlap 10.0% (230 of 2300 voxels)"*. The same shape as every other decision
+here — the operator asks in the units they think in, and the writer answers with
+what it could do.
+
 **And it is per axis.** Most runs overlap across the specimen and not at all in
 depth, and an axis with no overlap is trimmed by nothing and costs nothing. `z`
 does not have to follow `y` and `x`.
