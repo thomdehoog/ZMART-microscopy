@@ -139,15 +139,29 @@ person chooses, derived where arithmetic does better than a person.**
 
 ---
 
-## Before any of it: two things are blocking
+## What has to be built, in order
 
-1. **The per-dataset translation.** What we write today is invalid against the
-   official schema, so ngio refuses our tiles and `ngff-zarr` stacks them all at
-   the origin. The fix is written on `claude/ngff-translation-per-dataset`.
-2. **Reading a bundle index in the viewer's server.** Without it there is no
-   bundling, and without bundling a five-terabyte run cannot be copied.
-3. **Bundling every level, not only the full-resolution one.** Measured on two
-   terabytes: bundling level 0 alone leaves 20.6 million files, because the
-   pyramid above it is unbundled and dominates. Bundling all of them leaves
-   318,000. Until this is done, chunk size still has to serve the filesystem as
-   well as the viewer.
+Decisions above; work below. Three of these are repairs — the arrangement does
+not do what this page says it does until they are done. The rest are improvements.
+
+| | change | why |
+| ---: | --- | --- |
+| **1** | **Per-dataset translation** on positions | **repair.** Invalid against the official schema, so ngio refuses our tiles and `ngff-zarr` stacks them at the origin. Written on `claude/ngff-translation-per-dataset`. |
+| **2** | **Bundle every level**, not only the full-resolution one | **repair.** 2 TB leaves 20.6 million files instead of 318,000. A small change to `_make_the_copies`. |
+| **3** | **The server reads a bundle index** | **repair.** Without it bundling cannot be switched on at all. Goes with 2. |
+| 4 | **Two interop tests** — schema validation and an ngio open | how change 1 would have been caught the day it appeared |
+| 5 | **`plan_a_grid`** — frame + overlap intent → chunk, overlap, step | the workflow currently takes `piece=128` and hopes it suits the camera |
+| 6 | **`tables/owned_ROI_table`** in every tile | makes the viewer's seam and the analysis filter one decision instead of two |
+| 7 | **Chunk-aligned seams** | removes the second copy from every overlapping run |
+| 8 | **Unique label numbers across a run** | else cell 7 in two neighbouring tiles becomes one object |
+| 9 | **A view for segmentations** | else a labelled run meets the cliff the view was built to avoid |
+| 10 | **A run-level table** | else a question about the run means opening ten thousand tables |
+| 11 | **0.5 as the default in every writer** | `start_a_run` already does; `TileCanvases` and `TilesAndCanvas` do not |
+
+---
+
+## Before any of it
+
+Changes 1, 2 and 3 above. Until they are done, the positions cannot be opened by
+anybody else's software, and a run past a terabyte cannot be copied off the
+microscope.
