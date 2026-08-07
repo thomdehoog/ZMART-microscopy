@@ -41,6 +41,12 @@ above it explains what was left out and why.
 Read out of the installed engine, not from memory. Gestures marked **at:** are
 handled inside an image panel; the rest are keys.
 
+**This is the engine's own table, which is what the wheel rows below describe.**
+Since 6 August 2026 `viz_studio`'s viewer overrides two of them on both of its
+panels — the plain wheel zooms and shift and the wheel step through z — which is
+the decision in section 1 below, finally carried out. Where the two disagree, the
+override wins; nothing else in the table has changed.
+
 ### The mouse
 
 | Gesture | What it does today |
@@ -126,7 +132,7 @@ These are the places where the defaults are defensible for the engine's original
 audience and wrong for ours. None of them is difficult to change; all of them are
 unpleasant to discover late.
 
-### 1. The wheel currently steps through z, and does not zoom
+### 1. The wheel currently steps through z, and does not zoom — DONE
 
 This is the sharpest one. Everybody who has used a map in a browser expects the
 wheel to zoom. In this viewer it moves through the stack instead, and zooming
@@ -141,6 +147,23 @@ nowhere else to live.
 most often and without thinking, and a browser has taught everyone what it does.
 Stepping through the stack keeps the slider it already has, which is better than a
 gesture anyway because it shows you where in the stack you are.
+
+**Done, 6 August 2026, and on both panels.** `NeuroglancerView.jsx` sets
+`at:wheel → zoom` and `at:shift+wheel → step z` on the slice view *and* the
+perspective view. Guarded by `tests/test_interaction.py`.
+
+The second panel is the part worth remembering, because leaving it out cost an
+afternoon. Rebinding only the flat view left the volume on the engine's defaults,
+where the plain wheel steps z and zoom hides behind Control — so an operator who
+had just been taught that the wheel zooms found it doing nothing in three
+dimensions, and on a run one plane deep it could do nothing at all. That looked
+exactly like a volume renderer unable to draw at any resolution but the coarsest,
+and it was diagnosed as such, twice, before anybody varied the zoom the volume
+view actually reads. It refines the whole pyramid; see `HANDOVER_3D.md`.
+
+The decision this section records was written down on 30 July and not carried out
+until 6 August, which is its own small lesson: a decision recorded and not
+implemented reads, a week later, exactly like a decision that was implemented.
 
 ### 1a. And something nobody had noticed: the flat view was mirrored
 
