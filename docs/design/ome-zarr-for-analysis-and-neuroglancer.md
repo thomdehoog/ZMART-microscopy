@@ -48,7 +48,8 @@ before a single voxel is read. The view, which holds no pixels, opens perfectly.
 That is exactly the wrong way round.
 
 The cause is one line in `zmart_storage/canvas.py`, and the correction already
-exists on the branch `claude/ngff-translation-per-dataset`. With it applied,
+exists on the branch `claude/ngff-translation-per-dataset`, though it has to land
+with a matching correction to our own reader. With both applied,
 everything works: positions open, the pixels come back unchanged, the voxel size
 and the place on the stage are right, and a segmentation written by ngio shows up
 in our own viewer without any further work.
@@ -88,9 +89,10 @@ same treatment.
 
 ### With the correction applied
 
-Applying `claude/ngff-translation-per-dataset` to the writer, and making the
-view's own writer leave a translation alone when one is already there — otherwise
-the two both write one and the picture is moved twice — gives this:
+Applying `claude/ngff-translation-per-dataset` to the writer, and correcting our
+own reader at the same time — it adds the image-wide statement and then every
+resolution's on top, where it should combine the image-wide one with a single
+dataset, normally the first — gives this:
 
 | opened with ngio | result |
 | --- | --- |
@@ -98,7 +100,10 @@ the two both write one and the picture is moved twice — gives this:
 | a position | opens; same axes and voxel size; channel named `488`; every pixel back as written |
 
 Both OME-Zarr 0.4 and 0.5 behave identically, so the choice of generation does not
-enter into it.
+enter into it. The reader half is not optional: left as it is, it multiplies a
+position's stated place by the number of levels, so a true origin of (3, 5, 7) µm
+comes back as (9, 15, 21) on a three-level image. The writer change must not land
+on its own.
 
 The view reading back as zeros is expected and is not a fault: a view holds no
 chunk files of its own, because every piece of it is one of the positions'
@@ -311,6 +316,17 @@ bundle, found through the bundle's index. So the viewer's server changes from
 and no pixel is copied, so the arrangement survives — but it is more than handing
 over a file, and it needs writing and testing **before** a real light-sheet run
 rather than after one.
+
+**It must genuinely be a byte range, and not a whole bundle file.** On the small
+levels a writer caps the bundle to the level's own extent, which is right for the
+position but leaves a file the view cannot forward under its own declared shape:
+on a 256 × 256 level the capped bundle is 112,220 bytes against 112,412 uncapped
+for the same pixels, the difference being a smaller index, and the index carries a
+checksum, so bytes handed on under the wrong shape are refused outright. Returning
+an inner chunk avoids that, and it is cheap: logging the byte ranges a read really
+asks for, a 10 × 10 read fetched 53,744 bytes of an 855,499-byte bundle, 6.28% of
+it, because a small read costs what its inner chunk costs rather than what the
+bundle around it does.
 
 ---
 
@@ -525,13 +541,24 @@ that would bite:
 comparison timed writing a position by hand against writing the same position
 through ngio and reported ngio as four and a half to five and a half times
 slower. The two paths were not doing the same amount of work — the hand-written
-one skipped steps the ngio one performed — so that number overstates the gap.
-Measured again like for like, ngio takes between 0.91 and 1.14 times as long as
-writing by hand, which is to say about the same and sometimes quicker. Told to
-use our chunking and bundling but otherwise left alone it costs about 2.1 to 2.3
-times as much, and on its own default settings 7 to 9 times as much. So ngio's
-speed is a matter of configuring it correctly rather than a penalty that comes
-with the library, and none of the three reasons above rests on it.
+one skipped steps the ngio one performed — so that number overstates the gap. An
+independent benchmark on matched pixel layouts puts it at **2.39 times as long for
+a single 512-voxel plane and 1.45 times for sixteen planes** — roughly one and a
+half to two and a half times, with the larger writes closer to parity. On its own
+default settings it costs 7 to 9 times as much, so a good part of the difference
+is how it is configured rather than a penalty that comes with the library, and
+none of the three reasons above rests on it.
+
+**What matters on a microscope is the absolute time a position takes, not the
+multiple**, because the only question ever really asked is whether the microscope
+has to wait for the writer.
+
+**And the verdict is "not today" rather than "not ever".** Two things are in the
+way now: ngio caps its bundles on the small levels, which is correct for a
+position but not byte-compatible with a view that forwards bytes, as described
+above; and it has not been tried on a Windows microscope computer. Neither is
+permanent, and ruling the library out for good would sit badly with this project's
+own preference for ecosystem packages that enforce the standard.
 
 That split also fits how the analysis engine already works: ngio lives in the
 analysis conda environment, and the acquisition side never imports it.
@@ -678,7 +705,8 @@ one sentence.
 1. **Write each position's place on the stage beside each resolution**, not once
    for the image as a whole. The correction is already written on
    `claude/ngff-translation-per-dataset`; it needs merging into the storage
-   branch, plus the small guard in `linked.py` so the view is not moved twice.
+   branch, together with the correction to our own reader, which today adds every
+   level's translation instead of just one.
    Without this, no position we write can be opened by ngio, `ngff-zarr`,
    `multiview-stitcher`, or anything built on them — and for an overlapping or
    light-sheet run, where a stitcher is the only way to read the data at all, that
