@@ -346,6 +346,39 @@ exercised that, and it is exactly the kind of correctness question that needs th
 engine's own tests rather than an opening-time number. The patch lived in
 `node_modules` and has been restored.
 
+### Cutting requests buys almost nothing, measured
+
+The obvious follow-ups were all about the four metadata files a position carries:
+declare them in one document, write positions single-level, serve over HTTP/2 so
+the six-connection cap stops mattering. **All three attack a term that is not
+there.**
+
+Opening the same four hundred sources twice against one server, so the second read
+is a cache hit and metadata is effectively free:
+
+```
+engine                cold     warm    warm per source
+stock (eager)         8.20 s   7.62 s     19.0 ms
+microtask coalesce    8.58 s   7.97 s     19.9 ms
+50 ms batch           2.53 s   2.05 s      5.1 ms
+```
+
+Free metadata saves about **0.5 s out of 8.2** — six per cent — and the warm batched
+number is the same 2.05 s as the cold one. With the bind batched, fetching is not
+the cost at all; the residue is per-source engine work: a render layer, a chunk
+transform, an RPC to the chunk worker.
+
+**And it corrects the story told above for why the microtask coalesce failed.** It
+was not that sources arrive spread across the network: they still fail to batch when
+every read is a cache hit, because each response resolves in its own task and
+microtasks drain between them. No two binds share a tick however fast the data
+comes. The fifty-millisecond window works because it spans *tasks*, not because it
+outwaits the network.
+
+So the list of remaining levers is shorter than it looked. Batching the bind is
+worth 3.4x and is found. Bounding the number of sources is the only other one that
+touches the real term. Everything about requests is noise.
+
 ### Where this leaves the arrangement
 
 The ceiling was never inherent to placing tiles by transform. It is one eager call
