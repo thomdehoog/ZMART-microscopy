@@ -3,9 +3,8 @@
 Written 7 August 2026. **This document is self-contained on purpose** — it is
 meant to be handed to somebody, or something, that has not seen the conversation
 it came from. It sets out what the project is, what was measured, what was
-decided, what is proposed, and where a second opinion would be most valuable.
-
-If you are reviewing it, the questions we most want attacked are at the end.
+decided and what is proposed; if you are reviewing it, the questions we most want
+attacked are at the end.
 
 ---
 
@@ -106,22 +105,39 @@ wrote to. Writer and reader agreed perfectly.
 **The fix is already written** on a branch: put the translation beside each
 resolution, after the scale, and remove the image-wide one.
 
-### Two more faults, found while this plan was being reviewed
+### More faults, found while this plan was being reviewed
 
-**Multi-channel runs lose every channel but the first from the pyramid levels
-that are written.** In `zmart_storage/canvas.py`, the routine that builds the
-smaller copies writes only the first channel. So on any run with more than one
-colour, every channel after the first is correct at full resolution and blank at
-every zoomed-out level — which is a confusing way to meet a bug in the middle of
-an experiment.
+**On a multi-channel run, the view's own coarsest levels keep only whichever
+channel arrived first.** An earlier pass blamed the smaller-copy routine in
+`zmart_storage/canvas.py`; that was checked and is wrong, since it handles every
+channel at every level. The real defect sits in `positions.Run`, and touches only
+the levels the *view* writes for itself — those too coarse for any single
+position to supply. `positions.Run.write` tells the view about a place the first
+time it sees it, and the view fills those levels by reading that position at that
+instant, before the later channels exist on disk. Writing channel 1 first
+reverses which one survives. The positions' own pyramids, `TileCanvases` and the
+batch path that links finished tiles are all correct. At the microscope it looks
+like this: on a two-channel run the second channel is right until you zoom far
+enough out, and then goes blank.
 
 **Build item B1 and the view's reader must be fixed in the same change.** B1
-writes each position's place on the stage onto every pyramid level, which is
-where the format requires it. But the view's reader,
-`_where_the_view_begins` in `zmart_storage/linked.py:695-713`, currently adds up
-*both* of the places a translation can be written: the image-wide one and the
-per-level one. If B1 lands on its own, every position's place is counted twice
-and the whole canvas comes apart. They are one change, not two.
+writes each position's place on the stage beside every pyramid level, which is
+where the format requires it. But the view's reader, `_where_the_view_begins` in
+`zmart_storage/linked.py:695-713`, adds the image-wide translation once and then
+adds *every* dataset's translation as well. Built with a true origin of (3, 5, 7)
+micrometres over three levels, it reads back (3, 5, 7) as things are written
+today, **(9, 15, 21)** if B1 lands on its own, and four times the origin if both
+places are filled. So the multiplier is the number of levels, not two: B1 alone
+puts each position N times too far out, and the deeper the pyramid the worse it
+gets. The repair is to combine the image-wide transform with **one** chosen
+dataset, normally the first, rather than walking every level. Reader and writer
+are one change, not two.
+
+**A per-dataset translation is necessary but not sufficient.** In the same probe,
+a channel declared without an explicit display window was still refused by the
+validator, because the start and end brightness values it requires are missing;
+given a window, the position opens. That is worth saying, since these documents
+treat passing validation as the test that B1 is done.
 
 ---
 
@@ -152,12 +168,12 @@ the pointer map, recording coverage, watching a run fill in — rather than mere
 being there first.
 
 **With one exception, and it must be measured rather than assumed.** If the
-ecosystem's answer is too slow for the loop it sits in, that is a clear and
-sufficient reason to keep our own — and we already have one on record.
-`multiview-stitcher` can present a set of tiles to a browser as one image without
-writing anything, which is conceptually exactly right, and it takes **647
-milliseconds a chunk against 4.6 to read the same piece from disk**. A hundred and
-forty times too slow to look through a specimen.
+ecosystem's answer is too slow for the loop it sits in, that is sufficient reason
+to keep our own, and we have one on record. `multiview-stitcher` presents a set
+of tiles to a browser as one image without writing anything, which is
+conceptually exactly right, and takes **647 milliseconds a chunk against 4.6 to
+read the same piece from disk** — a hundred and forty times too slow to look
+through a specimen.
 
 So the rule has two clauses, and the second is a test, not an excuse:
 
@@ -167,31 +183,39 @@ So the rule has two clauses, and the second is a test, not an excuse:
 
 Which made one thing a task rather than an opinion: **timing ngio's write path
 against ours.** That has since been done, and the numbers are recorded in
-[`ome-zarr-plan-review.md`](ome-zarr-plan-review.md) — like for like, ngio writes
-a position at about our own speed. The question keeps its force for anything else
-we adopt: a position that takes noticeably longer to write is a position the
-microscope is waiting on.
+[`ome-zarr-plan-review.md`](ome-zarr-plan-review.md). On matched pixel layouts an
+independent benchmark measured ngio at **2.39× for a single 512-voxel plane and
+1.45× for sixteen planes** — so roughly one and a half to two and a half times
+our own path, with larger writes closer to parity. The absolute time a position
+takes matters more than the ratio, because the only question that counts is
+whether the microscope has to wait. On these numbers "not today" is well
+supported; "never" is not.
 
 **And it applies to the viewer as much as to the writer.** `viz_studio` is a
 hand-written standard-library HTTP server and a hand-built Neuroglancer front end.
-If something the community maintains would do the same job, that is preferable —
-standardisation is worth more to this project than owning the code. The capability
-that must survive is the one section 2 measures: **one source over N tiles**, and
-**live update while a run is still being acquired**. If nothing in the ecosystem
-does that, keeping our own is justified; if something does, ours should go.
+If something the community maintains would do the same job, that is preferable,
+because standardisation is worth more here than owning the code. The capability
+that must survive is the one section 2 measures: **one source over N tiles**, with
+**live update while a run is still being acquired**. If nothing does that,
+keeping our own is justified; if something does, ours should go.
 
 **One candidate has now been measured, and the result is encouraging without
 being conclusive.** Google's `tensorstore` library has an `overlay` driver, which
 composes many separate stores into one virtual array — which is precisely what
 the view does by hand. Reading through an overlay of **ten thousand positions**
-served over local HTTP took a **median of 0.586 ms** per read. That is fast
-enough to be worth taking seriously.
+served over local HTTP took a **median of 0.586 ms** per read, and an independent
+reproduction on Linux measured the same warm ten-thousand-position overlay at
+**0.505 ms at the median and 1.004 ms at the 95th percentile**, decoding and
+compression included. Two people, close agreement, comfortably inside the gate
+below.
 
-The caveat deserves equal weight: it was measured on a warm cache, on this
-machine's filesystem, with a single reader asking for one thing at a time.
-The microscope computers this has to run on are **Windows machines with NTFS
-filesystems**, where the cache is often cold and several readers are working at
-once. Until it has been measured there, the number does not settle anything.
+The caveat deserves equal weight: both runs used a warm cache, a Linux
+filesystem, hard-linked rather than separate physical files, and a single reader
+asking for one thing at a time. Neither tested several readers filling a screen
+at once, nor positions being replaced while the viewer runs. The microscope
+computers this has to run on are **Windows machines with NTFS filesystems**,
+where the cache is often cold. Until it is measured there, the number settles
+nothing.
 
 The acceptance gate is written down now, before the benchmark is run, so whoever
 runs it knows what counts as a pass: a **median read under 5 ms**, a
@@ -199,6 +223,18 @@ runs it knows what counts as a pass: a **median read under 5 ms**, a
 100 ms** when a new position is added. That last one matters because during a
 smart-microscopy run positions keep arriving, and the viewer must not stall every
 time one does.
+
+**That fixes the order of work: run the Windows benchmark first, and build the
+custom inner-chunk server only if the overlay fails the gate.** Building our own
+machinery first would go against the preference stated just above, since one
+afternoon of measurement may remove the need for it altogether. Adopting the
+overlay would take away most of the custom coordinate lookup, cropping and
+alignment code. What would stay ours is the view's OME metadata, the placement
+manifest, filling the empty ground where nothing has been imaged yet, encoding
+for the web, and updating safely while a run is live. One capability would be
+lost, and it is worth naming: TensorStore decodes and re-encodes every chunk, so
+a position's compressed bytes could no longer be passed straight through. The
+pixel values stay exact; the bytes themselves do not.
 
 A reviewer should apply this to everything below, not only to ngio. If some part
 of this arrangement duplicates what `ngio`, `ngff-zarr`, plain `zarr`, the
@@ -233,13 +269,18 @@ literal 10% is impossible on a 1024 frame.
 
 ## 5. The plan
 
-Nothing below is built. **B1–B3 are repairs; the arrangement does not do what
-section 4 claims until they are done.**
+Nothing below is built, and **no production code has changed** — this document
+records decisions and measurements, not work in progress. B1–B3 are repairs, and
+the arrangement does not do what section 4 claims until they are done. As things
+stand the writer still bundles only the full-resolution level, a 16-voxel crop
+from a 128-voxel bundle is still refused, TensorStore is not integrated, the
+pyramid still shrinks by taking every nth voxel, and the coverage, cropped and
+linking modules are all still in place.
 
 | | change | note |
 | --- | --- | --- |
 | **B1** | Per-dataset translation on positions | repair; already written on a branch, but it must land together with the view's reader — see section 3 |
-| **B2** | Bundle every level, not only the full-resolution one | repair; 2 TB is about 20.5 M files today and about 1.19 M with every level bundled |
+| **B2** | Bundle every level, not only the full-resolution one | repair, but **it must not be implemented as written** while the view points at capped smaller levels — see below; 2 TB is about 20.5 M files today and about 1.19 M with every level bundled |
 | **B3** | The viewer's server reads a bundle index | repair; a bundled chunk is a byte range, not a file |
 | B4 | Two interop tests — schema validation, and opening with ngio | how B1 would have been caught the day it appeared |
 | B5 | `plan_a_grid` — frame + intent → chunk, overlap, step | the workflow takes `piece=128` today and hopes |
@@ -251,15 +292,33 @@ section 4 claims until they are done.**
 | B11 | 0.5 as the default in every writer | one writer already does; two do not |
 
 **How B2's file counts actually work, because they are easy to get wrong.**
-Bundling does not merge one pyramid level into another. Every level of every
+Bundling does not merge one pyramid level into another: every level of every
 position still needs its own bundle file for each plane, so bundling the whole
-pyramid *multiplies* the level-0 bundle count by the number of levels. On a
-two-terabyte run with five levels that means
-**238,419 files** for the full-resolution level alone once it is bundled and
-**20,265,615** for the unbundled pyramid sitting above it, since every tile plane
-still leaves 64 + 16 + 4 + 1 loose chunk files across levels 1 to 4 — about
-**20.50 million** all told — against **about 1.19 million** once every level is
-bundled. That is a seventeen-fold reduction and clearly worth doing.
+pyramid *multiplies* the level-0 count by the number of levels. On a
+two-terabyte run with five levels that is **238,419** bundled files at full
+resolution plus **20,265,615** loose ones in the pyramid above, since every tile
+plane leaves 64 + 16 + 4 + 1 chunk files across levels 1 to 4 — about
+**20.50 million** all told, against **about 1.19 million** once every level is
+bundled. A seventeen-fold reduction, and clearly worth doing.
+
+**But B2 must not be implemented as written while the view points at capped
+smaller levels.** A bundle capped to a small level's own extent is not
+interchangeable with a full-sized one. Measured: a level 1 holding 256×256
+voxels, capped to 256×256, came to **112,220 bytes** against **112,412** for an
+uncapped bundle of exactly the same pixels. The 192-byte difference is the
+bundle's own index — a 512-voxel bundle lists 4 × 4 = 16 inner chunks at 16 bytes
+each, a capped 256-voxel one lists 2 × 2 = 4 — and that index carries a checksum,
+so handing capped bytes to a reader expecting the uncapped shape fails outright.
+There are two ways out, and they are not equal.
+
+- **Preferred: have the view advertise the small inner chunks, and let the server
+  (or TensorStore) return an inner chunk rather than a whole bundle file.** This
+  closes the hazard and keeps the property the whole design exists for — the view
+  goes on pointing at the positions' own smaller copies and never builds a
+  pyramid of its own.
+- **Fallback: point only at the full-resolution level and let the view write its
+  own smaller copies.** This certainly works, and it surrenders exactly what the
+  view was designed to avoid.
 
 ### The proposal on top: let ngio write the positions
 
@@ -278,6 +337,8 @@ chunk layout for pointing : codecs ['sharding_indexed'], one file per level
 
 It settles **B1, B2, B6 and B11** — two of the three repairs — because the API
 takes a `translation` and bundles every level, capping the small ones itself.
+That capping is the very thing the paragraph above warns about, so it would have
+to be paired with inner-chunk serving.
 
 **It does not settle B3, and makes it urgent**: ngio bundles by default, so the
 server must read a bundle index from the first run written this way.
@@ -339,9 +400,8 @@ Then the specific places we are least confident, in rough order.
    ("averaging would mix voxels across the join between two positions") appears not
    to hold. Is that reasoning right? Would you take an eighth-sized averaged
    ladder — **about 90 GB** instead of 1.8 TB on five terabytes? That is the
-   measured 1.8% applied to a five-terabyte run; the arithmetic alone gives a
-   little under 79 GB, and the gap is the compression bookkeeping and bundle
-   indexes a real run also pays for.
+   measured 1.8% applied to five terabytes; the arithmetic alone gives a little
+   under 79 GB, the gap being compression bookkeeping and bundle indexes.
 
 4. **Adopting ngio on the acquisition machine.** Sixty-one packages, on a Windows
    microscope PC, in the path of a live experiment. Is the standards-compliance
@@ -374,7 +434,28 @@ ngio-written position; view against N sources at 50/200/600 positions; the copyi
 writer at 1.98×; ladder cost and cell survival at 2×, 4× and 8×; averaging within
 a tile equalling averaging the canvas; bundle write speed; a view served from
 memory; every frame width from 512 to 5000 having a workable chunk; a TensorStore
-overlay of ten thousand positions read over local HTTP at a median of 0.586 ms.
+overlay of ten thousand positions read over local HTTP at a median of 0.586 ms,
+reproduced independently at 0.505 ms; the capped and uncapped bundles at 112,220
+against 112,412 bytes; the byte ranges a small read really asks for; the
+translation multiplier reading back as (9, 15, 21) over three levels.
+
+**Two figures whose basis has to be stated, or they will be compared wrongly.**
+The 1.98× above is measured against what the camera produced, while the 1.3×
+quoted for chunk-aligned seams is the cost of overlap against unique specimen
+area — the two do not divide by the same thing. And the 144, 400 and 100
+"requests" a tile-plane quoted elsewhere are counts of chunks rather than of
+complete web requests, since bundled reading also asks for the bundle's index,
+usually cached after the first. The arithmetic is right; the true request totals
+are a little higher.
+
+**The existing tests pass, and that is less reassuring than it sounds.** There
+are 148 in the storage suite, and 105 passed with 1 skipped across the storage,
+server and linking suites together, the skip being a rendering test that needs a
+real browser and a built front end. But they describe the whole-bundle design as
+it stands. Nothing yet covers a capped small level against an uncapped one,
+validation of a position whose channel has no display window, or a per-dataset
+translation across several levels — which is exactly why targeted probes found
+all three faults.
 
 **Calculated, not measured: the file counts at 2 and 5 TB.** They are arithmetic
 done on paper, and an earlier version of this document had them wrong by a factor

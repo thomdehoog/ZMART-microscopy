@@ -12,16 +12,19 @@ confident about is answered in its favour.
 
 **This document records the critique and what follows from it.** Where the review
 disagrees with a decision already recorded elsewhere, this page is the later one
-and should be treated as such.
+and should be treated as such. Note also that **no production code has changed**
+on account of any of it: everything here is a decision or a measurement, and the
+writer, the viewer and the modules discussed below are all still as they were.
 
-**Three of its findings did not survive a second look, and are marked as refuted
-where they appear.** They are the "capping hazard" in item 1, which a later
-reviewer took apart with two independent arguments and then disproved by
-measurement; the line count given for the view mechanism under "The questions the
-plan asked", which was wrong by a factor of four; and the claim that B7 retires
-`cropped.py`. All three are left standing with the refutation beside them rather
-than deleted, because a review is a record, and a record with its mistakes
-quietly removed is a worse one.
+**Two of its findings did not survive a second look, and are marked as refuted
+where they appear.** They are the line count given for the view mechanism under
+"The questions the plan asked", which was wrong by a factor of four, and the
+claim that B7 retires `cropped.py`. A third, the "capping hazard" in item 1, was
+struck out in an earlier pass and has since been **reinstated**: the refutation
+answered a different question, and measurement has now shown the original finding
+was right. All of that is left standing where it appears, with the round trip
+recorded beside it rather than tidied away, because a review is a record, and a
+record with its mistakes quietly removed is a worse one.
 
 ---
 
@@ -29,27 +32,27 @@ quietly removed is a worse one.
 
 | | was | now |
 | --- | --- | --- |
-| **B1** | repair — per-dataset translation | **unchanged.** Confirmed real at `canvas.py:1921`. And the fix already exists in the repository: `linked._say_where_each_resolution_sits` does exactly the right thing for views. Moving that logic into `_declare_one` is about twenty lines. |
-| **B2** | repair — bundle every level, capping small ones | **unchanged after all.** This review objected to the capping; the objection was later refuted and measured away. See "the capping hazard" below. |
+| **B1** | repair — per-dataset translation | **unchanged, but it cannot land alone.** Confirmed real at `canvas.py:1921`, and the fix already exists in the repository: `linked._say_where_each_resolution_sits` does exactly the right thing for views, and moving that logic into `_declare_one` is about twenty lines. The view's reader must change with it, because it adds the image-wide translation and then every dataset's as well — see the plan's section 3. |
+| **B2** | repair — bundle every level, capping small ones | **qualified.** This review's objection to the capping was struck out in an earlier pass and has since been reinstated on measurement: a capped bundle and a full-sized one are not interchangeable. B2 stands, but not as written while the view points at capped small levels. See "the capping hazard" below. |
 | **B3** | repair — the server reads a bundle index | **deleted. It is already built.** |
-| B4 | two interop tests | **raised. Highest value per line in the list.** |
+| B4 | two interop tests | **raised. Highest value per line in the list.** One detail for whoever writes them: a channel with no explicit display window is refused by the validator as well, so the test position must declare one. |
 | B5 | `plan_a_grid` | keep, but it is about fifteen lines plus a report. Do not let it become a planner. |
 | B6 | `owned_ROI_table` | keep, and **merge with B10** and the useful residue of the coverage record. |
-| B7 | chunk-aligned seams | **raised above B5 and B6.** ~~It deletes the most code, by retiring `cropped.py`.~~ **Refuted:** with one bundle per whole tile plane, reading a small rectangle still drags a whole bundle off disk, so `cropped.py` stays. B7 is still worth doing; it just retires no module. |
+| B7 | chunk-aligned seams | **raised above B5 and B6.** ~~It deletes the most code, by retiring `cropped.py`.~~ **Refuted:** `cropped.py` stays — though not for the reason first given here, which was itself wrong. See "Two writers" below. B7 is still worth doing; it just retires no module. |
 | B8 | unique label numbers | keep. Non-negotiable and independent. |
 | B9 | a view for segmentations | **deferred.** A second copy of the whole view mechanism, for runs that do not exist yet. Build it when a labelled run actually meets the cliff. |
 | B10 | a run-level table | keep, merged with B6. |
 | B11 | 0.5 as the default everywhere | **mostly absorbed** — ~~retiring `cropped.py` deletes one of the two writers it exists to fix~~ (refuted with the B7 row above: `cropped.py` stays, so both writers need the default). What remains is a default argument. |
 | **new** | — | **Stop re-reading every tile the view has just written.** See below. |
 
-Eleven items become **B1, B2 (as originally specified), B4, B5, B6+B10, B7, B8,
-and the new one.**
+Eleven items become **B1, B2 (qualified as below), B4, B5, B6+B10, B7, B8, and
+the new one.**
 
 ---
 
 ## The three things to change first
 
-### 1. B3 is a phantom — and the objection this review raised to B2 did not survive
+### 1. B3 is a phantom — and the objection this review raised to B2 stands after all
 
 **The server already does what B3 asks.** `viz_studio/backend/server.py` parses
 `Range` headers including suffix ranges — `bytes=-N`, which is exactly how a shard
@@ -65,8 +68,8 @@ the server already honours. There is an end-to-end test:
 points at them, serves them through the real server, and reconstructs the specimen
 bit-for-bit.
 
-**The capping hazard — refuted.** The claim is left below as written; the
-refutation follows it.
+**The capping hazard — refuted once, and reinstated on measurement.** The claim
+stands as written below; the record of the round trip it took follows it.
 
 Both the register and the ngio proposal praise capping the
 bundle at each level's own extent for the small levels. That is a silent
@@ -92,20 +95,34 @@ Either cap nothing and let small levels be one shard each naturally, or stop
 `pointed_levels` at the last level whose shard geometry is uncapped — and assert
 it.
 
-> **Why this is refuted, and what the real fault is.** A later reviewer took the
-> claim apart with two independent arguments and then settled it by measurement:
-> a capped shard and an uncapped one resolve **bit-for-bit identically**. So
-> there is no silent corruption here, ngio's capping is not a mark against it,
-> and neither of the two remedies suggested just above is needed. B2 stands as
-> the plan originally specified it.
+> **The round trip this finding took, recorded rather than tidied away.** A
+> later reviewer refuted it on the grounds that a capped shard and an uncapped
+> one resolve **bit-for-bit identically**, and an earlier pass struck the finding
+> out on that basis. **That refutation answered a different question.** It asked
+> whether a capped shard's *pixels* decode correctly when the shard is read on
+> its own, and they do — but the view never reads a shard on its own. It forwards
+> the bytes under its *own* declared shape.
 >
-> The silent-corruption risk is real, but its cause is somewhere else and is
-> much plainer. In `zmart_storage/canvas.py`, line 1992 reads
-> `if shard is not None and level == 0:` — so the writer shards **only the
-> full-resolution level** and leaves the whole pyramid above it loose. That
-> is the actual fault, and it is exactly what B2 was put on the list to repair.
+> Measured: a position's level 1 holding 256×256 voxels, with its shard capped to
+> 256×256, comes to **112,220 bytes** against **112,412** for an uncapped shard
+> holding the same pixels. Not identical. The 192-byte gap is the shard's index —
+> a 512-voxel shard indexes 4×4 = 16 inner chunks at 16 bytes each, a capped
+> 256-voxel one indexes 2×2 = 4 — and that index is checksummed, so handing the
+> capped bytes to a reader expecting the uncapped shape **fails with a checksum
+> error**. Capping is safe for a position opened directly and unsafe for a view
+> that forwards bytes: two different questions.
+>
+> So the finding above **stands after all**, and its remedies are live again,
+> alongside the better one the plan now carries: let the view advertise the small
+> inner chunks and serve an inner chunk rather than a whole shard file.
+>
+> One thing the refuting pass added is worth keeping, because it is true and was
+> missed here. `zmart_storage/canvas.py` line 1992 reads
+> `if shard is not None and level == 0:` — the writer shards **only the
+> full-resolution level** and leaves the whole pyramid above it loose. That is a
+> second and plainer fault, and exactly what B2 was put on the list to repair.
 
-### 2. Delete `zmart-coverage`
+### 2. Delete `zmart-coverage` — but not for free
 
 It is 845 lines with 841 lines of tests, and in the arrangement being proposed it
 is already dead:
@@ -126,15 +143,23 @@ answered by it: requests for never-imaged ground are already refused by
 granularity, which is the granularity a viewer draws at; and a second front end
 reads the same file, which travels inside the image's own metadata.
 
-What genuinely dies is the per-tile timestamp and `was_imaged(z, y, x, frame=,
-channel=)`. The pointer map omits `t` and `c` deliberately. If "which channels has
-this position been imaged in" is needed, that is **one column of the run-level
-table** — which B10 builds anyway.
+**But what dies is more than this page first said.** It claimed the useful
+residue was one column of the run-level table, and that understates it. Coverage
+records the moment in time and the channel, when each tile was written and in
+what order, the exact origin and shape, the scan's own tile numbering, repeated
+visits to the same place, and whether a leg of the run finished or was abandoned.
+A single channel column replaces none of that, and the pointer map omits `t` and
+`c` deliberately.
 
-**About 1,700 lines for one column.** The module's own argument — that coverage
-must never be inferred from brightness on a photon-counting detector — survives
-completely. It just becomes an argument for reading the pointer map rather than
-the pixels.
+So the deletion should not be presented as free. The honest choice is between two
+things: **either build the append-only run event manifest first** — one line per
+write, holding the store, the placement, the owned rectangle, the frame, the
+channel, the time and the tile number, from which the pointer attribute, the
+timepoint count and the B10 table can all be derived — **or state plainly which
+of those capabilities are being given up.** Either way the module's own argument,
+that coverage must never be inferred from brightness on a photon-counting
+detector, survives completely; it just becomes an argument for reading the record
+rather than the pixels.
 
 ### 3. Stop re-reading every tile the view has just written
 
@@ -174,11 +199,33 @@ stops working.
 
 ~~What can go is `cropped.py` — 965 lines plus 898 of tests, since B7 turns the
 trim into the placement's own `taken_from`/`size`, which `linked.py` already
-supports and already checks.~~ **REFUTED.** With one bundle per whole tile plane,
-reading a small rectangle out of a position still drags the whole bundle off
-disk, so the path that reads a sub-rectangle efficiently still earns its place.
-The decisions register and a later reviewer have both settled it the other way:
-keep it. B7 is still worth doing on its own merits; it simply retires no module.
+supports and already checks.~~ **REFUTED — keep it.** But the reason first given
+here was wrong, and so was the description of the module.
+
+The reason first offered was that reading a small rectangle still drags a whole
+shard off disk. Logging every byte range a read actually asks for shows
+otherwise: a sharded array fetches the shard's index plus only the inner chunks
+the rectangle touches. A 10×10 read from ZMART's own **855,499-byte** shard
+fetched **53,744 bytes, or 6.28%**; from a shard with smaller 64-voxel inner
+chunks it fetched **10,071 bytes of 1,535,521, or 0.66%**. What sets the cost of
+a small read is the inner chunk size, not the shard size. And `cropped.py` is not
+a rectangle-reading tool at all: it is a **writer**, whose own docstring says it
+writes the acquisition twice, once whole and once trimmed. There is no
+rectangle-reading function in it.
+
+Two capabilities do earn its place, and both were checked:
+
+- It is the only path that handles an acquisition whose **tiles overlap**.
+  `TileCanvases` refuses overlapping tiles outright, since one image can hold
+  only one value per voxel. `cropped.py` trims half the shared strip from each
+  meeting edge so the tiles butt together, and keeps every tile whole in a
+  separate archive, so a stitcher still has the overlap to work from.
+- It produces a **portable, materialised OME-Zarr** — a real single image with
+  pixels in it, which opens in napari or Fiji on its own. The view holds no
+  pixels and means nothing without its pointer list and its positions folder.
+
+Keep it for those two, and revisit once inner-chunk serving or TensorStore works.
+B7 is still worth doing on its own merits; it simply retires no module.
 
 **The pointer map — keep it, and stop calling it per-chunk.** The plan
 mis-describes its own artefact. It is **one line per tile**, holding origin and
@@ -237,12 +284,11 @@ from the file*, which the register states well a page later.
 
 **Decision 19 — one file per position per level — should be closed as "no".**
 The 596,000 files often quoted for a five-terabyte run is the
-**full-resolution level on its own**; once every pyramid level is bundled the
-whole run comes to about **2.98 million** files. Neither figure is remarkable on
-NTFS or ext4. Reducing the count further by bundling a whole tile at a time, at
-the cost of 800 MB in flight per tile and delayed live viewing, is a trade
-against no constraint. The measured 4× slowdown is rewrite amplification;
-the correct conclusion is the one already reached — one tile plane per bundle.
+**full-resolution level on its own**; once every level is bundled the whole run
+comes to about **2.98 million**, and neither figure is remarkable on NTFS or
+ext4. Reducing the count further by bundling a whole tile at a time, at 800 MB in
+flight per tile and delayed live viewing, is a trade against no constraint. The
+conclusion already reached is the right one: one tile plane per bundle.
 
 **Decision 16 — HTTP/2 — has the right recommendation for the wrong reason.** "A
 certificate on every microscope PC" is not the real cost; on localhost you control
@@ -283,8 +329,10 @@ chunk × 64 — with chunk 192, a 12,288-voxel placement granularity. Unachievab
 They need not coexist. At 1.8% of the run, the view can simply **write its whole
 pyramid and point only at level 0** — which is *simpler* than what exists:
 `pointed_levels` disappears, the shrink-alignment refusal disappears, and the
-`// shrink` arithmetic of item 1 goes with them — a simplification rather than,
-as item 1 claimed, a fix for a hazard. **Take the eighth-sized
+`// shrink` arithmetic of item 1 goes with them. Since item 1's hazard is real
+after all, that is both a simplification and one way out of it, though the
+costlier way: it gives up pointing at the positions' own smaller copies.
+**Take the eighth-sized
 averaged ladder and the code deletion that comes with it:** **about 90 GB**
 instead of 1.8 TB, which is what the measured overheads of 1.8% and 36% come to on five
 terabytes, minus about 150 lines of the most delicate arithmetic in the project.
@@ -296,22 +344,25 @@ brightness readings and thresholds must be taken at full resolution, and
 cannot write the B1 fault; that value is available without the cost, by validating
 against its schemas as a development dependency. Against it: it cannot resize and it
 cannot write the view. (This review also counted its per-level shard capping
-against it, on the strength of the hazard described in item 1. That hazard has
-since been refuted and measured away, so the capping objection falls with it and
-should carry no weight here.) **Adopt ngio for reading, validating and analysis; write
+against it, on the strength of the hazard in item 1. That hazard is real after
+all, so the objection stands — but it bears on how the view points at small
+levels rather than on ngio in particular, and on its own it does not decide the
+ngio question either way.) **Adopt ngio for reading, validating and analysis; write
 positions with your own code, checked against ngio's schemas in CI.**
 
-*(A timing was taken separately, after the review, and it was wrong. It reported
-2,230–2,825 ms a position through ngio against 485–500 ms by hand, four and a half
-to five and a half times slower, and concluded that the second clause of the
-standing preference applied. The comparison was unfair: the two paths were not
-doing the same amount of work, and the hand-written one skipped work that ngio
-performed. Measured like for like, ngio is **0.91–1.14×** — the same speed, and
-sometimes a little quicker. With its settings matched to ours it is **2.1–2.3×**
-slower, and left on its own defaults **7–9×**. So the slowness is in the defaults
-and is a matter of configuring the library correctly, not a penalty built into it.
-**Speed no longer argues against ngio**, and the recommendation above rests on the
-two reasons that survive: it cannot resize, and it cannot write the view.)*
+*(The write timing took several passes to settle. A first one reported
+2,230–2,825 ms a position through ngio against 485–500 ms by hand, but it
+compared two paths doing different amounts of work. A second then recorded
+**0.91–1.14×**, the same speed like for like — no measurement supports that
+figure, and it should be dropped. On matched pixel layouts the numbers are
+**2.39× for a single 512-voxel plane and 1.45× for sixteen**, with larger writes
+closer to parity, and **7–9×** if the library is left on its own defaults. So the
+honest range is one and a half to two and a half times, and much of the rest is a
+matter of configuring the library correctly. The absolute time a position takes
+matters more than the ratio, since the only question is whether the microscope
+has to wait: **"not today" is well supported, "never" is not.** The
+recommendation above rests on the two reasons that survive: it cannot resize, and
+it cannot write the view.)*
 
 **Overlap ownership.** Centre-in-owned-rectangle is right and is what the field
 does. Two additions needing no stitching: break ties for border-touching objects
@@ -348,12 +399,18 @@ OME-Zarr source composed from N tile stores, in a browser."**
   it will not match 4.6 ms — **but if it lands at 20 ms it deletes both
   `linked.py` and `linking.py`.** *This is the highest-value unmeasured question
   in the plan and it was not in the plan.* An afternoon's work. *(It has since
-  been measured on this machine — a median of 0.586 ms through an overlay of ten
-  thousand positions, comfortably beating the 4.6 ms this bullet doubted it could
-  reach — but not yet on a Windows microscope computer, which is where it counts.
-  The plan's section 4 records the figure and the acceptance gate. Note also that
-  what would be deleted is about 2,380 lines, not the 590 stated further up; the
-  prize is larger and so is the undertaking.)*
+  been measured twice — a median of 0.586 ms through an overlay of ten thousand
+  positions, and 0.505 ms with a 95th percentile of 1.004 ms in an independent
+  reproduction on Linux — comfortably beating the 4.6 ms this bullet doubted it
+  could reach. Neither run was on a Windows microscope computer, which is where
+  it counts. **So the order of work is: benchmark there first, and build the
+  custom inner-chunk server only if it fails the gate** — building our own
+  machinery ahead of a measurement that may make it unnecessary is the very thing
+  the standing preference argues against. The plan's section 4 records the
+  figures, the gate, and the one capability adoption would cost: compressed bytes
+  could no longer be passed through untouched. Note also that what would be
+  deleted is about 2,380 lines, not the 590 stated further up; the prize is
+  larger and so is the undertaking.)*
 - **`multiview-stitcher`** does exactly this job and is 140× too slow for a
   diagnosable reason: it detects the grid-aligned case and then never uses the
   answer, resampling an integer translation through a general affine transform.
@@ -384,10 +441,10 @@ it should be demonstrated in the plan rather than asserted.
 
 ## What the plan had not considered
 
-1. ~~The capping hazard of item 1 — silent wrong bytes.~~ **Refuted; see item 1.**
-   What the plan had genuinely not considered here is the plainer fault
-   underneath: `canvas.py:1992` bundles only the full-resolution level and leaves
-   the whole pyramid above it unbundled.
+1. The capping hazard of item 1 — silent wrong bytes. **Struck out in an earlier
+   pass and since reinstated on measurement; see item 1.** Underneath it sits a
+   second fault the plan had also not considered: `canvas.py:1992` bundles only
+   the full-resolution level and leaves the whole pyramid above it unbundled.
 2. The ladder width and the pointing alignment rule cannot both widen.
 3. What happens when a run outgrows its declared canvas mid-acquisition: currently
    a refusal with no recovery path.
