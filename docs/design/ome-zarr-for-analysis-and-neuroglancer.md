@@ -342,6 +342,57 @@ worth reaching for only if the border-touching flag starts firing often.
 
 ## Where ngio helps, and where it would hurt
 
+### First, the question underneath: is it really our bug?
+
+Before deciding whether to depend on a library, it is worth knowing whether the
+library was right. ngio refuses our positions — but a strict library can be
+strict about the wrong thing.
+
+It was not. `ngff-zarr` ships the **official OME-Zarr schemas**, and our files were
+checked against them directly rather than against anybody's opinion:
+
+```
+BROKEN (as the latest branch writes a position): INVALID against the official 0.4 image schema
+FIXED  (per-dataset translation):                VALID
+```
+
+So this is a specification violation, not a disagreement. ngio was right to
+refuse, `ngff-zarr` was right to ignore the transformation, and the files we write
+today are simply wrong in a way our own reader could never have told us.
+
+That single result is the strongest argument in this document for depending on
+somebody else's library at all — in some role.
+
+### Should we use ngio? Yes, in three roles out of four
+
+**1. As a check on what we write — yes, and this is the highest value for the
+smallest cost.** ngio found in minutes a fault that had been in the writer for
+some time and that no test of ours could catch, because our reader and our writer
+shared the misunderstanding. Add it to the development requirements and let the
+test suite open every kind of image we write. Alongside it, validate against
+`ngff-zarr`'s bundled schemas, which are the format's own words rather than a
+library's reading of them.
+
+**2. As the analysis library — yes**, in the analysis conda environment. See
+below for what it gives us.
+
+**3. As the way we read other people's data — yes.** A mesoSPIM transfer or a
+collaborator's plate opens with the same few lines as our own runs.
+
+**4. As the thing that defines our format — no.** We should keep writing the
+metadata ourselves and checking it against the schemas, rather than writing
+through ngio's writer. The reason is concrete rather than proud: **ngio 1.0.0
+declares only 0.4 and 0.5**, while `ngff-zarr` 0.41 already supports 0.4 through
+0.6 and ships a `scene.schema`. Writing through ngio would quietly make its
+version ceiling our version ceiling, on exactly the part of the format — scenes
+and coordinate systems — that section 6 of the recipe says we most want to grow
+into. Reading through it costs us nothing of the kind.
+
+The short form: **let ngio read our files and judge them; do not let it write
+them.**
+
+### Where it helps, in detail
+
 ngio is the right tool for part of this and the wrong tool for another part, and
 the line between them is clear enough to state.
 
@@ -532,10 +583,12 @@ one sentence.
 3. **Say in the operator-facing documents that analysis results belong inside the
    position** — `labels` and `tables` — and that only our own two folders stay
    outside.
-4. **Keep a test that opens our files with somebody else's library.** The one on
-   the correction branch (`test_other_tools_can_read_us.py`) does this with
-   `ngff-zarr`. An ngio equivalent is worth having beside it, because ngio
-   validates strictly and would have caught this the day it was introduced.
+4. **Keep tests that judge our files by somebody else's rules.** Two of them, and
+   they catch different things. Validate every kind of image we write against
+   `ngff-zarr`'s bundled OME-Zarr schemas, which are the format's own words — that
+   is what proved the current fault is a violation rather than a difference of
+   opinion. And open every one of them with ngio, which is the check that a real
+   analysis library will accept what we produce.
 5. **Make 0.5 the default in every writer**, not only in `start_a_run`, and
    correct the documentation that still says 0.4.
 6. **Run `viz_studio/measure_the_overlapping_run.py` on a machine with a real
