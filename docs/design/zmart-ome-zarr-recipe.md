@@ -728,6 +728,43 @@ is an instrument instruction in an instrument's own vocabulary, and it belongs i
 the driver. But it is a nicety rather than a requirement: with the chunk derived
 per run, 2044 already works.
 
+#### When the vendor writes the files, not us
+
+For a good many camera-based systems the acquisition software writes its own
+files and we never see a frame in flight. That sounds like it takes the chunk
+decision away from us. It does not, and the reason is the one this section opened
+with: **nobody hands us OME-Zarr, so we are always the ones writing it.**
+
+Two cases, and both already exist in this repository:
+
+- **ZMART drives the acquisition** and receives frames, so it writes the
+  OME-Zarr directly. The chunk is chosen at run setup, as described above.
+- **The vendor writes first** — LAS X native autosave, a mesoSPIM run, anything
+  with its own format — and we convert afterwards.
+  `acquisition/materialize.py` already does exactly this, reading a source plane
+  and writing a canonical ZMART file. Its target today is OME-TIFF; pointed at
+  OME-Zarr instead, **the conversion is the moment the chunk is chosen**, and
+  everything above applies unchanged.
+
+So what we genuinely do not control costs us less than it seems:
+
+| not ours to choose | what it costs |
+| --- | --- |
+| the sensor size | nothing — the chunk is derived from whatever it is |
+| the vendor's own file format | one conversion, which we were doing anyway |
+| **a vendor handing us OME-Zarr already chunked** | the only real case: either accept it and fall back to copying, or rechunk, which is a full rewrite |
+
+**Converting is not free and should be budgeted rather than discovered.** A run the
+vendor wrote as five terabytes of TIFF is a five-terabyte read and a
+five-terabyte write to bring across, once. That is the price of the format itself
+rather than of anything decided here, and it is paid at a moment of our choosing —
+after the specimen is off the stage — rather than during the acquisition.
+
+And the asymmetry is the right way round. For the runs ZMART acquires itself —
+the long ones, the five-terabyte ones, the ones where a second copy would really
+hurt — we hold the pen from the first frame. The awkward case is data somebody
+else acquired, which is exactly where a one-off conversion is an acceptable price.
+
 #### Point scanners, which can scan almost any format
 
 A camera gives one size and that is that. A confocal is a point scanner: the
