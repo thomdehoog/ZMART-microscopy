@@ -574,6 +574,51 @@ gets worse than it is; some runs get much better. That is the honest measure of
 this change, and it is why the awkward formats are an annoyance rather than a
 threat to the arrangement.
 
+#### The decision: derive the chunk from the format, and stop asking
+
+Everything above makes this sound like a burden on whoever sets up a run. It is
+not, and the reason is one fact that is easy to miss:
+
+> **A zarr chunk does not have to be a power of two.** 73 is as valid a chunk as
+> 128.
+
+So the format never has to be standardised. The **chunk is derived from the
+format**, at run setup, by the writer — and the operator is never asked about it
+at all. They say what overlap they want, in the ordinary way a microscopist
+thinks about it, and the writer picks the chunk and the exact overlap together:
+the pair that divides the tile and lands nearest what was asked, preferring a
+larger chunk when two are equally close.
+
+Asking for "about 10%", here is what that gives on real sensors:
+
+| sensor across | chunk chosen | chunks per tile | overlap | which is |
+| ---: | ---: | ---: | ---: | ---: |
+| 512 | 64 | 8 | 128 | 25.0% |
+| 1024 | 64 | 16 | 128 | 12.5% |
+| 2048 | 128 | 16 | 256 | 12.5% |
+| **2304** (Hamamatsu Orca) | 128 | 18 | 256 | **11.1%** |
+| 2560 | 128 | 20 | 256 | **10.0%** |
+| 4096 | 64 | 64 | 384 | 9.4% |
+| 1608 | 67 | 24 | 134 | 8.3% |
+| 2044 | 73 | 28 | 146 | 7.1% |
+| 1200 | 75 | 16 | 150 | 12.5% |
+
+Every one of them works, including the awkward ones — and 2304, the size that
+prompted the worry, lands **closer to ten per cent than 2048 does**. The odd
+chunk sizes in the last few rows are not a compromise; they are ordinary zarr.
+
+Two honest notes on the table. A small tile cannot have a fine overlap grid —
+512 across can only manage 25% — but a 512 tile is cheap, so the extra imaging
+costs little. And where a very small chunk is chosen (67, 73) the run leaves more
+files behind; if that matters on a particular filesystem, the writer can be asked
+to prefer a larger chunk and accept an overlap further from the request — 2044
+would then take a 146-voxel chunk and a 14.3% overlap.
+
+**So the decision is: nobody chooses a format, and nobody chooses a chunk.** The
+camera decides the format, the operator asks for an overlap in per cent, and the
+writer works out the rest and says what it picked. The only thing that needs
+writing down is that sentence.
+
 #### Point scanners, which can scan almost any format
 
 A camera gives one size and that is that. A confocal is a point scanner: the
@@ -597,11 +642,8 @@ round.
    run regardless. An overview at a fast 512 and a target scan at 1024 with more
    zoom are two acquisition types, each internally consistent, and that is
    exactly the arrangement §1 already describes.
-2. **Choose the chunk to fit the format, not the format to fit the chunk.** There
-   is nothing sacred about 128. The chunk must divide the tile, and it is picked
-   per run: 2048 takes 128 or 256, 1024 takes 128, 512 takes 128 or 64, and a
-   1024 × 256 strip takes 128 on both axes. Most of what a confocal offers by
-   default is a power of two, and all of those work.
+2. **The chunk is derived from the format**, as just described, per run and per
+   axis. A 1024 × 256 strip is as workable as a square.
 3. **When a format genuinely will not fit, say so at setup and write twice.** An
    odd zoom-cropped region — 700 voxels across, say — divides by nothing useful,
    and no chunk choice makes its tiles handable-over whole. That run falls back to
