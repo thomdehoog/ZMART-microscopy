@@ -53,9 +53,16 @@ def test_the_plane_scrolls_through_z(viewer_page):
 
     Its "yz" panel is the one whose wheel steps z -- verified here, because the
     intuitive choice ("xy") steps x instead and looks correct while being wrong.
+
+    **On shift and the wheel, since 6 August 2026.** The plain wheel zooms in this
+    viewer; `CONTROLS.md` §1 records the decision and `test_interaction.py` guards
+    both halves of it. What is checked here is unchanged in substance -- that the
+    gesture bound to stepping z steps z and does not pan -- only which gesture that
+    is.
     """
     viewer_page.mouse.move(600, 450)
-    # One click first, and its result deliberately ignored. A view opens centred,
+    viewer_page.keyboard.down("Shift")
+    # One notch first, and its result deliberately ignored. A view opens centred,
     # which for an even number of planes is halfway between two of them, and the
     # first move settles onto the nearer one -- so that first step also shifts the
     # other axes by half a voxel. That is the engine tidying up, not panning, and
@@ -67,30 +74,41 @@ def test_the_plane_scrolls_through_z(viewer_page):
         viewer_page.mouse.wheel(0, -120)
     viewer_page.wait_for_timeout(1200)
     after = viewer_page.evaluate("() => Array.from(window.zmartViewer.navigationState.position.value)")
-    assert after[0] != before[0], "the wheel must step z"
-    assert after[1:] == before[1:], "the wheel must not pan"
+    viewer_page.keyboard.up("Shift")
+    assert after[0] != before[0], "shift and the wheel must step z"
+    assert after[1:] == before[1:], "stepping z must not pan"
 
 
-# What tells the two shaders apart, now that both of them emit alpha.
+# What tells the two shaders apart, and it has had to move twice.
 #
-# They did not always. The flat view used to draw solid colour, and "does this
-# shader emit alpha at all" was then enough to say which of the two was loaded.
-# It is not any more: a flat row also has to come out transparent where nothing
-# has been imaged, or the topmost row blacks out every row beneath it and an
-# experiment with two channels shows only one of them. So both views emit alpha,
-# for two different reasons, and asking about alpha no longer distinguishes them.
+# It was once "does this emit alpha at all", because the flat view drew solid
+# colour. That stopped working when a flat row had to come out transparent where
+# nothing has been imaged, or the topmost row blacks out every row beneath it and
+# an experiment with two channels shows only one of them.
 #
-# What still does is the opacity control. It exists only in the volume shader,
-# where it is what lets an operator see through the fog to the structure inside;
-# a single plane has nothing to see through and is not given one.
-VOLUME_ONLY_CONTROL = "opacity"
+# It was then the opacity control, which lived only in the volume shader. That
+# stopped working on 6 August 2026, when the flat shader was given one too --
+# because the bottom-most row is drawn with blending off, so an opacity that
+# reaches the picture only through the alpha does nothing at all there. See
+# `test_opacity_reaches_the_flat_picture.py`.
+#
+# What is left is the depth fade, which is the one control that could not mean
+# anything in a plane: there is no ray to fade along. If it ever gains a flat
+# meaning, this has to move again -- and the way to tell will be this test
+# failing, which is the point of keeping it a named constant.
+VOLUME_ONLY_CONTROL = "attenuation"
+
+# Neuroglancer's own numbering: OFF 0, ON 1, MAX 2, MIN 3. The viewer opens a
+# volume on the brightest-along-the-ray projection rather than on accumulation;
+# `test_the_volume_projection_can_be_chosen.py` has the measurement behind that.
+RAY_CASTING = 2
 
 
 def test_clicking_3d_switches_to_volume_rendering(viewer_page):
     click_mode(viewer_page, "3D")
     state = viewer_page.evaluate(_STATE)
     assert state["mode"] == "volume"
-    assert state["volumeMode"] == 1, "the engine did not enter volume rendering"
+    assert state["volumeMode"] == RAY_CASTING, "the engine did not enter volume rendering"
     assert "emitRGBA" in state["shader"], "any shader here must emit alpha"
     assert VOLUME_ONLY_CONTROL in state["shader"], (
         f"the volume shader must be the one loaded: {state['shader']}"
