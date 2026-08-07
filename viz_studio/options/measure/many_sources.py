@@ -189,6 +189,15 @@ RASTERS = {
 # pieces of it — which is what makes the two request counts comparable at all.
 ZOOM_UM_PER_PIXEL = 1.0
 
+# Where the view is put, the same for every arrangement and every rung.
+#
+# Fixed rather than fitted to the run, because what is being asked is what a
+# given number of stores costs — not what a larger picture costs to show. A view
+# that widened with the run would change how much there is to draw at the same
+# time as changing how many stores there are, and the two could not be told
+# apart afterwards. The centre sits inside the first tile, which every rung has.
+PINNED_VIEW = {"centre": {"x": 256.0, "y": 256.0}, "zoom": ZOOM_UM_PER_PIXEL}
+
 
 def _a_position(seed: int) -> np.ndarray:
     """One position's picture: bright, with a gentle texture across it.
@@ -529,6 +538,26 @@ def measure_one(harness, *, acquisitions: list[dict], view: dict,
         round(first, 2) if first is not None else None
     )
     found["it drew at all"] = first is not None
+    # Put the view where it is told rather than where it happened to land.
+    #
+    # The engine centres itself once, from whichever store answers first, and
+    # never does so again. When every store says a different place — which is the
+    # whole point of the arrangement being compared — where the view ends up
+    # depends on which answer arrived first, and that changes from one run to the
+    # next. Two arrangements could then be timed while looking at different
+    # ground, and a run could differ from itself for no reason worth recording.
+    #
+    # So the view is set explicitly, to the same place and the same magnification
+    # every time, and what it was set to is written down beside the readings.
+    found["where the view was put"] = harness.page.evaluate(
+        """(asked) => {
+      const shown = window.harness.viewer;
+      if (!shown || typeof shown.setView !== "function") return "could not be set";
+      shown.setView(asked);
+      return shown.getView ? shown.getView() : "set, but cannot be read back";
+    }""",
+        PINNED_VIEW,
+    )
     if first is None:
         found["share of the window lit when it gave up"] = share
         found["what the server answered while it tried"] = _how_the_ledger_reads(
