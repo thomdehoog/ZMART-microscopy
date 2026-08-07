@@ -284,7 +284,7 @@ literal.
 **The writer bundles level 0 only today, and that is not enough.** Its comment
 says the smaller copies are "few enough not to need it". Counted on a
 two-terabyte run at a 128-voxel chunk, level 0 bundled comes to 238,419 files
-while the unbundled pyramid above it comes to **20.3 million**, about 20.6
+while the unbundled pyramid above it comes to **20.3 million**, about 20.5
 million all told — so once the full-resolution level is bundled, the pyramid
 dominates the count entirely. Bundling every level does not fold the levels into
 one another; each level is its own array and still needs a bundle per tile plane.
@@ -300,7 +300,8 @@ still fetches 32 KB at a time.
 
 **So 0.5 is not merely preferable for light-sheet, it is required.** Version 0.4
 cannot bundle at all, so a five-terabyte run written in 0.4 means a hundred and
-fifty million files with no way out of it.
+fifty million files at the full-resolution level alone, two hundred million with
+the pyramid, and no way out of it.
 
 **And it moves one open question onto the critical path.** A view hands a
 position's own chunk file to the browser exactly as it is — but once chunks are
@@ -524,14 +525,13 @@ that would bite:
 comparison timed writing a position by hand against writing the same position
 through ngio and reported ngio as four and a half to five and a half times
 slower. The two paths were not doing the same amount of work — the hand-written
-one skipped steps the ngio one performed — so that number overstates the gap, and
-it is worth saying so plainly rather than quietly correcting it. Measured again
-like for like, ngio takes between 0.91 and 1.14 times as long as writing by hand,
-which is to say about the same and sometimes quicker. Told to use our chunking
-and bundling but otherwise left alone it costs about 2.1 to 2.3 times as much,
-and on its own default settings 7 to 9 times as much. So ngio's speed is a matter
-of configuring it correctly rather than a penalty that comes with the library, and
-none of the three reasons above rests on it.
+one skipped steps the ngio one performed — so that number overstates the gap.
+Measured again like for like, ngio takes between 0.91 and 1.14 times as long as
+writing by hand, which is to say about the same and sometimes quicker. Told to
+use our chunking and bundling but otherwise left alone it costs about 2.1 to 2.3
+times as much, and on its own default settings 7 to 9 times as much. So ngio's
+speed is a matter of configuring it correctly rather than a penalty that comes
+with the library, and none of the three reasons above rests on it.
 
 That split also fits how the analysis engine already works: ngio lives in the
 analysis conda environment, and the acquisition side never imports it.
