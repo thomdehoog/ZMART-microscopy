@@ -259,7 +259,49 @@ Corrected numbers while here: the harness's settle condition
 pages that had not finished loading. Waiting for every source to resolve gives
 **1.0 s at 100, 2.6 s at 200, 10 s at 400**.
 
-### What would actually fix it
+### The fix, prototyped and measured
+
+Batching the binding works, and it was proved by intervention rather than argued.
+`CoordinateSpaceCombiner.bind` ends with an eager `this.update()`
+(`coordinate_transform.js:1318`). Replacing that with a batched update, measured on
+identical stores with the camera pinned and a settle condition that waits for every
+source to resolve:
+
+```
+                       100 pos   400 pos   growth
+eager (stock)           0.87 s    8.96 s   x10.3
+microtask coalesce      0.73 s    7.99 s   x11.0
+50 ms batch             0.56 s    2.21 s   x3.9   <- linear
+```
+
+Four hundred positions open in 2.2 seconds instead of 9.0, and it is faster at a
+hundred too. **The superlinear term is gone**: x3.9 for x4 positions is linear
+within noise.
+
+**The microtask attempt is worth recording because it failed and the reason is the
+whole point.** Coalescing to a microtask changed nothing, because sources resolve
+as separate network responses spread across the entire opening — no two binds land
+in the same tick, so there is never anything to merge. The window has to be wide
+enough to catch neighbours arriving from the network. Fifty milliseconds was the
+first value tried and it was not tuned.
+
+**What it trades, and why the prototype was reverted rather than kept.** `combined`
+is no longer current the instant `bind()` returns, so anything reading it
+synchronously afterwards sees the previous value. Nothing in this measurement
+exercised that, and it is exactly the kind of correctness question that needs the
+engine's own tests rather than an opening-time number. The patch lived in
+`node_modules` and has been restored.
+
+### Where this leaves the arrangement
+
+The ceiling was never inherent to placing tiles by transform. It is one eager call
+in the engine, and with it batched the arrangement is linear in the number of
+positions with a small constant. That changes the recommendation from "an overlay
+for a bounded number of positions" to "worth pursuing upstream", and it makes the
+bound a temporary consequence of an unfixed engine rather than a property of the
+design.
+
+### What would otherwise have been tried
 
 Batch the binding. The quadratic exists because sources are bound one at a time and
 each bind re-walks every binding already present and re-notifies every handler. Add
