@@ -5,7 +5,7 @@ A critical review of
 by a reviewer given the plan, the decision register and a read-only copy of the
 code, and asked above all to find what is over-engineered.
 
-It found a good deal. Three items on the build list change or disappear, one
+It found a good deal. Two items on the build list change or disappear, one
 substantial module should be deleted, one measurement not in the plan turns out to
 matter more than several that are, and one of the questions the plan was least
 confident about is answered in its favour.
@@ -14,6 +14,14 @@ confident about is answered in its favour.
 disagrees with a decision already recorded elsewhere, this page is the later one
 and should be treated as such.
 
+**Two of its findings did not survive a second look, and are marked REFUTED where
+they appear.** They are the "capping hazard" in item 1, which a later reviewer
+took apart with two independent arguments and then disproved by measurement, and
+the line count given for the view mechanism under "The questions the plan asked",
+which was wrong by a factor of four. Both are left standing with the refutation
+beside them rather than deleted, because a review is a record, and a record with
+its mistakes quietly removed is a worse one.
+
 ---
 
 ## What changed on the build list
@@ -21,7 +29,7 @@ and should be treated as such.
 | | was | now |
 | --- | --- | --- |
 | **B1** | repair — per-dataset translation | **unchanged.** Confirmed real at `canvas.py:1921`. And the fix already exists in the repository: `linked._say_where_each_resolution_sits` does exactly the right thing for views. Moving that logic into `_declare_one` is about twenty lines. |
-| **B2** | repair — bundle every level, capping small ones | **corrected, and the correction matters.** See "the capping hazard" below. |
+| **B2** | repair — bundle every level, capping small ones | **unchanged after all.** This review objected to the capping; the objection was later refuted and measured away. See "the capping hazard" below. |
 | **B3** | repair — the server reads a bundle index | **deleted. It is already built.** |
 | B4 | two interop tests | **raised. Highest value per line in the list.** |
 | B5 | `plan_a_grid` | keep, but it is about fifteen lines plus a report. Do not let it become a planner. |
@@ -33,14 +41,14 @@ and should be treated as such.
 | B11 | 0.5 as the default everywhere | **mostly absorbed** — retiring `cropped.py` deletes one of the two writers it exists to fix. What remains is a default argument. |
 | **new** | — | **Stop re-reading every tile the view has just written.** See below. |
 
-Eleven items become **B1, B2 (corrected), B4, B5, B6+B10, B7, B8, and the new
-one.**
+Eleven items become **B1, B2 (as originally specified), B4, B5, B6+B10, B7, B8,
+and the new one.**
 
 ---
 
 ## The three things to change first
 
-### 1. B3 is a phantom, and B2 as specified would break what B3 was meant to enable
+### 1. B3 is a phantom — and the objection this review raised to B2 did not survive
 
 **The server already does what B3 asks.** `viz_studio/backend/server.py` parses
 `Range` headers including suffix ranges — `bytes=-N`, which is exactly how a shard
@@ -56,7 +64,11 @@ the server already honours. There is an end-to-end test:
 points at them, serves them through the real server, and reconstructs the specimen
 bit-for-bit.
 
-**The capping hazard.** Both the register and the ngio proposal praise capping the
+**The capping hazard — REFUTED. The claim is left below as it was written,
+because this page is the record of a review and quietly deleting what it got
+wrong would make it a worse record. Read the refutation that follows it.**
+
+Both the register and the ngio proposal praise capping the
 bundle at each level's own extent for the small levels. That is a silent
 correctness fault against `viz_studio/backend/linking.py`:
 
@@ -79,6 +91,19 @@ for.
 Either cap nothing and let small levels be one shard each naturally, or stop
 `pointed_levels` at the last level whose shard geometry is uncapped — and assert
 it.
+
+> **Why this is refuted, and what the real fault is.** A later reviewer took the
+> claim apart with two independent arguments and then settled it by measurement:
+> a capped bundle and an uncapped one resolve **byte for byte identically**. So
+> there is no silent corruption here, ngio's capping is not a mark against it,
+> and neither of the two remedies suggested just above is needed. B2 stands as
+> the plan originally specified it.
+>
+> The silent-corruption risk is real, but its cause is somewhere else and is
+> much plainer. In `zmart_storage/canvas.py`, line 1992 reads
+> `if shard is not None and level == 0:` — so the writer bundles **only the
+> full-resolution level** and leaves the whole pyramid above it unbundled. That
+> is the actual fault, and it is exactly what B2 was put on the list to repair.
 
 ### 2. Delete `zmart-coverage`
 
@@ -211,9 +236,12 @@ chunk in 2048 shards. The genuine argument is that sharding *decouples the chunk
 from the file*, which the register states well a page later.
 
 **Decision 19 — one file per position per level — should be closed as "no".**
-596,000 files for a five-terabyte run is unremarkable on NTFS or ext4. Reducing it
-to 50,000 at the cost of 800 MB in flight per tile and delayed live viewing is a
-trade against no constraint. The measured 4× slowdown is rewrite amplification;
+The 596,000 files often quoted for a five-terabyte run is the
+**full-resolution level on its own**; once every pyramid level is bundled the
+whole run comes to about **2.98 million** files. Neither figure is remarkable on
+NTFS or ext4. Reducing the count further by bundling a whole tile at a time, at
+the cost of 800 MB in flight per tile and delayed live viewing, is a trade
+against no constraint. The measured 4× slowdown is rewrite amplification;
 the correct conclusion is the one already reached — one tile plane per bundle.
 
 **Decision 16 — HTTP/2 — has the right recommendation for the wrong reason.** "A
@@ -229,9 +257,18 @@ says.
 one, and it will age *well* — because what is written is a valid OME-Zarr image
 plus one namespaced attribute. When scenes land, the migration is to write a scene
 document beside the same positions and keep the view for Neuroglancer. Nothing
-gets rewritten because nothing was written. **What to guard:** the whole mechanism
-is about 590 lines in one module with one entry point called from one place. That
-containment is what makes it disposable later.
+gets rewritten because nothing was written. **What to guard — and this review got
+its size badly wrong.** It said the whole mechanism was about 590 lines in one
+module with one entry point called from one place, and offered that containment
+as the reason it would be cheap to dispose of later. Counted directly against the
+source, the mechanism is `zmart_storage/linked.py` at **1,787 lines** together
+with `viz_studio/backend/linking.py` at **591 lines** — **2,378 lines** across two
+modules. The 590 appears to have counted only the viewer half. The conclusion has
+to move with the number: replacing this mechanism is not the small tidy-up the
+original sentence implied, and any proposal to replace it — the TensorStore
+overlay discussed further down included — has to be weighed as a two-thousand-line
+replacement, with the testing and the risk that go with that, rather than as
+lifting out one contained module.
 
 **A view served from memory?** **No.** It costs the property the arrangement is
 built around: a run you can copy. It exists only while the server runs, cannot be
@@ -252,24 +289,36 @@ chunk × 64 — with chunk 192, a 12,288-voxel placement granularity. Unachievab
 They need not coexist. At 1.8% of the run, the view can simply **write its whole
 pyramid and point only at level 0** — which is *simpler* than what exists:
 `pointed_levels` disappears, the shrink-alignment refusal disappears, and the
-`// shrink` hazard of item 1 disappears with them. **Take the eighth-sized
-averaged ladder and the code deletion that comes with it:** 90 GB instead of
-1.7 TB, minus about 150 lines of the most delicate arithmetic in the project. One
+`// shrink` arithmetic of item 1 goes with them — a simplification rather than,
+as item 1 claimed, a fix for a hazard. **Take the eighth-sized
+averaged ladder and the code deletion that comes with it:** about **78–79 GB in
+theory** instead of 1.7 TB, minus about 150 lines of the most delicate arithmetic
+in the project. That saving is arithmetic and has not been measured on a real
+run, so it should be read as an estimate rather than a disk budget. One
 caveat for operators — an averaged coarse voxel is no longer a measurement, so
 brightness readings and thresholds must be taken at full resolution, and
 `contrast.py` measures from the coarsest level and needs re-checking.
 
 **Adopting ngio on the acquisition machine.** **Do not.** Its value is that it
 cannot write the B1 fault; that value is available without the cost, by validating
-against its schemas as a development dependency. Against it: it cannot resize, it
-cannot write the view, and it *does* cap shards per level — the specific behaviour
-that breaks `linking.py`. **Adopt ngio for reading, validating and analysis; write
+against its schemas as a development dependency. Against it: it cannot resize and it
+cannot write the view. (This review also counted its per-level shard capping
+against it, on the strength of the hazard described in item 1. That hazard has
+since been refuted and measured away, so the capping objection falls with it and
+should carry no weight here.) **Adopt ngio for reading, validating and analysis; write
 positions with your own code, checked against ngio's schemas in CI.**
 
-*(Measured separately, after the review: writing a position through ngio takes
-2,230–2,825 ms against 485–500 ms by hand — four and a half to five and a half
-times slower, roughly 3 MB/s against 17. The second clause of the standing
-preference applies, and the two lines of evidence agree.)*
+*(A timing was taken separately, after the review, and it was wrong. It reported
+2,230–2,825 ms a position through ngio against 485–500 ms by hand, four and a half
+to five and a half times slower, and concluded that the second clause of the
+standing preference applied. The comparison was unfair: the two paths were not
+doing the same amount of work, and the hand-written one skipped work that ngio
+performed. Measured like for like, ngio is **0.91–1.14×** — the same speed, and
+sometimes a little quicker. With its settings matched to ours it is **2.1–2.3×**
+slower, and left on its own defaults **7–9×**. So the slowness is in the defaults
+and is a matter of configuring the library correctly, not a penalty built into it.
+**Speed no longer argues against ngio**, and the recommendation above rests on the
+two reasons that survive: it cannot resize, and it cannot write the view.)*
 
 **Overlap ownership.** Centre-in-owned-rectangle is right and is what the field
 does. Two additions needing no stitching: break ties for border-touching objects
@@ -305,7 +354,12 @@ OME-Zarr source composed from N tile stores, in a browser."**
   maintained package. It re-encodes per chunk rather than handing over a file, so
   it will not match 4.6 ms — **but if it lands at 20 ms it deletes both
   `linked.py` and `linking.py`.** *This is the highest-value unmeasured question
-  in the plan and it was not in the plan.* An afternoon's work.
+  in the plan and it was not in the plan.* An afternoon's work. *(It has since
+  been measured on this machine — a median of 0.586 ms through an overlay of ten
+  thousand layers — but not yet on a Windows microscope computer, which is where
+  it counts. The plan's section 4 records the figure and the acceptance gate.
+  Note also that what would be deleted is 2,378 lines, not the 590 stated further
+  up; the prize is larger and so is the undertaking.)*
 - **`multiview-stitcher`** does exactly this job and is 140× too slow for a
   diagnosable reason: it detects the grid-aligned case and then never uses the
   answer, resampling an integer translation through a general affine transform.
@@ -336,7 +390,10 @@ it should be demonstrated in the plan rather than asserted.
 
 ## What the plan had not considered
 
-1. The capping hazard of item 1 — silent wrong bytes.
+1. ~~The capping hazard of item 1 — silent wrong bytes.~~ **Refuted; see item 1.**
+   What the plan had genuinely not considered here is the plainer fault
+   underneath: `canvas.py:1992` bundles only the full-resolution level and leaves
+   the whole pyramid above it unbundled.
 2. The ladder width and the pointing alignment rule cannot both widen.
 3. What happens when a run outgrows its declared canvas mid-acquisition: currently
    a refusal with no recovery path.
