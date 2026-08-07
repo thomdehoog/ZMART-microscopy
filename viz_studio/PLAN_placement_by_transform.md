@@ -156,10 +156,17 @@ the number to design against.
 
 ### What follows from it
 
-- Transforms are an **overlay for small runs** — a detail scan of a dozen positions
-  gets free, revisable, fractional-voxel placement at a cost nobody can feel.
-- Surveys keep the linked picture, which is flat to four hundred positions and was
-  built for exactly this.
+- Transforms are an **overlay for a bounded number of positions** — a detail scan
+  of a dozen gets free, revisable, fractional-voxel placement at a cost nobody can
+  feel. Surveys keep the linked picture, which is flat to four hundred positions
+  and was built for exactly this.
+- **The bound has to be a number, and exceeding it has to be visible.** "Only the
+  positions being examined" is not a limit: an operator picking three hundred
+  targets is back in the bad regime with nothing on screen saying so. That is the
+  fault the scale bar is held to account for — a picture that is quietly wrong is
+  worse than one that is obviously broken. Whatever the measurements settle on,
+  the overlay needs a documented ceiling and a stated behaviour when it is passed,
+  shipped together and not afterwards.
 - **Phase 4 is promoted** from optional to the only route that gets free placement
   *and* a flat curve.
 
@@ -234,6 +241,15 @@ So the thing to ask for is not discovery. It is **one document, read once, that
 already says where all N tiles are** — which is what `zmart-links.json` is today,
 minus a transform field.
 
+A cheaper constant-factor cut is available first, and it has a failure mode worth
+stating rather than a condition worth stating. Four files is one group and three
+levels; a position written with a single level costs two, halving the requests.
+That is right *while the sources are looked at close in*. **Zoom out on them and
+there is no coarse level to draw from, so the engine fetches full-resolution chunks
+across a wide area — which can cost far more than the requests it saved.**
+Operators zoom. Either keep a coarse level, or make the overlay refuse to zoom out
+past what it can serve.
+
 ### What it would and would not fix
 
 ```
@@ -251,22 +267,44 @@ ceiling.
 
 ### The gate, and it is not optional
 
-**Requests are linear and cold opening is quadratic, so the requests do not explain
-the curve.** Something else is superlinear. If it is per-source registration work
-— each arriving source causing a recompute across all sources would be exactly
-O(N²) — then declaring once removes N round trips and leaves the quadratic
-untouched, because the reader still creates N sources internally.
+Requests are linear at 4.1 a position while the opening grows faster, so the
+fetching does not explain the curve on its own. If the superlinear part is
+per-source registration — each arriving source causing work across all the sources
+already present — then declaring once removes N round trips and leaves the curve
+untouched, because the reader still creates N sources internally. **That would make
+this phase worth much less than it looks, and the honest answer a bounded number of
+sources instead.** So the shape has to be established and located before the
+document is designed.
 
-Find out where the quadratic lives **before** designing the document format:
+In this order, because each step makes the next one mean something.
 
-1. Time source registration separately from fetching. Serve the same N stores from
-   a warm cache so fetching is near-free, and see whether the opening is still
-   quadratic. If it is, the fetching was never the problem.
-2. Instrument the arrival path — count how much work each resolving source causes,
-   and whether that work is proportional to the number already present.
+**A. Pin the camera and count honestly. A prerequisite, not a follow-up.**
+Neuroglancer centres the view once from whichever source resolves first and never
+recentres, and the zoom is reset the same way — so with per-store placements, where
+the view lands varies run to run and the opening varies with it for reasons that
+have nothing to do with N. Every measurement below would inherit that. Set
+`position` and `zoomFactor` explicitly after opening, and replace `held` with
+separate counts of loaded, failed and pending. It is cheap and everything else
+rests on it.
 
-If the quadratic is in registration, this phase is worth much less than it looks
-and the honest answer becomes a bounded number of sources.
+**B. Profile. It needs no hypothesis, which is why it goes early.**
+A performance trace at N=100 diffed against N=400 says which function's time grew
+sixteenfold when N grew fourfold. It names the thing instead of inferring it. Five
+mechanisms have now been argued from reading this engine and all five were wrong;
+the step that requires no reasoning belongs at the front. It also gives the
+fetch-versus-everything-else split directly, which is what C was really after.
+
+**C. Establish that the shape is a shape.**
+Net of the ~0.20 s baseline the measured excesses are 0.01, 0.03, 0.09, 0.16, 0.61
+and 3.44 s — **one sample each**, and at a hundred positions the excess is smaller
+than the baseline being subtracted from it. The curve is carried by two points.
+Before anything is designed around the word quadratic: three repeats, medians, and
+rungs above two hundred so the shape is not two points and a hope.
+
+Note that a warm-cache run is **not** a clean isolation of fetching. A driver doing
+1638 kvstore lookups that hit an HTTP cache has made fetching cheaper, not free: a
+curve that softens proves nothing and one that does not could still be I/O. Serve
+from a single in-memory store, or take the split from B.
 
 ### What would have to change
 
