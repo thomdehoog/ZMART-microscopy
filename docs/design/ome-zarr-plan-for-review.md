@@ -131,9 +131,18 @@ place by doing something no available package does — writing the view, appendi
 the pointer map, recording coverage, watching a run fill in — rather than merely
 being there first.
 
-A reviewer should apply this to everything below, not only to ngio. If some other
-part of this arrangement duplicates something `ngio`, `ngff-zarr` or plain `zarr`
-already does correctly, that is exactly the bloat we are asking to have found.
+**And it applies to the viewer as much as to the writer.** `viz_studio` is a
+hand-written standard-library HTTP server and a hand-built Neuroglancer front end.
+If something the community maintains would do the same job, that is preferable —
+standardisation is worth more to this project than owning the code. The capability
+that must survive is the one section 2 measures: **one source over N tiles**, and
+**live update while a run is still being acquired**. If nothing in the ecosystem
+does that, keeping our own is justified; if something does, ours should go.
+
+A reviewer should apply this to everything below, not only to ngio. If some part
+of this arrangement duplicates what `ngio`, `ngff-zarr`, plain `zarr`, the
+`neuroglancer` Python package or anything else already does correctly, that is
+exactly the bloat we are asking to have found.
 
 ### Derived, never chosen by a person
 
