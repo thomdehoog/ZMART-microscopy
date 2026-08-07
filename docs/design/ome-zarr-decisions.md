@@ -182,6 +182,24 @@ already enforces. A bundle-sized placement grid would inflate that to
 > answered by exactly one tile, none by two, none by none**, the smaller copies
 > exact, and every voxel still on disk in the positions.
 >
+> **And it holds at survey size.** Ten thousand overlapping tiles, ownership worked
+> out for every one of them, open in **0.53 seconds** — against 0.21 for four
+> hundred, so twenty-five times the tiles for two and a half times the wait. Not a
+> piece of the picture was left with nothing behind it, and not one was owned
+> twice. All of the growth is the one document that lists the tiles, which went
+> from 0.09 MB to 2.19; reading it takes 14 milliseconds and finding a tile in it
+> takes none, because it is indexed by row rather than searched. This was run under
+> the same restriction the sensor above imposes — one pointed level, everything
+> coarser written — so it is the constrained case rather than a flattering one.
+>
+> **The law sets three things, not one.** How deep the view can point; how much of
+> the picture it must therefore write for itself; and, because what it writes grows
+> with the ground covered rather than the number of tiles, how a long survey
+> behaves. Measured: 0.7 MB written at a hundred positions, 3.4 MB at four hundred,
+> so tens of megabytes on a survey — written while the microscope is running. The
+> chunk that buys pointing depth is the same chunk that buys this back, and at a
+> frame divided by eight you are at the end of the dial in both directions.
+>
 > Two small things are missing before a run can do this, both in the writer and
 > neither in the idea. There is **no way to say "point at one level and write the
 > rest"** — how far a view points is the smaller of the view's levels and the
