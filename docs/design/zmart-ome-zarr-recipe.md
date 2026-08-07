@@ -609,6 +609,70 @@ columns are the scanner's turnaround. Nobody quantifies cells there.
   at each edge (0.35%), which allows a 115-voxel chunk and an overlap of exactly
   10%."* An operator who objects can then say so before the run rather than after.
 
+##### Correction: prefer the large chunk, not the exact overlap
+
+The tables above choose the chunk that lands nearest the requested overlap. That
+is the wrong variable to optimise, and it was measured after the fact.
+
+The browser keeps only about **six requests in flight** over HTTP/1.1, and
+`canvas.py` already notes that each piece costs a few milliseconds of the
+browser's own bookkeeping whatever its size. So the chunk *count* is what decides
+whether a view feels snappy. For a 2048 tile:
+
+| chunk | overlap it allows | imaging cost | requests to fill a 4K screen | round trips at six in flight |
+| ---: | ---: | ---: | ---: | ---: |
+| 102 | 10% | 1.23 × | ~836 | ~700 ms |
+| 128 | 12.5% | 1.31 × | 527 | ~440 ms |
+| **204** | **20%** | 1.56 × | **209** | **~175 ms** |
+| 256 | 25% | 1.78 × | 144 | ~120 ms |
+
+**Chunk 102 is the worst of both**: it buys 2.5% less imaging at the cost of sixty
+per cent more requests than a 128 would need. Optimising for an exact ten per cent
+produced it.
+
+**So the order is: take the largest chunk that gives an acceptable overlap, rather
+than the overlap that gives an exact number.** On a 2048 sensor that is chunk 204
+at twenty per cent — two and a half times fewer requests than 128, and twenty per
+cent is what Fiji defaults to anyway, so nothing is wasted. Where imaging time
+binds harder than snappiness, chunk 128 at 12.5% is the other sensible point.
+
+**A larger sensor removes the squeeze.** 2048 is only eight chunks across at 256,
+which is why it forces 25%:
+
+| frame | what chunk 256 allows |
+| --- | --- |
+| 2048 | 25% overlap |
+| 2560 | 20% |
+| 3072 | 16.7% |
+| 4096 | 12.5% |
+
+**Which changes what `plan_a_grid` should be asked.** Not "what overlap do you
+want" alone, but **which matters more here — snappy viewing or cheap imaging** —
+and then the largest chunk consistent with the answer.
+
+##### And if snappiness still binds: HTTP/2
+
+The six-in-flight limit is a property of HTTP/1.1, which is what
+`ThreadingHTTPServer` speaks. HTTP/2 raises it to about a hundred streams, which
+would take a 527-chunk screen fill from ~440 ms of round trips to ~26 ms.
+
+It does **not** fix the per-chunk bookkeeping or the decoding, which scale with
+chunk count whatever the transport — so it complements a larger chunk rather than
+replacing it.
+
+Its cost is real though: browsers speak HTTP/2 only over TLS, so the microscope
+computer would need a certificate, and a self-signed one means a warning or a
+locally trusted authority. That breaks the *run it and it works* property the
+web viewer is built around, and it needs a dependency against the current
+standard-library-only rule.
+
+**So take the chunk size first** — it is free — and measure what remains before
+taking on a certificate. Chunk 256 over plain HTTP/1.1 is 144 requests and about
+120 ms, which may well settle the question. There is no easy win left on the
+server side, incidentally: the map of pointers is already cached on the listing's
+modification time and length, so a chunk request costs two `stat` calls, a lookup
+and a file read.
+
 ##### Does this hold for any sensor? Tested, yes
 
 Every whole number from 512 to 5000 was tried as a frame width — 4,489 of them:
