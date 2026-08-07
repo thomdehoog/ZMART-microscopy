@@ -11,11 +11,16 @@ name: Viewer
 # tests. A run without a browser reports a comfortable green while never having
 # drawn anything, which is worse than no run at all.
 
+# Which branches are guarded. A branch that is not listed here is not tested at
+# all, and nothing says so -- which is how the frame-rate and dead-control work
+# came to sit on a branch with a green history belonging to somebody else's.
+# A branch doing work on the viewer belongs in this list while it is being worked
+# on, and can come out of it once it has merged.
 on:
   push:
-    branches: [main, microscope-agnostic-layer]
+    branches: [main, microscope-agnostic-layer, claude/frame-rate-stores-scaling-cngfct]
   pull_request:
-    branches: [main, microscope-agnostic-layer]
+    branches: [main, microscope-agnostic-layer, claude/frame-rate-stores-scaling-cngfct]
   workflow_dispatch:
 
 jobs:
