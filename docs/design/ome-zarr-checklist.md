@@ -1,177 +1,174 @@
-# Building ZMART's OME-Zarrs: the summary and the checklist
+# ZMART's OME-Zarr: what to think about, and what never to think about again
 
-Written 7 August 2026. This is the front door. It summarises what was decided and
-lists what has to be thought about when writing a run that must be both **viewed**
-in the operator's viewer and **analysed** by the pipelines.
-
-Two longer documents sit behind it and should be read when a decision here needs
-its reasoning:
+Written 7 August 2026, at the end of a session that settled most of this. It is
+the front door. Two longer documents sit behind it and are worth opening only when
+a decision here needs its reasoning:
 
 | | |
 | --- | --- |
-| [`zmart-ome-zarr-recipe.md`](zmart-ome-zarr-recipe.md) | the exact arrangement — layout, metadata, chunking, overlap, what changes and in what order |
-| [`ome-zarr-for-analysis-and-neuroglancer.md`](ome-zarr-for-analysis-and-neuroglancer.md) | the measurements — what other libraries do with our files, and what each choice cost or bought |
+| [`zmart-ome-zarr-recipe.md`](zmart-ome-zarr-recipe.md) | the exact arrangement — layout, metadata, chunking, overlap, and what changes in what order |
+| [`ome-zarr-for-analysis-and-neuroglancer.md`](ome-zarr-for-analysis-and-neuroglancer.md) | the measurements — what other people's libraries do with our files, and what each choice cost or bought |
+
+The purpose of this page is **to make the list of things you carry in your head
+shorter**. Most of what follows is arranged by that: what the software should
+settle on its own, what you decide once per instrument, and what remains open.
 
 ---
 
-## In one paragraph
+## The model, in one paragraph
 
-A run writes **every tile whole, exactly as the camera recorded it**, as an
-ordinary OME-Zarr image that any software can open. Beside those sits a **view** —
-a complete OME-Zarr image that holds no pixels of its own and instead points at
-the tiles, so the viewer is handed one image however many thousand tiles there
-are. Overlap is never removed from the tiles; it is *accounted for* separately by
-the viewer, which is shown fewer chunks, and by the analysis, which counts only
-the objects a tile owns. Nothing is copied twice, and the ground truth is written
-once and only once.
+A run writes **every tile whole, exactly as the camera recorded it**, each one an
+ordinary OME-Zarr image that any software can open. Beside them sits a **view** —
+also a real OME-Zarr image, but holding no pixels of its own; it points at the
+tiles, so the viewer can be handed one image however many thousand tiles there
+are. The overlap is never cut out of the tiles. It is *accounted for* twice over,
+in different ways: the viewer is shown fewer chunks, and the analysis counts only
+the objects a tile owns. Nothing is written twice, and the ground truth exists
+once.
+
+Everything below follows from that sentence.
 
 ---
 
-## The decisions, settled
+## Never think about these again — the software settles them
 
-| | decided |
+These are all worked out at run setup from things the microscope and the operator
+have already said. None of them should ever appear in a conversation, a notebook
+cell or a driver.
+
+| | how it is settled |
 | --- | --- |
-| **format version** | 0.5 by default. 0.6 only where 0.5 cannot state the truth — a deskew, a rotation between views. 0.4 on request. **0.5 is required for light-sheet**, because 0.4 cannot bundle files. |
-| **where the pixels live** | in the positions. The view holds none. Point analysis at the positions, never at the view. |
-| **where an image says it sits** | `scale` then `translation`, beside **each** resolution, never also at the multiscales level. The translation is the corner of voxel zero. |
-| **axes** | always five — `t, c, z, y, x` — whether or not the run used them. |
-| **smaller copies** | every second voxel in y and x; nothing averaged; z never reduced. |
-| **analysis results** | `labels` and `tables` **inside** the image. Our own bookkeeping (`zmart-coverage`, the lock) **beside** it. |
-| **plate layout** | **not used, on any instrument.** Well and field are columns of the run-level table instead. |
-| **overlap** | three named intents — **none / modest / generous** — resolved to real percentages per frame at setup. Never a hard-coded number. |
-| **chunk** | derived at setup from the frame shape and the chosen intent. Never chosen by hand, never changed afterwards. |
-| **bundling (sharding)** | one tile plane per bundle on any run large enough to matter. |
-| **tile position** | given as the **centre** (which is what the stage knows), stored as the **corner** (which is what the format means). |
-| **a tile that moves over time** | a new **image**, not a new index along the time axis. |
-| **ngio** | read with it, check our files with it, analyse with it. **Never write our format through it.** |
+| **chunk size** | derived from the frame shape and the overlap intent, choosing the **largest** chunk that gives an acceptable overlap. A chunk need not be a power of two — 73 is as valid as 128. |
+| **how many voxels to trim** | up to 1% may come off the frame so it fits a chunk grid; capped, reported, and refused rather than exceeded. |
+| **bundle (shard) size** | one tile plane, on any run large enough for file counts to matter. |
+| **how many smaller copies** | as many as the tile can support before a level falls below one chunk. |
+| **where the position is written** | `scale` then `translation`, beside each resolution, never at the multiscales level. |
+| **the axes** | always five — `t, c, z, y, x` — used or not. |
+| **file and folder naming** | `<name>_pos<NNNNN>.ome.zarr` inside the view's folder. |
+| **whether a run is pointed at or copied** | decided at setup and reported; copying only when a format fits no chunk grid. |
+
+The rule behind all of them: **rigid where a person chooses, derived where
+arithmetic does better than a person.** Every one of these is arithmetic.
 
 ---
 
-## The checklist
+## Decide once per microscope, then forget
 
-### A — Before the run starts
-
-- [ ] **Ask the driver for the frame shape.** Everything else depends on it and it
-      must be known before the first tile.
-- [ ] **Resolve the overlap intent against that frame**, and show the operator the
-      number it came to. `modest` is 10% on a 2048 or 2304 sensor and 12.5% on a
-      1024 scan — the intent is fixed, the number is not.
-- [ ] **Derive the chunk** from the frame and the intent. A chunk need not be a
-      power of two; 73 is as valid as 128.
-- [ ] **Report any trim.** If a few voxels come off the frame to make it fit, say
-      so in voxels and per cent. Cap it at 1% and refuse rather than exceed.
-- [ ] **Decide the bundle size** — one tile plane for anything large. Below about
-      a terabyte it hardly matters; above it, it decides whether the run can be
-      copied at all.
-- [ ] **Warn if the run will be written twice.** A format that fits no chunk falls
-      back to copying. The operator should hear that now, not after five
-      terabytes.
-- [ ] **Fix the format for the whole acquisition type.** Different acquisition
-      types may differ freely; positions within one may not.
-
-### B — While writing
-
-- [ ] **Write every tile whole**, overlap included. The overlap is the only
-      evidence of where the stage really went.
-- [ ] **Never write a voxel twice.** If an arrangement needs a second copy, that
-      is a bug to fix rather than disk to buy.
-- [ ] **Write the position beside each resolution**, scale first.
-- [ ] **Record the owned rectangle** as `tables/owned_ROI_table` in every tile.
-- [ ] **Keep the coverage record** — a canvas declares far more room than any run
-      fills, and unwritten ground reads back identical to genuinely dark specimen.
-- [ ] **Leave unwritten chunks unwritten.** Empty room must cost nothing.
-
-### C — For viewing
-
-- [ ] **Hand the viewer one image.** Neuroglancer builds a drawing layer per
-      source: a thousand positions drew 24 frames in five seconds where one image
-      managed 255.
-- [ ] **Hide the overlap by pointing at fewer chunks**, not by cutting pixels.
-- [ ] **Consider writing two views** — trimmed for looking at, untrimmed for
-      judging a seam or checking the stage. A view is only metadata.
-- [ ] **Give every segmentation its own view too**, or a labelled run meets the
-      same cliff the view was invented to avoid.
-- [ ] **Check byte-compatibility.** Every chunk a view serves must match what the
-      view declared — dtype, chunk shape, compression, axis order — because the
-      bytes are handed over untouched.
-- [ ] **Teach the server to read a bundle index**, once bundling is on. A bundled
-      chunk is a byte range, not a file.
-
-### D — For analysis
-
-- [ ] **Point at the positions, never at the view.** The view reads back as zeros
-      everywhere.
-- [ ] **Segment the whole tile**, overlap and all, so no object is ever cut in
-      half.
-- [ ] **Keep only objects whose centre falls in the owned rectangle.** Trimming
-      applies to results, not to pixels.
-- [ ] **Flag objects that touch a tile border.** They are the ones the ownership
-      rule cannot be trusted for — an object larger than the overlap can be
-      clipped in every tile.
-- [ ] **Make label numbers unique across the run.** Otherwise cell 7 in two
-      neighbouring tiles becomes one object the moment they are drawn together.
-- [ ] **Write results back into the position** — `derive_label`, `add_table`.
-- [ ] **Append to a run-level table** as well, with the position, well and field
-      as columns. Every question worth asking is about the run, and answering one
-      should not mean opening ten thousand tables.
-- [ ] **Pass paths, not pixels**, across environment boundaries. The engine's
-      `data_transfer: "file_paths"` mode exists for exactly this.
-- [ ] **Keep `ngio` in the analysis environment only.** It brings 60 packages;
-      the acquisition side needs `zarr` and `numpy`.
-
-### E — For scale
-
-- [ ] **Count the files before the run, not after.** Five terabytes at a
-      128-voxel chunk is 153 million files unbundled; bundled a plane at a time it
-      is about 596,000 of roughly 8 MB.
-- [ ] **Remember the chunk cannot be changed afterwards.** Version, position and
-      channel colours are metadata edits; chunk shape and compression are full
-      rewrites.
-- [ ] **Budget the conversion** when a vendor wrote the files first. Bringing five
-      terabytes across is a five-terabyte read and write, once.
-- [ ] **Keep the second copy for data we did not acquire.** For runs ZMART writes,
-      a second copy is a bug; for a foreign transfer it is a fair price.
-
-### F — For interoperability
-
-- [ ] **Validate against the official schemas** shipped with `ngff-zarr`. That is
-      the format's own words, not a library's reading of them.
-- [ ] **Open every kind of image we write with ngio**, in the test suite. Our own
-      reader and writer share our misunderstandings and cancel them out; a
-      stranger's library does not.
-- [ ] **Never put an unrecognised file inside a `.ome.zarr`.** It makes zarr warn
-      whoever opens it. A custom *attribute* is fine; a stray file is not.
-- [ ] **Say plainly, in the operator docs, that the view is the one object that
-      does not travel.**
+| question | how to answer it |
+| --- | --- |
+| **Does this instrument need OME-Zarr 0.6?** | Only if its acquisitions cannot be described in 0.5 — a light-sheet deskew (an affine shear), or rotations between views. A confocal or widefield mosaic never needs it. Everything else stays 0.5. |
+| **Snappy viewing or cheap imaging?** | This sets which chunk is chosen. On a 2048 sensor: chunk 204 with a 20% overlap fills a screen in ~209 requests; chunk 128 with 12.5% takes 527. Pick the end you care about; the software does the rest. |
+| **What overlap does this instrument actually need?** | Worth measuring once rather than believing. Every tile is kept whole, so a stitcher can report how far each tile really moved from where the stage said. If those offsets are a handful of voxels against a 204-voxel overlap, the run is paying for ten times what it needs. |
 
 ---
 
-## What is blocking, right now
+## Decide per run — and it is only two things
+
+1. **What kind of scan is this?** — `overview`, `targetscan`. It names the folder
+   and separates one acquisition type from another.
+2. **How much overlap?** — as an intent, not a number:
+
+| intent | for | costs |
+| --- | --- | --- |
+| **none** | a survey you will look at and pick targets from, never stitch | 1.00 × the imaging |
+| **modest** | ordinary mosaics, specimen filling the field | ~1.3 × |
+| **generous** | sparse specimens, light-sheet volumes, anything to be stitched properly | ~1.6 × |
+
+The writer resolves the intent against the actual frame and reports the number it
+arrived at — `modest` is 10% on a 2048 or 2304 sensor and 12.5% on a 1024 scan.
+**Never write a percentage into a workflow**: a literal 10% is impossible on a
+1024 frame, and the run would be refused or silently written twice.
+
+---
+
+## The analysis contract — four rules that do not change
+
+1. **Point at the positions, never at the view.** The view holds no pixels and
+   reads back as zeros everywhere. It is the one object in the whole arrangement
+   that does not travel.
+2. **Segment the whole tile, then keep only what it owns.** Run the segmentation
+   over the entire tile, overlap included, so no cell is ever cut in half — then
+   discard objects whose centre falls outside the tile's owned rectangle, which
+   is recorded as `tables/owned_ROI_table`. Every object in the run is then
+   counted exactly once. *Trimming applies to results, not to pixels.*
+3. **Give every object a number unique across the whole run.** Otherwise cell 7 in
+   one tile and cell 7 in its neighbour become the same object the moment a
+   segmentation is drawn as one layer.
+4. **Write results back inside the position** — `labels` for segmentations,
+   `tables` for measurements — and append a row to the **run-level table** as
+   well, with position, well and field as columns. Per-tile tables are right for
+   writing; the run table is what anything actually queries.
+
+`ngio` in the analysis environment only. It brings sixty packages; the acquisition
+side needs `zarr` and `numpy` and should stay that way.
+
+---
+
+## Things that turned out not to be problems
+
+Worth recording, because each cost a stretch of worrying:
+
+- **Different microscopes having different frame sizes.** Nothing has to agree.
+  The chunk is per-image metadata, derived per run. Every frame width from 512 to
+  5000 was tried and all of them work.
+- **Hamamatsu's "weird number".** It is 2304, which is 2⁸ × 9 — one of the
+  friendliest numbers available.
+- **Point scanners with arbitrary formats.** Handled by the same derivation, with
+  a fallback to writing twice if a format fits nothing, announced at setup.
+- **Whether the vendor writes the files.** We always write the OME-Zarr, so the
+  chunk is always ours to choose — at acquisition, or at conversion.
+- **Nesting positions inside the view's folder.** Purely organisational. ngio and
+  multiview-stitcher open a nested position exactly as they would a loose one.
+- **The plate layout.** Not used, on any instrument. Well and field are columns of
+  the run-level table instead.
+
+---
+
+## What is genuinely blocking
 
 1. **The per-dataset translation.** A position as written today is **invalid
-   against the official OME-Zarr 0.4 schema** — verified, not inferred — so ngio
-   refuses it and `ngff-zarr` silently places it at the origin. Nothing else on
-   this page matters until it is fixed, and for light-sheet, where a stitcher is
-   the only way to read the data, it is the difference between usable and not.
-   The correction is written on `claude/ngff-translation-per-dataset`.
-2. **Reading a bundle index in the viewer's server.** Without it, bundling cannot
-   be switched on; without bundling, a five-terabyte run cannot be copied. This
-   decides whether large light-sheet data is viewable at all.
+   against the official OME-Zarr schema** — checked, not inferred. ngio refuses
+   it; `ngff-zarr` silently places it at the origin, which means every tile of a
+   run lands on top of every other. For light-sheet, where a stitcher is the only
+   way to read the data at all, that is the difference between usable and not.
+   The correction is already written on `claude/ngff-translation-per-dataset`.
+2. **Reading a bundle index in the viewer's server.** Bundling is what makes a
+   five-terabyte run copyable — 596,000 files instead of 153 million. But a
+   bundled chunk is a byte range inside a file rather than a file, so the server
+   must learn to read the index and seek. Until it does, bundling stays off and
+   large light-sheet runs cannot be handled at all.
+
+Everything else on this page can wait. These two cannot.
 
 ---
 
-## What is still open
+## Still open
 
 - **Chunk-aligned trimming**, which would remove the second copy from every
-  overlapping run — measured at 1.98× the camera's output even with *no* overlap.
-- **The no-copy path for a drifting stage.** It currently refuses a run whose
-  tiles do not land on an exact grid, so an ordinary run falls back to copying.
-- **Whether ten per cent is right at all.** Fiji defaults to 20%, practice runs
-  5–30%, and what actually matters is the stage's error and whether the strip
-  contains features. We keep every tile whole, so this is measurable on our own
-  instruments rather than borrowed from advice.
-- **Scenes, when the tools catch up.** RFC-5 describes our exact workflow, but
-  Neuroglancer has no notion of a scene and ngio cannot read 0.6 at all. The
-  signal to revisit is `ngio.NgffVersions` gaining `"0.6"`.
-- **Drawing measured on real hardware.** Every frame rate in these documents came
-  from a software renderer with no graphics card.
+  overlapping run. Measured: the copying writer costs **1.98 ×** the camera's
+  output even with *no* overlap, so five terabytes becomes nearly ten.
+- **The no-copy path for a drifting stage.** It currently refuses runs whose tiles
+  do not land on an exact grid, so an ordinary run falls back to copying.
+- **HTTP/2 for the viewer**, which would take a screen fill from ~440 ms of round
+  trips to ~26 ms — but browsers speak it only over TLS, so it means a certificate
+  on every microscope computer. Take the larger chunk first, since that is free,
+  and measure what remains before taking this on.
+- **Scenes (OME-Zarr 0.6, RFC-5)**, which describe our exact workflow and would
+  let the view stop being ours. Neuroglancer has no notion of a scene and ngio
+  cannot read 0.6 at all, so the signal to revisit is `ngio.NgffVersions` gaining
+  `"0.6"`.
+- **Drawing measured on real hardware.** Every frame rate anyone has quoted here
+  came from a machine with no graphics card.
+
+---
+
+## The one habit worth keeping
+
+The fault in change 1 sat in the writer for months and no test of ours could see
+it, because our reader and our writer shared the same misunderstanding and
+cancelled it out. Twenty minutes with somebody else's library found it.
+
+So: **keep two tests that judge our files by other people's rules** — validation
+against the official schemas that ship with `ngff-zarr`, and opening every kind of
+image we write with `ngio`. Interoperability is not achieved by intending it. It
+is achieved by something that fails loudly on the day it stops being true.
