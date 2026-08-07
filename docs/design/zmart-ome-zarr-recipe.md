@@ -761,6 +761,30 @@ chooses, derived where arithmetic can do better than a person.
 A literal "10%" written into the workflow would have failed silently on a 1024
 scan — refused, or written twice, and discovered at the end of five terabytes.
 
+##### What each layer does, at run setup
+
+The workflow **offers** the choices; storage **says what they resolve to**. That
+distinction is the whole protection: a workflow that named percentages could name
+one this frame cannot honour.
+
+1. The workflow asks the driver for the frame shape — `Session.get_info()`.
+2. It asks `zmart_storage` what `none`, `modest` and `generous` come to *for that
+   frame*.
+3. It shows the operator the three options with their real numbers — *"none ·
+   modest (12.5%) · generous (20%)"*.
+4. The operator picks an intent.
+5. The workflow lays the centres out on the resulting step, and hands the chunk to
+   the writer.
+
+The workflow owns the choice and the raster. Storage owns what is possible. The
+driver owns the fact. None of them needs to know the others' business, and the
+workflow never names a percentage the frame cannot honour, because it never names
+a percentage at all.
+
+That is also what makes it safe to be rigid. The list is short and fixed in
+*intent*, so an operator has three things to understand, while the arithmetic
+underneath adapts to whatever camera or scan format turns up.
+
  Ten earns the default — it is
 exactly achievable on every real sensor and it is the number microscopists expect —
 but it has to stay adjustable, because a light-sheet often wants fifteen or twenty
