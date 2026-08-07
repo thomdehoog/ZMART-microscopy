@@ -105,16 +105,147 @@ SAMPLE_SECONDS = 3.0
 # than a few per cent.
 STEPS = (1, 5, 20, 100, 400, 1600, 6400)
 
+# Turning off the frame-rate ceiling, whichever renderer draws.
+#
+# `requestAnimationFrame` fires at the display's own rhythm unless told otherwise,
+# so a machine quick enough to reach it draws every size at exactly sixty frames a
+# second and a climb reads flat for the one reason that does not mean the claim
+# holds — nothing was allowed to get slower. Measured on this repository's sandbox
+# at 23 to 36 frames a second, so the cap was never reached there and none of the
+# figures already written down move because of this. On the machine this was found
+# on, every row of a run from one position to two thousand read 60.0 to 60.3.
+UNCAPPED = ["--disable-gpu-vsync", "--disable-frame-rate-limit"]
+
+# How the browser is launched: the machine's own graphics card, if it has one.
+#
+# **This used to force software drawing and no longer does**, which changes what
+# every number here means. `--use-gl=angle --use-angle=swiftshader` made the
+# engine draw on the CPU, so that a machine with a card and one without would
+# report comparable figures — right for a regression guard, and wrong for telling
+# an operator what their own machine does. On 6 August 2026 a whole afternoon of
+# frame figures was quoted as "this machine" when every one of them described a
+# CPU rasteriser: the same box reports `NVIDIA T400 4GB … D3D11` unforced and
+# `SwiftShader driver` forced.
+#
+# Anything already written down in this repository was measured in software and
+# does not compare with what this now produces. `SOFTWARE_ARGS` reproduces the old
+# behaviour when a comparison with those figures is what is wanted.
+BROWSER_ARGS = ["--ignore-gpu-blocklist", *UNCAPPED]
+
+# The fallback, and the way back to the old figures.
+#
+# Chromium falls back to SwiftShader on its own where a card cannot be used, so
+# this is needed only when the browser will not give WebGL at all, and when
+# somebody deliberately wants the software numbers.
+SOFTWARE_ARGS = ["--use-gl=angle", "--use-angle=swiftshader",
+                 "--ignore-gpu-blocklist", *UNCAPPED]
+
+# Renderer names that mean the picture was drawn on the processor. Matched
+# loosely and in lower case, because each driver writes its name its own way and
+# buries it inside a longer string.
+SOFTWARE_RENDERERS = ("swiftshader", "llvmpipe", "software", "microsoft basic")
+
+# Asking the browser what actually drew. Kept beside the arguments because the
+# two belong together: asking for a card is not the same as getting one.
+WHAT_IS_DRAWING = """() => {
+  const canvas = document.createElement('canvas');
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  if (!gl) return 'no webgl at all';
+  const named = gl.getExtension('WEBGL_debug_renderer_info');
+  return named ? gl.getParameter(named.UNMASKED_RENDERER_WEBGL) : '(masked)';
+}"""
+
+
+def is_drawn_in_software(renderer: str) -> bool:
+    """Whether this renderer name is one of the processor's rather than a card's.
+
+    A name that will not say — some browsers mask it — is **not** reported as
+    software. Saying so would be a guess dressed as a measurement, and would send
+    somebody looking for a fault on a machine that has a perfectly good card. The
+    name itself is printed either way, so a reader can see the question went
+    unanswered.
+    """
+    lowered = (renderer or "").lower()
+    return any(one in lowered for one in SOFTWARE_RENDERERS)
+
+
+def what_drew(browser) -> str:
+    """The renderer this browser really got, asked rather than assumed."""
+    page = browser.new_page()
+    try:
+        page.goto("about:blank")
+        return str(page.evaluate(WHAT_IS_DRAWING))
+    finally:
+        page.close()
+
+
+def say_what_is_drawing(browser) -> str:
+    """Print which renderer drew, and hand it back for a table to carry.
+
+    Printed on every run without being asked for. A measurement that quietly fell
+    back to software looks exactly like one that did not, and the two differ by
+    more than tenfold — so the fallback has to announce itself or it is a trap
+    rather than a kindness.
+    """
+    renderer = what_drew(browser)
+    how = "IN SOFTWARE" if is_drawn_in_software(renderer) else "on the card"
+    print(f"drawing {how}: {renderer}", flush=True)
+    if is_drawn_in_software(renderer):
+        print("  (figures from software drawing say nothing about how this "
+              "machine performs; they are for comparison with other machines)",
+              flush=True)
+    return renderer
+
+# Watching for drawing itself, rather than for the browser offering a moment in
+# which drawing could have happened.
+#
+# This must be installed before the page makes its drawing context, so it is added
+# as an init script rather than evaluated after loading. It counts calls to every
+# way WebGL can be asked to draw; the count is read once a frame and only the
+# change matters, so the wrapping costs an increment per call.
+#
+# Why it exists: counting frames alone measures the browser's own clock. A page
+# drawing nothing at all still reports about 58 frames a second, because an idle
+# `requestAnimationFrame` callback is offered on schedule and costs nothing to
+# serve. Measured on 6 August 2026 with the view-nudging turned off: zero draw
+# calls in three seconds, 57.7 frames a second reported.
+WATCH_THE_DRAWING = """() => {
+  window.__gl = 0;
+  const count = (which) => {
+    for (const context of [window.WebGLRenderingContext,
+                           window.WebGL2RenderingContext]) {
+      if (!context || !context.prototype[which]) continue;
+      const was = context.prototype[which];
+      context.prototype[which] = function (...given) {
+        window.__gl += 1;
+        return was.apply(this, given);
+      };
+    }
+  };
+  for (const which of ["drawArrays", "drawElements", "drawArraysInstanced",
+                       "drawElementsInstanced", "drawRangeElements"]) {
+    count(which);
+  }
+}"""
+
 # Counting frames the way the browser really draws them. Started once and only
 # once: two loops would both count and read as the page having doubled its rate.
+#
+# `__gl_at` records how much drawing had been done by each frame, so that a frame
+# in which the picture was redrawn can afterwards be told from one in which the
+# browser merely offered the chance. Without `WATCH_THE_DRAWING` installed the
+# count stays at nought and every frame reads as idle, which is the honest answer
+# to "how long did a drawing frame take" when nothing was watching.
 COUNT_FRAMES = """() => {
   if (window.__counting) return;
   window.__counting = true;
   window.__drawn = 0;
   window.__at = [];
+  window.__gl_at = [];
   const tick = (now) => {
     window.__drawn += 1;
     window.__at.push(now);
+    window.__gl_at.push(window.__gl || 0);
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
@@ -142,6 +273,45 @@ KEEP_MOVING = """() => {
 HELD = """() => window.zmartViewer.layerManager.managedLayers
            .filter((managed) => managed.layer && managed.layer.type === 'image')
            .reduce((total, managed) => total + managed.layer.dataSources.length, 0)"""
+
+
+def how_long_a_drawing_frame_took(at: list[float], drawn_by: list[int]) -> dict:
+    """Split frames into the ones that drew the picture and the ones that idled.
+
+    Args:
+        at: when each frame was offered, in milliseconds.
+        drawn_by: how many drawing calls the page had made by that frame.
+
+    Returns:
+        ``drawing_ms``, the middle interval among those in which the picture was
+        actually redrawn; ``idle_ms``, the middle interval among the rest; and
+        ``drawing_frames``, how many of the intervals drew anything.
+
+    The two populations are far apart -- about 0.8 milliseconds against 17.3 on
+    the machine this was written for -- so averaging across both, which is what
+    counting frames does, buries the quantity being measured inside a constant
+    twenty times larger. That is why a run of ten thousand positions and a run of
+    one read the same: they are the same in that average whatever drawing costs.
+
+    ``drawing_ms`` is ``None`` when nothing was drawn at all. Reporting nought
+    there would make a page that drew nothing look like the quickest result on the
+    table, which is exactly the way this measurement has been fooled before.
+    """
+    if len(at) != len(drawn_by):
+        raise ValueError(
+            f"{len(at)} frame times against {len(drawn_by)} drawing counts; they "
+            "are read from the same page and must line up, so a mismatch means "
+            "the page was read wrongly rather than that it behaved oddly"
+        )
+    drew, idled = [], []
+    for earlier, later, before, after in zip(at, at[1:], drawn_by, drawn_by[1:]):
+        (drew if after > before else idled).append(later - earlier)
+    middle = lambda gaps: sorted(gaps)[len(gaps) // 2] if gaps else None
+    return {
+        "drawing_ms": middle(drew),
+        "idle_ms": middle(idled),
+        "drawing_frames": len(drew),
+    }
 
 
 def a_grid_of_tiles(folder: Path, count: int) -> list[PlacedTile]:
@@ -264,12 +434,14 @@ def frames_counted(browser, built_dist: Path, folder: Path, store, expect: int) 
     return how_it_drew(browser, built_dist, folder, store, expect)["frames"]
 
 
-def a_browser():
-    """A headless Chromium with software drawing, or a plain explanation of why not.
+def a_browser(headed: bool = False):
+    """A headless Chromium drawing in software and uncapped, or why there is none.
 
     Software drawing is needed because the engine wants WebGL2 and most machines
-    running this have no graphics card. A machine whose policy blocks the browser
-    that was downloaded is offered the one it already has.
+    running this have no graphics card. Uncapped because a frame rate measured
+    against the display's rhythm cannot be climbed past it; see ``BROWSER_ARGS``.
+    A machine whose policy blocks the browser that was downloaded is offered the
+    one it already has.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -279,20 +451,61 @@ def a_browser():
             "Install it with `pip install playwright`."
         )
     started = sync_playwright().start()
-    args = ["--use-gl=angle", "--use-angle=swiftshader", "--ignore-gpu-blocklist"]
     try:
-        return started, started.chromium.launch(args=args)
+        return started, another_browser(started, headed)
+    except SystemExit:
+        started.stop()
+        raise
+
+
+def another_browser(started, headed: bool = False):
+    """A further browser from a driver that is already running.
+
+    Two drivers cannot run at once -- the synchronous playwright API refuses to be
+    started inside its own event loop -- so anything wanting a second browser, as
+    a cold opening does, has to launch it from the driver already there. The
+    browser itself is a new process either way, which is what makes it cold.
+
+    The card is asked for first and software is the fallback, taken only when the
+    browser gives no WebGL at all. Chromium falls back to SwiftShader by itself on
+    a machine whose card cannot be used, so this second attempt is for the case
+    where even that did not happen -- and when it is taken, it is said out loud by
+    whoever reports the renderer, because a silent fallback is indistinguishable
+    from a card and worth more than tenfold in the figures.
+    """
+    launched = _launched_with(started, BROWSER_ARGS, headed)
+    if what_drew(launched) == "no webgl at all":
+        launched.close()
+        launched = _launched_with(started, SOFTWARE_ARGS, headed)
+    return launched
+
+
+def _launched_with(started, args, headed: bool = False):
+    """A browser with these arguments, or the Chromium the machine already has.
+
+    ``headed`` opens a real window, and on this machine it is the **only** way to
+    reach the graphics card: measured on 6 August 2026, a headless Chromium
+    reports SwiftShader whatever arguments it is given, while the same browser
+    with a window reports `NVIDIA T400 4GB … D3D11`. Removing the software flags
+    was therefore necessary and not sufficient, and the run said so itself only
+    because it had been made to announce its renderer.
+
+    The cost is that a window opens on somebody's desk and anything typed into it
+    disturbs the measurement, so it stays off by default.
+    """
+    try:
+        return started.chromium.launch(headless=not headed, args=list(args))
     except Exception:
         from conftest import find_a_chromium
         already_here = find_a_chromium()
         if already_here is None:
-            started.stop()
             raise SystemExit(
                 "no Chromium on this machine that could be driven, so frames "
                 "cannot be counted here."
             )
-        return started, started.chromium.launch(
-            executable_path=str(already_here), args=args
+        return started.chromium.launch(
+            executable_path=str(already_here), headless=not headed,
+            args=list(args)
         )
 
 
