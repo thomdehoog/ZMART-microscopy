@@ -33,7 +33,8 @@ work lives; `main` does not yet carry `zmart_storage` at all.
 6. [Overlap: the problem underneath both halves](#overlap-the-problem-underneath-both-halves)
 7. [Where ngio helps, and where it would hurt](#where-ngio-helps-and-where-it-would-hurt)
 8. [How ngio fits the analysis engine](#how-ngio-fits-the-analysis-engine)
-9. [What I would change, in order](#what-i-would-change-in-order)
+9. [Fractal: not the tool for us, but worth reading](#fractal-not-the-tool-for-us-but-worth-reading)
+10. [What I would change, in order](#what-i-would-change-in-order)
 
 ---
 
@@ -447,6 +448,70 @@ new position while a pipeline segments an earlier one is safe. Two analysis step
 writing into the *same* position is not, and the queue is what keeps that from
 happening: one item at a time per position. It is worth stating in the recipe
 rather than relying on it by accident.
+
+---
+
+## Fractal: not the tool for us, but worth reading
+
+The same group that writes ngio also writes
+[Fractal](https://fractal-analytics-platform.github.io/), which does something
+that sounds like what our analysis engine does: it runs modular tasks over
+OME-Zarr, each task in its own environment, orchestrated locally or on a cluster.
+It is reasonable to ask whether we should simply use it.
+
+**We should not, and the reason is in its own description.** Fractal is built to
+convert terabytes of finished image data into OME-Zarr and process it at scale,
+which means it assumes the dataset exists before the analysis starts, and it is
+happiest with high-content screening plates on a cluster. Smart microscopy is the
+opposite arrangement: the analysis has to answer *while the specimen is still on
+the stage*, within seconds, so that the microscope can be told where to look next.
+A framework designed to be scheduled is the wrong shape for a loop that has to
+close before the next position is acquired.
+
+The second reason is simpler and just as decisive: **we do not have a cluster.**
+Everything here runs on the microscope computer — one machine, usually Windows,
+with whatever graphics card is in it, writing to a local or network drive. Half of
+what Fractal is for is distributing work across machines, and none of that is
+available to us or needed by us. It is also why the small-files problem matters so
+much more here than it would on a cluster filesystem, and therefore why OME-Zarr
+0.5 and its bundling are worth having.
+
+That does not make it uninteresting. Several things in it are worth taking, and
+they are cheap:
+
+- **Tasks declare what they take and what they give back.** A Fractal task is
+  described in a machine-readable manifest, built from the function's own typed
+  arguments, so a workflow can be checked before it runs. Our steps carry a small
+  `METADATA` dictionary and are otherwise checked by running them. Declaring the
+  contract means a recipe with a mistake in it fails at submission rather than at
+  step four, twenty minutes into an acquisition — which on a live run is the
+  difference between an annoyance and a lost specimen.
+- **The unit of parallel work is one image, not one job.** Fractal separates tasks
+  that run per image from tasks that need the whole set, and that distinction is
+  exactly what makes it safe to start analysing while more images are still
+  arriving. Our queue already works position by position; saying out loud which
+  steps are allowed to be per-position and which need the whole run would make
+  that safety explicit rather than incidental.
+- **Tasks pass references, never pixels.** A Fractal task receives the address of
+  a store and returns a small description of what it changed. That is the same
+  arrangement recommended above, and it is worth knowing it is proven at scale
+  rather than merely reasonable.
+- **Region-of-interest tables are the bookkeeping unit.** Fractal uses ROI tables
+  to say what a task should work on. That is independent confirmation that
+  `owned_ROI_table` is the right mechanism for the overlap problem rather than an
+  invention of ours.
+- **Their task code is a reference implementation.** `fractal-tasks-core` contains
+  OME-Zarr conversion, illumination correction and registration written by people
+  who argue about this format for a living. Even taking nothing from it, it is the
+  place to check a doubt about how something should be written.
+
+And there is a payoff that only exists if the correction in this document is made.
+If our runs are OME-Zarr that ngio opens, then Fractal becomes *available* without
+being adopted: the live loop stays with our own engine, and a heavy offline pass
+over a finished experiment — whole-run feature extraction, registration, a proper
+stitch — can be handed to Fractal on the same files, with nobody converting
+anything. That is the whole argument for writing the format properly, stated in
+one sentence.
 
 ---
 
