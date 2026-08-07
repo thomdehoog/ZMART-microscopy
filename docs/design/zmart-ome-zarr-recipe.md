@@ -600,6 +600,30 @@ columns are the scanner's turnaround. Nobody quantifies cells there.
   at each edge (0.35%), which allows a 115-voxel chunk and an overlap of exactly
   10%."* An operator who objects can then say so before the run rather than after.
 
+##### Does this hold for any sensor? Tested, yes
+
+Every whole number from 512 to 5000 was tried as a frame width — 4,489 of them:
+
+- **sizes with no solution: none.**
+- **3,699 of them (82%) land within half a per cent of ten per cent**, trimming
+  under one per cent of the frame.
+
+The only sizes that land far off are small frames — 519 to 638 across come out at
+25–28%, because with a 64-voxel floor on the chunk a tile that small is only seven
+or eight chunks wide and the overlap grid is coarse. Everything above roughly 700
+across, which is every real camera, lands on ten per cent.
+
+**So the exact sensor size stops being something anybody has to know or agree on.**
+The driver reports it, the writer works out the rest, and the operator reads one
+line saying what was chosen. Whether a particular Hamamatsu is 2304 or 2308 or
+something else entirely does not need settling.
+
+The one case worth remembering: a small frame — 512 or 640 across, which a
+confocal may well be set to — cannot have a fine overlap grid. If that turns up
+and 25% is more imaging than the experiment can afford, the fix is to let the
+chunk go below 64 for that run and accept more files. Worth knowing; not worth
+designing around until it happens.
+
 **If you would rather not trim at all**, the answer reverts to the table above:
 take 12.5% on a 2048 sensor and 11.1% on a 2304, accept the six per cent, and note
 that a 2308 sensor cannot be pointed at and will be written twice.
