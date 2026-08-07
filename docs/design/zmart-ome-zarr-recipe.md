@@ -175,6 +175,71 @@ It has a visible consequence worth telling operators: a zoomed-out picture is a
 survive at every zoom instead of fading, and a faint object lying between two kept
 rows can disappear when you zoom out.
 
+### How wide should the ladder be, and should it stride at all?
+
+*Measured 7 August 2026. This questions the two choices above rather than
+restating them.*
+
+The pyramid costs a third of the run on disk, so it is fair to ask whether it has
+to. Written three ways over the same 4096 × 4096 picture:
+
+| ladder | pyramid costs | levels | first pixel | requests | **cells still visible** |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| halve each time (today) | **+36%** | 6 | 2.52 s | 113 | 100% |
+| **quarter each time** | **+7.6%** | 3 | **1.60 s** | 89 | 100% |
+| eighth each time | +1.8% | 2 | 1.66 s | 84 | **63%** |
+
+A wider ladder is better on every count that is easy to measure — less disk, fewer
+levels, quicker to open, fewer requests. **What stops it is the last column.**
+
+On a sparse specimen — two thousand cells of two to four voxels' radius, which is
+exactly the target-finding case — an eighth-sized step *by striding* loses **37% of
+the cells** from the zoomed-out view. For a survey whose whole purpose is finding
+cells, that is a broken instrument rather than a softer picture.
+
+**So with striding, four is the limit.** It keeps every cell, costs 7.6% instead
+of 36%, and halves the number of levels.
+
+### But the striding is what caps it, and the reason for striding does not hold
+
+The same test with **averaging** keeps **98%** of cells at an eighth-sized step. So
+the cap comes from the choice of striding, not from the ladder.
+
+The argument for striding is quoted above: averaging "would mix voxels across the
+join between two positions, and no position would own its result", which would
+break the view's ability to point at the tiles' own copies. **That argument does
+not survive checking.** An averaging window can only straddle a join if a tile is
+not a whole number of windows — and the writer already requires a tile to begin on
+a multiple of the piece size *times the largest shrink*, which is far stronger
+than needed. Measured directly:
+
+```
+averaging by 2x: whole-canvas == tile-by-tile ?  True  (max difference 0.000000)
+averaging by 4x: whole-canvas == tile-by-tile ?  True  (max difference 0.000000)
+averaging by 8x: whole-canvas == tile-by-tile ?  True  (max difference 0.000000)
+```
+
+Averaging within a tile is bit-for-bit what averaging the whole canvas would give,
+so every coarse voxel still comes from exactly one position and the view can still
+point at it.
+
+**Which puts an eighth-sized averaged ladder on the table: a 1.8% pyramid instead
+of 36%, with 98% of cells surviving rather than 63%.** On five terabytes that is
+the difference between 1.7 TB of smaller copies and 90 GB.
+
+Two honest costs before adopting it:
+
+- **Averaging is arithmetic where striding is a memory copy.** It is a mean over
+  f² voxels, and it produces 1/f² as much data as it reads, so the cost is
+  bounded — but it is no longer free, and on a live run it competes with the
+  acquisition.
+- **A coarse voxel stops being a real measurement.** Under striding, every voxel
+  at every zoom is something the instrument actually recorded; under averaging the
+  zoomed-out picture is a smoothed version. Nobody quantifies on the pyramid, so
+  this is about honesty in what the operator is shown rather than about analysis —
+  but the sentence above about specks surviving would need rewriting the other way
+  round.
+
 ---
 
 ## 4. How the pixels are stored
