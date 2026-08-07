@@ -14,13 +14,14 @@ confident about is answered in its favour.
 disagrees with a decision already recorded elsewhere, this page is the later one
 and should be treated as such.
 
-**Two of its findings did not survive a second look, and are marked REFUTED where
-they appear.** They are the "capping hazard" in item 1, which a later reviewer
-took apart with two independent arguments and then disproved by measurement, and
-the line count given for the view mechanism under "The questions the plan asked",
-which was wrong by a factor of four. Both are left standing with the refutation
-beside them rather than deleted, because a review is a record, and a record with
-its mistakes quietly removed is a worse one.
+**Three of its findings did not survive a second look, and are marked as refuted
+where they appear.** They are the "capping hazard" in item 1, which a later
+reviewer took apart with two independent arguments and then disproved by
+measurement; the line count given for the view mechanism under "The questions the
+plan asked", which was wrong by a factor of four; and the claim that B7 retires
+`cropped.py`. All three are left standing with the refutation beside them rather
+than deleted, because a review is a record, and a record with its mistakes
+quietly removed is a worse one.
 
 ---
 
@@ -34,11 +35,11 @@ its mistakes quietly removed is a worse one.
 | B4 | two interop tests | **raised. Highest value per line in the list.** |
 | B5 | `plan_a_grid` | keep, but it is about fifteen lines plus a report. Do not let it become a planner. |
 | B6 | `owned_ROI_table` | keep, and **merge with B10** and the useful residue of the coverage record. |
-| B7 | chunk-aligned seams | **raised above B5 and B6 — it deletes the most code**, by retiring `cropped.py`. |
+| B7 | chunk-aligned seams | **raised above B5 and B6.** ~~It deletes the most code, by retiring `cropped.py`.~~ **Refuted:** with one bundle per whole tile plane, reading a small rectangle still drags a whole bundle off disk, so `cropped.py` stays. B7 is still worth doing; it just retires no module. |
 | B8 | unique label numbers | keep. Non-negotiable and independent. |
 | B9 | a view for segmentations | **deferred.** A second copy of the whole view mechanism, for runs that do not exist yet. Build it when a labelled run actually meets the cliff. |
 | B10 | a run-level table | keep, merged with B6. |
-| B11 | 0.5 as the default everywhere | **mostly absorbed** — retiring `cropped.py` deletes one of the two writers it exists to fix. What remains is a default argument. |
+| B11 | 0.5 as the default everywhere | **mostly absorbed** — ~~retiring `cropped.py` deletes one of the two writers it exists to fix~~ (refuted with the B7 row above: `cropped.py` stays, so both writers need the default). What remains is a default argument. |
 | **new** | — | **Stop re-reading every tile the view has just written.** See below. |
 
 Eleven items become **B1, B2 (as originally specified), B4, B5, B6+B10, B7, B8,
@@ -64,9 +65,8 @@ the server already honours. There is an end-to-end test:
 points at them, serves them through the real server, and reconstructs the specimen
 bit-for-bit.
 
-**The capping hazard — REFUTED. The claim is left below as it was written,
-because this page is the record of a review and quietly deleting what it got
-wrong would make it a worse record. Read the refutation that follows it.**
+**The capping hazard — refuted.** The claim is left below as written; the
+refutation follows it.
 
 Both the register and the ngio proposal praise capping the
 bundle at each level's own extent for the small levels. That is a silent
@@ -94,15 +94,15 @@ it.
 
 > **Why this is refuted, and what the real fault is.** A later reviewer took the
 > claim apart with two independent arguments and then settled it by measurement:
-> a capped bundle and an uncapped one resolve **byte for byte identically**. So
+> a capped shard and an uncapped one resolve **bit-for-bit identically**. So
 > there is no silent corruption here, ngio's capping is not a mark against it,
 > and neither of the two remedies suggested just above is needed. B2 stands as
 > the plan originally specified it.
 >
 > The silent-corruption risk is real, but its cause is somewhere else and is
 > much plainer. In `zmart_storage/canvas.py`, line 1992 reads
-> `if shard is not None and level == 0:` — so the writer bundles **only the
-> full-resolution level** and leaves the whole pyramid above it unbundled. That
+> `if shard is not None and level == 0:` — so the writer shards **only the
+> full-resolution level** and leaves the whole pyramid above it loose. That
 > is the actual fault, and it is exactly what B2 was put on the list to repair.
 
 ### 2. Delete `zmart-coverage`
@@ -112,7 +112,7 @@ is already dead:
 
 - **Nothing in the recommended write path writes it.** `positions.py` never
   imports it; both view constructors pass `records_coverage=False`. Only the
-  copying writer writes it — the one B7 retires.
+  copying writer writes it.
 - **Nothing in the viewer reads it.** Zero references in `viz_studio/backend/`
   outside a comment. Its only consumer is a measurement prototype.
 - `positions.py` lists `zmart-coverage/` in its on-disk layout diagram, which is
@@ -166,19 +166,19 @@ several items that were.**
 
 ## The other bloat candidates, judged
 
-**Two writers — retire `cropped.py`, keep `canvas.py`, but not for the stated
-reason.** `canvas.py` is not merely the copying writer; it is also *the view's own
+**Two writers — ~~retire `cropped.py`~~ (refuted below), keep `canvas.py`, but
+not for the stated reason.** `canvas.py` is not merely the copying writer; it is also *the view's own
 declarer*. Both view constructors call `TileCanvases.create`, and the growing view
 calls `canvas.only_the_zoomed_out_copies` for every tile. Delete it and pointing
 stops working.
 
-What can go is `cropped.py` — 965 lines plus 898 of tests. Its whole reason for
-existing is that `canvas` refuses overlapping runs, so overlap is handled by
-writing everything twice. B7 replaces that: the trim becomes the placement's own
-`taken_from`/`size`, which `linked.py` already supports and already checks. The
-`Trimming` arithmetic is the useful part, about a hundred lines; lift it out and
-drop the rest. Foreign data is not an argument for keeping it — converting foreign
-data means writing positions.
+~~What can go is `cropped.py` — 965 lines plus 898 of tests, since B7 turns the
+trim into the placement's own `taken_from`/`size`, which `linked.py` already
+supports and already checks.~~ **REFUTED.** With one bundle per whole tile plane,
+reading a small rectangle out of a position still drags the whole bundle off
+disk, so the path that reads a sub-rectangle efficiently still earns its place.
+The decisions register and a later reviewer have both settled it the other way:
+keep it. B7 is still worth doing on its own merits; it simply retires no module.
 
 **The pointer map — keep it, and stop calling it per-chunk.** The plan
 mis-describes its own artefact. It is **one line per tile**, holding origin and
@@ -258,17 +258,11 @@ one, and it will age *well* — because what is written is a valid OME-Zarr imag
 plus one namespaced attribute. When scenes land, the migration is to write a scene
 document beside the same positions and keep the view for Neuroglancer. Nothing
 gets rewritten because nothing was written. **What to guard — and this review got
-its size badly wrong.** It said the whole mechanism was about 590 lines in one
-module with one entry point called from one place, and offered that containment
-as the reason it would be cheap to dispose of later. Counted directly against the
-source, the mechanism is `zmart_storage/linked.py` at **1,787 lines** together
-with `viz_studio/backend/linking.py` at **591 lines** — **2,378 lines** across two
-modules. The 590 appears to have counted only the viewer half. The conclusion has
-to move with the number: replacing this mechanism is not the small tidy-up the
-original sentence implied, and any proposal to replace it — the TensorStore
-overlay discussed further down included — has to be weighed as a two-thousand-line
-replacement, with the testing and the risk that go with that, rather than as
-lifting out one contained module.
+its size badly wrong.** It called the mechanism about 590 lines in one contained
+module, having counted only the viewer half; it is **about 2,380 lines** across
+`zmart_storage/linked.py` and `viz_studio/backend/linking.py`. So replacing it —
+by the TensorStore overlay discussed below or by anything else — is a
+two-thousand-line replacement, not lifting out one contained module.
 
 **A view served from memory?** **No.** It costs the property the arrangement is
 built around: a run you can copy. It exists only while the server runs, cannot be
@@ -291,11 +285,10 @@ pyramid and point only at level 0** — which is *simpler* than what exists:
 `pointed_levels` disappears, the shrink-alignment refusal disappears, and the
 `// shrink` arithmetic of item 1 goes with them — a simplification rather than,
 as item 1 claimed, a fix for a hazard. **Take the eighth-sized
-averaged ladder and the code deletion that comes with it:** about **78–79 GB in
-theory** instead of 1.7 TB, minus about 150 lines of the most delicate arithmetic
-in the project. That saving is arithmetic and has not been measured on a real
-run, so it should be read as an estimate rather than a disk budget. One
-caveat for operators — an averaged coarse voxel is no longer a measurement, so
+averaged ladder and the code deletion that comes with it:** **about 90 GB**
+instead of 1.8 TB, which is what the measured overheads of 1.8% and 36% come to on five
+terabytes, minus about 150 lines of the most delicate arithmetic in the project.
+One caveat for operators — an averaged coarse voxel is no longer a measurement, so
 brightness readings and thresholds must be taken at full resolution, and
 `contrast.py` measures from the coarsest level and needs re-checking.
 
@@ -356,10 +349,11 @@ OME-Zarr source composed from N tile stores, in a browser."**
   `linked.py` and `linking.py`.** *This is the highest-value unmeasured question
   in the plan and it was not in the plan.* An afternoon's work. *(It has since
   been measured on this machine — a median of 0.586 ms through an overlay of ten
-  thousand layers — but not yet on a Windows microscope computer, which is where
-  it counts. The plan's section 4 records the figure and the acceptance gate.
-  Note also that what would be deleted is 2,378 lines, not the 590 stated further
-  up; the prize is larger and so is the undertaking.)*
+  thousand positions, comfortably beating the 4.6 ms this bullet doubted it could
+  reach — but not yet on a Windows microscope computer, which is where it counts.
+  The plan's section 4 records the figure and the acceptance gate. Note also that
+  what would be deleted is about 2,380 lines, not the 590 stated further up; the
+  prize is larger and so is the undertaking.)*
 - **`multiview-stitcher`** does exactly this job and is 140× too slow for a
   diagnosable reason: it detects the grid-aligned case and then never uses the
   answer, resampling an integer translation through a general affine transform.
