@@ -127,9 +127,14 @@ Three things are decided here and each has a reason:
 - **Scale first, then translation, in that order.** The format requires the list
   to begin with a scale. A lone translation is refused by ngio outright, and
   quietly ignored by `ngff-zarr`, which places the image at the origin instead.
-- **Per dataset, and never also at the multiscales level.** A reader composes the
-  two, so an image stating its position in both places is moved twice, ending up
-  at double the distance from the stage's zero.
+- **Per dataset, and never also at the multiscales level.** Our own reader adds
+  the image-wide statement once and then every resolution's on top, so stating a
+  place in both moves the image once for each level and once more. On a true
+  origin of (3, 5, 7) µm with three levels that is four times too far, while per
+  dataset alone gives (9, 15, 21) — multiplied by the number of levels. Only
+  today's image-wide-only writing reads back correctly, so the reader must be
+  corrected alongside change one, to combine the image-wide statement with **one**
+  dataset, normally the first.
 - **The translation is the corner of the first voxel, not its middle**, and every
   level carries the same one. Under the corner reading the levels nest perfectly.
   Some readers assume the middle and will place the picture half a voxel off; that
@@ -139,8 +144,9 @@ Three things are decided here and each has a reason:
 > **Not yet true of positions.** Today `zmart_storage/canvas.py` writes the
 > position's translation at the multiscales level instead, which is why ngio
 > refuses to open a position. The correction exists on
-> `claude/ngff-translation-per-dataset` and is change number one on the list. The
-> view already does it the right way.
+> `claude/ngff-translation-per-dataset` and is change number one on the list, and
+> it cannot land without the reader change just described. The view already does
+> it the right way.
 
 **Channel names, colours and brightness go in the `omero` block.** It is a
 transitional part of the specification and a future version may move it, but it is
@@ -200,28 +206,31 @@ cells, that is a broken instrument rather than a softer picture.
 **So with striding, four is the limit.** It keeps every cell, costs 7.6% instead
 of 36%, and halves the number of levels.
 
-### But the striding is what caps it, and the reason for striding does not hold
+### But the striding is what caps it, and the reason for striding does not hold here
 
 The same test with **averaging** keeps **98%** of cells at an eighth-sized step. So
 the cap comes from the choice of striding, not from the ladder.
 
 The argument for striding is quoted above: averaging "would mix voxels across the
 join between two positions, and no position would own its result", which would
-break the view's ability to point at the tiles' own copies. **That argument does
-not survive checking.** An averaging window can only straddle a join if a tile is
-not a whole number of windows — and the writer already requires a tile to begin on
-a multiple of the piece size *times the largest shrink*, which is far stronger
-than needed. Measured directly:
+break the view's ability to point at the tiles' own copies. **That argument holds
+only where the tiles do not line up with the averaging blocks, and ours do line
+up.** Checked directly, the rule is this: averaging within a tile gives exactly
+what averaging the whole canvas gives when, on every axis being coarsened, the
+tile's origin *and* the extent of ground it owns are both whole multiples of the
+deepest level's total shrink — eight, for an eighth-sized ladder. Off that grid
+the two disagree by as much as the seam's remainder. A seam at voxel 144 with
+averaging blocks of 64 differed by 16 on a ramp and 49.2 on noisy data, and left
+one coarse voxel that no tile could supply at all; a tile starting at an aligned
+zero but owning only 160 voxels differed by 52.4.
 
-```
-averaging by 2x: whole-canvas == tile-by-tile ?  True  (max difference 0.000000)
-averaging by 4x: whole-canvas == tile-by-tile ?  True  (max difference 0.000000)
-averaging by 8x: whole-canvas == tile-by-tile ?  True  (max difference 0.000000)
-```
-
-Averaging within a tile is bit-for-bit what averaging the whole canvas would give,
-so every coarse voxel still comes from exactly one position and the view can still
-point at it.
+**This is not peculiar to averaging.** Today's every-second-voxel shrinking needs
+exactly the same alignment, and misses by more without it — the same seam differed
+by 592.9. Today's arrangement is safe only because `linked.py` already refuses any
+placement that does not line up once shrunk, and that is the reassuring part: an
+averaged ladder needs no new rule, only that the existing one goes on being
+enforced. With it enforced, every coarse voxel still comes from exactly one
+position and the view can still point at it.
 
 **Which puts an eighth-sized averaged ladder on the table: a 1.8% pyramid instead
 of 36%, with 98% of cells surviving rather than 63%.** On five terabytes that is
@@ -253,11 +262,22 @@ Two honest costs before adopting it:
 | --- | --- | --- |
 | OME-Zarr version | **0.5** (zarr v3) by default; 0.4 on request; **0.6 when the acquisition needs a transformation 0.5 cannot express** — see section 6 | 0.5 is read by everything today and can bundle chunks; 0.6 is the only way to state a deskew, a rotation between views, or a place that changes with time |
 | chunk | `(1, 1, 1, piece, piece)`, with `piece` **derived from the tile shape and the wanted overlap** at run setup — see §8.1 | one plane per piece, so showing a single plane never fetches its neighbours; and the chunk cannot be changed afterwards without rewriting every byte, so it must be right the first time |
-| bundling (sharding) | **every level**, one tile plane per bundle, capped at the level's own extent for the small ones | a two-terabyte run at a 128-voxel chunk leaves about 20.5 million files if only the full-size level is bundled, because the loose pyramid above it then dominates the count — and about 1.19 million if every level is bundled, since each of the five levels still needs its own bundle per tile plane (238,419 × 5). That is a seventeen-fold reduction rather than a collapse, and it is the change that actually matters. **The writer bundles level 0 only today**, which is blocking item 3 |
+| bundling (sharding) | **every level**, one tile plane per bundle; a level smaller than a bundle gets one cut down to fit it, with the caution below | a two-terabyte run at a 128-voxel chunk leaves about 20.5 million files if only the full-size level is bundled, because the loose pyramid above it then dominates the count — and about 1.19 million if every level is bundled, since each of the five levels still needs its own bundle per tile plane (238,419 × 5). That is a seventeen-fold reduction rather than a collapse, and it is the change that actually matters. **The writer bundles level 0 only today**, which is blocking item 3 |
 | number type | whatever the camera gives, usually `uint16` | never converted; a run stores what was recorded |
 | compression | zstd | fast enough to keep up with acquisition |
 | unwritten chunks | left unwritten, fill value `0` | a declared canvas is far larger than any run fills, and empty room must cost nothing |
 | dimension names | written into each array in 0.5 | the specification requires it, and it lets one level be opened on its own |
+
+**A caution about capping a bundle on the small levels.** Cutting a bundle down to
+fit a level smaller than it is exactly right for a position opened on its own, but
+it is not safe for a view that hands the bytes onward under its *own* declared
+shape. On a level holding 256 × 256 voxels the capped bundle came to 112,220 bytes
+against 112,412 uncapped for the same pixels; the difference is the index — a
+512-voxel bundle indexes sixteen inner chunks, a capped 256-voxel one four — and
+the index carries a checksum, so a reader handed capped bytes under the uncapped
+shape fails outright. It is also why a run written by ngio cannot yet be pointed
+at. The way out is for the view to advertise the small levels' real inner chunks,
+and for the server to return an inner chunk rather than a whole bundle file.
 
 `start_a_run` already defaults to 0.5. `canvas.TileCanvases` and
 `cropped.TilesAndCanvas` still default to 0.4 and should be brought into line.
@@ -583,7 +603,10 @@ Stated once, because everything in this section serves it:
 
 A run of five terabytes makes this a requirement rather than a preference. Here is
 what the two writers cost, measured on noise so that the numbers describe the
-arrangement rather than how compressible the specimen happened to be.
+arrangement rather than how compressible the specimen happened to be. These
+multiples count bytes against what the camera produced, so they are not on the
+same scale as §8.1's overlap multiples — 1.23× at ten per cent, 1.31× at twelve
+and a half — which count extra imaging against unique specimen area.
 
 | written by | on disk, as a multiple of what the camera made | five terabytes becomes |
 | --- | --- | --- |
@@ -743,12 +766,17 @@ all three at once does better, and on the sensors actually in use it does better
 **This supersedes the advice below for a 2304 sensor.** Compare what aligning all
 three gives against what optimising for an exact ten per cent gave:
 
-| | chunk | overlap | requests per tile-plane | voxels discarded |
+| | chunk | overlap | chunks per tile-plane | voxels discarded |
 | --- | ---: | ---: | ---: | ---: |
 | optimise for exactly 10% | 115 | 10.0% | 400 | 4 an edge |
 | **align all three** | **192** | 16.7% | **144** | **none** |
 
-Two point eight times fewer requests, nothing lost, and 16.7% sits squarely in the
+**These per-tile-plane figures count chunks, not complete web requests.** The
+arithmetic is right, but reading from a bundle also asks for the bundle's index,
+which is one more request and is usually cached after the first, so the real
+totals come out a little higher than the columns say.
+
+Two point eight times fewer chunks, nothing lost, and 16.7% sits squarely in the
 range that stitches well. It costs about seventeen per cent more imaging than ten
 per cent would. For *optimal* meaning snappy, lossless and stitchable, the aligned
 answer wins.
@@ -759,15 +787,15 @@ divisors are all powers of two, so it offers 12.5% at chunk 128 or 25% at chunk
 
 **Where the format is ours to set — the point scanners — ask for one of these:**
 
-| scan format | chunk | overlap | requests per tile-plane |
+| scan format | chunk | overlap | chunks per tile-plane |
 | ---: | ---: | ---: | ---: |
 | **2880** | 288 | 20.0% | **100** |
 | 3456 | 288 | 16.7% | 144 |
 | 4608 | 288 | 12.5% | 256 |
 
 A confocal set to 2880 rather than 2048 gets a larger chunk, a better overlap and
-a quarter of the requests — better on every axis at once, for the cost of typing a
-different number into the acquisition software.
+a quarter of the chunks to fetch — better on every axis at once, for the cost of
+typing a different number into the acquisition software.
 
 ##### Correction: prefer the large chunk, not the exact overlap
 
@@ -1481,8 +1509,14 @@ to be found out:
 - **What does it do to live viewing?** A tile buffered in memory is a tile the
   operator cannot see yet. Watching a run fill in is the point of the viewer, so a
   whole-tile buffer may trade away something worth more than the file count.
-- **Does a large bundle cost more to read?** The server reads an index and seeks;
-  whether that index grows expensive at whole-tile size is unmeasured.
+- **Does a large bundle cost more to read?** Largely answered, and reassuringly.
+  Logging every byte range a read really asks for shows a bundled array fetching
+  the index plus only the inner chunks the rectangle touches: a 10 × 10 read of
+  one of today's 855,499-byte bundles fetched 53,744 bytes, 6.28% of it, and
+  0.66% where the inner chunks were 64 voxels across. The inner chunk sets what a
+  small read costs, not the bundle, so a whole-tile bundle should be little worse
+  — provided the store answers requests for a byte range, as local files and
+  range-honouring web servers do.
 
 **There is a middle ground worth measuring first**: a bundle of eight to sixteen
 planes cuts the file count by roughly ten while keeping the buffer small enough not
@@ -1519,8 +1553,10 @@ In the order I would do them. The first four are corrections; the rest are the
 changes of section 8, which are larger and should follow rather than lead.
 
 1. **Per-dataset translation for positions.** Already written on
-   `claude/ngff-translation-per-dataset`; needs merging, plus a guard so the view
-   is not moved twice. Nothing else on this list matters until this is done,
+   `claude/ngff-translation-per-dataset`; needs merging, and with it the reader
+   change of §2, since our reader adds every level's translation and would
+   otherwise place a position as many times too far as it has levels. Nothing
+   else on this list matters until this is done,
    because until then no position we write can be opened by ngio, `ngff-zarr` or
    `multiview-stitcher`.
 2. **`tables/owned_ROI_table` in every tile.**
