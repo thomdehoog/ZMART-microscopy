@@ -377,7 +377,60 @@ outwaits the network.
 
 So the list of remaining levers is shorter than it looked. Batching the bind is
 worth 3.4x and is found. Bounding the number of sources is the only other one that
-touches the real term. Everything about requests is noise.
+touches the real term.
+
+**But "everything about requests is noise" -- which this section originally
+concluded -- is wrong, and the warm-cache experiment could not have shown it.** It
+held the request *count* fixed and made each one faster. That disproves bytes and
+latency as the cost; it says nothing about the count, which drags a fixed amount of
+scheduling behind it whether the answer comes from a socket or a cache.
+
+A trace of the batched engine says where the residue really is:
+
+```
+bare RunTask               1318 ms across 18075 tasks   53% of main busy
+microtask checkpoints       602 ms across 11865         24%
+FunctionCall                318 ms across 504           13%
+```
+
+Per source that is 45 tasks, 30 microtask checkpoints and 4.2 requests at N=400 --
+and 51, 33 and 4.7 at N=100, so it is flat per source. **About eleven scheduler turns
+per request, four requests a source.** Cutting the four to one would cut the task
+count with it, and the win would be in the scheduling rather than the bytes.
+
+So declaring the positions once is back on the table, for a different reason than it
+was first proposed and one that the earlier experiments could not see.
+
+### After the fix, there is no second thing to fix
+
+A trace of the batched engine, on the same overlapped stores, confirms the fix
+rather than merely the timings: `CoordinateSpaceCombiner.bind` goes from 3455 ms to
+**3.4 ms**, and `addCoordinateSpace` below the noise floor. The fan-out is gone, not
+displaced -- `update` is 103 ms, too small to be feeding the 282 ms of `Signal.dispatch`
+that remains, which belongs to other signals. Main-thread busy falls 4.99 -> 1.85 s
+and **GPU-thread busy 4.03 -> 1.19 s**, which was not expected: fewer transform
+re-posts mean less redrawing too.
+
+The residue is spread thin by construction. Stock needed six functions to reach half
+of the attributed JS self-time; batched needs fifteen, the top five are 34%, and the
+largest single entry is native `fetch` at 8.3% of main-thread busy. Attributed JS
+self-time falls 4751 -> 961 ms across some 390 functions.
+
+Two further quadratics do exist and are worth knowing about before they matter: a
+generator that walks every `dataSource` and its subsources, called once per source,
+and an explicit pairwise loop comparing each source's flattened state against every
+earlier one. Together they are **about 50 ms, 1.6% of the open at four hundred
+sources** -- the next quadratics, not present ones.
+
+**So there is no second concentrated term to attack.** What is left is scheduling,
+and the only lever on scheduling is issuing fewer requests per source.
+
+Caveats the trace carries: about 890 ms of the batched main-thread busy is
+unattributed to any JS function and falls *inside* tasks, which weakens "spread
+thin" by that much; tracing costs the batched build proportionally more than the
+stock one (+26% against +4%), because its remaining cost *is* task dispatch and that
+is what the tracer instruments, so the true per-source floor is lower than measured;
+and the stock column is single-sampled.
 
 ### Where this leaves the arrangement
 
