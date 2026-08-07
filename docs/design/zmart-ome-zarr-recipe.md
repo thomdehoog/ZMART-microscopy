@@ -416,13 +416,40 @@ the overlap, a stage that drifts, and runs with no regular step.
 
 ---
 
-## 8. Five changes the whole picture argues for
+## 8. What should change, given all of it at once
 
 *Status: none of these are built. This section is the answer to "given overlap,
 efficient viewing, efficient analysis, and label layers — what should change?"*
 
 Taken one at a time the earlier sections each suggest a small correction. Taken
 together they point at four changes, and the first is much larger than it looks.
+
+### 8.0 The principle, and what it costs today
+
+Stated once, because everything in this section serves it:
+
+> **Keep the ground truth once — every tile whole, exactly as the camera recorded
+> it — and let the viewer and the analysis each account for the overlap in their
+> own way, without either of them copying a voxel.**
+
+A run of five terabytes makes this a requirement rather than a preference. Here is
+what the two writers cost, measured on noise so that the numbers describe the
+arrangement rather than how compressible the specimen happened to be.
+
+| written by | on disk, as a multiple of what the camera made | five terabytes becomes |
+| --- | --- | --- |
+| `cropped.py`, **no overlap at all** | **1.98 ×** — archive 0.86 ×, canvas 1.12 × | **9.9 TB** |
+| `positions.py` + `linked.py` | each voxel once, plus its own smaller copies; the view writes nothing at all | about 1.3 TB over the raw |
+
+The first row is the one to look at twice. That run had **no overlap** — nothing
+was shared, nothing needed trimming — and it still wrote the whole acquisition
+twice, because that writer always writes an archive and a canvas. An overlapping
+run is worse, since the canvas carries its own pyramid on top.
+
+The second row is not a plan; it is what `linked.py` already does, and
+`zmart_storage/tests/test_a_view_that_writes_nothing.py` is the test that holds it
+to it. The whole of §8 is about extending that arrangement to the cases it does
+not yet cover.
 
 ### 8.1 Trim on a chunk boundary, and the second copy disappears
 
@@ -437,9 +464,30 @@ half the overlap, whatever that comes to — and a view can only hand over *whol
 chunk files*. A trim that cuts through the middle of a chunk cannot be expressed
 by pointing; it has to be cut, and cutting means copying.
 
-**The change.** Require the overlap to be **an even whole number of chunks**. Then
-half of it is a whole number of chunks, a trimmed tile still begins and ends on the
-chunk grid, and trimming becomes *pointing at fewer chunks* — which costs nothing.
+**The change, and it is smaller than it looks, because half of it is already
+enforced.** `cropped.py` will not accept a run whose *trimmed tile* is not a whole
+number of chunks across — `_refuse_a_trim_that_does_not_land_on_whole_pieces`
+refuses it and helpfully lists the overlaps that would have worked:
+
+```
+trimming this acquisition would leave a tile of 460 voxels in y, and the canvas
+stores its picture in pieces 128 voxels across, so a trimmed tile is 3.59 pieces
+rather than a whole number of them.
+...
+Overlaps that would work here, in voxels: 0, 128, 256, 384.
+```
+
+So operators are already choosing overlaps from a short list, and the discipline
+this needs is one they have already accepted. What the existing rule aligns is the
+trimmed tile's **width**. Pointing also needs its **start** to fall on a chunk
+boundary, which is one step stricter: with a 128-voxel chunk, an overlap of 128
+leaves a half-overlap of 64 — half a chunk — so the kept part begins in the middle
+of a chunk file and cannot be handed over whole.
+
+Require the overlap to be **an even whole number of chunks** — 0, 256, 512 rather
+than 0, 128, 256, 384. Then the half-overlap is a whole number of chunks, a trimmed
+tile begins *and* ends on the grid, and trimming becomes *pointing at fewer chunks*,
+which costs nothing.
 
 The arithmetic is undemanding. With a 2048-voxel tile and a 128-voxel chunk, an
 overlap of two chunks is 256 voxels, or 12.5% — close enough to the usual ten per
@@ -597,9 +645,47 @@ thousands, and an image that holds one tile is small and cheap to declare.
 still through a timelapse should still use `t` inside one image — fewer files,
 and the moments belong together. The rule is about *movement*, not about time.
 
+### 8.6 Say where a tile is by its centre; store its corner
+
+**The observation.** A microscope does not know where a tile's corner is. It knows
+where the stage was sent, and the field of view is centred on that point. The
+workflow already thinks this way — `discovery.py` passes `center_frame_um` around
+and converts through `overview_pixel_to_frame(..., image_center_frame_um=...)`.
+Only the storage layer speaks in corners, and every place the two meet is a place
+to get a half-tile wrong.
+
+**But the file must keep storing the corner.** OME-Zarr's `translation` applies to
+the array's first element, so it *means* the corner of voxel zero. Writing a centre
+there would not be a different convention, it would be a false statement, and every
+reader in the world would place the tile half a tile away from where it belongs.
+This is not the same question as the corner-versus-middle-of-a-voxel choice in
+section 2, which is about half a *voxel*; this is about half a *tile*.
+
+**So: speak centres, store corners, and convert in exactly one place.**
+
+```
+corner = centre − (tile shape in voxels ÷ 2) × voxel size
+```
+
+The conversion is exact rather than approximate, and it is worth saying why:
+§8.1 already requires a tile to be a whole number of chunks across, so a tile's
+size in voxels is always even, and half of it is a whole number of voxels. There
+is no rounding and no half-voxel to worry about.
+
+**What it buys, beyond fewer mistakes.** The acquisition stops having to reason
+about overlap at all. It says where the centres go; the overlap is then simply the
+tile size minus the spacing between centres, which is exactly what
+`Trimming.of(tile_shape, tile_step)` already takes. Overlapping edges are not
+something anybody arranges — they fall out of imaging a tile-sized field at
+centres closer together than a tile.
+
+That also makes the operator's side of it honest. "Image every 1.8 mm with a 2 mm
+field" is a sentence a microscopist can check against the stage. "Put the corners
+at these coordinates" is one they cannot.
+
 ### What these have in common
 
-The first four move work from *copying pixels* to *saying something about pixels that
+They all move work from *copying pixels* to *saying something about pixels that
 already exist*. The trim becomes metadata, the show/hide choice becomes metadata,
 the segmentation overlay becomes metadata, and the run summary becomes one small
 table instead of ten thousand reads. That is the same principle the view was built
@@ -628,11 +714,12 @@ changes of section 8, which are larger and should follow rather than lead.
 7. **A run-level table** (§8.4) and a second, untrimmed view (§8.2).
 8. **A new image per moment for tiles that move** (§8.5), which is what a tracking
    run needs and what no viewer will draw from a time-varying transformation.
-9. **Write 0.6 for acquisitions 0.5 cannot describe** — a deskewed light-sheet
+9. **Centres in, corners on disk** (§8.6), converted in one place.
+10. **Write 0.6 for acquisitions 0.5 cannot describe** — a deskewed light-sheet
    run, multiple views related by a rotation, a tile that moves between
    timepoints. Neuroglancer reads 0.6 images already, and the upgrade back and
    forth is metadata-only.
-10. **Watch `ngio.NgffVersions` for `"0.6"`**, then write the scene alongside the
+11. **Watch `ngio.NgffVersions` for `"0.6"`**, then write the scene alongside the
    view and find out whether a run opens elsewhere without our viewer.
 
 Deliberately not on the list: adopting the high-content-screening plate layout,
