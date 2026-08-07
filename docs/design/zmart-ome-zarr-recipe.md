@@ -505,6 +505,113 @@ become the same thing — positions plus a view — and `cropped.py`'s copying p
 becomes the fallback for runs that cannot satisfy the alignment: foreign transfers,
 irregular smart scans, anything we did not write ourselves.
 
+#### How free is the choice of overlap?
+
+Not a percentage at all, which is the thing to understand. The rule is **an even
+whole number of chunks, on each axis**, and the percentage is whatever that comes
+to for the tile you are imaging. So the freedom is set by the chunk size, and the
+chunk size is ours to choose.
+
+For a camera giving 2048 voxels across:
+
+| chunk | overlaps that allow a tile to be handed over whole |
+| --- | --- |
+| 32 | 0%, 3.1%, 6.2%, **9.4%**, 12.5% … |
+| 64 | 0%, 6.2%, **12.5%**, 18.8%, 25% |
+| **128** (our default) | 0%, **12.5%**, 25%, 37.5% |
+| 256 | 0%, 25% |
+
+So a plain ten per cent is not on the list at our chunk size, and **12.5% is the
+nearest thing to it**. Fifteen is not available either; the neighbours are 12.5%
+and 25%.
+
+**Take 12.5% and do not chase 10%.** Two reasons:
+
+- **It costs almost nothing.** Covering a fixed area needs `1/(1−v)²` times as
+  many tiles, so ten per cent costs 1.235× and twelve and a half costs 1.306×.
+  Moving from one to the other is about **6% more tiles, time and disk** — a few
+  minutes on a long run.
+- **Chasing 10% means shrinking the chunk, and that is the worse trade.** Getting
+  to 9.4% needs 32-voxel chunks, which is sixteen times as many files and sixteen
+  times the browser's per-piece bookkeeping — and `canvas.py` already notes that a
+  piece costs a few milliseconds whatever its size, with only about six fetched at
+  a time. A viewer made slower to save six per cent of disk is a bad bargain.
+
+**What the overlap is actually for sets the floor.** It exists so a stitcher has a
+strip to correlate, so it needs to be comfortably wider than the stage's own error
+and wide enough to contain real features. At 2048 voxels, 12.5% is 256 voxels,
+which is generous. Well below about five per cent a stage error can exceed the
+overlap itself, and then the strip cannot do its job.
+
+**And it is per axis.** Most runs overlap across the specimen and not at all in
+depth, and an axis with no overlap is trimmed by nothing and costs nothing. `z`
+does not have to follow `y` and `x`.
+
+#### How far does this constraint actually reach?
+
+It is worth saying plainly, because "the tile must be a whole number of chunks"
+sounds like it reaches across the whole project, and it does not. It binds **the
+tiles inside one acquisition type**, and nothing else.
+
+| | must they agree on a format? |
+| --- | --- |
+| Two microscopes — a Stellaris and a mesoSPIM | **No.** They are never the same run. |
+| Two acquisition types in one experiment — a 512 overview and a 1024 target scan | **No.** Each has its own folder, its own view, its own chunk size and its own voxel size. |
+| Two positions inside one acquisition type | **Yes** — and they already must, because the view hands their files over untouched. This is not a new rule. |
+
+The chunk size is written into every array's own metadata; there is no
+project-wide constant that has to divide everything. So different microscopes
+having different formats costs nothing at all — each run declares the chunk that
+fits the format it was acquired with.
+
+And within one run the format is fixed by the acquisition anyway. Nobody changes
+the scan format halfway through a raster.
+
+**The worst case is today's behaviour.** If a run's format genuinely cannot be
+made to fit any chunk, it falls back to being written twice — which is what
+happens right now for *every* overlapping run, whatever its format. So nothing
+gets worse than it is; some runs get much better. That is the honest measure of
+this change, and it is why the awkward formats are an annoyance rather than a
+threat to the arrangement.
+
+#### Point scanners, which can scan almost any format
+
+A camera gives one size and that is that. A confocal is a point scanner: the
+operator sets the scan format, and 512, 1024, 2048, non-square shapes and odd
+zoom-cropped regions are all ordinary choices. So "the tile is a whole number of
+chunks" is a much sharper constraint on a confocal than on a camera, and it is
+fair to ask whether we should simply insist on one format — 2048 × 2048 — and be
+done with it.
+
+**No, and it would be the wrong kind of rule.** A scan format is a scientific
+choice, not a preference: it sets the pixel size, the dwell time, how fast a frame
+comes back and how much the specimen is bleached. Insisting on 2048 × 2048 would
+cost a live-cell experiment real photons and real time to save us an
+inconvenience. The rule has to bend to the microscope rather than the other way
+round.
+
+**Three rules instead, in order of who they bind.**
+
+1. **One format per acquisition type, not one per project.** Every position in a
+   run must already be written the same way, so the format is fixed *within* a
+   run regardless. An overview at a fast 512 and a target scan at 1024 with more
+   zoom are two acquisition types, each internally consistent, and that is
+   exactly the arrangement §1 already describes.
+2. **Choose the chunk to fit the format, not the format to fit the chunk.** There
+   is nothing sacred about 128. The chunk must divide the tile, and it is picked
+   per run: 2048 takes 128 or 256, 1024 takes 128, 512 takes 128 or 64, and a
+   1024 × 256 strip takes 128 on both axes. Most of what a confocal offers by
+   default is a power of two, and all of those work.
+3. **When a format genuinely will not fit, say so at setup and write twice.** An
+   odd zoom-cropped region — 700 voxels across, say — divides by nothing useful,
+   and no chunk choice makes its tiles handable-over whole. That run falls back to
+   the copying writer, which is correct and costs about twice the disk. What
+   matters is that the operator is told **when the run is being set up**, in the
+   same helpful voice the writer already uses for overlaps: *this format cannot be
+   handed over whole, so the run will be written twice and take about twice the
+   space; a format of 640 or 768 would avoid it.* Discovering that at the end of a
+   five-terabyte run is the failure worth designing against.
+
 ### 8.2 A view is only metadata, so write more than one
 
 Once trimming is done by pointing, a view costs a few hundred bytes and no pixels
