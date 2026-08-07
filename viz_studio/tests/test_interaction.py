@@ -6,17 +6,33 @@ rendered, and nothing moved -- because ``makeMinimalViewer`` builds a viewer but
 does not install the default input bindings. Rendering tests cannot catch that;
 only driving the gestures can.
 
-The gestures are neuroglancer's own defaults, checked in the layout we actually
-ship -- a single plane, and the volume behind the 3-D toggle:
+The gestures are checked in the layout we actually ship -- a single plane, and
+the volume behind the 3-D toggle:
 
 ===================  =========================================
 gesture              effect
 ===================  =========================================
 drag                 pans
-plain wheel          steps one z-plane
-control+wheel        zooms
+plain wheel          zooms
+shift + wheel        steps through z
 drag in 3-D mode     rotates
 ===================  =========================================
+
+**The plain wheel zooms, and that is ours rather than the engine's.**
+Neuroglancer binds the wheel to stepping through z and puts zoom behind Control,
+which is right for reading through a volume and wrong here. `CONTROLS.md` section
+1 records the decision and the reasoning: the wheel is the gesture an operator
+makes most often and without thinking, a browser has taught everyone what it
+does, and stepping through the stack already has a slider down the right-hand
+side -- which is better than a gesture anyway, because it shows you where in the
+stack you are. Zoom had nowhere else to live; there is no zoom button, slider or
+key anywhere in this interface.
+
+The decision was written down on the day the controls were reviewed and the code
+was never changed to match, which is how an operator came to meet a viewer whose
+first instinct -- turn the wheel -- did nothing at all on a run one plane deep.
+The operator page next door had it right the whole time (`canvas/panel.js`:
+"Dragging pans and the plain wheel zooms"), so the two interfaces disagreed.
 """
 
 from __future__ import annotations
@@ -80,31 +96,45 @@ def test_dragging_pans(viewer_page):
     assert after["position"] != before["position"], "drag did not move the position"
 
 
-def test_plain_wheel_steps_through_z_without_zooming(viewer_page):
+def test_the_plain_wheel_zooms_without_moving_through_z(viewer_page):
+    """The gesture an operator makes first, doing what a browser taught them.
+
+    Both halves are asserted. A wheel that zooms *and* steps z would be worse
+    than either, and on a run one plane deep the z half would be invisible until
+    somebody opened a stack.
+    """
     before = viewer_page.evaluate(_STATE)
-    slider_before = float(viewer_page.locator("[aria-label='z position']").input_value())
     point = centre(viewer_page)
     viewer_page.mouse.move(point["x"], point["y"])
     viewer_page.mouse.wheel(0, -300)
     viewer_page.wait_for_timeout(600)
     after = viewer_page.evaluate(_STATE)
-    assert after["zPosition"] != before["zPosition"], "the wheel must step z"
-    assert after["zoom"] == before["zoom"], "a plain wheel must scroll, not zoom"
-    slider_after = float(viewer_page.locator("[aria-label='z position']").input_value())
-    assert slider_after != slider_before, "wheel movement must update the Z slider"
-    assert slider_after == pytest.approx(after["zPosition"])
+    assert after["zoom"] != before["zoom"], "a plain wheel must zoom"
+    assert after["zPosition"] == before["zPosition"], (
+        "a plain wheel must not also move through z"
+    )
 
 
-def test_control_wheel_zooms(viewer_page):
+def test_shift_wheel_steps_through_z_and_the_slider_follows(viewer_page):
+    """Stepping through the stack, moved off the plain wheel but not lost.
+
+    The slider is asserted alongside because it is the reason this could be
+    moved at all: the stack has a home that shows where in it you are, which a
+    gesture cannot.
+    """
     before = viewer_page.evaluate(_STATE)
+    slider_before = float(viewer_page.locator("[aria-label='z position']").input_value())
     point = centre(viewer_page)
     viewer_page.mouse.move(point["x"], point["y"])
-    viewer_page.keyboard.down("Control")
-    viewer_page.mouse.wheel(0, -600)
-    viewer_page.keyboard.up("Control")
+    viewer_page.keyboard.down("Shift")
+    viewer_page.mouse.wheel(0, -300)
+    viewer_page.keyboard.up("Shift")
     viewer_page.wait_for_timeout(600)
     after = viewer_page.evaluate(_STATE)
-    assert after["zoom"] != before["zoom"], "control+wheel did not zoom"
+    assert after["zPosition"] != before["zPosition"], "shift+wheel must step z"
+    slider_after = float(viewer_page.locator("[aria-label='z position']").input_value())
+    assert slider_after != slider_before, "stepping z must update the Z slider"
+    assert slider_after == pytest.approx(after["zPosition"])
 
 
 def test_dragging_rotates_once_in_three_d(viewer_page):

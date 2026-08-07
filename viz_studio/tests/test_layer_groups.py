@@ -204,8 +204,8 @@ class TestChannelControlsStillWork:
         """
         grouped_page.get_by_label("toggle structure").first.locator("xpath=../..").click()
         grouped_page.wait_for_timeout(300)
-        assert grouped_page.get_by_label("black structure").first.is_visible()
-        assert grouped_page.get_by_label("white structure").first.is_visible()
+        assert grouped_page.get_by_label("min structure").first.is_visible()
+        assert grouped_page.get_by_label("max structure").first.is_visible()
         assert grouped_page.get_by_label("opacity structure").first.is_visible()
 
 
