@@ -28,7 +28,7 @@ work lives; `main` does not yet carry `zmart_storage` at all.
 1. [The short answer](#the-short-answer)
 2. [What was measured](#what-was-measured)
 3. [Where analysis results belong](#where-analysis-results-belong)
-4. [The plate layout, and why not yet](#the-plate-layout-and-why-not-yet)
+4. [The plate layout: not for the microscopes, yes for the screener](#the-plate-layout-not-for-the-microscopes-yes-for-the-screener)
 5. [Which generation of OME-Zarr to write](#which-generation-of-ome-zarr-to-write)
 6. [Overlap: the problem underneath both halves](#overlap-the-problem-underneath-both-halves)
 7. [Where ngio helps, and where it would hurt](#where-ngio-helps-and-where-it-would-hurt)
@@ -157,7 +157,7 @@ not ours, they are the format's.
 
 ---
 
-## The plate layout, and why not yet
+## The plate layout: not for the microscopes, yes for the screener
 
 We do not use it today. A run writes a plain group of position images:
 
@@ -173,8 +173,9 @@ There is no `plate` or `well` metadata anywhere. (The commit that says "let one
 folder hold a whole plate" is about putting the positions inside the view's
 folder, not about the high-content-screening layout that OME-Zarr calls a plate.)
 
-**Recommendation: leave it as it is for now, and revisit it only for genuine
-multiwell work.** The reasons are practical rather than principled:
+**Recommendation for the microscopes: leave it as it is.** The reasons are
+practical rather than principled — and see the amendment below for the screener,
+where the answer is the opposite:
 
 - The plate layout addresses images by row and column — `B/3/0`. A smart
   experiment on a light-sheet or a confocal images wherever the specimen is, and
