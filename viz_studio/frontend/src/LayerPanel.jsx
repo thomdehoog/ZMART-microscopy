@@ -249,7 +249,8 @@ function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
 }
 
 
-function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity, onLut }) {
+function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity, onLut,
+                          displayScales = { x: 1, y: 1, z: 1 }, onDisplayScales }) {
   const measuredWindow = mode === "volume" ? layer.volumeWindow || layer.window : layer.window;
   const window_ = entry.window || measuredWindow || { low: 0, high: 65535 };
   const { min, max } = contrastRange(layer, window_);
@@ -393,6 +394,53 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
           </label>
         </>
       )}
+      {/* Stretching the picture along an axis, which is a property of the view
+          rather than of a channel -- so it sits here once, not once per colour.
+          Anything other than 1 means the picture is no longer drawn at the
+          proportions the run declared, and the note below says so, because a
+          stretched picture with a quiet scale bar is a way to measure wrongly
+          and never find out. */}
+      <div style={styles.control}>
+        <span style={styles.controlLabel} title="Draw the specimen stretched along an axis. Does not change the data">
+          stretch
+        </span>
+        <div style={{ display: "flex", gap: 6, flex: 1 }}>
+          {["x", "y", "z"].map((axis) => (
+            <label key={axis} style={{ display: "flex", alignItems: "center", gap: 3, flex: 1 }}>
+              <span style={{ ...styles.controlLabel, minWidth: 0 }}>{axis}</span>
+              <input
+                type="number" min="0.05" max="20" step="0.05"
+                value={displayScales[axis]}
+                onChange={(event) => {
+                  const asked = Number(event.target.value);
+                  if (asked > 0) onDisplayScales?.({ ...displayScales, [axis]: asked });
+                }}
+                aria-label={`stretch ${axis}`}
+                title={`How many times to stretch the picture along ${axis}. 1 is as the run declared it`}
+                style={{ ...styles.select, width: "100%", minWidth: 44 }}
+              />
+            </label>
+          ))}
+        </div>
+      </div>
+      {/* Warned about only when x and y disagree, which was measured rather
+          than assumed. The bar divides by the engine's `canonicalVoxelFactors`,
+          and those are computed from the display scales -- so it follows a
+          stretch instead of ignoring one: 30 um stayed 30 um when z was
+          quadrupled, and became 20 um when x was doubled. Stretching z, which is
+          the ordinary thing to do with anisotropic data, therefore leaves an
+          in-plane bar perfectly true and needs no warning at all.
+
+          Stretching x differently from y is the case no bar can describe: the
+          picture is sheared in aspect, so it is 20 um wide and 30 um tall per
+          the same bar. Fiji and napari avoid this by not offering it. We offer
+          it and say so. */}
+      {displayScales.x !== displayScales.y && (
+        <div style={{ ...styles.controlLabel, color: "#d9a441", padding: "0 0 6px" }}>
+          x and y are stretched differently, so no single scale bar is true in
+          both directions
+        </div>
+      )}
       <label style={styles.control}>
         <span style={styles.controlLabel} title="How strongly this channel is drawn">
           opacity
@@ -465,6 +513,8 @@ export default function LayerPanel({
   onVolumeAttenuation,
   depthSamples = 256,
   onDepthSamples,
+  displayScales = { x: 1, y: 1, z: 1 },
+  onDisplayScales,
   selected = 0,
   onSelect,
   canOpen = true,
@@ -589,6 +639,8 @@ export default function LayerPanel({
           onWindow={onWindow}
           onOpacity={onOpacity}
           onLut={onLut}
+          displayScales={displayScales}
+          onDisplayScales={onDisplayScales}
         />
       )}
       <div style={styles.headingRow}>
