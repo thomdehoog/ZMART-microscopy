@@ -305,7 +305,16 @@ export function layersFor(config, mode, layerState, groupState, groupOrder,
       // the same for dark objects on a bright field.
       layer.volumeRendering = volumeMode;
       // This, not the zoom, chooses which copy of the image the volume is drawn from.
-      layer.volumeRenderingDepthSamples = config.depthSamples;
+      // How many steps a ray takes through the volume, and the number that
+      // decides how sharp it is allowed to be: the engine will only draw from a
+      // level whose voxels are bigger than one step, so a small budget pins a
+      // large specimen to its coarsest copy however far you zoom in. Measured on
+      // a 75 GB skin volume: 256 stays at 27.2 um until absurdly close, 2048
+      // reaches full resolution once zoomed in, and 32768 would refine from the
+      // opening view but is too slow to drive. Which of those is right depends
+      // on the specimen and the machine, which is why it is a control rather
+      // than a constant -- the flag it falls back to is only the starting point.
+      layer.volumeRenderingDepthSamples = volume.depthSamples ?? config.depthSamples;
       // Brightness for the accumulated mode, which the engine has had all
       // along and this viewer never set. Accumulation piles alpha up along
       // the ray and washes out; this is the knob built to answer that. The
