@@ -557,22 +557,57 @@ So a plain ten per cent is not on the list at our chunk size, and **12.5% is the
 nearest thing to it**. Fifteen is not available either; the neighbours are 12.5%
 and 25%.
 
-**Take 12.5% and do not chase 10%.** Two reasons:
+**Some sensors have no usable chunk at all**, which is what makes the next part
+necessary rather than clever. A Hamamatsu at 2308 across is 4 × 577, and 577 is
+prime — so **not one number between 64 and 256 divides it**. No amount of choosing
+helps; the frame as acquired simply cannot be chunked for pointing.
 
-- **It costs almost nothing.** Covering a fixed area needs `1/(1−v)²` times as
-  many tiles, so ten per cent costs 1.235× and twelve and a half costs 1.306×.
-  Moving from one to the other is about **6% more tiles, time and disk** — a few
-  minutes on a long run.
-- **Chasing 10% means shrinking the chunk, and that is the worse trade.** Getting
-  to 9.4% needs 32-voxel chunks, which is sixteen times as many files and sixteen
-  times the browser's per-piece bookkeeping — and `canvas.py` already notes that a
-  piece costs a few milliseconds whatever its size, with only about six fetched at
-  a time. A viewer made slower to save six per cent of disk is a bad bargain.
+##### Let the writer drop a few voxels, and everything lands on 10%
+
+Allow the frame to be trimmed by **less than one per cent** before it is stored,
+and the whole difficulty evaporates:
+
+| sensor across | store | dropped | chunk | overlap | which is |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 2304 | 2300 | 4 (0.17%) | 115 | 230 | **10.0%** |
+| **2308** | 2300 | 8 (0.35%) | 115 | 230 | **10.0%** |
+| 2048 | 2040 | 8 (0.39%) | 102 | 204 | **10.0%** |
+| 2044 | 2040 | 4 (0.20%) | 102 | 204 | **10.0%** |
+| 1608 | 1600 | 8 (0.50%) | 80 | 160 | **10.0%** |
+
+Every sensor, including the one that has no divisor at all, lands on **exactly
+ten per cent** — the number microscopists actually ask for — by giving up two to
+four voxels at each edge.
+
+**This is a good trade and it is worth being explicit about why.** The alternative
+is accepting 12.5% instead of 10%, and covering a fixed area needs `1/(1−v)²`
+times as many tiles: 1.235× at ten per cent against 1.306× at twelve and a half.
+So refusing to trim costs about **six per cent more tiles, time and disk**, while
+trimming costs **a third of one per cent of the field**. Twenty times cheaper, and
+it buys the round number as well.
+
+It is also the *right* few voxels to lose. The outermost pixels of a sensor are
+the ones with vignetting and edge artefacts, and on a point scanner the outer
+columns are the scanner's turnaround. Nobody quantifies cells there.
+
+**Two guards, so this cannot become a place data quietly disappears:**
+
+- **A hard cap of one per cent**, refused rather than exceeded. If a frame cannot
+  be made to fit within that, it does not get trimmed — it falls back to the
+  copying path and says so.
+- **The trim is recorded and reported at setup**, in voxels and per cent, in the
+  same voice the writer already uses: *"storing 2300 of 2308 columns, dropping 4
+  at each edge (0.35%), which allows a 115-voxel chunk and an overlap of exactly
+  10%."* An operator who objects can then say so before the run rather than after.
+
+**If you would rather not trim at all**, the answer reverts to the table above:
+take 12.5% on a 2048 sensor and 11.1% on a 2304, accept the six per cent, and note
+that a 2308 sensor cannot be pointed at and will be written twice.
 
 **What the overlap is actually for sets the floor.** It exists so a stitcher has a
 strip to correlate, so it needs to be comfortably wider than the stage's own error
-and wide enough to contain real features. At 2048 voxels, 12.5% is 256 voxels,
-which is generous. Well below about five per cent a stage error can exceed the
+and wide enough to contain real features. At 2048 voxels, ten per cent is 204
+voxels, which is generous. Well below about five per cent a stage error can exceed the
 overlap itself, and then the strip cannot do its job.
 
 **And it is per axis.** Most runs overlap across the specimen and not at all in
