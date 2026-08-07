@@ -416,7 +416,7 @@ the overlap, a stage that drifts, and runs with no regular step.
 
 ---
 
-## 8. Four changes the whole picture argues for
+## 8. Five changes the whole picture argues for
 
 *Status: none of these are built. This section is the answer to "given overlap,
 efficient viewing, efficient analysis, and label layers — what should change?"*
@@ -537,9 +537,69 @@ the same rows with a column saying which position each came from. It is appended
 to as positions finish, so it costs a write per position and no re-reading, and it
 is what the discovery step and the operator's plots actually query.
 
-### What these four have in common
+### 8.5 A tile that moves over time is not one image with a time axis
 
-Each one moves work from *copying pixels* to *saying something about pixels that
+**The requirement.** A timelapse whose tiles stay put is easy and is what the
+writer does today. A **tracking** run is different: the microscope follows
+something, so the same tracked object is imaged at a different place at each
+timepoint. The run has to be able to say *where each tile was at each moment*.
+
+**What the writer does today cannot express that.** `start_a_run(frames=N)`
+declares the time axis up front, and a position imaged again at a later moment
+writes into the image it wrote into the first time — which carries one
+translation for all time. The arrangement has "a position stays where it was"
+built into it.
+
+**What 0.6 offers, and its limit.** RFC-5 allows a `translation`, `scale`,
+`affine` or `rotation` to be stored *as a Zarr array* at a `path` rather than as
+literal numbers, so its value can vary along an axis; and `displacements` and
+`coordinates` give whole fields. That is genuinely how the specification means
+drift correction to be written down.
+
+But it will not be drawn. Neuroglancer's 0.6 reader handles `identity`, `scale`,
+`translation`, `rotation`, `mapAxis`, `affine` and `sequence`, each read from
+literal JSON numbers. It has no `byDimension`, no `displacements`, no
+`coordinates`, and no reading of a transformation from an array. So a
+time-varying transformation can be *stated* at 0.6 and shown by nothing.
+
+**So the answer is a structural one, and it works today in 0.5:**
+
+> If a tile can move, a new moment is a new **image**, not a new index along a
+> time axis. Keep the time axis for a tile that stays where it is.
+
+A tracking run then writes one ordinary OME-Zarr image per observation, each
+stating its own place with a plain scale and translation that every reader
+already understands. Nothing waits on 0.6, nothing waits on Neuroglancer, and the
+arrangement is not a workaround — it is a more truthful description of what
+happened. A tile that moved is not one thing photographed repeatedly from one
+place; it is a sequence of observations, each somewhere else.
+
+What follows from it:
+
+- **The name gains the moment**: `<name>_pos<NNNNN>_t<TTTTT>.ome.zarr`, with the
+  same rule as before — the numbers are indices, and where a tile *was* is stated
+  inside the image.
+- **The view stays one image per moment.** A view already points at whichever
+  tiles it is told to; pointing at the tiles belonging to one timepoint is the
+  same operation, so the viewer is handed one source per moment rather than one
+  per tile.
+- **A table says which images are the same tracked object.** That is the thing a
+  tracking analysis actually asks for, and it belongs beside the run's other
+  tables (§8.4).
+- **It maps straight onto a scene when 0.6 arrives.** A scene is a group of
+  images each with its own transformation, which is exactly what this produces —
+  so nothing written this way has to be rewritten later.
+
+The cost is more images, and it is not much of a cost: a run already holds
+thousands, and an image that holds one tile is small and cheap to declare.
+
+**Keep the time axis for what it is good at.** A position that genuinely stays
+still through a timelapse should still use `t` inside one image — fewer files,
+and the moments belong together. The rule is about *movement*, not about time.
+
+### What these have in common
+
+The first four move work from *copying pixels* to *saying something about pixels that
 already exist*. The trim becomes metadata, the show/hide choice becomes metadata,
 the segmentation overlay becomes metadata, and the run summary becomes one small
 table instead of ten thousand reads. That is the same principle the view was built
@@ -566,11 +626,13 @@ changes of section 8, which are larger and should follow rather than lead.
 6. **A label view** (§8.3), with globally unique label numbers, so a segmentation
    can be shown over a whole run at all.
 7. **A run-level table** (§8.4) and a second, untrimmed view (§8.2).
-8. **Write 0.6 for acquisitions 0.5 cannot describe** — a deskewed light-sheet
+8. **A new image per moment for tiles that move** (§8.5), which is what a tracking
+   run needs and what no viewer will draw from a time-varying transformation.
+9. **Write 0.6 for acquisitions 0.5 cannot describe** — a deskewed light-sheet
    run, multiple views related by a rotation, a tile that moves between
    timepoints. Neuroglancer reads 0.6 images already, and the upgrade back and
    forth is metadata-only.
-9. **Watch `ngio.NgffVersions` for `"0.6"`**, then write the scene alongside the
+10. **Watch `ngio.NgffVersions` for `"0.6"`**, then write the scene alongside the
    view and find out whether a run opens elsewhere without our viewer.
 
 Deliberately not on the list: adopting the high-content-screening plate layout,
