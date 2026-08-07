@@ -72,7 +72,7 @@ and 3456 are better still, which is what to ask for when the format is settable.
 | 4 | **Where analysis results go** | **inside the tile** — `labels`, `tables` | where ngio, napari and Fiji look; our viewer already finds them |
 | 5 | **Where our own bookkeeping goes** | **beside the images**, never inside | a stray file inside makes zarr warn whoever opens it |
 | 6 | **Plate layout for screening runs** | **no, on any instrument** | well and field become columns of the run table; one arrangement everywhere |
-| 7 | **What ngio is for** | reading, checking and analysing — **and, on test, writing the positions too**; see [`ome-zarr-writing-through-ngio.md`](ome-zarr-writing-through-ngio.md) | writing through it settles changes B1, B2, B6 and B11 by construction, because the API takes a `translation` and bundles every level. The view stays ours: no library will write an image whose chunks live elsewhere. |
+| 7 | **What ngio is for** | **reading, validating and analysing — not writing.** See [`ome-zarr-plan-review.md`](ome-zarr-plan-review.md) | It cannot resize, cannot write the view, and *does* cap shards per level — the behaviour that breaks `linking.py`. Measured separately, it writes a position in 2,230–2,825 ms against 485–500 ms by hand. Validate against its schemas in CI instead: the fault was a writer bug that shipped because nothing checked. |
 | 8 | **Whether the overlap is trimmed from the pixels** | **no** — it is accounted for in the viewer and in the analysis | the overlap is the only evidence of where the stage really went |
 
 ---
@@ -143,28 +143,37 @@ person chooses, derived where arithmetic does better than a person.**
 
 ## What has to be built, in order
 
-Decisions above are numbered **1–20**; the work below is numbered **B1–B11**, so
-a reference is never ambiguous. Three of these are repairs — the arrangement does
+Decisions above are numbered **1–20**; the work below is **B1–B11**, so a
+reference is never ambiguous.
+
+> **Revised 7 August 2026 after review.** See
+> [`ome-zarr-plan-review.md`](ome-zarr-plan-review.md). **B3 is deleted — it is
+> already built and tested.** B2's stated implementation was dangerous and is
+> corrected. B9 is deferred, B11 is mostly absorbed by B7, and two items are added
+> that were missing. The review also reverses the proposal to write positions
+> through ngio: adopt it for reading, validating and analysis only. Three of these are repairs — the arrangement does
 not do what this page says it does until they are done. The rest are improvements.
 
 | | change | why |
 | ---: | --- | --- |
 | **B1** | **Per-dataset translation** on positions | **repair.** Invalid against the official schema, so ngio refuses our tiles and `ngff-zarr` stacks them at the origin. Written on `claude/ngff-translation-per-dataset`. |
-| **B2** | **Bundle every level**, not only the full-resolution one | **repair.** 2 TB leaves 20.6 million files instead of 318,000. A small change to `_make_the_copies`. |
-| **B3** | **The server reads a bundle index** | **repair.** Without it bundling cannot be switched on at all. Goes with B2. |
+| **B2** | **Bundle every level**, not only the full-resolution one — **and do not cap the small ones** | **repair.** 2 TB leaves 20.6 million files instead of 318,000. But capping a bundle at a small level's own extent breaks the `// shrink` arithmetic in `linking.py` and yields *silently wrong bytes*. Cap nothing, or stop `pointed_levels` before the capped levels and assert it. |
+| ~~B3~~ | ~~The server reads a bundle index~~ | **deleted — already built.** `server.py` parses suffix ranges and serves byte windows; the pointer map is denominated in *shards*, so a whole shard file is handed over and the browser reads its index itself. Tested end to end. |
+| **B3** | **Stop re-reading every tile the view has just written** | **repair, and new.** `_fill_this_tile_in` reopens and decompresses the array `positions.Run.write` was holding a moment earlier — five terabytes of pointless read in the live path. Pass the array through instead, and shrink from the coarsest level that already exists. |
 | B4 | **Two interop tests** — schema validation and an ngio open | how change B1 would have been caught the day it appeared |
 | B5 | **`plan_a_grid`** — frame + overlap intent → chunk, overlap, step | the workflow currently takes `piece=128` and hopes it suits the camera |
 | B6 | **`tables/owned_ROI_table`** in every tile | makes the viewer's seam and the analysis filter one decision instead of two |
 | B7 | **Chunk-aligned seams** | removes the second copy from every overlapping run |
 | B8 | **Unique label numbers across a run** | else cell 7 in two neighbouring tiles becomes one object |
-| B9 | **A view for segmentations** | else a labelled run meets the cliff the view was built to avoid |
+| ~~B9~~ | ~~A view for segmentations~~ | **deferred.** A second copy of the whole view mechanism, for labelled runs that do not exist yet. Build it when one actually meets the cliff. |
+| B9 | **Delete `zmart-coverage`** | ~1,700 lines written only by the writer B7 retires and read only by a benchmark. The pointer map already holds each tile's origin and size; the per-channel residue is one column of B10. |
 | B10 | **A run-level table** | else a question about the run means opening ten thousand tables |
-| B11 | **0.5 as the default in every writer** | `start_a_run` already does; `TileCanvases` and `TilesAndCanvas` do not |
+| B11 | ~~0.5 as the default in every writer~~ | **mostly absorbed** — retiring `cropped.py` (B7) deletes one of the two writers this exists to fix. What remains is a default argument, not a work item. |
 
 ---
 
 ## Before any of it
 
-Changes **B1, B2 and B3** above. Until they are done, the positions cannot be opened by
-anybody else's software, and a run past a terabyte cannot be copied off the
-microscope.
+Changes **B1 and B2** above: the positions cannot be opened by anybody else's
+software, and a run past a terabyte leaves twenty million files. **B3** is not
+blocking but costs five terabytes of pointless reading on a five-terabyte run.
