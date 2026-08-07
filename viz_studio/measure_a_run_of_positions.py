@@ -145,7 +145,9 @@ def a_run_of(count: int, folder: Path) -> Path:
 
 def how_it_drew(browser, built: Path, folder: Path, store: str,
                 save_to: Path | None = None, fit: bool = False,
-                panel: tuple[int, int] = (900, 700)) -> dict:
+                panel: tuple[int, int] = (900, 700),
+                look_at: dict[str, float] | None = None,
+                zoom: float = 1.0) -> dict:
     """Open the picture, wait until it has settled, then watch it draw.
 
     The waiting is measured separately rather than folded in. Counting frames while
@@ -170,6 +172,9 @@ def how_it_drew(browser, built: Path, folder: Path, store: str,
         page.wait_for_timeout(2500)
         if fit:
             _show_the_whole_run(page, _how_wide_the_picture_is(folder, store))
+        if look_at is not None:
+            page.evaluate(LOOK_AT, [look_at, zoom])
+            page.wait_for_timeout(2000)
 
         # What an operator would be looking at, taken once the picture has settled
         # and before anything starts moving it. Worth having beside the numbers:
@@ -209,6 +214,9 @@ def how_it_drew(browser, built: Path, folder: Path, store: str,
         # waited on: one image however many positions are underneath is the whole
         # mechanism, and a table that does not say so leaves it unevidenced.
         held = int(page.evaluate(HELD))
+        # Beside it rather than instead of it, so older tables still read: `held`
+        # is the declared count and these say how much of it arrived.
+        loaded = page.evaluate(WHAT_LOADED)
 
         # The *middle* frame says the rate the viewer is really holding; the
         # *worst* says the longest an operator ever watched the picture sit still,
@@ -220,6 +228,9 @@ def how_it_drew(browser, built: Path, folder: Path, store: str,
             "opened": opened,
             "requests": for_the_picture,
             "held": held,
+            "loaded": int(loaded["loaded"]),
+            "failed": int(loaded["failed"]),
+            "pending": int(loaded["pending"]),
             **how_long_a_drawing_frame_took(at, gl_at),
             "fps": drawn / SAMPLE_SECONDS,
             # The time a frame really took, over the whole sample. Kept beside the
@@ -265,6 +276,48 @@ def _show_the_whole_run(page, across: int) -> None:
     )
     page.wait_for_function("() => window.zmartSourcesWaiting() === 0", timeout=300_000)
     page.wait_for_timeout(2000)
+
+
+# Where the view is looking and how far in, set rather than left to chance.
+#
+# **The camera is otherwise a race, and two rows of a table need not be looking at
+# the same thing.** Neuroglancer centres the view once, from whichever source
+# resolved first, and never recentres; the zoom is reset the same way. That is
+# harmless when every source declares the same bounds, and it is not harmless when
+# each carries its own placement -- a run served as one picture and the same run
+# served as many placed sources then start from different corners, and the opening
+# time carries that difference for reasons that have nothing to do with how many
+# positions there are. Anything comparing two arrangements has to pin both.
+LOOK_AT = """([centre, zoom]) => {
+  const view = window.zmartViewer;
+  const names = view.navigationState.coordinateSpace.value.names;
+  const position = view.navigationState.position.value;
+  for (const [axis, at] of Object.entries(centre)) {
+    const index = names.indexOf(axis);
+    if (index >= 0) position[index] = at;
+  }
+  view.navigationState.position.changed.dispatch();
+  view.navigationState.zoomFactor.value = zoom;
+}"""
+
+# What the layer really holds, as against what it declares.
+#
+# `HELD` counts `dataSources.length`, and a source is pushed into that list
+# synchronously, before it has resolved -- one that fails stays there forever with
+# an error on it and is still counted. So "a hundred registered" is not something
+# `held` can say. These four are separable and honest: `pending` says the picture
+# is not finished arriving, and `failed` says it never will.
+WHAT_LOADED = """() => {
+  const layers = window.zmartViewer.layerManager.managedLayers
+    .filter((managed) => managed.layer && managed.layer.type === 'image');
+  const sources = layers.flatMap((managed) => managed.layer.dataSources);
+  return {
+    declared: sources.length,
+    loaded: sources.filter((s) => s.loadState && !s.loadState.error).length,
+    failed: sources.filter((s) => s.loadState && s.loadState.error).length,
+    pending: sources.filter((s) => !s.loadState).length,
+  };
+}"""
 
 
 def _how_wide_the_picture_is(folder: Path, store: str) -> int:
