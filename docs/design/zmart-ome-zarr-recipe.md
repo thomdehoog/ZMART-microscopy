@@ -185,7 +185,7 @@ rows can disappear when you zoom out.
 | --- | --- | --- |
 | OME-Zarr version | **0.5** (zarr v3) by default; 0.4 on request; **0.6 when the acquisition needs a transformation 0.5 cannot express** — see section 6 | 0.5 is read by everything today and can bundle chunks; 0.6 is the only way to state a deskew, a rotation between views, or a place that changes with time |
 | chunk | `(1, 1, 1, piece, piece)`, with `piece` **derived from the tile shape and the wanted overlap** at run setup — see §8.1 | one plane per piece, so showing a single plane never fetches its neighbours; and the chunk cannot be changed afterwards without rewriting every byte, so it must be right the first time |
-| bundling (sharding) | full-size copy only, when asked for | a long run otherwise leaves millions of small files, which Windows and most backup software handle badly |
+| bundling (sharding) | full-size copy only; **the bundle is one tile plane** on any run large enough to matter | a five-terabyte run at a 128-voxel chunk would otherwise leave 153 million files, which Windows and every backup tool give up on; bundled a plane at a time it leaves ~596,000 files of about 8 MB. Required on light-sheet, which is why 0.5 rather than 0.4 |
 | number type | whatever the camera gives, usually `uint16` | never converted; a run stores what was recorded |
 | compression | zstd | fast enough to keep up with acquisition |
 | unwritten chunks | left unwritten, fill value `0` | a declared canvas is far larger than any run fills, and empty room must cost nothing |

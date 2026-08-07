@@ -240,12 +240,53 @@ default to `"0.4"`, and `viz_studio/HOW_OURS_DIFFERS_FROM_OME_ZARR.md` still
 describes 0.4 as the default. Those three should be brought into line with the
 first, keeping 0.4 available for anyone who has to read a run with older software.
 
-One thing to check before bundling is switched on for real runs, because it was
-not measured here: a view hands a position's own chunk file to the browser exactly
-as it is, and once chunks are bundled a chunk is no longer a file of its own. The
-writer already bundles only the full-size copy and its comments say why, so the
-thinking has been done — but it deserves a test against the viewer rather than an
-assumption.
+### For a very large light-sheet run, bundling is not optional
+
+Amended 7 August 2026. Bundling — *sharding*, in the format's language — reads
+like a nicety until the arithmetic is done. A five-terabyte run stored as `uint16`
+with one chunk per file leaves this many files behind:
+
+| chunk | one chunk | files on disk |
+| ---: | ---: | ---: |
+| 64 | 8 KB | **610 million** |
+| 128 | 32 KB | **153 million** |
+| 256 | 128 KB | 38 million |
+| 1024 | 2 MB | 2.4 million |
+
+At any chunk size a viewer would want, that is unmanageable. Windows Explorer,
+`robocopy` and every backup tool in the building give up long before 38 million
+files — and a run that cannot be copied is a run that cannot be archived or
+shared.
+
+**The way out is that the chunk and the bundle are separate dials pulling opposite
+ways.** The chunk is what a browser fetches and what the pointing uses, so it
+wants to stay modest. The bundle is what the filesystem sees, so it wants to be
+large. Keeping the chunk at 128 and bundling:
+
+| bundle | one file | files on disk |
+| ---: | ---: | ---: |
+| 1024 | 2.1 MB | 2.4 million |
+| **2048** | **8.4 MB** | **596,000** |
+| 4096 | 33.6 MB | 149,000 |
+
+**Make the bundle exactly one tile plane.** One file is then one plane of one
+tile, the file count is simply the number of planes actually acquired, the files
+come out around eight megabytes — a comfortable size to copy and to back up — and
+the bundle boundary coincides with the tile boundary, which brings "hand over the
+position's own file" back to being very nearly literal.
+
+**So 0.5 is not merely preferable for light-sheet, it is required.** Version 0.4
+cannot bundle at all, so a five-terabyte run written in 0.4 means a hundred and
+fifty million files with no way out of it.
+
+**And it moves one open question onto the critical path.** A view hands a
+position's own chunk file to the browser exactly as it is — but once chunks are
+bundled, a chunk is no longer a file of its own. It is a byte range inside a
+bundle, found through the bundle's index. So the viewer's server changes from
+*send this file* to *read the index, seek, return that range*. Nothing is decoded
+and no pixel is copied, so the arrangement survives — but it is more than handing
+over a file, and it needs writing and testing **before** a real light-sheet run
+rather than after one.
 
 ---
 
