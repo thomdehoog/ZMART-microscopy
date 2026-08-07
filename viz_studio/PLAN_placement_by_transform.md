@@ -46,7 +46,57 @@ mechanism and keep the picture only for runs above that. If it bends, keep the
 picture as the default and treat transforms as an overlay for small runs — and
 Phase 4 becomes the real answer.
 
-Deliverable: a table in the repo beside the other measurements, not a claim.
+### Result, measured 7 August 2026
+
+Same pixels, same places, both arrangements, one browser. Positions served straight
+out of the picture's own folder — nothing copied, nothing edited.
+
+Drawing in software (headless), where `lit` did agree between the two and the rows
+are therefore comparable:
+
+```
+positions   picture          sources         held
+        5    8.7 ms          10.4 ms         1 / 5
+       10    8.6 ms          12.7 ms         1 / 10
+       50    8.9 ms          25.5 ms         1 / 50
+      100    9.1 ms          41.4 ms         1 / 100
+      200    9.4 ms          69.4 ms         1 / 200
+      400   10.0 ms         121.1 ms         1 / 400
+```
+
+**The picture is flat and the sources are linear**: about `8.5 ms + 0.28 ms × N`,
+fitted at 0.278 from 10→400 and 0.266 from 100→400. Twelve times the picture at
+four hundred positions, against a rule that allowed twenty per cent. The gate says
+no: **placement by transform cannot be the default mechanism.**
+
+Two costs that hold whatever is drawn, and match on both machines:
+
+```
+opening     400 positions   0.25 s  ->  3.50 s      14x
+requests    400 positions   67      ->  1744        4.3 per position
+```
+
+**The same ladder on the card (NVIDIA T400) does not settle the drawing frame, and
+must not be quoted.** It reported 0.7 ms against 2.4 ms at four hundred — but `lit`
+disagreed between the arrangements at nearly every rung and read **0.201** for 400
+sources, so that row timed a mostly black panel. With 1744 requests and 3.5 s to
+open, the fixed 2.5 s settle in `how_it_drew` is not enough for the stores to
+arrive before sampling starts. What it does show is that software drawing overstated
+the absolute cost by roughly fifty times: the *shape* transfers, the milliseconds
+do not.
+
+**Before this is re-run:** `how_it_drew` needs to settle until `lit` stops climbing
+rather than waiting a fixed interval. Until then no threshold in positions can be
+quoted for real hardware.
+
+### What follows from it
+
+- Transforms are an **overlay for small runs** — a detail scan of a dozen positions
+  gets free, revisable, fractional-voxel placement at a cost nobody can feel.
+- Surveys keep the linked picture, which is flat to four hundred positions and was
+  built for exactly this.
+- **Phase 4 is promoted** from optional to the only route that gets free placement
+  *and* a flat curve.
 
 ## Phase 1 — placement written once, in the right slot
 
