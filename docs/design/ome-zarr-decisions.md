@@ -106,6 +106,7 @@ impossible on a 1024 frame and the run would be refused or silently written twic
 | 14 | **Adopt chunk-aligned seams?** | Puts the join between two tiles exactly on a chunk edge, so the viewer can *skip* the shared strip instead of the writer *cutting* it. Removes the second copy from every overlapping run — 1.98× down to about 1.3×. **Deletes nothing:** the tiles stay whole. Costs a slightly stricter overlap grid. **Recommended.** |
 | 15 | **HTTP/2 for the viewer?** | Takes a screen fill from ~440 ms of round trips to ~26 ms, but browsers speak it only over TLS, so a certificate on every microscope PC. **Take the bigger chunk first — it is free — then measure.** |
 | 16 | **When to adopt scenes (0.6, RFC-5)?** | They describe our workflow exactly and would make the view stop being ours. But Neuroglancer has no notion of a scene and ngio cannot read 0.6 at all. **Wait for `ngio.NgffVersions` to gain `"0.6"`.** |
+| 17b | **One file per position per level?** | Bundling taken to its end: ~50,000 files for a 10,000-position run instead of ~600,000, with small chunks still inside. But writing a plane at a time into a whole-tile shard measured **four times slower**, so it needs buffering — which costs memory and delays live viewing. **Explore; keep one tile plane per bundle meanwhile.** |
 | 17 | **Fix the no-copy path for a drifting stage?** | It currently refuses runs whose tiles miss an exact grid, so an ordinary run falls back to copying. |
 
 ---

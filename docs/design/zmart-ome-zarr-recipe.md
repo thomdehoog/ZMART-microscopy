@@ -1306,6 +1306,69 @@ That also makes the operator's side of it honest. "Image every 1.8 mm with a 2 m
 field" is a sentence a microscopist can check against the stage. "Put the corners
 at these coordinates" is one they cannot.
 
+### 8.7 Worth exploring: one file per position, per level
+
+*Status: an idea with one measurement behind it. Not decided.*
+
+**The idea.** Push bundling to its natural end and make each position's level a
+**single file**. Windows then never sees more than a few tens of thousands of
+files however large the run, while the chunks *inside* each file stay small, so
+the viewer still fetches thirty-two kilobytes at a time rather than eight hundred
+megabytes.
+
+| bundle is… | files, for 10,000 positions × 100 planes × 5 levels |
+| --- | ---: |
+| nothing — a chunk is a file | ~20 million |
+| one tile **plane** | ~600,000 |
+| **one whole tile level** | **~50,000** |
+
+**First, a premise to correct**, because it is a natural thing to assume: keeping
+the positions *outside* a containing OME-Zarr does not help. Twenty million chunk
+files is twenty million whether they sit inside `overview.ome.zarr/positions/` or
+beside it. Directory structure costs nothing; **chunk-per-file** is the problem,
+and only bundling removes it.
+
+**And the measurement that makes this an open question rather than a
+recommendation.** Writing thirty-two planes into one array, one plane at a time as
+a camera would deliver them:
+
+| | files left | time |
+| --- | ---: | ---: |
+| shard = one plane | 33 | **565 ms** |
+| shard = whole tile | **2** | 2,290 ms — **four times slower** |
+
+Writing into a large shard a plane at a time is a read-modify-write: each plane
+rewrites more of the shard than the last, so the penalty grows with the number of
+planes per shard. On a light-sheet stack of a few hundred planes it would be far
+worse than four times.
+
+**So the thing to explore is buffering.** Accumulate a whole tile in memory and
+write its shard once, which should give the file count *and* the speed. What has
+to be found out:
+
+- **Does buffer-then-write actually recover the time?** It should, but it has not
+  been measured.
+- **How much memory does it cost?** A 2048 × 2048 × 100 tile in `uint16` is 800 MB
+  in flight. That may be fine on a microscope computer with 64 GB and impossible
+  on one with 16.
+- **What does it do to live viewing?** A tile buffered in memory is a tile the
+  operator cannot see yet. Watching a run fill in is the point of the viewer, so a
+  whole-tile buffer may trade away something worth more than the file count.
+- **Does a large shard cost more to read?** The server reads an index and seeks;
+  whether that index grows expensive at whole-tile size is unmeasured.
+
+**Until it is explored, one tile plane per bundle is the safe default** — 600,000
+files on a five-terabyte run, written at full speed, and every plane visible the
+moment it lands.
+
+**One thing this does not change.** The view is still needed, and it is what
+actually delivers the requirement that started this: ten thousand positions,
+snappy, in Neuroglancer. That comes from handing the viewer one source rather than
+ten thousand — measured flat from a hundred tiles to six thousand four hundred,
+against twenty-four frames in five seconds for a thousand separate ones. Bundling
+solves the filesystem; the view solves the viewer; neither substitutes for the
+other.
+
 ### What these have in common
 
 They all move work from *copying pixels* to *saying something about pixels that
