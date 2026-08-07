@@ -1654,6 +1654,28 @@ function repaint(own) {
  * scrolled away from, which the engine has no reason to fetch a second time —
  * is let go of when the *next* refresh comes round, in `tilesMayHaveLanded`.
  * That bounds what is being held to a single refresh's worth of scenery.
+ *
+ * **That bound is per source, and it is worth knowing what happens when there
+ * are many of them.** A picture built from one store holds one store's worth,
+ * which is what this was written for and is comfortably within what a graphics
+ * card will keep. A picture built from a hundred stores, each handed over as a
+ * source of its own, holds a hundred stores' worth at once — against the same
+ * fixed budget on the card.
+ *
+ * This is a strong suspect for something seen and not yet explained: a hundred
+ * positions shown as a hundred separate sources settle into a picture that is
+ * *stably* wrong. Every tile sits in its proper place, but the detail is coarse
+ * or missing altogether, worst for the sources latest in the list, and it stays
+ * that way rather than filling in. That is what running out of room on the card
+ * looks like, and holding on to pieces the engine asked to release is a way to
+ * run out of it. Ten sources are fine, which fits: ten stores' worth still fits.
+ *
+ * It is a suspicion rather than a finding — nobody has yet read the engine's own
+ * counts of what it is holding, which is what would settle it. Four earlier
+ * explanations for the same picture were reasoned out from screenshots and all
+ * four were wrong, so this one should not be believed either until the counts
+ * are read. If a picture built from a single store ever looks starved on a large
+ * run, this is the first place to point them.
  */
 function keepShowingThePictureWhileTheNewOneArrives(own) {
   const queue = own.viewer?.chunkManager?.chunkQueueManager;
