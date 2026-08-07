@@ -1662,20 +1662,19 @@ function repaint(own) {
  * source of its own, holds a hundred stores' worth at once — against the same
  * fixed budget on the card.
  *
- * This is a strong suspect for something seen and not yet explained: a hundred
- * positions shown as a hundred separate sources settle into a picture that is
- * *stably* wrong. Every tile sits in its proper place, but the detail is coarse
- * or missing altogether, worst for the sources latest in the list, and it stays
- * that way rather than filling in. That is what running out of room on the card
- * looks like, and holding on to pieces the engine asked to release is a way to
- * run out of it. Ten sources are fine, which fits: ten stores' worth still fits.
+ * Nobody has measured what that costs, and until somebody does it is only an
+ * observation about how the bound is drawn, not a known fault. It is written
+ * down because it is the kind of thing that would be hard to find later: if a
+ * picture ever looks starved of detail on a large run, the engine's own counts
+ * of what it is holding are the first place to point.
  *
- * It is a suspicion rather than a finding — nobody has yet read the engine's own
- * counts of what it is holding, which is what would settle it. Four earlier
- * explanations for the same picture were reasoned out from screenshots and all
- * four were wrong, so this one should not be believed either until the counts
- * are read. If a picture built from a single store ever looks starved on a large
- * run, this is the first place to point them.
+ * It was briefly offered here as the explanation for a picture built from a
+ * hundred separate sources coming out wrong. **That was wrong, and the real
+ * cause has since been found and had nothing to do with this function.** The
+ * script preparing those hundred stores deleted the placement each one carried,
+ * so every tile collapsed toward the origin and piled on the others. This is
+ * left as a note about a bound worth knowing, and no longer as a suspect for
+ * anything.
  */
 function keepShowingThePictureWhileTheNewOneArrives(own) {
   const queue = own.viewer?.chunkManager?.chunkQueueManager;
