@@ -16,8 +16,17 @@ wrong for the other, and stretches the wrong axis without saying so.
 engine's `canonicalVoxelFactors`, which are computed from these very factors, so
 it follows a stretch instead of ignoring one. Quadrupling z leaves an in-plane
 bar untouched -- correctly, since 30 um across is still 30 um across whatever was
-done to depth. Only stretching x differently from y makes a single bar unable to
-describe both directions, which is the one case worth warning about.
+done to depth.
+
+**Which stretches are worth warning about depends on the view, not on the
+factors.** This file once concluded that only x against y could ever make a
+single bar unable to describe the picture. That holds in a single plane, where
+depth is not on screen at all. The volume view puts z on screen beside them, and
+there the same depth stretch that was harmless a moment earlier makes the bar
+wrong: measured on the demo volume with z quadrupled, ten micrometres covers
+about 201 screen pixels along z against 50 along x. The operator changed nothing
+but what they were looking at, which is why the warning cannot be decided from
+the stretch factors alone.
 """
 
 from __future__ import annotations
@@ -68,8 +77,12 @@ def test_the_scale_bar_follows_a_stretch_in_the_plane(viewer_page):
     assert viewer_page.locator("[aria-label='scale bar']").inner_text() != before
 
 
-def test_only_a_sheared_aspect_is_warned_about(viewer_page):
-    """Warning on a depth stretch would cry wolf on the ordinary case."""
+def test_only_a_sheared_aspect_is_warned_about_in_a_single_plane(viewer_page):
+    """Warning on a depth stretch would cry wolf on the ordinary case.
+
+    In a single plane depth is not on screen at all, so what was done to it
+    cannot make the bar wrong.
+    """
     warning = viewer_page.get_by_text("no single scale bar is true", exact=False)
     viewer_page.locator("[aria-label='stretch z']").fill("4")
     viewer_page.wait_for_timeout(1000)
@@ -78,3 +91,45 @@ def test_only_a_sheared_aspect_is_warned_about(viewer_page):
     viewer_page.locator("[aria-label='stretch x']").fill("2")
     viewer_page.wait_for_timeout(1000)
     assert warning.count() == 1, "x and y now disagree, so the bar cannot be true"
+
+
+def test_a_depth_stretch_is_warned_about_once_the_volume_is_on_screen(viewer_page):
+    """The same stretch that is harmless in a plane makes the bar wrong in depth.
+
+    Which axes are on screen is what decides whether one bar can be true, and
+    turning the volume on puts z there. Measured on the demo volume with z
+    quadrupled: ten micrometres covers about 201 screen pixels along z against 50
+    along x, so a bar reading one of those is off by four for the other. The
+    operator has changed nothing about the stretch between the two halves of this
+    test -- only what they are looking at -- which is exactly why the warning
+    cannot be decided from the factors alone.
+    """
+    warning = viewer_page.get_by_text("no single scale bar is true", exact=False)
+    viewer_page.locator("[aria-label='stretch z']").fill("4")
+    viewer_page.wait_for_timeout(1000)
+    assert warning.count() == 0, "still a single plane, where depth is not on screen"
+
+    viewer_page.click("text=3D")
+    viewer_page.wait_for_timeout(4000)
+    assert warning.count() == 1, (
+        "z is on screen now and is drawn four times over, so no single bar "
+        "describes the view -- and nothing on screen says so"
+    )
+
+
+def test_an_even_stretch_is_never_warned_about(viewer_page):
+    """Stretching every axis alike is a zoom, and leaves one bar perfectly true.
+
+    Worth pinning separately: the rule is that the axes on screen must *agree*,
+    not that they must all read 1. A guard written as "warn unless everything is
+    unstretched" would pass the test above and still cry wolf here.
+    """
+    warning = viewer_page.get_by_text("no single scale bar is true", exact=False)
+    for axis in ("x", "y", "z"):
+        viewer_page.locator(f"[aria-label='stretch {axis}']").fill("2")
+    viewer_page.wait_for_timeout(1200)
+    assert warning.count() == 0, "an even stretch is a zoom, not a shear"
+
+    viewer_page.click("text=3D")
+    viewer_page.wait_for_timeout(4000)
+    assert warning.count() == 0, "and it is still a zoom with the volume on screen"

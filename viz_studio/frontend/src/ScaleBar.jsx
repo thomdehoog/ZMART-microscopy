@@ -97,6 +97,17 @@ function volumePanelOnScreen(viewer) {
  * factor that changed with the height of the window, and it did not move at all
  * when the operator magnified the volume. A scale bar that is quietly wrong is
  * worse than none, because a measurement gets read off it and written down.
+ *
+ * **Which spatial axis gets read matters only when the axes on screen have been
+ * stretched apart.** Anisotropic voxels alone do not do it: the engine folds the
+ * anisotropy into `canonicalVoxelFactors` and draws the specimen to physical
+ * truth, so `displayDimensionScales[i] / canonicalVoxelFactors[i]` comes out the
+ * same for every axis and one screen pixel covers the same distance whichever way
+ * the specimen is turned. Measured on the demo volume, whose voxels are 5.7 times
+ * longer in depth than across: 10 µm spanned 50.2 pixels along x, along y and
+ * along z alike. Taking the first axis measured in metres is therefore not an
+ * approximation. Only the per-axis stretch in the layer panel makes the axes
+ * disagree, and that panel warns when the ones on screen do.
  */
 function pixelSize(viewer) {
   const navigation = viewer?.navigationState;
