@@ -27,14 +27,18 @@ settle on its own, what you decide once per instrument, and what remains open.
 
 A run writes **every tile whole, exactly as the camera recorded it**, each one an
 ordinary OME-Zarr image that any software can open. Beside them sits a **view** —
-also a real OME-Zarr image, but holding no pixels of its own; it points at the
-tiles, so the viewer can be handed one image however many thousand tiles there
-are. The overlap is never cut out of the tiles. It is *accounted for* twice over,
-in different ways: the viewer is shown fewer chunks, and the analysis counts only
-the objects a tile owns. Nothing is written twice, and the ground truth exists
-once.
+also a real OME-Zarr image, whose full-resolution level holds no pixels of its own
+but points at the tiles, so the viewer can be handed one image however many
+thousand tiles there are. Zoomed far enough out, one coarse voxel covers more
+ground than any single tile can supply, so the view does write those coarsest
+levels itself; everything at full resolution is a pointer. The overlap is never
+cut out of the tiles. It is *accounted for* twice over, in different ways: the
+viewer is shown fewer chunks, and the analysis counts only the objects a tile
+owns. On the pointing path the acquisition is written once and the ground truth
+exists once; only the copying fallback, taken when a format fits no chunk grid,
+writes it a second time, and it does so by design.
 
-Everything below follows from that sentence.
+Everything below follows from that.
 
 ---
 
@@ -95,9 +99,12 @@ arrived at — `modest` is 10% on a 2048 or 2304 sensor and 12.5% on a 1024 scan
 
 ## The analysis contract — four rules that do not change
 
-1. **Point at the positions, never at the view.** The view holds no pixels and
-   reads back as zeros everywhere. It is the one object in the whole arrangement
-   that does not travel.
+1. **Point at the positions, never at the view.** The view's full-resolution level
+   holds no pixels of its own and reads back empty, so anything measuring real
+   data has to open the positions. Its coarsest levels are not empty — the view
+   writes those itself, because no single tile covers that much ground — but they
+   are for looking at, not for measuring. The view is also the one object in the
+   whole arrangement that does not travel.
 2. **Segment the whole tile, then keep only what it owns.** Run the segmentation
    over the entire tile, overlap included, so no cell is ever cut in half — then
    discard objects whose centre falls outside the tile's owned rectangle, which
@@ -189,8 +196,25 @@ Worth recording, because each cost a stretch of worrying:
    chunks and have one chunk served from inside a bundle, which is the same
    capability as item 2, or point the view at the full-resolution level alone and
    let it write its own smaller copies.
+4. **The coarse levels the view writes for itself keep only one channel.** Like
+   item 1, this is a repair rather than a new capability, and it is the one on
+   this list an operator will meet first. The writer tells the view about a place
+   only the first time it sees that place, and the view then fills its own coarse
+   levels by reading the position store at that instant, before the run's later
+   channels have been written. Reproduced both ways round: with full resolution
+   holding 11 and 29 for two channels, writing channel 0 first left the view's
+   levels 1 and 2 holding 11 and 0, and writing channel 1 first left 0 and 29 —
+   whichever channel arrived first is the only one with a picture. A two-channel
+   run therefore looks entirely correct until the operator zooms out, and then
+   loses a channel, which is a poor way to discover a fault in the middle of an
+   experiment. The repair is to update the current moment-and-channel's view levels
+   on **every** write, while still adding the position's pointer only the first
+   time that place is seen; handing that update the image the writer is already
+   holding also spares it re-reading the full-resolution level it has just
+   written. The positions' own smaller copies, `canvas.py` and the batch path are
+   all correct.
 
-Everything else on this page can wait. These three cannot.
+Everything else on this page can wait. These four cannot.
 
 ---
 
