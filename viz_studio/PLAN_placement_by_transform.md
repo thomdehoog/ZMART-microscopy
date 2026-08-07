@@ -62,6 +62,41 @@ Waiting for every source gives **8.96 s** on the stock engine and **2.36 s** wit
 bind batched. The picture is unaffected either way, being a single source, and reads
 0.22 s throughout.
 
+## Ten thousand overlapping tiles open in half a second
+
+Every claim in this document that the picture opens ten thousand positions in under
+a second rested on a ladder whose tiles **abutted**. Overlap is what a real
+acquisition produces and it had never been measured at that size, so the claim was
+inherited rather than tested. Measured now, with the seams chunk-aligned and
+ownership computed per tile:
+
+```
+| tiles  | map     | parse | opening |
+|    400 | 0.09 MB |  1 ms |  0.21 s |
+|  2,500 | 0.55 MB |  5 ms |  0.29 s |
+| 10,000 | 2.19 MB | 14 ms |  0.53 s |
+
+400 -> 10,000 is x2.5 for x25 the tiles
+```
+
+**Zero pieces with nothing behind them and zero owned twice, at ten thousand
+hand-computed ownerships** -- checked against the geometry before the browser was
+opened, because unsupplied ground draws as black rather than raising anything.
+
+The growth is entirely the one term that was predicted to grow. Opening rose 0.32 s
+while the map went from 0.09 to 2.19 MB; the parse is 14 ms of that and the rest is
+fetching one larger document and indexing it. Nothing scans: `_tile_covering` indexes
+by row, bisects across it, and stops walking back after one tile width, so overlap
+makes it visit perhaps two tiles where it visited one.
+
+This ran in the constrained regime rather than an easy one. Tiles of 64 with 32-voxel
+pieces stepped 32 give `gcd(32, 64) / 32 = 1`, so exactly one pointable level -- the
+same restriction a 2304 tile with 288 pieces imposes at 12.5% overlap.
+
+**So overlapping runs at survey scale are not the problem.** What stands between this
+and an acquisition is the writer computing ownership, which is the ten lines above
+done automatically rather than by hand.
+
 ## What is already true, and needs no work
 
 - OME-Zarr `scale` and `translation` are read per store; `identity` too. The parser
