@@ -28,7 +28,7 @@ work lives; `main` does not yet carry `zmart_storage` at all.
 1. [The short answer](#the-short-answer)
 2. [What was measured](#what-was-measured)
 3. [Where analysis results belong](#where-analysis-results-belong)
-4. [The plate layout: not for the microscopes, yes for the screener](#the-plate-layout-not-for-the-microscopes-yes-for-the-screener)
+4. [The plate layout, and why we do not use it](#the-plate-layout-and-why-we-do-not-use-it)
 5. [Which generation of OME-Zarr to write](#which-generation-of-ome-zarr-to-write)
 6. [Overlap: the problem underneath both halves](#overlap-the-problem-underneath-both-halves)
 7. [Where ngio helps, and where it would hurt](#where-ngio-helps-and-where-it-would-hurt)
@@ -157,7 +157,7 @@ not ours, they are the format's.
 
 ---
 
-## The plate layout: not for the microscopes, yes for the screener
+## The plate layout, and why we do not use it
 
 We do not use it today. A run writes a plain group of position images:
 
@@ -173,9 +173,8 @@ There is no `plate` or `well` metadata anywhere. (The commit that says "let one
 folder hold a whole plate" is about putting the positions inside the view's
 folder, not about the high-content-screening layout that OME-Zarr calls a plate.)
 
-**Recommendation for the microscopes: leave it as it is.** The reasons are
-practical rather than principled — and see the amendment below for the screener,
-where the answer is the opposite:
+**Recommendation: leave it as it is, on every instrument.** The reasons are
+practical rather than principled:
 
 - The plate layout addresses images by row and column — `B/3/0`. A smart
   experiment on a light-sheet or a confocal images wherever the specimen is, and
@@ -193,38 +192,35 @@ a well to name. If plate-based analysis becomes something people want, the hones
 move is to write plate metadata **as well**, over the same position images, rather
 than to rearrange anything. It is metadata, not a different layout.
 
-### And that case is already here: the HCS screener
+### Decided: no plate layout, on any instrument
 
-Amended 7 August 2026, on being told the instrument list includes a **Molecular
-Devices ImageXpress**. That is a high-content screening system — plates, wells,
-several fields per well — and it is not a hypothetical multiwell future. It is the
-case the paragraph above was holding the door open for.
+Amended 7 August 2026. On being told the instrument list includes a **Molecular
+Devices ImageXpress**, a high-content screener, this document briefly recommended
+writing plate metadata for that one instrument. **The maintainer's decision is not
+to**, and on reflection it is the better call: it keeps one arrangement for every
+microscope rather than a special shape for one of them, which is the principle the
+rest of the project is built on.
 
-**So the recommendation splits by instrument rather than applying to the whole
-project:**
+**What that gives up is narrower than it sounds.** Not the ability to analyse a
+plate — only `ngio.open_ome_zarr_plate` and any Fractal task that insists on a
+plate. ngio opens individual images perfectly well, as measured above, and Fractal
+was already decided against for reasons of its own.
 
-- **A confocal or a light-sheet imaging wherever the specimen is** — the runs this
-  project mostly does — stays as it is. A plain group of positions, no plate
-  metadata, for the reasons above.
-- **The HCS screener writes plate metadata as well.** A well is a well, a field is
-  a field, and forcing that into an anonymous list of positions throws away
-  structure the experiment genuinely has. Written as a plate, its runs are
-  addressable by `ngio.open_ome_zarr_plate`, iterable well by well, and readable
-  by any Fractal task without a line of glue.
+**Well and field identity does not need the plate layout.** It needs to be
+*recorded*, and the run-level table of §8.4 is the place:
 
-**It is still additive, not a rearrangement.** The plate layout is a group above
-the images saying which image is which well and field; the images themselves are
-the same ordinary OME-Zarr positions described everywhere else in this document,
-with the same axes, the same transformations and the same `labels` and `tables`
-inside them. Nothing about the viewer changes either — Neuroglancer does not read
-plate metadata, so the view is still what hands it one image.
+| position | well | field | cells | mean intensity |
+| --- | --- | --- | --- | --- |
+| `pos00417` | B03 | 2 | 143 | 812 |
 
-**What it needs from us** is that the driver reports which well and which field a
-position belongs to, so the writer can name it. The workflow's position label
-already carries the fields: `K` is the carrier, `M` the compartment, `V` the view
-within it. What is missing is the mapping from those to a plate's row-and-column
-naming, and that is a small piece of work in the screener's driver rather than a
-change to the storage layout.
+Analysis then groups by `well` in one line, without any plate metadata, without a
+row-and-column folder hierarchy, and without a second arrangement to keep working.
+The screener's runs stay exactly the same shape as the confocal's and the
+light-sheet's.
+
+The workflow's position label already carries what those columns need — `K` for
+the carrier, `M` for the compartment, `V` for the view within it — so the
+screener's driver has only to report them, which it must do anyway.
 
 ---
 
@@ -630,10 +626,9 @@ one sentence.
    one.
 7. **Finish the no-copy path for a drifting stage**, so that an ordinary run stops
    falling back to writing every voxel twice.
-8. **Write plate metadata for the HCS screener**, over the same position images
-   rather than instead of them, and leave every other instrument's runs as a plain
-   group of positions. The mapping from the workflow's carrier and compartment
-   fields to a plate's row-and-column naming belongs in that screener's driver.
+8. **Record the well and the field as columns of the run-level table**, so a
+   screening run can be grouped by well without the plate layout. No instrument
+   writes plate metadata.
 
 ---
 
