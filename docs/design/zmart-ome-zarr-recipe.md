@@ -152,7 +152,7 @@ rows can disappear when you zoom out.
 | | decided | why |
 | --- | --- | --- |
 | OME-Zarr version | **0.5** (zarr v3) by default; 0.4 on request; **0.6 when the acquisition needs a transformation 0.5 cannot express** — see section 6 | 0.5 is read by everything today and can bundle chunks; 0.6 is the only way to state a deskew, a rotation between views, or a place that changes with time |
-| chunk | `(1, 1, 1, piece, piece)`, `piece` = 128 by default | one plane per piece, so showing a single plane never fetches its neighbours |
+| chunk | `(1, 1, 1, piece, piece)`, with `piece` **derived from the tile shape and the wanted overlap** at run setup — see §8.1 | one plane per piece, so showing a single plane never fetches its neighbours; and the chunk cannot be changed afterwards without rewriting every byte, so it must be right the first time |
 | bundling (sharding) | full-size copy only, when asked for | a long run otherwise leaves millions of small files, which Windows and most backup software handle badly |
 | number type | whatever the camera gives, usually `uint16` | never converted; a run stores what was recorded |
 | compression | zstd | fast enough to keep up with acquisition |
@@ -618,6 +618,38 @@ would then take a 146-voxel chunk and a 14.3% overlap.
 camera decides the format, the operator asks for an overlap in per cent, and the
 writer works out the rest and says what it picked. The only thing that needs
 writing down is that sentence.
+
+#### Can the chunk be changed afterwards? No — and that is why it is derived
+
+A chunk is not a description of the data, it **is** the file on disk. Changing the
+chunk size repartitions every byte, so it is a full rewrite of the run, not an
+edit to its metadata. That makes it the one decision that genuinely cannot be
+deferred.
+
+It is worth keeping the two straight, because they feel similar and are not:
+
+| changing this, after a run is written | costs |
+| --- | --- |
+| the OME-Zarr version, 0.5 → 0.6 | **metadata only** — one `zarr.json`, chunks untouched |
+| where the image says it sits, or its channel colours | **metadata only** |
+| adding `labels`, `tables`, another view | **new files beside the old** — nothing existing is touched |
+| **the chunk shape** | **a full rewrite** — every byte read, repartitioned and written again |
+| the compression | **a full rewrite** |
+
+On five terabytes a rewrite is hours of reading and writing and twice the disk
+while it runs. It is something you do once, deliberately — converting a foreign
+dataset that arrived badly chunked, say — and never casually.
+
+**Which is exactly why the chunk is derived at run setup rather than chosen
+later.** Everything needed to work it out is already known before the first tile
+is written: the run declares its tile shape, and the operator has said what
+overlap they want. So the writer has both facts in hand at the moment it must
+decide, and there is nothing to postpone.
+
+The practical rule that follows: **`start_a_run` should take the wanted overlap as
+a fraction and work the chunk out, instead of taking `piece=128` and hoping it
+fits the camera.** That is a small change to one signature, and it is what turns
+"which chunk size?" from a question anybody has to answer into one nobody is asked.
 
 #### Point scanners, which can scan almost any format
 
