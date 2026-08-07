@@ -36,14 +36,21 @@ placed sources      any offset, ~5.1 ms a position at open, revisable by
 And the cost difference is a complexity class, not a constant:
 
 ```
-positions      picture      placed sources (with the bind batched)
-      400       0.22 s          2.4 s
-    1,000       0.22 s        ~ 5 s
-   10,000       0.22 s        ~51 s      (extrapolated; linearity to 10k is untested)
+tiles          picture      placed sources (with the bind batched)
+      400       0.21 s          2.4 s
+    2,500       0.29 s        ~13 s
+   10,000       0.53 s        ~51 s      (sources extrapolated; the picture measured)
 ```
 
-No tuning closes that. The picture pays nothing per position and the placed
-arrangement pays about five milliseconds, for ever.
+**The picture is not flat, which an earlier version of this document said three
+times.** It grows -- 2.5x for 25x the tiles -- and the growth is entirely the map,
+which goes from 0.09 MB to 2.19 as the tiles climb. That is sublinear and it is not
+nothing. The 0.22 s repeated for every size was inherited from an older ladder and
+had never been measured at ten thousand; when it was, it read 0.53.
+
+What survives is the comparison, and it survives by two orders: the picture's cost
+grows with the *description* of the run, the placed arrangement's with the number of
+things in it. No tuning closes that.
 
 **Therefore: placed sources are for tens of positions, a couple of hundred at the
 outside — the ones under active examination. Surveys keep the picture, which is not
