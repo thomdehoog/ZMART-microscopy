@@ -401,9 +401,27 @@ count with it, and the win would be in the scheduling rather than the bytes.
 So declaring the positions once was back on the table, for a different reason than it
 was first proposed and one that the earlier experiments could not see.
 
-**Measured, it is worth about a fifth — real, but not a step change.** Rather than
-build a document format to find out, the request count was halved directly by
-stripping the coarse levels, so a store carries two descriptions instead of four:
+**RETRACTED — the fifth below was measured against a contaminated denominator and
+is not a safe number.** Both experiments that bounded declaring-once ran in
+software, where roughly two thirds of main-thread busy turned out to be the
+rasteriser reading the canvas back (see below). The same half-second saving is six
+per cent of a software 8.2 s and ten per cent of a hardware 4.95 s, and the two are
+not the same claim.
+
+Worse, the arithmetic points the other way. Net of the readback the engine's own
+main-thread work is about 1.73 ms a source, so four hundred sources is **0.69 s of
+engine work inside a 4.95 s opening on the card**. Some 4.25 s of a real opening is
+not main-thread engine work at all -- about 10.7 ms a source, which at 4.2 requests
+each is roughly **2.5 ms a request**, squarely a round trip plus queueing. If that is
+what the opening is mostly made of, cutting 1,680 requests to 400 is a different
+proposition from a fifth.
+
+That is reasoning from a number, which has been wrong all day, so it is not a claim.
+**The measurement that settles it is a warm-cache run on the card** -- the same
+twenty-minute experiment, on the machine where the answer counts. Until then this
+section records a bound that was measured, not a conclusion that holds.
+
+The software measurement, for the record:
 
 ```
 positions   files a store   requests a source   opening
