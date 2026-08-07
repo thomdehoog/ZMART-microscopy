@@ -151,7 +151,7 @@ rows can disappear when you zoom out.
 
 | | decided | why |
 | --- | --- | --- |
-| OME-Zarr version | **0.5** (zarr v3); 0.4 on request | where the format is going, and the only one that can bundle chunks |
+| OME-Zarr version | **0.5** (zarr v3) by default; 0.4 on request; **0.6 when the acquisition needs a transformation 0.5 cannot express** — see section 6 | 0.5 is read by everything today and can bundle chunks; 0.6 is the only way to state a deskew, a rotation between views, or a place that changes with time |
 | chunk | `(1, 1, 1, piece, piece)`, `piece` = 128 by default | one plane per piece, so showing a single plane never fetches its neighbours |
 | bundling (sharding) | full-size copy only, when asked for | a long run otherwise leaves millions of small files, which Windows and most backup software handle badly |
 | number type | whatever the camera gives, usually `uint16` | never converted; a run stores what was recorded |
@@ -299,9 +299,58 @@ The pattern is worth remembering: **RFC-5 fixes the describing. It does not fix
 the drawing or the counting.** Those two remain ours, and they are the two the
 overlap problem actually consists of.
 
+### What 0.6 wins at the image level, which is a separate question
+
+A scene is not the only thing 0.6 brings, and the rest of it is winnable now,
+because Neuroglancer already reads 0.6 images. The schemas say exactly what
+changes:
+
+| | transformations allowed beside a resolution |
+| --- | --- |
+| 0.4 and 0.5 | exactly one `scale`, optionally one `translation`. **Nothing else.** |
+| 0.6 | `affine`, `rotation`, `sequence`, `byDimension`, `mapAxis`, `displacements`, `coordinates`, `bijection`, `identity`, plus scale and translation |
+
+So for an **upright, axis-aligned raster** — the confocal overview and target scan
+this project mostly runs — 0.5 already says everything there is to say, and 0.6
+adds nothing a viewer could use. No win.
+
+But for three kinds of acquisition, 0.5 cannot state the truth at all:
+
+- **Oblique-plane and light-sheet deskewing.** The correction is an affine shear.
+  In 0.5 it cannot be written down, so such data must either be deskewed and
+  rewritten as new pixels, or drawn wrong.
+- **Multi-view light-sheet.** Views related by a rotation, which 0.5 cannot
+  express either.
+- **A tile whose place changes between timepoints** — drift correction, and a
+  tracking run. Per-timepoint transformations need `sequence` or `byDimension`.
+
+For those the choice is not "0.5 with less detail" against "0.6". It is **wrong
+against right**, and the cost of choosing 0.6 is smaller than it first appears:
+ngio cannot read 0.6, but for a sheared or rotated acquisition ngio could not have
+placed it correctly in 0.5 either, because 0.5 has no way to say it. Nothing
+correct is being given up.
+
+**So the rule is per acquisition type, not per project:**
+
+> Write **0.5** by default. Write **0.6** when the acquisition needs a
+> transformation 0.5 cannot express — a deskew, a rotation between views, or a
+> place that changes with time.
+
+### And the choice is reversible, which settles the nerves
+
+`ngff_zarr.upgrade_ome_zarr` upgrades a store in place from 0.5 to 0.6 by
+rewriting the root group's metadata only: *"Every array chunk on disk is left
+byte-for-byte untouched."* Even 0.4 to 0.5 or 0.6 in place is metadata-only,
+because the existing chunk files are made to resolve unchanged.
+
+That means committing to 0.5 today is barely a commitment. A finished run can be
+lifted to 0.6 later by rewriting one `zarr.json`, not by rewriting terabytes. The
+only direction that costs a copy is going backwards across the zarr v2/v3 line,
+which we would never do.
+
 ### When to act
 
-Not yet. Three reasons, in order of weight:
+For an ordinary raster: not yet. Three reasons, in order of weight:
 
 1. **ngio cannot read 0.6**, and it is the library our analysis will be written
    against. That alone settles it.
@@ -380,7 +429,11 @@ In the order I would do them:
 3. **0.5 as the default in every writer**, not only `start_a_run`.
 4. **An ngio test beside the `ngff-zarr` one**, so a validation failure is caught
    the day it is introduced rather than months later.
-5. **Watch `ngio.NgffVersions` for `"0.6"`**, then write the scene alongside the
+5. **Write 0.6 for acquisitions 0.5 cannot describe** — a deskewed light-sheet
+   run, multiple views related by a rotation, a tile that moves between
+   timepoints. Neuroglancer reads 0.6 images already, and the upgrade back and
+   forth is metadata-only.
+6. **Watch `ngio.NgffVersions` for `"0.6"`**, then write the scene alongside the
    view and find out whether a run opens elsewhere without our viewer.
 
 Deliberately not on the list: adopting the high-content-screening plate layout,
