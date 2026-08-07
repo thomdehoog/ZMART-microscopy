@@ -222,7 +222,56 @@ OME-Zarr metadata cannot rotate. Neuroglancer's per-source
 
 Deferred until something asks for it.
 
-## Phase 4 — declare it once, transform per tile
+## Phase 4 — ANSWERED BY MEASUREMENT: declaring once does not fix it
+
+**The gate below was run and it refuses this phase.** A performance trace at N=100,
+200 and 400 names the superlinear function, and it is not fetching.
+
+`CoordinateSpaceCombiner.bind`, per position:
+
+```
+N     bind/position   fetch/position   requests/position
+100      2.65 ms         0.382 ms          4.46
+200      4.48 ms         0.394 ms          4.23
+400      9.36 ms         0.367 ms          4.12
+```
+
+`bind` per position doubles as N doubles — O(N) of work per source, O(N²) overall.
+Fetching per position is flat across all three sizes. At four hundred sources the
+registration chain is **76% of all main-thread work**; the same run served as one
+picture spends 3.6% and is indistinguishable from five sources.
+
+The chain, read off the built bundle at the addresses the trace named: each
+resolving source calls `addCoordinateSpace` three times — root, local and channel
+combiners. Each `bind` ends in `update()`, which loops over every binding already
+present; if the combined space changed it dispatches a signal whose handler list is
+one per already-bound source; each handler rebuilds a chunk transform and re-posts
+it to the chunk worker.
+
+**So the cost is per-source registration inside the layer, not round trips.** One
+document yielding N sources still binds N times and is still O(N²). Declaring once
+would have removed 4 requests per position — a flat, already-cheap term — and left
+the curve untouched.
+
+Corrected numbers while here: the harness's settle condition
+(`zmartSourcesWaiting() === 0`) returns with **30 of 100** sources resolved and
+**300 of 400**, so the cold openings recorded earlier in this document were taken on
+pages that had not finished loading. Waiting for every source to resolve gives
+**1.0 s at 100, 2.6 s at 200, 10 s at 400**.
+
+### What would actually fix it
+
+Batch the binding. The quadratic exists because sources are bound one at a time and
+each bind re-walks every binding already present and re-notifies every handler. Add
+all N sources, then combine once. That is an upstream neuroglancer change, but it is
+a far sharper request than "a driver that walks a group": it does not need discovery,
+a file format, or consolidated metadata, and it would leave the arrangement's
+placement freedom exactly as it is.
+
+Failing that, the honest answer is a **bounded number of sources**, and the bound is
+now measurable rather than guessed.
+
+### The original argument, kept for the record
 
 ### Why this and not "a driver that walks a group"
 
