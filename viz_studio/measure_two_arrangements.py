@@ -68,13 +68,24 @@ def measure(browser, built: Path, ladder: Path, count: int,
     positions = picture / "positions"
     names = sorted(p.name for p in positions.glob("*.ome.zarr"))
 
+    # Both arrangements are pointed at the same place from the same distance. The
+    # run is a squarish mosaic of 512-voxel positions, so its middle is half its
+    # width, and the zoom is whatever fits that width into the shorter side of the
+    # panel with a little to spare. Without this the two rows of a rung start
+    # wherever their first source happened to resolve.
+    across = int(len(names) ** 0.5 + 0.999)
+    wide = across * 512
+    look_at = {"y": wide / 2, "x": wide / 2, "z": 0}
+    zoom = wide / 700 * 1.1
+
     rows = []
     for label, where, store in (
         ("picture", folder, "experiment.ome.zarr"),
         ("sources", positions, names),
     ):
         try:
-            got = how_it_drew(browser, built, where, store)
+            got = how_it_drew(browser, built, where, store,
+                              look_at=look_at, zoom=zoom)
             got.update(arrangement=label, positions=count, asked=len(names))
             # A cold opening is what an operator waits through, and it is the one
             # number the warm rows cannot give: every row after the first opens
@@ -85,7 +96,8 @@ def measure(browser, built: Path, ladder: Path, count: int,
                     started, built, where, store, headed
                 )
             rows.append(got)
-            print(f"  {label:8s} held={got['held']:4d}/{len(names):<4d} "
+            print(f"  {label:8s} loaded={got['loaded']:4d}/{len(names):<4d} "
+                  f"failed={got['failed']} pending={got['pending']} "
                   f"lit={got['lit']:.3f} frame={got['drawing_ms']:.1f}ms "
                   f"fps={got['fps']:.0f} requests={got['requests']} "
                   f"cold={got.get('cold_s', float('nan')):.2f}s", flush=True)
