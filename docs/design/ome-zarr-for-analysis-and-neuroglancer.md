@@ -1,13 +1,14 @@
-# Is our OME-Zarr ready for analysis as well as for viewing?
+# One OME-Zarr that can be both viewed and analysed
 
 Written 7 August 2026, by opening the files our writer produces with somebody
 else's library rather than with our own reader.
 
 The viewer work settled how an OME-Zarr should be arranged so that Neuroglancer
 can draw a run of thousands of positions as one picture. That question is
-answered. This document asks the other half of it: **can the same files be
-analysed** — opened by an ordinary Python imaging library, segmented, and written
-back to — without a biologist having to convert anything first.
+answered. This document asks the other half of it — **can the same files be
+analysed**, without a biologist having to convert anything first — and then
+follows the one problem that turns out to sit underneath both halves at once:
+what to do about tiles that overlap.
 
 The library used for the test is [ngio](https://github.com/BioVisionCenter/ngio)
 (version 1.0.0) from the BioVision Center in Zurich. It reads and writes OME-Zarr,
@@ -17,10 +18,22 @@ That strictness is what makes it a good witness. Our own reader and our own writ
 share whatever misunderstanding we happen to have, so they always agree with each
 other; a stranger's library does not.
 
-Everything below was measured on a small run written by `zmart_storage`, not
-reasoned about. The branch under test is
+Everything measured below was measured on a small run written by `zmart_storage`,
+not reasoned about. The branch under test is
 `claude/frame-rate-stores-scaling-cngfct`, which is where the storage and viewer
 work lives; `main` does not yet carry `zmart_storage` at all.
+
+**Contents**
+
+1. [The short answer](#the-short-answer)
+2. [What was measured](#what-was-measured)
+3. [Where analysis results belong](#where-analysis-results-belong)
+4. [The plate layout, and why not yet](#the-plate-layout-and-why-not-yet)
+5. [Which generation of OME-Zarr to write](#which-generation-of-ome-zarr-to-write)
+6. [Overlap: the problem underneath both halves](#overlap-the-problem-underneath-both-halves)
+7. [Where ngio helps, and where it would hurt](#where-ngio-helps-and-where-it-would-hurt)
+8. [How ngio fits the analysis engine](#how-ngio-fits-the-analysis-engine)
+9. [What I would change, in order](#what-i-would-change-in-order)
 
 ---
 
@@ -38,6 +51,10 @@ exists on the branch `claude/ngff-translation-per-dataset`. With it applied,
 everything works: positions open, the pixels come back unchanged, the voxel size
 and the place on the stage are right, and a segmentation written by ngio shows up
 in our own viewer without any further work.
+
+Underneath that sits a larger question that no library can answer for us — what a
+tile *owns* when tiles overlap — and section 6 sets out an answer that serves the
+viewer and the analysis with one decision instead of two.
 
 ---
 
@@ -123,12 +140,10 @@ in the viewer with no glue code between them.
 
 ---
 
-## The questions this raises, and what I would do
+## Where analysis results belong
 
-### Should the analysis output go inside the OME-Zarr or beside it?
-
-**Inside, whenever the format has a place for it.** Segmentations belong in
-`labels`, measurements belong in `tables`; both are part of OME-Zarr, both are
+**Inside the image, whenever the format has a place for it.** Segmentations belong
+in `labels`, measurements belong in `tables`; both are part of OME-Zarr, both are
 where ngio, Fractal, napari and Fiji look for them, and the measurement above
 shows our own viewer already finds a label written there.
 
@@ -139,13 +154,15 @@ beside.** `zmart-links` and `zmart-coverage` are ours and stay outside every
 warn whoever opens it. That is not a reason to keep *labels* outside — they are
 not ours, they are the format's.
 
-### Should we use the HCS plate layout?
+---
 
-We do not today. A run writes a plain group of position images:
+## The plate layout, and why not yet
+
+We do not use it today. A run writes a plain group of position images:
 
 ```
 overview.ome.zarr/
-  0/ 1/ 2/            the view — descriptions only
+  0/ 1/ 2/            the view — descriptions only, no picture of its own
   positions/
     overview_pos00000.ome.zarr
     overview_pos00001.ome.zarr
@@ -153,9 +170,9 @@ overview.ome.zarr/
 
 There is no `plate` or `well` metadata anywhere. (The commit that says "let one
 folder hold a whole plate" is about putting the positions inside the view's
-folder, not about the high-content-screening layout.)
+folder, not about the high-content-screening layout that OME-Zarr calls a plate.)
 
-**My recommendation: leave it as it is for now, and revisit it only for genuine
+**Recommendation: leave it as it is for now, and revisit it only for genuine
 multiwell work.** The reasons are practical rather than principled:
 
 - The plate layout addresses images by row and column — `B/3/0`. A smart
@@ -165,38 +182,18 @@ multiwell work.** The reasons are practical rather than principled:
 - It buys nothing for viewing. Neuroglancer does not read plate metadata; it reads
   one multiscale image. The view is what solves that, and it would still be
   needed.
-- It buys real things for analysis — ngio and Fractal pipelines iterate over
-  wells and fields natively — but only when the specimen genuinely sits in a
-  plate.
+- It buys real things for analysis — ngio and Fractal pipelines iterate over wells
+  and fields natively — but only when the specimen genuinely sits in a plate.
 
 Where it *would* pay off is exactly the case our position labels already
 anticipate: `K` is a carrier and `M` is a compartment, so a real multiwell run has
-a well to name. If plate-based analysis becomes something people want, the
-honest move is to write plate metadata **as well**, over the same position images,
-rather than to rearrange anything. It is metadata, not a different layout.
+a well to name. If plate-based analysis becomes something people want, the honest
+move is to write plate metadata **as well**, over the same position images, rather
+than to rearrange anything. It is metadata, not a different layout.
 
-### Does this hold up for overlapping tiles and for mesoSPIM?
+---
 
-This is the strongest argument for making the correction rather than working
-around it.
-
-Tiles acquired with deliberate overlap cannot share one canvas, because one voxel
-holds one value and the overlapping halves would write over each other. That is
-why `zmart_storage/cropped.py` exists: it keeps every tile whole in an image of
-its own and trims copies into the canvas for the viewer. Which means **the
-per-tile images are the only complete record of an overlapping run** — the
-stitcher has to read them, and it reads them through `ngff-zarr` or ngio.
-
-An overlapping run whose tiles all claim to sit at the stage's zero is not
-slightly wrong, it is unusable: every tile lands on top of every other and no
-stitcher can recover the arrangement. The same is true of a mesoSPIM transfer,
-where a specimen is many overlapping tiles by construction.
-
-So the per-dataset position is not a tidiness point. It is what makes overlapping
-acquisitions — the ones we most need other people's software for — analysable at
-all.
-
-### Which generation of OME-Zarr should a run be written in?
+## Which generation of OME-Zarr to write
 
 **0.5, and it should be the default everywhere.** Both generations were measured
 and ngio opens either one identically, so nothing about analysis forces the
@@ -213,56 +210,283 @@ describes 0.4 as the default. Those three should be brought into line with the
 first, keeping 0.4 available for anyone who has to read a run with older software.
 
 One thing to check before bundling is switched on for real runs, because it was
-not measured here: a view hands a position's own chunk file to the browser
-exactly as it is, and once chunks are bundled a chunk is no longer a file of its
-own. The writer already bundles only the full-size copy and its comments say why,
-so the thinking has been done — but it deserves a test against the viewer rather
-than an assumption.
+not measured here: a view hands a position's own chunk file to the browser exactly
+as it is, and once chunks are bundled a chunk is no longer a file of its own. The
+writer already bundles only the full-size copy and its comments say why, so the
+thinking has been done — but it deserves a test against the viewer rather than an
+assumption.
 
-### Extending the analysis pipelines to OME-Zarr
+---
 
-`smart-analysis` runs each step as a plain `run(pipeline_data, **params)` function
-in a named conda environment, passing either file paths or pickled objects between
-steps. That design already suits OME-Zarr well, and the change is small:
+## Overlap: the problem underneath both halves
+
+Microscopists acquire with the tiles deliberately overlapping, ten or fifteen per
+cent being usual. The overlap is not waste — it is the only evidence of where the
+stage *really* put each tile, as opposed to where it said it did, because the
+strip two tiles both photographed can afterwards be compared.
+
+That one fact causes trouble twice, and the two troubles look different enough
+that it is easy to solve them separately and end up with two answers that
+disagree.
+
+### The trouble for analysis: counting the same cell twice
+
+If ten per cent of a tile is also on the neighbouring tile, then every cell in
+that strip is segmented twice, measured twice and counted twice. A run of a
+thousand tiles reports perhaps a tenth more cells than the specimen contains, and
+no amount of care later can tell which of two measurements of the same cell to
+throw away.
+
+The obvious answer is to analyse only the part of a tile that is not shared. It is
+also the wrong shape of answer, and it is worth saying why: a cell sitting on the
+seam would then be cut in half, and half a cell measured is worse than no cell
+measured, because it looks like a real result.
+
+**The right answer is to separate what is segmented from what is owned.**
+
+> Segment the **whole** tile, overlap and all, so every cell is seen whole and
+> with its proper surroundings. Then keep only those objects whose **centre**
+> falls inside the tile's owned rectangle.
+
+Every object in the run is then counted exactly once, because its centre lands in
+exactly one owned rectangle — the owned rectangles butt up against one another and
+cover the ground with no gaps and no double cover. A cell straddling the seam is
+measured properly on whichever tile owns its centre, and discarded on the other
+one after it was measured whole, not clipped. Nothing about the segmentation
+changes. What changes is one filter at the end.
+
+### The trouble for viewing: one value per point
+
+An image holds a single value per point, so writing overlapping tiles into a
+single image means the second tile written replaces the strip it shares with the
+first. `viz_studio/DATA_LAYOUT.md` measures the loss at 21% of everything the
+camera recorded on a run overlapping by an eighth. And the viewer really does want
+a single image, because Neuroglancer builds a drawing layer per source: a thousand
+separate positions drew twenty-four frames in five seconds where one image managed
+255.
+
+**This half is already built.** `zmart_storage/cropped.py` writes the run twice —
+every tile whole in a small image of its own, overlap intact, for the stitcher;
+and every tile trimmed at the midline into one canvas for the viewer. Trimmed that
+way the tiles butt up and touch nowhere, so nothing is written over.
+`HANDOVER_overlapping_runs.md` is the record of what was decided and built, the
+tests pass, and the sweep was taken from one tile to ten thousand.
+
+Two things about that are worth carrying forward:
+
+- **Every frame rate in those documents came from a software renderer**, on a
+  machine with no graphics card. They are not yet facts about the viewer. Running
+  `viz_studio/measure_the_overlapping_run.py` on real hardware is the first thing
+  to do.
+- **The no-copy path is the part still unfinished.** `zmart_storage/linked.py`
+  shows the same run without copying a single voxel, but only when the tiles land
+  on an exact grid; a real stage drifts a voxel or two and such a run is currently
+  refused rather than shown, so it falls back to copying the whole run a second
+  time. That is a stage-drift problem rather than an overlap problem, and
+  `LINKING_INSTEAD_OF_COPYING.md` sets out how to finish it.
+
+### One seam, two consumers
+
+Here is the point of putting both troubles in one section. The rectangle the
+viewer trims a tile down to and the rectangle analysis lets a tile own are **the
+same rectangle**, and it is already computed — `Trimming.of(tile_shape,
+tile_step)` in `zmart_storage/cropped.py`:
+
+```
+overlap on an axis        = tile size − stage step
+what comes off each edge  = half of that
+```
+
+with tiles at the edge of the raster keeping their outer strips, because there is
+no neighbour there to replace what would be cut. Nothing about it is chosen or
+switched on: it is worked out from two numbers the run could not have started
+without, so there is no setting that can be wrong for a whole run before anybody
+notices.
+
+So this is not the same problem twice. It is **one seam with two consumers** — the
+canvas the viewer draws, and the ownership rule the pipeline filters by. Decide it
+once, in the writer, and the two agree by construction, which also means a cell can
+never be shown on one tile and counted on another.
+
+The practical step is to record it where a pipeline can read it: write the owned
+rectangle into each tile as an OME-Zarr **region-of-interest table**, at
+`tables/owned_ROI_table`, beside the whole-image table ngio already writes. A
+pipeline then opens a tile, segments it whole, filters by that table and writes its
+results back — and never needs to know how the seam was derived.
+
+### Where the ownership rule breaks, honestly
+
+- **An object bigger than the overlap.** With ten per cent of a 2048-pixel tile
+  you own about 200 pixels of slack, and a nucleus at 30 pixels is comfortably
+  safe. Something large enough to be clipped in *every* tile is recovered by
+  nothing short of stitching. A cheap guard is to flag any kept object that
+  touches the tile's border; those are the ones to distrust, and they should be
+  rare.
+- **The seam assumes the stage told the truth**, which is the very thing the
+  overlap exists to disprove. For analysis that only shifts which tile owns a
+  borderline object, which is harmless. For viewing it is a visible line. Same
+  seam, different tolerance — and it is why the archive keeps every tile whole, so
+  a stitcher can settle it properly afterwards.
+- **Irregular positions.** This is a rule for a regular raster. Smart target scans
+  that overlap arbitrarily have no single "step", so ownership there needs
+  something else — first-wins by acquisition order, or nearest-centre in stage
+  coordinates. Worth deciding before such a run turns up rather than after.
+
+If none of that is tolerable, the alternative is to analyse every tile
+independently and merge objects across the seams by matching them in stage
+coordinates. It is strictly more correct and meaningfully more work, and it is
+worth reaching for only if the border-touching flag starts firing often.
+
+---
+
+## Where ngio helps, and where it would hurt
+
+ngio is the right tool for part of this and the wrong tool for another part, and
+the line between them is clear enough to state.
+
+**Use it on the analysis side, completely.** It has `Roi` and `RoiSlice`,
+`get_roi` and `set_roi`, `MaskedImage`, and ready-made iterators
+(`SegmentationIterator`, `FeatureExtractorIterator`, `ImageProcessingIterator`).
+Cropping a region out of a tile and placing it somewhere becomes a few lines
+rather than hand-rolled slicing, segmenting region by region is a loop it already
+writes for you, and results go back with `derive_label` and `add_table`.
+Everything described in "What was measured" above was done this way.
+
+**Use it for foreign data too.** A mesoSPIM transfer arrives as a folder of
+overlapping tiles somebody else wrote, in whatever arrangement they chose. Reading
+those with ngio, trimming them, and writing one canvas the viewer can open has no
+live constraint on it at all, so nothing about ngio's copying gets in the way.
+That is the job `viz_studio/PLAN_showing_many_stores_as_one.md` describes, and
+ngio would shorten it considerably.
+
+**Do not put it on the acquisition path.** Three reasons, and the third is the one
+that would bite:
+
+- ngio copies pixels. `zmart_storage/linked.py` exists precisely so that a run's
+  voxels are written once and never again.
+- It is not built for appending while a viewer watches. The careful parts of our
+  writer — leaving unwritten chunks unwritten, replacing the list of pointers in a
+  single step so a reader never catches it half-written, counting how many moments
+  have really been recorded — are exactly what that arrangement depends on.
+- It brings `dask`, `anndata`, `polars`, `pyarrow`, `scipy`, `pandas`, `pillow`
+  and `aiohttp` with it: 61 packages installed in the test environment here. That
+  is entirely normal for an analysis environment and not something to add to the
+  microscope computer, where `zmart_storage` today needs `zarr` and `numpy` and
+  nothing else.
+
+That split also fits how the analysis engine already works: ngio lives in the
+analysis conda environment, and the acquisition side never imports it.
+
+---
+
+## How ngio fits the analysis engine
+
+The `smart-analysis` engine was built to do two things: **queue analysis that runs
+while the microscope is still going**, and **run a recipe whose steps need
+different Python environments**. It is worth saying plainly how ngio sits with
+each, because the answer to both is "it does not get in the way", and that is not
+obvious from the outside.
+
+**ngio has no runtime of its own.** It is a library a step imports, like
+`scikit-image` or `numpy`. There is no server, no scheduler, no daemon and no
+background process. So the queue is untouched: `engine.submit(queue, ...)`,
+`engine.status(queue)` and `engine.results(queue)` keep working exactly as they
+do, and nothing about how work is handed out or drained changes.
+
+**The multiple-environment part actually gets easier.** Today a step running in
+another conda environment receives either a JSON payload of file paths or a
+pickle, and a pickle of a large image has to be written, sent and read back at
+every environment boundary. An OME-Zarr position removes the question: the pixels
+stay on disk, each environment opens the same folder, and only a path crosses
+between processes. That is the engine's existing `data_transfer: "file_paths"`
+mode, used for what it was designed for.
+
+**And most of what the payload carries today is already inside the file.** The
+target-acquisition workflow currently submits something like this per overview:
+
+```python
+engine.submit(queue, {
+    "image_path": ..., "tile_id": ..., "tile_stage_xy_um": ...,
+    "source_pixel_size_um": ..., "source_image_size_px": ...,
+    "image_to_stage": ...,
+})
+```
+
+Every one of those spatial fields — the pixel size, the image size, where the tile
+sits on the stage, how image coordinates become stage coordinates — is something
+an OME-Zarr position states about itself, in the very transformations this
+document is about. Pointing a step at a store means it reads them from the image
+rather than being told them alongside, which removes a whole class of quiet fault:
+a payload that disagrees with the file it describes.
+
+**Running while the microscope is going still works**, and works a little better.
+A position is a complete, valid image the moment it is written, so it can be
+queued the moment it lands rather than at the end of a run. And because results go
+back into the position as `labels` and `tables`, the operator sees a segmentation
+appear in the viewer while the next position is still being acquired — the
+measurement earlier in this document shows the viewer's reader finding an
+ngio-written label with nothing told to it.
+
+### What the change looks like
 
 - Add a step that takes a **store path and a position name** instead of an image
-  array, and opens it with ngio. The engine's existing `data_transfer:
-  "file_paths"` mode is exactly this, and it means large images stop being pickled
-  between processes — a position is opened where it is used and read lazily.
+  array, and opens it with `ngio.open_ome_zarr_container(...)`.
 - Have the segmentation step write its result with `derive_label(...)` and its
-  measurements with `add_table(...)`, into the position it read. As measured
-  above, the viewer then shows the segmentation with no further work.
-- Put `ngio` in the analysis environment only. The acquisition side needs nothing
-  new — `zmart_storage` writes with `zarr` and `numpy` and should stay that way.
+  measurements with `add_table(...)`, into the position it read.
+- Have it read `tables/owned_ROI_table` and drop objects whose centre falls
+  outside, so an overlapping run is not counted twice.
+- Put `ngio` in the analysis environment only, never in the acquisition one.
 
 None of this needs the pipeline engine itself to change.
+
+### The one thing to be careful about
+
+Two processes writing into the same store at the same time. Different positions
+are different folders and do not interfere, so the acquisition writer appending a
+new position while a pipeline segments an earlier one is safe. Two analysis steps
+writing into the *same* position is not, and the queue is what keeps that from
+happening: one item at a time per position. It is worth stating in the recipe
+rather than relying on it by accident.
 
 ---
 
 ## What I would change, in order
 
-1. **Write each position's place on the stage beside each resolution, not once
-   for the image as a whole.** The correction is already written on
+1. **Write each position's place on the stage beside each resolution**, not once
+   for the image as a whole. The correction is already written on
    `claude/ngff-translation-per-dataset`; it needs merging into the storage
    branch, plus the small guard in `linked.py` so the view is not moved twice.
    Without this, no position we write can be opened by ngio, `ngff-zarr`,
-   `multiview-stitcher`, or anything built on them.
-2. **Say in the operator-facing docs that analysis results belong inside the
+   `multiview-stitcher`, or anything built on them — and for an overlapping or
+   light-sheet run, where a stitcher is the only way to read the data at all, that
+   is not a tidiness point but the difference between usable and not.
+2. **Record the owned rectangle as `tables/owned_ROI_table` in every tile.** It is
+   already computed for the canvas; writing it down is what makes the viewer's
+   crop and the analysis filter the same decision rather than two that happen to
+   agree.
+3. **Say in the operator-facing documents that analysis results belong inside the
    position** — `labels` and `tables` — and that only our own two folders stay
    outside.
-3. **Keep a test that opens our files with somebody else's library.** The one on
+4. **Keep a test that opens our files with somebody else's library.** The one on
    the correction branch (`test_other_tools_can_read_us.py`) does this with
-   `ngff-zarr`. An ngio equivalent would be worth having beside it, because ngio
+   `ngff-zarr`. An ngio equivalent is worth having beside it, because ngio
    validates strictly and would have caught this the day it was introduced.
-4. **Make 0.5 the default in every writer**, not only in `start_a_run`, and
+5. **Make 0.5 the default in every writer**, not only in `start_a_run`, and
    correct the documentation that still says 0.4.
-5. **Leave the plate layout alone** until a genuine multiwell experiment asks for
+6. **Run `viz_studio/measure_the_overlapping_run.py` on a machine with a real
+   graphics card**, because nothing measured about drawing so far was measured on
+   one.
+7. **Finish the no-copy path for a drifting stage**, so that an ordinary run stops
+   falling back to writing every voxel twice.
+8. **Leave the plate layout alone** until a genuine multiwell experiment asks for
    it, and then add plate metadata over the positions rather than moving them.
+
+---
 
 ## How to repeat the measurement
 
-The probe scripts are not committed — they are a few dozen lines and are quicker
-to rewrite than to maintain. In outline: write a run with
+The probe scripts are not committed — they are a few dozen lines and quicker to
+rewrite than to maintain. In outline: write a run with
 `zmart_storage.positions.start_a_run`, then
 
 ```python
