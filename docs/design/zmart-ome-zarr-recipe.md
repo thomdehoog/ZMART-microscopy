@@ -16,6 +16,38 @@ still a release candidate. Nothing below is a guess about what we might like.
 
 ---
 
+## 0. Why OME-Zarr at all, and what each decision buys
+
+We did not choose this format because it is fashionable. We chose it so that a
+run can be opened by software nobody here wrote — a colleague's napari, a
+stitcher, an analysis library, a viewer written years from now. Every decision
+below is answerable to that, so it is worth saying plainly which ones serve it:
+
+| decision | what it buys |
+| --- | --- |
+| scale then translation, beside each resolution (§2) | every reader places the tile where it really was |
+| five axes always, named (§2) | nobody has to guess which dimension is depth |
+| 0.5 by default, 0.6 only where 0.5 cannot state the truth (§4, §6) | read by everything today, honest about deskews and rotations when it must be |
+| labels and tables *inside* the image (§5) | ngio, Fractal, napari and Fiji find a segmentation without being told |
+| our own bookkeeping beside the images (§5) | nothing we invented ever appears inside an image somebody else opens |
+| whole tiles kept as the ground truth (§7, §8.0) | a stitcher can always go back to what the camera saw |
+| the chunk derived from the camera (§8.1) | no microscope has to change its format to suit us |
+
+**And one place where we knowingly trade it away.** The view is a valid OME-Zarr
+image whose pixels live in the positions, so it opens elsewhere and reads blank.
+That is the price of handing Neuroglancer one source instead of ten thousand, and
+it is paid in exactly one object, which is why the rule "point analysis at the
+positions" matters so much. §6 describes the scene that would let us stop paying
+it.
+
+**Interoperability is not achieved by intending it.** It is achieved by a test
+that runs somebody else's reader over our output — which is how the fault in §2
+was found, and how it would have been found the day it was introduced. Changes 1
+and 4 on the list at the end are the ones that matter most, and they are both
+about being readable rather than about being clever.
+
+---
+
 ## 1. What a run leaves on disk
 
 *Status: written and running, except where noted.*
