@@ -102,6 +102,16 @@ come to rest, so that a patchwork which is only the engine still refining can be
 told from one that is really there. The comment above
 :func:`positions_that_overlap` sets out what each outcome would mean.
 
+**This question was set aside, not settled.** The project chose the one-store
+arrangement — a single view whose pieces are served from the positions' own files
+and handed to the engine as one source — so the arrangement in which the
+patchwork appears is no longer one anybody plans to ship. The ``--overlap``
+measurement still runs and still reports honestly what it photographs, but no
+cause for the patchwork was ever established, and nothing here should be read as
+having found one. The comment above :func:`positions_that_overlap` keeps the
+record of what was ruled out along the way, so that somebody picking this up
+later does not spend their time where four people have already spent theirs.
+
 Run it with::
 
     python viz_studio/options/measure/many_sources.py --rungs 50,100,400,1000
@@ -722,6 +732,41 @@ def the_view_settings(rung: int) -> dict:
 # still there once everything has settled, overlapping sources really are keeping
 # different copies, which would be a structural argument against the arrangement
 # quite apart from how fast it draws.
+#
+# What has already been ruled out, and one warning about method
+# --------------------------------------------------------------
+#
+# Four explanations have been put forward for the patchwork and all four were
+# then found not to hold. They are written down here because each of them is the
+# obvious first guess, and each one has already cost somebody an afternoon:
+#
+#   1. **Where the position is written in the description.** It makes no
+#      difference whether the offset sits beside the whole set of copies or
+#      beside each copy on its own.
+#   2. **Offsets that are not a whole number of voxels.** A step of a voxel and a
+#      half behaves the same as a step of two voxels.
+#   3. **The overlap itself.** Positions that overlap are not enough on their own
+#      to produce it.
+#   4. **The engine still refining.** The picture does not come right if you
+#      simply wait; it was watched settling for a minute and a half and stayed as
+#      it was.
+#
+# The warning matters more than the list. **All four of those conclusions were
+# reached by looking at photographs, and all four were wrong.** A screenshot of
+# this fault is genuinely ambiguous: an engine that has run out of room for
+# picture pieces and an engine that is putting sources in the wrong place produce
+# the same blotchy screen and the same share of the window lit, so no amount of
+# careful looking can separate them. Anybody returning to this should read the
+# numbers out of the engine — how many pieces it is holding, how many it asked
+# for and never got, and where it has decided each source belongs — rather than
+# judging by eye.
+#
+# One confound is also still open and is worth stating plainly, because it has
+# never been separated: every clean reading happened to be taken close in, where
+# the engine draws from the full-size copy of the picture, and every patchwork
+# reading happened to be taken further out, where it draws from a smaller copy.
+# So "many sources" and "drawing from a smaller copy" have always changed
+# together, and nothing yet says which of the two the fault belongs to.
 
 # How far apart the positions are put, as a share of one position's width, in the
 # condition where they overlap. Nine tenths means neighbours share a tenth of
