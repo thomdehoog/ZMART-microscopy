@@ -162,7 +162,8 @@ function Eye({ open }) {
  * tuned before anything can be seen.
  */
 function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
-                     attenuation, onAttenuation }) {
+                     attenuation, onAttenuation,
+                     depthSamples, onDepthSamples }) {
   const accumulating = volumeMode === "on";
   return (
     <>
@@ -211,6 +212,24 @@ function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
         style={styles.slider}
       />
       <output style={styles.value}>{accumulating ? gain.toFixed(1) : "n/a"}</output>
+    </label>
+    {/* Doubling steps along the ray, because the engine compares a level's
+        voxel against the cube of one step -- so the useful settings are spread
+        over orders of magnitude, not evenly. The readout is the real number,
+        since that is what the launch flag takes. */}
+    <label style={styles.control}>
+      <span style={styles.controlLabel} title="How many steps a ray takes through the volume. More is sharper and slower">
+        detail
+      </span>
+      <input
+        type="range" min="6" max="16" step="1"
+        value={Math.round(Math.log2(depthSamples))}
+        onChange={(event) => onDepthSamples?.(2 ** Number(event.target.value))}
+        aria-label="volume detail"
+        title="Too few steps and the volume stays on its coarsest copy however far you zoom in; too many and it will not keep up"
+        style={styles.slider}
+      />
+      <output style={styles.value}>{depthSamples}</output>
     </label>
     <label style={styles.control}>
       <span style={styles.controlLabel} title="Fade the far side of the specimen, so front reads in front of back">
@@ -444,6 +463,8 @@ export default function LayerPanel({
   onVolumeGain,
   volumeAttenuation = 0,
   onVolumeAttenuation,
+  depthSamples = 256,
+  onDepthSamples,
   selected = 0,
   onSelect,
   canOpen = true,
@@ -553,6 +574,8 @@ export default function LayerPanel({
             onGain={onVolumeGain}
             attenuation={volumeAttenuation}
             onAttenuation={onVolumeAttenuation}
+            depthSamples={depthSamples}
+            onDepthSamples={onDepthSamples}
           />
         </div>
       )}

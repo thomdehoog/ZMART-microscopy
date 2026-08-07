@@ -62,6 +62,32 @@ def test_choosing_a_projection_reaches_the_engine(viewer_page):
         assert modes and set(modes) == {expected}, (chosen, modes)
 
 
+def test_the_detail_budget_can_be_changed_without_restarting(viewer_page):
+    """How many steps a ray takes, which decides how sharp the volume may be.
+
+    It was a launch flag, and finding the right value therefore meant restarting
+    the viewer once per guess. The right value is not knowable in advance: on a
+    75 GB skin volume, 256 left the picture on its coarsest copy however far you
+    zoomed in, 2048 refined properly once zoomed in, and 32768 refined from the
+    opening view and was too slow to drive. All three had to be tried by hand.
+
+    The steps double, because the engine compares a level's voxel against the
+    cube of one ray step, so the useful settings are spread over orders of
+    magnitude rather than evenly.
+    """
+    viewer_page.click("text=3D")
+    viewer_page.wait_for_timeout(4000)
+    slider = viewer_page.locator("[aria-label='volume detail']")
+    reaches = """() => window.zmartViewer.layerManager.managedLayers
+        .filter((m) => m.layer && m.layer.volumeRenderingDepthSamplesTarget)
+        .map((m) => m.layer.volumeRenderingDepthSamplesTarget.value)"""
+    for step, expected in ((8, 256), (11, 2048), (6, 64)):
+        slider.fill(str(step))
+        viewer_page.wait_for_timeout(2000)
+        reached = viewer_page.evaluate(reaches)
+        assert reached and set(reached) == {expected}, (step, reached)
+
+
 def test_the_chooser_is_only_offered_where_it_means_something(viewer_page):
     """A flat slice has no ray to project along, so the control is not shown."""
     assert viewer_page.locator("[aria-label='volume projection']").count() == 0
