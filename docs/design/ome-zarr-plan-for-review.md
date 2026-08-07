@@ -69,9 +69,15 @@ The view is flat; the alternative grows without limit. At fifty positions they a
 equal — so a small run does not need it. It earns its place somewhere between two
 hundred and six hundred.
 
-The view costs **6 files and 20 KB** with 2048-voxel tiles, because it points at
-the positions' own pyramid levels and only computes the few coarsest ones that no
-single tile can supply.
+On the run this was measured on, the view cost **6 files and 20 KB** with
+2048-voxel tiles, because it points at the positions' own pyramid levels and only
+computes the few coarsest ones that no single tile can supply. That figure does
+not hold at every size, and it would be misleading to present it as though it
+did: the pointer map carries one line per position saying where that position's
+chunks live, so it grows as the run grows. At **ten thousand positions the map
+comes to roughly 1.2 MB** once the whitespace is stripped out. That is still a
+very small file to keep beside a multi-terabyte run, so this is a correction for
+honesty rather than a difficulty with the design.
 
 *(All drawing numbers came from a software renderer with no graphics card. The
 shapes carry; the absolute values do not.)*
@@ -102,6 +108,23 @@ wrote to. Writer and reader agreed perfectly.
 
 **The fix is already written** on a branch: put the translation beside each
 resolution, after the scale, and remove the image-wide one.
+
+### Two more faults, found while this plan was being reviewed
+
+**Multi-channel runs lose every channel but the first from the pyramid levels
+that are written.** In `zmart_storage/canvas.py`, the routine that builds the
+smaller copies writes only the first channel. So on any run with more than one
+colour, every channel after the first is correct at full resolution and blank at
+every zoomed-out level — which is a confusing way to meet a bug in the middle of
+an experiment.
+
+**Build item B1 and the view's reader must be fixed in the same change.** B1
+writes each position's place on the stage onto every pyramid level, which is
+where the format requires it. But the view's reader,
+`_where_the_view_begins` in `zmart_storage/linked.py:695-713`, currently adds up
+*both* of the places a translation can be written: the image-wide one and the
+per-level one. If B1 lands on its own, every position's place is counted twice
+and the whole canvas comes apart. They are one change, not two.
 
 ---
 
@@ -158,6 +181,26 @@ that must survive is the one section 2 measures: **one source over N tiles**, an
 **live update while a run is still being acquired**. If nothing in the ecosystem
 does that, keeping our own is justified; if something does, ours should go.
 
+**One candidate has now been measured, and the result is encouraging without
+being conclusive.** Google's `tensorstore` library has an `overlay` driver, which
+composes many separate stores into one virtual array — which is precisely what
+the view does by hand. Reading through an overlay of **ten thousand layers**
+served over local HTTP took a **median of 0.586 ms** per read. That is fast
+enough to be worth taking seriously.
+
+The caveat deserves equal weight. That measurement was taken on a warm cache, on
+this machine's filesystem, with a single reader asking for one thing at a time.
+The microscope computers this has to run on are **Windows machines with NTFS
+filesystems**, where the cache is often cold and several readers are working at
+once. Until it has been measured there, the number does not settle anything.
+
+So the acceptance gate is written down now, before the benchmark is run, so that
+whoever runs it knows what counts as a pass: a **median read under 5 ms**, a
+**95th-percentile read under 10 ms**, and **rebuilding the overlay in under
+100 ms** when a new position is added. That last one matters because during a
+smart-microscopy run positions keep arriving, and the viewer must not stall every
+time one does.
+
 A reviewer should apply this to everything below, not only to ngio. If some part
 of this arrangement duplicates what `ngio`, `ngff-zarr`, plain `zarr`, the
 `neuroglancer` Python package or anything else already does correctly, that is
@@ -196,8 +239,8 @@ section 4 claims until they are done.**
 
 | | change | note |
 | --- | --- | --- |
-| **B1** | Per-dataset translation on positions | repair; already written on a branch |
-| **B2** | Bundle every level, not only the full-resolution one | repair; 2 TB is 20.6 M files today, 318 k done right |
+| **B1** | Per-dataset translation on positions | repair; already written on a branch, but it must land together with the view's reader — see section 3 |
+| **B2** | Bundle every level, not only the full-resolution one | repair; 2 TB is about 20.6 M files today and about 1.19 M with every level bundled |
 | **B3** | The viewer's server reads a bundle index | repair; a bundled chunk is a byte range, not a file |
 | B4 | Two interop tests — schema validation, and opening with ngio | how B1 would have been caught the day it appeared |
 | B5 | `plan_a_grid` — frame + intent → chunk, overlap, step | the workflow takes `piece=128` today and hopes |
@@ -207,6 +250,18 @@ section 4 claims until they are done.**
 | B9 | A view for segmentations | else a labelled run meets the cliff the view avoids |
 | B10 | A run-level table | else a question about a run means opening 10,000 tables |
 | B11 | 0.5 as the default in every writer | one writer already does; two do not |
+
+**How B2's file counts actually work, because they are easy to get wrong.**
+Bundling does not merge one pyramid level into another. Every level of every
+position still needs its own bundle file for each plane, so bundling the whole
+pyramid *multiplies* the level-0 bundle count by the number of levels rather than
+leaving it where it was. On a two-terabyte run with five levels that means
+**238,419 files** for the full-resolution level alone once it is bundled,
+**20.3 million** for the unbundled pyramid sitting above it — about 20.6 million
+all told — and **about 1.19 million** once every level is bundled. That is a
+seventeen-fold reduction and clearly worth doing. It is not the sixty-five-fold
+collapse an earlier version of this document claimed, and nobody should plan
+against that.
 
 ### The proposal on top: let ngio write the positions
 
@@ -285,7 +340,10 @@ Then the specific places we are least confident, in rough order.
    is bit-for-bit averaging the whole canvas, so the stated reason for striding
    ("averaging would mix voxels across the join between two positions") appears not
    to hold. Is that reasoning right? Would you take an eighth-sized averaged
-   ladder — 90 GB instead of 1.7 TB on five terabytes?
+   ladder — about **78–79 GB in theory** instead of 1.7 TB on five terabytes?
+   That smaller number is arithmetic, not a measurement taken on a real run, so
+   it should be read as an estimate and not used as the basis for a disk budget
+   until somebody has written such a run and looked.
 
 4. **Adopting ngio on the acquisition machine.** Sixty-one packages, on a Windows
    microscope PC, in the path of a live experiment. Is the standards-compliance
@@ -318,10 +376,13 @@ ngio-written position; view against N sources at 50/200/600 positions; file coun
 at 2 and 5 TB; the copying writer at 1.98×; ladder cost and cell survival at 2×,
 4× and 8×; averaging within a tile equalling averaging the canvas; bundle write
 speed; a view served from memory; every frame width from 512 to 5000 having a
-workable chunk.
+workable chunk; a TensorStore overlay of ten thousand layers read over local
+HTTP at a median of 0.586 ms.
 
 **Assumed, not measured:** that a real graphics card does not change the shape of
 the drawing results; that HTTP/2 would help as much as the round-trip arithmetic
 suggests; that a synthesised view scales to ten thousand positions; that
 buffer-then-write recovers the 4×; that ngio's dependencies install cleanly on the
-microscope PC.
+microscope PC; that the TensorStore overlay timing survives a Windows NTFS
+machine with a cold cache and several readers at once, which is the condition its
+acceptance gate above is written for.
