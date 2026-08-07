@@ -141,9 +141,12 @@ Worth recording, because each cost a stretch of worrying:
    all.
 3. **Bundling every level, not only the full-resolution one.** The writer bundles
    level 0 and leaves the pyramid loose, on the grounds that the smaller copies
-   are "few enough not to need it". On a two-terabyte run that is wrong by a
-   factor of sixty-five: 20.6 million files against 318,000 if every level is
-   bundled. Once level 0 is bundled the pyramid dominates the count entirely.
+   are "few enough not to need it". On a two-terabyte run that leaves 20.6 million
+   files against about 1.19 million if every level is bundled — a seventeen-fold
+   reduction, and well worth having. Bundling does not merge the levels into one
+   another: each level still needs a bundle of its own for every plane, so the
+   figure is level 0's 238,419 files multiplied by the five levels. Once level 0
+   is bundled it is the *unbundled* pyramid that dominates the count entirely.
 
 Everything else on this page can wait. These two cannot.
 

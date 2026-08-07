@@ -20,7 +20,7 @@ There is no circularity to reason about:
 | | its job | what constrains it |
 | --- | --- | --- |
 | **frame** | given | the camera, or the acquisition settings. Nobody negotiates with it. |
-| **shard** | absorbs the file-count problem | one tile plane — about 596,000 files on a five-terabyte run instead of 153 million |
+| **shard** | absorbs the file-count problem | one tile plane — about 596,000 files for the *full-resolution level* of a five-terabyte run, against 153 million unbundled. The smaller copies above it need bundles of their own, which brings the whole run to about 2.98 million files. |
 | **chunk** | chosen for how the viewer behaves | must divide the frame; 128–288 is the sensible band |
 | **overlap** | **the slack** | whatever the chunk allows, inside the range that stitches |
 
@@ -38,17 +38,21 @@ count becomes the shard's business entirely, leaving the chunk free to be picked
 for viewing alone. One of the three tensions disappears.
 
 > **But only if every level is bundled, and today only level 0 is.** The writer's
-> comment says the smaller copies are "few enough not to need it", which is wrong
-> by a factor of sixty-five on a two-terabyte run: level 0 bundled comes to
-> 238,000 files while the unbundled pyramid above it comes to **20.3 million**.
-> Once the full-resolution level is bundled, the pyramid *dominates* the count.
+> comment says the smaller copies are "few enough not to need it", and counting
+> them says otherwise. On a two-terabyte run, level 0 bundled comes to **238,419
+> files** while the unbundled pyramid above it comes to **20.3 million** — about
+> 20.6 million all told. Once the full-resolution level is bundled, it is the
+> *unbundled pyramid* that dominates the count, so bundling every level is the
+> change that matters.
 >
-> Bundling every level brings the same run to **318,000 files** — the file count
-> of a 2048-voxel chunk with the 32 KB fetches of a 128-voxel one. Until that is
-> fixed, a large run really does need a bigger chunk, and the trade this section
-> says has disappeared has not disappeared. It is a small change to
-> `_make_the_copies`: bundle every level, capping the bundle at the level's own
-> extent for the small ones.
+> It is worth being precise about what that buys, because bundling does not merge
+> the levels into one another. Each level of each position still needs a bundle of
+> its own for every plane, so bundling all five levels gives 238,419 × 5 = **about
+> 1.19 million files**. That takes the run from roughly 20.6 million files to
+> roughly 1.19 million, a seventeen-fold reduction — clearly worth doing, but not
+> the collapse to a handful of files it might sound like, and a very large run may
+> still prefer a bigger chunk. It is a small change to `_make_the_copies`: bundle
+> every level, capping the bundle at the level's own extent for the small ones.
 
 The chunk's band has honest reasons at both ends, and neither is about files any
 more: too small and you pay the browser's per-piece bookkeeping many times over;
@@ -72,7 +76,7 @@ and 3456 are better still, which is what to ask for when the format is settable.
 | 4 | **Where analysis results go** | **inside the tile** — `labels`, `tables` | where ngio, napari and Fiji look; our viewer already finds them |
 | 5 | **Where our own bookkeeping goes** | **beside the images**, never inside | a stray file inside makes zarr warn whoever opens it |
 | 6 | **Plate layout for screening runs** | **no, on any instrument** | well and field become columns of the run table; one arrangement everywhere |
-| 7 | **What ngio is for** | **reading, validating and analysing — not writing.** See [`ome-zarr-plan-review.md`](ome-zarr-plan-review.md) | It cannot resize, cannot write the view, and *does* cap shards per level — the behaviour that breaks `linking.py`. Measured separately, it writes a position in 2,230–2,825 ms against 485–500 ms by hand. Validate against its schemas in CI instead: the fault was a writer bug that shipped because nothing checked. |
+| 7 | **What ngio is for** | **reading, validating and analysing — not writing.** See [`ome-zarr-plan-review.md`](ome-zarr-plan-review.md) | Two reasons, and only two. It cannot resize an array, so a run would have to declare its whole extent generously up front and fill it in afterwards; and it cannot write the view, which is not something any standards-compliant library would produce. **Speed is no longer one of the reasons.** The first comparison — 2,230–2,825 ms a position against 485–500 ms by hand — was unfair, because the two paths were not doing the same amount of work. Measured like for like it is **0.91–1.14×**, which is the same speed or a little quicker; with its settings matched to ours, **2.1–2.3×** slower; left on its own defaults, **7–9×**. Those defaults are a matter of configuring the library properly, not a penalty built into it. Validate against its schemas in CI either way: the fault was a writer bug that shipped because nothing checked. |
 | 8 | **Whether the overlap is trimmed from the pixels** | **no** — it is accounted for in the viewer and in the analysis | the overlap is the only evidence of where the stage really went |
 
 ---
@@ -108,8 +112,8 @@ impossible on a 1024 frame and the run would be refused or silently written twic
 | 15 | **Adopt chunk-aligned seams?** | Puts the join between two tiles exactly on a chunk edge, so the viewer can *skip* the shared strip instead of the writer *cutting* it. Removes the second copy from every overlapping run — 1.98× down to about 1.3×. **Deletes nothing:** the tiles stay whole. Costs a slightly stricter overlap grid. **Recommended.** |
 | 16 | **HTTP/2 for the viewer?** | Takes a screen fill from ~440 ms of round trips to ~26 ms, but browsers speak it only over TLS, so a certificate on every microscope PC. **Take the bigger chunk first — it is free — then measure.** |
 | 17 | **When to adopt scenes (0.6, RFC-5)?** | They describe our workflow exactly and would make the view stop being ours. But Neuroglancer has no notion of a scene and ngio cannot read 0.6 at all. **Wait for `ngio.NgffVersions` to gain `"0.6"`.** |
-| 18 | **Widen the pyramid ladder, and average instead of stride?** | Measured: a 4× ladder costs 7.6% of the run against 36% for 2×, with no cells lost. An 8× ladder costs 1.8% but *striding* loses 37% of small cells — while *averaging* keeps 98%. And averaging was shown to preserve the pointing exactly (tile-by-tile is bit-for-bit whole-canvas), so the reason for striding does not hold. **An 8× averaged ladder would take the pyramid from 1.7 TB to 90 GB on a five-terabyte run.** Costs: averaging is arithmetic rather than a memory copy, and a coarse voxel stops being a real measurement. |
-| 19 | **One file per position per level?** | Bundling taken to its end: ~50,000 files for a 10,000-position run instead of ~600,000, with small chunks still inside. But writing a plane at a time into a whole-tile shard measured **four times slower**, so it needs buffering — which costs memory and delays live viewing. **Explore; keep one tile plane per bundle meanwhile.** |
+| 18 | **Widen the pyramid ladder, and average instead of stride?** | Measured: a 4× ladder costs 7.6% of the run against 36% for 2×, with no cells lost. An 8× ladder costs 1.8% but *striding* loses 37% of small cells — while *averaging* keeps 98%. And averaging was shown to preserve the pointing exactly (tile-by-tile is bit-for-bit whole-canvas), so the reason for striding does not hold. **In theory an 8× averaged ladder would take the pyramid from 1.7 TB to about 78–79 GB on a five-terabyte run** — that figure comes from the arithmetic, not from a real run, so do not plan disk against it until it has been measured. Costs: averaging is arithmetic rather than a memory copy, and a coarse voxel stops being a real measurement. |
+| 19 | **One file per position per level?** | Bundling taken to its end, with small chunks still inside. Take a 10,000-position run of 100-plane stacks with five levels: one bundle per whole position gives 10,000 × 5 = **~50,000** pixel bundles for one time point and one channel, and roughly **110,000 files** once you add the `zarr.json` for each position and each of its levels — about 60,000 more — plus the region tables. Compare that with 10,000 × 100 × 5 = **5,000,000** files for one bundle per tile plane per level. But writing a plane at a time into a whole-position bundle measured **four times slower**, so it needs buffering, which costs memory and delays live viewing. There is a middle ground worth measuring first: **a bundle holding eight to sixteen planes** cuts the file count by roughly a factor of ten while keeping the write buffer small enough that live viewing is not held up. **Measure the middle before committing to either extreme; keep one tile plane per bundle meanwhile.** |
 | 20 | **Fix the no-copy path for a drifting stage?** | It currently refuses runs whose tiles miss an exact grid, so an ordinary run falls back to copying. |
 
 ---
@@ -148,27 +152,67 @@ reference is never ambiguous.
 
 > **Revised 7 August 2026 after review.** See
 > [`ome-zarr-plan-review.md`](ome-zarr-plan-review.md). **B3 is deleted — it is
-> already built and tested.** B2's stated implementation was dangerous and is
-> corrected. B9 is deferred, B11 is mostly absorbed by B7, and two items are added
+> already built and tested.** That review also called B2's stated implementation
+> dangerous; a later reviewer checked the claim two ways and then measured it, and
+> it does not hold, so B2 stands as it was first written.
+> B9 is deferred, B11 is mostly absorbed by B7, and two items are added
 > that were missing. The review also reverses the proposal to write positions
 > through ngio: adopt it for reading, validating and analysis only. Three of these are repairs — the arrangement does
 not do what this page says it does until they are done. The rest are improvements.
 
 | | change | why |
 | ---: | --- | --- |
-| **B1** | **Per-dataset translation** on positions | **repair.** Invalid against the official schema, so ngio refuses our tiles and `ngff-zarr` stacks them at the origin. Written on `claude/ngff-translation-per-dataset`. |
-| **B2** | **Bundle every level**, not only the full-resolution one — **and do not cap the small ones** | **repair.** 2 TB leaves 20.6 million files instead of 318,000. But capping a bundle at a small level's own extent breaks the `// shrink` arithmetic in `linking.py` and yields *silently wrong bytes*. Cap nothing, or stop `pointed_levels` before the capped levels and assert it. |
+| **B1** | **Per-dataset translation** on positions — **together with the matching change to the reader** | **repair.** Invalid against the official schema, so ngio refuses our tiles and `ngff-zarr` stacks them at the origin. Written on `claude/ngff-translation-per-dataset`. **The two halves must ship in one change.** `_where_the_view_begins` (`zmart_storage/linked.py:695-713`) currently adds up *both* places the translation can be written, the image-wide one and the per-level one, so the moment B1 lands on its own every position's position is counted twice and the whole canvas comes apart. |
+| **B2** | **Bundle every level**, not only the full-resolution one, capping the bundle at the level's own extent so a small level does not declare a bundle larger than the data it holds | **repair.** 2 TB leaves 20.6 million files instead of about 1.19 million. An earlier review believed a capped bundle and an uncapped one would resolve differently and quietly hand back the wrong bytes; that was refuted twice over and then measured — the two resolve byte for byte identically — so the cap is safe. **Read the note below on B2 and B7 before starting either.** |
 | ~~B3~~ | ~~The server reads a bundle index~~ | **deleted — already built.** `server.py` parses suffix ranges and serves byte windows; the pointer map is denominated in *shards*, so a whole shard file is handed over and the browser reads its index itself. Tested end to end. |
 | **B3** | **Stop re-reading every tile the view has just written** | **repair, and new.** `_fill_this_tile_in` reopens and decompresses the array `positions.Run.write` was holding a moment earlier — five terabytes of pointless read in the live path. Pass the array through instead, and shrink from the coarsest level that already exists. |
 | B4 | **Two interop tests** — schema validation and an ngio open | how change B1 would have been caught the day it appeared |
 | B5 | **`plan_a_grid`** — frame + overlap intent → chunk, overlap, step | the workflow currently takes `piece=128` and hopes it suits the camera |
 | B6 | **`tables/owned_ROI_table`** in every tile | makes the viewer's seam and the analysis filter one decision instead of two |
-| B7 | **Chunk-aligned seams** | removes the second copy from every overlapping run |
+| B7 | **Chunk-aligned seams** | removes the second copy from every overlapping run. **Read the note below on B2 and B7 before starting either.** |
 | B8 | **Unique label numbers across a run** | else cell 7 in two neighbouring tiles becomes one object |
 | ~~B9~~ | ~~A view for segmentations~~ | **deferred.** A second copy of the whole view mechanism, for labelled runs that do not exist yet. Build it when one actually meets the cliff. |
 | B9 | **Delete `zmart-coverage`** | ~1,700 lines written only by the writer B7 retires and read only by a benchmark. The pointer map already holds each tile's origin and size; the per-channel residue is one column of B10. |
 | B10 | **A run-level table** | else a question about the run means opening ten thousand tables |
-| B11 | ~~0.5 as the default in every writer~~ | **mostly absorbed** — retiring `cropped.py` (B7) deletes one of the two writers this exists to fix. What remains is a default argument, not a work item. |
+| B11 | ~~0.5 as the default in every writer~~ | **mostly absorbed** — what remains is a default argument rather than a work item. One correction to earlier notes: **`cropped.py` should not be deleted along the way.** With one bundle per tile plane, reading a small rectangle out of a position still drags the whole plane's bundle off disk, so a path that reads a sub-rectangle efficiently still earns its place. |
+
+---
+
+## B2 and B7 cancel each other out — read this before starting either
+
+As the two are written today they cannot both be done, and whoever picks up one
+of them needs to know that before any code is written.
+
+B7 works by having the *view* point a position at a place on the canvas that
+falls exactly on a chunk boundary, so the overlapping strip can be skipped rather
+than cut. The rule that decides where a position is allowed to sit lives in
+`zmart_storage/linked.py:1435-1439`: it takes the store's chunk shape
+(`stored.chunk`) and multiplies it by `2 ** (pointing_at - 1)`, the factor by
+which the coarsest smaller copy is shrunk, because a placement has to land on a
+chunk edge at *every* level and not only at full resolution.
+
+Here is the trap. For a bundled store, zarr reports `stored.chunk` as the shape of
+the **bundle**, not the small chunk inside it. So as soon as B2 bundles every
+level with one bundle per whole tile plane, the view believes a position may only
+be placed on multiples of a whole tile, scaled up again by the pyramid factor. On
+a whole-tile grid no overlap can be expressed at all, which is precisely what B7
+needs. B2 as written takes B7 away.
+
+There are two ways out:
+
+- **Bundle something smaller than a whole tile plane.** If a bundle holds a
+  handful of chunks instead of the whole plane, the placement grid becomes the
+  bundle rather than the tile, and overlap can be expressed again in
+  bundle-sized steps. This gives back part of B2's saving in file count.
+- **Teach the view and the server to look inside the bundle.** The small chunk
+  shape is recorded in the bundling codec's own settings (`sharding_indexed`,
+  field `chunk_shape`), so the view can read the real chunk shape instead of the
+  bundle shape and the placement grid returns to the small chunk. This is the
+  better fix, and it is the same piece of work as ~~B3~~ above — the viewer's
+  server handing over a single chunk from inside a bundle by way of the bundle's
+  index. That item was struck out as already built, on the grounds that the
+  server hands the whole bundle file to the browser; for B2 and B7 it has to come
+  back. **Do it first, and treat B2 and B7 as depending on it.**
 
 ---
 
@@ -177,3 +221,10 @@ not do what this page says it does until they are done. The rest are improvement
 Changes **B1 and B2** above: the positions cannot be opened by anybody else's
 software, and a run past a terabyte leaves twenty million files. **B3** is not
 blocking but costs five terabytes of pointless reading on a five-terabyte run.
+
+**And one fault found in passing, which belongs here because it silently spoils
+data.** In `zmart_storage/canvas.py`, the routine that builds the smaller copies
+writes only the first channel. On any run with more than one channel, every
+channel after the first is blank at every zoomed-out level. The run looks right at
+full resolution and goes empty the moment you zoom out, which is an unkind way to
+meet a bug in the middle of an experiment.
