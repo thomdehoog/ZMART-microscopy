@@ -728,6 +728,39 @@ then asks for a stitch.
 bracket the useful range, it is not exactly achievable on either sensor, and three
 choices are far easier to explain to a biologist than four.
 
+##### But the names are rigid and the numbers are derived
+
+Checking the three options against every frame width from 512 to 5000 turned up
+something that would have bitten:
+
+| option | widths that cannot honour it | worst error |
+| --- | ---: | ---: |
+| none | **0** | — |
+| ten per cent | **594** of 4,489 | 18.6% |
+| twenty per cent | 142 of 4,489 | 8.6% |
+
+And the failures are not exotic. **A 1024 frame cannot do ten per cent**: with a
+64-voxel floor on the chunk it is sixteen chunks across, so the finest available
+overlap is two chunks — 128 voxels, or 12.5%. A confocal set to 1024 is entirely
+ordinary.
+
+So the **names** are fixed and the **numbers** are worked out per frame at setup:
+
+| frame | none | modest | generous |
+| --- | --- | --- | --- |
+| 2048 | 0% | 10.0% | 20.0% |
+| 2304 | 0% | 10.0% | 20.0% |
+| 4096 | 0% | 10.0% | 20.0% |
+| **1024** | 0% | **12.5%** | 20.0% |
+
+The operator chooses an intent — none, modest, generous — sees the number it
+resolved to, and the writer guarantees the run will be pointed at rather than
+copied. It is the same pattern as everything else here: rigid where a person
+chooses, derived where arithmetic can do better than a person.
+
+A literal "10%" written into the workflow would have failed silently on a 1024
+scan — refused, or written twice, and discovered at the end of five terabytes.
+
  Ten earns the default — it is
 exactly achievable on every real sensor and it is the number microscopists expect —
 but it has to stay adjustable, because a light-sheet often wants fifteen or twenty
