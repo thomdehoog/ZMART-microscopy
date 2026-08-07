@@ -131,6 +131,25 @@ place by doing something no available package does — writing the view, appendi
 the pointer map, recording coverage, watching a run fill in — rather than merely
 being there first.
 
+**With one exception, and it must be measured rather than assumed.** If the
+ecosystem's answer is too slow for the loop it sits in, that is a clear and
+sufficient reason to keep our own — and we already have one on record.
+`multiview-stitcher` can present a set of tiles to a browser as one image without
+writing anything, which is conceptually exactly right, and it takes **647
+milliseconds a chunk against 4.6 to read the same piece from disk**. A hundred and
+forty times too slow to look through a specimen.
+
+So the rule has two clauses, and the second is a test, not an excuse:
+
+> Use the ecosystem's package **unless it is measurably too slow for the loop it
+> sits in.** Measure before deciding, and write the number down beside the
+> decision.
+
+Which makes one thing a task rather than an opinion: **nobody has timed ngio's
+write path against ours.** Before adopting it for the positions, write the same
+run both ways and compare — a position that takes noticeably longer to write is a
+position the microscope is waiting on.
+
 **And it applies to the viewer as much as to the writer.** `viz_studio` is a
 hand-written standard-library HTTP server and a hand-built Neuroglancer front end.
 If something the community maintains would do the same job, that is preferable —
