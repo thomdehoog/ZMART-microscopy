@@ -134,21 +134,25 @@ Worth recording, because each cost a stretch of worrying:
    run lands on top of every other. For light-sheet, where a stitcher is the only
    way to read the data at all, that is the difference between usable and not.
    The correction is already written on `claude/ngff-translation-per-dataset`.
-2. **Reading a bundle index in the viewer's server.** Bundling is what makes a
-   five-terabyte run copyable. But a bundled chunk is a byte range inside a file
-   rather than a file, so the server must learn to read the index and seek. Until
-   it does, bundling stays off and large light-sheet runs cannot be handled at
-   all.
-3. **Bundling every level, not only the full-resolution one.** The writer bundles
-   level 0 and leaves the pyramid loose, on the grounds that the smaller copies
-   are "few enough not to need it". On a two-terabyte run that leaves 20.6 million
-   files against about 1.19 million if every level is bundled — a seventeen-fold
+2. **Serving one chunk from inside a bundle.** Bundling is what makes a
+   five-terabyte run copyable. The server already hands over a whole bundle file
+   and lets the browser read the bundle's own index, and there is a test that
+   builds bundled tiles, serves them and reconstructs the specimen bit-for-bit —
+   so bundling works today. What it cannot yet do is hand over a *single* chunk
+   from inside a bundle, and that is what items 3 and the chunk-aligned seam both
+   need, because until the server can do it the viewer has to treat a whole tile
+   plane as the smallest thing it can place.
+3. **Bundling every level, not only the full-resolution one.** Once level 0 is
+   bundled, nearly every file left in a run belongs to the loose pyramid above it,
+   so that is where the file count now lives. The writer bundles level 0 and
+   leaves the pyramid loose, on the grounds that the smaller copies are "few
+   enough not to need it". On a two-terabyte run that leaves 20.50 million files
+   against about 1.19 million if every level is bundled — a seventeen-fold
    reduction, and well worth having. Bundling does not merge the levels into one
    another: each level still needs a bundle of its own for every plane, so the
-   figure is level 0's 238,419 files multiplied by the five levels. Once level 0
-   is bundled it is the *unbundled* pyramid that dominates the count entirely.
+   figure is level 0's 238,419 files multiplied by the five levels.
 
-Everything else on this page can wait. These two cannot.
+Everything else on this page can wait. These three cannot.
 
 ---
 
