@@ -137,6 +137,36 @@ def test_shift_wheel_steps_through_z_and_the_slider_follows(viewer_page):
     assert slider_after == pytest.approx(after["zPosition"])
 
 
+def test_the_wheel_zooms_the_volume_too(viewer_page):
+    """The panel that was left out, and what it cost to leave it out.
+
+    The wheel was rebound to zoom on the flat panel only, so the volume view kept
+    the engine's defaults -- wheel steps z, zoom behind Control. On a run one
+    plane deep that leaves the wheel doing nothing whatever in three dimensions,
+    and an operator who has just been taught that the wheel zooms concludes the
+    volume renderer is stuck at its coarsest level. It is not; it refines the
+    whole pyramid. Diagnosing that cost an afternoon and two reviews, all of it
+    downstream of one panel missing from one loop.
+
+    The volume view keeps its zoom in `perspectiveNavigationState`, a different
+    trackable from the flat view's -- which is the same distinction that made the
+    original measurement meaningless, so it is the one asserted here.
+    """
+    viewer_page.click("text=3D")
+    viewer_page.wait_for_timeout(2000)
+    zoom_of = "() => window.zmartViewer.perspectiveNavigationState.zoomFactor.value"
+    before = float(viewer_page.evaluate(zoom_of))
+    point = centre(viewer_page)
+    viewer_page.mouse.move(point["x"], point["y"])
+    viewer_page.mouse.wheel(0, -300)
+    viewer_page.wait_for_timeout(600)
+    after = float(viewer_page.evaluate(zoom_of))
+    assert after != before, (
+        "a plain wheel must zoom the volume as it zooms the plane; the "
+        "projection zoom did not move"
+    )
+
+
 def test_dragging_rotates_once_in_three_d(viewer_page):
     viewer_page.click("text=3D")
     viewer_page.wait_for_timeout(2000)
