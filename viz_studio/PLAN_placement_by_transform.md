@@ -10,9 +10,16 @@ with no pixel altered. The pointer map cannot express that offset at all.
 
 ## What is already true, and needs no work
 
-- OME-Zarr `scale` and `translation` are read per store; `identity` too. Anything
-  else throws (`datasource/zarr/ome.js:155`), so **no rotation or shear** from
-  metadata.
+- OME-Zarr `scale` and `translation` are read per store; `identity` too. The parser
+  table is at `datasource/zarr/ome.js:155` and anything else throws at `:169`, so
+  **no rotation or shear** from metadata.
+- **A position records its stage position in the multiscale-level
+  `coordinateTransformations`, and a correction written into the dataset transforms
+  composes with it.** An earlier version of this document said the *engine* places
+  sources a tile-width apart by index and that a translation adds on top of that.
+  That was wrong: the placement was in the data all along, which is why offsets
+  looked additive. Deleting or replacing that block strips every tile of where it
+  belongs — see `PLAN_many_sources_with_transforms.md`.
 - Translation is any finite float — fractional and negative both fine. Scale must
   be finite and **positive**, so no flips.
 - One layer already holds many sources: `dataSources` is an array
@@ -65,9 +72,24 @@ positions   picture          sources         held
 ```
 
 **The picture is flat and the sources are linear**: about `8.5 ms + 0.28 ms × N`,
-fitted at 0.278 from 10→400 and 0.266 from 100→400. Twelve times the picture at
-four hundred positions, against a rule that allowed twenty per cent. The gate says
-no: **placement by transform cannot be the default mechanism.**
+fitted at 0.278 from 10→400 and 0.266 from 100→400. The gate says no: **placement
+by transform cannot be the default mechanism.**
+
+The decision is made on the *shape* — flat against linear — and not on the "within
+twenty per cent" rule this document set out with. That rule is retired: it is a
+threshold in milliseconds, and these milliseconds are software-drawn ones the same
+document says overstate the cost about fiftyfold. A threshold cannot be applied to
+numbers already declared untransportable. The shape argument needs no threshold and
+is sufficient on its own.
+
+Two cautions on the table above, both found by review after it was published.
+`lit` agreed between the arrangements at every rung except 10, and that is why they
+are quoted as comparable — but `lit` covers only the **centre half** of the canvas
+and is blind to which pyramid level drew, so it is a weaker warrant than it looks.
+And **the camera was not pinned**: the view is centred once from whichever source
+resolves first, so two rows of a rung need not have been looking at quite the same
+thing. The curve is very unlikely to change shape, but these rows should be
+re-measured with `position` and `zoomFactor` set explicitly.
 
 Two costs that hold whatever is drawn, and match on both machines:
 
