@@ -1,8 +1,10 @@
 # ZMART's OME-Zarr: what to think about, and what never to think about again
 
-Written 7 August 2026, at the end of a session that settled most of this. It is
-the front door. Two longer documents sit behind it and are worth opening only when
-a decision here needs its reasoning:
+Written 7 August 2026, at the end of a session that settled most of this.
+
+**Looking for just the decisions?** [`ome-zarr-decisions.md`](ome-zarr-decisions.md)
+is one page listing every choice that is genuinely yours, and nothing else. This
+page is the next level down: the same ground with the reasoning attached.
 
 | | |
 | --- | --- |
