@@ -34,6 +34,74 @@ an hour:
 If that is wrong, the next suspect is that the perspective panel registers its
 action listeners at construction, before the layout is switched to `3d`.
 
+## A retraction, added 6 August 2026: the volume view refines perfectly well
+
+Recorded here beside the rotation fault because the two look identical from the
+operator's chair — a volume that will not respond — and one of them is not a fault
+at all. This one is about `viz_studio`'s own viewer rather than the
+`options/neuroglancer-under` one above, but the trap is the same in both and it
+cost an afternoon and two reviews.
+
+**What was claimed.** That the volume cannot choose a finer level of the pyramid,
+because neuroglancer picks its level from the spacing along the viewing direction
+and our pyramid never changes z. The proposed fix was to halve z when writing —
+that is, to change how every run is written.
+
+**All three parts of it were wrong.**
+
+1. The selection is on **voxel volume, not z spacing**.
+   `forEachVisibleVolumeRenderingChunk` in `volume_rendering/base.js` (lines 44-75
+   of the installed 2.41.2) takes each level's `|chunkLayout.detTransform ×
+   viewDet|` and keeps the coarsest one whose value still clears
+   `(depthRange / depthSamples)³`. A determinant is direction-blind. Halving y and
+   x alone still quarters that quantity from one level to the next — 4096× across
+   a six-level ladder — so there was always plenty to choose between.
+2. **The sweep varied the wrong zoom.** `crossSectionScale` and `projectionScale`
+   are separate trackables. It set `navigationState.zoomFactor`, which is the flat
+   view's and which the volume view does not read. Nothing moved, and "nothing
+   changed" was duly reported. `frontend/src/ScaleBar.jsx:90` documents this exact
+   trap in this repository.
+3. **The readout was the wrong quantity too.** The volume renderer reports
+   `cbrt(bestViewVolume × …)`; what was quoted was `medianOf3(effectiveVoxelSize)`,
+   which is the *slice* view's figure.
+
+**Re-measured against `perspectiveNavigationState.zoomFactor`, the volume walks
+the whole pyramid:**
+
+```
+projection zoom   4096   1024    256     64     16      4      1
+volume layer      20.8   20.8   20.8    2.6   0.33   0.33   0.33  um
+                  (L6)                  (L3)  (L0, full resolution)
+```
+
+Confirmed again afterwards on the demo volume in `viz_studio`, from a different
+quantity so as not to repeat the same reading twice. Sweeping
+`perspectiveNavigationState.zoomFactor` and reading the volume render layer's own
+`highestResolutionLoadedVoxelSize`:
+
+```
+projection zoom   0.03 … 10    30      100     512 (where it opens)
+volume layer      0.35 µm    0.70 µm  1.40 µm  1.40 µm
+                  (L0)       (L1)     (L2)     (L2, the coarsest the demo has)
+```
+
+Note where the last column sits. The view **opens** at a projection zoom of 512,
+which on this data is already the coarsest level there is — so an operator whose
+wheel does nothing in 3-D never sees anything else, and the picture they are shown
+is exactly what a renderer stuck on the coarsest level would look like.
+
+**What was actually broken was one line of binding.** The wheel had been rebound
+to zoom on `bindings.sliceView` only, so the perspective panel kept the engine's
+defaults — plain wheel steps z, zoom behind Control. On a run one plane deep the
+wheel therefore did nothing at all in 3-D, and the operator was stuck at the
+opening projection zoom, which is in the 20.8 µm regime. Both panels now get the
+binding; see `CONTROLS.md` §1.
+
+**Nothing is wrong with the writer, and no pyramid change is needed.** The lesson
+to carry into the rotation work above is the check that would have caught all
+three of these in a minute: *vary it, and confirm the input you varied is the one
+the system reads.*
+
 ## How to get to it in one minute
 
 Three commands, three environments — see `TESTING_ON_REAL_HARDWARE.md` for why:
