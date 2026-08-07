@@ -690,17 +690,54 @@ voxels, which is 6.25% of a 2048 frame. The rigid case is a small frame: a
 512-wide confocal scan comes out at 25% whatever is asked, since it is only eight
 chunks across.
 
-**So: default to ten per cent, and do not fix it.** Ten earns the default — it is
+##### Decided: three choices, not a number
+
+The maintainer would rather the workflow allowed a short list than a free number,
+and that is the better design — not merely simpler. Each option on a list can be
+checked against the frame size **at run setup**, so the writer can promise the run
+will be pointed at rather than copied. A free-form percentage cannot be
+pre-validated: somebody types 13% on a 512 frame and finds out at the end of five
+terabytes that it was written twice.
+
+The arithmetic picks the list. **Nought, ten and twenty per cent are hit exactly
+on both real sensors; fifteen is not** — 2048 gives 15.38% and 2304 gives 14.81%.
+
+| choice | when to use it | imaging cost |
+| --- | --- | --- |
+| **none** | a survey you will look at and pick targets from, and never stitch | 1.00 × |
+| **ten per cent** — the default | ordinary mosaics, where the specimen fills the field | 1.23 × |
+| **twenty per cent** | sparse specimens, light-sheet volumes, anything to be stitched properly | 1.56 × |
+
+**Ten is the default** because it is the cheapest overlap that reliably works when
+there is signal across the whole field, and because at 0.35 µm a voxel it is about
+71 µm of shared strip — far more than any decent stage's error.
+
+**Twenty is the escape**, and it answers the failure that actually bites: a sparse
+specimen where a ten per cent strip contains nothing to correlate. That is a
+property of the sample rather than of the stage, so no amount of stage accuracy
+fixes it. It is also Fiji's own default. Light-sheet volumes take it for the same
+reason.
+
+**None deserves its place on the list.** Many overview scans exist to find targets
+rather than to make a publication mosaic, and paying a quarter again in imaging
+for an overlap nobody will stitch is waste. It should be labelled for what it is —
+*for finding things, not for making a picture* — so that nobody chooses it and
+then asks for a stitch.
+
+**Fifteen is left off** deliberately: it sits between two options that already
+bracket the useful range, it is not exactly achievable on either sensor, and three
+choices are far easier to explain to a biologist than four.
+
+ Ten earns the default — it is
 exactly achievable on every real sensor and it is the number microscopists expect —
 but it has to stay adjustable, because a light-sheet often wants fifteen or twenty
 for reliable stitching through a volume, a fast survey that will never be stitched
 should not pay for overlap it will not use, and a 512 format cannot do better than
 twenty-five however politely it is asked.
 
-One default, freely overridden, and the writer reports what it actually managed:
-*"overlap 10.0% (230 of 2300 voxels)"*. The same shape as every other decision
-here — the operator asks in the units they think in, and the writer answers with
-what it could do.
+Whichever is chosen, the writer reports what it actually managed: *"overlap 10.0%
+(230 of 2300 voxels)"*. The same shape as every other decision here — the operator
+chooses in the terms they think in, and the writer answers with what it could do.
 
 **And it is per axis.** Most runs overlap across the specimen and not at all in
 depth, and an axis with no overlap is trimmed by nothing and costs nothing. `z`
