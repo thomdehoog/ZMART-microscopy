@@ -398,8 +398,36 @@ and 51, 33 and 4.7 at N=100, so it is flat per source. **About eleven scheduler 
 per request, four requests a source.** Cutting the four to one would cut the task
 count with it, and the win would be in the scheduling rather than the bytes.
 
-So declaring the positions once is back on the table, for a different reason than it
+So declaring the positions once was back on the table, for a different reason than it
 was first proposed and one that the earlier experiments could not see.
+
+**Measured, it is worth about a fifth — real, but not a step change.** Rather than
+build a document format to find out, the request count was halved directly by
+stripping the coarse levels, so a store carries two descriptions instead of four:
+
+```
+positions   files a store   requests a source   opening
+      100        4                4.9            0.58 s
+      100        2                2.5            0.44 s   -23%
+      400        4                4.2            2.08 s
+      400        2                2.3            1.84 s   -12%
+```
+
+That is roughly **0.3 ms saved per request removed** at four hundred sources. Going
+the whole way to one request a source would take out about 1280 more of them, worth
+some 0.4 s — an opening of about 1.7 s against 2.08, call it a fifth.
+
+So the scheduling story is directionally right and quantitatively modest: the eleven
+scheduler turns a request are real, and they are cheap. Requests account for roughly
+1.3 ms of the 5.2 ms a source, and cutting them to one leaves about 4 ms. **Declaring
+once is a fifth off, for a document format and a driver change.** It does not alter
+the complexity class, and it does not move the scoping conclusion below.
+
+(The stripped-levels build is a proxy and not a suggestion: with no coarse level the
+engine fetches full resolution across a wide area when the operator zooms out, which
+costs far more than the requests it saved. It is legitimate here only because the
+opening is timed to every source resolving its *description*, which happens before
+the chunks matter.)
 
 ### After the fix, there is no second thing to fix
 
