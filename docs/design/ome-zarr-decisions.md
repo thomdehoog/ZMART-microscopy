@@ -10,6 +10,43 @@ in [`zmart-ome-zarr-recipe.md`](zmart-ome-zarr-recipe.md), and the measurements 
 
 ---
 
+## The model that makes the rest obvious
+
+Four numbers, each with one job, and the constraint flows in one direction only.
+There is no circularity to reason about:
+
+| | its job | what constrains it |
+| --- | --- | --- |
+| **frame** | given | the camera, or the acquisition settings. Nobody negotiates with it. |
+| **shard** | absorbs the file-count problem | one tile plane — about 596,000 files on a five-terabyte run instead of 153 million |
+| **chunk** | chosen for how the viewer behaves | must divide the frame; 128–288 is the sensible band |
+| **overlap** | **the slack** | whatever the chunk allows, inside the range that stitches |
+
+So the algorithm is three steps:
+
+1. **The frame is given.**
+2. **Take the largest chunk that divides it**, within the band.
+3. **The overlap is whatever that chunk allows** — the operator's intent picks
+   which multiple when there is more than one.
+
+**Sharding is what makes this simple**, and it is worth understanding why. Without
+it, the chunk *is* the file, so chunk size has to serve the filesystem and the
+viewer at once — two masters pulling opposite ways. Bundle the chunks and the file
+count becomes the shard's business entirely, leaving the chunk free to be picked
+for viewing alone. One of the three tensions disappears.
+
+The chunk's band has honest reasons at both ends, and neither is about files any
+more: too small and you pay the browser's per-piece bookkeeping many times over;
+too large and every fetch drags bytes you did not need.
+
+**This is also why 2304 behaves well and 2048 does not.** A good frame size is one
+with *many divisors*. 2304 has 128, 144, 192, 256 and 288 inside the band, so
+there is an overlap near whatever you want. 2048's divisors there are only 128 and
+256, so the overlap jumps from 12.5% straight to 25% with nothing between. 2880
+and 3456 are better still, which is what to ask for when the format is settable.
+
+---
+
 ## Decided once, for the whole project
 
 | # | decision | chosen | why it matters |
