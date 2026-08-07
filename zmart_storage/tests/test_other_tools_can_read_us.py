@@ -19,12 +19,21 @@ is what `multiview-stitcher` and a good deal of the Python imaging ecosystem rea
 OME-Zarr through, and it is strict, taking the position only from the compulsory
 place. If our images survive it, they will survive most readers.
 
-The last test uses `ngio` instead, and only asks whether the image opens at all.
+The last two tests use `ngio` instead, and only ask whether the image opens at all.
 That is a different question and worth asking separately, because a reader can be
 perfectly happy with where an image sits and still refuse the file for some other
 reason — which is precisely what happened with the brightness window on a channel,
 and went unnoticed here for exactly as long as nothing in this file opened an image
 with ngio.
+
+They ask it of both kinds of image this project writes. One is a **position**: an
+ordinary image holding the voxels a camera recorded. The other is a **view**: the
+single picture the operator is handed, which holds no full-size voxels of its own
+and points at the positions instead, so a run of ten thousand places opens as one
+image rather than ten thousand. A view is meant to be an ordinary OME-Zarr image in
+every other respect, and that is a promise worth testing rather than assuming — it
+has already been broken once, by a view whose every resolution ended up saying
+where it sat twice over, which ngio refuses outright.
 
 Neither `ngff-zarr` nor `ngio` is needed to run ZMART, so neither is a required
 dependency and these tests simply skip when they are absent. To run them::
@@ -36,6 +45,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 pytest.importorskip(
@@ -47,6 +57,7 @@ pytest.importorskip(
 import ngff_zarr  # noqa: E402
 
 from zmart_storage.canvas import Channel, TileCanvases  # noqa: E402
+from zmart_storage.positions import start_a_run  # noqa: E402
 
 # Where the run was declared to begin, in microns from the stage's zero, as
 # ``(z, y, x)``. Deliberately none of them zero and none of them round: a corner of
@@ -87,6 +98,34 @@ def _a_run(folder: Path, version: str) -> TileCanvases:
         chunk=64,
         ome_zarr_version=version,
     )
+
+
+def _a_run_offered_as_one_picture(folder: Path, version: str) -> Path:
+    """Image four places one at a time, and hand back the picture that joins them.
+
+    This is the other kind of image this project writes. Each place becomes an
+    ordinary image of its own, and the view is the single picture the operator
+    opens: it holds no full-size voxels, and answers every request for one by
+    handing over a file that already belongs to a position.
+
+    Four places rather than one, because a view over a single position could
+    describe itself correctly by accident, simply by copying what that position
+    said about itself.
+    """
+    run = start_a_run(
+        folder,
+        name="overview",
+        room=(TILE[0], 640, 640),
+        tile_shape=TILE,
+        voxel_size_um=VOXEL_UM,
+        origin_um=CORNER,
+        channels=[Channel("488", window=(0, 4000))],
+        piece=TILE[1],
+        ome_zarr_version=version,
+    )
+    for at in ((0, 0, 0), (0, 0, 128), (0, 128, 0), (0, 128, 128)):
+        run.write(np.zeros(TILE, "uint16"), at=at)
+    return run.finish().path
 
 
 @pytest.mark.parametrize("version", ["0.4", "0.5"])
@@ -220,4 +259,53 @@ def test_ngio_can_open_what_we_wrote(tmp_path, version):
     assert opened is not None, (
         f"ngio opened {store.name} without complaint but handed back nothing, so "
         f"there is no image there for anyone else to work with."
+    )
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5"])
+def test_ngio_can_open_the_picture_the_operator_is_handed(tmp_path, version):
+    """The same strict reader, asked to open a view rather than a single position.
+
+    This is the image that matters most, because it is the one anybody actually
+    opens. A run of ten thousand places is offered as a single picture that holds
+    no voxels of its own and points at the positions instead — and the whole reason
+    that arrangement is worth having is that the picture is still an ordinary
+    OME-Zarr image, so the viewer, and a colleague, and a public archive can all
+    treat it as one.
+
+    Nothing enforces that on its own. The view is described by first letting the
+    ordinary writer describe an image and then correcting where it says it sits, so
+    it can drift out of step with that writer without a single voxel changing. That
+    is exactly what happened: the writer began stating the place beside each
+    resolution, the view went on adding its own beside them, and every resolution
+    ended up saying where it sat twice. The standard allows a resolution at most one
+    place beside its scale, so ngio stopped opening views altogether — while every
+    test in the suite went on passing, because the position beside this one was
+    still perfectly well formed.
+
+    So this asks the same question of the view, and asks it of both generations of
+    the format, since the description lives in quite different places in each.
+    """
+    ngio = pytest.importorskip(
+        "ngio",
+        reason="ngio is an optional check that our images open elsewhere; "
+               "install it with `python -m pip install ngio`",
+    )
+
+    view = _a_run_offered_as_one_picture(tmp_path, version)
+
+    try:
+        opened = ngio.open_ome_zarr_container(str(view))
+    except Exception as refusal:
+        raise AssertionError(
+            f"ngio refused to open the view {view.name}, written as OME-Zarr "
+            f"{version}, saying: {refusal}. The view is the picture the operator "
+            f"opens, so a run whose view no other software will accept is a run "
+            f"that cannot be looked at — even though every position inside it is "
+            f"perfectly well written and would open on its own."
+        ) from refusal
+
+    assert opened is not None, (
+        f"ngio opened the view {view.name} without complaint but handed back "
+        f"nothing, so there is no picture there for the operator to look at."
     )

@@ -26,6 +26,19 @@ about microscopes. **OME-Zarr** is that, plus an agreed description of what the
 axes mean, how large a voxel is, and where the picture sits on the stage. The two
 generations run in step: OME-Zarr 0.4 is written on zarr version 2, and OME-Zarr
 0.5 on zarr version 3. Both are checked, because this writer produces both.
+
+Two kinds of image are checked as well, and the second is the one that is easy to
+forget. A **position** is the ordinary thing a camera produces: a folder that
+really holds the voxels of one field of view. A **view** is the single picture the
+operator is actually handed — it holds no full-size voxels of its own and points at
+the positions instead, so that a run of ten thousand places opens as one image
+rather than as ten thousand separate ones.
+
+That a view is nevertheless a *proper* OME-Zarr image is a deliberate design
+choice, not a happy accident, and it deserves the same care as a position. It is
+the thing the viewer is opened on, and the thing a colleague handed the run would
+open first. A view that quietly stopped being valid would be a run nobody could
+look at, so every rule below is asked of both kinds.
 """
 
 from __future__ import annotations
@@ -37,6 +50,7 @@ import numpy as np
 import pytest
 
 from zmart_storage.canvas import Channel, TileCanvases
+from zmart_storage.positions import start_a_run
 
 # The unit names the standard lists as acceptable, which are the UDUNITS-2 names.
 # Only the ones a light microscope plausibly uses are written out; a unit outside
@@ -75,34 +89,106 @@ def _the_array_description_at(level: Path) -> dict:
     raise AssertionError(f"{level} holds no array description")
 
 
-@pytest.fixture(params=["0.4", "0.5"])
-def a_written_image(request, tmp_path) -> tuple[Path, str]:
-    """A small but complete acquisition, written in one generation of the format.
+# How the small acquisition below is set up, shared by both kinds of image so that
+# the two are genuinely comparable and a rule that holds for one but not the other
+# is a real difference rather than an accident of the numbers chosen.
+#
+# The corner is away from the origin on purpose: a picture written at nought would
+# let a mistake that lost the corner entirely still look right. The depth of a voxel
+# is much larger than its width, as it is on a real microscope, so an axis read back
+# in the wrong order is obvious rather than plausible.
+ROOM = (4, 256, 256)
+ONE_PICTURE = (4, 64, 64)
+VOXEL_UM = (2.0, 0.35, 0.35)
+CORNER_UM = (11.0, 5.5, 7.25)
+COLOURS = [Channel("488", window=(0, 4000)), Channel("561", window=(0, 3000))]
+MOMENTS = 2
 
-    Given more than one moment, more than one colour, and a corner away from the
-    origin on purpose: a picture written at nought would let a mistake that lost
-    the corner entirely still look right.
+# How large one stored piece is, across y and x. It divides a single picture, which
+# is what lets a view hand a position's own file over untouched.
+PIECE = 64
+
+
+def _an_ordinary_acquisition(folder: Path, generation: str) -> Path:
+    """One position: an image that really holds the voxels a camera recorded.
+
+    This is the straightforward case, and it is what every check in this file was
+    written against before views existed.
     """
-    generation = request.param
-    folder = tmp_path / generation.replace(".", "_")
     canvas = TileCanvases.create(
         folder,
         name="overview",
-        canvas_shape=(4, 256, 256),
-        tile_shape=(4, 64, 64),
-        tile_step=(4, 64, 64),
-        voxel_size_um=(2.0, 0.35, 0.35),
-        origin_um=(11.0, 5.5, 7.25),
-        channels=[Channel("488", window=(0, 4000)),
-                  Channel("561", window=(0, 3000))],
-        frames=2,
+        canvas_shape=ROOM,
+        tile_shape=ONE_PICTURE,
+        tile_step=ONE_PICTURE,
+        voxel_size_um=VOXEL_UM,
+        origin_um=CORNER_UM,
+        channels=COLOURS,
+        frames=MOMENTS,
         chunk=32,
         ome_zarr_version=generation,
     )
-    canvas.write(np.full((4, 64, 64), 1200, "uint16"),
+    canvas.write(np.full(ONE_PICTURE, 1200, "uint16"),
                  origin=(0, 0, 0), channel=0, frame=0)
     canvas.close()
-    return folder / "overview.ome.zarr", generation
+    return folder / "overview.ome.zarr"
+
+
+def _a_view_over_several_positions(folder: Path, generation: str) -> Path:
+    """A view: the one picture the viewer is opened on, holding no voxels of its own.
+
+    The same little acquisition, but imaged as four separate positions and offered
+    to the operator as a single image that points at them. Four rather than one
+    because a view over a single position could describe itself correctly by
+    accident, simply by copying what that position said.
+
+    Both colours are recorded, and at more than one moment, so that this image has
+    exactly as much to describe about itself as the position above does.
+    """
+    run = start_a_run(
+        folder,
+        name="overview",
+        room=ROOM,
+        tile_shape=ONE_PICTURE,
+        voxel_size_um=VOXEL_UM,
+        origin_um=CORNER_UM,
+        channels=COLOURS,
+        frames=MOMENTS,
+        piece=PIECE,
+        ome_zarr_version=generation,
+    )
+    for at in ((0, 0, 0), (0, 0, 64), (0, 64, 0), (0, 64, 64)):
+        run.write(np.full(ONE_PICTURE, 1200, "uint16"), at=at, channel=0, frame=0)
+    return run.finish().path
+
+
+# The two kinds of image, each written in both generations of the format. The names
+# are the ones a test failure will show, so they say which kind of image was being
+# looked at rather than which function built it.
+HOW_AN_IMAGE_IS_MADE = {
+    "a position": _an_ordinary_acquisition,
+    "a view over positions": _a_view_over_several_positions,
+}
+
+
+@pytest.fixture(params=[(kind, generation)
+                        for kind in HOW_AN_IMAGE_IS_MADE
+                        for generation in ("0.4", "0.5")],
+                ids=lambda given: f"{given[0]} in OME-Zarr {given[1]}")
+def a_written_image(request, tmp_path) -> tuple[Path, str]:
+    """A small but complete acquisition, of one kind, in one generation of the format.
+
+    Every check in this file runs four times over: once for a position and once for
+    a view, in each of the two generations of OME-Zarr. The view is included because
+    it is what the operator is actually handed, and because the rules it has to obey
+    are exactly the rules a position obeys — it is a proper image or it is nothing.
+
+    Given more than one moment, more than one colour, and a corner away from the
+    origin on purpose.
+    """
+    kind, generation = request.param
+    folder = tmp_path / f"{kind.replace(' ', '_')}_{generation.replace('.', '_')}"
+    return HOW_AN_IMAGE_IS_MADE[kind](folder, generation), generation
 
 
 def test_the_version_is_stated_where_the_standard_puts_it(a_written_image):
@@ -200,6 +286,44 @@ def test_every_level_is_described_and_placed(a_written_image):
 
     assert widths == sorted(widths, reverse=True), (
         "the copies must be listed largest first")
+
+
+def test_a_level_says_where_it_sits_exactly_once(a_written_image):
+    """One place per resolution, never two, or the image will not open at all.
+
+    The standard allows each copy of the picture at most one ``translation`` beside
+    its ``scale``. Two of them is not a shade of wrong that a reader might muddle
+    through — a strict reader refuses the image outright, so the operator is handed
+    a run that will not open and no clue as to why.
+
+    It is checked on its own, and not only as part of the longer list above, because
+    of how it has actually gone wrong here. A view is written by first letting the
+    ordinary writer describe the image and then correcting where it says it sits. As
+    long as that writer stated the place once for the image as a whole, adding the
+    view's own place beside each copy was harmless. The moment it began stating a
+    place beside each copy too — which is the right thing to do, and is why it was
+    changed — every copy of every view carried two, and no view could be opened by
+    anything strict. Nothing noticed, because nothing in this file had ever looked
+    at a view.
+    """
+    store, _ = a_written_image
+    described, _ = _the_description_of(store)
+
+    for multiscale in described["multiscales"]:
+        for at, dataset in enumerate(multiscale["datasets"]):
+            moves = dataset["coordinateTransformations"]
+            places = [move for move in moves if move["type"] == "translation"]
+            assert len(places) <= 1, (
+                f"level {at} of {store.name} says where it sits {len(places)} "
+                f"times over: {places}. A copy of the picture may be given at most "
+                f"one place beside its scale, so a reader that keeps to the "
+                f"standard will refuse this image rather than draw it, and the "
+                f"operator gets a run that simply will not open."
+            )
+            assert [move["type"] for move in moves].count("scale") == 1, (
+                f"level {at} of {store.name} does not say how large its voxels are "
+                f"exactly once, so nothing could be measured against it"
+            )
 
 
 def test_the_image_says_how_its_smaller_copies_were_made(a_written_image):
