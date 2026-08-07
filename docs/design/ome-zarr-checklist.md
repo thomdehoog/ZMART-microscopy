@@ -41,7 +41,7 @@ cell or a driver.
 | | how it is settled |
 | --- | --- |
 | **chunk size** | derived from the frame shape and the overlap intent, choosing the **largest** chunk that gives an acceptable overlap. A chunk need not be a power of two — 73 is as valid as 128. |
-| **how many voxels to trim** | up to 1% may come off the frame so it fits a chunk grid; capped, reported, and refused rather than exceeded. |
+| **how many voxels to shave off the frame** | up to 1% may come off so the frame divides into whole chunks — the one place voxels are genuinely discarded; capped, reported, refused rather than exceeded, and switchable off. Not to be confused with the seam between tiles, which discards nothing. |
 | **bundle (shard) size** | one tile plane, on any run large enough for file counts to matter. |
 | **how many smaller copies** | as many as the tile can support before a level falls below one chunk. |
 | **where the position is written** | `scale` then `translation`, beside each resolution, never at the multiscales level. |
@@ -146,9 +146,11 @@ Everything else on this page can wait. These two cannot.
 
 ## Still open
 
-- **Chunk-aligned trimming**, which would remove the second copy from every
-  overlapping run. Measured: the copying writer costs **1.98 ×** the camera's
-  output even with *no* overlap, so five terabytes becomes nearly ten.
+- **Chunk-aligned seams**, which would remove the second copy from every
+  overlapping run — the join between two tiles falls on a chunk edge, so the
+  viewer skips the shared strip instead of the writer cutting it. Nothing is
+  deleted; the tiles stay whole. Measured: the copying writer costs **1.98 ×** the
+  camera's output even with *no* overlap, so five terabytes becomes nearly ten.
 - **The no-copy path for a drifting stage.** It currently refuses runs whose tiles
   do not land on an exact grid, so an ordinary run falls back to copying.
 - **HTTP/2 for the viewer**, which would take a screen fill from ~440 ms of round
