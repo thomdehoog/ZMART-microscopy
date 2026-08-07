@@ -8,6 +8,60 @@ Measured today, on ten positions of the benchmark ladder: ten stores, each pulle
 back 16.64 µm — **51.2 voxels, a fractional voxel** — placed correctly on screen
 with no pixel altered. The pointer map cannot express that offset at all.
 
+## What this actually buys, which is narrower than it looks
+
+**It is not precision, and it is not overlap. It is being able to change your mind
+afterwards.**
+
+The linked picture can already place a tile to the voxel. Overlap does not break
+it: neighbours both cover a piece and the map gives that piece to one of them.
+Sub-piece drift does not break it either — the tile is written with its low edge
+padded by however far the stage overshot, so its grid of pieces lands on the run's
+grid. That is `test_a_drifted_run_is_placed_truthfully.py`, and it is the real-stage
+case: a microscope asked to step 1792 voxels stepping 1792 give or take seven. The
+padding is never served and it costs nothing at draw time.
+
+So an overlapping, drifted run of ten thousand positions still opens in well under a
+second through the picture. The difference between the two arrangements is only
+this:
+
+```
+picture + padding   any offset, flat cost, baked at write time
+                    revising an offset means rewriting that tile's pixels
+
+placed sources      any offset, ~5.1 ms a position at open, revisable by
+                    editing a few bytes of JSON, no voxel touched
+```
+
+And the cost difference is a complexity class, not a constant:
+
+```
+positions      picture      placed sources (with the bind batched)
+      400       0.22 s          2.4 s
+    1,000       0.22 s        ~ 5 s
+   10,000       0.22 s        ~51 s      (extrapolated; linearity to 10k is untested)
+```
+
+No tuning closes that. The picture pays nothing per position and the placed
+arrangement pays about five milliseconds, for ever.
+
+**Therefore: placed sources are for tens of positions, a couple of hundred at the
+outside — the ones under active examination. Surveys keep the picture, which is not
+a fallback but the only thing here that works at the scale a run reaches.** Whether
+paying five milliseconds a position is worth it depends entirely on how often
+placements get revised: for a run stitched once and looked at afterwards the
+padding is simply the right answer, and for targets re-registered as analysis
+improves it is not.
+
+### A measurement correction that belongs beside those numbers
+
+Earlier rows in this document reported the sources arrangement opening four hundred
+positions in 3.64 s. That was measured against `zmartSourcesWaiting() === 0`, which
+returns with **300 of 400** sources still unresolved — a page three-quarters loaded.
+Waiting for every source gives **8.96 s** on the stock engine and **2.36 s** with the
+bind batched. The picture is unaffected either way, being a single source, and reads
+0.22 s throughout.
+
 ## What is already true, and needs no work
 
 - OME-Zarr `scale` and `translation` are read per store; `identity` too. The parser
