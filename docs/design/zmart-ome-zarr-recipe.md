@@ -147,7 +147,7 @@ rows can disappear when you zoom out.
 
 ## 4. How the pixels are stored
 
-*Status: written and running; the default version is change number five.*
+*Status: written and running; the default version is change number three.*
 
 | | decided | why |
 | --- | --- | --- |
@@ -416,9 +416,141 @@ the overlap, a stage that drifts, and runs with no regular step.
 
 ---
 
-## 8. Changes still to make
+## 8. Four changes the whole picture argues for
 
-In the order I would do them:
+*Status: none of these are built. This section is the answer to "given overlap,
+efficient viewing, efficient analysis, and label layers — what should change?"*
+
+Taken one at a time the earlier sections each suggest a small correction. Taken
+together they point at four changes, and the first is much larger than it looks.
+
+### 8.1 Trim on a chunk boundary, and the second copy disappears
+
+**The wart.** A run whose tiles do not overlap is written once: positions, plus a
+view that points at them and copies nothing. A run whose tiles *do* overlap — the
+common case, and the one every stitcher needs — is written **twice**: whole tiles
+for the archive, and a trimmed canvas for the viewer with every voxel copied into
+it. So the ordinary case pays a full second copy in disk, in time, and in waiting.
+
+**Why the copy exists.** Trimming today happens at an arbitrary number of voxels —
+half the overlap, whatever that comes to — and a view can only hand over *whole
+chunk files*. A trim that cuts through the middle of a chunk cannot be expressed
+by pointing; it has to be cut, and cutting means copying.
+
+**The change.** Require the overlap to be **an even whole number of chunks**. Then
+half of it is a whole number of chunks, a trimmed tile still begins and ends on the
+chunk grid, and trimming becomes *pointing at fewer chunks* — which costs nothing.
+
+The arithmetic is undemanding. With a 2048-voxel tile and a 128-voxel chunk, an
+overlap of two chunks is 256 voxels, or 12.5% — close enough to the usual ten per
+cent that an operator would not notice the difference. Stated as a rule for the
+acquisition:
+
+> The tile is a whole number of chunks across, and the stage steps so that the
+> overlap is an even whole number of chunks.
+
+Both are facts the run has to settle before it starts anyway, and both can be
+checked and adjusted when the run is set up rather than discovered afterwards.
+
+**What it buys.** One arrangement instead of two. Overlapping and butting runs
+become the same thing — positions plus a view — and `cropped.py`'s copying path
+becomes the fallback for runs that cannot satisfy the alignment: foreign transfers,
+irregular smart scans, anything we did not write ourselves.
+
+### 8.2 A view is only metadata, so write more than one
+
+Once trimming is done by pointing, a view costs a few hundred bytes and no pixels
+at all. That makes the show-the-overlap question stop being a decision taken at
+write time:
+
+```text
+overview.ome.zarr/          the trimmed view — tiles butt, no seam, nothing shown twice
+overview-full.ome.zarr/     the same positions, every chunk pointed at, overlap visible
+  positions/                ... shared; neither view holds pixels
+```
+
+The operator picks a view instead of the run being written one way. The trimmed one
+is the default because it is what you want to look at; the full one is what you open
+when you are checking the stage, judging an overlap, or wondering whether a seam is
+real. Neither costs anything to keep.
+
+This is also the honest place for the later-wins problem that
+`viz_studio/INTEROP.md` §3 records: a hard seam and an intensity-threshold shader
+that cannot tell "never imaged" from "imaged and genuinely dark". With the trimmed
+view there is no overlap to blend, so the shader stops having to guess.
+
+### 8.3 Give a segmentation its own view, or the viewer falls over the same cliff
+
+**The problem, which is the original problem wearing a different hat.** Analysis
+writes `labels/nuclei` inside each position, which is right. But a run of ten
+thousand positions then has ten thousand label images, and Neuroglancer builds a
+drawing layer per source — the exact cliff the view was invented to avoid. Showing
+a segmentation over a whole run would undo everything the view achieved.
+
+**The answer falls straight out of what already exists.** A label is an ordinary
+multiscale array, so it can have a view of its own, pointing at the positions'
+labels the same way the image view points at their pixels:
+
+```text
+overview.ome.zarr/
+  labels/
+    nuclei/            a view over the positions' labels — one drawing layer
+      0/ 1/ 2/
+  positions/
+    overview_pos00000.ome.zarr/
+      labels/nuclei/   the real label, written by the pipeline
+```
+
+**This was checked rather than assumed.** A label written by ngio's `derive_label`
+comes out with the image's own y and x chunking, the image's per-resolution scale
+*and translation* — so it already sits in the right place on the stage — the
+standard `{"labels": ["nuclei"]}` listing on the group, `uint32` values, and axes
+`t, z, y, x` with the colour axis dropped, which is correct because a segmentation
+is one number per voxel rather than one per channel.
+
+Three rules make the pointing work, and all three are worth writing into the
+pipeline contract rather than hoping for:
+
+- **A label keeps its image's chunking.** ngio does this already; it must not be
+  overridden.
+- **A label keeps its image's number of levels.** ngio derives as many as the image
+  has, so an image with one level gives a label with one — which is fine, but a
+  label view can only point at the levels that exist.
+- **Label numbers are unique across the whole run.** This is the one that will
+  otherwise bite silently: if each position numbers its cells from one, then cell
+  7 in one tile and cell 7 in its neighbour become *the same object* the moment
+  they are drawn in one layer, and they will be selected, coloured and counted
+  together. Offsetting each position's numbers by its index — position 42's cells
+  starting at 42,000,001, say — costs nothing and prevents an error nobody would
+  think to look for.
+
+### 8.4 One table for the run, beside the tables for the tiles
+
+Per-position tables are right for writing: a pipeline finishes a position and puts
+its measurements there, where they belong with the pixels. They are wrong for
+asking, because the only questions worth asking are about the run — how many cells,
+which are brightest, where the interesting ones are — and answering one means
+opening ten thousand small tables.
+
+So keep the per-position tables and add a **run-level table on the view**, holding
+the same rows with a column saying which position each came from. It is appended
+to as positions finish, so it costs a write per position and no re-reading, and it
+is what the discovery step and the operator's plots actually query.
+
+### What these four have in common
+
+Each one moves work from *copying pixels* to *saying something about pixels that
+already exist*. The trim becomes metadata, the show/hide choice becomes metadata,
+the segmentation overlay becomes metadata, and the run summary becomes one small
+table instead of ten thousand reads. That is the same principle the view was built
+on, applied to the three things that were left out of it.
+
+---
+
+## 9. Changes still to make
+
+In the order I would do them. The first four are corrections; the rest are the
+changes of section 8, which are larger and should follow rather than lead.
 
 1. **Per-dataset translation for positions.** Already written on
    `claude/ngff-translation-per-dataset`; needs merging, plus a guard so the view
@@ -429,11 +561,16 @@ In the order I would do them:
 3. **0.5 as the default in every writer**, not only `start_a_run`.
 4. **An ngio test beside the `ngff-zarr` one**, so a validation failure is caught
    the day it is introduced rather than months later.
-5. **Write 0.6 for acquisitions 0.5 cannot describe** — a deskewed light-sheet
+5. **Chunk-aligned trimming** (§8.1), which removes the second copy from every
+   overlapping run and collapses two arrangements into one.
+6. **A label view** (§8.3), with globally unique label numbers, so a segmentation
+   can be shown over a whole run at all.
+7. **A run-level table** (§8.4) and a second, untrimmed view (§8.2).
+8. **Write 0.6 for acquisitions 0.5 cannot describe** — a deskewed light-sheet
    run, multiple views related by a rotation, a tile that moves between
    timepoints. Neuroglancer reads 0.6 images already, and the upgrade back and
    forth is metadata-only.
-6. **Watch `ngio.NgffVersions` for `"0.6"`**, then write the scene alongside the
+9. **Watch `ngio.NgffVersions` for `"0.6"`**, then write the scene alongside the
    view and find out whether a run opens elsewhere without our viewer.
 
 Deliberately not on the list: adopting the high-content-screening plate layout,
