@@ -1,18 +1,18 @@
-# Complete pip fallback for local CI, notebooks, and the plain-browser website.
-# The canonical environment remains environment.yml / build_env.py.
+# The tools for running the test suite, on top of requirements.txt.
+#
+#     python -m pip install -e ".[dev]"
+#     python -m playwright install chromium
 
 -r requirements.txt
 
 pytest>=8
-pytest-cov>=5
 ruff>=0.6
-ipython>=8
-ipykernel
-nbformat>=5.9
-nbclient>=0.9
+
+# Drives a real browser. About a third of this suite opens one, draws the data and
+# looks at the pixels that came out, because the fault this viewer keeps meeting is
+# a picture that is silently absent: pieces fetched, layers built, the engine
+# reporting itself content, and nothing on screen. Only looking catches that.
 playwright>=1.58,<2
 
-# Node.js is not a Python package. Install Node >=20 separately when running
-# the generated-ESM syntax gate outside the canonical Conda environment.
-# Chromium is installed after the Python packages with:
-#     python -m playwright install chromium
+# Opens the screenshots those tests take, which is how the pixels get counted.
+pillow>=10

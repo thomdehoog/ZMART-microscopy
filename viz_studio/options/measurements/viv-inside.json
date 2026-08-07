@@ -1,0 +1,665 @@
+{
+  "option": "viv-inside",
+  "measured": "2026-08-01 11:42",
+  "0. can a surface underneath be seen": {
+    "question": "with a colour painted behind the engine's canvas and a different colour set as the engine's own background, which does an operator see over ground nobody imaged?",
+    "shares of the window": {
+      "behind the engine (green)": 0.9695,
+      "the engine's own background (blue)": 0.0,
+      "acquired picture (near white)": 0.0295
+    },
+    "photograph": "showing-through.png",
+    "answer": "what is behind the engine's canvas does show through it, so a surface underneath is usable",
+    "a surface underneath is usable": true,
+    "and the check can fail": {
+      "what was broken": "the option's own drawing surfaces were hidden, so that only the colour painted behind them was left on screen",
+      "shares of the window": {
+        "behind the engine (green)": 1.0,
+        "the engine's own background (blue)": 0.0,
+        "acquired picture (near white)": 0.0
+      },
+      "the counting noticed": true,
+      "photograph": "showing-through-can-fail.png"
+    }
+  },
+  "0b. is the bottom layer beneath the picture": {
+    "question": "with one flat colour drawn in the bottom slot and nothing in the top, does an operator see that colour over ground nobody imaged \u2014 and is the acquired picture still on top of it?",
+    "what the option says of itself": {
+      "drawsUnder": true,
+      "because": "the ground beneath, the picture and the operator's marks are three layers in one canvas, drawn in one pass from one view, so the bottom one is simply the first thing drawn."
+    },
+    "with nothing drawn in either slot": {
+      "shares of the window": {
+        "behind the engine (green)": 0.0,
+        "the engine's own background (blue)": 0.9695,
+        "acquired picture (near white)": 0.0295
+      },
+      "photograph": "beneath-with-nothing-drawn.png"
+    },
+    "with the colour in the bottom slot": {
+      "shares of the window": {
+        "behind the engine (green)": 0.9695,
+        "the engine's own background (blue)": 0.0,
+        "acquired picture (near white)": 0.0295
+      },
+      "the colour was seen": true,
+      "photograph": "beneath-the-picture.png",
+      "the picture is still on top of it": {
+        "share of the window showing picture, with nothing drawn": 0.0295,
+        "and with the colour in the bottom slot": 0.0295,
+        "the picture survived": true
+      }
+    },
+    "the bottom layer is genuinely beneath the picture": true,
+    "answer": "yes. A colour drawn in the bottom slot fills 97% of the window, and the acquired picture is still drawn on top of it \u2014 2.95% of the window, against 2.95% with nothing drawn at all. So the application's own drawing really does sit beneath the picture, and an operator sees it wherever the picture has not been written.",
+    "and the check can fail": {
+      "what was changed": "the same flat colour was drawn in the top slot instead of the bottom one, with everything else on the page left exactly as it was",
+      "with the colour in the top slot": {
+        "shares of the window": {
+          "behind the engine (green)": 1.0,
+          "the engine's own background (blue)": 0.0,
+          "acquired picture (near white)": 0.0
+        },
+        "the colour was seen": true,
+        "photograph": "beneath-can-fail-on-top.png",
+        "the picture is still on top of it": {
+          "share of the window showing picture, with nothing drawn": 0.0295,
+          "and with the colour in the top slot": 0.0,
+          "the picture survived": false
+        }
+      },
+      "the counting noticed": true
+    }
+  },
+  "1. registration": {
+    "at rest": {
+      "left": 41.0,
+      "right": 41.0,
+      "top": 41.0,
+      "bottom": 41.0
+    },
+    "at rest, unevenness": 0.0,
+    "at rest, wider all round than it was cut": 1.0,
+    "band was cut at, in a still photograph's pixels": 40.0,
+    "photograph at rest": "registration-at-rest.png",
+    "panning": {
+      "samples": 84,
+      "photographs": 132,
+      "closed": 0,
+      "left": 1.0,
+      "right": 1.0,
+      "top": 1.0,
+      "bottom": 1.0,
+      "unevenness": 0.0,
+      "wider all round than it was cut, at least": 1.0,
+      "widest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          82.0,
+          82.0
+        ],
+        "down": [
+          82.0,
+          82.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 44,
+      "photograph": "registration-panning-worst.png"
+    },
+    "zooming": {
+      "samples": 48,
+      "photographs": 48,
+      "closed": 0,
+      "left": 1.0,
+      "right": 1.0,
+      "top": 1.0,
+      "bottom": 1.0,
+      "unevenness": 0.0,
+      "wider all round than it was cut, at least": 0.0,
+      "widest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 40.0,
+        "right": 40.0,
+        "top": 40.0,
+        "bottom": 40.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          80.0,
+          82.0
+        ],
+        "down": [
+          80.0,
+          82.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 16,
+      "photograph": "registration-zooming-worst.png"
+    },
+    "thrown about": {
+      "samples": 123,
+      "photographs": 144,
+      "closed": 0,
+      "left": 1.0,
+      "right": 1.0,
+      "top": 1.0,
+      "bottom": 1.0,
+      "unevenness": 0.0,
+      "wider all round than it was cut, at least": 1.0,
+      "widest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          82.0,
+          82.0
+        ],
+        "down": [
+          82.0,
+          82.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 48,
+      "photograph": "registration-thrown-about-worst.png"
+    },
+    "and the check can fail": {
+      "the hole moved 0 browser pixels": {
+        "unevenness": 0.0,
+        "noticed": false,
+        "photograph": "registration-can-fail-nudged-0.png"
+      },
+      "the hole moved 2 browser pixels": {
+        "unevenness": 4.0,
+        "noticed": true,
+        "photograph": "registration-can-fail-nudged-2.png"
+      },
+      "the hole moved 8 browser pixels": {
+        "unevenness": 16.0,
+        "noticed": true,
+        "photograph": "registration-can-fail-nudged-8.png"
+      }
+    },
+    "and a disagreement about size": {
+      "the operator's layer drawn 1.0 times its proper size": {
+        "unevenness": 0.0,
+        "wider all round than it was cut": 1.0,
+        "and how wide the band should have grown, from the arithmetic": 0.0,
+        "the picture is this many photograph pixels across": 243,
+        "noticed": false,
+        "photograph": "registration-wrong-scale-1.0.png"
+      },
+      "the operator's layer drawn 1.01 times its proper size": {
+        "unevenness": 0.0,
+        "wider all round than it was cut": 2.0,
+        "and how wide the band should have grown, from the arithmetic": 1.2,
+        "the picture is this many photograph pixels across": 243,
+        "noticed": true,
+        "photograph": "registration-wrong-scale-1.01.png"
+      },
+      "the operator's layer drawn 1.02 times its proper size": {
+        "unevenness": 0.0,
+        "wider all round than it was cut": 3.0,
+        "and how wide the band should have grown, from the arithmetic": 2.4,
+        "the picture is this many photograph pixels across": 243,
+        "noticed": true,
+        "photograph": "registration-wrong-scale-1.02.png"
+      }
+    }
+  },
+  "1b. registration of the bottom layer": {
+    "what the option says of itself": true,
+    "band was cut at, in a still photograph's pixels": 40.0,
+    "photograph at rest": "bottom-registration-at-rest.png",
+    "at rest": {
+      "left": 41.0,
+      "right": 41.0,
+      "top": 41.0,
+      "bottom": 41.0
+    },
+    "at rest, unevenness": 0.0,
+    "panning": {
+      "samples": 81,
+      "photographs": 129,
+      "closed": 0,
+      "left": 1.0,
+      "right": 1.0,
+      "top": 1.0,
+      "bottom": 1.0,
+      "unevenness": 0.0,
+      "wider all round than it was cut, at least": 1.0,
+      "widest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          82.0,
+          82.0
+        ],
+        "down": [
+          82.0,
+          82.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 43,
+      "photograph": "bottom-registration-panning-worst.png"
+    },
+    "zooming": {
+      "samples": 54,
+      "photographs": 54,
+      "closed": 0,
+      "left": 1.0,
+      "right": 1.0,
+      "top": 1.0,
+      "bottom": 1.0,
+      "unevenness": 0.0,
+      "wider all round than it was cut, at least": 0.0,
+      "widest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 40.0,
+        "right": 40.0,
+        "top": 40.0,
+        "bottom": 40.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          80.0,
+          82.0
+        ],
+        "down": [
+          80.0,
+          82.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 18,
+      "photograph": "bottom-registration-zooming-worst.png"
+    },
+    "thrown about": {
+      "samples": 129,
+      "photographs": 150,
+      "closed": 0,
+      "left": 1.0,
+      "right": 1.0,
+      "top": 1.0,
+      "bottom": 1.0,
+      "unevenness": 0.0,
+      "wider all round than it was cut, at least": 1.0,
+      "widest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "narrowest_seen": {
+        "left": 41.0,
+        "right": 41.0,
+        "top": 41.0,
+        "bottom": 41.0
+      },
+      "opposite sides added up to": {
+        "across": [
+          82.0,
+          82.0
+        ],
+        "down": [
+          82.0,
+          82.0
+        ],
+        "when whole and lined up, both stay at": 80.0
+      },
+      "band was cut at, in these pixels": 40.0,
+      "worst slant across three cuts": 0.0,
+      "frames": 50,
+      "photograph": "bottom-registration-thrown-about-worst.png"
+    },
+    "and the check can fail": {
+      "the ring moved 0 browser pixels": {
+        "unevenness": 0.0,
+        "noticed": false,
+        "photograph": "bottom-registration-can-fail-nudged-0.png"
+      },
+      "the ring moved 2 browser pixels": {
+        "unevenness": 4.0,
+        "noticed": true,
+        "photograph": "bottom-registration-can-fail-nudged-2.png"
+      },
+      "the ring moved 8 browser pixels": {
+        "unevenness": 16.0,
+        "noticed": true,
+        "photograph": "bottom-registration-can-fail-nudged-8.png"
+      }
+    }
+  },
+  "2. handedness": {
+    "photograph": "handedness.png",
+    "brightness across the picture, grey levels per hundred pixels": 91.5,
+    "the bright edge is drawn on the right": true,
+    "and dragging carries the picture with the hand": {
+      "the hand moved (browser pixels)": 120,
+      "the picture moved (browser pixels)": 120.0,
+      "slope": 1.0
+    }
+  },
+  "3. two gestures and no more": {
+    "dragging pans": {
+      "the hand moved (browser pixels)": 120,
+      "the edge of the picture moved (browser pixels)": 120.0,
+      "the margins stayed even": 0.0
+    },
+    "the plain wheel zooms": {
+      "the picture went from (photograph pixels)": 243,
+      "to": 502,
+      "the margins stayed even": 0.0
+    },
+    "the gestures that were removed": {
+      "shift and drag (used to rotate)": "unchanged, byte for byte",
+      "the r key (used to rotate)": "unchanged, byte for byte",
+      "the e key (used to rotate)": "unchanged, byte for byte",
+      "shift and the arrow keys (used to tilt)": "unchanged, byte for byte",
+      "ctrl and the wheel (used to zoom)": "unchanged, byte for byte",
+      "the right button (used to recentre)": "unchanged, byte for byte",
+      "the arrow keys (used to step sideways)": "unchanged, byte for byte",
+      "the comma and full stop keys (used to step through the stack)": "unchanged, byte for byte",
+      "the bracket keys (used to step through time)": "unchanged, byte for byte"
+    },
+    "what the page counted": {
+      "refused": {
+        "shiftDrag": 1,
+        "rightButton": 1,
+        "ctrlWheel": 3,
+        "keys": 22
+      },
+      "accepted": {
+        "drags": 1,
+        "wheels": 4
+      }
+    }
+  },
+  "4. sparseness": {
+    "places the run imaged": 5,
+    "share of the window showing acquired picture": 0.0112,
+    "share showing the operator's own drawing": 0.9847,
+    "near-white counted with the picture on screen": 0.0153,
+    "and with every channel switched off": {
+      "what was changed": "every channel was switched off, so nothing of the acquisition was drawn and only the operator's own drawing was left on screen",
+      "picture": 0.0041,
+      "drawing": 0.9959,
+      "photograph": "sparseness-with-no-picture.png"
+    },
+    "the picture shows": true,
+    "the operator's plan shows through the gaps": true,
+    "photograph": "sparseness.png"
+  },
+  "5. new data arriving while somebody is watching": {
+    "does it appear at all": {
+      "share of the window showing picture, at first": 0.0961,
+      "after eight more tiles were written, without being told": 0.0961,
+      "and after telling it": 0.2734,
+      "what was needed": "viewer.tilesMayHaveLanded({coverage}), which sends the option back to the store to read what is there now. Nothing less works: every one of these viewers remembers what it has already read, including the places it found empty, with no time limit \u2014 so a tile written into ground it has already looked at is not slow to appear, it is never fetched again at all. How an option goes back is its own business and the page never knows: two of them open a fresh reader on the store, and the third tells the drawing engine's background worker to read its resolution levels again.",
+      "what the option said it sent back to the store": 3,
+      "and what that number is not": "this one number is the option's own account of what it did, and it is the only number in this suite that is. It is here for one narrow purpose: to tell 'the option was asked and nothing happened' apart from 'the option was never asked', which look identical on screen. It must not be read across the columns, because it counts a different thing in each of them. For the two Viv options it is how many copies of the image the freshly opened reader has \u2014 three, because the writer makes a pyramid of three \u2014 and it would still be three if the fresh reader were then thrown away without being used. For neuroglancer it is how many of the engine's own stores of decoded picture were told to let go, which is also three here and for an unrelated reason. The number that can be compared is the one below it, 'pieces of image re-fetched', which the server counted rather than the page. Measured with one option's refresh deliberately made to do nothing at all, this went on reporting three while the pieces re-fetched fell to nought and the window never changed.",
+      "it appeared": true,
+      "photographs": [
+        "new-data-before.png",
+        "new-data-without-telling-it.png",
+        "new-data-after-telling-it.png"
+      ]
+    },
+    "what the refresh costs": {
+      "pieces of image re-fetched to show the new tiles": 3,
+      "of which held picture": 3,
+      "seconds": 0.0,
+      "note": "only the pieces actually on screen are asked for again, so this follows the size of the window rather than the size of the specimen. Anything the operator had scrolled past is fetched again if and when they scroll back to it."
+    },
+    "does the picture survive the refresh": {
+      "frames the screen changed during the refresh": 3,
+      "the least the picture ever showed during it": 0.2734,
+      "it settled at": 0.2734,
+      "seconds before the picture was back to half of that": 0.18,
+      "what the window showed, frame by frame": [
+        0.2734,
+        0.2734,
+        0.2734
+      ],
+      "note": "all three options are meant to keep the picture already on screen while the store is read again, and to exchange it only once the new picture is ready to draw. So the right answer here is a flat line at the settled share. A reading of nought means the old picture was let go of before the new one had arrived, which on a run in progress is a window that flashes empty every few seconds; a run of values between the two would mean two generations of the data were on screen at once."
+    },
+    "does the view stay where the operator put it": {
+      "the centre moved (\u00b5m)": 0,
+      "the zoom changed (\u00b5m per screen pixel)": 0.0,
+      "the edge of the picture moved (photograph pixels)": 0.0
+    },
+    "how soon after the tile lands does it show": {
+      "seconds": 0.47,
+      "it showed": true,
+      "share of the window showing picture, before": 0.2734,
+      "and after": 0.2972,
+      "note": "the clock starts when the tile is safely on disk and stops when the window is measurably brighter than it was. It includes the time spent photographing, so it is an upper bound rather than a best case."
+    },
+    "does it keep up": {
+      "tiles written during the measurement": 414,
+      "frames a second, round by round": [
+        5.2,
+        4.8,
+        6.0,
+        4.7,
+        5.2,
+        3.8
+      ],
+      "seconds a round took": [
+        2.5,
+        2.5,
+        2.5,
+        2.55,
+        2.5,
+        3.12
+      ],
+      "the drawing rate held up": true
+    }
+  },
+  "6. requests": {
+    "unbounded": {
+      "requests to redraw the view": 688,
+      "of which found picture": 45,
+      "of which were for ground nobody imaged": 643,
+      "how many the browser held at once": 6,
+      "rounds of waiting": 396,
+      "seconds": 4.14
+    },
+    "bounded to the imaged ground": {
+      "requests to redraw the view": 36,
+      "of which found picture": 36,
+      "of which were for ground nobody imaged": 0,
+      "how many the browser held at once": 5,
+      "rounds of waiting": 19,
+      "seconds": 0.2
+    }
+  },
+  "7. drawing rate with many positions": {
+    "20 positions": {
+      "frames a second": 7.2,
+      "frames a second, lowest and highest seen": [
+        6.3,
+        7.9
+      ],
+      "frames a second, every reading in the order taken": [
+        7.2,
+        7.9,
+        7.6,
+        7.1,
+        6.3
+      ],
+      "how many times it was read": 5,
+      "rectangles the page was drawing": 20,
+      "note": "the middle of several readings, not a single one. Single readings of this on a machine with no graphics card have been seen to vary by a factor of two on an unchanged build, so the lowest and highest are reported beside the middle value. Two options whose ranges overlap have not been shown to differ."
+    },
+    "200 positions": {
+      "frames a second": 6.2,
+      "frames a second, lowest and highest seen": [
+        4.1,
+        6.9
+      ],
+      "frames a second, every reading in the order taken": [
+        6.2,
+        6.9,
+        6.5,
+        5.6,
+        4.1
+      ],
+      "how many times it was read": 5,
+      "rectangles the page was drawing": 200,
+      "note": "the middle of several readings, not a single one. Single readings of this on a machine with no graphics card have been seen to vary by a factor of two on an unchanged build, so the lowest and highest are reported beside the middle value. Two options whose ranges overlap have not been shown to differ."
+    }
+  },
+  "8. two acquisitions at once": {
+    "seen from far enough out to hold both": {
+      "the survey is drawn": true,
+      "the detail scan is drawn": true,
+      "photograph": "two-runs-wide.png",
+      "one photograph pixel is this many micrometres": 3.151,
+      "where the detail scan landed (\u00b5m)": {
+        "x0": 894.8,
+        "x1": 1150.0,
+        "y0": 894.8,
+        "y1": 1150.0
+      },
+      "where the store says it belongs (\u00b5m)": {
+        "x0": 896.0,
+        "x1": 1152.0,
+        "y0": 896.0,
+        "y1": 1152.0
+      },
+      "how far its middle is from where it belongs (\u00b5m)": {
+        "across": -1.6,
+        "down": -1.6,
+        "either way": 1.6
+      },
+      "how wide the detail scan came out (\u00b5m)": {
+        "across": 255.2,
+        "and it should be": 256.0
+      }
+    },
+    "seen close to": {
+      "photograph": "two-runs-close.png",
+      "one photograph pixel is this many micrometres": 1.024,
+      "the unimaged window in the survey, in photograph pixels": {
+        "left": 200.0,
+        "right": 699.0,
+        "top": 100.0,
+        "bottom": 599.0
+      },
+      "the band of empty ground on each side (\u00b5m)": {
+        "left": 128.0,
+        "right": 128.0,
+        "top": 128.0,
+        "bottom": 128.0
+      },
+      "and each of them should be": 128.0,
+      "worst departure from it (\u00b5m)": 0.0,
+      "the detail scan is inside the window in the survey": true
+    },
+    "and the check can fail": {
+      "the detail scan was told it is this far along (\u00b5m)": 64.0,
+      "seen from far enough out to hold both": {
+        "the survey is drawn": true,
+        "the detail scan is drawn": true,
+        "photograph": "two-runs-moved-wide.png",
+        "one photograph pixel is this many micrometres": 3.151,
+        "where the detail scan landed (\u00b5m)": {
+          "x0": 961.0,
+          "x1": 1213.0,
+          "y0": 894.8,
+          "y1": 1150.0
+        },
+        "where the store says it belongs (\u00b5m)": {
+          "x0": 896.0,
+          "x1": 1152.0,
+          "y0": 896.0,
+          "y1": 1152.0
+        },
+        "how far its middle is from where it belongs (\u00b5m)": {
+          "across": 63.0,
+          "down": -1.6,
+          "either way": 63.0
+        },
+        "how wide the detail scan came out (\u00b5m)": {
+          "across": 252.0,
+          "and it should be": 256.0
+        }
+      },
+      "seen close to": {
+        "photograph": "two-runs-moved-close.png",
+        "one photograph pixel is this many micrometres": 1.024,
+        "the unimaged window in the survey, in photograph pixels": {
+          "left": 200.0,
+          "right": 699.0,
+          "top": 100.0,
+          "bottom": 599.0
+        },
+        "the band of empty ground on each side (\u00b5m)": {
+          "left": 191.5,
+          "right": 63.5,
+          "top": 128.0,
+          "bottom": 128.0
+        },
+        "and each of them should be": 128.0,
+        "worst departure from it (\u00b5m)": 64.5,
+        "the detail scan is inside the window in the survey": true
+      },
+      "noticed": true,
+      "note": "the move has to be noticed at the right *size*, not merely noticed. A check that reported something wrong whenever anything changed would pass here without being able to tell a hair's breadth from half a specimen."
+    }
+  }
+}

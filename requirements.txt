@@ -1,38 +1,36 @@
-# Minimum runtime environment for ZMART Microscopy -- pip fallback.
+# What the ZMART viewer and its writer need in order to run.
 #
-# The CANONICAL install is the conda-forge environment in environment.yml
-# (build it with build_env.py). This pip list mirrors the same packages for
-# environments without conda. Note: conda's `opencv` is `opencv-python` on
-# PyPI; otherwise the names match.
+# This is a short list on purpose. The viewer's job is to show images that are
+# already on disk, and the heavy work -- decoding, drawing, deciding what to fetch
+# next -- happens in the browser rather than in Python. The server here reads small
+# description files, measures how bright an image is from the smallest copy of it,
+# and serves bytes. That needs very little.
 #
-# Install into a Python 3.10-3.12 env:
-#     python -m pip install -r requirements.txt
+# Install into a Python 3.10-3.12 environment:
 #
-# Test/lint/browser tools are NOT here -- install root requirements-dev.txt for
-# the complete pip-based CI environment.
+#     python -m pip install -e .
+#
+# The tools for running the tests are a separate list, because somebody who only
+# wants to look at their data does not need them:
+#
+#     python -m pip install -e ".[dev]"
 
-# --- compute core (registration, focusing, image I/O, calibration) ---
+# Reads and writes the OME-Zarr images themselves. Version 3 is required rather
+# than merely preferred, because the writer depends on behaviour that moved within
+# version 3: whether a chunk holding nothing is written at all, what the default
+# compressors are, and what resizing an array gives back. An older zarr would not
+# be slower, it would be wrong in ways that are hard to see -- and the first of
+# those is read directly by the code that works out how far a timelapse has got.
+zarr>=3,<4
+
+# Arithmetic on image data: measuring how bright an acquisition is, so that it can
+# be shown sensibly the moment it opens, and building the shrunk-down copies the
+# viewer draws when zoomed out.
 numpy>=1.24
-scipy>=1.10
-scikit-image>=0.22,<0.26 # registration: ORB, RANSAC, phase_cross_correlation
-opencv-python>=4.8      # registration: cv2 feature matching
-tifffile>=2024.1        # read/write OME-TIFF image data
-pillow>=10              # PNG/image encoding used by reports and widgets
-ome-types>=0.5          # OME-XML model: validates the driver's OME-TIFF output
-lxml>=4.9               # ome-types schema-validation backend (validate=True)
 
-# --- live LAS X API (Python <-> .NET bridge) ---
-# The LAS X CAM API DLLs ship with LAS X and load from the install dir;
-# only the bridge itself is pip-installable.
-pythonnet>=3.0
-
-# Operator notebook and interactive target-acquisition widgets.
-matplotlib>=3.7
-ipympl>=0.9
-# React-based notebook widgets (zmart_microscopy_v4_react.ipynb).
-anywidget>=0.9
-traitlets>=5.9
-
-# Shows the operator website in its own desktop window (`run_webapp.py
-# --window`). Optional: without it the page still serves to a browser.
+# Shows the viewer in its own desktop window instead of a browser tab. Optional:
+# without it the page still serves and can be opened in any browser, and the
+# launcher says so plainly rather than failing. On Windows the window is drawn by
+# WebView2, which is Chromium underneath, so the drawing engine behaves there as
+# it does in Edge.
 pywebview>=5

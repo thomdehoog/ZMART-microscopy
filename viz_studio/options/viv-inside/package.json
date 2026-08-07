@@ -1,0 +1,36 @@
+{
+  "name": "zmart-option-viv-inside",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "why": [
+    "The packages this one option needs, kept beside it rather than added to",
+    "the viewer's own list. Two of the three options being compared draw with",
+    "Viv, they are being written at the same time by different hands, and a",
+    "shared list of packages is the one file both would have had to edit at",
+    "once. Node looks for packages in the folder a file lives in before looking",
+    "further up, so a build of the harness finds these here and finds everything",
+    "else in the viewer's own installed packages, exactly as before.",
+    "",
+    "Install them with:  npm --prefix viz_studio/options/viv-inside install",
+    "",
+    "Viv is taken as its three separate pieces rather than as the one umbrella",
+    "package, because the umbrella also carries Viv's ready-made React viewers,",
+    "and those ask for React bindings for deck.gl that nothing here uses. This",
+    "option draws into a canvas of its own, so the layers, the readers and the",
+    "shader additions are all of Viv it wants."
+  ],
+  "dependencies": {
+    "@deck.gl/core": "~9.3.3",
+    "@deck.gl/geo-layers": "~9.3.3",
+    "@deck.gl/layers": "~9.3.3",
+    "@luma.gl/constants": "~9.3.3",
+    "@luma.gl/core": "~9.3.3",
+    "@luma.gl/engine": "~9.3.3",
+    "@luma.gl/shadertools": "~9.3.3",
+    "@luma.gl/webgl": "~9.3.3",
+    "@vivjs/extensions": "0.22.0",
+    "@vivjs/layers": "0.22.0",
+    "@vivjs/loaders": "0.22.0"
+  }
+}

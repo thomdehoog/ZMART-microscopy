@@ -1,0 +1,134 @@
+name: Viewer
+
+# The viewer and the writer that feeds it. Two jobs, because they need very
+# different things: the writer's tests are plain Python, while the viewer's open a
+# real browser and read the pixels it drew.
+#
+# Why the browser half matters enough to pay for. The fault this project keeps
+# meeting is a picture that is silently absent -- chunks fetched, layers built, the
+# engine reporting itself content, and nothing on screen. Only a test that looks at
+# the drawn image catches that, and about a third of this suite is exactly those
+# tests. A run without a browser reports a comfortable green while never having
+# drawn anything, which is worse than no run at all.
+
+on:
+  push:
+    branches: [main, microscope-agnostic-layer]
+  pull_request:
+    branches: [main, microscope-agnostic-layer]
+  workflow_dispatch:
+
+jobs:
+  writer:
+    name: writer / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the writer and its test tools
+        # numpy and zarr come from the package's own dependencies, which is the
+        # point of installing it rather than listing them again here: if the
+        # declared dependencies are wrong, this step is where that shows up.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pytest
+
+      - name: Write and read a run's images
+        run: python -m pytest zmart_storage/tests --tb=short
+
+  viewer:
+    name: viewer / browser
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Python packages
+        # Deliberately not the whole project. The viewer needs numpy and zarr to
+        # read images and write the ones its tests invent, and nothing else --
+        # whereas installing everything would drag in the microscope drivers'
+        # dependencies, including the bridge to the Leica software. A browser test
+        # failing because a .NET bridge would not build on a Linux runner is a
+        # false alarm, and false alarms are how a suite stops being believed. The
+        # writer job above installs the project properly, which is where a wrong
+        # dependency list should show up.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy 'zarr>=3,<4' pytest playwright pillow
+
+      - name: Install Chromium
+        # Playwright's own build, matched to the version just installed. Letting
+        # these drift apart is not a loud failure: the browser fixture cannot
+        # launch, its tests skip, and the run reports green while never opening a
+        # browser. That has already happened once during development.
+        run: python -m playwright install --with-deps chromium
+
+      - name: Build the viewer page
+        # The browser tests read the *built* page, not the source beside it. A
+        # missing build makes them skip and a stale one makes them answer questions
+        # about a program that is no longer in the repository, so this must happen
+        # before the tests and must fail the job if it fails.
+        run: |
+          npm --prefix viz_studio/frontend ci
+          npm --prefix viz_studio/frontend run build
+
+      - name: Check the page was really built
+        run: test -f viz_studio/frontend/dist/index.html
+
+      - name: Build the page the drawing options are compared on
+        # Twenty-six of the tests open this page rather than the viewer's, because
+        # what they check is the promise each of the three drawing options makes to
+        # the page above it. Without it they skip, and with ZMART_REQUIRE_BROWSER
+        # set below a skip fails the job -- correctly, since the run would not have
+        # looked at that picture. It keeps no packages of its own; it borrows the
+        # viewer's, so it has to be built after the build above.
+        run: npm --prefix viz_studio/options/harness run build
+
+      - name: Check the options page was really built too
+        run: test -f viz_studio/options/harness/dist/index.html
+
+      - name: Run the suite
+        # One test at a time, deliberately. Three at once is much quicker where
+        # there is room for it, and on a two-core runner there is not: the browser
+        # tests then fail on starvation rather than on faults -- a screenshot that
+        # cannot be taken inside thirty seconds, or the engine's memory of decoded
+        # image being evicted under pressure from the other browsers. Measured on
+        # four cores, three parallel runs produced four different failures and
+        # every one of them passed when run on its own.
+        #
+        # ZMART_REQUIRE_BROWSER is what makes this job mean something. Everything
+        # above installs a browser and builds the page, and until now none of it
+        # was *checked*: if Chromium failed to launch, or the build silently
+        # produced nothing, the tests that look at pixels would skip and the job
+        # would report a comfortable green having never drawn anything. That is
+        # about a third of the suite, and it is the third that catches a picture
+        # which is silently absent. With this set, a run that did not look at the
+        # pixels fails and says why.
+        env:
+          ZMART_REQUIRE_BROWSER: '1'
+        run: python -m pytest viz_studio/tests --tb=short -rs
+
+      - name: Say what did not run
+        # Anything else skipped is not a failure -- a real acquisition through
+        # ZMART_TEST_STORE, or a GPU this runner does not have -- but it is worth
+        # putting in the log where somebody reading a green run can still see it.
+        if: always()
+        run: echo "See the 'short test summary info' above for anything skipped and why."
