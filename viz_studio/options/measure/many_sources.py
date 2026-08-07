@@ -1181,7 +1181,12 @@ def main() -> int:
                                        label: {"readings": taken}},
                             }}, indent=2, default=str)
                     )
-                found = taken[0] if len(taken) == 1 else _the_middle_reading(taken)
+                # A copy, not the reading itself. Where only one was taken, the
+                # middle of them *is* that one reading, and putting the list of
+                # readings inside it would make it hold itself — which reads
+                # perfectly well until the results are written out, at which
+                # point it cannot be, and the whole run is lost at the last step.
+                found = dict(taken[0]) if len(taken) == 1 else _the_middle_reading(taken)
                 found["readings"] = taken
                 everything["rungs"][rung][label] = found
                 (out / "many-sources.json").write_text(
