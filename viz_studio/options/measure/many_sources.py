@@ -18,6 +18,32 @@ whole drawing layer for every source it is given.
 
 What is being asked is where B stops being usable.
 
+Which engine draws, and the difference between a layer and a source
+-------------------------------------------------------------------
+
+**Every number here is drawn by neuroglancer**, through the option
+``viz_studio/options/neuroglancer-under``, and the page is asked to confirm that
+rather than trusted about it: each reading records what the page loaded and how
+many of the elements in the box carry neuroglancer's own class names. That check
+is there because the harness is built with three options and two different
+engines behind them, and a table that did not say which one drew it would answer
+a different question from the one it appeared to answer.
+
+One distinction runs through everything below and is easy to miss. **A source and
+a drawing layer are not the same thing.** The option used here builds one layer
+per acquisition it is handed, so arrangement B is N layers — which is the
+arrangement the question as it was put assumes. The viewer this project actually
+ships does something else: ``viz_studio/backend/server.py`` merges every position
+of one acquisition and channel into a single row, and ``scene.js`` hands the
+engine **one** layer that reads from N places. The server says plainly why:
+"asking the engine for one layer with two hundred sources is far less work than
+two hundred layers, each needing its own setup and its own shader compiled."
+
+Both are measured, so the difference is a number rather than a claim. The third
+arrangement is off unless ``--also-grouped`` is given; see
+:func:`the_two_arrangements` for how it is built and why it comes to two layers
+rather than one.
+
 Reading the numbers
 -------------------
 
@@ -453,7 +479,7 @@ def _panning(harness, name: str) -> dict:
     return found
 
 
-def measure_one(harness, *, label: str, acquisitions: list[dict], view: dict,
+def measure_one(harness, *, acquisitions: list[dict], view: dict,
                 photograph: str) -> dict:
     """Open one arrangement, time it, and photograph what it drew."""
     _the_page_can_open_a_viewer(harness)
@@ -573,12 +599,34 @@ def _what_the_page_says(harness) -> float | None:
 
 
 def the_two_arrangements(data_dir: Path, address: str, view: Path,
-                         positions: list[Path], rung: int) -> dict:
+                         positions: list[Path], rung: int,
+                         also_grouped: bool = False) -> dict:
     """The acquisition lists for arrangement A and arrangement B.
 
     Both are addresses into the same files. The channels are stated by the page in
     both cases and stated identically, so that neither arrangement is charged for
     reading a description the other did not have to read.
+
+    ``also_grouped`` adds a third arrangement that is worth understanding, because
+    it is the one the viewer this project actually ships uses and it is **not**
+    the same as B. There are two quite different ways to hand a drawing engine N
+    stores. Either each store becomes a drawing layer of its own — which is what
+    arrangement B does here, and what the question as it was put assumes — or all
+    of them become **one** layer that reads from N places, which is what
+    ``viz_studio/backend/server.py`` builds and what ``scene.js`` passes on. That
+    file says in as many words that "asking the engine for one layer with two
+    hundred sources is far less work than two hundred layers, each needing its own
+    setup and its own shader compiled", so the difference is expected to be large
+    and it deserves to be measured rather than argued about.
+
+    It is obtained by handing the option a *list* of addresses where its interface
+    says one, which it passes straight through to the engine. The engine's own
+    layer description takes either, so what is built is an ordinary layer with
+    many sources — exactly what the shipping viewer builds. The first store is
+    given on its own because one step inside the option reads the first
+    acquisition's address as text in order to find where the specimen is, so this
+    arrangement is two layers rather than one: one holding a single position and
+    one holding all the rest.
     """
     said = {
         "channels": [
@@ -589,15 +637,22 @@ def the_two_arrangements(data_dir: Path, address: str, view: Path,
     def address_of(store: Path) -> str:
         return f"{address}/data/{store.relative_to(data_dir).as_posix()}/|zarr2:"
 
-    return {
+    arrangements = {
         "A — one store": [
             {"url": address_of(view), "name": "overview", **said}
         ],
-        f"B — {len(positions)} stores": [
+        f"B — {len(positions)} stores, a layer each": [
             {"url": address_of(store), "name": store.name[: -len(".ome.zarr")], **said}
             for store in positions
         ],
     }
+    if also_grouped and len(positions) > 1:
+        arrangements[f"B grouped — {len(positions)} stores, two layers"] = [
+            {"url": address_of(positions[0]), "name": "first position", **said},
+            {"url": [address_of(store) for store in positions[1:]],
+             "name": "the rest", **said},
+        ]
+    return arrangements
 
 
 def the_view_settings(rung: int) -> dict:
@@ -650,6 +705,11 @@ def main() -> int:
     parser.add_argument("--out", type=Path,
                         default=_HERE.parent / "measurements" / "many-sources")
     parser.add_argument("--data", type=Path, default=None)
+    parser.add_argument(
+        "--also-grouped", action="store_true",
+        help="measure a third arrangement: the same N stores handed over as one "
+             "layer reading from many places, which is how the shipping viewer "
+             "does it")
     parser.add_argument("--repeats", type=int, default=2,
                         help="how many whole readings of each cell to take")
     parser.add_argument("--keep", action="store_true",
@@ -708,9 +768,12 @@ def main() -> int:
         everything["rungs"][rung] = {}
         with drive.Harness(data_dir, out / f"{rung}", option=args.option) as harness:
             arrangements = the_two_arrangements(
-                data_dir, harness.address, view, stored, rung
+                data_dir, harness.address, view, stored, rung,
+                also_grouped=args.also_grouped,
             )
-            for label, asked in arrangements.items():
+            for shortly, (label, asked) in zip(
+                ("A", "B", "Bgrouped"), arrangements.items()
+            ):
                 taken = []
                 for again in range(args.repeats):
                     print(f"  {label}, reading {again + 1} …", flush=True)
@@ -722,10 +785,9 @@ def main() -> int:
                         harness.open(store="square", draw="none")
                         found = measure_one(
                             harness,
-                            label=label,
                             acquisitions=asked,
                             view=the_view_settings(rung),
-                            photograph=f"{rung}-{label.split()[0]}-{again}",
+                            photograph=f"{rung}-{shortly}-{again}",
                         )
                     except Exception as went_wrong:
                         found = {
