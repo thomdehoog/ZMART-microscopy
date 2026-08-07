@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ZMART — comparing three ways to draw the flat view</title>
+    <style>
+      /* The page is deliberately bare. Anything drawn here that was not asked
+         for would be another colour in the photographs, and the margin
+         measurement tells its four colours apart by colour alone. */
+      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
+                   background: #000; }
+      /* The box the option is opened inside. It fills the window, and the option
+         puts whatever surfaces it needs in here — one canvas or two, which is
+         precisely the thing being compared. The page never looks inside it.
+
+         The two gestures are listened for on this element rather than on
+         anything the option created, so that the page can own them without
+         knowing what is underneath. Events from any surface inside bubble up to
+         here. */
+      #viewer { position: absolute; inset: 0; touch-action: none; }
+      /* Somewhere to say what went wrong. A blank page that is broken and a
+         blank page that is still loading look exactly alike, and telling them
+         apart has cost this project real days. */
+      #note { position: absolute; left: 12px; bottom: 10px; z-index: 100;
+              max-width: 70%; color: #ffd166; font: 12px/1.5 monospace;
+              white-space: pre-wrap; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="viewer"></div>
+    <div id="note"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

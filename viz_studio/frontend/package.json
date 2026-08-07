@@ -1,0 +1,35 @@
+{
+  "name": "zmart-viz-studio",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node precompile-workers.mjs && vite build && node copy-async-worker.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@deck.gl/core": "^9.3.3",
+    "@deck.gl/extensions": "^9.3.3",
+    "@deck.gl/geo-layers": "^9.3.3",
+    "@deck.gl/layers": "^9.3.3",
+    "@hms-dbmi/viv": "^0.22.0",
+    "@luma.gl/constants": "^9.3.3",
+    "@luma.gl/core": "^9.3.3",
+    "@luma.gl/engine": "^9.3.3",
+    "@luma.gl/shadertools": "^9.3.3",
+    "@luma.gl/webgl": "^9.3.3",
+    "@math.gl/core": "^4.1.0",
+    "@vivjs/extensions": "^0.22.0",
+    "@vivjs/layers": "^0.22.0",
+    "@vivjs/loaders": "^0.22.0",
+    "neuroglancer": "2.41.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "esbuild": "^0.25.0",
+    "vite": "^7.0.0"
+  }
+}
