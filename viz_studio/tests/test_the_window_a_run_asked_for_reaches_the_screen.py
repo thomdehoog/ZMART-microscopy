@@ -94,6 +94,7 @@ def test_a_picture_that_holds_no_pixels_still_opens_bright(
     """
     import threading
 
+    from measure_the_frame_rate_of_a_linked_view import EVERY_SOURCE_RESOLVED
     from server import make_server
 
     folder = tmp_path / "experiment"
@@ -110,6 +111,7 @@ def test_a_picture_that_holds_no_pixels_still_opens_bright(
         page.wait_for_function("() => window.zmartViewer !== undefined", timeout=60_000)
         page.wait_for_function("() => window.zmartSourcesWaiting() === 0",
                                timeout=120_000)
+        page.wait_for_function(EVERY_SOURCE_RESOLVED, timeout=300_000)
         page.wait_for_timeout(4000)
 
         lit = fraction_lit(page)

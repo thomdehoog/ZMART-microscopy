@@ -38,6 +38,9 @@ from __future__ import annotations
 import threading
 
 import pytest
+from measure_the_frame_rate_of_a_linked_view import (  # noqa: E402
+    EVERY_SOURCE_RESOLVED,
+)
 from server import make_server
 from test_many_positions_arrive import HELD, write_folder
 
@@ -116,6 +119,7 @@ def frames_drawn_with(browser, built_dist, folder, count: int) -> int:
         # question and is measured in test_many_positions_arrive.py.
         page.wait_for_function(f"{HELD} === {count}", timeout=180_000)
         page.wait_for_function("() => window.zmartSourcesWaiting() === 0", timeout=120_000)
+        page.wait_for_function(EVERY_SOURCE_RESOLVED, timeout=300_000)
         page.wait_for_timeout(3000)
 
         page.evaluate(KEEP_MOVING)
