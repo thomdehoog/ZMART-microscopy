@@ -88,9 +88,24 @@ rather than left to be discovered:
   spelled still happens, because the stores this run writes already spell it the
   way the format asks and there is nothing for the repair to do.
 
+The second question: overlapping sources
+----------------------------------------
+
+There is a second thing this file answers, with ``--overlap``, and it may matter
+more than the ladder. Positions that **overlap** — which is the ordinary way a
+stitcher lays a run out, and the whole reason for wanting arrangement B — have
+been seen on another machine to come out as a patchwork of strips at what looked
+like different magnifications, where the same positions butted up against one
+another came out clean. The measurement photographs the same view twice in each
+condition, once the moment anything is on screen and once after everything has
+come to rest, so that a patchwork which is only the engine still refining can be
+told from one that is really there. The comment above
+:func:`positions_that_overlap` sets out what each outcome would mean.
+
 Run it with::
 
     python viz_studio/options/measure/many_sources.py --rungs 50,100,400,1000
+    python viz_studio/options/measure/many_sources.py --overlap --rungs 36,100
 
 after building the page it drives::
 
@@ -151,6 +166,7 @@ VOXEL_UM = 1.0
 # every rung is an exact rectangle, because a half-finished last row would mean
 # the two arrangements were photographed over slightly different ground.
 RASTERS = {
+    36: (6, 6),
     50: (10, 5),
     100: (10, 10),
     400: (20, 20),
@@ -674,6 +690,196 @@ def the_view_settings(rung: int) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Do overlapping sources come out as a patchwork?
+# ---------------------------------------------------------------------------
+#
+# A separate question from the ladder, and possibly a more important one. On
+# another machine, a hundred positions shown as separate sources with a small
+# *negative* step — so that neighbouring tiles overlap by about a tenth — came out
+# as a patchwork of strips at what looked like different magnifications, while the
+# same hundred positions butted up against one another came out as a clean, sharp
+# grid. Two explanations were tried there and neither held: it made no difference
+# which of the two places in the description the position was written in, and no
+# difference whether the step was a whole number of voxels or a fraction. What is
+# left is the overlap itself.
+#
+# The explanation worth testing is that this is the engine *refining*. It draws a
+# coarse copy of a source first and replaces it with a finer one as the pieces
+# arrive, and with many sources that refinement is staggered — so at any one
+# instant different sources are showing different copies. Where nothing overlaps,
+# each part of the window is covered by exactly one source and a difference
+# between sources cannot be seen. Where they overlap, the same ground is covered
+# twice at two different copies, and a tile drawn from the half-size copy sitting
+# beside its neighbour drawn from the full-size one is exactly what "strips at
+# mismatched scales" looks like.
+#
+# So the window is photographed **twice** in each condition: once the moment
+# anything is on screen, and once after everything has come to rest. If the
+# patchwork is there in the first and gone in the second, it is refinement and not
+# a fault of placement — and it would also mean any timing taken before things
+# come to rest is measuring the harness rather than the arrangement. If it is
+# still there once everything has settled, overlapping sources really are keeping
+# different copies, which would be a structural argument against the arrangement
+# quite apart from how fast it draws.
+
+# How far apart the positions are put, as a share of one position's width, in the
+# condition where they overlap. Nine tenths means neighbours share a tenth of
+# their width, which is the ordinary amount of overlap a stitcher is given.
+OVERLAPPING_STEP = 0.9
+
+
+def positions_that_overlap(positions: list[Path], into: Path, rung: int,
+                           step: float = OVERLAPPING_STEP) -> list[Path]:
+    """Copy the positions and change only what each of them says about where it is.
+
+    Nothing about the picture is touched — not one voxel — so a difference between
+    this and the untouched positions can only be the placement. Each store is
+    copied rather than edited in place, so the run these were written from is left
+    exactly as it was and can still be measured beside them.
+    """
+    across, _ = RASTERS[rung]
+    apart = POSITION_VOXELS * VOXEL_UM * step
+    if into.exists():
+        shutil.rmtree(into)
+    into.mkdir(parents=True)
+    made = []
+    for index, store in enumerate(positions):
+        row, column = divmod(index, across)
+        copied = into / store.name
+        shutil.copytree(store, copied)
+        described = json.loads((copied / ".zattrs").read_text(encoding="utf-8"))
+        multiscale = described["multiscales"][0]
+        names = [axis["name"] for axis in multiscale["axes"]]
+        corner = {"y": row * apart, "x": column * apart}
+        # Every copy of the picture states the same position, in micrometres, so
+        # every one of them has to be changed together. A store whose smaller
+        # copies still said the old position would be drawn in two places at once
+        # depending how far out the operator was, which is a different fault
+        # altogether and would muddle the reading.
+        for dataset in multiscale["datasets"]:
+            for step_in in dataset.get("coordinateTransformations", []):
+                if step_in.get("type") != "translation":
+                    continue
+                step_in["translation"] = [
+                    corner.get(name, was)
+                    for name, was in zip(names, step_in["translation"], strict=True)
+                ]
+        (copied / ".zattrs").write_text(json.dumps(described), encoding="utf-8")
+        made.append(copied)
+    return made
+
+
+def _which_copies_were_asked_for(entries) -> dict:
+    """Which copy of the picture each source has been asked for, and how often.
+
+    This is the second half of the question and it comes from the server rather
+    than from the engine. A store keeps its full-size picture and its smaller
+    copies in numbered folders, so the number in a request says which copy was
+    wanted — and if the patchwork really is sources sitting at different copies,
+    the record will show several copies being read at the same moment rather than
+    one.
+
+    It is evidence about what was *fetched*, which is not quite the same as what
+    was drawn, and it is reported as that.
+    """
+    copies: dict[str, dict] = {}
+    for one in entries:
+        path = one["path"]
+        if ".ome.zarr/" not in path:
+            continue
+        store, _, inside = path.partition(".ome.zarr/")
+        which = inside.split("/")[0]
+        if not which.isdigit():
+            continue
+        seen = copies.setdefault(which, {"requests": 0, "stores": set()})
+        seen["requests"] += 1
+        seen["stores"].add(store)
+    return {
+        f"copy {which}": {
+            "pieces asked for": seen["requests"],
+            "stores that asked for it": len(seen["stores"]),
+        }
+        for which, seen in sorted(copies.items())
+    }
+
+
+def _how_blocky(picture) -> dict:
+    """Two plain readings of a photograph, to sit beside looking at it.
+
+    Neither of these decides anything — the photographs are saved so that the
+    question can be answered by eye, which is what "does it look like a
+    patchwork" really means. These are here so that two photographs can be
+    compared without squinting. A picture drawn from one copy of the specimen is
+    a smooth gradient; one drawn from a copy zoomed out and stretched back up has
+    visible steps in it, and steps show up as pixels sitting on a sharp edge.
+    """
+    grey = np.asarray(picture).astype(int).mean(axis=2)
+    across = np.abs(np.diff(grey, axis=1))
+    down = np.abs(np.diff(grey, axis=0))
+    sharp = float((across > 3).mean() + (down > 3).mean()) / 2
+    return {
+        "share of neighbouring pixels with a sharp step between them": round(sharp, 5),
+        "distinct grey levels in the window": int(len(np.unique(grey.round()))),
+    }
+
+
+def the_overlap_question(harness, *, acquisitions: list[dict], view: dict,
+                         name: str) -> dict:
+    """Open one condition and photograph it twice: at once, and once at rest."""
+    _the_page_can_open_a_viewer(harness)
+    harness.clear_ledger()
+    harness.ledger.clear()
+    started = time.perf_counter()
+    harness.page.evaluate(
+        "([acquisitions, view]) => window.manySources.open(acquisitions, view)",
+        [acquisitions, view],
+    )
+    found: dict = {"sources handed to the engine": len(acquisitions)}
+    try:
+        first, share = _wait_for_specimen(harness, 0.10)
+    except RuntimeError as why:
+        found["it failed outright"] = str(why)[:2000]
+        return found
+    if first is None:
+        found["it drew at all"] = False
+        found["share of the window lit when it gave up"] = share
+        return found
+    early = harness.photograph()
+    found["as soon as anything was on screen"] = {
+        "seconds": round(first, 2),
+        "share of the window lit": lit_share(early),
+        **_how_blocky(early),
+        "which copies had been asked for": _which_copies_were_asked_for(
+            list(harness.ledger.entries)
+        ),
+        "photograph": harness.save_frame(early, f"{name}-early"),
+    }
+    # And now let everything come to rest: wait for the server to go quiet, then
+    # wait for the photograph itself to stop changing.
+    seen, quiet_since = -1, time.perf_counter()
+    while time.perf_counter() - started < LONGEST_WAIT_S:
+        now = len(harness.ledger.entries)
+        if now != seen:
+            seen, quiet_since = now, time.perf_counter()
+        elif time.perf_counter() - quiet_since > QUIET_S:
+            break
+        time.sleep(0.1)
+    harness.settle(tries=25)
+    rested = harness.photograph()
+    found["once everything had come to rest"] = {
+        "seconds": round(time.perf_counter() - started, 2),
+        "share of the window lit": lit_share(rested),
+        **_how_blocky(rested),
+        "which copies had been asked for": _which_copies_were_asked_for(
+            list(harness.ledger.entries)
+        ),
+        "photograph": harness.save_frame(rested, f"{name}-settled"),
+    }
+    found["which engine drew this"] = which_engine_is_drawing(harness)
+    return found
+
+
 def _the_middle_reading(taken: list[dict]) -> dict:
     """Several whole readings of one cell, reported as the middle one.
 
@@ -698,6 +904,112 @@ def _the_middle_reading(taken: list[dict]) -> dict:
     return middle
 
 
+def run_the_overlap_question(args, data_dir: Path) -> int:
+    """The whole of the second question: overlapping sources against butted ones.
+
+    Two conditions at each rung, from the very same picture files. In the control
+    the positions sit exactly where the run wrote them, so neighbours butt up
+    against one another and nothing is covered twice. In the other they are told
+    they sit nine tenths of a position apart, so every neighbour overlaps by a
+    tenth — and nothing else about them is changed, not one voxel.
+    """
+    everything = {
+        "option": args.option,
+        "measured": time.strftime("%Y-%m-%d %H:%M"),
+        "window": dict(drive.WINDOW),
+        "micrometres per screen pixel": ZOOM_UM_PER_PIXEL,
+        "how far apart the overlapping positions were told they are": (
+            f"{OVERLAPPING_STEP} of a position, so neighbours share "
+            f"{round((1 - OVERLAPPING_STEP) * 100)} per cent of their width"
+        ),
+        "rungs": {},
+    }
+    said = {
+        "channels": [
+            {"name": "probe", "colour": [1, 1, 1], "window": {"low": 0, "high": 4095}}
+        ]
+    }
+    out = args.out
+    for rung in [int(one) for one in args.rungs.split(",") if one.strip()]:
+        folder = data_dir / f"run-{rung}"
+        if not folder.exists():
+            print(f"writing the run of {rung} positions …", flush=True)
+            write_a_run(folder, rung)
+        view_store = folder / "overview.ome.zarr"
+        butted = sorted(
+            one for one in (view_store / POSITIONS_FOLDER).iterdir()
+            if one.name.endswith(".ome.zarr")
+        )
+        overlapping = positions_that_overlap(
+            butted, data_dir / f"overlapping-{rung}", rung
+        )
+        across, down = RASTERS[rung]
+        conditions = {
+            "butted up against one another (the control)": (
+                butted,
+                {"centre": {"x": across * POSITION_VOXELS * VOXEL_UM / 2,
+                            "y": down * POSITION_VOXELS * VOXEL_UM / 2},
+                 "zoom": ZOOM_UM_PER_PIXEL},
+            ),
+            "overlapping by a tenth": (
+                overlapping,
+                {"centre": {
+                    "x": ((across - 1) * POSITION_VOXELS * OVERLAPPING_STEP
+                          + POSITION_VOXELS) * VOXEL_UM / 2,
+                    "y": ((down - 1) * POSITION_VOXELS * OVERLAPPING_STEP
+                          + POSITION_VOXELS) * VOXEL_UM / 2},
+                 "zoom": ZOOM_UM_PER_PIXEL},
+            ),
+        }
+        everything["rungs"][rung] = {}
+        print(f"\n{rung} positions", flush=True)
+        with drive.Harness(data_dir, out / f"overlap-{rung}",
+                           option=args.option) as harness:
+            for shortly, (label, (stores, view)) in zip(
+                ("butted", "overlapping"), conditions.items()
+            ):
+                print(f"  {label} …", flush=True)
+                asked = [
+                    {"url": (f"{harness.address}/data/"
+                             f"{store.relative_to(data_dir).as_posix()}/|zarr2:"),
+                     "name": store.name[: -len(".ome.zarr")], **said}
+                    for store in stores
+                ]
+                try:
+                    harness.open(store="square", draw="none")
+                    found = the_overlap_question(
+                        harness, acquisitions=asked, view=view,
+                        name=f"{rung}-{shortly}",
+                    )
+                except Exception as went_wrong:
+                    found = {
+                        "could not be measured": str(went_wrong)[:2000],
+                        "where": traceback.format_exc().splitlines()[-4:],
+                    }
+                    print(f"    could not be measured: {went_wrong}", flush=True)
+                found["console"] = [
+                    line for line in harness.console
+                    if line.startswith(("error", "pageerror", "warning"))
+                ][:20]
+                everything["rungs"][rung][label] = found
+                early = found.get("as soon as anything was on screen", {})
+                rested = found.get("once everything had come to rest", {})
+                print(
+                    f"    early: lit {early.get('share of the window lit')}, "
+                    f"sharp steps "
+                    f"{early.get('share of neighbouring pixels with a sharp step between them')}"
+                    f" | at rest: lit {rested.get('share of the window lit')}, "
+                    f"sharp steps "
+                    f"{rested.get('share of neighbouring pixels with a sharp step between them')}",
+                    flush=True,
+                )
+                (out / "overlapping-sources.json").write_text(
+                    json.dumps(everything, indent=2, default=str)
+                )
+    print(f"\nwritten to {out / 'overlapping-sources.json'}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rungs", default="50,100,400,1000")
@@ -705,6 +1017,10 @@ def main() -> int:
     parser.add_argument("--out", type=Path,
                         default=_HERE.parent / "measurements" / "many-sources")
     parser.add_argument("--data", type=Path, default=None)
+    parser.add_argument(
+        "--overlap", action="store_true",
+        help="ask the other question instead: do overlapping sources come out as "
+             "a patchwork, and does it survive everything coming to rest")
     parser.add_argument(
         "--also-grouped", action="store_true",
         help="measure a third arrangement: the same N stores handed over as one "
@@ -732,6 +1048,9 @@ def main() -> int:
     # them equally.
     if not (data_dir / "square.ome.zarr").exists():
         acquisitions.write_the_square(data_dir).close()
+
+    if args.overlap:
+        return run_the_overlap_question(args, data_dir)
 
     rungs = [int(one) for one in args.rungs.split(",") if one.strip()]
     runs = {}
