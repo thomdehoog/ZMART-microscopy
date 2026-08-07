@@ -46,13 +46,19 @@ sys.path.insert(0, str(_VIZ))
 sys.path.insert(0, str(_VIZ / "backend"))
 sys.path.insert(0, str(_VIZ / "tests"))
 
-from measure_a_run_of_positions import a_run_of, how_it_drew  # noqa: E402
+from measure_a_run_of_positions import (  # noqa: E402
+    a_run_of,
+    how_it_drew,
+    how_long_a_cold_open_takes,
+    what_one_more_position_costs,
+)
 from measure_the_frame_rate_of_a_linked_view import a_browser  # noqa: E402
 
 RUNGS = [5, 10, 50, 100, 200, 400]
 
 
-def measure(browser, built: Path, ladder: Path, count: int) -> list[dict]:
+def measure(browser, built: Path, ladder: Path, count: int,
+            started=None, headed: bool = False) -> list[dict]:
     folder = ladder / f"n{count}"
     picture = folder / "experiment.ome.zarr"
     if not picture.exists():
@@ -70,10 +76,19 @@ def measure(browser, built: Path, ladder: Path, count: int) -> list[dict]:
         try:
             got = how_it_drew(browser, built, where, store)
             got.update(arrangement=label, positions=count, asked=len(names))
+            # A cold opening is what an operator waits through, and it is the one
+            # number the warm rows cannot give: every row after the first opens
+            # into a browser the previous one warmed. It costs a browser launch
+            # each, so it is asked for rather than assumed.
+            if started is not None:
+                got["cold_s"] = how_long_a_cold_open_takes(
+                    started, built, where, store, headed
+                )
             rows.append(got)
             print(f"  {label:8s} held={got['held']:4d}/{len(names):<4d} "
                   f"lit={got['lit']:.3f} frame={got['drawing_ms']:.1f}ms "
-                  f"fps={got['fps']:.0f} requests={got['requests']}", flush=True)
+                  f"fps={got['fps']:.0f} requests={got['requests']} "
+                  f"cold={got.get('cold_s', float('nan')):.2f}s", flush=True)
         except Exception:
             print(f"  {label:8s} FAILED at {count} positions", flush=True)
             traceback.print_exc()
@@ -85,23 +100,46 @@ def main() -> int:
     headed = "--headed" in sys.argv
     print(f"drawing {'on the card' if headed else 'in software'}", flush=True)
 
+    cold = "--cold" in sys.argv
     built = _VIZ / "frontend" / "dist"
     started, browser = a_browser(headed=headed)
     everything: list[dict] = []
     try:
         for count in RUNGS:
             print(f"\n== {count} positions", flush=True)
-            everything.extend(measure(browser, built, ladder, count))
+            everything.extend(measure(
+                browser, built, ladder, count,
+                started=started if cold else None, headed=headed,
+            ))
     finally:
         browser.close()
         started.stop()
 
-    print("\n\npositions  arrangement    held   lit   drawing frame    fps   requests   opening")
+    # Charged separately for each arrangement, because they are two curves and a
+    # cost charged across both would be the difference between them rather than
+    # what a position costs within one.
+    costs: dict[str, dict[int, float | None]] = {}
+    for label in ("picture", "sources"):
+        costs[label] = what_one_more_position_costs(
+            [row for row in everything if row["arrangement"] == label]
+        )
+
+    print("\n\n| positions | arrangement | held | lit | cold opening | warm opening "
+          "| drawing frame | one more | fps | requests |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
     for row in everything:
-        held = f"{row['held']}/{row['asked']}"
-        print(f"{row['positions']:>9d}  {row['arrangement']:<11s} {held:>8s} "
-              f"{row['lit']:6.3f} {row['drawing_ms']:12.1f} ms "
-              f"{row['fps']:6.0f} {row['requests']:10d} {row['opened']:8.2f}s")
+        one_more = costs[row["arrangement"]].get(row["positions"])
+        print(f"| {row['positions']} | {row['arrangement']} "
+              f"| {row['held']}/{row['asked']} | {row['lit']:.3f} "
+              f"| {row.get('cold_s', float('nan')):.2f} s "
+              f"| {row['opened']:.2f} s | {row['drawing_ms']:.1f} ms "
+              f"| {'-' if one_more is None else f'{one_more:.1f} us'} "
+              f"| {row['fps']:.0f} | {row['requests']} |")
+
+    print("\n'one more' is what each row's positions cost a frame, in microseconds "
+          "a position, charged against the smallest run of that arrangement.")
+    print("'lit' covers the centre half of the canvas only and cannot see which "
+          "pyramid level drew; 'held' counts declared sources, not loaded ones.")
     return 0
 
 
