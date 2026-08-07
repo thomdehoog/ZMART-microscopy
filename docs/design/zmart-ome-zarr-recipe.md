@@ -214,30 +214,54 @@ the cap comes from the choice of striding, not from the ladder.
 The argument for striding is quoted above: averaging "would mix voxels across the
 join between two positions, and no position would own its result", which would
 break the view's ability to point at the tiles' own copies. **That argument holds
-only where the tiles do not line up with the averaging blocks, and ours do line
-up.** Checked directly, the rule is this: averaging within a tile gives exactly
-what averaging the whole canvas gives when, on every axis being coarsened, the
-tile's origin *and* the extent of ground it owns are both whole multiples of the
-deepest level's total shrink — eight, for an eighth-sized ladder. Off that grid
-the two disagree by as much as the seam's remainder. A seam at voxel 144 with
-averaging blocks of 64 differed by 16 on a ramp and 49.2 on noisy data, and left
-one coarse voxel that no tile could supply at all; a tile starting at an aligned
-zero but owning only 160 voxels differed by 52.4.
+only where the tiles do not line up with the averaging blocks, and whether ours
+line up depends on how deep the ladder is taken.** Checked directly, the rule is
+this: averaging within a tile gives exactly what averaging the whole canvas gives
+when, on every axis being coarsened, the tile's origin *and* the extent of ground
+it owns are both whole multiples of the total shrink of the **deepest level that
+is built tile by tile**.
 
-**This is not peculiar to averaging.** Today's every-second-voxel shrinking needs
-exactly the same alignment, and misses by more without it — the same seam differed
-by 592.9. Today's arrangement is safe only because `linked.py` already refuses any
-placement that does not line up once shrunk, and that is the reassuring part: an
-averaged ladder needs no new rule, only that the existing one goes on being
-enforced. With it enforced, every coarse voxel still comes from exactly one
-position and the view can still point at it.
+That number is not the ladder's step. A ladder that shrinks by eight each time
+has total shrinks of 8, 64 and 512 at levels 1, 2 and 3, because each level
+shrinks by eight again — so three such levels need alignment to 512, not to 8.
+An earlier version of this section said eight; the probe behind it had in fact
+measured three successive halvings and mistaken them for an eighth-sized ladder.
+
+Re-measured, with the seam at voxel 1,632 — chunk 204 times eight, the sort of
+placement a real run makes:
+
+| level | total shrink | largest error | coarse voxels no tile can supply |
+| ---: | ---: | ---: | ---: |
+| 1 | 8 | 0.0000 | 0 |
+| 2 | 64 | **32.0000** | 1 |
+| 3 | 512 | 96.0000 | 1 |
+
+Seams at 2,048 and 4,096 come out exact at every level. The error is always
+whatever the seam leaves over against that level's total shrink.
+
+**This is not peculiar to averaging, and it is not already taken care of.**
+Today's every-second-voxel shrinking needs the same alignment. The refusal in
+`linked.py` checks a placement against the levels the view *points at*, not the
+deeper levels the view **builds for itself, one tile at a time** — which is
+exactly where the error above appears. So the phase check has to stay: either
+require alignment to the deepest level really built that way, or put the tiles
+together before shrinking rather than shrinking each one on its own.
+
+**What that means for pointing at the positions' own smaller copies.** An
+eighth-sized ladder does not rule it out, but it sets a price. Pointing at three
+levels needs placements aligned to chunk × 64; one smaller level needs only
+chunk × 8, and works if the view advertises that level's real inner chunks, as
+§4 describes. If the unit handed over is a whole 2048-voxel tile plane, even the
+first smaller level would need alignment to 16,384 voxels, which no stage plan
+can meet. That is the arithmetic underneath the tension between bundling a whole
+tile plane and pointing at the smaller levels.
 
 **Which puts an eighth-sized averaged ladder on the table: a 1.8% pyramid instead
 of 36%, with 98% of cells surviving rather than 63%.** On five terabytes that is
-the difference between about 1.8 TB of smaller copies and about 90 GB. Both
-figures come from the percentages measured above rather than from arithmetic
-alone, so they already include what compression bookkeeping and the bundle indexes
-really cost, which makes them the right numbers to plan disk space against.
+the difference between about 1.8 TB of smaller copies and about 90 GB. Both come
+from the percentages measured above rather than from arithmetic alone, so they
+already include what compression bookkeeping and bundle indexes really cost, and
+are the right figures to plan disk space against.
 
 Two honest costs before adopting it:
 
@@ -285,8 +309,10 @@ and for the server to return an inner chunk rather than a whole bundle file.
 **What a run must satisfy.** These are ours, not the format's, and they exist so
 that a position's own file can be handed to the browser without touching a voxel:
 every position begins on a multiple of the chunk size times the largest shrink,
-and all positions in one acquisition are written the same way — the same number
-type, compression, chunk size, axis order and number of levels. A run that breaks
+counting not only the levels the view points at but the deeper ones it builds for
+itself (as §3 explains); and all positions in one acquisition are written the same
+way — the same number type, compression, chunk size, axis order and number of
+levels. A run that breaks
 this is refused when the view is built, with a message saying what would work.
 
 ---
