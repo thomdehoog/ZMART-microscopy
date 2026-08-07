@@ -71,13 +71,10 @@ hundred and six hundred.
 
 On the run this was measured on, the view cost **6 files and 20 KB** with
 2048-voxel tiles, because it points at the positions' own pyramid levels and only
-computes the few coarsest ones that no single tile can supply. That figure does
-not hold at every size, and it would be misleading to present it as though it
-did: the pointer map carries one line per position saying where that position's
-chunks live, so it grows as the run grows. At **ten thousand positions the map
-comes to roughly 1.2 MB** once the whitespace is stripped out. That is still a
-very small file to keep beside a multi-terabyte run, so this is a correction for
-honesty rather than a difficulty with the design.
+computes the few coarsest ones that no single tile can supply. The pointer map
+carries one line per position, so it grows with the run: at **ten thousand
+positions it comes to roughly 1.2 MB** once the whitespace is stripped out, still
+very small beside a multi-terabyte run.
 
 *(All drawing numbers came from a software renderer with no graphics card. The
 shapes carry; the absolute values do not.)*
@@ -168,10 +165,12 @@ So the rule has two clauses, and the second is a test, not an excuse:
 > sits in.** Measure before deciding, and write the number down beside the
 > decision.
 
-Which makes one thing a task rather than an opinion: **nobody has timed ngio's
-write path against ours.** Before adopting it for the positions, write the same
-run both ways and compare — a position that takes noticeably longer to write is a
-position the microscope is waiting on.
+Which made one thing a task rather than an opinion: **timing ngio's write path
+against ours.** That has since been done, and the numbers are recorded in
+[`ome-zarr-plan-review.md`](ome-zarr-plan-review.md) — like for like, ngio writes
+a position at about our own speed. The question keeps its force for anything else
+we adopt: a position that takes noticeably longer to write is a position the
+microscope is waiting on.
 
 **And it applies to the viewer as much as to the writer.** `viz_studio` is a
 hand-written standard-library HTTP server and a hand-built Neuroglancer front end.
@@ -184,18 +183,18 @@ does that, keeping our own is justified; if something does, ours should go.
 **One candidate has now been measured, and the result is encouraging without
 being conclusive.** Google's `tensorstore` library has an `overlay` driver, which
 composes many separate stores into one virtual array — which is precisely what
-the view does by hand. Reading through an overlay of **ten thousand layers**
+the view does by hand. Reading through an overlay of **ten thousand positions**
 served over local HTTP took a **median of 0.586 ms** per read. That is fast
 enough to be worth taking seriously.
 
-The caveat deserves equal weight. That measurement was taken on a warm cache, on
-this machine's filesystem, with a single reader asking for one thing at a time.
+The caveat deserves equal weight: it was measured on a warm cache, on this
+machine's filesystem, with a single reader asking for one thing at a time.
 The microscope computers this has to run on are **Windows machines with NTFS
 filesystems**, where the cache is often cold and several readers are working at
 once. Until it has been measured there, the number does not settle anything.
 
-So the acceptance gate is written down now, before the benchmark is run, so that
-whoever runs it knows what counts as a pass: a **median read under 5 ms**, a
+The acceptance gate is written down now, before the benchmark is run, so whoever
+runs it knows what counts as a pass: a **median read under 5 ms**, a
 **95th-percentile read under 10 ms**, and **rebuilding the overlay in under
 100 ms** when a new position is added. That last one matters because during a
 smart-microscopy run positions keep arriving, and the viewer must not stall every
@@ -240,7 +239,7 @@ section 4 claims until they are done.**
 | | change | note |
 | --- | --- | --- |
 | **B1** | Per-dataset translation on positions | repair; already written on a branch, but it must land together with the view's reader — see section 3 |
-| **B2** | Bundle every level, not only the full-resolution one | repair; 2 TB is about 20.6 M files today and about 1.19 M with every level bundled |
+| **B2** | Bundle every level, not only the full-resolution one | repair; 2 TB is about 20.5 M files today and about 1.19 M with every level bundled |
 | **B3** | The viewer's server reads a bundle index | repair; a bundled chunk is a byte range, not a file |
 | B4 | Two interop tests — schema validation, and opening with ngio | how B1 would have been caught the day it appeared |
 | B5 | `plan_a_grid` — frame + intent → chunk, overlap, step | the workflow takes `piece=128` today and hopes |
@@ -254,14 +253,13 @@ section 4 claims until they are done.**
 **How B2's file counts actually work, because they are easy to get wrong.**
 Bundling does not merge one pyramid level into another. Every level of every
 position still needs its own bundle file for each plane, so bundling the whole
-pyramid *multiplies* the level-0 bundle count by the number of levels rather than
-leaving it where it was. On a two-terabyte run with five levels that means
-**238,419 files** for the full-resolution level alone once it is bundled,
-**20.3 million** for the unbundled pyramid sitting above it — about 20.6 million
-all told — and **about 1.19 million** once every level is bundled. That is a
-seventeen-fold reduction and clearly worth doing. It is not the sixty-five-fold
-collapse an earlier version of this document claimed, and nobody should plan
-against that.
+pyramid *multiplies* the level-0 bundle count by the number of levels. On a
+two-terabyte run with five levels that means
+**238,419 files** for the full-resolution level alone once it is bundled and
+**20,265,615** for the unbundled pyramid sitting above it, since every tile plane
+still leaves 64 + 16 + 4 + 1 loose chunk files across levels 1 to 4 — about
+**20.50 million** all told — against **about 1.19 million** once every level is
+bundled. That is a seventeen-fold reduction and clearly worth doing.
 
 ### The proposal on top: let ngio write the positions
 
@@ -340,10 +338,10 @@ Then the specific places we are least confident, in rough order.
    is bit-for-bit averaging the whole canvas, so the stated reason for striding
    ("averaging would mix voxels across the join between two positions") appears not
    to hold. Is that reasoning right? Would you take an eighth-sized averaged
-   ladder — about **78–79 GB in theory** instead of 1.7 TB on five terabytes?
-   That smaller number is arithmetic, not a measurement taken on a real run, so
-   it should be read as an estimate and not used as the basis for a disk budget
-   until somebody has written such a run and looked.
+   ladder — **about 90 GB** instead of 1.8 TB on five terabytes? That is the
+   measured 1.8% applied to a five-terabyte run; the arithmetic alone gives a
+   little under 79 GB, and the gap is the compression bookkeeping and bundle
+   indexes a real run also pays for.
 
 4. **Adopting ngio on the acquisition machine.** Sixty-one packages, on a Windows
    microscope PC, in the path of a live experiment. Is the standards-compliance
@@ -367,22 +365,24 @@ Then the specific places we are least confident, in rough order.
 
 ---
 
-## 7. What is measured, and what is assumed
+## 7. What is measured, what is calculated, and what is assumed
 
-Worth separating, since the plan leans on both.
+Worth separating, since the plan leans on all three.
 
 **Measured here:** the schema violation; ngio and ZMART's reader both accepting an
-ngio-written position; view against N sources at 50/200/600 positions; file counts
-at 2 and 5 TB; the copying writer at 1.98×; ladder cost and cell survival at 2×,
-4× and 8×; averaging within a tile equalling averaging the canvas; bundle write
-speed; a view served from memory; every frame width from 512 to 5000 having a
-workable chunk; a TensorStore overlay of ten thousand layers read over local
-HTTP at a median of 0.586 ms.
+ngio-written position; view against N sources at 50/200/600 positions; the copying
+writer at 1.98×; ladder cost and cell survival at 2×, 4× and 8×; averaging within
+a tile equalling averaging the canvas; bundle write speed; a view served from
+memory; every frame width from 512 to 5000 having a workable chunk; a TensorStore
+overlay of ten thousand positions read over local HTTP at a median of 0.586 ms.
+
+**Calculated, not measured: the file counts at 2 and 5 TB.** They are arithmetic
+done on paper, and an earlier version of this document had them wrong by a factor
+of sixty-five — which is not a mistake a measurement could have made.
 
 **Assumed, not measured:** that a real graphics card does not change the shape of
 the drawing results; that HTTP/2 would help as much as the round-trip arithmetic
 suggests; that a synthesised view scales to ten thousand positions; that
 buffer-then-write recovers the 4×; that ngio's dependencies install cleanly on the
 microscope PC; that the TensorStore overlay timing survives a Windows NTFS
-machine with a cold cache and several readers at once, which is the condition its
-acceptance gate above is written for.
+machine with a cold cache and several readers at once.
