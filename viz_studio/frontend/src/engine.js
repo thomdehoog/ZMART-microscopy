@@ -1032,3 +1032,39 @@ export function syncView(viewer, { layout, chrome }) {
   // runs on every change to the view.
   viewer.crossSectionBackgroundColor.restoreState("#000000");
 }
+
+
+/**
+ * Stretch the picture along an axis without touching what is on disk.
+ *
+ * The engine keeps one factor per dimension of the coordinate space and applies
+ * them to the display alone, so this changes how the specimen is drawn and
+ * nothing about what it claims to be. That distinction is the whole reason this
+ * is safe to offer: correcting a run whose declared voxel size is wrong is a
+ * different act, with different consequences, and belongs somewhere harder to
+ * reach than a panel.
+ *
+ * Which is also why anything above the panel has to say when a factor is not
+ * one. A stretched picture with an unmarked scale bar is a way to take a wrong
+ * measurement and never know.
+ *
+ * Factors are held by axis name rather than by position, because the space is
+ * `t, z, y, x` here and `t, c, z, y, x` elsewhere, and an index would silently
+ * scale the wrong thing on a store with a channel axis.
+ */
+export function stretchTheDisplay(viewer, byAxis) {
+  const scales = viewer?.navigationState?.relativeDisplayScales;
+  if (!scales) return;
+  const names = viewer.navigationState.coordinateSpace.value?.names;
+  if (!names) return;
+  const factors = new Float64Array(scales.value.factors);
+  let moved = false;
+  names.forEach((name, index) => {
+    const wanted = byAxis[name];
+    if (typeof wanted === "number" && wanted > 0 && factors[index] !== wanted) {
+      factors[index] = wanted;
+      moved = true;
+    }
+  });
+  if (moved) scales.setFactors(factors);
+}
