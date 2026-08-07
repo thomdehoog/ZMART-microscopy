@@ -169,6 +169,27 @@ gate on Linux, but says nothing about a cold Windows filesystem or several reade
 filling a screen at once, so **the deciding run is on a microscope computer.** The
 checklist has the gate and the timings.
 
+> **Time the opening, not only the drawing.** The gate above is written in frame
+> times, and frame times turn out to be the forgiving half of the question.
+> Measured on both a software renderer and a real graphics card, at four hundred
+> separate sources: drawing came down from 121.7 ms a frame to 2.4 ms once the
+> card did the work, about fifty times better — while **the wait before anything
+> appears did not improve at all**, staying at roughly three and a half seconds.
+> Opening and fetching are not the card's work; they are setting up each source
+> and reading from disk, and a faster machine does not help.
+>
+> Worse, that wait grows faster than the run does. Doubling the positions
+> multiplied it by nearly four and then by more than five, so it is at least
+> squaring while the frame time merely doubles. An arrangement can therefore look
+> perfectly smooth once it is up and still take minutes to show anything.
+>
+> This is what makes the arrangement chosen here the right one, and for a better
+> reason than speed of drawing: **one picture opens in about a fifth of a second
+> whatever it is made of** — flat from five positions to four hundred — because
+> the viewer is handed one thing to set up rather than one per position. Any
+> future gate, TensorStore's included, should say how long an operator waits
+> before seeing anything, not only how smoothly it moves afterwards.
+
 ---
 
 ## Before any of it
