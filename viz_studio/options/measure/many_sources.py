@@ -57,7 +57,10 @@ rather than left to be discovered:
   would be read once and kept. For this question they are most of the story — N
   sources means N descriptions before a pixel can be drawn — so they are counted
   here, and reported separately from the pieces of picture so that either number
-  can be read on its own.
+  can be read on its own. Nothing else about how they are served changes: the
+  same bytes go out, and the small repair the server makes to the way a unit is
+  spelled still happens, because the stores this run writes already spell it the
+  way the format asks and there is nothing for the repair to do.
 
 Run it with::
 
@@ -169,9 +172,10 @@ def write_a_run(folder: Path, positions: int) -> tuple[Path, list[Path]]:
         channels=[Channel("probe", color="FFFFFF", window=(0, 4095))],
         piece=PIECE,
         # Version 0.4 rather than 0.5, so that every store here describes itself
-        # in a `.zattrs` beside the picture. That is the spelling the address the
-        # page hands over asks for, and the one the harness's server knows how to
-        # repair units in.
+        # in a small `.zattrs` beside the picture. That is what the address handed
+        # to the engine asks for — it ends `|zarr2:` — and it is the arrangement
+        # every other acquisition in this folder is written in, so a number
+        # measured here can be set beside one measured there.
         ome_zarr_version="0.4",
     ) as run:
         for index in range(positions):
@@ -183,25 +187,8 @@ def write_a_run(folder: Path, positions: int) -> tuple[Path, list[Path]]:
         view = run.path
     where = view / POSITIONS_FOLDER
     stored = sorted(one for one in where.iterdir() if one.name.endswith(".ome.zarr"))
-    _spell_the_units_the_way_the_engine_wants(folder)
     _make_the_pointed_at_pieces_real(view, folder, positions)
     return view, stored
-
-
-def _spell_the_units_the_way_the_engine_wants(folder: Path) -> None:
-    """Rewrite "micrometer" as "um" in every description under this folder.
-
-    The writer spells the unit out in full, which is correct, and the drawing
-    engine refuses anything but the short form. The harness's server normally
-    repairs that as it hands a description over — but only for the files it
-    treats as descriptions, and this measurement needs those files counted like
-    any other. Repairing them on disk instead means the server can be asked to
-    count everything without also being asked to stop repairing anything.
-    """
-    for described in folder.rglob(".zattrs"):
-        text = described.read_text(encoding="utf-8")
-        if "micrometer" in text:
-            described.write_text(text.replace("micrometer", "um"), encoding="utf-8")
 
 
 def _make_the_pointed_at_pieces_real(view: Path, opened: Path, positions: int) -> int:
@@ -516,8 +503,51 @@ def measure_one(harness, *, label: str, acquisitions: list[dict], view: dict,
     found["the engine said it had opened after (s)"] = _what_the_page_says(harness)
     found["which engine drew this"] = which_engine_is_drawing(harness)
     found["photograph"] = harness.save_frame(settled, photograph)
-    found["panning"] = _panning(harness, f"{photograph}-panning")
+    # The drag is made three times over rather than once. On a machine with no
+    # graphics card a single reading of a drawing rate has been seen to vary by a
+    # factor of two on an unchanged build — another program waking up is enough —
+    # so a single number would invite a comparison it cannot support. The middle
+    # reading is reported with the lowest and highest beside it, and two cells
+    # whose ranges overlap have not been shown to differ.
+    drags = []
+    for time_round in range(3):
+        harness.page.evaluate(
+            "(view) => window.harness.viewer.setView(view)", view
+        )
+        harness.settle(tries=25)
+        drags.append(_panning(harness, f"{photograph}-panning-{time_round}"))
+    found["panning"] = _the_middle_drag(drags)
     return found
+
+
+def _the_middle_drag(drags: list[dict]) -> dict:
+    """Three drags summarised as one, with the spread kept beside the middle.
+
+    Sorted on the middle frame time, because that is the number a reader will
+    compare. The lowest and highest are kept so that a difference which is really
+    just this machine's noise can be seen for what it is.
+    """
+    usable = [one for one in drags if one.get("middle frame (ms)") is not None]
+    if not usable:
+        return {"why": "no frame reached the screen during any of the drags",
+                "every drag": drags}
+    in_order = sorted(usable, key=lambda one: one["middle frame (ms)"])
+    middle = in_order[len(in_order) // 2]
+    return {
+        "middle frame (ms)": middle["middle frame (ms)"],
+        "worst frame (ms)": max(one["worst frame (ms)"] for one in usable),
+        "frames a second": middle["frames a second"],
+        "share of the window lit while panning": middle.get(
+            "share of the window lit, last frame of the drag"
+        ),
+        "middle frame, lowest and highest of three drags (ms)": [
+            in_order[0]["middle frame (ms)"], in_order[-1]["middle frame (ms)"]
+        ],
+        "every drag": [
+            {key: one[key] for key in one if key != "every frame (ms)"}
+            for one in drags
+        ],
+    }
 
 
 def _what_the_page_says(harness) -> float | None:
@@ -589,6 +619,30 @@ def the_view_settings(rung: int) -> dict:
     }
 
 
+def _the_middle_reading(taken: list[dict]) -> dict:
+    """Several whole readings of one cell, reported as the middle one.
+
+    Opening a viewer cold can only be done once to a page, so a repeat means a
+    fresh page and a fresh reading of everything. What comes back is the reading
+    whose time to the first specimen was in the middle, with the range across the
+    readings kept beside it — the same habit as the drags above, and for the same
+    reason: on this machine a single reading is not worth much on its own.
+    """
+    drew = [one for one in taken
+            if one.get("seconds to the first specimen on screen") is not None]
+    if not drew:
+        return dict(taken[0])
+    in_order = sorted(drew, key=lambda one: one["seconds to the first specimen on screen"])
+    middle = dict(in_order[len(in_order) // 2])
+    middle["seconds to the first specimen, lowest and highest seen"] = [
+        in_order[0]["seconds to the first specimen on screen"],
+        in_order[-1]["seconds to the first specimen on screen"],
+    ]
+    middle["how many whole readings were taken"] = len(taken)
+    middle["readings where nothing was ever drawn"] = len(taken) - len(drew)
+    return middle
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rungs", default="50,100,400,1000")
@@ -596,6 +650,8 @@ def main() -> int:
     parser.add_argument("--out", type=Path,
                         default=_HERE.parent / "measurements" / "many-sources")
     parser.add_argument("--data", type=Path, default=None)
+    parser.add_argument("--repeats", type=int, default=2,
+                        help="how many whole readings of each cell to take")
     parser.add_argument("--keep", action="store_true",
                         help="do not write the runs again if they are already there")
     args = parser.parse_args()
@@ -616,7 +672,6 @@ def main() -> int:
     # them equally.
     if not (data_dir / "square.ome.zarr").exists():
         acquisitions.write_the_square(data_dir).close()
-        _spell_the_units_the_way_the_engine_wants(data_dir / "square.ome.zarr")
 
     rungs = [int(one) for one in args.rungs.split(",") if one.strip()]
     runs = {}
@@ -656,37 +711,53 @@ def main() -> int:
                 data_dir, harness.address, view, stored, rung
             )
             for label, asked in arrangements.items():
-                print(f"  {label} …", flush=True)
-                began = time.perf_counter()
-                try:
-                    # A fresh page for every cell, so that neither arrangement is
-                    # measured on an engine another one had already warmed.
-                    harness.open(store="square", draw="none")
-                    found = measure_one(
-                        harness,
-                        label=label,
-                        acquisitions=asked,
-                        view=the_view_settings(rung),
-                        photograph=f"{rung}-{label.split()[0]}",
+                taken = []
+                for again in range(args.repeats):
+                    print(f"  {label}, reading {again + 1} …", flush=True)
+                    began = time.perf_counter()
+                    try:
+                        # A fresh page for every reading, so that neither
+                        # arrangement is measured on an engine the other one — or
+                        # an earlier reading — had already warmed.
+                        harness.open(store="square", draw="none")
+                        found = measure_one(
+                            harness,
+                            label=label,
+                            acquisitions=asked,
+                            view=the_view_settings(rung),
+                            photograph=f"{rung}-{label.split()[0]}-{again}",
+                        )
+                    except Exception as went_wrong:
+                        found = {
+                            "could not be measured": str(went_wrong)[:2000],
+                            "where": traceback.format_exc().splitlines()[-4:],
+                        }
+                        print(f"    could not be measured: {went_wrong}", flush=True)
+                    found["console"] = [
+                        line for line in harness.console
+                        if line.startswith(("error", "pageerror", "warning"))
+                    ][:20]
+                    taken.append(found)
+                    print(f"    {time.perf_counter() - began:.1f} s: "
+                          f"first pixel "
+                          f"{found.get('seconds to the first specimen on screen')} s, "
+                          f"lit {found.get('share of the window lit')}, "
+                          f"requests "
+                          f"{(found.get('one screenful of requests') or {}).get('requests in all')}, "
+                          f"middle frame "
+                          f"{(found.get('panning') or {}).get('middle frame (ms)')} ms",
+                          flush=True)
+                    (out / "many-sources.json").write_text(
+                        json.dumps(
+                            {**everything, "rungs": {
+                                **everything["rungs"],
+                                rung: {**everything["rungs"][rung],
+                                       label: {"readings": taken}},
+                            }}, indent=2, default=str)
                     )
-                except Exception as went_wrong:
-                    found = {
-                        "could not be measured": str(went_wrong)[:2000],
-                        "where": traceback.format_exc().splitlines()[-4:],
-                    }
-                    print(f"    could not be measured: {went_wrong}", flush=True)
-                found["console"] = [
-                    line for line in harness.console
-                    if line.startswith(("error", "pageerror", "warning"))
-                ][:20]
+                found = taken[0] if len(taken) == 1 else _the_middle_reading(taken)
+                found["readings"] = taken
                 everything["rungs"][rung][label] = found
-                print(f"    {time.perf_counter() - began:.1f} s: "
-                      f"first pixel "
-                      f"{found.get('seconds to the first specimen on screen')} s, "
-                      f"lit {found.get('share of the window lit')}, "
-                      f"requests "
-                      f"{(found.get('one screenful of requests') or {}).get('requests in all')}",
-                      flush=True)
                 (out / "many-sources.json").write_text(
                     json.dumps(everything, indent=2, default=str)
                 )
