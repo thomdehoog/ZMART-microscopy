@@ -81,13 +81,8 @@ position sits is stated inside the image, never in its name.
 **Point analysis at the positions, never at the view.** The view is a complete and
 valid OME-Zarr image that holds no chunk files of its own — every piece of it is
 one of the positions' pieces, handed over by the viewer's server. Opened by
-anything else it is correct in every respect and blank.
-
-**And it is a session artifact rather than part of the dataset.** It is written
-and grown while a run is going, because watching a run fill in is the point of
-having a viewer — and then **deleted**, and rebuilt whenever somebody wants to
-look again. What is archived, copied or sent to a colleague is a folder of
-ordinary OME-Zarr tiles and nothing else. See §6.
+anything else it is correct in every respect and blank. See section 6 for why it
+exists at all and what will replace it.
 
 ---
 
@@ -247,28 +242,6 @@ inside an image, and section 6 is about replacing it with something standard.
 
 *Status: the view is running. The scene is a decision to prepare for, not to build
 yet.*
-
-### It is deleted after the run, and rebuilt on demand
-
-`link_the_tiles(folder, tiles=...)` reconstructs a view from a folder of tiles,
-reading the voxel size, the channel names, how the picture is stored and how many
-levels there are **out of the tiles themselves**. Nothing has to be remembered for
-it to work, which is what makes deleting it safe.
-
-There are two ways to rebuild, and having both is the point:
-
-| | cost | what it needs |
-| --- | --- | --- |
-| from the companion list `zmart-links-added.jsonl` | one file read | our own file, about 150 bytes a tile — 1.5 MB for ten thousand |
-| from the tiles' own metadata | one small read per tile | **nothing but the tiles** |
-
-The first is the fast path. The second is the guarantee: because every tile states
-its own place on the stage, the data never *depends* on anything we invented. Lose
-our file, or hand the folder to somebody who never had it, and the view is still
-reconstructable.
-
-**This resolves the one interoperability divergence completely.** The object that
-does not travel simply stops existing outside a live session.
 
 ### Why the view exists
 

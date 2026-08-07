@@ -23,9 +23,7 @@ A run writes **every tile whole, exactly as the camera recorded it**, each one a
 ordinary OME-Zarr image that any software can open. Beside them sits a **view** —
 also a real OME-Zarr image, but holding no pixels of its own; it points at the
 tiles, so the viewer can be handed one image however many thousand tiles there
-are — and which is **deleted when the run ends and rebuilt when anyone wants to
-look again**, so what is archived is only ever ordinary tiles. The overlap is
-never cut out of the tiles. It is *accounted for* twice over,
+are. The overlap is never cut out of the tiles. It is *accounted for* twice over,
 in different ways: the viewer is shown fewer chunks, and the analysis counts only
 the objects a tile owns. Nothing is written twice, and the ground truth exists
 once.
@@ -88,8 +86,8 @@ arrived at — `modest` is 10% on a 2048 or 2304 sensor and 12.5% on a 1024 scan
 ## The analysis contract — four rules that do not change
 
 1. **Point at the positions, never at the view.** The view holds no pixels and
-   reads back as zeros everywhere — and after a run it is deleted, so most of the
-   time it will not even be there. The tiles are the dataset.
+   reads back as zeros everywhere. It is the one object in the whole arrangement
+   that does not travel.
 2. **Segment the whole tile, then keep only what it owns.** Run the segmentation
    over the entire tile, overlap included, so no cell is ever cut in half — then
    discard objects whose centre falls outside the tile's owned rectangle, which
