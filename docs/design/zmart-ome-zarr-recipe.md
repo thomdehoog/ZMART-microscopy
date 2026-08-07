@@ -243,6 +243,55 @@ inside an image, and section 6 is about replacing it with something standard.
 *Status: the view is running. The scene is a decision to prepare for, not to build
 yet.*
 
+### Measured: one view against N sources, on the same files
+
+Taken 7 August 2026. The repository's two existing harnesses measure different
+things, so their numbers could not be set beside each other — one times a
+page-open call, the other times open-until-something-is-drawn. This is a
+like-for-like run instead: **one run of positions written once, then opened
+twice** — as the view that points at them, and as the positions handed over one
+by one. Nothing differs but how many sources the drawing engine is given.
+
+| positions | view: first pixel | separate: first pixel | view: requests | separate: requests | separate: worst frame |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 50 | 3.04 s | 2.53 s | 101 | 197 | 17 ms |
+| 200 | 2.14 s | 7.91 s | 115 | 647 | 17 ms |
+| **600** | **2.19 s** | 3.66 s | **120** | **1,547** | **733 ms** |
+
+**The view is flat.** From fifty positions to six hundred, it needs 101 to 120
+requests and about two seconds to the first pixel. That is the whole claim of the
+arrangement, and this is the first time it has been checked against the
+alternative on identical files.
+
+**At fifty positions the two are equal**, and the view is if anything marginally
+slower. So a small run genuinely does not need it — the apparatus earns its place
+somewhere between two hundred and six hundred positions.
+
+**Two costs make the separate arrangement worse as it grows, and they differ in
+kind:**
+
+- **Metadata requests, paid before anything is drawn.** The engine resolves each
+  store as it is added — about 2.6 requests a position here — through a browser
+  that opens roughly six connections at a time. At six hundred positions that is
+  1,547 requests queueing before the first pixel.
+- **A drawing layer per source, paid on every frame.** Every layer takes part in
+  every redraw whether or not it is visible. That is what produces the 733
+  millisecond worst frame at six hundred, where the view stays at 17.
+
+**Read the worst frame rather than the middle one.** At six hundred separate
+sources the *middle* frame is still 17 ms — typical frames are fine. It is the
+worst that blows out, so it is felt as a **hitch while panning** rather than a
+uniformly sluggish viewer, which is often the more annoying of the two.
+
+**And do not read much into the first-pixel column for separate sources** — 2.5,
+7.9, 3.6 is erratic because it depends on when a tile that happens to sit under
+the middle of the screen arrives. Requests and worst frame are the stable
+signals.
+
+As with everything else here, this was drawn in software with no graphics card. A
+real card would lift the frame rates; it would not change the request counts, and
+the per-layer bookkeeping it measures is processor work rather than drawing work.
+
 ### Why the view exists
 
 The view does **two different jobs**, and separating them is the most important
