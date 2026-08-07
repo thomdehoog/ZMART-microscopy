@@ -1593,7 +1593,16 @@ def _say_where_each_resolution_sits(
         rebuilt = dict(multiscale)
         rebuilt["datasets"] = [
             {**dataset, "coordinateTransformations": [
-                *(dataset.get("coordinateTransformations") or []), moved,
+                # Any place the image already claimed is dropped, and the view's
+                # own is put in its stead. Replacing rather than adding matters:
+                # the writer underneath now states a place beside each copy too,
+                # so appending would leave two of them. A reader that composes
+                # what it finds would then move the picture twice, and the format
+                # allows a copy at most one place besides its scale, so the image
+                # would not merely be drawn wrong — it would be refused outright.
+                *(one for one in (dataset.get("coordinateTransformations") or [])
+                  if one.get("type") != "translation"),
+                moved,
             ]}
             for dataset in multiscale.get("datasets") or []
         ]
