@@ -453,12 +453,56 @@ sources** -- the next quadratics, not present ones.
 **So there is no second concentrated term to attack.** What is left is scheduling,
 and the only lever on scheduling is issuing fewer requests per source.
 
-Caveats the trace carries: about 890 ms of the batched main-thread busy is
-unattributed to any JS function and falls *inside* tasks, which weakens "spread
-thin" by that much; tracing costs the batched build proportionally more than the
-stock one (+26% against +4%), because its remaining cost *is* task dispatch and that
-is what the tracer instruments, so the true per-source floor is lower than measured;
-and the stock column is single-sampled.
+### The unattributed time was the software rasteriser, not the engine
+
+The profile above left about 890 ms of main-thread busy attributable to no JS
+function, and both explanations offered for it were wrong. A second trace, with
+categories chosen from the 301 the browser actually reports rather than guessed,
+names it:
+
+**`GpuChannel::WaitForGetOffsetInRange` — 1215 ms in 76 events, 64% of main-thread
+busy at four hundred sources.** The cause is 25 `GLES2::ReadPixels` calls under
+`LayerTreeHost::DoUpdateLayers <- ProxyMain::BeginMainFrame`: **Chromium's own
+compositor reading the WebGL canvas back to the processor**, because SwiftShader has
+no GPU to share a texture with. The GPU process corroborates it at 1215.5 ms through
+`ImageHelper::readPixelsImpl - CPU Readback`.
+
+Every candidate is refuted with a number:
+
+```
+V8 compile / parse         67 ms, and 1.2x for 4x N -- a constant, the bundle
+garbage collection         40 ms
+Blink style/layout/paint   47 ms
+mojo / IPC dispatch        12 ms, flat
+bare task, nothing named   12.8 ms  (0.5%)
+```
+
+The last line also refutes "the residue is scheduling spread over eighteen thousand
+tasks", which is what the previous section concluded.
+
+**Net of the readback the engine looks better than any number quoted above:**
+
+```
+non-GPU main-thread work   305 ms at N=100  ->  692 ms at N=400   2.27x for 4x N
+per source                 3.05 ms          ->  1.73 ms           falls as N grows
+```
+
+Sublinear, and about **1.7 ms a source** rather than the 5.1 ms quoted elsewhere in
+this document -- that figure was measured in software and carries the rasteriser's
+readback inside it. So there is no second concentrated engine term, and the
+conclusion is stronger than when it rested on "nothing shows above 5%".
+
+**What this means for every software number here.** They are contaminated, in a way
+that flatters the picture and penalises the sources: a longer opening means more
+compositor frames means more readback. The shapes survive -- the picture is still
+flat and the sources still linear -- but the *per-source constants measured in
+software are too high*, and the headed figures are the ones to trust.
+
+Still open: 333 ms of the batched opening remains genuinely unnamed, no trace was
+taken on the real card, and there is a tension nobody has resolved -- 1.2 s of a
+2.82 s open should be worth ~43% if it were all critical path, and the card
+measured ~25%, so about half that block is slack the opening would have spent
+waiting anyway.
 
 ### Where this leaves the arrangement
 
