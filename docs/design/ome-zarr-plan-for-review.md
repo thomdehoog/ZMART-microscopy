@@ -119,6 +119,22 @@ resolution, after the scale, and remove the image-wide one.
 | HCS plate layout | **not used, on any instrument** | well and field become columns of a run-level table; one arrangement everywhere |
 | The overlap | **never cut out of the pixels** | accounted for by the viewer and the analysis separately |
 
+### A standing preference, which the ngio proposal is one instance of
+
+> **Where a package from the ecosystem enforces the standard and gives the same
+> result, use it instead of our own code.**
+
+The fault in section 3 exists because we write the metadata by hand. A library
+that writes it cannot make that mistake, and it keeps us honest as the format
+moves. So the burden of proof runs the other way: our own code has to *earn* its
+place by doing something no available package does — writing the view, appending
+the pointer map, recording coverage, watching a run fill in — rather than merely
+being there first.
+
+A reviewer should apply this to everything below, not only to ngio. If some other
+part of this arrangement duplicates something `ngio`, `ngff-zarr` or plain `zarr`
+already does correctly, that is exactly the bloat we are asking to have found.
+
 ### Derived, never chosen by a person
 
 The frame is given by the camera. From it and an overlap *intent* the writer
