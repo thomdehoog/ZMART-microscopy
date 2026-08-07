@@ -326,13 +326,34 @@ def _how_wide_the_picture_is(folder: Path, store: str) -> int:
     return int(described["shape"][-1])
 
 
+# Every source has resolved -- succeeded or failed -- and not merely been handed
+# over.
+#
+# **`zmartSourcesWaiting()` reaching nought does not mean the run is open**, and the
+# docstring below used to say it did. It counts the URLs the page has still to pass
+# to the engine, so it empties when the last one has been *handed over*, not when it
+# has been read. Measured on this ladder it returned with **thirty of a hundred**
+# sources resolved and **three hundred of four hundred**: an opening timed against it
+# is the time to hand over a list, and it reported four hundred positions opening in
+# 3.64 s where the truth was 8.96. A source carries a `loadState` once it has
+# resolved, and once it has failed, so waiting for all of them to have one is the
+# honest condition.
+EVERY_SOURCE_RESOLVED = """() => {
+  const sources = window.zmartViewer.layerManager.managedLayers
+    .filter((managed) => managed.layer && managed.layer.type === 'image')
+    .flatMap((managed) => managed.layer.dataSources);
+  return sources.length > 0 && sources.every((s) => s.loadState !== undefined);
+}"""
+
+
 def _open_it_and_time_it(page, port: int) -> float:
     """Point a page at the run and wait until it has everything, in seconds.
 
-    Waiting on the engine rather than on the page's own loading, because a page
-    that has loaded has drawn nothing: `zmartViewer` existing says the viewer was
-    made, holding a picture says the run was opened, and nothing left waiting says
-    its sources resolved.
+    Waiting on the engine rather than on the page's own loading, because a page that
+    has loaded has drawn nothing: `zmartViewer` existing says the viewer was made,
+    holding a picture says the run was opened, nothing left waiting says every source
+    has been handed to the engine -- and every source carrying a `loadState` says
+    they were actually read, which is the one that makes this an opening time.
     """
     began = time.time()
     page.goto(f"http://127.0.0.1:{port}", wait_until="domcontentloaded")
@@ -340,6 +361,7 @@ def _open_it_and_time_it(page, port: int) -> float:
     page.wait_for_function(f"{HELD} >= 1", timeout=300_000)
     page.wait_for_function("() => window.zmartSourcesWaiting() === 0",
                            timeout=300_000)
+    page.wait_for_function(EVERY_SOURCE_RESOLVED, timeout=600_000)
     return time.time() - began
 
 
