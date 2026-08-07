@@ -215,17 +215,71 @@ OME-Zarr metadata cannot rotate. Neuroglancer's per-source
 
 Deferred until something asks for it.
 
-## Phase 4 — upstream: a driver that walks a group
+## Phase 4 — declare it once, transform per tile
 
-The one thing that would give both free placement **and** `held = 1`: a zarr
-driver that, given a group, enumerates its child images and returns one multiscale
-composed of them, each with its own `coordinateTransformations`.
+### Why this and not "a driver that walks a group"
 
-Everything else exists — transforms are parsed, `dataSources` is an array,
-`scene.js` sends a list. This is a well-scoped neuroglancer change, not a
-redesign.
+An earlier version of this phase asked for a driver that, handed a group,
+enumerates its children. That is the same cost by a longer road: enumerating still
+means reading each child's description, and **the description is the whole cost**.
 
-Only pursue if Phase 0 says `held = N` is unaffordable at the sizes that matter.
+Measured: a position carries **four metadata files** — one for the group and one
+per pyramid level — and the run asked **4.1 requests per position**, 1638 of them
+at four hundred. The requests *are* the metadata; the pixels barely register. The
+bundled driver has no consolidated-metadata support either (nothing matches
+`consolidated` or `zmetadata` under `datasource/zarr/` or `kvstore/`), so every one
+of those four is its own round trip.
+
+So the thing to ask for is not discovery. It is **one document, read once, that
+already says where all N tiles are** — which is what `zmart-links.json` is today,
+minus a transform field.
+
+### What it would and would not fix
+
+```
+                       declare N times      declare once
+requests               4.1 per position     flat, one document
+cold opening           ~quadratic           flat, if the quadratic is the fetching
+drawing frame          0.28 ms per source   unchanged: still a render layer each
+```
+
+It does **not** fix the per-source frame cost. That is deliberate: at four hundred
+sources the drawing frame falls from 121.7 ms in software to 2.4 ms on the card,
+so that column is not what limits anything on real hardware. The columns this fixes
+— opening and requests — are the ones that do not recover on a GPU and that set the
+ceiling.
+
+### The gate, and it is not optional
+
+**Requests are linear and cold opening is quadratic, so the requests do not explain
+the curve.** Something else is superlinear. If it is per-source registration work
+— each arriving source causing a recompute across all sources would be exactly
+O(N²) — then declaring once removes N round trips and leaves the quadratic
+untouched, because the reader still creates N sources internally.
+
+Find out where the quadratic lives **before** designing the document format:
+
+1. Time source registration separately from fetching. Serve the same N stores from
+   a warm cache so fetching is near-free, and see whether the opening is still
+   quadratic. If it is, the fetching was never the problem.
+2. Instrument the arrival path — count how much work each resolving source causes,
+   and whether that work is proportional to the number already present.
+
+If the quadratic is in registration, this phase is worth much less than it looks
+and the honest answer becomes a bounded number of sources.
+
+### What would have to change
+
+- **The document**: a per-tile transform beside the pointer, in the file that
+  already lists the tiles.
+- **The reader**: `datasource/zarr/frontend.js:491` resolves a group by reading
+  `multiscales` on the group's *own* attributes and never enumerates children, so
+  one source URL yields exactly one volume. It would need to yield N, each carrying
+  its own transform, from a single fetch.
+
+Everything else is already there: transforms are parsed per source
+(`datasource/zarr/ome.js`), `dataSources` is an array (`layer/index.d.ts:112`), and
+`scene.js:260` already sends a list.
 
 ## What not to do
 
