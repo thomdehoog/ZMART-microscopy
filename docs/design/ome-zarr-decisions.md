@@ -35,6 +35,19 @@ viewer at once — two masters pulling opposite ways. Bundle the chunks and the 
 count becomes the shard's business entirely, leaving the chunk free to be picked
 for viewing alone. One of the three tensions disappears.
 
+> **But only if every level is bundled, and today only level 0 is.** The writer's
+> comment says the smaller copies are "few enough not to need it", which is wrong
+> by a factor of sixty-five on a two-terabyte run: level 0 bundled comes to
+> 238,000 files while the unbundled pyramid above it comes to **20.3 million**.
+> Once the full-resolution level is bundled, the pyramid *dominates* the count.
+>
+> Bundling every level brings the same run to **318,000 files** — the file count
+> of a 2048-voxel chunk with the 32 KB fetches of a 128-voxel one. Until that is
+> fixed, a large run really does need a bigger chunk, and the trade this section
+> says has disappeared has not disappeared. It is a small change to
+> `_make_the_copies`: bundle every level, capping the bundle at the level's own
+> extent for the small ones.
+
 The chunk's band has honest reasons at both ends, and neither is about files any
 more: too small and you pay the browser's per-piece bookkeeping many times over;
 too large and every fetch drags bytes you did not need.
@@ -131,3 +144,8 @@ person chooses, derived where arithmetic does better than a person.**
    the origin. The fix is written on `claude/ngff-translation-per-dataset`.
 2. **Reading a bundle index in the viewer's server.** Without it there is no
    bundling, and without bundling a five-terabyte run cannot be copied.
+3. **Bundling every level, not only the full-resolution one.** Measured on two
+   terabytes: bundling level 0 alone leaves 20.6 million files, because the
+   pyramid above it is unbundled and dominates. Bundling all of them leaves
+   318,000. Until this is done, chunk size still has to serve the filesystem as
+   well as the viewer.
