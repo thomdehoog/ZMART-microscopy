@@ -8,6 +8,69 @@ Measured today, on ten positions of the benchmark ladder: ten stores, each pulle
 back 16.64 µm — **51.2 voxels, a fractional voxel** — placed correctly on screen
 with no pixel altered. The pointer map cannot express that offset at all.
 
+## Which numbers to trust
+
+This document's tables disagree with each other, because the harness was wrong
+underneath them and was fixed twice while they were being taken. **These are the
+current ones. Anything elsewhere in this file or in the commit history that
+contradicts them is superseded.**
+
+Conditions matter more than the figures. A reading is only comparable to another
+taken the same way, and there are four axes: which machine drew it, whether the
+opening waited for the sources to *resolve* or merely be handed over, whether the
+camera was pinned, and whether the engine was stock or carried the batched-bind
+prototype.
+
+**On the card (NVIDIA T400), stock engine, every source resolved, camera pinned.**
+The only figures that describe the machine anyone uses:
+
+```
+400 positions        picture      sources
+opening               0.31 s       4.95 s
+drawing frame         0.6 ms       3.4 ms
+a position costs         --        7.3 us
+frames a second          116          105
+```
+
+**In software (headless SwiftShader), stock engine, same waits.** Useful for shape,
+not for magnitude -- about two thirds of main-thread busy is the rasteriser reading
+the canvas back, which inflates the slower arrangement more than the faster one:
+
+```
+positions    picture opening    sources opening    sources, a position costs
+        5        0.21 s             0.25 s              --
+       50        0.22 s             0.45 s             202 us
+      100        0.24 s             0.72 s             393 us
+      200        0.25 s             1.76 s             369 us
+      400        0.24 s             6.32 s             371 us
+```
+
+**The picture as tiles climb**, overlapping, seams chunk-aligned, software:
+
+```
+    400 tiles   0.21 s    map 0.09 MB
+  2,500 tiles   0.29 s    map 0.55 MB
+ 10,000 tiles   0.53 s    map 2.19 MB
+```
+
+**The batched-bind prototype**, software, four hundred overlapping sources:
+2.36 s against 8.06 stock, and x3.9 for x4 positions rather than x10.3.
+
+### Superseded, and why
+
+- **"400 sources open in 3.64 s"** -- measured against `zmartSourcesWaiting()`, which
+  returns with three hundred of the four hundred still unresolved. The page was three
+  quarters loaded.
+- **"The picture is flat at 0.22 s to ten thousand"** -- inherited from an older
+  ladder on different geometry and never measured here. Measured, it is 0.53 s and it
+  grows with the map.
+- **"Declaring once is worth about a fifth"** -- measured against a software total
+  that is half rasteriser artefact. Retracted; the experiment that settles it is a
+  warm-cache run on the card, which has not been done.
+- **Any ratio between the two arrangements taken in software** -- the readback scales
+  with opening time, so it penalises the slower arrangement and the gap reads wider
+  than it is.
+
 ## What this actually buys, which is narrower than it looks
 
 **It is not precision, and it is not overlap. It is being able to change your mind
