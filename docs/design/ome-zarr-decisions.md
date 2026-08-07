@@ -30,7 +30,7 @@ in [`zmart-ome-zarr-recipe.md`](zmart-ome-zarr-recipe.md), and the measurements 
 | # | decision | how to answer |
 | --- | --- | --- |
 | 9 | **Does this instrument need 0.6?** | Only if it acquires something 0.5 cannot describe — a light-sheet deskew, or rotations between views. Confocal and widefield: no. |
-| 10 | **Snappy viewing, or cheap imaging?** | Sets which chunk gets chosen. On a 2048 sensor: chunk 204 at 20% overlap fills a screen in 209 requests; chunk 128 at 12.5% takes 527. |
+| 10 | **Snappy viewing, or cheap imaging?** | Sets which chunk gets chosen. Best is to align frame, chunk and overlap together: a **2304 sensor takes chunk 192 at 16.7% overlap with nothing shaved off** — 144 requests a tile-plane against 400 for chasing an exact 10%. A 4096 takes chunk 256 at 12.5%. 2048 is the awkward one: 12.5% or 25%, nothing between. |
 | 11 | **What overlap does this stage really need?** | Measure it rather than believe it. The tiles are kept whole, so a stitcher can report how far each really moved. Offsets of a few voxels against a 204-voxel overlap mean you are paying for ten times what you need. |
 
 ---
@@ -39,6 +39,7 @@ in [`zmart-ome-zarr-recipe.md`](zmart-ome-zarr-recipe.md), and the measurements 
 
 | # | decision | options |
 | --- | --- | --- |
+| 11b | **On a point scanner, what scan format?** | Where the format is settable, ask for one that aligns: **2880** gives chunk 288, 20% overlap and only 100 requests a tile-plane; 3456 gives 16.7%; 4608 gives 12.5%. Better than 2048 on every axis at once. |
 | 12 | **What kind of scan is this?** | `overview`, `targetscan`, … — it names the folder and separates acquisition types |
 | 13 | **How much overlap?** | **none** (a survey you will never stitch, 1.0×) · **modest** (ordinary mosaics, ~1.3×) · **generous** (sparse specimens, light-sheet, ~1.6×) |
 

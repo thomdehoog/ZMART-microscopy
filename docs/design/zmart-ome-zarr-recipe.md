@@ -609,6 +609,49 @@ columns are the scanner's turnaround. Nobody quantifies cells there.
   at each edge (0.35%), which allows a 115-voxel chunk and an overlap of exactly
   10%."* An operator who objects can then say so before the run rather than after.
 
+##### Best of all: align the format, the chunk and the overlap together
+
+The tables in this section take the frame as given and derive the rest. Choosing
+all three at once does better, and on the sensors actually in use it does better
+*with no frame fitting at all* — nothing shaved off, nothing discarded:
+
+| sensor | chunk | overlap | chunks per tile-plane |
+| --- | ---: | ---: | ---: |
+| **2304** (ORCA-Fusion) | **192** | **16.7%** | **144** |
+| 2304 | 256 | 22.2% | 81 |
+| **4096** (ORCA-Quest) | **256** | **12.5%** | 256 |
+| 2048 | 128 | 12.5% | 256 |
+| 2048 | 256 | 25.0% | 64 |
+
+**This supersedes the advice below for a 2304 sensor.** Compare what aligning all
+three gives against what optimising for an exact ten per cent gave:
+
+| | chunk | overlap | requests per tile-plane | voxels discarded |
+| --- | ---: | ---: | ---: | ---: |
+| optimise for exactly 10% | 115 | 10.0% | 400 | 4 an edge |
+| **align all three** | **192** | 16.7% | **144** | **none** |
+
+Two point eight times fewer requests, nothing lost, and 16.7% sits squarely in the
+range that stitches well. It costs about seventeen per cent more imaging than ten
+per cent would. For *optimal* meaning snappy, lossless and stitchable, the aligned
+answer wins.
+
+**2048 is the genuinely awkward sensor**, and now the reason is precise: its
+divisors are all powers of two, so it offers 12.5% at chunk 128 or 25% at chunk
+256 and nothing in between.
+
+**Where the format is ours to set — the point scanners — ask for one of these:**
+
+| scan format | chunk | overlap | requests per tile-plane |
+| ---: | ---: | ---: | ---: |
+| **2880** | 288 | 20.0% | **100** |
+| 3456 | 288 | 16.7% | 144 |
+| 4608 | 288 | 12.5% | 256 |
+
+A confocal set to 2880 rather than 2048 gets a larger chunk, a better overlap and
+a quarter of the requests — better on every axis at once, for the cost of typing a
+different number into the acquisition software.
+
 ##### Correction: prefer the large chunk, not the exact overlap
 
 The tables above choose the chunk that lands nearest the requested overlap. That
