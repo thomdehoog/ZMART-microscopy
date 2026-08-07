@@ -249,6 +249,48 @@ function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
 }
 
 
+/**
+ * The axes the operator can actually see, which is what decides whether one
+ * scale bar can be true.
+ *
+ * A bar states one distance per screen pixel, so it stays honest only while every
+ * axis on screen is drawn at the same stretch. Which axes those are is a property
+ * of the *view* rather than of the data, and that is the whole reason this cannot
+ * be decided from the stretch factors alone.
+ *
+ * A single plane shows x and y and leaves depth off screen entirely, so
+ * stretching z there — the ordinary thing to do with anisotropic data — cannot
+ * make the bar wrong, and warning about it would cry wolf on the common case.
+ * Turning the volume on puts z on screen beside them and the same stretch now
+ * does make it wrong: measured on the demo volume with z quadrupled, ten
+ * micrometres covers about 201 screen pixels along z against 50 along x, so a bar
+ * reading either one is off by four for the other. The operator changed nothing
+ * but what they were looking at.
+ */
+function axesOnScreen(mode) {
+  return mode === "volume" ? ["x", "y", "z"] : ["x", "y"];
+}
+
+/**
+ * Whether the axes on screen are drawn at stretches that disagree.
+ *
+ * Compared against each other rather than against 1, because stretching every
+ * axis alike is a zoom: it changes how large the specimen is drawn and not its
+ * proportions, so one bar still describes it perfectly. Only a difference between
+ * two axes that are both on screen shears the picture, and then it is 20 µm wide
+ * and 30 µm tall per the same bar. Fiji and napari avoid this by not offering the
+ * control at all. We offer it and say so.
+ *
+ * The bar itself follows a stretch rather than ignoring one — it divides by the
+ * engine's `canonicalVoxelFactors`, which are computed from these very factors —
+ * so this is a warning that no single number can be right, not that the bar has
+ * been left stale.
+ */
+function stretchedUnevenly(displayScales, mode) {
+  const onScreen = axesOnScreen(mode).map((axis) => displayScales[axis]);
+  return onScreen.some((factor) => factor !== onScreen[0]);
+}
+
 function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity, onLut,
                           displayScales = { x: 1, y: 1, z: 1 }, onDisplayScales }) {
   const measuredWindow = mode === "volume" ? layer.volumeWindow || layer.window : layer.window;
@@ -423,22 +465,11 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
           ))}
         </div>
       </div>
-      {/* Warned about only when x and y disagree, which was measured rather
-          than assumed. The bar divides by the engine's `canonicalVoxelFactors`,
-          and those are computed from the display scales -- so it follows a
-          stretch instead of ignoring one: 30 um stayed 30 um when z was
-          quadrupled, and became 20 um when x was doubled. Stretching z, which is
-          the ordinary thing to do with anisotropic data, therefore leaves an
-          in-plane bar perfectly true and needs no warning at all.
-
-          Stretching x differently from y is the case no bar can describe: the
-          picture is sheared in aspect, so it is 20 um wide and 30 um tall per
-          the same bar. Fiji and napari avoid this by not offering it. We offer
-          it and say so. */}
-      {displayScales.x !== displayScales.y && (
+      {stretchedUnevenly(displayScales, mode) && (
         <div style={{ ...styles.controlLabel, color: "#d9a441", padding: "0 0 6px" }}>
-          x and y are stretched differently, so no single scale bar is true in
-          both directions
+          {mode === "volume"
+            ? "the axes are stretched differently, so no single scale bar is true in every direction"
+            : "x and y are stretched differently, so no single scale bar is true in both directions"}
         </div>
       )}
       <label style={styles.control}>
