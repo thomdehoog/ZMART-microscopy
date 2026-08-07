@@ -265,8 +265,8 @@ class TestChangingHowSomethingLooks:
     @pytest.mark.parametrize(
         ("what", "label", "value"),
         [
-            ("the black point", "black ch0", 1500),
-            ("the white point", "white ch0", 8000),
+            ("the black point", "min ch0", 1500),
+            ("the white point", "max ch0", 8000),
             ("a channel's opacity", "opacity ch0", 0.55),
             ("the whole acquisition's opacity", "opacity group overview", 0.7),
         ],

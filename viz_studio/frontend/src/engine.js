@@ -736,6 +736,16 @@ function applySettings(managed, spec) {
     if (spec.volumeRenderingDepthSamples != null) {
       layer.volumeRenderingDepthSamplesTarget.value = spec.volumeRenderingDepthSamples;
     }
+    // Gain has to be named here or it goes nowhere. Nothing in this function
+    // restores a whole specification; every field is carried across by a line of
+    // its own, so a field added to the specification and not to this list is
+    // dropped in silence -- which is exactly what happened when this control was
+    // first added, and why it appeared to have no effect while the depth fade
+    // beside it worked. That one travels as a shader control, and those are
+    // restored wholesale two lines above.
+    if (spec.volumeRenderingGain != null) {
+      layer.volumeRenderingGain.value = spec.volumeRenderingGain;
+    }
   } else if (spec.type === "segmentation") {
     // A mask has no brightness to adjust; how strongly it is painted over the
     // image is the only thing there is to set.

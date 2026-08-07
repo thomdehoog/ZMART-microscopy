@@ -106,6 +106,49 @@ export default function NeuroglancerView({ onViewer }) {
       Number.NEGATIVE_INFINITY,
     );
 
+    // The plain wheel zooms, and stepping through z moves to shift+wheel.
+    //
+    // This is ours, not the engine's. Neuroglancer gives the plain wheel to z and
+    // puts zoom behind Control, which is right for reading through a volume and
+    // wrong for an operator looking at a plate. The wheel is the gesture made
+    // most often and without thinking, and a browser has taught everybody what it
+    // does; zoom has nowhere else to live, since this interface has no zoom
+    // button, slider or key, while the stack keeps the slider down the right-hand
+    // side -- better than a gesture anyway, because it shows where in the stack
+    // you are. `CONTROLS.md` section 1 records the decision.
+    //
+    // It is set here rather than left to the defaults because these entries win
+    // over the parent table added above, which is why that is added at the lowest
+    // possible precedence.
+    //
+    // The reason this was worth doing: on a run one plane deep -- an overview
+    // scan, which is most of them -- the engine's binding leaves the first
+    // gesture an operator makes doing nothing whatsoever, with nothing on screen
+    // to say why. The operator page beside this one has zoomed on the plain wheel
+    // all along, so until now the two disagreed.
+    // `preventDefault` is passed explicitly. Handing `set` a bare action name --
+    // which is how `CONTROLS.md` writes it -- leaves it unset, because
+    // `normalizeEventAction` returns only `{action, originalEventIdentifier}` for
+    // a string. The engine's own table sets it on every wheel entry, and without
+    // it the browser keeps its native wheel behaviour and acts on the same notch
+    // we are acting on.
+    // Both panels, and the second one is not an afterthought. Rebinding the flat
+    // view alone left the volume view on the engine's defaults, where the plain
+    // wheel steps z and zoom hides behind Control -- so an operator taught that
+    // the wheel zooms found it doing nothing in three dimensions, and on a run
+    // one plane deep it could do nothing at all. That looked exactly like a
+    // volume view unable to draw at any resolution but the coarsest, and cost an
+    // afternoon and two reviews before the measurement was made with the volume
+    // view's own zoom. It refines perfectly well: 20.8 um down to 0.33 um across
+    // the projection zooms, the whole pyramid.
+    for (const panel of [bindings.sliceView, bindings.perspectiveView]) {
+      panel.set("at:wheel", { action: "zoom-via-wheel", preventDefault: true });
+      panel.set("at:shift+wheel", {
+        action: "z+1-via-wheel",
+        preventDefault: true,
+      });
+    }
+
     onViewer?.(viewer);
     return () => viewer.dispose();
   }, [onViewer]);

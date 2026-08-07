@@ -62,17 +62,45 @@ export function shaderFor(color, volumetric, lut = null) {
   let source = "#uicontrol invlerp normalized\n";
   const stops = lut ? LOOKUP_TABLES[lut] : null;
   if (stops) source += lutShader(stops);
+  // Declared in both views, and the flat one is the interesting case -- see the
+  // long note further down about why an opacity that reaches the picture only
+  // through the alpha cannot dim the bottom-most row.
+  source += "#uicontrol float opacity slider(min=0, max=1, default=1)\n";
   if (volumetric) {
-    source += "#uicontrol float opacity slider(min=0, max=1, default=1)\n";
+    // Fading the far side of the specimen away, which the engine does not offer
+    // and napari calls an attenuated projection. Everything along a line of sight
+    // otherwise arrives with equal weight, so a deep specimen reads as one flat
+    // sheet with no telling front from back. `depthAtRayPosition` is declared by
+    // the engine immediately above this program and set afresh at every step
+    // along the ray, so all that is needed here is to weigh by it.
+    //
+    // Nought means no fading at all, which is exactly the old behaviour, so this
+    // changes nothing until somebody asks for it.
+    source += "#uicontrol float attenuation slider(min=0, max=8, default=0)\n";
+    const faded = "exp(-attenuation * depthAtRayPosition)";
+    // `emitIntensity` is what decides the contest in a projection: the engine
+    // keeps whichever voxel along the ray reports the largest value, and only
+    // then asks for its colour. Fading the colour alone -- which is all
+    // `emitRGBA` can do -- dims a distant winner without letting a nearer, dimmer
+    // voxel win, so it reads as shading rather than as depth. Fading the
+    // *intensity* is what napari means by an attenuated projection.
+    //
+    // Safe in both modes. Where there is no projection the engine declares
+    // `void emitIntensity(float value) {}` and the call costs nothing, and at no
+    // fading `exp(0)` is 1, so the picture is exactly what it was before.
+    const chooses = `emitIntensity(v * ${faded});`;
     if (stops) {
       return source + "void main() { float v = normalized();"
-        + " emitRGBA(vec4(zmartLut(v), v * opacity)); }";
+        + ` ${chooses} emitRGBA(vec4(zmartLut(v), v * opacity * ${faded})); }`;
     }
     const [r, g, b] = color || [1, 1, 1];
-    return source + `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized() * opacity)); }`;
+    return source
+      + "void main() { float v = normalized();"
+      + ` ${chooses} emitRGBA(vec4(${r}, ${g}, ${b}, v * opacity * ${faded})); }`;
   }
-  // A flat picture has two things to get right at once, and they pull in opposite
-  // directions, so it is worth setting out both before the code.
+  // A flat picture has three things to get right at once, and they pull against
+  // each other, so it is worth setting out all three before the code. The third
+  // was added on 6 August 2026 and is at the bottom, beside `covered`.
   //
   // **The brightness has to reach the screen.** Turning the contrast handles is how
   // a microscopist finds their specimen, so whatever window is chosen must change
@@ -110,25 +138,62 @@ export function shaderFor(color, volumetric, lut = null) {
   // simply drawn over the other and the result looks as it would have if a single
   // image had been used.
   const covered = "v > 0.0 ? 1.0 : 0.0";
+  // **And the opacity goes in the colour, not only in the alpha.** This is the
+  // third thing the flat shader has to get right, and it was missing until
+  // 6 August 2026, when the slider was found to be doing nothing whatsoever.
+  //
+  // The engine draws the **bottom-most** image of a slice view with blending
+  // switched off -- `image_renderlayer.js:setGLBlendMode` enables it only for
+  // `renderLayerNum > 0`. Nothing then reads that row's alpha except the
+  // composite, which asks `sampledColor.a == 0.0` and paints the background where
+  // that is true. So alpha is a yes-or-no answer to "was this spot imaged", and an
+  // opacity of 0.4 is just as much a yes as 1.0. Measured on one open channel, the
+  // picture came out 18.61 grey levels at 1.0, at 0.5 and at 0.1 -- the same
+  // number, not merely a similar one. Handing the opacity to `layer.opacity` or
+  // declaring it as a shader control and putting it in the alpha are the same
+  // thing arriving by two roads, and both were measured to change nothing at all.
+  //
+  // The colour is the only part of the bottom row's drawing that survives, so that
+  // is where the opacity goes. `layer.opacity` still carries it into the alpha as
+  // well (see `layersFor`), and that half is what a row **above** the bottom one
+  // needs: without it a fading row would blacken whatever is beneath it instead of
+  // revealing it, which was measured too -- the row underneath went from 0.90 grey
+  // levels to 0.00.
+  //
+  // The price, which is real and is why this is written out at length: a row that
+  // is not the bottom one now has the opacity applied twice, once to its colour
+  // and once as the alpha it is blended with, so it fades as opacity *squared*.
+  // Measured on a second channel, a half reads 1.74 where it used to read 3.50,
+  // while what shows through underneath is unchanged. The endpoints are exact and
+  // the fade is smooth. No single program can avoid it: the bottom row can only be
+  // dimmed through its colour, a row above it can only reveal what is beneath
+  // through its alpha, and a shader cannot know which of the two it is.
   if (stops) {
     // A lookup table already carries the brightness in its colour, since that is
-    // what a lookup table is, so only the transparency needs saying here.
+    // what a lookup table is, so the brightness needs no saying here -- only the
+    // dimming and the coverage.
     return source + "void main() { float v = normalized();"
-      + ` emitRGBA(vec4(zmartLut(v), ${covered})); }`;
+      + ` emitRGBA(vec4(zmartLut(v) * opacity, ${covered})); }`;
   }
   // White is the honest default for a single channel with no colour of its own:
   // there is nothing to distinguish it from, so a colour would be an invention.
   const [r, g, b] = color || [1, 1, 1];
   return source + "void main() { float v = normalized();"
-    + ` emitRGBA(vec4(vec3(${r}, ${g}, ${b}) * v, ${covered})); }`;
+    + ` emitRGBA(vec4(vec3(${r}, ${g}, ${b}) * v * opacity, ${covered})); }`;
 }
 
 // The values for the controls declared above. These reach the graphics card
 // without the program being touched, which is why contrast is smooth to drag.
-export function shaderControlsFor(window_, volumetric, opacity) {
+export function shaderControlsFor(window_, volumetric, opacity, attenuation = 0) {
   if (!window_) return undefined;
   const controls = { normalized: { range: [window_.low, window_.high] } };
-  if (volumetric) controls.opacity = opacity;
+  // Sent in both views. In the volume it is the alpha the ray accumulates; in the
+  // flat view it dims the colour, which is the only way to fade the bottom-most
+  // row -- see the note in `shaderFor`. Sent as a control rather than written into
+  // the program, so that dragging the slider does not recompile a shader per layer
+  // on every step, exactly as the contrast window is.
+  controls.opacity = opacity;
+  if (volumetric) controls.attenuation = attenuation;
   return controls;
 }
 
@@ -163,7 +228,8 @@ export function engineName(spec) {
  * **visibility** needs both: hiding a group hides its channels without forgetting
  * which of them were individually switched off.
  */
-export function layersFor(config, mode, layerState, groupState, groupOrder) {
+export function layersFor(config, mode, layerState, groupState, groupOrder,
+                          volumeMode = "max", volume = {}) {
   const volumetric = mode === "volume";
   const rows = config.layers.map((spec, index) => ({ spec, index }));
   const ordered = groupOrder.flatMap((group) =>
@@ -225,13 +291,33 @@ export function layersFor(config, mode, layerState, groupState, groupOrder) {
       return layer;
     }
     layer.shader = shaderFor(color, volumetric, lut);
-    const controls = shaderControlsFor(displayWindow, volumetric, combinedOpacity);
+    const controls = shaderControlsFor(displayWindow, volumetric, combinedOpacity,
+                                       volume.attenuation ?? 0);
     if (controls) layer.shaderControls = controls;
     if (volumetric) {
-      layer.volumeRendering = "on";
+      // Which way the ray is turned into a colour, and it is not a detail.
+      // "on" accumulates every voxel it passes, which on sparse specimen
+      // gives a milky picture -- measured on 6 August 2026 over a run of a
+      // thousand positions, a spread of 8 grey levels against 41 for "max".
+      // "max" keeps the brightest voxel along each ray, which is what a
+      // microscopist means by a projection and what napari calls mip; it
+      // needs no transparency tuned before anything can be seen. "min" is
+      // the same for dark objects on a bright field.
+      layer.volumeRendering = volumeMode;
       // This, not the zoom, chooses which copy of the image the volume is drawn from.
       layer.volumeRenderingDepthSamples = config.depthSamples;
+      // Brightness for the accumulated mode, which the engine has had all
+      // along and this viewer never set. Accumulation piles alpha up along
+      // the ray and washes out; this is the knob built to answer that. The
+      // engine raises it to a power, so nought is unchanged.
+      layer.volumeRenderingGain = volume.gain ?? 0;
     } else {
+      // The same number the shader was just given, and deliberately not instead
+      // of it. This one is the alpha the engine blends a row with, which is what
+      // lets a row above another fade and reveal it; the shader's copy dims the
+      // colour, which is the only thing that reaches the bottom-most row's
+      // drawing. Two carriers because they are read in two different places by
+      // two different regimes -- see the note in `shaderFor`.
       layer.opacity = combinedOpacity;
     }
     return layer;
