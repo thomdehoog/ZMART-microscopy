@@ -401,6 +401,23 @@ export function letGoOfDecodedPieces(viewer) {
  * tests use it to tell "still arriving" apart from "this is all there is", which is
  * precisely the distinction that was missing when positions were being lost in silence.
  */
+/**
+ * How many stores this page has still to hand over — **not** how many the engine
+ * has still to read.
+ *
+ * The difference matters and has cost real measurements. What is counted here is
+ * the page's own queue draining: stores it has been given and not yet passed on.
+ * The engine goes on reading each one's description afterwards, and that is the
+ * slow part. Traced on a run of a hundred stores, this reached nought with **30**
+ * of them actually resolved; on four hundred, with **300**. So it reaches nought
+ * at a different fraction of the work depending on how many stores there are,
+ * which is the worst possible behaviour for anything comparing one size against
+ * another — two runs stop at different amounts of finished work and the
+ * difference between them looks like a result.
+ *
+ * A measurement that wants a settled page should wait on every store having a
+ * load state of its own, not on this.
+ */
 export function sourcesStillWaiting(viewer) {
   let total = 0;
   for (const managed of viewer.layerManager.managedLayers) {

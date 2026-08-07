@@ -189,6 +189,22 @@ checklist has the gate and the timings.
 > the viewer is handed one thing to set up rather than one per position. Any
 > future gate, TensorStore's included, should say how long an operator waits
 > before seeing anything, not only how smoothly it moves afterwards.
+>
+> **And the cost is not the reading.** A recording of the viewer at work names
+> the growing part exactly: as each store is handed over, the viewer binds it into
+> the space all the stores share, and every bind walks every store bound before
+> it. Three of those per store, each one telling every store already there to
+> rebuild itself. So the work per store *doubles when the number of stores
+> doubles* — measured at 2.65, 4.48 and 9.36 milliseconds a store for one, two and
+> four hundred of them. Reading the descriptions, by contrast, stays flat at about
+> four requests and a third of a millisecond a store at every size.
+>
+> Two things follow, and both are worth having. **Declaring everything once would
+> not help** — it removes reading, and reading is the part that already scales.
+> And the repair is small and precisely placed: bind all the stores and combine
+> once, rather than combining after each. That is somebody else's code to change,
+> but it is one loop, and it is the difference between growing with the square of
+> the run and growing with the run.
 
 ---
 
