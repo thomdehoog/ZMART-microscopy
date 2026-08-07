@@ -840,25 +840,71 @@ def _multiscale(store: Path) -> dict:
     return _description(store)["multiscales"][0]
 
 
-def test_a_channel_given_no_window_does_not_claim_one(tmp_path):
-    """Leaving the window out has to mean "measure it", not "use the whole range".
+def test_a_channel_always_declares_a_complete_window(tmp_path):
+    """Every channel states a whole brightness window, asked for or not.
 
-    A 16-bit camera can count to 65535, but a real acquisition sits in the bottom
-    few per cent of that: a few hundred counts of background with the signal not
-    far above. Declaring the whole range as the starting window therefore opens
-    the acquisition almost black. The viewer measures a good window from the
-    pixels instead whenever the description does not ask for one, so the way to
-    get that is to genuinely not ask.
+    A channel's window has four numbers. ``min`` and ``max`` say what the camera
+    can count between, which is a plain fact about the data. ``start`` and ``end``
+    say what brightness the image should first be *displayed* between, which is a
+    request about how it looks.
+
+    This test used to say the opposite: that a run which asked for no window got
+    no ``start`` and no ``end``, so that a viewer would measure a good one from
+    the pixels instead. That reasoning was sound, but the file it produced was
+    not. Measured against ngio, an image whose describing block names a channel
+    without ``start`` and ``end`` fails to open at all, while the very same image
+    with no describing block whatever opens perfectly well. So the real choice
+    was never "a measured window or a declared one" — it was "a complete window
+    or no channel names and colours at all". Names and colours are worth having,
+    so a complete window is always written, and the camera's whole range is the
+    honest thing to declare when nothing better is known.
+
+    It is worth knowing what that looks like at the microscope. A real
+    acquisition sits in the bottom few per cent of a camera's range: a few
+    hundred counts of background with the signal not far above. An image opened
+    on the camera's whole range therefore looks almost black until somebody drags
+    the contrast slider. A run that knows roughly how bright its images are
+    should pass a window, and its acquisitions will open looking like something.
     """
     canvases = _canvases(tmp_path)
     window = _omero_channels(canvases.paths[0])[0]["window"]
 
-    assert "start" not in window and "end" not in window, (
-        f"no window was asked for, yet the description declares one: {window}"
+    for named in ("min", "max", "start", "end"):
+        assert named in window, (
+            f"the channel's window leaves out {named}: {window}. A describing "
+            f"block with an incomplete window makes the whole image refuse to "
+            f"open, so an acquisition written this way would not be readable at "
+            f"all in ngio and tools like it."
+        )
+    # The camera's own range says what the numbers mean, and with nothing else
+    # asked for it is also what the image opens on.
+    assert (window["min"], window["max"]) == (0, 65535), (
+        f"a 16-bit camera counts from 0 to 65535, but the channel says its "
+        f"numbers run from {window['min']} to {window['max']}"
     )
-    # The camera's own range is still worth recording -- it says what the numbers
-    # mean -- and it is not the same thing as asking to be displayed that way.
-    assert window["min"] == 0 and window["max"] == 65535
+    assert (window["start"], window["end"]) == (0, 65535), (
+        f"no window was asked for, so the honest fallback is the camera's whole "
+        f"range, 0 to 65535. The channel opens on {window['start']} to "
+        f"{window['end']} instead."
+    )
+
+    # And a run that does say how bright its images are gets exactly what it
+    # asked for, which is how an acquisition is made to open looking like
+    # something rather than nearly black.
+    asked = TileCanvases.create(
+        tmp_path / "asked", name="overview",
+        canvas_shape=(2, 640, 640),
+        tile_shape=TILE, tile_step=BUTTED_UP,
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488", window=(100, 4000))],
+        levels=2, chunk=64,
+    )
+    chosen = _omero_channels(asked.paths[0])[0]["window"]
+    assert (chosen["start"], chosen["end"]) == (100, 4000), (
+        f"the run asked to be displayed between 100 and 4000 counts, but the "
+        f"channel declares {chosen['start']} to {chosen['end']}, so the "
+        f"acquisition would not open the way the run intended"
+    )
 
 
 def test_a_channel_given_a_window_still_gets_it(tmp_path):
@@ -942,7 +988,13 @@ def test_the_size_of_a_voxel_is_written_into_the_description(tmp_path, version):
     """Every measurement made in the viewer rests on this one line of description."""
     canvases = _canvases(tmp_path, ome_zarr_version=version)
     full_size = _multiscale(canvases.paths[0])["datasets"][0]
-    (transformation,) = full_size["coordinateTransformations"]
+    # Each copy states two things: how large its voxels are, and where it begins on
+    # the stage. Only the first is under examination here; the corner has tests of
+    # its own further down.
+    (transformation,) = [
+        step for step in full_size["coordinateTransformations"]
+        if step["type"] == "scale"
+    ]
 
     # The last three numbers are the specimen's depth, height and width in microns.
     # The two in front of them are time and colour, which have no size in microns
@@ -973,7 +1025,10 @@ def test_each_smaller_copy_says_how_much_ground_its_voxels_cover(tmp_path, versi
     assert len(copies) == 2, "this run was declared with two copies"
 
     for level, copy in enumerate(copies):
-        (transformation,) = copy["coordinateTransformations"]
+        (transformation,) = [
+            step for step in copy["coordinateTransformations"]
+            if step["type"] == "scale"
+        ]
         depth, height, width = transformation["scale"][-3:]
         assert copy["path"] == str(level)
         assert depth == 2.0, (
@@ -1001,19 +1056,45 @@ def test_where_the_images_sit_on_the_stage_is_written_down(tmp_path, version):
     those two the OME-Zarr standard intends is genuinely unsettled, and
     ``zmart_storage/VOXEL_PLACEMENT.md`` sets out the evidence and why this writer
     chose the corner. It is checked here so that nobody changes it by accident.
+
+    It is written beside **each** resolution rather than once for the image as a
+    whole. Both places are allowed by the format, but only the per-resolution one
+    is compulsory, so it is the place every reader looks. Writing it in both would
+    be worse than picking wrongly: a reader applies the second to the result of the
+    first, so the image would be placed twice as far from the stage's zero as it
+    really is.
     """
     corner = (10.0, 250.5, 900.25)
     canvases = _canvases(tmp_path, origin_um=corner, ome_zarr_version=version)
 
     (store,) = canvases.paths
-    (transformation,) = _multiscale(store)["coordinateTransformations"]
-    assert transformation["type"] == "translation"
-    assert transformation["translation"][-3:] == list(corner), (
-        f"{store.name} puts its corner at "
-        f"{transformation['translation'][-3:]}, where the run was declared "
-        f"from {list(corner)} — so it would be drawn away from the run's other "
-        f"acquisition types"
+    multiscale = _multiscale(store)
+
+    assert "coordinateTransformations" not in multiscale, (
+        f"{store.name} states its corner beside the list of copies as well as "
+        f"beside each copy. A reader that composes the two — which the format "
+        f"asks for, and which neuroglancer does — would draw the image at twice "
+        f"its true distance from the stage's zero."
     )
+
+    for level, copy in enumerate(multiscale["datasets"]):
+        placements = [
+            step for step in copy["coordinateTransformations"]
+            if step["type"] == "translation"
+        ]
+        assert placements, (
+            f"copy {level} of {store.name} does not say where it begins. A reader "
+            f"that looks only beside the copy — which is the compulsory place, and "
+            f"so the usual one — would draw it at the stage's zero, on top of every "
+            f"other acquisition in the run."
+        )
+        (placement,) = placements
+        assert placement["translation"][-3:] == list(corner), (
+            f"copy {level} of {store.name} puts its corner at "
+            f"{placement['translation'][-3:]}, where the run was declared "
+            f"from {list(corner)} — so it would be drawn away from the run's other "
+            f"acquisition types"
+        )
     canvases.close()
 
 

@@ -117,14 +117,37 @@ def _level0(store: Path) -> zarr.Array:
     return zarr.open_group(str(store), mode="r")["0"]
 
 
+def _where_it_says_it_sits(store: Path) -> list[float]:
+    """Where an image says its full-size copy begins on the stage, in microns.
+
+    OME-Zarr offers two places to say this: beside each copy of the picture, or
+    once beside the block that lists them all. This writer says it beside each
+    copy, because that is the place the format makes compulsory and therefore the
+    place other people's readers actually look. An image that said it only in the
+    optional place would open at the stage's zero in most of the Python world.
+
+    The numbers come back exactly as they are written, one for each axis, so the
+    first two are time and colour and the last three are depth, height and width.
+    """
+    described = json.loads((store / ".zattrs").read_text(encoding="utf-8"))
+    full_size = described["multiscales"][0]["datasets"][0]
+    placed = [step for step in full_size["coordinateTransformations"]
+              if step["type"] == "translation"]
+    assert placed, (
+        f"{store.name} does not say where its full-size copy begins, so every "
+        f"reader that looks in the compulsory place would draw it at the stage's "
+        f"zero, on top of every other acquisition in the run"
+    )
+    return placed[0]["translation"]
+
+
 def _corner_of(store: Path, origin_um=(0.0, 0.0, 0.0)) -> tuple[int, int, int]:
     """Where a whole-tile image says it sits, read back in voxels from the run's zero.
 
     Read from what was written rather than from the writer's own bookkeeping, so
     that the tests do not quietly depend on how positions happen to be numbered.
     """
-    moved = json.loads((store / ".zattrs").read_text(encoding="utf-8"))[
-        "multiscales"][0]["coordinateTransformations"][0]["translation"]
+    moved = _where_it_says_it_sits(store)
     return tuple(  # type: ignore[return-value]
         round((moved[2 + axis] - origin_um[axis]) / VOXEL_UM[axis])
         for axis in range(3)
@@ -402,18 +425,24 @@ def test_the_canvas_is_drawn_at_the_true_place_on_the_stage(tmp_path):
     _fill_a_raster(run)
     run.close()
 
-    moved = json.loads(
-        (run.canvas_path / ".zattrs").read_text(encoding="utf-8")
-    )["multiscales"][0]["coordinateTransformations"][0]["translation"]
-    assert tuple(moved[2:]) == pytest.approx(tuple(
+    moved = _where_it_says_it_sits(run.canvas_path)
+    with_the_margin = tuple(
         origin_um[axis] - run.shift[axis] * VOXEL_UM[axis] for axis in range(3)
-    ))
+    )
+    assert tuple(moved[2:]) == pytest.approx(with_the_margin), (
+        f"the canvas puts its corner at {tuple(moved[2:])}, where the blank "
+        f"margin in front of the run's ground puts it at {with_the_margin} - so "
+        f"the canvas would be drawn a margin away from the whole tiles beside it"
+    )
 
     # Which is to say: the voxel where the run's own ground begins on the canvas
     # sits at exactly the stage position the run was declared with.
     for axis in range(3):
         began = moved[2 + axis] + run.shift[axis] * VOXEL_UM[axis]
-        assert began == pytest.approx(origin_um[axis])
+        assert began == pytest.approx(origin_um[axis]), (
+            f"on axis {axis} the run's own ground begins at {began} microns on "
+            f"the canvas, where the stage was declared at {origin_um[axis]}"
+        )
 
     # And a whole tile is recorded at the stage position it was acquired at, with
     # no shift at all, because nothing was taken off it.
@@ -421,10 +450,12 @@ def test_the_canvas_is_drawn_at_the_true_place_on_the_stage(tmp_path):
         _corner_of(store, origin_um): store
         for store in run.tiles_folder.glob("*.ome.zarr")
     }
-    whole = json.loads(
-        (corners[(0, 0, 0)] / ".zattrs").read_text(encoding="utf-8")
-    )["multiscales"][0]["coordinateTransformations"][0]
-    assert tuple(whole["translation"][2:]) == pytest.approx(origin_um)
+    whole = _where_it_says_it_sits(corners[(0, 0, 0)])
+    assert tuple(whole[2:]) == pytest.approx(origin_um), (
+        f"the first whole tile puts its corner at {tuple(whole[2:])}, where it "
+        f"was acquired at {origin_um}. Nothing is trimmed off an archived tile, "
+        f"so nothing should move it either"
+    )
 
 
 # -- a run that overlaps in depth as well --------------------------------------
@@ -586,10 +617,12 @@ def test_a_run_whose_tiles_butt_up_is_trimmed_by_nothing_at_all(tmp_path):
     written = _fill_a_raster(run, step=TILE)
     run.close()
 
-    moved = json.loads(
-        (run.canvas_path / ".zattrs").read_text(encoding="utf-8")
-    )["multiscales"][0]["coordinateTransformations"][0]["translation"]
-    assert tuple(moved[2:]) == pytest.approx((3.0, 4.0, 5.0))
+    moved = _where_it_says_it_sits(run.canvas_path)
+    assert tuple(moved[2:]) == pytest.approx((3.0, 4.0, 5.0)), (
+        f"a run with no overlap has no blank margin to allow for, so its canvas "
+        f"should begin at exactly the corner it was given, (3.0, 4.0, 5.0). It "
+        f"begins at {tuple(moved[2:])} instead"
+    )
 
     canvas = _level0(run.canvas_path)
     for (frame, channel, iz, iy, ix), picture in written.items():

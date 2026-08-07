@@ -701,7 +701,18 @@ def _where_the_view_begins(
             if transform.get("type") == "translation":
                 moved = [float(n) for n in transform["translation"]]
                 at = [at[axis] + moved[-3 + axis] for axis in range(3)]
-        for dataset in multiscale.get("datasets") or []:
+        # OME-Zarr lets an image say where it sits in two places: once for the
+        # image as a whole, just above, and again beside each resolution. A reader
+        # is meant to apply the whole-image one to the result of **one** chosen
+        # resolution's -- not to add up every resolution it finds. Adding them all
+        # would move the tile once for each copy it keeps, so a position with four
+        # copies would be drawn four times further from the stage's zero than it
+        # really is, and the further the pyramid goes the worse it gets.
+        #
+        # The full-size copy is the one to read. It is the resolution the view
+        # places tiles by, and by the time the smaller copies are described they
+        # have all been given the same corner anyway.
+        for dataset in (multiscale.get("datasets") or [])[:1]:
             for transform in dataset.get("coordinateTransformations") or []:
                 if transform.get("type") == "translation":
                     moved = [float(n) for n in transform["translation"]]

@@ -926,20 +926,31 @@ class Channel:
         plain fact about the data and always worth recording.
 
         The ``start`` and ``end`` are a different thing: they are the brightness
-        range the image should first be *displayed* with, and they are written
-        only when the run actually asked for one. That distinction matters more
-        than it looks. A real acquisition sits in the bottom few per cent of the
-        camera's range — a few hundred counts of background with the signal not
-        far above — so declaring the whole range as the display window opens the
-        acquisition almost black, and it stays that way until somebody drags the
-        contrast slider. Leaving ``start`` and ``end`` out instead tells the
-        viewer nothing was asked for, and it measures a sensible window from the
-        pixels themselves.
+        range the image should first be *displayed* with.
+
+        These used to be left out when a run did not ask for a window, on the
+        reasoning that a viewer would then measure a good one from the pixels.
+        That reasoning was sound but the file it produced was not: **a describing
+        block with an incomplete window is refused outright.** Checked against
+        ngio, a block naming a channel without ``start`` and ``end`` fails to
+        open, while the same image with no describing block at all opens
+        perfectly well. So the choice was never "a measured window or a declared
+        one" — it was "a complete window or no channel names and colours at all",
+        and names and colours are worth having.
+
+        So a window is always written now. When the run did not ask for one, the
+        camera's whole range is declared, because that is the honest thing to say
+        when nothing is known. Be aware of what that looks like: a real
+        acquisition sits in the bottom few per cent of a camera's range — a few
+        hundred counts of background with the signal not far above — so an image
+        opened on the whole range looks almost black until somebody drags the
+        contrast slider. **A run that knows roughly how bright its images are
+        should pass a window**, and its acquisitions will open looking like
+        something.
         """
         color = self.color or _CHANNEL_COLORS.get(self.name, "FFFFFF")
         window = {"min": 0, "max": depth_max}
-        if self.window is not None:
-            window["start"], window["end"] = self.window
+        window["start"], window["end"] = self.window or (0, depth_max)
         return {
             "label": self.name,
             "color": color,
@@ -1866,10 +1877,14 @@ def _declare_one(
         chunk=chunk,
         levels=levels,
         voxel_size_um=voxel_size_um,
+        origin_um=origin_um,
         newer=newer,
         shard=shard,
     )
 
+    # Where the image sits on the stage is written beside each resolution, in
+    # ``_make_the_copies``, rather than once for the image as a whole. OME-Zarr
+    # allows both places, and the reason for choosing the first is recorded there.
     multiscale = {
         # What this picture is called. The specification asks for it, and it is
         # what a reader shows in its own panel when it has nothing better.
@@ -1902,27 +1917,6 @@ def _declare_one(
             "method": "slice",
         },
         "datasets": datasets,
-        # Where this image sits in the world. Every image in a run shares the
-        # same corner, which is what makes them line up on screen.
-        #
-        # This number is the **corner** of the first voxel, not its middle, and
-        # every smaller copy is given the same one. That is a choice rather than
-        # a rule: OME-Zarr does not say which is meant, and the question has been
-        # open with the format's authors since 2022. Under the corner reading the
-        # copies nest perfectly -- every level begins at exactly this point, and a
-        # coarse voxel covers precisely the fine ones it was built from. Under the
-        # other reading they would not, so a level would have to be shifted by half
-        # of its own voxel to mean the same thing.
-        #
-        # Readers disagree about this, and some will place the picture half a voxel
-        # off. That is theirs to correct, not ours: a file that shifts itself to
-        # suit one reader is wrong for every other. The reasoning, the arithmetic
-        # and what each reader does are in VOXEL_PLACEMENT.md beside this file.
-        "coordinateTransformations": [{
-            "type": "translation",
-            "translation": [0.0, 0.0,
-                            origin_um[0], origin_um[1], origin_um[2]],
-        }],
     }
 
     _write_the_description(store, group, multiscale, channel_blocks, newer=newer)
@@ -1938,6 +1932,7 @@ def _make_the_copies(
     chunk: int,
     levels: int,
     voxel_size_um: tuple[float, float, float],
+    origin_um: tuple[float, float, float],
     newer: bool,
     shard: int | None = None,
 ) -> tuple[list[zarr.Array], list[dict]]:
@@ -1961,6 +1956,8 @@ def _make_the_copies(
         chunk: how large one piece of image is, in y and x.
         levels: how many copies to make, counting the full-size one.
         voxel_size_um: how large one voxel is, as ``(z, y, x)`` in microns.
+        origin_um: where the low corner of the image sits on the stage, as
+            ``(z, y, x)`` in microns. Every copy is given the same corner.
         newer: ``True`` when writing OME-Zarr 0.5, which files the pieces of an
             image its own way, ``False`` for 0.4.
         shard: how large a **bundle** of pieces is, in y and x, or ``None`` to keep
@@ -2027,14 +2024,53 @@ def _make_the_copies(
         ))
         datasets.append({
             "path": str(level),
-            "coordinateTransformations": [{
-                "type": "scale",
-                # Only the height and the width of a voxel double from one copy to
-                # the next. Its depth stays as it was, because no plane is ever
-                # dropped.
-                "scale": [1.0, 1.0, voxel_size_um[0],
-                          voxel_size_um[1] * factor, voxel_size_um[2] * factor],
-            }],
+            # How large this copy's voxels are, and where the image begins on the
+            # stage. Both are written here, beside the copy they describe.
+            #
+            # OME-Zarr offers two places to say where an image sits: beside each
+            # resolution, as here, or once beside the block that lists them all.
+            # A reader is meant to apply the second to the result of the first, so
+            # a writer must pick one and only one -- saying it in both places
+            # places the image twice as far out as it really is.
+            #
+            # This writer says it here, because this is the place the format makes
+            # compulsory: every resolution must carry a transformation, while the
+            # block-level one is optional. Tools that read only the compulsory
+            # place are therefore common, and a picture written only in the
+            # optional place arrives at the stage's zero for all of them, with
+            # every acquisition of a run stacked on top of the others. That is
+            # what used to happen to our images in the wider Python ecosystem,
+            # and it is what `viz_studio/INTEROP.md` records.
+            #
+            # The number is the **corner** of the first voxel, not its middle, and
+            # every smaller copy is given the same one. That is a choice rather
+            # than a rule: OME-Zarr does not say which is meant, and the question
+            # has been open with the format's authors since 2022. Under the corner
+            # reading the copies nest perfectly -- every level begins at exactly
+            # this point, and a coarse voxel covers precisely the fine ones it was
+            # built from. Under the other reading they would not, so a level would
+            # have to be shifted by half of its own voxel to mean the same thing.
+            #
+            # Readers disagree about this second question, and some will place the
+            # picture half a voxel off. That is theirs to correct, not ours: a file
+            # that shifts itself to suit one reader is wrong for every other. The
+            # reasoning, the arithmetic and what each reader does are in
+            # VOXEL_PLACEMENT.md beside this file.
+            "coordinateTransformations": [
+                {
+                    "type": "scale",
+                    # Only the height and the width of a voxel double from one copy
+                    # to the next. Its depth stays as it was, because no plane is
+                    # ever dropped.
+                    "scale": [1.0, 1.0, voxel_size_um[0],
+                              voxel_size_um[1] * factor, voxel_size_um[2] * factor],
+                },
+                {
+                    "type": "translation",
+                    "translation": [0.0, 0.0,
+                                    origin_um[0], origin_um[1], origin_um[2]],
+                },
+            ],
         })
     return arrays, datasets
 
