@@ -162,6 +162,33 @@ at — 1,632 voxels for a 2048-voxel tile at chunk 204, which is what `linked.py
 already enforces. A bundle-sized placement grid would inflate that to
 16,384.
 
+> **How deep a view can point, worked out and then measured.** That rule has a
+> consequence nobody had drawn out, and it decides the arrangement on its own:
+>
+> **the deepest level a view can point at is 1 + log₂( gcd(step, tile) ÷ chunk ).**
+>
+> On the Hamamatsu at the overlap chosen here — a 2,304-voxel tile, a step of
+> 2,016 — that greatest common divisor is 288, which is exactly the overlap. So a
+> chunk of 288 buys **one** pointed level; 144 buys two; 72 buys three; and 36
+> points at all four and writes nothing at all, at about sixty times the files.
+>
+> **So the chunk chosen here leaves no choice: the view writes its own smaller
+> copies.** That was already the decision, taken to avoid handing on the bytes of
+> a capped bundle — and it turns out the geometry forces it anyway. Two unrelated
+> routes to the same answer, which is the most confidence anything here has had.
+>
+> Checked rather than reasoned: nine overlapping positions at that geometry, each
+> giving up the shared chunk, came back with **all 484 pieces of the picture
+> answered by exactly one tile, none by two, none by none**, the smaller copies
+> exact, and every voxel still on disk in the positions.
+>
+> Two small things are missing before a run can do this, both in the writer and
+> neither in the idea. There is **no way to say "point at one level and write the
+> rest"** — how far a view points is the smaller of the view's levels and the
+> positions' own, so the only lever is to give the positions no pyramid. And
+> **`Run.write` cannot state a seam**: it hands the view a place and never the
+> ground the tile owns, though `PlacedTile` and the view beneath it both take it.
+
 **Benchmark TensorStore first; build the inner-chunk server only if it fails the
 gate.** Its overlay driver may remove the need for that machinery, which is what
 this project prefers. A warm overlay of ten thousand positions already clears the
