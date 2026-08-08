@@ -35,14 +35,14 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
-SOURCE = HERE.parent.parent / "manifest.py"
-TESTS = HERE.parent / "test_manifest.py"
+PACKAGE = HERE.parent.parent
+REPO = PACKAGE.parent
 
 #: Each entry is a plain-language description of the fault, the text to find, and
 #: what to replace it with. They are chosen to be faults a tired person could
 #: genuinely introduce, not absurd ones: dropping a guard, forgetting to record
 #: something, losing track of where a reader had got to.
-FAULTS: list[tuple[str, str, str]] = [
+MANIFEST_FAULTS: list[tuple[str, str, str]] = [
     (
         "publish anything, ready or not",
         "if not allow_incomplete and not event.ready:",
@@ -86,16 +86,68 @@ FAULTS: list[tuple[str, str, str]] = [
 ]
 
 
-def _run_the_tests() -> tuple[int, str]:
-    """Run the manifest tests and report how many failed, and the first one."""
+#: The seam rules are where a silent wrong answer is most likely to hide, because
+#: a mosaic assembled with the boundary one pixel out looks entirely normal.
+OWNERSHIP_FAULTS: list[tuple[str, str, str]] = [
+    (
+        "give the extra pixel of an odd overlap to both neighbours",
+        "half_before = overlap // 2 if has_one_before else 0",
+        "half_before = (overlap - overlap // 2) if has_one_before else 0",
+    ),
+    (
+        "let a tile keep its far strip even when a neighbour needs it",
+        "if has_one_beyond or not keep_the_far_edge:",
+        "if False:",
+    ),
+    (
+        "take an interior tile from an offset instead of its own corner",
+        "shown[axis] = Interval(0, step)",
+        "shown[axis] = Interval(overlap, step + overlap)",
+    ),
+    (
+        "count right to the edge even where a neighbour exists",
+        "counted[axis] = Interval(half_before, frame - half_beyond)",
+        "counted[axis] = Interval(0, frame)",
+    ),
+    (
+        "accept a mosaic held together only at a corner",
+        "if reached != occupied:",
+        "if False:",
+    ),
+    (
+        "let one position sit in two squares",
+        "if position_id in seen:",
+        "if False:",
+    ),
+    (
+        "call a mosaic with a hole in it complete",
+        "complete=not holes,",
+        "complete=True,",
+    ),
+    (
+        "hand a model only the part it owns, with no context",
+        "looked_at[axis] = Interval(0, frame)",
+        "looked_at[axis] = Interval(0, step)",
+    ),
+]
+
+#: Which faults belong to which file, and which tests should notice them.
+SUBJECTS: list[tuple[str, str, str, list[tuple[str, str, str]]]] = [
+    ("the commit record", "manifest.py", "test_manifest.py", MANIFEST_FAULTS),
+    ("seam ownership", "ownership.py", "test_ownership.py", OWNERSHIP_FAULTS),
+]
+
+
+def _run_the_tests(tests: Path) -> tuple[int, str]:
+    """Run one test file and report how many failed, and the first one."""
     finished = subprocess.run(
         [
-            sys.executable, "-m", "pytest", str(TESTS),
+            sys.executable, "-m", "pytest", str(tests),
             "-q", "--no-header", "-x", "--tb=no",
         ],
         capture_output=True,
         text=True,
-        cwd=SOURCE.parent.parent.parent,
+        cwd=REPO,
     )
     failures = re.search(r"(\d+) failed", finished.stdout)
     how_many = int(failures.group(1)) if failures else 0
@@ -104,30 +156,38 @@ def _run_the_tests() -> tuple[int, str]:
 
 
 def main() -> int:
-    original = SOURCE.read_text(encoding="utf-8")
     unnoticed: list[str] = []
 
-    print(f"{'fault introduced':<52}{'caught?':>9}   noticed by")
-    print("-" * 100)
-    try:
-        for description, find, replace_with in FAULTS:
-            if find not in original:
-                print(f"{description:<52}{'STALE':>9}   the code has moved on; "
-                      f"update this list")
-                unnoticed.append(f"{description} (could not be introduced)")
-                continue
+    for title, source_name, test_name, faults in SUBJECTS:
+        source = PACKAGE / source_name
+        tests = HERE.parent / test_name
+        original = source.read_text(encoding="utf-8")
 
-            SOURCE.write_text(original.replace(find, replace_with, 1), encoding="utf-8")
-            how_many, named = _run_the_tests()
-            SOURCE.write_text(original, encoding="utf-8")
+        print()
+        print(f"== {title} ==")
+        print(f"{'fault introduced':<52}{'caught?':>9}   noticed by")
+        print("-" * 100)
+        try:
+            for description, find, replace_with in faults:
+                if find not in original:
+                    print(f"{description:<52}{'STALE':>9}   the code has moved on; "
+                          f"update this list")
+                    unnoticed.append(f"{description} (could not be introduced)")
+                    continue
 
-            if how_many:
-                print(f"{description:<52}{'yes':>9}   {named[:40]}")
-            else:
-                print(f"{description:<52}{'NO':>9}   nothing noticed")
-                unnoticed.append(description)
-    finally:
-        SOURCE.write_text(original, encoding="utf-8")
+                source.write_text(
+                    original.replace(find, replace_with, 1), encoding="utf-8"
+                )
+                how_many, named = _run_the_tests(tests)
+                source.write_text(original, encoding="utf-8")
+
+                if how_many:
+                    print(f"{description:<52}{'yes':>9}   {named[:40]}")
+                else:
+                    print(f"{description:<52}{'NO':>9}   nothing noticed")
+                    unnoticed.append(description)
+        finally:
+            source.write_text(original, encoding="utf-8")
 
     print()
     if unnoticed:
