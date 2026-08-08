@@ -375,6 +375,47 @@ microscope time.
 | 4096 | 256 | 1024 | 25.0% | 3072 | 3 | 256 |
 | 5120 | 512 | 1024 | 20.0% | 4096 | 4 | 100 |
 
+### The convention: nine chunks across, one chunk of overlap
+
+Running the chooser over both instruments this facility actually uses — confocal
+at roughly a thousand to two thousand pixels square with five to ten channels and
+up to a hundred planes, and mesoSPIM at around five thousand square with a few
+channels and a few hundred planes — the same shape keeps winning, at every scale:
+
+| | frame | chunk | overlap | step | pointed | chunks per plane |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| confocal, smaller | 1152 | 128 | 128 (11.1%) | 1024 = 2¹⁰ | 4 | 81 |
+| confocal, larger | 2304 | 256 | 256 (11.1%) | 2048 = 2¹¹ | 4 | 81 |
+| mesoSPIM | 4608 | 512 | 512 (11.1%) | 4096 = 2¹² | 4 | 81 |
+
+So the convention is one sentence: **make the frame nine chunks across, give one
+chunk of it to the overlap, and step by eight.**
+
+The overlap, the pointing depth and the number of requests per plane come out
+identical at every scale; only the chunk scales with the frame. The reason is the
+uniform lower/right trim: every placement number is a multiple of the step, so a
+step that is a pure power of two is exactly what buys pointing depth, and nine
+chunks minus one chunk is eight chunks.
+
+The round numbers are the trap. A 1024 or 2048 frame is the **worst** available
+choice — both are forced to 25% overlap, more than twice the microscope time, for
+shallower pointing than 1152 or 2304 achieve at 11.1%:
+
+| frame | best overlap in band | pointed | verdict |
+| ---: | ---: | ---: | --- |
+| 1024 | 25.0% | 2 | poor, writes many levels |
+| **1152** | **11.1%** | **4** | excellent |
+| 2048 | 25.0% | 3 | workable |
+| **2304** | **11.1%** | **4** | excellent |
+| 4096 | 25.0% | 3 | workable |
+| **4608** | **11.1%** | **4** | excellent |
+| 5120 | 20.0% | 4 | workable |
+
+Where the scan format is a software setting, as it is on a confocal, the profile
+builder should offer the better format and say what it saves. Where the camera's
+frame is fixed — an sCMOS at 5120 — the same arithmetic simply reports the
+honest cost, which at 20% overlap and four pointed levels is perfectly workable.
+
 **A finding worth acting on.** A 2304 frame is markedly better than its
 neighbours: it is the only size in the envelope that reaches a good chunk and
 four pointed levels at **11.1%** overlap, where everything else needs twenty to
