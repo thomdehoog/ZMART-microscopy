@@ -40,8 +40,9 @@ A new position becomes visible only when all data promised by that position is c
 - all expected channels and planes;
 - its initial complete timepoint or time extent;
 - every pyramid level advertised in its OME-Zarr metadata;
-- final array metadata, transforms, and display metadata; and
-- validation that the expected chunks can be opened.
+- final array metadata, transforms, and display metadata;
+- the complete, validated virtual-link/resolver state and affected raw/seamless view data required by the published view contract; and
+- validation that the expected chunks, links, and derived view chunks can be opened.
 
 ### A completed new timepoint
 
@@ -49,12 +50,16 @@ A timepoint appended to an existing position becomes visible only when it is com
 
 - all expected channels;
 - all expected z planes;
-- every advertised pyramid level; and
-- any derived chunks required by the published view contract.
+- every advertised position pyramid level;
+- every virtual link or deterministic resolver entry needed to expose that timepoint;
+- every affected raw and seamless global coarse chunk; and
+- the finalized scene/layout ownership revision and timepoint-specific readiness state that the atomic commit will reference.
 
 There is no viewer event for an individual channel, plane, chunk, or partially generated pyramid level.
 
 This also prevents the existing multi-channel coarse-level failure mode in which whichever channel arrives first can be used to build the view before the later channels exist.
+
+This selects **strict publication**. A position or timepoint is not temporarily exposed through a partial overlay while pyramids, links, ownership metadata, or affected global coarse chunks are still being completed in the background.
 
 ## Decision 2: writing and visibility are separate states
 
@@ -72,7 +77,13 @@ The required order is:
 microscope writes hidden data
           |
           v
-position/timepoint completes and validates
+position/timepoint data and position pyramids complete
+          |
+          v
+virtual links and affected raw/seamless view chunks complete
+          |
+          v
+scene/layout ownership snapshot completes and validates
           |
           v
 one atomic catalog or manifest commit
@@ -113,9 +124,12 @@ At minimum, a commit event records:
 - position/store identity;
 - timepoint identity, where applicable;
 - acquisition type;
+- immutable `acquisition_profile_id`;
+- `scene_layout_revision` and virtual-link/resolver revision;
 - mosaic component and integer `(row, column)`, where the acquisition uses an overlapping grid;
 - spatial placement and owned region;
 - affected channels and levels;
+- readiness of the advertised position pyramids and affected raw/seamless view chunks;
 - timestamp; and
 - completion/validation status.
 
@@ -147,6 +161,8 @@ If observations differ in shape, voxel size, transform, or time cadence, they sh
 ## Decision 6: chunk and shard layout belongs to the acquisition type
 
 There is no project-wide frame, overlap, chunk, or shard shape. Each acquisition type has a storage profile derived from its microscope and acquisition settings. An overview, target scan, confocal scan format, mesoSPIM acquisition, and camera-based acquisition may therefore use different profiles.
+
+The profile is agreed and sealed before the first unit of an acquisition instance is committed. Frame, overlap, inner chunks, shards, codecs, pyramid scheme, and visual/analysis ownership policies do not mutate underneath published data. A change to any incompatible profile field starts a new acquisition instance/profile or takes the explicit computed fallback; it never silently reinterprets earlier timepoints.
 
 The profile records at least:
 
@@ -295,12 +311,7 @@ Sharding does not relax this pyramid-phase rule. Link only the levels for which 
 
 Raw-overlap and seamless views have different pixels and therefore different global coarse pyramids. A position or timepoint commit dirties only the output chunks intersecting its affected spatial and temporal region.
 
-One implementation choice remains deliberately open:
-
-1. **Strict publication:** rebuild and commit every affected global coarse chunk before advancing the visible revision. This gives one fully consistent revision at the cost of latency.
-2. **Live overlay over a stable aggregate:** publish the complete position through its own pyramids immediately, rebuild the affected global coarse chunks in the background, and absorb it into a later aggregate revision. This is faster, but the temporary overlay must obey exactly the same raw/seamless ownership rule.
-
-Until that choice is made, “complete enough to publish” must be explicit about whether it includes the view-specific global coarse chunks.
+The selected policy is **strict publication**: rebuild, validate, and commit every affected raw and seamless global coarse chunk before advancing the visible revision. Neuroglancer and concurrent analysis therefore consume one internally consistent generation. A background overlay over an older aggregate is not part of the published contract.
 
 Because grid ownership is declared in advance, adding a completed position does not redefine a neighbour's ownership. It fills only the region assigned to its grid cell. The affected global chunks are the chunks intersecting that owned region; changing the grid plan itself requires a new component/view revision rather than retroactively changing seams.
 
@@ -388,6 +399,16 @@ Tile-local label images may remain below the canonical position's `labels/` hier
 
 The acquisition-type storage profile is a plan. Analysis consumes a versioned realized acquisition layout that records the exact grid produced by a run. Percent overlap, filenames, stage coordinates, and chunk geometry are insufficient substitutes.
 
+The live contract has three immutable/versioned objects:
+
+| object | responsibility | update rule |
+| --- | --- | --- |
+| `AcquisitionProfile` | frame, axes, overlap, chunks, shards, codecs, pyramid scheme, topology, and visual/analysis ownership policies | sealed per acquisition instance |
+| `SceneLayoutRevision` | scene membership, transforms, committed positions, neighbours, explicit visual/analysis ROIs, and the spatial routing template | new immutable revision when realized membership or layout changes |
+| `PositionCommit` or `TimepointCommit` | the completed data unit and the exact profile, scene/layout, pyramid, link/resolver, and raw/seamless view revisions it uses | one atomic record per published unit |
+
+OME-Zarr scene semantics describe image membership, coordinate systems, and spatial relationships. ZMART's layout extension adds the operational information that a scene alone does not define: overlap ownership, analysis cores, virtual-link routing, readiness, and live revision state.
+
 The realized layout records at least:
 
 - schema version, acquisition/run identity, acquisition type, and storage-profile identity;
@@ -395,7 +416,7 @@ The realized layout records at least:
 - mosaic-component identity, integer `(row, column)`, declared neighbours, and coordinate transform for every position;
 - explicit half-open `visual_source_roi`, `analysis_input_roi`, and `analysis_core_roi` values in level-0 local coordinates for every position;
 - the visual and analysis ownership policies, model halo requirement, and deterministic odd-pixel rounding convention;
-- the committed positions and timepoints covered by the layout revision; and
+- the committed positions and spatial membership covered by the layout revision, while per-timepoint availability remains in the commit manifest; and
 - any permitted per-position exception, with the actual value taking precedence over the acquisition-type default.
 
 Writing the explicit per-position ROIs prevents the viewer and every analysis implementation from independently recreating neighbour, boundary, and odd-overlap logic.
@@ -403,9 +424,13 @@ Writing the explicit per-position ROIs prevents the viewer and every analysis im
 For live work, the layout cannot be reported only after the run:
 
 1. The acquisition-type profile and planned component exist before acquisition starts.
-2. Committing a complete position or timepoint publishes the corresponding realized-layout revision atomically with the data revision.
-3. Every analysis result records the layout revision it consumed.
-4. The end of the run freezes an immutable final layout report.
+2. The ownership policies remain fixed; arrival order never changes how an already declared grid cell is owned.
+3. Committing a position that changes realized membership publishes a new immutable `SceneLayoutRevision` atomically with the data revision.
+4. A timepoint whose spatial layout is unchanged references the existing scene/layout revision rather than rewriting the complete map.
+5. Every analysis result records the scene/layout revision it consumed.
+6. The end of the run freezes an immutable final layout report.
+
+The live update is therefore realized spatial occupancy plus per-timepoint availability, not a changing ownership algorithm. Spatial occupancy is versioned by `SceneLayoutRevision`; timepoint availability and its link/view readiness are versioned by the atomic commit record. Both the Neuroglancer adapter and concurrent analysis discover the same monotonic commit revision and pin its referenced immutable objects. Neither infers readiness or ownership by watching files appear.
 
 If the grid changes in a way that would retroactively change ownership, it becomes a new component or view/layout revision. Previously published objects are never silently reassigned by the arrival order of later tiles. The same spatial layout normally applies across channels, z, and time; any axis-specific exception must be explicit.
 
@@ -413,9 +438,13 @@ The core rule is:
 
 > **Segment complete overlapping canonical positions, then publish and count only results owned by the explicit analysis core recorded in the realized acquisition layout.**
 
-## Deferred: OME-Zarr 0.6 scenes
+## OME-Zarr 0.6 scenes: semantics now, native serialization later
 
-Migration to OME-Zarr 0.6 scene metadata is deliberately deferred. The current released specification remains OME-Zarr 0.5; the available 0.6 release candidate introduces scenes for collections of images that share spatial relationships. A later migration may use scenes to serialize the relationships between positions and views, but it must not block the present 0.5-compatible publication and acquisition-layout contract. Scene transformations also do not by themselves replace the explicit visual and analysis ownership ROIs.
+Scene semantics are architectural now. ZMART's internal scene model represents the positions, overview/target images, derived views, coordinate systems, and transformations as related images rather than forcing them into one rectangular array. The Neuroglancer adapter compiles that model into the sources, layers, affine transforms, and virtual URLs that Neuroglancer currently understands.
+
+Native serialization as OME-Zarr 0.6 scene metadata remains deferred. The current released specification remains OME-Zarr 0.5, while the available 0.6 release candidate introduces scenes for collections of images that share spatial relationships. Until the release and reader ecosystem are suitable, the persisted/view-facing contract remains 0.5-compatible. The internal model should map cleanly to the eventual scene serialization rather than require an architectural rewrite.
+
+Scene transformations do not replace ZMART's explicit visual and analysis ownership ROIs, link map, or commit state. Those remain versioned operational metadata consumed by the viewer adapter and analysis workers.
 
 References:
 
@@ -448,9 +477,16 @@ The implementation is not complete until tests demonstrate that:
 20. Visual and analysis ownership can use different seam positions without copying or modifying canonical position pixels.
 21. Every published analysis result references the realized-layout revision that defines its owner, and a later tile arrival cannot silently change that ownership.
 22. Odd overlaps, component edges, internal four-tile intersections, and permitted per-position exceptions produce explicit ROIs with neither ownership gaps nor duplicate ownership.
+23. A timepoint remains invisible until all advertised position pyramids, virtual links/resolver state, ownership metadata, and affected raw/seamless global coarse chunks validate successfully.
+24. Neuroglancer and a concurrent analysis worker that observe the same commit pin the same immutable `AcquisitionProfile` and `SceneLayoutRevision`.
+25. Position arrival can create a new realized scene/layout revision but cannot mutate the sealed ownership policy or silently reassign previously published results.
+26. A later timepoint with unchanged spatial membership reuses the existing scene/layout revision while still receiving its own atomic timepoint commit.
+27. The internal scene model compiles into Neuroglancer sources/transforms without requiring native OME-Zarr 0.6 scene support, while preserving a clean path to later 0.6 serialization.
 
 ## Invariant
 
 > **Data becomes discoverable only after the complete position or complete timepoint has been committed.**
 
 > **Analysis may read overlap as context, but a committed layout gives every published result exactly one owner.**
+
+> **Viewer and analysis visibility advance together only after data, pyramids, links, views, and ownership state form one validated revision.**
