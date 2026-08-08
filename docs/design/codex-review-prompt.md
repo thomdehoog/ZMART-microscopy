@@ -1,11 +1,52 @@
 # Review prompt for Codex
 
-Paste everything below the line into Codex, pointed at the branch
-`agent/live-position-timepoint-publication`.
+Everything below the line can be pasted into a reviewer as-is. It is written to
+invite disagreement rather than approval: a reviewer who comes back with "looks
+good" has told us nothing, and the useful outcome is a list of things that are
+wrong, in an order we can act on.
 
-It is written to invite disagreement rather than approval. A reviewer who comes
-back with "looks good" has told us nothing; the useful outcome is a list of
-things that are wrong, in an order we can act on.
+---
+
+## Where the code is
+
+| | |
+| --- | --- |
+| **GitHub repository** | `thomdehoog/ZMART-microscopy` — https://github.com/thomdehoog/ZMART-microscopy |
+| **Branch to review** | `agent/live-position-timepoint-publication` |
+| **Head commit** | `24a19144` |
+| **Compare against** | `claude/omezarr-neuroglancer-structure-srnwu6` (`2027f911`) |
+| **Pull request** | #8 (draft) — https://github.com/thomdehoog/ZMART-microscopy/pull/8 |
+| **Size of the change** | 21 commits, 39 files, about 11,000 added lines |
+
+**Do not diff against `main`.** This branch sits on top of another piece of work,
+so `main` shows more than five hundred unrelated commits. The comparison that
+shows only the work under review is:
+
+```bash
+git clone https://github.com/thomdehoog/ZMART-microscopy
+cd ZMART-microscopy
+git fetch origin agent/live-position-timepoint-publication \
+                 claude/omezarr-neuroglancer-structure-srnwu6
+git checkout agent/live-position-timepoint-publication
+
+# everything under review, and nothing else
+git diff origin/claude/omezarr-neuroglancer-structure-srnwu6...HEAD
+```
+
+Almost all of it is one new package, `zmart_live/`, plus two design documents
+under `docs/design/`.
+
+## Running it
+
+```bash
+pip install "zarr>=3" numpy pytest        # the whole runtime need
+python -m pytest zmart_live/ -q           # 211 tests, about 5 seconds
+```
+
+The browser test needs a Chromium that Playwright can drive. In the authoring
+environment the pinned Playwright wanted a build that was not installed, so the
+tests pass an explicit `executablePath`; if yours differs, that is the setting to
+change. Everything except the browser test runs with the three packages above.
 
 ---
 
