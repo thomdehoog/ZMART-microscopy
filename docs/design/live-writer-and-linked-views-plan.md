@@ -1,351 +1,279 @@
 # Building the live writer and the two linked overviews
 
-**Status:** implementation plan, drafted for review. Nothing here is built yet.
+**Status:** implementation plan, revised after review and after running the
+experiments it depends on. Nothing is built yet beyond the shared vocabulary in
+`zmart_live/model.py`.
 
 This is the plan for turning
 [`live-position-timepoint-publication-decisions.md`](live-position-timepoint-publication-decisions.md)
 into working code that can be tested against a real Neuroglancer.
 
-It is deliberately not a restatement of that document. The decisions are
-settled; what follows is the order of work, the shape of each piece, and — most
-importantly — the places where measurement in this repository says the obvious
-plan is the wrong one.
+The aim is the simplest arrangement that is genuinely powerful — something a
+later piece of work can build on rather than unpick.
 
 ## What we are building, in one paragraph
 
 A **writer** that is told what kind of acquisition is coming — frame size, how
 much overlap is wanted, whether the tiles form a mosaic — and works out for
-itself how to store it: chunk size, shard size, how many zoomed-out levels, and
-how deep those levels can be pointed at rather than copied. It writes each
-position as an ordinary OME-Zarr image. On top of those positions it maintains
-**two overviews**, a **seamless** one and a **non-seamless** one, each of which
-is a single image that points at the positions and copies almost nothing. A
-position or a timepoint becomes visible in both overviews at the same instant,
-through one atomic commit, and never before it is complete. A viewer that is
-already open notices and redraws without reopening anything.
+itself how to store it: chunk size, overlap in whole pixels, how many zoomed-out
+levels, and how deep those levels can be *pointed at* rather than copied. It
+writes each position as an ordinary OME-Zarr image. On top of those positions it
+maintains **two overviews**, a **seamless** one and a **non-seamless** one, each
+of which is a single image that points at the positions. A position or a
+timepoint becomes visible in both at the same instant, through one atomic commit,
+and never before it is complete. A viewer already open notices and redraws
+without reopening anything.
 
-## The one finding that reorganises this plan
+Neuroglancer is a rendering engine here, not a user interface. ZMART supplies the
+controls, and nothing in this plan depends on Neuroglancer's own panels.
 
-The obvious lever for making the viewer faster is the server, and it is the
-wrong one.
+## The rule everything else obeys
 
-This repository has already measured that during a thousand-position cold open
-the server *"was never answering more than seven requests at once … and was idle
-for two thirds of the wait"* (`NEXT_STEPS.md:72-78`). The ceiling is in the
-browser, not in Python. That is why HTTP/2 is recorded as rejected —
-`ARCHITECTURE.md:103`: *"It treats a symptom of the engine's fan-out and costs a
-dependency."* The often-quoted improvement from 440 ms to 26 ms is arithmetic,
-never a measurement, and the plan review says so plainly
-(`ome-zarr-plan-third-opinion.md:223`). The recorded instruction is *"Take the
-bigger chunk first, since it is free, then measure."*
+Positions are never handed to Neuroglancer one by one. Measured in this
+repository: a thousand positions handed over separately drew **24 frames in five
+seconds** where one image managed **255**. The cost is per *source*, not per
+byte, and it is paid on every frame for ever after loading. One linked picture
+per view, always — which is also how ten thousand positions come to open in
+about half a second.
 
-So: **we make the viewer faster by asking fewer questions, not by answering them
-faster.** And there is one change that halves the number of questions for free.
+## The central finding, arrived at by experiment
 
-### One-sided ownership doubles the chunk size
+The plan's first draft argued that changing seam ownership from a midpoint split
+to a one-sided one relaxes the alignment rule enough to permit a chunk twice as
+large. That is true, and running it against the real writer confirms it. But
+review and experiment together turned up something better, and simpler.
 
-To hand a tile's stored bytes straight to the viewer without copying them, the
-seam between two tiles has to fall on a chunk boundary. Today's writer cuts each
-overlap down the middle, so the *half*-overlap must be a whole number of chunks:
+The writer's rule for a *pointed* zoom level `L` is that **all three** of a
+tile's placement numbers — where it lands, where it is taken from, and how much
+is kept — must be whole multiples of `chunk × 2^(L−1)`.
 
-```text
-(overlap / 2) % chunk == 0        midpoint seam, today's rule
-overlap % chunk == 0              one-sided seam, the decision record's rule
-```
+The decision record gives the overlap to the upper/left tile, so every interior
+tile is taken from an offset of `overlap` pixels into its own store. That offset
+is the smallest number in the system, and it is what binds.
 
-For a 2304-pixel frame with a 256-pixel overlap, the midpoint rule forces a
-128-pixel chunk. The one-sided rule allows 256. From this repository's own
-table of what that costs to draw (`zmart-ome-zarr-recipe.md:836-841`):
+Describe exactly the same seams from the other side — **every tile gives up its
+lower/right strip, so every tile contributes its first `step` pixels** — and the
+offset becomes zero for every tile, uniformly. Measured on a 3×3 mosaic of 2304
+pixel frames with 256 pixels of overlap, against the real refusals:
 
-| chunk | requests to fill a screen | round trips at six in flight |
+| chunk | upper/left owns | lower/right owns, every tile trimmed alike |
 | ---: | ---: | ---: |
-| 128 | 527 | ~440 ms |
-| 256 | 144 | ~120 ms |
+| 128 | 2 pointed levels | **5** |
+| 256 | 1 pointed level | **4** |
 
-That is a **3.7× reduction in requests**, from a change of ownership rule alone —
-no new dependency, no TLS, no certificate on a microscope computer, and it moves
-the *real* bottleneck, which is the number of things the browser is asked to
-fetch. It is the same order of improvement HTTP/2 was supposed to deliver, and
-unlike HTTP/2 it also reduces work for the server, the disk and the decoder.
+This matters more than the chunk doubling did. A level that cannot be pointed at
+has to be **written**, per view, by reading every tile's pixels back through
+Python during the acquisition. At one pointed level the seamless view writes
+about a third of the run's full-resolution volume — worse than the copying path
+it was meant to replace. At four, it writes almost nothing.
 
-This is the central bet of the plan, and it is falsifiable: if the measurement
-harness in Phase 5 does not show it, the plan is wrong and we should say so.
+And it is the simpler rule. Every tile is treated identically: taken from `(0,
+0, 0)`, sized `step`, landing at its grid place. There is no first-tile special
+case, no neighbour lookup, and no arrival-order question. Simpler and more
+powerful at once, which is the rare case worth taking.
 
-### And the code is already shaped to receive it
+**Consequence for the decision record.** Decision 7 specifies top/left
+predecessor wins. The two rules cover the mosaic identically — every output pixel
+still has exactly one owner, and the seams merely sit one overlap-width away —
+so this is a change of which tile supplies a pixel, not of what the operator
+sees. The decision record should be amended to say lower/right, with this
+measurement as the reason.
 
-This is not a hopeful argument. `zmart_storage/linked.py` already describes a
-pointed-at tile as three things — where it lands in the picture, where it is
-taken from inside its own store, and how big the kept part is — and it already
-refuses any tile where those three are not whole numbers of chunks
-(`linked.py:745-822`). Cropping a tile to the region it owns is therefore not a
-new mechanism at all. It is the mechanism that exists, given non-zero arguments.
+**The cost, stated plainly.** Trimming every tile alike leaves the mosaic's far
+edge uncovered — the last column's right strip and the last row's bottom strip.
+Those are written rather than pointed at. On a 10×10 mosaic that is a few tens of
+megabytes against a run of hundreds of gigabytes.
 
-What has never been passed to it is the crop: `positions.Run.write` always emits
-`taken_from=(0,0,0)` with no size (`positions.py:327`), so every tile is pointed
-at whole. Overlapping runs are sent to `cropped.py` instead, which **copies the
-whole run a second time** — the overlap ends up on disk twice, about 25% more
-than the tiles alone.
+### Two corrections carried over from review
 
-So a seamless overview that copies nothing is a smaller change than it sounds:
-pass the owned region through as `taken_from`/`size`. And the whole-chunk rule
-that `linked.py` already enforces is precisely the rule that one-sided ownership
-relaxes by a factor of two.
-
-## What already exists, and what genuinely does not
-
-Worth being exact, because several pieces look missing and are not.
-
-**Already built and tested.** Positions written as separate OME-Zarr images; a
-view that points at them instead of copying (`zmart_storage/linked.py`, served by
-`viz_studio/backend/linking.py`); the half-and-half crop rule with its refusals
-(`zmart_storage/cropped.py`); byte-range and HEAD serving so a browser can read a
-shard index and then fetch one chunk out of it (`server.py:275-308`); a
-server-sent-event announcement with a polling safety net
-(`backend/announcements.py`); and a browser test harness that judges the picture
-by photographing it rather than by asking the engine whether it is happy.
-
-**Genuinely missing.** These are the plan.
-
-1. **Nothing chooses the chunk size.** `positions.start_a_run` takes `piece=128`
-   and hopes it suits the camera. The `plan_a_grid` function that the recipe
-   proposes (`zmart-ome-zarr-recipe.md:1213`) has never been written.
-2. **One-sided ownership does not exist.** Only the half-and-half rule is
-   implemented.
-3. **Sharding is written at level 0 only.** Bundling every level is what takes a
-   2 TB run from 20.5 million files to about 1.19 million.
-4. **A single chunk cannot be served from inside a shard.** The server hands over
-   whole shard files and lets the browser index them. This is the keystone: it is
-   what makes bundling every level compatible with chunk-aligned seams, and
-   without it the two decisions cancel each other out.
-5. **There is no seamless overview that points.** The pointing writer
-   (`positions.py`) cannot express overlap at all; the only trimmed view is
-   `cropped.py`, which copies the run a second time.
-6. **No timepoint can be appended.** Room for moments is declared when the run
-   starts and `_check_the_moment_fits` refuses anything beyond it
-   (`canvas.py:1614-1635`); nothing in `zmart_storage` ever resizes an array.
-   Writing *into* already-declared room works, and — this is the point —
-   **changes nothing any reader is watching**, because the pointer list is only
-   appended to once per place (`positions.py:326-328`). This is exactly the
-   failure the commit record exists to fix.
-7. **Nothing in production writes shards.** `start_a_run` has no `shard`
-   argument. A live run today is Zarr v3 / OME-Zarr 0.5 with 128-pixel chunks
-   and one file per chunk.
-8. **Nothing tells an open Neuroglancer that a tile landed.** The method exists —
-   `tilesMayHaveLanded` at `options/neuroglancer-under/viewer.js:2072` — and is
-   never called from the operator page.
-9. **There is no commit record.** Freshness is inferred from a description
-   file's modification time and the byte length of the arriving-positions file
-   (`linking.py:470-494`). Both are inferences about a write that may still be
-   in progress, and neither moves when a moment is written into room that was
-   declared earlier.
-
-## The shape of the work
-
-### Phase 1 — Decide the storage layout: `plan_a_grid`
-
-One function, called once at run setup, never by a driver:
-
-```python
-plan_a_grid(frame_shape, overlap_intent, ownership="one_sided", ...) -> GridPlan
-```
-
-`overlap_intent` stays as this project already decided it: **none, modest, or
-generous** — never a literal percentage, because a literal percentage cannot
-always be satisfied at the same time as whole-pixel and whole-chunk arithmetic.
-The returned plan states the chunk it chose, the overlap in pixels, the fraction
-that works out to, the stage step, the shard shape, how many levels the pyramid
-will have, and — the part nothing currently computes — **how deep the pointing
-can go**:
+The formula in the first draft was wrong in both directions. The honest one is
 
 ```text
-deepest linkable level = 1 + log2( gcd(step, frame) / chunk )
+deepest pointed level = 1 + v2( gcd(every lands_at, taken_from and size) / chunk )
 ```
 
-The search order is the decision record's, with one correction from this
-repository's own measurements: prefer the **largest** chunk in the useful band
-that satisfies the divisibility rules, not the chunk that hits the overlap target
-most exactly. A chunk of 102 gives exactly 10% overlap and is, in the recipe's
-words, *"the worst of both"* — 836 requests against 144.
+where `v2` counts halvings, not a logarithm — a ratio of 3 buys no extra level.
+And `overlap % chunk == 0` is necessary but **not sufficient**: a 2000-pixel
+frame with 256 overlap and a 256 chunk satisfies it and is still refused, because
+the frame itself does not divide. `plan_a_grid` must be tested against the real
+refusal, not against the stated rule.
 
-The plan is sealed into an `AcquisitionProfile` before the first position is
-written, and never changes underneath published data.
+The "527 requests against 144, a 3.7× reduction" figure is **arithmetic, not a
+measurement** — it reproduces exactly from `(⌊3840/chunk⌋+1) × ⌈2160/chunk⌉`. It
+is the same table this plan elsewhere criticises for the HTTP/2 estimate. It is
+no longer offered as evidence. What a bigger chunk is worth to a real viewer is
+Phase 0's job to find out.
 
-**Deliverable:** `zmart_live/profile.py`. Pure arithmetic, no I/O, fast to test
-exhaustively across every frame width from 512 to 5000.
+## On the server, and why it is not the lever
 
-### Phase 2 — Ownership, and the two overviews
+During a thousand-position cold open the server *"was never answering more than
+seven requests at once … and was idle for two thirds of the wait"*. The time went
+on the browser's main thread rebuilding coordinate spaces — a cost per *position*,
+which one linked image removes by construction.
 
-`zmart_live/ownership.py` computes, for every tile, the three regions the
-decision record requires: what the seamless view shows, what a model is given to
-look at, and which results count. One-sided and midpoint are both available; the
-choice is per acquisition type and is recorded, not inferred.
+HTTP/2 is already recorded as rejected: *"It treats a symptom of the engine's
+fan-out and costs a dependency."* The 440 ms → 26 ms figure attached to it is
+arithmetic too, and it needs TLS on every microscope computer, which breaks the
+run-it-and-it-works property. Nothing here adds it.
 
-The two overviews are then both `GrowingLinkedView`s over the *same* canonical
-positions, differing only in the three numbers each tile is pointed at with:
+## Overlap: a band, with a default
 
-| | lands at | taken from | size |
-| --- | --- | --- | --- |
-| **non-seamless** | the tile's nominal place | `(0, 0, 0)` | the whole frame |
-| **seamless** | nominal place + the strip it gives up | the strip it gives up | the region it owns |
-
-That is the whole difference. Neither copies a full-resolution voxel; both are
-single images, so Neuroglancer is handed two sources for a run of any size rather
-than two per position. The run costs one set of canonical positions plus two
-descriptions.
-
-Two honest limitations, stated rather than discovered later.
-
-A single scalar image holds one value per voxel, so the **non-seamless** view
-still has to pick a winner where two tiles cover the same place. It shows every
-tile's full extent, which is what makes the tile edges and the stage's real
-behaviour visible, and that is the point of it. It is not a way of seeing both
-measurements at one coordinate at once — the canonical positions keep every
-overlap pixel, and anything needing both values reads there.
-
-The **seamless** view needs the strip a tile gives up to be a whole number of
-chunks, because it is pointing at stored bytes rather than cutting pixels. With
-one-sided ownership that strip is either nothing or the entire overlap, so
-`overlap % chunk == 0` suffices. With a midpoint seam it is half the overlap, and
-the requirement doubles. Where a tile's geometry cannot satisfy this at all, the
-seamless view falls back to a written region for that tile and says so, rather
-than silently pointing at the wrong bytes.
-
-**Deliverable:** `zmart_live/ownership.py`, plus the crop passed through
-`PlacedTile` and a second view maintained beside the first.
-
-### Phase 2b — Timepoints that can actually be appended
-
-Room for moments is declared when a run starts, and a moment written into that
-room is invisible to every mechanism the viewer currently watches. Two things
-follow.
-
-Writing a later moment into declared room already works and needs only the commit
-record from Phase 3 to become visible. That is the common case and it is cheap.
-
-Growing *beyond* the declared room does not work, and the decision record is
-explicit that if a workflow ever needs it, the resize and every new chunk must be
-published as one transaction. This plan does **not** build that. It declares
-generous room, measures what that costs — this repository has already found a
-declared 4 TiB image occupying 59 MiB — and leaves growing to a later piece of
-work with its own evidence.
-
-### Phase 3 — The commit record
-
-An append-only run event file, a monotonic revision, and one atomic rename per
-published unit. Written only after the position or timepoint, its pyramid levels,
-its links, and the affected coarse chunks have all been checked.
-
-This replaces "the pointer file got longer" as the definition of truth, which is
-the only way an appended timepoint can be noticed at all: appending a timepoint
-does not change that file's length.
-
-**Deliverable:** `zmart_live/manifest.py` and `zmart_live/layout.py`.
-
-### Phase 4 — Serving one chunk from inside a shard
-
-The keystone, and the reason it is the keystone is worth being exact about.
-
-Bundling every pyramid level is what takes a 2 TB run from about 20.5 million
-files to about 1.19 million, so it is not optional. But the moment a store is
-sharded, the alignment rule gets *harder*, not easier: `linked.py` measures
-placement against `chunk_grid.chunk_shape`, and for a sharded Zarr v3 array that
-is the **shard**, not the chunk inside it (`linked.py:461-475`, `745-822`). A
-whole tile plane per bundle would mean tiles could only sit on multiples of a
-whole tile. Bundling every level and chunk-aligned seams therefore cancel each
-other out — unless one chunk can be served from inside a shard.
-
-The pointer format is already built to grow into this. Each entry carries a
-`held_as` field, fixed at `"file"` today, and the resolver returns an offset and
-a length that are always `0` and `None` (`linking.py:323`). The extension is a
-version 4 record with `held_as: "range"` carrying the inner chunk shape, and a
-resolver that fills those two numbers in. Readers already accept versions 1
-through 3, so the tolerance pattern exists.
-
-Two hazards are documented and must be handled rather than discovered. A shard
-index is checksummed, so forwarding bytes from a capped shard fails if the inner
-chunk count does not match — the same pixels measured 112 220 bytes capped
-against 112 412 uncapped. And a seam aligned to an inner chunk may still cross an
-outer shard boundary. The recorded instruction is to measure TensorStore's
-overlay driver against a gate of 5 ms median before adopting it; warm figures on
-Linux were 0.505 ms median at ten thousand positions, but the gate is meant to be
-met on a Windows microscope computer.
-
-**Deliverable:** `zmart_live/shardlink.py`, a version 4 pointer record, and the
-server route that uses it.
-
-### Phase 5 — Measure the assumptions, rather than assert them
-
-This is what the plan is for. A harness that writes the *same* run under
-different assumptions and reports what each costs:
-
-- overlap intent: none, modest, generous;
-- ownership: one-sided against midpoint;
-- chunk: every legal choice in the band, not just the default;
-- sharding: level 0 only, against every level;
-- and for each, the number of requests to fill a screen, the time to first
-  pixel, the drawing rate, the disk used, and how deep the pointing reached.
-
-The one-sided-doubles-the-chunk claim above lives or dies here.
-
-### Phase 6 — Telling an open viewer, and the tests that prove it
-
-Wire `tilesMayHaveLanded` into the operator page, make the announcement name the
-store that changed rather than invalidating the whole scene, and write the
-end-to-end tests against a real Neuroglancer.
-
-Naming the store matters more than it sounds. Today an announcement carrying
-`wrote_image_in_place` invalidates **every** decoded piece in the scene, at a
-measured cost of 22 requests per announcement — the existing plan document's own
-verdict is *"the cost kept is greater than the cost removed."* With a commit
-record we know exactly which store advanced and to which revision, so the blunt
-instrument can be replaced by a precise one. This is the second place where the
-commit record pays for itself.
-
-Because ZMART supplies its own controls and Neuroglancer's native interface is
-disabled, these tests drive ZMART's own controls and judge the picture by
-photographing it. Neuroglancer is a rendering engine here, not a user interface,
-which also means the tests must not depend on any of its panels being present.
-
-The existing harness already works this way and its recipe is reused: a writer
-that only writes when told to (`--interval 0`, then one POST per tile),
-photographs taken repeatedly with the fullest kept — because a picture caught
-mid-read can show less than has been written but never more — per-cell
-brightness assertions over a fixed bounding box, and a sabotage switch that must
-make the test go red before the test is believed.
-
-Software rendering needs `--use-gl=angle --use-angle=swiftshader
---enable-unsafe-swiftshader`, and the drawing buffer must be preserved or the
-screenshot comes back empty. Both are already established in the config.
-
-The load-bearing sequence is:
+Overlap is chosen from the frame, not fixed in advance, but it has a settled
+band and a default:
 
 ```text
-commit tile A          -> A is drawn, B is not
-write B, do not commit -> A still drawn, B still not      <- the important one
+permitted   10% to 25%
+preferred   10% to 20%
+aim near    12%
+```
+
+At least ten per cent, comfortable up to twenty, twenty-five tolerated where the
+arithmetic needs it, and aimed at the low end because overlap is microscope time.
+Values like 11.1% or 12.5% are good answers and are not rejected for being
+unround — a 2304 frame with 256 pixels of overlap is 11.1% and is exactly the
+geometry that gives four pointed levels at a 256 chunk.
+
+## The phases, in the order they should be done
+
+The first draft put the unmeasured performance claim first and the commit record
+third. That is backwards: the commit record depends on no claim at all, and it is
+what makes the thing testable.
+
+### Phase 0 — Settle the chunk question before building on it
+
+`viz_studio/measure_the_chunk_size.py` already exists and **has never been run**.
+Point it at a linked view rather than the copied canvas, use the frame the
+argument is about, print the lit fraction as the first column, and register the
+threshold in advance: *a bigger chunk must at least halve time-to-first-pixel at
+five hundred tiles or more, with the lit fractions agreeing, or the chunk work
+does not earn its place.*
+
+Report pointed depth and written-pyramid bytes beside request counts. Treatments
+are ownership **direction** and edge handling, not merely one-sided against
+midpoint — the first draft's matrix would have compared two schemes that are
+equal on written bytes and never found the one that is far better.
+
+One browser and one server at a time; this box has four cores and parallel
+measurement here has already been recorded as worthless.
+
+### Phase 0b — Make `linkable` computed, never declared
+
+`LevelGeometry.linkable` is a boolean that is currently trusted. A level wrongly
+declared linkable produces a wrong picture with **no error anywhere**. Compute it
+from the corrected formula, validate it against the real refusal, and refuse a
+profile that claims more than it can deliver.
+
+### Phase 1 — The commit record
+
+An append-only run event file, a monotonic revision, one atomic rename per
+published unit, written only after the data, its pyramid levels, its links and
+the affected coarse chunks have been checked. `fsync` before the rename, because
+this record's whole job is to mean "safely on disk".
+
+Freshness today is inferred from a description file's modification time and the
+byte length of an arriving-positions file. Both are guesses about a write that
+may still be in progress, and neither moves at all when a moment is written into
+room declared earlier.
+
+Integration must be cheap: fold the event file's `(mtime, size)` into the
+existing revision fingerprint so a commit moves it, parse only inside the config
+rebuild that already runs when the fingerprint moves, and read only the tail
+using the same cursor trick the pointer reader uses.
+
+Publish the committed revision **per store**, beside the existing per-store frame
+counts. Not in the chunk URL — a revision in the address makes the engine treat
+each commit as a new data source and never drop the old one, which at a hundred
+positions and a hundred commits is ten thousand sources.
+
+### Phase 2 — Live refresh, and the test that proves it
+
+Replace the scene-wide invalidation (22 requests per announcement, every source
+dropped) with a per-store one driven by the per-store revision. Wire the refresh
+into the operator page, which today never tells Neuroglancer that a tile landed.
+
+Then the load-bearing test:
+
+```text
+commit tile A          -> A drawn, B not
+write B, do not commit -> A STILL drawn and still bright, B still not
 commit B               -> both drawn
 ```
 
-## What this plan deliberately does not do
+The middle step is the point, and as first written it would pass over a black
+screen. It must assert the positive arm in the same test — A's lit fraction
+unchanged and non-zero — and a sabotage run must be shown to turn it red before
+any of it is believed.
 
-- **It does not add HTTP/2**, for the reasons measured above. If Phase 5 shows
-  request count is still the binding constraint after the chunk change, that is
-  the moment to reconsider — with numbers.
-- **It does not hand Neuroglancer one source per position.** Measured: a thousand
-  positions handed over separately drew 24 frames in five seconds where one image
-  managed 255. Everything here goes through one linked image per view.
-- **It does not invoke or wait for a stitcher.** The seamless view is a
-  quick-look at nominal grid places. Stitching stays a separate downstream job.
-- **It does not change the writer's placement convention.** Positions are placed
-  at the corner, every level carries the same translation, and the reader
-  compensates. That was investigated and deliberately left alone.
+### Phase 3 — Timepoints into declared room
 
-## Open questions I want the review to attack
+Nearly free once Phase 1 exists, and it closes the exact hole the commit record
+was written for. Growing *beyond* declared room is not built; generous room is
+declared instead, which this repository has measured as almost free.
 
-1. Is the one-sided-doubles-the-chunk argument actually right, or does the
-   pyramid-phase rule claw the benefit back at level 1 and above?
-2. Does bundling every level genuinely require the inner-chunk resolver first, or
-   is there an ordering that gets some of the benefit sooner?
-3. Is the non-seamless overview better served as one image with a declared
-   winner, or as something else entirely?
-4. What is the cheapest honest way to prove a half-written timepoint is invisible,
-   given that the writer, the server and the browser all have to cooperate?
+### Phase 4 — `plan_a_grid` and the sealed profile
+
+Now choosing against a measured objective rather than a guessed one. It settles
+chunk, overlap in whole pixels, the resulting fraction, step, level count, and
+pointed depth, and it is sealed before the first position is committed.
+
+### Phase 5 — Lower/right uniform ownership and the seamless view
+
+The crop passed through the existing placement fields, so the seamless overview
+points instead of copying. Plus the grid contract: duplicate cells,
+diagonal-only joins, wrong overlap and disconnected insertions refused.
+
+### Phase 6 — The non-seamless view
+
+Two things must be fixed for it, and neither is optional.
+
+The growing view writes coarse levels without a tile index, which routes into a
+check that **refuses a tile landing on already-imaged ground**. The second
+overlapping whole frame therefore raises mid-run, on the microscope. A tile index
+has to be passed through so a view that has deliberately chosen a winner is
+allowed to.
+
+And the two views would merge into one row: the viewer decides what belongs
+together by comparing voxel size and channel names, which these two agree about
+exactly. The operator would get one contrast control for both. The view's role
+has to become part of its identity.
+
+The winner rule for overlapping ground must be declared once and applied
+identically to the pointers and to the written coarse levels — today the pointer
+resolver picks the right-hand tile while the coarse writer picks whoever wrote
+last, so a seam would show one tile zoomed in and another zoomed out.
+
+### Phase 7 — What a commit actually costs
+
+Measured the way an arrival must be measured: grow the run to N first, then time
+**one** commit alone, at N = 10, 100, 1000, 5000. Timing a loop instead of an
+arrival has already misled this project by a factor of two hundred. Strict
+publication puts a coarse-chunk rebuild for two views on that path, and it is
+currently unbudgeted.
+
+### Phase 8 — Deferred, deliberately
+
+Sharding every level and serving one chunk from inside a shard. Its benefit is
+file count, not viewer speed; it makes the alignment rule harder, not easier
+(the unit becomes the shard); and its performance gate is on a Windows microscope
+computer nobody has measured. Level-0 sharding, as production already does,
+keeps the existing rule true.
+
+The analysis-ownership half of Decision 9 is also deferred. Stating that plainly
+so the omission is a decision rather than an oversight.
+
+## Also fix on the way past
+
+`start_a_run` unconditionally discards an existing run, and a growing view starts
+its tile list empty and deletes the arriving-positions file when it finishes. A
+writer that restarts mid-run therefore loses every tile written before the
+restart, permanently, at the moment the run ends. For a design whose premise is a
+durable record, that comes first among the small things.
+
+## Open questions the review did not settle
+
+1. What a bigger chunk is actually worth to a real viewer, once one linked image
+   has already removed the per-position cost. Phase 0.
+2. Whether the far-edge strips are better written or better handled by letting
+   the edge tiles keep their whole frame at a shallower pointed depth.
+3. What the coarse-level rebuild costs per commit, and what the writer should do
+   when it exceeds the interval between positions.
