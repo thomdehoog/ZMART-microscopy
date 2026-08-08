@@ -113,6 +113,7 @@ At minimum, a commit event records:
 - position/store identity;
 - timepoint identity, where applicable;
 - acquisition type;
+- mosaic component and integer `(row, column)`, where the acquisition uses an overlapping grid;
 - spatial placement and owned region;
 - affected channels and levels;
 - timestamp; and
@@ -152,6 +153,7 @@ The profile records at least:
 - frame shape and dtype;
 - voxel size and axis order;
 - overlap in pixels on each spatial axis;
+- topology: independent positions or connected overlapping grid;
 - seamless ownership policy;
 - inner chunk shape at every pyramid level;
 - outer shard shape at every pyramid level;
@@ -189,7 +191,7 @@ The profile builder enumerates candidate inner chunks and integer overlaps, then
 2. For one-sided ownership, enumerate `overlap = k * inner_chunk`.
 3. For midpoint ownership, enumerate `overlap = 2 * k * inner_chunk`.
 4. Keep candidates inside the permitted overlap band and prefer the configured target/band.
-5. Validate placement and every pyramid level intended for direct linking.
+5. Validate nominal grid placement and every pyramid level intended for direct linking.
 6. Among otherwise suitable candidates, prefer the larger useful inner chunk because it produces fewer logical requests.
 7. Choose a shard shape that is a multiple of that inner chunk and near the configured write-size target.
 
@@ -207,9 +209,43 @@ A 50/50 split is an option, not a requirement. For a regular raster, the simpler
 - a tile below and to the right omits both strips; and
 - outer edges are kept where no neighbour exists.
 
-At a four-tile intersection, the same rule gives every output location one deterministic owner. This must be based on stable spatial identity, such as `(row, column, position_id)`, **not acquisition arrival order**. Replaying the same run must produce the same view even if positions completed in another order.
+At a four-tile intersection, the same rule gives every output location one deterministic owner. There is no configurable per-tile ownership priority and no dependency on acquisition arrival order: the integer grid coordinates define the result. The smaller column owns a horizontal overlap and the smaller row owns a vertical overlap.
 
-When ZMART owns the scan plan, a planned acquisition order may be used to assign the persisted ownership priority before acquisition begins. It is still the persisted priority—not the wall-clock completion order—that decides the view. When acquisition order is external, asynchronous, or unknown, ownership is derived from geometry plus a stable position identifier. Arrival time is never the implicit tie-breaker.
+### Enforced overlapping-grid contract
+
+Any acquisition that enables the direct-linked seamless-overlap path declares one or more connected rectilinear mosaic components. Every position in a component has a unique integer `(row, column)` and one shared acquisition storage profile.
+
+For frame `F` and overlap `O`, the nominal grid step is:
+
+```text
+S = F - O
+x(row, column) = x0 + column * Sx
+y(row, column) = y0 + row * Sy
+```
+
+The scan plan is valid only when:
+
+- every non-root tile is edge-adjacent to the component already described by the plan;
+- neighbours overlap by the profile's declared pixel extent on the shared axis;
+- a grid cell is occupied by at most one position per timepoint, except through the explicit replacement/version operation;
+- diagonal contact alone does not join two components; and
+- no unexpected overlap occurs between non-neighbours.
+
+An isolated target or a separate target patch is an explicit singleton/new mosaic component, not an irregular exception inside another component. An acquisition type that does not need mosaicking may instead declare independent positions and does not use the seamless-overlap crop rule.
+
+The plan is validated before a ZMART-controlled acquisition and again when each completed position commits. Externally produced data enters the direct-link path only if it declares or reconstructs the same grid contract. A topology violation is refused by the seamless acquisition view; the position remains available as canonical raw data for a separate component or stitching, but it is never silently inserted into the grid.
+
+Completion order remains irrelevant. A tile's left/top crop follows its declared neighbours even if asynchronous writing delivers the positions in another order. No `ownership_priority` field is required.
+
+The directly linked seamless view deliberately uses this nominal grid. Measured deviations from the planned stage step do not participate in its chunk mapping; a visible step at the seam is accepted. Canonical positions remain untouched and retain every overlap pixel and any measured stage metadata.
+
+Any annotation or target exported from the nominal quick-look view must retain the source position identity and local coordinates if downstream code needs to return to the microscope accurately. Nominal mosaic coordinates must not be mislabeled as stitched coordinates.
+
+### Stitching is a separate concern
+
+The live storage/view path does not register, blend, correct drift, invoke a stitcher, wait for a stitcher, or update its ownership from stitching results. Its only obligation toward possible later stitching is to preserve every canonical position with its complete overlap and metadata.
+
+A stitcher, if and when run, is a separate downstream job that reads the canonical positions and writes a separate derived product. The nominal seamless view is a responsive preview, not an unfinished stitched dataset, and its publication transaction has no dependency on stitching.
 
 For one-sided ownership at full resolution, the zero-copy conditions on an axis are:
 
@@ -239,7 +275,7 @@ The 256/256 profile is especially useful: later tiles retain 2048 pixels, exactl
 
 It does **not** reduce the amount of unique specimen area in the final seamless image. Its benefit is simpler ownership and a less restrictive alignment rule. Its visual tradeoff is that the seam lies at one acquisition edge rather than halfway through the overlap; a midpoint seam may better balance illumination falloff or edge aberrations. Both policies remain available per acquisition type.
 
-For sparse or adaptive acquisitions, a tile is cropped only where an actual higher-priority neighbour covers it. Blindly removing the top and left strips would create gaps when a neighbour is absent. The general rule is consequently chunk ownership by deterministic spatial priority; top/left cropping is its fast rectangular-grid specialization.
+At a declared component boundary, the complete outer edge is kept. An unexpected internal hole makes the component incomplete; it is not treated as an ordinary boundary merely because a neighbour has not arrived yet.
 
 This ownership rule applies to the seamless quick-look view only. Every complete position, including every overlap pixel, remains in the canonical position store for stitching and the raw view. A single scalar composite cannot expose two different measurements at the same world coordinate simultaneously, so a truly raw overlap presentation must retain distinct position sources/layers or provide a position-selection mechanism.
 
@@ -253,7 +289,7 @@ overlap % (d_l * C_l) == 0
 
 For a symmetric split, replace `overlap` with `overlap / 2`. View placement, crop origin, and retained extent must satisfy the same grid phase.
 
-Sharding does not relax this pyramid-phase rule. Link only the levels for which it holds; above that cutoff, build the raw and seamless view-specific global levels from the composed view. Stage-origin drift is a separate alignment problem and still needs padding or computed boundary chunks when it misses the global inner-chunk grid.
+Sharding does not relax this pyramid-phase rule. Link only the levels for which it holds; above that cutoff, build the raw and seamless view-specific global levels from the composed nominal grid.
 
 ## Global raw and seamless coarse levels
 
@@ -266,7 +302,7 @@ One implementation choice remains deliberately open:
 
 Until that choice is made, “complete enough to publish” must be explicit about whether it includes the view-specific global coarse chunks.
 
-For the seamless view, adding a position can also alter ownership at a neighboring seam. The dirty region must include any neighbor whose ownership changes; it is not necessarily limited to the new position's rectangle.
+Because grid ownership is declared in advance, adding a completed position does not redefine a neighbour's ownership. It fills only the region assigned to its grid cell. The affected global chunks are the chunks intersecting that owned region; changing the grid plan itself requires a new component/view revision rather than retroactively changing seams.
 
 ## Decision 8: shard canonical positions, resolve views at inner-chunk granularity
 
@@ -317,12 +353,14 @@ The implementation is not complete until tests demonstrate that:
 6. Cached blank/missing chunks are not reused after the corresponding data is committed.
 7. Raw and seamless views invalidate the correct—and only the correct—coarse regions.
 8. Changing sources preserves camera, annotations, controls, and other open datasets.
-9. One-sided ownership is invariant to acquisition arrival order and creates neither gaps nor duplicate ownership on a complete grid.
-10. Sparse grids keep an edge when the neighbour that would have owned it is absent.
+9. Grid-derived one-sided ownership is invariant to acquisition arrival order and creates neither gaps nor duplicate ownership on a complete component.
+10. A declared outer boundary keeps its complete edge, while an unexpected internal hole leaves the component incomplete rather than being silently reclassified as a boundary.
 11. A virtual inner chunk extracted from a source shard decodes identically to the canonical position chunk.
 12. A position with an incompatible acquisition storage profile is refused or routed through the explicit computed fallback; it is never byte-linked under false metadata.
 13. The profile builder chooses only frame/chunk/overlap/shard combinations satisfying the hard divisibility rules and reports the selected overlap fraction explicitly.
-14. Planned ownership priority and geometry-derived ownership both remain stable when position completion events are delivered in a different order.
+14. Duplicate cells, diagonal-only joins, wrong overlap, non-neighbour overlap, and disconnected insertions are refused by the direct-linked seamless path.
+15. Measured stage coordinates do not change nominal quick-look placement, canonical position pixels remain untouched, and exported targets retain source-position/local-coordinate identity.
+16. Position/timepoint publication neither invokes nor waits for a stitcher, and a stitched output is represented as a separate derived dataset.
 
 ## Invariant
 
