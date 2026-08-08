@@ -341,6 +341,87 @@ References:
 - [OME-Zarr 0.5 storage format](https://ngff.openmicroscopy.org/0.5/index.html)
 - [Neuroglancer Zarr support](https://neuroglancer-docs.web.app/datasource/zarr/index.html)
 
+## Decision 9: analyse the full overlap, publish each result once
+
+The margin-free seamless presentation is not the canonical analysis input. Analysis reads each complete canonical position, including its overlap. The overlap acts as a halo that gives a model context near an internal tile boundary.
+
+```text
+complete overlapping position
+          |
+          v
+analysis on the full tile and halo
+          |
+          v
+apply the declared analysis-ownership rule
+          |
+          v
+publish or count one owned result
+```
+
+Computing predictions more than once in an overlap is permitted and often desirable. Publishing or counting the same biological object more than once is not. Objects are not rejected merely because they occur in an overlap; only the duplicate result produced by a non-owning position is rejected.
+
+### Visual ownership and analysis ownership are related but distinct
+
+Both rules are derived from the same realized acquisition layout, but they need not use the same seam:
+
+- `visual_source_roi` selects the pixels exposed by the seamless quick-look view. It may use the chunk-aligned top/left-predecessor rule from Decision 7.
+- `analysis_core_roi` selects the output region for which a position owns analysis results. It may use the same rule, but models that need context on both sides of an internal boundary should normally place this boundary inside the overlap, commonly near its midpoint.
+- `analysis_input_roi` is normally the complete canonical position. It includes the core plus the available overlap halo.
+
+A one-sided visual seam is efficient because it can lie on a source chunk boundary. That same seam lies at one acquisition-image edge, where the owning image has no context beyond the edge. A midpoint or otherwise model-aware analysis boundary can give both neighbouring owners usable halo. The necessary halo width is therefore an analysis-profile setting, not an assumption hidden in the viewer.
+
+These ROIs are logical pixel/voxel intervals. Analysis correctness does not require them to align with inner chunks or shards. A non-aligned read may increase I/O, but full-tile inference already reads the overlap. Chunk and shard alignment remains a zero-copy visualization and storage optimization, not an object-ownership rule.
+
+### Result-type rules
+
+- For semantic labels, probability maps, and other pixelwise outputs, publish pixels only inside `analysis_core_roi` when constructing a unique acquisition-wide result.
+- For detections and instance segmentation, assign each instance a deterministic anchor, preferably the model's detection seed or a nucleus centre. Keep the instance only when that anchor lies in the position's half-open `analysis_core_roi`.
+- Keep the accepted instance's complete local mask and measurements where available; do not clip the biological object merely because its mask crosses the ownership boundary.
+- Give an accepted object a stable identity such as `(position_id, local_label_id)`, or allocate a global identifier during consolidation, and record `owner_position_id` and `layout_revision`.
+- Mark objects touching the outside boundary of the whole acquisition as potentially truncated because there is no neighbouring halo beyond that boundary.
+
+Independent segmentations can move a centroid or boundary slightly. When exact instance uniqueness matters, detections in a narrow internal seam band are reconciled between declared neighbours using an explicit rule such as seed identity, mask overlap, or centroid distance. This is analysis-result reconciliation, not image stitching, and it does not modify canonical pixels or nominal placement.
+
+Tile-local label images may remain below the canonical position's `labels/` hierarchy. A unique acquisition-wide label view and object table apply the ownership rule above; the table records which canonical position and local label supplied each retained object.
+
+### The acquisition layout is reported, never inferred
+
+The acquisition-type storage profile is a plan. Analysis consumes a versioned realized acquisition layout that records the exact grid produced by a run. Percent overlap, filenames, stage coordinates, and chunk geometry are insufficient substitutes.
+
+The realized layout records at least:
+
+- schema version, acquisition/run identity, acquisition type, and storage-profile identity;
+- axes, exact frame shape, overlap in integer pixels/voxels, and nominal grid step on every tiled axis;
+- mosaic-component identity, integer `(row, column)`, declared neighbours, and coordinate transform for every position;
+- explicit half-open `visual_source_roi`, `analysis_input_roi`, and `analysis_core_roi` values in level-0 local coordinates for every position;
+- the visual and analysis ownership policies, model halo requirement, and deterministic odd-pixel rounding convention;
+- the committed positions and timepoints covered by the layout revision; and
+- any permitted per-position exception, with the actual value taking precedence over the acquisition-type default.
+
+Writing the explicit per-position ROIs prevents the viewer and every analysis implementation from independently recreating neighbour, boundary, and odd-overlap logic.
+
+For live work, the layout cannot be reported only after the run:
+
+1. The acquisition-type profile and planned component exist before acquisition starts.
+2. Committing a complete position or timepoint publishes the corresponding realized-layout revision atomically with the data revision.
+3. Every analysis result records the layout revision it consumed.
+4. The end of the run freezes an immutable final layout report.
+
+If the grid changes in a way that would retroactively change ownership, it becomes a new component or view/layout revision. Previously published objects are never silently reassigned by the arrival order of later tiles. The same spatial layout normally applies across channels, z, and time; any axis-specific exception must be explicit.
+
+The core rule is:
+
+> **Segment complete overlapping canonical positions, then publish and count only results owned by the explicit analysis core recorded in the realized acquisition layout.**
+
+## Deferred: OME-Zarr 0.6 scenes
+
+Migration to OME-Zarr 0.6 scene metadata is deliberately deferred. The current released specification remains OME-Zarr 0.5; the available 0.6 release candidate introduces scenes for collections of images that share spatial relationships. A later migration may use scenes to serialize the relationships between positions and views, but it must not block the present 0.5-compatible publication and acquisition-layout contract. Scene transformations also do not by themselves replace the explicit visual and analysis ownership ROIs.
+
+References:
+
+- [Current OME-Zarr specifications](https://ngff.openmicroscopy.org/specifications/index.html)
+- [OME-Zarr 0.6 release-candidate scene layout](https://ngff.openmicroscopy.org/specifications/dev/index.html#scene)
+
 ## Required tests
 
 The implementation is not complete until tests demonstrate that:
@@ -361,7 +442,15 @@ The implementation is not complete until tests demonstrate that:
 14. Duplicate cells, diagonal-only joins, wrong overlap, non-neighbour overlap, and disconnected insertions are refused by the direct-linked seamless path.
 15. Measured stage coordinates do not change nominal quick-look placement, canonical position pixels remain untouched, and exported targets retain source-position/local-coordinate identity.
 16. Position/timepoint publication neither invokes nor waits for a stitcher, and a stitched output is represented as a separate derived dataset.
+17. Full overlapping positions are used as analysis input, while semantic outputs outside the declared `analysis_core_roi` are excluded from the unique acquisition-wide result.
+18. An instance appearing in two neighbouring position analyses is retained exactly once according to its deterministic anchor and the recorded half-open ownership ROIs.
+19. Objects in an overlap are not discarded wholesale, accepted instance masks and measurements are not clipped at an internal ownership boundary, and outer-acquisition truncation is flagged.
+20. Visual and analysis ownership can use different seam positions without copying or modifying canonical position pixels.
+21. Every published analysis result references the realized-layout revision that defines its owner, and a later tile arrival cannot silently change that ownership.
+22. Odd overlaps, component edges, internal four-tile intersections, and permitted per-position exceptions produce explicit ROIs with neither ownership gaps nor duplicate ownership.
 
 ## Invariant
 
 > **Data becomes discoverable only after the complete position or complete timepoint has been committed.**
+
+> **Analysis may read overlap as context, but a committed layout gives every published result exactly one owner.**
