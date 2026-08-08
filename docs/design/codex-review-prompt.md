@@ -16,92 +16,160 @@ thought about the obvious things; your value is in what they missed.
 
 ## What the code is for
 
-A microscope writes positions and timepoints continuously. A viewer
-(Neuroglancer) is open the whole time. The requirement is that a viewer never
-shows data from a position or timepoint that is only partly written, because a
-picture built from half-written data is not a slow picture — it is a wrong one,
-and it looks exactly like a right one. Nothing raises.
+A microscope writes positions and timepoints continuously, sometimes for days. A
+viewer (Neuroglancer) is open the whole time, and biologists make decisions from
+what it shows. The requirement is that the viewer never displays data from a
+position or timepoint that is only partly written.
+
+That requirement is not about tidiness. A picture built from half-written data is
+not a slow picture — it is a **wrong** one, it raises nothing, and it looks
+exactly like a right one. The same is true of the counting: a nucleus in the
+overlap between two tiles must be counted once, and an error there is a wrong
+number in a paper rather than a stack trace.
 
 Read `docs/design/live-position-timepoint-publication-decisions.md` for the
 architecture, then `docs/design/live-writer-and-linked-views-plan.md` for the
-implementation plan, which records several measurements.
+implementation plan, which records the measurements the design rests on.
 
-## What to review
+## What exists
 
-New code, all under `zmart_live/`:
+All new code is under `zmart_live/`. It is complete and tested except where noted.
 
-- `model.py` — shared frozen records: half-open regions, profiles, grid cells,
-  layout revisions, commit events.
-- `profiles.py` — chooses chunk, overlap, step, pyramid depth and shard shape per
-  acquisition type.
-- `manifest.py` — the append-only publication record and its atomic commit.
-- `ownership.py` — which tile owns which pixel, visually and for analysis, plus
-  the grid contract.
-- `tests/` including `check_the_tests_can_fail.py`, which is a mutation check.
+| file | what it claims to guarantee |
+| --- | --- |
+| `model.py` | one shared vocabulary; half-open regions; records that cannot be edited after publication |
+| `profiles.py` | chooses chunk, overlap, step, pyramid depth and shard shape per acquisition type |
+| `manifest.py` | nothing half-written is ever published; the revision only goes up |
+| `ownership.py` | every pixel of a mosaic has exactly one owner, visually and for analysis |
+| `coarse.py` | a zoomed-out piece never shows an uncommitted position |
+| `shardlink.py` | one chunk can be lifted from a Zarr v3 shard by byte range, so bundling does not constrain chunk choice |
+| `tests/browser/` | the above, proven in a real Chromium with a real Neuroglancer |
 
-## The specific claims I want attacked
+**160 Python tests, about 4 seconds. The browser test takes about 47 seconds.**
 
-Each of these is load-bearing. Try to break them, and prefer running code over
-reading it — several of the author's own conclusions were overturned by
-execution.
+`scene.py` — compiling the run into Neuroglancer sources — may or may not be
+present when you read this. If it is, review it against claim 7 below. If it is
+not, ignore that claim.
 
-1. **The seam is given to the lower/right neighbour, with every tile trimmed
+## Before anything else: try to make the tests lie
+
+There are two mutation checks. They introduce deliberate faults one at a time and
+report whether the suite noticed:
+
+```
+python -m zmart_live.tests.check_the_tests_can_fail
+python -m zmart_live.tests.check_the_shardlink_tests_can_fail
+node zmart_live/tests/browser/check-the-test-can-fail.mjs
+```
+
+They currently claim **41 faults, all caught**. Your first job is to add faults
+they do not cover and find one that survives. A surviving fault is a claim the
+suite is not really making, and it is the cheapest real finding available to you.
+
+## The claims I want attacked
+
+Each is load-bearing. Prefer running code over reading it — several of the
+author's own conclusions were overturned by execution during this work, including
+one that reversed a decision in the architecture record.
+
+1. **The seam is given to the lower/right neighbour, every tile trimmed
    identically to one `step`.** The claim is that this makes every placement
-   number a multiple of the step and so raises the number of pyramid levels the
-   view can point at (measured: 1 → 4 at a 256 chunk on a 2304 frame, 3×3
-   mosaic). Verify against `zmart_storage/linked.py`'s real refusals, not against
-   the description. Note this deliberately contradicts Decision 7 of the
-   architecture record, which says top/left wins — is the contradiction actually
-   harmless, as claimed?
+   number a multiple of the step, raising the pyramid levels a view can point at
+   from 1 to 4 (measured on a 3×3 mosaic of 2304-pixel frames at a 256 chunk).
+   Verify against `zmart_storage/linked.py`'s *real* refusals, not the
+   description. **This deliberately contradicts Decision 7 of the architecture
+   record**, which says top/left wins. The claim is that the contradiction is
+   harmless because both rules cover the mosaic identically and only move which
+   tile supplies a pixel. Is that actually true at the component edges?
 
 2. **`plan_the_writing` never emits a plan the real writer rejects.** The stated
    rule `overlap % chunk == 0` is known to be necessary but not sufficient — a
-   2000-pixel frame satisfies it and is still refused. Find a frame, band, or
-   acquisition type where the chooser emits something `link_the_tiles` will not
-   accept. This is the highest-value bug you can find.
+   2000-pixel frame satisfies it and is still refused. Find a frame, overlap band
+   or acquisition type where the chooser emits something `link_the_tiles` will
+   not accept. **This is the highest-value bug available to you.**
 
-3. **The "nine chunks across, one chunk of overlap" convention.** Claimed to give
-   11.1% overlap and four pointed levels at every scale (1152/128, 2304/256,
-   4608/512). Is the preference ordering in `choose_the_geometry` right? It
-   deliberately ranks staying in the comfortable overlap band above chunk size,
-   on the argument that overlap is microscope time and chunk size is only viewer
-   latency. Is there a case where that produces a bad plan?
+3. **The preference ordering in `choose_the_geometry`.** It ranks staying inside
+   the comfortable overlap band *above* chunk size, arguing that overlap is
+   microscope time — minutes of a real experiment — while chunk size is only
+   viewer latency. Getting this backwards was a real bug found during
+   development. Is the current order right in every case, or is there a geometry
+   where it produces a bad plan?
 
 4. **Nothing half-written can be published.** `manifest.py` gates on four
    readiness flags and publishes by renaming a small file over another. Find a
-   sequence — crash, concurrent writers, clock change, a reader mid-read — where
-   a viewer can observe a revision that is not fully backed by data. The record
-   claims a reader sees either the previous complete revision or the next, never
-   a mixture.
+   sequence — crash, two writers, a clock change, a reader mid-read, a full disk
+   — where a viewer can observe a revision not fully backed by data. The claim is
+   that a reader sees either the previous complete revision or the next, never a
+   mixture.
 
 5. **Every pixel has exactly one owner.** `ownership.py` claims no gaps and no
    duplicates for any rectangular mosaic, including odd overlaps and four-tile
-   corners. The test sweeps with a stride of 3 pixels — find a case that stride
-   misses, or a shape (single row, single column, L-shaped component, 1×1) that
-   breaks the invariant.
+   corners. The central test *sweeps* rather than checking the rule, but it uses
+   a stride of 3 pixels. Find a case that stride misses, or a shape — single row,
+   single column, L-shaped component, 1×1, a component with a hole — that breaks
+   the invariant.
 
-6. **Sharding does not constrain chunk choice.** The claim is that an inner chunk
-   can be lifted out of a Zarr v3 shard by byte range and decoded identically,
-   so views can advertise inner chunks while positions stay sharded. Check the
-   index parsing against the Zarr v3 sharding-indexed spec: index location,
-   checksum handling, entry order, and the empty-chunk sentinel.
+6. **A zoomed-out piece never shows an uncommitted position.** `coarse.py` states
+   this as an equality: whether a second position exists on disk or was never
+   started must make no difference to what the zoomed-out picture may show. Also
+   check `chunks_touched_by` names *exactly* the affected pieces — too many is
+   wasted work on the microscope's critical path, too few leaves a stale strip at
+   every tile boundary that looks like specimen rather than a fault.
 
-## Also worth your attention
+7. **Sharding does not constrain chunk choice.** `shardlink.py` lifts one inner
+   chunk out of a Zarr v3 shard by byte range. Check the index parsing against
+   the sharding-indexed spec: index location, CRC32C handling, entry order, the
+   empty-chunk sentinel, and behaviour on a truncated file. A wrong byte range
+   here decodes to plausible noise rather than failing.
 
-- **Are the tests honest?** Run `python -m zmart_live.tests.check_the_tests_can_fail`.
-  It introduces sixteen faults and claims all are caught. Add faults it does not
-  cover and see what survives. A surviving fault is a claim the suite is not
-  really making.
-- **Docstrings are written for biologists, not engineers** (see `CLAUDE.md`).
-  Flag anything that is inaccurate, or that is jargon left unexplained. Do not
-  flag prose for being long — that is deliberate.
-- **What is missing entirely?** The architecture record lists 27 required tests.
-  Which are unaddressed, and which of those actually matter?
+8. **If `scene.py` exists: never one Neuroglancer source per position.** Measured
+   in this repo, a thousand positions handed over separately drew 24 frames in
+   five seconds where one linked image managed 255 — the cost is per source, paid
+   on every frame forever. Also: the committed revision must live in a per-source
+   *field*, never in the store URL, because a revision in the address makes the
+   engine treat every commit as a new source and never drop the old one.
+
+## The browser test specifically
+
+`zmart_live/tests/browser/` drives a real Neuroglancer and proves:
+
+```
+commit A            -> A drawn, B not
+write B, no commit  -> A STILL drawn and still bright, B still not
+commit B            -> both drawn
+```
+
+The middle step is the interesting one, because "B was not drawn" passes over a
+completely black screen. Two sabotage runs demonstrate it can fail in both
+directions — committing B early, and refusing to serve anything. **Run them.**
+Then ask what the test still cannot see. Candidates worth your time: a chunk
+cached by the browser across a commit; a partially written chunk served with a
+200; the position boundary not falling on a chunk edge.
+
+## What is deliberately missing
+
+State these as findings only if you think the omission is wrong, not merely that
+it exists:
+
+- The analysis-ownership half of Decision 9 (required tests 17–22).
+- Growing a run *beyond* the declared timepoint room.
+- Any measurement on Windows, where the file-count argument actually bites.
+- The non-seamless overview. `viz_studio/backend/library.py` groups stores by
+  voxel size and channel names, which the two overviews agree about exactly, so
+  they would merge into one row with one contrast control. Is the proposed fix
+  in the plan sufficient?
 
 ## How to report
 
 Rank findings by whether they can produce a **silently wrong picture or a wrong
-count**, then by everything else. For each: the file and line, a concrete failing
-input, and what you would change. Say explicitly which claims you verified by
-running something and which you only read. If a claim survives your attack, say
-so — that is useful too, but only if you genuinely tried.
+count**, then everything else. For each: file and line, a concrete failing input,
+and what you would change.
+
+Say explicitly which claims you verified by running something and which you only
+read. If a claim survives your attack, say so — that is useful, but only if you
+genuinely tried to break it.
+
+One style note: docstrings here are written for microscopists and biologists who
+are learning, not for software engineers (see `CLAUDE.md`). Flag anything
+**inaccurate**, or jargon left unexplained. Do not flag prose for being long —
+that is deliberate.
