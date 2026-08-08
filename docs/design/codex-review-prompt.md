@@ -33,7 +33,7 @@ implementation plan, which records the measurements the design rests on.
 
 ## What exists
 
-All new code is under `zmart_live/`. It is complete and tested except where noted.
+All new code is under `zmart_live/`.
 
 | file | what it claims to guarantee |
 | --- | --- |
@@ -43,23 +43,24 @@ All new code is under `zmart_live/`. It is complete and tested except where note
 | `ownership.py` | every pixel of a mosaic has exactly one owner, visually and for analysis |
 | `coarse.py` | a zoomed-out piece never shows an uncommitted position |
 | `shardlink.py` | one chunk can be lifted from a Zarr v3 shard by byte range, so bundling does not constrain chunk choice |
+| `scene.py` | a whole run compiles to a handful of Neuroglancer sources, never one per position |
 | `tests/browser/` | the above, proven in a real Chromium with a real Neuroglancer |
 
 **211 Python tests, about 5 seconds. The browser test takes about 47 seconds.**
 
-`scene.py` compiles a run into Neuroglancer sources and layers. Measured on a
-71×71 mosaic: **5,041 positions become 2 sources, 2 layers, and a payload of
-about 1,700 characters** that does not grow with the run.
+Measured on a 71×71 mosaic: 5,041 positions become **2 sources, 2 layers, and a
+payload of about 1,700 characters**, none of which grows with the run.
 
 ## Before anything else: try to make the tests lie
 
-There are two mutation checks. They introduce deliberate faults one at a time and
-report whether the suite noticed:
+There are four fault checks. Each introduces deliberate faults one at a time and
+reports whether the suite noticed:
 
 ```
-python -m zmart_live.tests.check_the_tests_can_fail
-python -m zmart_live.tests.check_the_shardlink_tests_can_fail
-node zmart_live/tests/browser/check-the-test-can-fail.mjs
+python -m zmart_live.tests.check_the_tests_can_fail            # commit record, ownership, zoomed-out
+python -m zmart_live.tests.check_the_shardlink_tests_can_fail  # byte ranges out of bundles
+python -m zmart_live.tests.check_the_scene_tests_can_fail      # sources and layers
+node zmart_live/tests/browser/check-the-test-can-fail.mjs      # the real neuroglancer test
 ```
 
 They currently claim **55 faults, all caught**. Your first job is to add faults
