@@ -1,0 +1,785 @@
+"""Finding one small chunk inside a big bundled file, without unpacking it.
+
+Why this exists
+---------------
+
+When a microscope writes a large image, it has a choice about how to lay the
+pixels out on disk. The image is cut into *chunks* — small rectangular pieces,
+perhaps 256 by 256 pixels — because a viewer that wants one corner of the
+specimen should not have to read the whole plane to get it. That is good for
+reading, but it is unkind to the file system: a single overnight run can easily
+produce hundreds of thousands of little files, and most storage systems, backup
+tools and network shares slow to a crawl long before that.
+
+*Sharding* is the answer. A shard is one file that holds many chunks packed end
+to end, with a small table at the back saying where each chunk starts and how
+long it is. The file system sees a few large files; the viewer still gets its
+individual chunks. Nothing about the picture changes — only the number of files.
+
+The difficulty this module solves is what happens next. Our seamless quick-look
+view does not copy pixels. It builds a *linked* view: a second, virtual image
+whose chunks are not stored at all, but are described as "the same bytes that
+already live over there". For that description to be writable, we have to be
+able to say, for one chunk, exactly which file it lives in, at which byte, and
+for how many bytes. Sharding hides that behind the packing, and this module
+brings it back out.
+
+The important thing is that nothing is decoded, recompressed or copied. We read
+the little table, do some arithmetic, and hand back a byte range. The pixels stay
+exactly where the acquisition put them.
+
+What a shard file looks like inside
+-----------------------------------
+
+Laid out from the beginning of the file, a shard written by Zarr version 3 is:
+
+* the encoded chunks, one after another, in whatever order they happened to be
+  written — the order is *not* meaningful and must never be assumed;
+* a table with one 16-byte entry per chunk position in the shard, each entry
+  being two little-endian 8-byte numbers, the *offset* into the file and the
+  *length* in bytes;
+* a four-byte checksum guarding the table.
+
+The table is normally at the end of the file, which is what lets a writer append
+chunks as they arrive and only settle the table when the shard is closed. The
+format also permits the table at the beginning, and both are supported here.
+
+The table has an entry for *every* chunk position the shard could hold, whether
+or not anything was written there. A position that was never written is marked
+with the largest number an 8-byte field can hold, in both the offset and the
+length. That is not damage; it is the ordinary way of saying "nothing here, this
+region is the fill value", and it happens constantly at the edges of an image and
+wherever the specimen was not imaged.
+
+Entries are in row-major order over the chunk positions inside the shard. That
+means the last axis varies fastest: for a shard holding two by two chunks, the
+entries describe (0, 0), then (0, 1), then (1, 0), then (1, 1). Getting this
+order wrong does not produce an error — it produces the wrong picture, quietly —
+which is why it is stated here and checked by the tests.
+
+What this module offers
+-----------------------
+
+:func:`describe_the_bundling`
+    Reads an array's own description and reports how it is chunked and bundled,
+    including the perfectly ordinary case of an array that is not sharded at all.
+
+:func:`read_the_index`
+    Parses the table out of one shard, so you can ask which chunks it holds.
+
+:func:`where_one_chunk_lives`
+    The question this module was written for: given an array and the coordinate
+    of one chunk, which file, which byte, how many bytes.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from struct import unpack_from
+
+from .model import ZmartLiveError
+
+__all__ = [
+    "Bundling",
+    "Held",
+    "INDEX_LOCATIONS",
+    "ShardIndex",
+    "describe_the_bundling",
+    "read_the_index",
+    "where_one_chunk_lives",
+]
+
+
+#: The two places the format allows the table of contents to sit. ``"end"`` is
+#: what almost everything writes, because it lets a shard grow while an
+#: acquisition is still running and be finished off once at the close.
+INDEX_LOCATIONS = ("end", "start")
+
+#: Each entry in the table is two 8-byte numbers: where the chunk starts, and
+#: how many bytes it occupies.
+_BYTES_PER_ENTRY = 16
+
+#: The table is followed (or, when the table is at the front, preceded from the
+#: reader's point of view by nothing and followed immediately) by a four-byte
+#: checksum over the table itself.
+_BYTES_PER_CHECKSUM = 4
+
+#: The marker meaning "no chunk was ever written at this position". It is simply
+#: the largest value an unsigned 8-byte number can hold, used as a flag because
+#: no real file is that long.
+_NEVER_WRITTEN = 2**64 - 1
+
+
+# ---------------------------------------------------------------------------
+# The small records this module hands back
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Held:
+    """Where one chunk's bytes physically are.
+
+    This is the whole answer a linked view needs about a chunk: the file that
+    holds it, how far into that file its first byte sits, and how many bytes to
+    take. Reading exactly ``length`` bytes starting at ``offset`` gives back the
+    chunk precisely as it was encoded, compression and all, so it can be handed
+    on without being decoded first.
+
+    The record cannot be edited once made, so a resolved location stays meaning
+    what it meant when it was worked out.
+    """
+
+    path: Path
+    offset: int
+    length: int
+
+    @property
+    def stop(self) -> int:
+        """The byte just past the end of the chunk, in the half-open style."""
+        return self.offset + self.length
+
+
+@dataclass(frozen=True)
+class ShardIndex:
+    """The table of contents read out of one shard file.
+
+    A shard holds a fixed grid of chunk positions — ``chunks_per_shard`` says how
+    many along each axis — and this record says, for every one of those
+    positions, either where the chunk sits in the file or that nothing was ever
+    written there.
+
+    ``places`` is that answer in row-major order, the same order the format
+    stores it in. You will rarely want to index into it directly; ask
+    :meth:`place_of` with a chunk's position inside the shard instead, and let it
+    do the arithmetic.
+
+    ``shard_bytes`` is how large the file turned out to be. It is kept because it
+    is what makes it possible to notice a shard that has been truncated: every
+    chunk the table describes has to end inside the file it claims to live in.
+    """
+
+    chunks_per_shard: tuple[int, ...]
+    places: tuple[tuple[int, int] | None, ...]
+    shard_bytes: int
+    index_location: str = "end"
+    has_checksum: bool = True
+
+    @property
+    def entry_count(self) -> int:
+        """How many chunk positions this shard has room for, written or not."""
+        return len(self.places)
+
+    @property
+    def how_many_written(self) -> int:
+        """How many of those positions actually hold data.
+
+        A low number is not a fault. A shard sitting at the edge of an image, or
+        one covering a part of the slide the run never visited, is expected to be
+        mostly empty.
+        """
+        return sum(1 for place in self.places if place is not None)
+
+    def position_of(self, within_shard: Sequence[int]) -> int:
+        """Turn a chunk's position inside the shard into its place in the table.
+
+        ``within_shard`` counts chunks, not pixels, and is measured from the
+        shard's own corner: ``(0, 0)`` is the first chunk in the shard whatever
+        part of the image that shard covers.
+
+        Raises :class:`~zmart_live.model.ZmartLiveError` when the position names
+        a different number of axes than the shard has, or falls outside it.
+        """
+        if len(within_shard) != len(self.chunks_per_shard):
+            raise ZmartLiveError(
+                f"This shard is arranged over {len(self.chunks_per_shard)} axes, but "
+                f"the chunk position given names {len(within_shard)} of them "
+                f"({tuple(within_shard)}). The position has to have one number per "
+                f"axis, in the same order as the image's axes."
+            )
+        position = 0
+        for extent, index in zip(self.chunks_per_shard, within_shard, strict=True):
+            if not 0 <= index < extent:
+                raise ZmartLiveError(
+                    f"The chunk position {tuple(within_shard)} falls outside this "
+                    f"shard, which holds {self.chunks_per_shard} chunks. Positions "
+                    f"inside a shard are counted from that shard's own corner, so "
+                    f"they always start again at zero for each shard."
+                )
+            position = position * extent + index
+        return position
+
+    def place_of(self, within_shard: Sequence[int]) -> tuple[int, int] | None:
+        """The offset and length of one chunk, or ``None`` when it was never written.
+
+        Getting ``None`` is a normal answer and not a problem. It means that
+        region of the image holds the fill value, because nothing was ever
+        recorded there.
+        """
+        return self.places[self.position_of(within_shard)]
+
+    def holds(self, within_shard: Sequence[int]) -> bool:
+        """True when there really is a chunk at that position inside the shard."""
+        return self.place_of(within_shard) is not None
+
+    def written_chunks(self) -> Iterator[tuple[tuple[int, ...], tuple[int, int]]]:
+        """Walk every chunk the shard actually holds.
+
+        Each step gives the chunk's position inside the shard and its offset and
+        length, skipping the positions that were never written. This is the
+        convenient way to describe a whole shard to a linked view in one pass.
+        """
+        for position, place in enumerate(self.places):
+            if place is None:
+                continue
+            yield _unflatten(position, self.chunks_per_shard), place
+
+
+@dataclass(frozen=True)
+class Bundling:
+    """How one array is cut into chunks, and whether those chunks are bundled.
+
+    This is the plain answer to "what shape are the pieces of this image, and how
+    are they stored", asked of an array on disk rather than of a plan on paper.
+
+    ``sharded`` says whether chunks are packed together into larger files. When
+    it is false the array is stored the straightforward way, one file per chunk,
+    and ``shard_shape`` and ``chunks_per_shard`` are ``None`` because there are no
+    bundles to describe. That is a perfectly good way to store an image and is
+    reported as such rather than treated as a mistake.
+
+    All the shapes are in pixels except ``chunks_per_shard``, which counts whole
+    chunks. ``chunks_in_array`` counts chunks too, and says how far the chunk
+    coordinates of this array are allowed to go on each axis.
+    """
+
+    array_path: Path
+    array_shape: tuple[int, ...]
+    inner_chunk: tuple[int, ...]
+    chunks_in_array: tuple[int, ...]
+    sharded: bool
+    shard_shape: tuple[int, ...] | None = None
+    chunks_per_shard: tuple[int, ...] | None = None
+    index_location: str = "end"
+    has_checksum: bool = True
+
+    @property
+    def chunks_per_shard_total(self) -> int:
+        """How many chunks fit in one bundle, counting every axis together.
+
+        This is also exactly how many entries the table in each shard file has,
+        which is what makes it possible to find the table without searching for
+        it. For an array that is not sharded it is one, since a file holds one
+        chunk.
+        """
+        if self.chunks_per_shard is None:
+            return 1
+        return math.prod(self.chunks_per_shard)
+
+
+# ---------------------------------------------------------------------------
+# Small pieces of arithmetic, kept apart so they can be read on their own
+# ---------------------------------------------------------------------------
+
+
+def _unflatten(position: int, extents: Sequence[int]) -> tuple[int, ...]:
+    """Undo the row-major flattening, turning a table place back into a position."""
+    coordinate: list[int] = []
+    for extent in reversed(extents):
+        coordinate.append(position % extent)
+        position //= extent
+    return tuple(reversed(coordinate))
+
+
+def _whole_numbers(values: Sequence[int], what: str) -> tuple[int, ...]:
+    """Check that a shape is made of positive whole numbers, and return it as one."""
+    result = tuple(int(value) for value in values)
+    for value in result:
+        if value <= 0:
+            raise ZmartLiveError(
+                f"The {what} is given as {result}, but every axis has to be at least "
+                f"one pixel across. A zero or negative size usually means the shape "
+                f"was written in the wrong order or filled in from an empty setting."
+            )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Reading the table out of one shard
+# ---------------------------------------------------------------------------
+
+
+def read_the_index(
+    shard: bytes | bytearray | memoryview | str | Path,
+    *,
+    inner_chunk: Sequence[int],
+    shard_shape: Sequence[int],
+    index_location: str = "end",
+    has_checksum: bool = True,
+) -> ShardIndex:
+    """Read the table of contents out of a single shard file.
+
+    What goes in
+        ``shard`` is either the shard's bytes, already in memory, or the path to
+        the shard file. Giving a path is usually better: only the few hundred
+        bytes of the table are read, and the rest of the file — which can be
+        hundreds of megabytes — is never touched.
+
+        ``inner_chunk`` is the shape of one chunk in pixels, and ``shard_shape``
+        is the shape of the whole bundle in pixels. Both come from the array's
+        own description, which :func:`describe_the_bundling` reads for you.
+
+        ``index_location`` says whether the table sits at the ``"end"`` of the
+        file, which is usual, or at the ``"start"``. ``has_checksum`` says
+        whether four bytes of checksum sit alongside it.
+
+    What comes back
+        A :class:`ShardIndex`: one answer per chunk position in the shard, each
+        being either an offset and a length, or ``None`` for a position that was
+        never written.
+
+    What can go wrong
+        A :class:`~zmart_live.model.ZmartLiveError` is raised when the bundle
+        shape is not a whole number of chunks, when the file is too short to
+        contain the table it should have, or when the table describes a chunk
+        that would run off the end of the file. That last one is the check that
+        catches a shard cut short by a full disk or an interrupted copy, and it
+        matters: without it a truncated file would quietly yield a byte range
+        that reads as plausible-looking nonsense.
+    """
+    if index_location not in INDEX_LOCATIONS:
+        raise ZmartLiveError(
+            f"'{index_location}' is not a place the table of contents can sit. It is "
+            f"either at the '{INDEX_LOCATIONS[0]}' of the shard or at its "
+            f"'{INDEX_LOCATIONS[1]}'."
+        )
+
+    inner = _whole_numbers(inner_chunk, "chunk shape")
+    bundle = _whole_numbers(shard_shape, "bundle shape")
+    if len(inner) != len(bundle):
+        raise ZmartLiveError(
+            f"The chunk shape {inner} and the bundle shape {bundle} describe different "
+            f"numbers of axes. Both have to describe the same image, so they have to "
+            f"have one number per axis."
+        )
+
+    chunks_per_shard: list[int] = []
+    for axis, (bundle_size, chunk_size) in enumerate(zip(bundle, inner, strict=True)):
+        if bundle_size % chunk_size != 0:
+            raise ZmartLiveError(
+                f"On axis {axis} the bundle is {bundle_size} pixels across but the "
+                f"chunk inside it is {chunk_size}. A bundle has to hold a whole number "
+                f"of chunks, so {bundle_size} must divide evenly by {chunk_size}. This "
+                f"almost always means the chunk shape and the bundle shape have been "
+                f"paired up from two different levels of the image pyramid."
+            )
+        chunks_per_shard.append(bundle_size // chunk_size)
+
+    entries = math.prod(chunks_per_shard)
+    table_bytes = entries * _BYTES_PER_ENTRY
+    trailing = _BYTES_PER_CHECKSUM if has_checksum else 0
+
+    shard_bytes, table = _read_the_table_bytes(shard, table_bytes, trailing, index_location)
+
+    places: list[tuple[int, int] | None] = []
+    for entry in range(entries):
+        offset, length = unpack_from("<QQ", table, entry * _BYTES_PER_ENTRY)
+        if offset == _NEVER_WRITTEN and length == _NEVER_WRITTEN:
+            places.append(None)
+            continue
+        if offset == _NEVER_WRITTEN or length == _NEVER_WRITTEN:
+            raise ZmartLiveError(
+                f"Entry {entry} of this shard's table of contents is half marked as "
+                f"never written (offset {offset}, length {length}). A chunk is either "
+                f"recorded properly or marked absent in both numbers, so this file has "
+                f"been damaged and should not be read."
+            )
+        if offset + length > shard_bytes:
+            raise ZmartLiveError(
+                f"This shard's table of contents claims a chunk running from byte "
+                f"{offset} for {length} bytes, but the file is only {shard_bytes} "
+                f"bytes long. The shard has been cut short — most often by a disk "
+                f"filling up mid-acquisition, or by a copy that was interrupted. "
+                f"Nothing can safely be read from it; the shard needs writing again "
+                f"from the source data."
+            )
+        places.append((int(offset), int(length)))
+
+    return ShardIndex(
+        chunks_per_shard=tuple(chunks_per_shard),
+        places=tuple(places),
+        shard_bytes=shard_bytes,
+        index_location=index_location,
+        has_checksum=has_checksum,
+    )
+
+
+def _read_the_table_bytes(
+    shard: bytes | bytearray | memoryview | str | Path,
+    table_bytes: int,
+    trailing: int,
+    index_location: str,
+) -> tuple[int, bytes]:
+    """Fetch just the table out of a shard, however the shard was handed to us.
+
+    Returns how long the whole shard is and the raw bytes of its table. Reading
+    only this much is what keeps resolving a chunk cheap: a shard can be very
+    large, and the table is a few hundred bytes near one of its ends.
+    """
+    if index_location == "start":
+        table_starts_at = 0
+    else:
+        table_starts_at = -(table_bytes + trailing)
+
+    if isinstance(shard, (str, Path)):
+        path = Path(shard)
+        try:
+            shard_bytes = path.stat().st_size
+        except OSError as problem:
+            raise ZmartLiveError(
+                f"The shard file '{path}' could not be looked at: {problem}. If the "
+                f"acquisition is still running, this chunk may simply not have been "
+                f"written yet."
+            ) from problem
+        _refuse_a_shard_that_is_too_short(str(path), shard_bytes, table_bytes, trailing)
+        begins_at = table_starts_at if table_starts_at >= 0 else shard_bytes + table_starts_at
+        with path.open("rb") as opened:
+            opened.seek(begins_at)
+            table = opened.read(table_bytes)
+    else:
+        raw = bytes(shard)
+        shard_bytes = len(raw)
+        _refuse_a_shard_that_is_too_short("shard", shard_bytes, table_bytes, trailing)
+        begins_at = table_starts_at if table_starts_at >= 0 else shard_bytes + table_starts_at
+        table = raw[begins_at : begins_at + table_bytes]
+
+    if len(table) != table_bytes:
+        raise ZmartLiveError(
+            f"Only {len(table)} bytes of the shard's {table_bytes}-byte table of "
+            f"contents could be read. The file is shorter than it says it is, which "
+            f"means it was not finished being written."
+        )
+    return shard_bytes, table
+
+
+def _refuse_a_shard_that_is_too_short(
+    described_as: str, shard_bytes: int, table_bytes: int, trailing: int
+) -> None:
+    """Stop early when a file is plainly too small to be the shard we expect.
+
+    A shard has to be at least as long as its own table of contents. When it is
+    not, reading on would take whatever bytes happened to be there and hand back
+    a byte range that looks perfectly reasonable and points at rubbish, so it is
+    much better to refuse here.
+    """
+    if shard_bytes < table_bytes + trailing:
+        raise ZmartLiveError(
+            f"The shard '{described_as}' is {shard_bytes} bytes long, but its table of "
+            f"contents alone should take {table_bytes + trailing} bytes. Either the "
+            f"file is still being written, or it has been truncated, or the chunk and "
+            f"bundle shapes being used to read it do not belong to this array."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Reading an array's own description
+# ---------------------------------------------------------------------------
+
+
+def _read_the_array_description(array_path: str | Path) -> tuple[Path, dict]:
+    """Open an array's ``zarr.json`` and check it really describes an array.
+
+    Every Zarr version 3 array keeps a small file called ``zarr.json`` beside its
+    data, saying what shape it is, how it is chunked and how it is encoded. That
+    file is the only trustworthy source for how to read the shards, so everything
+    here starts from it rather than from anything guessed off the folder.
+    """
+    path = Path(array_path)
+    description = path / "zarr.json"
+    if not description.is_file():
+        raise ZmartLiveError(
+            f"No 'zarr.json' was found in '{path}', so there is nothing there saying "
+            f"how the image is stored. Check that this path points at a single image "
+            f"array and not at the group or the run folder above it."
+        )
+    try:
+        content = json.loads(description.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as problem:
+        raise ZmartLiveError(
+            f"The description at '{description}' could not be read: {problem}. Without "
+            f"it there is no way to know how this image is chunked."
+        ) from problem
+
+    if content.get("node_type") != "array":
+        raise ZmartLiveError(
+            f"'{path}' describes a {content.get('node_type', 'thing of unknown kind')} "
+            f"rather than an image array. Linked views are made from arrays, so this "
+            f"should point at one level of one image."
+        )
+    if int(content.get("zarr_format", 0)) != 3:
+        raise ZmartLiveError(
+            f"'{path}' is stored in Zarr format {content.get('zarr_format')}. Bundling "
+            f"chunks into shards only exists from format 3 onwards, so this array "
+            f"cannot be read that way."
+        )
+    if content.get("storage_transformers"):
+        raise ZmartLiveError(
+            f"'{path}' declares storage transformers "
+            f"({content['storage_transformers']}), which rearrange the bytes on disk in "
+            f"ways this resolver does not know about. A linked view cannot safely point "
+            f"into it."
+        )
+    return path, content
+
+
+def _the_sharding_settings(content: dict) -> dict | None:
+    """Pick the bundling settings out of an array's list of codecs, if there are any.
+
+    An array's ``codecs`` list says what is done to the pixels on their way to
+    disk. When chunks are bundled, one entry in that list is named
+    ``sharding_indexed`` and carries the bundling settings inside it. When no such
+    entry is there, the array simply stores one chunk per file.
+    """
+    for codec in content.get("codecs", ()) or ():
+        if isinstance(codec, dict) and codec.get("name") == "sharding_indexed":
+            return codec.get("configuration", {}) or {}
+    return None
+
+
+def describe_the_bundling(array_path: str | Path) -> Bundling:
+    """Report how an image array on disk is chunked, and how it is bundled.
+
+    What goes in
+        The path to one array — one level of one image — being the folder that
+        holds a ``zarr.json`` file.
+
+    What comes back
+        A :class:`Bundling` saying the array's shape, the shape of one chunk, how
+        many chunks the array holds along each axis, and whether those chunks are
+        packed into shards. An array that is stored one chunk per file is
+        reported with ``sharded`` set to false, which is an ordinary answer and
+        not a failure.
+
+    What can go wrong
+        A :class:`~zmart_live.model.ZmartLiveError` is raised when the path does
+        not hold an array description, when that description is in an older
+        format that cannot bundle chunks, or when the bundle it declares is not a
+        whole number of chunks across.
+    """
+    return _the_bundling_of(*_read_the_array_description(array_path))
+
+
+def _the_bundling_of(path: Path, content: dict) -> Bundling:
+    """Work out the bundling from a description that has already been read.
+
+    :func:`describe_the_bundling` reads the description and calls this. Resolving
+    a chunk needs both the bundling and a couple of other things out of the same
+    description, so keeping the two steps apart lets it read the file once rather
+    than twice — which matters when a linked view is resolving many thousands of
+    chunks in a row.
+    """
+    grid = content.get("chunk_grid", {}) or {}
+    if grid.get("name") != "regular":
+        raise ZmartLiveError(
+            f"'{path}' lays its chunks out on a '{grid.get('name')}' grid. Only the "
+            f"regular grid — every chunk the same size — can be resolved to byte "
+            f"ranges, because anything else has no fixed arithmetic from a chunk "
+            f"coordinate to a place in a file."
+        )
+
+    array_shape = _whole_numbers(content["shape"], "image shape")
+    grid_chunk = _whole_numbers(grid["configuration"]["chunk_shape"], "stored chunk shape")
+
+    settings = _the_sharding_settings(content)
+    if settings is None:
+        # Nothing is bundled here: the grid's chunk is the chunk, and each one
+        # sits in a file of its own. This is a completely normal way to store a
+        # small image, and it is reported rather than treated as a problem.
+        return Bundling(
+            array_path=path,
+            array_shape=array_shape,
+            inner_chunk=grid_chunk,
+            chunks_in_array=_grid_extent(array_shape, grid_chunk),
+            sharded=False,
+        )
+
+    inner_chunk = _whole_numbers(settings["chunk_shape"], "chunk shape inside the bundle")
+    index_location = str(settings.get("index_location", "end"))
+    if index_location not in INDEX_LOCATIONS:
+        raise ZmartLiveError(
+            f"'{path}' says its table of contents sits at '{index_location}', which is "
+            f"not one of the two places the format allows "
+            f"({' or '.join(INDEX_LOCATIONS)})."
+        )
+    has_checksum = any(
+        isinstance(codec, dict) and codec.get("name") == "crc32c"
+        for codec in settings.get("index_codecs", ()) or ()
+    )
+
+    chunks_per_shard: list[int] = []
+    for axis, (bundle_size, chunk_size) in enumerate(zip(grid_chunk, inner_chunk, strict=True)):
+        if bundle_size % chunk_size != 0:
+            raise ZmartLiveError(
+                f"In '{path}', axis {axis} is bundled {bundle_size} pixels at a time but "
+                f"chunked {chunk_size} pixels at a time, and {bundle_size} does not "
+                f"divide evenly by {chunk_size}. The file's own description is "
+                f"inconsistent, so nothing can be resolved out of it."
+            )
+        chunks_per_shard.append(bundle_size // chunk_size)
+
+    return Bundling(
+        array_path=path,
+        array_shape=array_shape,
+        inner_chunk=inner_chunk,
+        chunks_in_array=_grid_extent(array_shape, inner_chunk),
+        sharded=True,
+        shard_shape=grid_chunk,
+        chunks_per_shard=tuple(chunks_per_shard),
+        index_location=index_location,
+        has_checksum=has_checksum,
+    )
+
+
+def _grid_extent(array_shape: Sequence[int], chunk: Sequence[int]) -> tuple[int, ...]:
+    """How many chunks it takes to cover the image along each axis.
+
+    The last chunk on an axis is usually not full — an image 300 pixels wide cut
+    into 128-pixel chunks needs three of them, and the third only holds 44 real
+    pixels. It still counts as a whole chunk, because that is how it is stored.
+    """
+    return tuple(
+        -(-int(size) // int(step)) for size, step in zip(array_shape, chunk, strict=True)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Working out which file holds a chunk
+# ---------------------------------------------------------------------------
+
+
+def _chunk_file(array_path: Path, content: dict, coordinate: Sequence[int]) -> Path:
+    """Work out the file name a stored chunk has, from the array's naming rules.
+
+    An array says how it names its chunk files. The usual modern rule puts them
+    in nested folders under a ``c``, so the chunk at row 1, column 2 of a
+    two-dimensional image is the file ``c/1/2``. The older rule writes the
+    numbers joined by a dot into a single name, ``1.2``. Both are read here,
+    because data written by other tools may use either.
+    """
+    encoding = content.get("chunk_key_encoding", {}) or {}
+    name = encoding.get("name", "default")
+    settings = encoding.get("configuration", {}) or {}
+    numbers = [str(int(index)) for index in coordinate]
+
+    if name == "default":
+        separator = str(settings.get("separator", "/"))
+        key = separator.join(["c", *numbers]) if numbers else "c"
+    elif name == "v2":
+        separator = str(settings.get("separator", "."))
+        key = separator.join(numbers) if numbers else "0"
+    else:
+        raise ZmartLiveError(
+            f"'{array_path}' names its chunk files by a rule called '{name}', which is "
+            f"not one this resolver knows. Without knowing the naming rule there is no "
+            f"way to say which file a chunk lives in."
+        )
+    return array_path.joinpath(*key.split("/"))
+
+
+def where_one_chunk_lives(
+    array_path: str | Path, chunk_coordinate: Sequence[int]
+) -> Held | None:
+    """Say which file holds one chunk, at which byte, and for how many bytes.
+
+    This is the question a linked view asks, once per chunk it wants to advertise.
+    The answer lets it describe that chunk as a byte range in an existing file,
+    so the pixels never have to be read, decoded or copied to be shown somewhere
+    else.
+
+    What goes in
+        ``array_path`` is the folder of one image array. ``chunk_coordinate``
+        counts *chunks*, not pixels, from the corner of the whole image: for an
+        image chunked 128 pixels at a time, the chunk covering pixel rows 256 to
+        383 and columns 0 to 127 is at coordinate ``(2, 0)``.
+
+    What comes back
+        A :class:`Held` giving the file, the offset and the length — or ``None``
+        when that chunk was never written. ``None`` is an ordinary answer: it
+        means the region holds the array's fill value, which is what happens
+        wherever the run has not imaged anything, and a linked view should simply
+        not advertise a chunk there.
+
+        For an array that is not bundled, the answer is the whole of the chunk's
+        own file: offset zero, and a length equal to the file's size.
+
+    What can go wrong
+        A :class:`~zmart_live.model.ZmartLiveError` is raised when the coordinate
+        names the wrong number of axes or points outside the image, and when the
+        shard holding it turns out to be damaged or cut short. A chunk that is
+        merely absent never raises; it comes back as ``None``.
+    """
+    path, content = _read_the_array_description(array_path)
+    bundling = _the_bundling_of(path, content)
+
+    coordinate = tuple(int(index) for index in chunk_coordinate)
+    if len(coordinate) != len(bundling.chunks_in_array):
+        raise ZmartLiveError(
+            f"This image is arranged over {len(bundling.chunks_in_array)} axes, but the "
+            f"chunk coordinate given names {len(coordinate)} of them ({coordinate}). "
+            f"The coordinate needs one number per axis, in the image's own axis order."
+        )
+    for axis, (index, extent) in enumerate(
+        zip(coordinate, bundling.chunks_in_array, strict=True)
+    ):
+        if not 0 <= index < extent:
+            raise ZmartLiveError(
+                f"Chunk coordinate {coordinate} asks for chunk {index} along axis "
+                f"{axis}, but this image only has {extent} chunks there (it is "
+                f"{bundling.array_shape[axis]} pixels across, chunked "
+                f"{bundling.inner_chunk[axis]} at a time). Remember that chunk "
+                f"coordinates count chunks rather than pixels."
+            )
+
+    if not bundling.sharded:
+        # One chunk to a file, so the chunk is simply the whole file. A missing
+        # file means the chunk was never written, exactly as an empty entry does
+        # in a bundled array.
+        file = _chunk_file(path, content, coordinate)
+        if not file.is_file():
+            return None
+        return Held(path=file, offset=0, length=file.stat().st_size)
+
+    # From here on the array is bundled, so it has said how many chunks fit in a
+    # bundle. The chunk's coordinate splits into two parts: which bundle it is
+    # in, found by dividing, and where it sits inside that bundle, found by
+    # taking the remainder. Positions inside a bundle always start again at zero.
+    shard_coordinate = tuple(
+        index // per_shard
+        for index, per_shard in zip(coordinate, bundling.chunks_per_shard, strict=True)
+    )
+    within_shard = tuple(
+        index % per_shard
+        for index, per_shard in zip(coordinate, bundling.chunks_per_shard, strict=True)
+    )
+
+    shard_file = _chunk_file(path, content, shard_coordinate)
+    if not shard_file.is_file():
+        # The whole bundle is absent, so every chunk in it is absent too. This is
+        # normal for a region of the slide the run has not reached yet.
+        return None
+
+    index = read_the_index(
+        shard_file,
+        inner_chunk=bundling.inner_chunk,
+        shard_shape=bundling.shard_shape,
+        index_location=bundling.index_location,
+        has_checksum=bundling.has_checksum,
+    )
+    place = index.place_of(within_shard)
+    if place is None:
+        return None
+    offset, length = place
+    return Held(path=shard_file, offset=offset, length=length)
