@@ -30,10 +30,12 @@
  * when this one is the one that goes quietly wrong.
  *
  * There is a second protection, and it is worth more than the wording: the same
- * sequence is run deliberately broken. `check-the-test-can-fail.mjs` beside this
- * file commits B during the middle step, when the test expects it to be
- * invisible, and reports whether this test noticed. A test that cannot be made
- * to fail on purpose is decoration.
+ * sequence is run deliberately broken, twice, by `check-the-test-can-fail.mjs`
+ * beside this file. One run commits B during the middle step, when the test
+ * expects it to be invisible. The other makes the run refuse everything, so that
+ * the screen goes black while B is still — quite truthfully — not drawn. Each
+ * aims at one of the two claims above, and each must make this test go red. A
+ * test that cannot be made to fail on purpose is decoration.
  *
  * ## How the picture is measured
  *
@@ -79,8 +81,23 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
 
-/** Where the photographs are kept, so a failure can be looked at rather than read about. */
-const SHOTS = path.join(HERE, "photographs");
+/** When the middle step is run deliberately broken. See the note at the top. */
+const SABOTAGE = process.env.ZMART_SABOTAGE ?? "";
+
+/**
+ * Where the photographs are kept, so a failure can be looked at rather than only
+ * read about.
+ *
+ * A deliberately broken run puts its photographs somewhere else, and that is not
+ * tidiness. The photographs of an honest run are the evidence that this test
+ * proved what it claims, and they are kept in the repository for that reason. A
+ * broken run producing a black screen would otherwise overwrite them, leaving
+ * the project holding a picture of nothing under a name that says the test
+ * passed — which is a worse outcome than having no picture at all.
+ */
+const SHOTS = SABOTAGE
+  ? path.join(HERE, "photographs", `deliberately-broken-${SABOTAGE}`)
+  : path.join(HERE, "photographs");
 
 /**
  * The two rectangles the picture is measured in, in page pixels.
@@ -113,9 +130,6 @@ const DRAWN = 0.5;
  * less than a position which is genuinely on screen.
  */
 const NOT_DRAWN = 0.02;
-
-/** When the middle step is run deliberately broken. See the note at the top. */
-const SABOTAGE = process.env.ZMART_SABOTAGE ?? "";
 
 const rest = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -176,6 +190,7 @@ async function startTheRun() {
     write: (position) => tell("write", position),
     commit: (position) => tell("commit", position),
     forgetWhatWasAsked: () => tell("forget-what-was-asked"),
+    refuseEverything: () => tell("refuse-everything"),
     stop() { server.kill(); },
   };
 }
@@ -214,15 +229,15 @@ test("a position is drawn only once it has been committed", async ({ page }) => 
 
   /* Anything the page complains about, apart from the one complaint this test is
      built on.
-   *
-   * A browser writes a line into its console whenever a request comes back "not
-   * found", and this run answers exactly that for every piece of a position
-   * nobody has published. Those lines are the machinery working, not a fault —
-   * a viewer is expected to take "there is nothing here" as emptiness and carry
-   * on drawing what it does have. So complaints about the run's own address are
-   * counted and reported rather than treated as failures, and everything else is
-   * treated as a failure, because a page that is quietly throwing is a page
-   * whose black screen would have nothing to do with commits. */
+
+     A browser writes a line into its console whenever a request comes back "not
+     found", and this run answers exactly that for every piece of a position
+     nobody has published. Those lines are the machinery working rather than a
+     fault: a viewer is expected to take "there is nothing here" as emptiness and
+     carry on drawing what it does have. So complaints about the run's own
+     address are counted and reported, and everything else is treated as a
+     failure — because a page that is quietly throwing is a page whose black
+     screen would have nothing to do with commits. */
   const complaints = [];
   const refusalsTheBrowserNoticed = [];
   const note = (text, where) => {
@@ -249,7 +264,12 @@ test("a position is drawn only once it has been committed", async ({ page }) => 
     expect(failed, `the viewer did not open: ${failed}`).toBeFalsy();
     console.log("the viewer is looking at", await page.evaluate(() => window.probe.view()));
 
-    await run.forgetWhatWasAsked();
+    /* The counts are deliberately *not* set back to nought here. Nothing has
+       been fetched before the page opened, so they already start at nought — and
+       clearing them at this point would race with the engine, which has by now
+       fetched some of A and may have fetched all of it. That race really
+       happened: the first step occasionally found that A had been fetched no
+       times at all, which was true of the counter and quite untrue of the run. */
     const first = await fullestOverBothHalves(page, "1-only-A-is-committed", { seconds: 12 });
     console.log(said("with only A committed  ", first));
 
@@ -267,11 +287,16 @@ test("a position is drawn only once it has been committed", async ({ page }) => 
     // they are complete; an operator looking at the folder would say the
     // position had arrived. Nobody has published it, so nobody may see it.
     await run.write("B");
+    /* The two deliberate faults, each of which ought to make this step go red,
+       and each of which is aimed at one half of the claim it makes. See
+       `check-the-test-can-fail.mjs`. Neither happens in an ordinary run. */
     if (SABOTAGE === "commit-b-early") {
-      // Deliberately breaking the rule, to prove this test notices. See
-      // `check-the-test-can-fail.mjs`.
       await run.commit("B");
       console.log("SABOTAGE: B was committed during the step that expects it hidden");
+    }
+    if (SABOTAGE === "black-screen") {
+      await run.refuseEverything();
+      console.log("SABOTAGE: the run now refuses everything, so the screen goes black");
     }
     await run.forgetWhatWasAsked();
     // The engine has no reason of its own to ask for anything a second time, so
@@ -313,14 +338,14 @@ test("a position is drawn only once it has been committed", async ({ page }) => 
 
     const both = await fullestOverBothHalves(page, "3-both-are-committed", { seconds: 14 });
     console.log(said("both committed          ", both));
-    const finally_asked = (await run.state()).asked;
-    console.log("pieces of image asked for  ", JSON.stringify(finally_asked));
+    const askedAtTheEnd = (await run.state()).asked;
+    console.log("pieces of image asked for  ", JSON.stringify(askedAtTheEnd));
 
     expect(both.A, "A is still drawn").toBeGreaterThan(DRAWN);
     expect(both.B, "B has been committed, so now B is drawn too").toBeGreaterThan(DRAWN);
-    expect(finally_asked.B.served, "B's pieces really were fetched this time")
+    expect(askedAtTheEnd.B.served, "B's pieces really were fetched this time")
       .toBeGreaterThan(0);
-    expect(finally_asked.B.refused, "and none of them was refused any more").toBe(0);
+    expect(askedAtTheEnd.B.refused, "and none of them was refused any more").toBe(0);
 
     console.log(
       `the browser was told "there is nothing here" `

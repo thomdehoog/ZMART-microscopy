@@ -3,17 +3,25 @@
  *
  * A passing test tells you nothing until you have watched it fail for the right
  * reason, and the test beside this one is unusually easy to fool. Its middle
- * step says "position B is not on the screen" — a claim that is perfectly true
- * of a completely black screen, of a page that never opened, of an engine that
- * never started. Left to itself that step could go green every morning while
- * measuring nothing at all.
+ * step makes two claims at once — position B is not on the screen, and position
+ * A still is — and each of them can go quietly wrong in a different way.
  *
- * So this runs the same test with one thing changed: position B is committed
- * during the very step that expects it to be invisible. The publication record
- * now says B may be seen, the server hands its pixels over, and the engine draws
- * them. If the test is doing its job it goes red at exactly that step and says
- * so. If it stays green, the middle step is decoration and should be believed by
- * nobody.
+ * "B is not on the screen" is perfectly true of a completely black screen: of a
+ * page that never opened, an engine that never started, a run that was never
+ * served. And "A is still on the screen" would be satisfied by a viewer that
+ * simply drew whatever it found on disk and paid no attention to commits at all.
+ * So each claim is checked here against a fault aimed squarely at it.
+ *
+ * **B is committed early.** The publication record is made to say, during the
+ * very step that expects B hidden, that B may be seen. The server hands its
+ * pixels over and the engine draws them. The claim that B is not on the screen
+ * ought to catch this.
+ *
+ * **The run refuses everything.** The server is made to behave as though nothing
+ * had ever been committed, so the whole screen goes black. B is still not drawn,
+ * so the first claim still holds — and the claim that A is still there ought to
+ * catch it. This is the one that proves the middle step is not passing over an
+ * empty screen, which is the failure that would be hardest to spot by reading.
  *
  * Run it deliberately, from the operator page's folder so that the packages are
  * found::
@@ -21,9 +29,9 @@
  *     cd workflows/target_acquisition/webapp-ui
  *     node ../../../zmart_live/tests/browser/check-the-test-can-fail.mjs
  *
- * It takes about a minute. Green here means the test is broken; red means it
- * works — which reads backwards, so this prints the answer in words rather than
- * leaving anybody to interpret an exit code.
+ * It takes a couple of minutes. A fault that passes is the bad answer here,
+ * which reads backwards, so the result is printed in words rather than left as
+ * an exit code for somebody to interpret.
  */
 
 import { spawnSync } from "node:child_process";
@@ -35,35 +43,56 @@ const OPERATOR_PAGE = path.resolve(
   here, "..", "..", "..", "workflows", "target_acquisition", "webapp-ui",
 );
 
-/** What is broken, and which claim in the test ought to catch it. */
-const THE_FAULT = "commit-b-early";
-const WHAT_SHOULD_CATCH_IT =
-  "the middle step, where B's pixels are on disk but nobody has published them";
-
-const finished = spawnSync(
-  "npx",
-  ["playwright", "test", "--config", path.join(here, "playwright.config.mjs")],
+/** Each fault, and the claim in the middle step that ought to catch it. */
+const FAULTS = [
   {
-    cwd: OPERATOR_PAGE,
-    stdio: "inherit",
-    env: { ...process.env, ZMART_SABOTAGE: THE_FAULT },
-    shell: process.platform === "win32",
+    name: "commit-b-early",
+    what: "position B is committed during the step that expects it hidden",
+    caughtBy: "the claim that B is not on the screen",
   },
-);
+  {
+    name: "black-screen",
+    what: "the run refuses everything, so nothing at all is drawn",
+    caughtBy: "the claim that A is still on the screen, and still as bright",
+  },
+];
+
+const missed = [];
+for (const fault of FAULTS) {
+  console.log(`\n--- with this broken on purpose: ${fault.what}\n`);
+  const finished = spawnSync(
+    "npx",
+    ["playwright", "test", "--config", path.join(here, "playwright.config.mjs")],
+    {
+      cwd: OPERATOR_PAGE,
+      stdio: "inherit",
+      env: { ...process.env, ZMART_SABOTAGE: fault.name },
+      shell: process.platform === "win32",
+    },
+  );
+  const caught = finished.status !== 0;
+  console.log(
+    caught
+      ? `\ncaught: the test went red, as it should have. ${fault.caughtBy} did its job.`
+      : `\nMISSED: the test stayed green with ${fault.what}.`,
+  );
+  if (!caught) missed.push(fault);
+}
 
 console.log("");
-if (finished.status === 0) {
+if (missed.length === 0) {
   console.log(
-    `The test PASSED with the rule deliberately broken. That is the bad answer.\n` +
-    `B was committed during ${WHAT_SHOULD_CATCH_IT}, so B really was on the\n` +
-    `screen, and the test said nothing. Whatever that step is measuring, it is\n` +
-    `not whether a commit decides what is drawn, and it should not be trusted\n` +
-    `until it can be made to fail here.`,
+    "Every fault was caught. Both halves of the middle step are making a real\n" +
+    "claim: a screen showing B would fail it, and so would a screen showing\n" +
+    "nothing at all.",
   );
-  process.exit(1);
+  process.exit(0);
 }
 console.log(
-  `The test FAILED with the rule deliberately broken, which is the good answer.\n` +
-  `B was committed during ${WHAT_SHOULD_CATCH_IT}; B appeared on the screen, and\n` +
-  `the test noticed. The claim it makes about commits is a real one.`,
+  `${missed.length} of ${FAULTS.length} faults went unnoticed:\n` +
+  missed.map((fault) => `  - ${fault.what}\n    should have been caught by ${fault.caughtBy}`)
+    .join("\n") + "\n\n" +
+  "Whatever those claims are measuring, it is not what they say they are, and\n" +
+  "they should not be trusted until they can be made to fail here.",
 );
+process.exit(1);

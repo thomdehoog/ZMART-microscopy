@@ -26,6 +26,17 @@
          always position A's ground and the right half is always position B's.
          Those two halves are what the test measures, and because they are fixed
          they mean the same thing in every photograph. */
+      /* The two pieces of furniture the engine draws for itself and offers no
+         setting to turn off: the axis names in the top-left corner, and the
+         layout buttons in the top-right. Both are light on the screen, and this
+         test measures light. They sit outside the rectangles it measures in, so
+         hiding them changes no number — but a rectangle is one edit away from
+         reaching a corner, and a measurement that quietly counted a button as
+         picture would be very hard to spot afterwards. */
+      .neuroglancer-display-dimensions-widget,
+      .neuroglancer-data-panel-layout-controls {
+        display: none !important;
+      }
       #picture {
         position: absolute;
         left: 0;
