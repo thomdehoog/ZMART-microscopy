@@ -68,6 +68,12 @@ plain HTTP requests:
     Set those counts back to nought, so that one step of the test can be measured
     without the previous step's requests in the total.
 
+``POST /control/refuse-everything``
+    Behave as though nothing had ever been committed, so that the screen goes
+    black. This exists for one reason and it is not a feature: it is how the
+    browser test is proved able to notice a black screen. See
+    ``check-the-test-can-fail.mjs``.
+
 The built viewer page is served from this same server, under ``/page/``, so that
 the page and the run share an origin and no cross-origin permissions are
 involved. That keeps the test about commits rather than about browser security
@@ -264,6 +270,10 @@ class GrowingRun:
         self.written: set[str] = set()
         self.owners = _which_position_owns_each_piece()
         self.counts = Counts()
+        #: Set only by the deliberate-fault check, which needs to make the screen
+        #: go black on purpose so that it can find out whether the browser test
+        #: notices. Nothing in an ordinary run touches this.
+        self.refusing_everything = False
         self._lock = threading.Lock()
 
     def close(self) -> None:
@@ -336,6 +346,8 @@ class GrowingRun:
 
     def is_visible(self, name: str) -> bool:
         """Whether this position has been published, and may therefore be served."""
+        if self.refusing_everything:
+            return False
         return self.manifest.revision_of(name) > 0
 
     def state(self) -> dict:
@@ -345,6 +357,7 @@ class GrowingRun:
             "by_store": dict(committed.by_store),
             "written": sorted(self.written),
             "asked": self.counts.as_json(),
+            "refusing_everything": self.refusing_everything,
         }
 
     def _position(self, name: str) -> Position:
@@ -411,6 +424,8 @@ def make_handler(run: GrowingRun, page: Path):
                     run.commit(wanted)
                 elif asked.path == "/control/forget-what-was-asked":
                     run.counts.forget()
+                elif asked.path == "/control/refuse-everything":
+                    run.refusing_everything = True
                 else:
                     self._send_json({"trouble": f"no such control: {asked.path}"}, 404)
                     return
