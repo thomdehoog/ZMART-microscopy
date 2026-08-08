@@ -3,6 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <title>Does a commit decide what is drawn?</title>
+    <!-- An empty icon, declared so that the browser does not go looking for one.
+         Left out, it asks the run's own server for /favicon.ico, is told there
+         is nothing there, and writes a complaint into its console — which the
+         test would then have to tell apart from a complaint that mattered. -->
+    <link rel="icon" href="data:," />
     <style>
       /* The page is deliberately plain. Nothing is drawn on it except the
          picture itself, because anything else — a title bar, a status line, a
