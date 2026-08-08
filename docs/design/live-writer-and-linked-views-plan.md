@@ -250,16 +250,165 @@ arrival has already misled this project by a factor of two hundred. Strict
 publication puts a coarse-chunk rebuild for two views on that path, and it is
 currently unbudgeted.
 
-### Phase 8 — Deferred, deliberately
+### Phase 8 — Sharding, and the byte-range resolver that keeps it free
 
-Sharding every level and serving one chunk from inside a shard. Its benefit is
-file count, not viewer speed; it makes the alignment rule harder, not easier
-(the unit becomes the shard); and its performance gate is on a Windows microscope
-computer nobody has measured. Level-0 sharding, as production already does,
-keeps the existing rule true.
+Sharding is not an optimisation to be deferred here. A run of four or five
+hundred gigabytes written as loose chunks makes **over five million files**, and
+simply moving that between Windows machines is a nightmare. Bundling is what
+makes a run of that size handleable at all, so it is a first-class requirement.
 
-The analysis-ownership half of Decision 9 is also deferred. Stating that plainly
-so the omission is a decision rather than an oversight.
+The danger is that bundling takes away the freedom to choose a chunk. The view
+hands Neuroglancer whole *files*, so once a file holds many chunks the placement
+numbers must line up with the **bundle** rather than the chunk — and a bundle is
+far larger, so the alignment rule becomes much harsher. At a 2048 step, any
+bundle wider than the overlap makes the view unbuildable.
+
+This was checked rather than assumed. Asking the linker what it measures
+alignment against, for two arrays holding the same 256-pixel chunks:
+
+| array | alignment unit the linker uses | piece inside the bundle |
+| --- | ---: | ---: |
+| unsharded | `(256, 256)` | — |
+| sharded | **`(1024, 1024)`** — the bundle | `(256, 256)` |
+
+The writer already reads the inner piece size out of the sharding codec, so the
+information is there; what the view lines up with is the file. Neuroglancer
+itself understands sharded Zarr v3 and asks for a piece inside a bundle by byte
+offset, which is why the present design declares the view sharded exactly like
+its tiles and hands over whole bundles. That works, and it pins alignment to the
+shard.
+
+With the uniform lower/right trim every placement number is a multiple of the
+step, so a 1024 bundle does divide a 2048 step — but only two levels deep, where
+the inner chunk would reach four. **Sharding therefore halves the pointed depth
+unless the resolver exists.**
+
+**That is escapable, and it has been demonstrated rather than assumed.** A shard
+is not opaque: it is the encoded inner chunks laid end to end with a small index
+at the back giving each one's offset and length. Reading that index and handing
+back one chunk's byte range was tried against real Zarr v3 data — inner chunks of
+256 bundled into shards of 1024, Zstd compressed, index at the end with a CRC32C
+trailer. All sixteen inner chunks of a shard were lifted out by byte range and
+decoded **identical** to what zarr itself returns for the same region. That is
+required test 11 of the decision record, passing.
+
+So the arrangement is:
+
+- **canonical positions are sharded**, for the file count;
+- **the linked views are logically unsharded** — they advertise inner chunks and
+  resolve each one to a byte range inside a shard;
+- **alignment therefore returns to the inner chunk**, and the shard shape stops
+  constraining the chunk entirely.
+
+This makes the resolver a prerequisite for sharding rather than a later
+refinement: with it, sharding costs nothing in alignment; without it, sharding
+and linking genuinely do fight.
+
+#### What a shard should cover
+
+| shard covers | files in a 500 GB run | file size |
+| --- | ---: | ---: |
+| nothing — loose chunks | 5,461,236 | tiny |
+| one z plane | 67,423 | 10 MB |
+| **8 z planes** | **8,428** | **81 MB** |
+| **16 z planes** | **4,214** | **162 MB** |
+| a whole position | 1,686 | 405 MB |
+| four positions | 421 | 1,620 MB |
+
+The rule is one sentence: **a shard may span anything inside a single commit, and
+nothing across commits.**
+
+That follows from what a commit already is. The publication unit is a complete
+position, or a complete timepoint of one, and by definition that includes every
+channel and every z plane. So bundling across those axes cannot expose anything
+half-written — strict publication already requires them all to be finished before
+anything becomes visible. Bundling across time or across positions is a different
+matter entirely, because those *are* separate commits.
+
+| axis | may a shard span it? | why |
+| --- | --- | --- |
+| z | **yes** | inside one commit; bound it to 8–16 planes for file size, not for correctness |
+| channel | **yes** | inside one commit; every channel must be complete before publication anyway |
+| time | **no** | appending timepoint 2 would rewrite the published file holding timepoint 1 |
+| position | **no** | the earlier positions would wait for the later ones, and their published bytes would be rewritten |
+
+Concretely: **one shard per timepoint, per channel, covering a z-slab sized to
+land near a hundred megabytes, within a single position.**
+
+Channels are kept separate rather than bundled simply because there can be up to
+six or seven of them; bundling would multiply the file size by that count, and
+sizing the slab per channel keeps files near the target whatever the channel
+count turns out to be.
+
+Sizing the slab to the file rather than to a fixed plane count is what makes this
+stable across the whole envelope — frames anywhere from about a thousand to five
+thousand pixels square, and stacks from a handful of planes to a few hundred:
+
+| frame | one plane | z-slab | file size | files for a 500 GB run, 7 channels, all levels |
+| ---: | ---: | ---: | ---: | ---: |
+| 1024 | 2.0 MB | 50 | 100 MB | ~6,800 |
+| 2048 | 8.0 MB | 12 | 96 MB | ~7,100 |
+| 2304 | 10.1 MB | 10 | 101 MB | ~6,700 |
+| 4096 | 32.0 MB | 3 | 96 MB | ~7,100 |
+| 5120 | 50.0 MB | 2 | 100 MB | ~6,800 |
+
+About seven thousand files for half a terabyte, whatever the frame size, against
+five and a half million unsharded. That is the property worth having.
+
+### What the profile builder chooses, across the envelope
+
+Preference order, which encodes what actually costs what: enough pointed depth
+that the written levels stay small; then the largest chunk, because that is the
+fewest requests to fill a screen; then the least overlap, because overlap is
+microscope time.
+
+| frame | chunk | overlap | fraction | step | pointed levels | chunks per plane |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1024 | 128 | 256 | 25.0% | 768 | 2 | 64 |
+| 1280 | 256 | 256 | 20.0% | 1024 | 3 | 25 |
+| 1536 | 192 | 384 | 25.0% | 1152 | 2 | 64 |
+| 2048 | 128 | 512 | 25.0% | 1536 | 3 | 256 |
+| 2160 | 144 | 432 | 20.0% | 1728 | 3 | 225 |
+| **2304** | **256** | **256** | **11.1%** | 2048 | **4** | **81** |
+| 2560 | 512 | 512 | 20.0% | 2048 | 3 | 25 |
+| 3072 | 192 | 768 | 25.0% | 2304 | 3 | 256 |
+| 4096 | 256 | 1024 | 25.0% | 3072 | 3 | 256 |
+| 5120 | 512 | 1024 | 20.0% | 4096 | 4 | 100 |
+
+**A finding worth acting on.** A 2304 frame is markedly better than its
+neighbours: it is the only size in the envelope that reaches a good chunk and
+four pointed levels at **11.1%** overlap, where everything else needs twenty to
+twenty-five per cent. Overlap is microscope time, so that is roughly a tenth of
+the run's imaging saved, along with a quarter as many requests per plane as a
+2048 frame.
+
+Where ZMART controls an adjustable scan format, the profile builder should say so
+and offer the better format rather than silently accepting a worse one. Where the
+camera's frame is fixed, the same arithmetic simply reports the honest cost.
+
+Not spanning positions matters more than the file count does. Positions arrive
+one at a time and each has to become visible on its own; a shard covering four of
+them cannot be closed until all four have landed, so the first three would sit
+invisible waiting for the fourth. Adding a position later would also mean
+rewriting a file that has already been published, which the whole design forbids.
+The saving from four positions per shard is 421 files against 8,428, and 8,428 is
+already comfortable. It is not worth breaking publication for.
+
+Not spanning timepoints is the same argument in time: appending a second
+timepoint must not rewrite the file holding the first, because the first is
+already published and immutable. A new timepoint makes new shards.
+
+Eight to sixteen planes gives 81–162 MB files and takes five and a half million
+files down to four or eight thousand — about a 650-fold reduction, which is the
+move-it-around problem solved. A whole position at 405 MB is too large for a live
+write unit: that much would have to be buffered before anything became visible.
+The final number is to be benchmarked on the actual Windows microscope computers,
+as the decision record already asks.
+
+### Deferred, deliberately
+
+The analysis-ownership half of Decision 9. Stating that plainly so the omission
+is a decision rather than an oversight.
 
 ## Also fix on the way past
 
