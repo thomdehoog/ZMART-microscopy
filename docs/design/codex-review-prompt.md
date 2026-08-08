@@ -45,11 +45,11 @@ All new code is under `zmart_live/`. It is complete and tested except where note
 | `shardlink.py` | one chunk can be lifted from a Zarr v3 shard by byte range, so bundling does not constrain chunk choice |
 | `tests/browser/` | the above, proven in a real Chromium with a real Neuroglancer |
 
-**160 Python tests, about 4 seconds. The browser test takes about 47 seconds.**
+**211 Python tests, about 5 seconds. The browser test takes about 47 seconds.**
 
-`scene.py` — compiling the run into Neuroglancer sources — may or may not be
-present when you read this. If it is, review it against claim 7 below. If it is
-not, ignore that claim.
+`scene.py` compiles a run into Neuroglancer sources and layers. Measured on a
+71×71 mosaic: **5,041 positions become 2 sources, 2 layers, and a payload of
+about 1,700 characters** that does not grow with the run.
 
 ## Before anything else: try to make the tests lie
 
@@ -62,7 +62,7 @@ python -m zmart_live.tests.check_the_shardlink_tests_can_fail
 node zmart_live/tests/browser/check-the-test-can-fail.mjs
 ```
 
-They currently claim **41 faults, all caught**. Your first job is to add faults
+They currently claim **55 faults, all caught**. Your first job is to add faults
 they do not cover and find one that survives. A surviving fault is a claim the
 suite is not really making, and it is the cheapest real finding available to you.
 
@@ -122,7 +122,7 @@ one that reversed a decision in the architecture record.
    empty-chunk sentinel, and behaviour on a truncated file. A wrong byte range
    here decodes to plausible noise rather than failing.
 
-8. **If `scene.py` exists: never one Neuroglancer source per position.** Measured
+8. **Never one Neuroglancer source per position.** Measured
    in this repo, a thousand positions handed over separately drew 24 frames in
    five seconds where one linked image managed 255 — the cost is per source, paid
    on every frame forever. Also: the committed revision must live in a per-source
