@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Does a commit decide what is drawn?</title>
+    <style>
+      /* The page is deliberately plain. Nothing is drawn on it except the
+         picture itself, because anything else — a title bar, a status line, a
+         border — would be counted as "something is lit" by the measurement the
+         test makes, and the whole question here is whether the *picture* is
+         there. */
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        overflow: hidden;
+      }
+      /* A box of exactly the size the run is, in voxels: 1024 across and 512
+         down. The viewer is then told to draw one voxel to one screen pixel and
+         to look at the middle of the run, so the left half of this box is
+         always position A's ground and the right half is always position B's.
+         Those two halves are what the test measures, and because they are fixed
+         they mean the same thing in every photograph. */
+      #picture {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1024px;
+        height: 512px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="picture"></div>
+    <script type="module" src="./viewer.js"></script>
+  </body>
+</html>
