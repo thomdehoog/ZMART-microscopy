@@ -131,10 +131,46 @@ OWNERSHIP_FAULTS: list[tuple[str, str, str]] = [
     ),
 ]
 
+#: The zoomed-out picture is where an unfinished position would show up quietly,
+#: at low magnification, looking exactly like specimen.
+COARSE_FAULTS: list[tuple[str, str, str]] = [
+    (
+        "let an uncommitted position into the zoomed-out picture",
+        "if placement.position_id in committed",
+        "if True",
+    ),
+    (
+        "name one more piece than the position actually touches",
+        "last = (span.stop - 1) // across",
+        "last = span.stop // across",
+    ),
+    (
+        "forget that a piece covers more ground the further out it is",
+        "across = chunk[axis] * shrink",
+        "across = chunk[axis]",
+    ),
+    (
+        "count the arriving position as one of its own neighbours",
+        "if other.position_id != position_id:",
+        "if True:",
+    ),
+    (
+        "rebuild only the coarsest level and leave the rest stale",
+        "for level in wanted:",
+        "for level in wanted[-1:]:",
+    ),
+    (
+        "treat a piece as covering only the ground of the first position in it",
+        ".overlaps(shows)",
+        ".overlaps(shows) and placement is placements[0]",
+    ),
+]
+
 #: Which faults belong to which file, and which tests should notice them.
 SUBJECTS: list[tuple[str, str, str, list[tuple[str, str, str]]]] = [
     ("the commit record", "manifest.py", "test_manifest.py", MANIFEST_FAULTS),
     ("seam ownership", "ownership.py", "test_ownership.py", OWNERSHIP_FAULTS),
+    ("the zoomed-out picture", "coarse.py", "test_coarse.py", COARSE_FAULTS),
 ]
 
 
