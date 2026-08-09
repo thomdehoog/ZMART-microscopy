@@ -108,6 +108,30 @@ download endpoint returned an empty/non-ZIP response and no compatible browser
 was preinstalled. The sabotage harness exited 2 after its baseline launch failed,
 correctly classifying this as an environment blocker rather than a caught fault.
 
+### Later note: the browser assertion has since been run
+
+That blocker was the environment rather than the test. In a container with a
+Chromium already installed, the whole sequence runs against a real Neuroglancer:
+
+- The honest run passes in about 58 seconds. The server's own counters agree with
+  the pixels — four of the second position's pieces were asked for and refused
+  while it was uncommitted, and served once it was not.
+- Both sabotage runs go red. Committing early fails the negative claim; refusing
+  to serve anything fails the positive one, which is the black screen the whole
+  objection was about.
+
+The 257-test suite and all three Python mutation campaigns were re-run at the
+same commit and agree with this review.
+
+This does **not** weaken finding 4 in the section below. What has been shown is
+that the renderer behaves correctly when a synthetic server gates chunks on the
+manifest. It is still not evidence about production scene discovery, per-source
+invalidation, or shard-range serving, none of which that harness touches.
+
+For anyone reproducing it: Playwright's pinned browser build may differ from the
+one installed, so the tests pass an explicit `executablePath`. That, rather than
+downloading a browser, is the setting to change.
+
 ## Established by reading, not yet verified end to end
 
 These are the next engineering gates, not minor polish:
