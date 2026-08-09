@@ -205,12 +205,65 @@ COARSE_FAULTS: list[tuple[str, str, str]] = [
     ),
 ]
 
+#: The coordinator is the piece that turns a readiness claim into something
+#: earned, so the faults worth introducing here are the ones that would quietly
+#: turn it back into a rubber stamp. Every one of these leaves a run that looks
+#: entirely normal and publishes something unfinished.
+COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
+    (
+        "publish without looking at what landed",
+        "if not found.everything_checks_out:",
+        "if False:",
+    ),
+    (
+        "treat a missing zoomed-out copy as acceptable",
+        "if not path.exists():\n                complaints.append(",
+        "if False:\n                complaints.append(",
+    ),
+    (
+        "call the pixels ready even when something was complained about",
+        "pyramids_ready=pieces_read > 0 and not about_pixels,",
+        "pyramids_ready=True,",
+    ),
+    (
+        "let an unpublished position into the run-wide picture",
+        "if placement.position_id not in committed:",
+        "if False:",
+    ),
+    (
+        "stop checking that the arrangement can be read back",
+        "layout_ready=layout_ok and not about_the_layout,",
+        "layout_ready=True,",
+    ),
+    (
+        "count a piece as read without reading it",
+        "everything = array[:]",
+        "everything = np.zeros(1)",
+    ),
+    (
+        "accept a pointer whose bytes decode to the wrong picture",
+        "if not _the_same_picture(lifted, array, corner):",
+        "if False:",
+    ),
+    (
+        "compare a piece against the padding rather than the specimen",
+        "slice(place * size, min(place * size + size, reach))",
+        "slice(place * size, place * size + size)",
+    ),
+]
+
 #: Which faults belong to which file, and which tests should notice them.
 SUBJECTS: list[tuple[str, str, str, list[tuple[str, str, str]]]] = [
     ("the commit record", "manifest.py", "test_manifest.py", MANIFEST_FAULTS),
     ("seam ownership", "ownership.py", "test_ownership.py", OWNERSHIP_FAULTS),
     ("stored layout ownership", "model.py", "test_ownership.py", LAYOUT_FAULTS),
     ("the zoomed-out picture", "coarse.py", "test_coarse.py", COARSE_FAULTS),
+    (
+        "earning the right to publish",
+        "coordinator.py",
+        "test_coordinator.py",
+        COORDINATOR_FAULTS,
+    ),
 ]
 
 
