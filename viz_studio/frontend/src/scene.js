@@ -206,11 +206,18 @@ export function layersFor(config, mode, layerState, groupState, groupOrder) {
       // which left the engine going back to every store on the row to ask. See
       // syncSources in engine.js, and NEXT_STEPS.md for what that cost.
       frameCounts: spec.frameCounts ?? undefined,
+      // Manifest-driven sources keep a stable address.  Their separately carried
+      // identities and committed revisions tell engine.js exactly which existing
+      // source must be refreshed after a publication, without making the address
+      // itself look like a new image.
+      sourceIds: spec.sourceIds ?? undefined,
+      sourceRevisions: spec.sourceRevisions ?? undefined,
     };
     // Where a store holds its channels inside one array, this is what picks the
     // channel: the engine exposes it as a per-layer dimension, and each row pins
     // it to its own index. Nothing splits the data; one store feeds every row.
-    if (spec.channelIndex != null) layer.localPosition = [spec.channelIndex];
+    if (Array.isArray(spec.localPosition)) layer.localPosition = spec.localPosition;
+    else if (spec.channelIndex != null) layer.localPosition = [spec.channelIndex];
     layer.visible = visible && group.visible;
     if (isMask) {
       layer.selectedAlpha = combinedOpacity;

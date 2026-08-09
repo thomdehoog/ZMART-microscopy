@@ -29,6 +29,47 @@ python run_tests.py -v              # one line per test
 python run_tests.py -s -k gpu       # print which GPU the renderer found
 ```
 
+## Manifest-driven production refresh
+
+The focused non-browser path for the live publication integration is:
+
+```bash
+../.venv/bin/pytest -q \
+  tests/test_manifest_driven_refresh.py \
+  tests/test_frontend_live_refresh_contract.py \
+  ../zmart_live/tests/test_live_state.py \
+  tests/test_live_publication_gateway.py
+```
+
+The real production page scenarios are in
+`tests/test_manifest_refresh_browser.py`. They open the shipped backend and
+frontend, use the production `LivePublisher`, photograph Neuroglancer, and cover
+position publication, an uncommitted cached-empty region, timepoint publication,
+replacement generations, operator-state survival, selective requests across two
+runs, SSE loss, fallback and reconnection. Run them with a browser-required flag
+on a machine intended to qualify the viewer:
+
+```bash
+ZMART_REQUIRE_BROWSER=1 ../.venv/bin/pytest -q \
+  tests/test_manifest_refresh_browser.py
+```
+
+A skip is not visual verification. The positive assertion that committed A
+remains measurably bright while uncommitted B stays invisible is load-bearing:
+it prevents a black screen from satisfying the publication gate.
+
+The deterministic mutation campaign deliberately sabotages premature serving,
+gapped time availability, damaged-state handling, source revision comparison,
+stable URLs and selective cache invalidation:
+
+```bash
+(cd .. && .venv/bin/python -m \
+  zmart_live.tests.check_the_live_refresh_tests_can_fail)
+```
+
+It first proves each unmodified target is green, accepts only pytest's ordinary
+assertion-failure status as evidence, and restores every subject byte-for-byte.
+
 ## What runs, and what skips
 
 The suite is written so a plain machine stays green and a capable machine tests

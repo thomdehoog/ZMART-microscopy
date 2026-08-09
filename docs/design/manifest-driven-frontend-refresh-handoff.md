@@ -1,7 +1,8 @@
 # Manifest-driven live frontend refresh
 
-**Status:** implementation handoff; the publication and zero-copy storage
-foundations exist, but this frontend integration is not implemented yet.
+**Status:** implemented on `agent/live-position-timepoint-publication` on
+2026-08-10. The production browser scenarios are part of the suite and must be
+run on a Chromium-capable machine before making a visual qualification claim.
 
 | Coordinate | Value |
 | --- | --- |
@@ -17,6 +18,54 @@ the earlier OME-Zarr/Neuroglancer structure branch. Use:
 ```bash
 git diff origin/claude/omezarr-neuroglancer-structure-srnwu6...HEAD
 ```
+
+## Implemented architecture
+
+The implementation follows the design below, with these concrete boundaries:
+
+- `RunManifest.committed_strict()` distinguishes damaged truth from a genuine
+  revision zero, and `events_through()` derives state from one strict marker
+  snapshot while retaining the append-only cursor.
+- `LiveStateTracker` watches only `committed.json`, incrementally derives
+  committed moments, compiles bounded aggregate sources, and keeps the last good
+  state with explicit degraded freshness after damage, foreign identity or a
+  regression.
+- `ManifestWatcher` fans a valid higher revision out through the existing SSE
+  connection. It compares against the last revision it announced, so an API
+  request winning the race to observe a commit cannot suppress the nudge to
+  other tabs. Its registry follows the production open/close routes and shares
+  one watcher cursor when the same run is opened more than once.
+- `/api/live-state` returns a conditional, `no-store`, ETag-qualified set of
+  per-run states. `/api/config` carries the same state beside stable aggregate
+  source URLs, per-source revisions and half-open committed-time ranges.
+- The frontend rejects unsafe state, coalesces SSE catch-up, and performs a slow
+  conditional live-state check for missed hints. A `304` performs no scene or
+  Neuroglancer work.
+- `syncSources()` compares revisions separately from addresses. For an affected
+  source it removes only that stable store's memoized metadata, invalidates only
+  decoded holders whose key belongs to that exact store, then re-resolves the
+  same source inside the existing layer. It never walks the global holder set or
+  rebuilds the layer.
+- The time control expands only explicit committed half-open ranges, including
+  correct handling of gaps. Declared Zarr capacity remains unreachable until an
+  event publishes it.
+
+Three details deliberately refine the illustrative design below. The endpoint has
+a `zmart-live-frontend-state-set/1` wrapper because `viz_studio` can open several
+runs at once; each contained run retains the proposed per-run schema and is keyed
+by its opened dataset identity. Config rows and their live-state document are
+pinned to the same immutable tracker snapshot, preventing a commit racing config
+construction from pairing an old document with a new cache key. Cache invalidation
+uses the decoded holders selected from the affected store's exact memo-key prefix;
+unrelated sources retain every metadata and decoded object.
+
+The load-bearing tests are
+`viz_studio/tests/test_manifest_refresh_browser.py`,
+`viz_studio/tests/test_manifest_driven_refresh.py`,
+`viz_studio/tests/test_frontend_live_refresh_contract.py`, and
+`zmart_live/tests/test_live_state.py`. The reproducible non-browser fault
+campaign is
+`python -m zmart_live.tests.check_the_live_refresh_tests_can_fail`.
 
 ## Decision in one sentence
 

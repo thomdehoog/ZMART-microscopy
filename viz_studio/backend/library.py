@@ -36,9 +36,9 @@ from __future__ import annotations
 import hashlib
 import os
 import threading
-from pathlib import Path
-
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from stores import (
     _moments_folder,
@@ -623,7 +623,11 @@ class Library:
 
     # -- noticing a change without reading anything ------------------------
 
-    def revision(self) -> str:
+    def revision(
+        self,
+        *,
+        excluding: set[int] | frozenset[int] | Callable[[], frozenset[int]] = frozenset(),
+    ) -> str:
         """A short summary of the open folders that changes when their contents do.
 
         The viewer needs to know when a new acquisition has appeared, and asking
@@ -668,9 +672,13 @@ class Library:
         "the description was created" look the same from here — which is what the
         viewer actually needs to know.
         """
+        excluded = excluding() if callable(excluding) else excluding
         with self._lock:
-            open_now = [(dataset.number, dataset.root, list(dataset.stores))
-                        for dataset in self.datasets()]
+            open_now = [
+                (dataset.number, dataset.root, list(dataset.stores))
+                for dataset in self.datasets()
+                if dataset.number not in excluded
+            ]
         marks = []
         for number, root, names in open_now:
             try:

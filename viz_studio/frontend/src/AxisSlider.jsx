@@ -1,4 +1,5 @@
 import React from "react";
+import { momentsInRanges } from "./live-refresh.js";
 
 // How long to rest on each plane while playing. Slow enough to see what is there,
 // fast enough to read movement across a stack.
@@ -47,10 +48,17 @@ export default function AxisSlider({
   axis: axisName,
   label,
   limit = null,
+  ranges = null,
   orientation = "horizontal",
 }) {
   const [axis, setAxis] = React.useState(null);
-  const [playing, onPlay] = usePlayback(viewer, axisName, limit);
+  const committedMoments = React.useMemo(() => momentsInRanges(ranges), [ranges]);
+  const [playing, onPlay] = usePlayback(
+    viewer,
+    axisName,
+    limit,
+    committedMoments,
+  );
 
   React.useEffect(() => {
     if (!viewer) return undefined;
@@ -93,10 +101,12 @@ export default function AxisSlider({
   // Never offer more steps than there is data for. A store is given its full
   // length in time when it is created, long before the run has produced that many
   // frames, so what the file claims and what exists are not the same thing.
-  const reachable =
-    limit != null && Number.isFinite(limit)
-      ? { ...axis, max: Math.min(axis.max, axis.min + limit - 1) }
-      : axis;
+  const allowed = committedMoments?.filter(
+    (moment) => axis.min + moment >= axis.min && axis.min + moment <= axis.max,
+  );
+  const reachable = limit != null && Number.isFinite(limit)
+    ? { ...axis, max: Math.min(axis.max, axis.min + limit - 1) }
+    : axis;
   if (reachable.max < reachable.min) return null;
   // The slider steps in halves rather than whole planes, and that is deliberate.
   // The engine opens a view in the *middle* of an axis, which for an even number
@@ -107,13 +117,22 @@ export default function AxisSlider({
   // far as the browser was concerned it was already there. The slider would look
   // correct and do nothing at all. Halves can represent every position the engine
   // actually takes, so what is shown and what is meant never come apart.
-  const value = Math.max(reachable.min, Math.min(reachable.max, reachable.value));
-  const stepNumber = Math.round(value - reachable.min + 1);
-  const count = Math.round(reachable.max - reachable.min + 1);
+  if (allowed && !allowed.length) return null;
+  const nearestAllowed = allowed
+    ? allowed.reduce((best, moment, at) => (
+        Math.abs(axis.min + moment - axis.value)
+          < Math.abs(axis.min + allowed[best] - axis.value) ? at : best
+      ), 0)
+    : null;
+  const value = allowed
+    ? nearestAllowed
+    : Math.max(reachable.min, Math.min(reachable.max, reachable.value));
+  const stepNumber = allowed ? nearestAllowed + 1 : Math.round(value - reachable.min + 1);
+  const count = allowed ? allowed.length : Math.round(reachable.max - reachable.min + 1);
   const moveTo = (next) => {
     const current = viewer.navigationState.position.value;
     const moved = Float32Array.from(current);
-    moved[reachable.index] = next;
+    moved[reachable.index] = allowed ? axis.min + allowed[next] : next;
     viewer.navigationState.position.value = moved;
   };
 
@@ -145,9 +164,9 @@ export default function AxisSlider({
       <span style={styles.axisLabel}>{label}</span>
       <input
         type="range"
-        min={reachable.min}
-        max={reachable.max}
-        step={0.5}
+        min={allowed ? 0 : reachable.min}
+        max={allowed ? allowed.length - 1 : reachable.max}
+        step={allowed ? 1 : 0.5}
         value={value}
         onChange={(event) => moveTo(Number(event.target.value))}
         aria-label={`${axisName} position`}
@@ -178,7 +197,7 @@ export default function AxisSlider({
  * told. The step rate is a compromise: fast enough to read as motion, slow
  * enough that the engine has a chance to fetch each plane as it arrives.
  */
-function usePlayback(viewer, axisName, limit) {
+function usePlayback(viewer, axisName, limit, committedMoments) {
   const [playing, setPlaying] = React.useState(false);
 
   React.useEffect(() => {
@@ -186,11 +205,20 @@ function usePlayback(viewer, axisName, limit) {
     const step = () => {
       const axis = axisInfo(viewer, axisName);
       if (!axis) return;
-      const top =
-        limit != null && Number.isFinite(limit)
-          ? Math.min(axis.max, axis.min + limit - 1)
-          : axis.max;
-      const next = axis.value + 1 > top ? axis.min : axis.value + 1;
+      let next;
+      if (committedMoments) {
+        const allowed = committedMoments.filter((moment) => axis.min + moment <= axis.max);
+        if (!allowed.length) return;
+        const current = axis.value - axis.min;
+        const following = allowed.find((moment) => moment > current) ?? allowed[0];
+        next = axis.min + following;
+      } else {
+        const top =
+          limit != null && Number.isFinite(limit)
+            ? Math.min(axis.max, axis.min + limit - 1)
+            : axis.max;
+        next = axis.value + 1 > top ? axis.min : axis.value + 1;
+      }
       const position = viewer.navigationState.position;
       const moved = Float32Array.from(position.value);
       moved[axis.index] = next;
@@ -198,7 +226,7 @@ function usePlayback(viewer, axisName, limit) {
     };
     const timer = setInterval(step, PLAY_STEP_MS);
     return () => clearInterval(timer);
-  }, [playing, viewer, axisName, limit]);
+  }, [playing, viewer, axisName, limit, committedMoments]);
 
   // Playing an axis the image no longer has would be a control quietly doing
   // nothing, so it stops itself if the axis goes away with the image.

@@ -469,6 +469,46 @@ class RunManifest:
         ):
             return CommittedState(run_id=self.run_id)
 
+    def committed_strict(self) -> CommittedState:
+        """Read committed truth without turning damage into revision zero.
+
+        :meth:`committed` deliberately fails towards an empty screen.  That is
+        the right answer for a pixel request, but it is not enough information
+        for a long-lived observer: an observer that had already accepted
+        revision 12 must be able to distinguish a genuinely empty run from a
+        temporarily unreadable marker, or it could report a false regression.
+
+        This method makes that distinction explicit.  It returns the same
+        validated state as :meth:`committed`, and raises :class:`ZmartLiveError`
+        for damaged, foreign or unreadable truth.  It never repairs or rewrites
+        anything.
+        """
+        try:
+            state = CommittedState.from_json(
+                json.loads(self.truth.read_text(encoding="utf-8"))
+            )
+        except (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            AttributeError,
+            KeyError,
+            TypeError,
+            ValueError,
+            ZmartLiveError,
+        ) as why:
+            raise ZmartLiveError(
+                f"The publication record at {self.truth} cannot be read safely. "
+                "The last valid published state must be retained until the small "
+                "file is restored."
+            ) from why
+        if self.run_id and state.run_id != self.run_id:
+            raise ZmartLiveError(
+                f"This manifest was opened for run {self.run_id!r}, but its "
+                f"publication record now belongs to {state.run_id!r}."
+            )
+        return state
+
     def _committed_for_writing(
         self,
         *,
@@ -637,6 +677,42 @@ class RunManifest:
             for event in self._events_cache
             if event.revision > after and (ceiling is None or event.revision <= ceiling)
         ]
+
+    def events_through(
+        self,
+        committed: CommittedState,
+        after: int = 0,
+    ) -> list[CommitEvent]:
+        """Published events above ``after`` through one strict state snapshot.
+
+        Reading the marker and then calling :meth:`events` used to read the
+        marker a second time through its safe-empty fallback.  A replacement
+        between those two reads could pair history with a different ceiling,
+        while damage could silently turn that ceiling into zero.  A backend
+        watcher instead reads one strict snapshot and hands it here.
+
+        The history cursor is still incremental.  A jump from revision 41 to 44
+        reads the appended tail once and returns 42, 43 and 44 together.  A
+        marker claiming history that is absent is refused rather than treated
+        as an empty tail.
+        """
+        if self.run_id and committed.run_id != self.run_id:
+            raise ZmartLiveError(
+                f"This manifest was opened for run {self.run_id!r}, but the "
+                f"requested publication snapshot belongs to {committed.run_id!r}."
+            )
+        self._read_new_history()
+        if committed.revision > len(self._events_cache):
+            raise ZmartLiveError(
+                f"The publication marker claims revision {committed.revision}, "
+                f"but the durable history reaches only {len(self._events_cache)}. "
+                "The missing publications cannot be inferred from files on disk."
+            )
+        # Revisions are validated as a contiguous one-based sequence while they
+        # enter the cache, so their list indices are the cursor.  Slicing avoids
+        # walking a long accepted prefix on every new publication.
+        start = max(0, after)
+        return list(self._events_cache[start : committed.revision])
 
     def events_for(
         self,

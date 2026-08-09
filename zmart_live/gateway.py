@@ -36,7 +36,12 @@ from .viewroute import (
     route_the_view,
 )
 
-__all__ = ["LiveResponse", "answer_from_a_live_run", "forget_live_run"]
+__all__ = [
+    "LiveResponse",
+    "answer_from_a_live_run",
+    "forget_live_run",
+    "live_run_holding",
+]
 
 _BOOKKEEPING = "zmart-live"
 _TRUTH = "committed.json"
@@ -513,10 +518,16 @@ _known: dict[Path, _LiveRun] = {}
 _known_lock = threading.Lock()
 
 
-def _run_holding(target: Path) -> Path | None:
-    """Find the nearest live-run root above a possibly absent target."""
+def live_run_holding(target: str | Path) -> Path | None:
+    """Find the nearest live-run root above a possibly absent target.
+
+    Once the bookkeeping directory exists, loss of ``committed.json`` is damage,
+    not a conversion back into an ordinary ungoverned folder. Recognizing the
+    directory keeps pixel requests fail-closed while the small marker is restored.
+    """
+    target = Path(target).resolve()
     for candidate in (target, *target.parents):
-        if (candidate / _BOOKKEEPING / _TRUTH).is_file():
+        if (candidate / _BOOKKEEPING).is_dir():
             return candidate.resolve()
     return None
 
@@ -530,7 +541,7 @@ def answer_from_a_live_run(target: str | Path) -> LiveResponse | None:
     assembled from state whose publication record could not be interpreted.
     """
     target = Path(target).resolve()
-    run_folder = _run_holding(target)
+    run_folder = live_run_holding(target)
     if run_folder is None:
         return None
     try:
