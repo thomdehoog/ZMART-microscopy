@@ -1,10 +1,12 @@
-"""Checking that the storage plan a run is given actually holds up.
+"""Checking the geometry, and being explicit about what is not integrated yet.
 
-The important test in this file is the last one. Everything above it checks the
-arithmetic against the rule as written down, which is worth doing but proves only
-that two descriptions of the same idea agree. The last one takes the plan and
-hands it to the real writer, because the only thing that settles whether a plan
-works is the code that has to carry it out.
+The final tests hand the unsharded geometry to the existing linker, because the
+only thing that settles whether placement arithmetic works is the code that has
+to carry it out. They do **not** pretend that this proves the planned sharded
+path: the current linker measures alignment in whole shards and rejects that
+plan. The inner-chunk resolver is tested separately, but wiring it into the
+viewer backend remains integration work and is recorded by a red-direction test
+below.
 
 That distinction has bitten this project before. A mismatch between what a
 picture claims and what its bytes hold does not raise anything: the viewer draws
@@ -16,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from zmart_live.model import AcquisitionProfile, ZmartLiveError
+from zmart_live.model import AcquisitionProfile, LevelGeometry, ZmartLiveError
 from zmart_live.profiles import (
     DEFAULTS,
     a_kinder_frame,
@@ -120,6 +122,11 @@ class TestTheOverlapStaysInsideTheBand:
         assert "2000" in message
         assert "overlap" in message.lower()
 
+    @pytest.mark.parametrize("frame", [0, -1])
+    def test_a_nonexistent_frame_is_refused_plainly(self, frame):
+        with pytest.raises(ZmartLiveError):
+            choose_the_geometry(frame, band=DEFAULTS["overview"].overlap_band)
+
 
 class TestEachKindOfAcquisitionGetsItsOwn:
     """Different acquisitions genuinely want different things, and may have them."""
@@ -150,10 +157,7 @@ class TestEachKindOfAcquisitionGetsItsOwn:
         A large bundle has to be filled before it can be closed, so a run that
         publishes often wants smaller ones.
         """
-        assert (
-            DEFAULTS["timelapse"].target_shard_bytes
-            < DEFAULTS["mesospim"].target_shard_bytes
-        )
+        assert DEFAULTS["timelapse"].target_shard_bytes < DEFAULTS["mesospim"].target_shard_bytes
 
     def test_an_unknown_kind_is_refused_with_the_list_of_known_ones(self):
         with pytest.raises(ZmartLiveError) as raised:
@@ -163,9 +167,7 @@ class TestEachKindOfAcquisitionGetsItsOwn:
     def test_a_run_may_bring_its_own_defaults(self):
         """Nothing here is binding; an unusual run can say what it wants."""
         unusual = DEFAULTS["overview"].with_overlap(0.05, 0.30, 0.06)
-        profile, geometry = plan_the_writing(
-            "overview", frame=2048, defaults=unusual
-        )
+        profile, geometry = plan_the_writing("overview", frame=2048, defaults=unusual)
         assert profile.overlap_band is unusual.overlap_band
         assert unusual.overlap_band.permits(geometry.overlap_fraction)
 
@@ -201,9 +203,7 @@ class TestTheFileBundles:
             ("timelapse", 2304, 20, 128),
         ],
     )
-    def test_a_bundle_lands_near_the_size_that_kind_asked_for(
-        self, kind, frame, z, expected_mb
-    ):
+    def test_a_bundle_lands_near_the_size_that_kind_asked_for(self, kind, frame, z, expected_mb):
         profile, _ = plan_the_writing(kind, frame=frame, z_planes=z)
         shard = profile.level(0).shard
         megabytes = shard["z"] * shard["y"] * shard["x"] * 2 / 1024**2
@@ -275,14 +275,108 @@ class TestTheProfileSurvivesBeingStored:
         profile, _ = plan_the_writing("overview", frame=2304)
         assert profile.sealed is True
 
+    def test_a_mutable_voxel_size_input_cannot_change_a_sealed_profile(self):
+        profile, _ = plan_the_writing("overview", frame=2304)
+        stored = profile.to_json()
+        voxel_size = stored["voxel_size"]
+        recovered = AcquisitionProfile.from_json(stored)
 
-class TestThePlanSurvivesTheRealWriter:
-    """The one that counts: hand the plan to the code that has to carry it out.
+        voxel_size["x"] = 99.0
+        assert recovered.voxel_size["x"] != 99.0
 
-    Everything above checks the plan against the rule as this module states it.
-    This builds a real mosaic of real OME-Zarr positions with the chosen geometry
-    and asks the actual view-building code to point at them. If the stated rule
-    and the enforced rule ever drift apart, this is what notices.
+
+class TestMalformedProfilesFailBeforeTheyCanDrawPlausibleNoise:
+    """The serialized profile is an input boundary, not trusted Python state."""
+
+    @pytest.mark.parametrize(
+        "level",
+        [
+            LevelGeometry(0, {"y": 1}, {"y": 1}, shard={"y": 1}),
+        ],
+    )
+    def test_a_well_formed_control_level_is_accepted(self, level):
+        assert level.level == 0
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [("downsampling", {"y": 0}), ("inner_chunk", {"y": 0}), ("shard", {"y": 0})],
+    )
+    def test_zero_sized_level_geometry_is_refused(self, field, value):
+        settings = {
+            "level": 0,
+            "downsampling": {"y": 1},
+            "inner_chunk": {"y": 1},
+            "shard": None,
+        }
+        settings[field] = value
+        with pytest.raises(ZmartLiveError):
+            LevelGeometry(**settings)
+
+    def test_a_linkable_flag_that_disagrees_with_the_grid_is_refused(self):
+        with pytest.raises(ZmartLiveError):
+            AcquisitionProfile(
+                profile_id="bad-link",
+                acquisition_type="overview",
+                axes=("y", "x"),
+                frame_shape={"y": 90, "x": 90},
+                dtype="uint16",
+                overlap_pixels={"y": 7, "x": 7},
+                topology="grid",
+                levels=(
+                    LevelGeometry(
+                        0,
+                        {"y": 1, "x": 1},
+                        {"y": 10, "x": 10},
+                        linkable=True,
+                    ),
+                ),
+            )
+
+    def test_pyramid_levels_cannot_start_at_one_or_leave_a_gap(self):
+        with pytest.raises(ZmartLiveError):
+            AcquisitionProfile(
+                profile_id="bad-levels",
+                acquisition_type="overview",
+                axes=("y", "x"),
+                frame_shape={"y": 90, "x": 90},
+                dtype="uint16",
+                overlap_pixels={"y": 10, "x": 10},
+                topology="grid",
+                levels=(
+                    LevelGeometry(
+                        1,
+                        {"y": 2, "x": 2},
+                        {"y": 10, "x": 10},
+                    ),
+                ),
+            )
+
+    @pytest.mark.parametrize(
+        "changes",
+        [
+            {"z_planes": 0},
+            {"dtype": "not-a-real-pixel-type"},
+            {"channels": ()},
+            {"voxel_size": (1.0, 0.0, 1.0)},
+            {"voxel_size": (1.0, float("nan"), 1.0)},
+        ],
+    )
+    def test_an_unwritable_acquisition_input_is_refused(self, changes):
+        with pytest.raises(ZmartLiveError):
+            plan_the_writing("overview", frame=2304, **changes)
+
+
+@pytest.mark.filterwarnings(
+    "ignore:a tile of .* does not divide into whole pieces of image:UserWarning"
+)
+class TestTheGeometryAndTheCurrentLinker:
+    """Hand the geometry to real code, without disguising the sharding gap.
+
+    The first test builds an unsharded OME-Zarr mosaic and checks the placement
+    arithmetic against the current linker. The second proves that simply turning
+    on the profile's shards does not work: until the byte-range resolver is wired
+    into the linked-view backend, claiming end-to-end sharded support would be a
+    silently dangerous lie.
     """
 
     @pytest.mark.parametrize("frame", [1152, 2304])
@@ -361,16 +455,20 @@ class TestThePlanSurvivesTheRealWriter:
         for index in range(2):
             name = f"pos{index}"
             canvases = TileCanvases.create(
-                tmp_path, name=name, canvas_shape=(1, frame, frame),
-                tile_shape=(1, frame, frame), tile_step=(1, frame, frame),
-                voxel_size_um=(1.0, 0.5, 0.5), channels=[Channel(name="green")],
-                chunk=chunk, levels=geometry.kept_levels, ome_zarr_version="0.5",
+                tmp_path,
+                name=name,
+                canvas_shape=(1, frame, frame),
+                tile_shape=(1, frame, frame),
+                tile_step=(1, frame, frame),
+                voxel_size_um=(1.0, 0.5, 0.5),
+                channels=[Channel(name="green")],
+                chunk=chunk,
+                levels=geometry.kept_levels,
+                ome_zarr_version="0.5",
                 records_coverage=False,
                 origin_um=(0.0, 0.0, index * step * 0.5),
             )
-            canvases.write(
-                numpy.full((1, frame, frame), index + 1, "uint16"), origin=(0, 0, 0)
-            )
+            canvases.write(numpy.full((1, frame, frame), index + 1, "uint16"), origin=(0, 0, 0))
             canvases.close()
             stores.append(tmp_path / f"{name}.ome.zarr")
 
@@ -379,8 +477,50 @@ class TestThePlanSurvivesTheRealWriter:
             PlacedTile(store, (0, 0, index * step), (0, 0, 0), (1, frame, step + 1))
             for index, store in enumerate(stores)
         ]
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             link_the_tiles(
-                tmp_path, tiles=tiles, name="wrong",
-                view_shape=(1, frame, step + frame), levels=geometry.pointed_levels,
+                tmp_path,
+                tiles=tiles,
+                name="wrong",
+                view_shape=(1, frame, step + frame),
+                levels=geometry.pointed_levels,
+            )
+
+    def test_the_current_whole_shard_linker_refuses_the_planned_sharded_path(self, tmp_path):
+        """The resolver exists, but it is not yet connected to ``link_the_tiles``."""
+        from zmart_storage.canvas import Channel, TileCanvases
+        from zmart_storage.linked import PlacedTile, link_the_tiles
+
+        frame = 1152
+        profile, geometry = plan_the_writing("overview", frame=frame)
+        shard = profile.level(0).shard["x"]
+        canvases = TileCanvases.create(
+            tmp_path,
+            name="sharded-position",
+            canvas_shape=(1, frame, frame),
+            tile_shape=(1, frame, frame),
+            tile_step=(1, frame, frame),
+            voxel_size_um=(1.0, 0.5, 0.5),
+            channels=[Channel(name="green")],
+            chunk=geometry.chunk,
+            shard=shard,
+            levels=geometry.kept_levels,
+            ome_zarr_version="0.5",
+            records_coverage=False,
+        )
+        canvases.close()
+        tile = PlacedTile(
+            tmp_path / "sharded-position.ome.zarr",
+            lands_at=(0, 0, 0),
+            taken_from=(0, 0, 0),
+            size=(1, geometry.step, geometry.step),
+        )
+
+        with pytest.raises(ValueError, match="bundle"):
+            link_the_tiles(
+                tmp_path,
+                tiles=[tile],
+                name="not-integrated-yet",
+                view_shape=(1, frame, frame),
+                levels=geometry.pointed_levels,
             )

@@ -23,6 +23,7 @@ wants to wait for is a check that stops being run.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -78,7 +79,9 @@ def a_plan(
         topology=topology,
         levels=(
             LevelGeometry(
-                level=0, downsampling={"y": 1, "x": 1}, inner_chunk={"y": 10, "x": 10},
+                level=0,
+                downsampling={"y": 1, "x": 1},
+                inner_chunk={"y": 10, "x": 10},
                 linkable=True,
             ),
         ),
@@ -119,9 +122,7 @@ def a_scattered_layout(profile: AcquisitionProfile) -> SceneLayoutRevision:
     for index in range(3):
         cells = {GridCell(0, 0): f"target-{index}"}
         positions.extend(
-            place_the_tiles(
-                a_plan(topology="grid"), cells, component_id=f"target-{index}"
-            )
+            place_the_tiles(a_plan(topology="grid"), cells, component_id=f"target-{index}")
         )
     return SceneLayoutRevision(
         revision=1,
@@ -211,13 +212,19 @@ class TestTheSceneSaysWhatTheRunContains:
         scene = build_the_scene(
             profile,
             a_layout(profile),
-            derived=(DerivedView(image_id="nuclei", path="analysis/nuclei.ome.zarr",
-                                 channels=("labels",), kind="segmentation"),),
+            derived=(
+                DerivedView(
+                    image_id="nuclei",
+                    path="analysis/nuclei.ome.zarr",
+                    channels=("labels",),
+                    kind="segmentation",
+                ),
+            ),
         )
 
         assert len(scene.with_role("derived")) == 1
         assert scene.image("derived/nuclei").kind == "segmentation"
-        assert len(scene.positions) == 4          # unchanged by the derived product
+        assert len(scene.positions) == 4  # unchanged by the derived product
 
 
 def scene_positions(scene: Scene) -> set[str]:
@@ -252,7 +259,7 @@ class TestTheAxesAreKeptInTheOrderTheAcquisitionDeclared:
         assert world.axes == ("t", "c", "z", "y", "x")
         assert world.unit_of("x") == "micrometer"
         assert world.unit_of("t") == "second"
-        assert world.unit_of("c") == ""       # a channel is a name, not a length
+        assert world.unit_of("c") == ""  # a channel is a name, not a length
 
 
 class TestTheTransformsPutEachTileWhereItBelongs:
@@ -307,11 +314,11 @@ class TestTheTransformsPutEachTileWhereItBelongs:
         scene = build_the_scene(profile, a_layout(profile, 2, 2))
 
         rows = scene.image(f"{POSITION_ROLE}/pos-0-1").placement.matrix()
-        assert len(rows) == 5                      # one row per axis
+        assert len(rows) == 5  # one row per axis
         assert all(len(row) == 6 for row in rows)  # scales, then the offset
         x_row = rows[-1]
-        assert x_row[-2] == pytest.approx(0.5)     # the scale on its own axis
-        assert x_row[-1] == pytest.approx(40.0)    # the offset
+        assert x_row[-2] == pytest.approx(0.5)  # the scale on its own axis
+        assert x_row[-1] == pytest.approx(40.0)  # the offset
 
     def test_a_derived_product_may_sit_at_its_own_place_and_its_own_coarseness(self):
         profile = a_plan()
@@ -349,7 +356,7 @@ class TestNeverOneSourcePerPosition:
 
         compiled = compile_for_neuroglancer(scene, nothing_published())
         assert len(compiled.sources) <= 3
-        assert len(compiled.sources) == 2          # the two overviews, and no more
+        assert len(compiled.sources) == 2  # the two overviews, and no more
 
     def test_the_number_of_sources_does_not_grow_with_the_run(self):
         profile = a_plan()
@@ -364,10 +371,8 @@ class TestNeverOneSourcePerPosition:
     def test_the_number_of_layers_does_not_grow_with_the_run_either(self):
         """A layer costs almost as much as a source; both have to stay bounded."""
         profile = a_plan()
-        small = build_the_scene(profile, a_layout(profile, 1, 2),
-                                channels=("dapi", "gfp"))
-        large = build_the_scene(profile, a_layout(profile, 40, 50),
-                                channels=("dapi", "gfp"))
+        small = build_the_scene(profile, a_layout(profile, 1, 2), channels=("dapi", "gfp"))
+        large = build_the_scene(profile, a_layout(profile, 40, 50), channels=("dapi", "gfp"))
 
         assert len(compile_for_neuroglancer(small, nothing_published()).layers) == 4
         assert len(compile_for_neuroglancer(large, nothing_published()).layers) == 4
@@ -438,9 +443,7 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
         scene = build_the_scene(profile, a_layout(profile, 2, 2))
 
         early = compile_for_neuroglancer(scene, published(1, **{"pos-0-0": 1}))
-        later = compile_for_neuroglancer(
-            scene, published(9, **{"pos-0-0": 1, "pos-1-0": 9})
-        )
+        later = compile_for_neuroglancer(scene, published(9, **{"pos-0-0": 1, "pos-1-0": 9}))
 
         assert early.source("seamless/overview").revision == 1
         assert later.source("seamless/overview").revision == 9
@@ -465,9 +468,7 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
             a_layout(profile, 2, 2),
             derived=(DerivedView(image_id="nuclei", path="analysis/nuclei.ome.zarr"),),
         )
-        compiled = compile_for_neuroglancer(
-            scene, published(9, **{"pos-0-0": 3, "pos-0-1": 7})
-        )
+        compiled = compile_for_neuroglancer(scene, published(9, **{"pos-0-0": 3, "pos-0-1": 7}))
 
         assert compiled.source("seamless/overview").revision == 7
         assert compiled.source("non_seamless/overview").revision == 7
@@ -482,13 +483,12 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
         compiled = compile_for_neuroglancer(scene, published(5, **{"somebody-else": 5}))
 
         assert compiled.source("seamless/overview").revision == 0
-        assert compiled.revision == 5      # the run has moved on; this view has not
+        assert compiled.revision == 5  # the run has moved on; this view has not
 
     def test_the_store_root_is_prefixed_without_doubling_the_slash(self):
         profile = a_plan()
         scene = build_the_scene(profile, a_layout(profile))
-        compiled = compile_for_neuroglancer(scene, nothing_published(),
-                                            store_root="/runs/today/")
+        compiled = compile_for_neuroglancer(scene, nothing_published(), store_root="/runs/today/")
 
         assert compiled.source("seamless/overview").url == (
             "/runs/today/views/overview-seamless.ome.zarr"
@@ -499,9 +499,7 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
         scene = build_the_scene(profile, a_layout(profile))
         compiled = compile_for_neuroglancer(scene, nothing_published())
 
-        assert compiled.source("seamless/overview").url == (
-            "views/overview-seamless.ome.zarr"
-        )
+        assert compiled.source("seamless/overview").url == ("views/overview-seamless.ome.zarr")
 
 
 class TestTheTwoOverviewsDoNotCollapseIntoOne:
@@ -530,9 +528,7 @@ class TestTheTwoOverviewsDoNotCollapseIntoOne:
 
         ids = [source.source_id for source in compiled.sources]
         assert len(ids) == len(set(ids)) == 2
-        assert {source.role for source in compiled.sources} == {
-            "seamless", "non_seamless"
-        }
+        assert {source.role for source in compiled.sources} == {"seamless", "non_seamless"}
 
     def test_each_gets_its_own_row_of_controls_for_every_channel(self):
         """One merged row would mean one contrast control for two different pictures."""
@@ -600,8 +596,9 @@ class TestTheCompiledAnswerIsPlainData:
     def test_the_whole_thing_converts_to_json_and_back(self):
         profile = a_plan()
         scene = build_the_scene(profile, a_layout(profile), channels=("dapi", "gfp"))
-        compiled = compile_for_neuroglancer(scene, published(4, **{"pos-0-0": 4}),
-                                            store_root="/runs/today")
+        compiled = compile_for_neuroglancer(
+            scene, published(4, **{"pos-0-0": 4}), store_root="/runs/today"
+        )
 
         written = json.loads(json.dumps(compiled.to_json()))
         assert written["schema"] == "zmart-live-neuroglancer-scene/1"
@@ -629,7 +626,7 @@ class TestTheCompiledAnswerIsPlainData:
 
         written = json.loads(json.dumps(scene.to_json()))
         assert written["schema"] == "zmart-live-scene/1"
-        assert len(written["images"]) == 6      # four positions and two overviews
+        assert len(written["images"]) == 6  # four positions and two overviews
 
     def test_the_one_line_summary_says_what_was_handed_over(self):
         profile = a_plan()
@@ -649,10 +646,19 @@ class TestWhatIsRefused:
             SceneImage(image_id="x", role="overview", path="x.zarr", axes=("y", "x"))
 
     def test_the_same_image_cannot_be_described_twice(self):
-        image = SceneImage(image_id="x", role="seamless", path="x.zarr", axes=("y", "x"))
+        image = SceneImage(
+            image_id="x",
+            role="seamless",
+            path="x.zarr",
+            axes=("y", "x"),
+            channels=("green",),
+        )
         with pytest.raises(SceneRefused, match="appears twice"):
             Scene(
-                scene_id="s", run_id="r", layout_revision=0, profile_id="p",
+                scene_id="s",
+                run_id="r",
+                layout_revision=0,
+                profile_id="p",
                 coordinate_system=CoordinateSystem(name="w", axes=("y", "x")),
                 images=(image, image),
             )
@@ -660,13 +666,26 @@ class TestWhatIsRefused:
     def test_the_same_name_in_two_different_parts_is_perfectly_fine(self):
         """Which is the whole point: one overview, two presentations."""
         scene = Scene(
-            scene_id="s", run_id="r", layout_revision=0, profile_id="p",
+            scene_id="s",
+            run_id="r",
+            layout_revision=0,
+            profile_id="p",
             coordinate_system=CoordinateSystem(name="w", axes=("y", "x")),
             images=(
-                SceneImage(image_id="overview", role="seamless", path="a.zarr",
-                           axes=("y", "x")),
-                SceneImage(image_id="overview", role="non_seamless", path="b.zarr",
-                           axes=("y", "x")),
+                SceneImage(
+                    image_id="overview",
+                    role="seamless",
+                    path="a.zarr",
+                    axes=("y", "x"),
+                    channels=("green",),
+                ),
+                SceneImage(
+                    image_id="overview",
+                    role="non_seamless",
+                    path="b.zarr",
+                    axes=("y", "x"),
+                    channels=("green",),
+                ),
             ),
         )
         assert len(scene.views) == 2
@@ -674,24 +693,43 @@ class TestWhatIsRefused:
     def test_a_view_cannot_claim_a_position_the_scene_does_not_hold(self):
         with pytest.raises(SceneRefused, match="no such position"):
             Scene(
-                scene_id="s", run_id="r", layout_revision=0, profile_id="p",
+                scene_id="s",
+                run_id="r",
+                layout_revision=0,
+                profile_id="p",
                 coordinate_system=CoordinateSystem(name="w", axes=("y", "x")),
                 images=(
-                    SceneImage(image_id="overview", role="seamless", path="a.zarr",
-                               axes=("y", "x"), draws=("ghost",)),
+                    SceneImage(
+                        image_id="overview",
+                        role="seamless",
+                        path="a.zarr",
+                        axes=("y", "x"),
+                        channels=("green",),
+                        draws=("ghost",),
+                    ),
                 ),
             )
 
     def test_a_position_cannot_claim_to_show_other_positions(self):
         with pytest.raises(SceneRefused, match="holds the specimen"):
-            SceneImage(image_id="p", role=POSITION_ROLE, path="p.zarr",
-                       axes=("y", "x"), draws=("q",))
+            SceneImage(
+                image_id="p",
+                role=POSITION_ROLE,
+                path="p.zarr",
+                axes=("y", "x"),
+                channels=("green",),
+                draws=("q",),
+            )
 
     def test_a_placement_whose_axes_disagree_with_the_image_is_refused(self):
         """Transposed images draw perfectly happily, which is exactly the danger."""
         with pytest.raises(SceneRefused, match="have to agree"):
             SceneImage(
-                image_id="p", role=POSITION_ROLE, path="p.zarr", axes=("y", "x"),
+                image_id="p",
+                role=POSITION_ROLE,
+                path="p.zarr",
+                axes=("y", "x"),
+                channels=("green",),
                 placement=AffinePlacement(axes=("x", "y")),
             )
 
@@ -702,6 +740,41 @@ class TestWhatIsRefused:
     def test_a_placement_cannot_speak_about_an_axis_it_does_not_describe(self):
         with pytest.raises(SceneRefused, match="not among the axes"):
             AffinePlacement(axes=("y", "x"), scale=FrozenMap({"z": 2.0}))
+
+    def test_a_layout_cannot_be_interpreted_with_another_profile(self):
+        profile = a_plan()
+        layout = replace(a_layout(profile), profile_id="some-other-profile")
+        with pytest.raises(SceneRefused, match="belongs to profile"):
+            build_the_scene(profile, layout)
+
+    def test_an_unsealed_profile_cannot_reach_the_viewer(self):
+        profile = replace(a_plan(), sealed=False)
+        with pytest.raises(SceneRefused, match="not sealed"):
+            build_the_scene(profile, a_layout(profile))
+
+    def test_publication_state_from_another_run_is_refused(self):
+        profile = a_plan()
+        scene = build_the_scene(profile, a_layout(profile))
+        with pytest.raises(SceneRefused, match="publication record belongs"):
+            compile_for_neuroglancer(
+                scene,
+                CommittedState(revision=1, run_id="another-run"),
+            )
+
+    @pytest.mark.parametrize("path", ["../outside.zarr", "/absolute.zarr", "C:/run.zarr"])
+    def test_a_store_path_cannot_leave_the_run(self, path):
+        with pytest.raises(SceneRefused, match="safe store path"):
+            SceneImage(
+                image_id="x",
+                role="seamless",
+                path=path,
+                axes=("y", "x"),
+                channels=("green",),
+            )
+
+    def test_a_non_finite_transform_is_refused(self):
+        with pytest.raises(SceneRefused, match="finite"):
+            AffinePlacement(axes=("y", "x"), translation=FrozenMap({"x": float("nan")}))
 
     def test_asking_for_a_part_nobody_recognises_is_refused(self):
         profile = a_plan()

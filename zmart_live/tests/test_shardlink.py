@@ -208,9 +208,7 @@ class TestAChunkTakenOutByByteRangeIsTheSameChunk:
     """Every written chunk, extracted as bytes, decodes to identical pixels."""
 
     def test_with_compression(self, tmp_path):
-        image, pixels = an_image(
-            tmp_path / "compressed.zarr", (512, 512), (128, 128), (256, 256)
-        )
+        image, pixels = an_image(tmp_path / "compressed.zarr", (512, 512), (128, 128), (256, 256))
         written, absent = check_every_chunk_matches(tmp_path, image, pixels, (128, 128))
         assert written == 16, "a 512x512 image chunked at 128 holds sixteen chunks"
         assert absent == 0, "every chunk was written, so none should be reported absent"
@@ -323,12 +321,11 @@ def an_image_with_the_table_at_the_start(folder, shape, chunk, shard):
     the older one, which accepts a fully described codec.
     """
     from zarr.codecs import BytesCodec, ShardingCodec, ZstdCodec
-    from zarr.codecs.sharding import ShardingCodecIndexLocation
 
     bundling = ShardingCodec(
         chunk_shape=chunk,
         codecs=[BytesCodec(), ZstdCodec()],
-        index_location=ShardingCodecIndexLocation.start,
+        index_location="start",
     )
     array = zarr.create(
         store=str(folder),
@@ -559,8 +556,9 @@ class TestDamagedOrUnreadableFiles:
         shard.write_bytes(whole[: len(whole) // 2])
         with pytest.raises(ZmartLiveError) as refusal:
             where_one_chunk_lives(image, (0, 0))
-        assert "cut short" in str(refusal.value) or "shorter than it says" in str(
-            refusal.value
+        assert any(
+            phrase in str(refusal.value)
+            for phrase in ("cut short", "shorter than it says", "checksum")
         )
 
     def test_a_shard_with_only_its_table_left_is_refused(self, tmp_path):
@@ -613,6 +611,20 @@ class TestDamagedOrUnreadableFiles:
             )
         assert "table of contents alone" in str(refusal.value)
 
+    def test_an_entry_cannot_point_beyond_the_end_without_touching_the_index(self):
+        """An out-of-file offset must not be caught only by index-overlap checks."""
+        table = struct.pack("<QQ", 100, 4)
+        shard = bytes(16) + table
+
+        with pytest.raises(ZmartLiveError, match="file is only 32 bytes"):
+            read_the_index(
+                shard,
+                inner_chunk=(128, 128),
+                shard_shape=(128, 128),
+                index_location="end",
+                has_checksum=False,
+            )
+
     def test_a_half_marked_entry_is_refused(self, tmp_path):
         """An entry absent in one number and present in the other is damage.
 
@@ -631,6 +643,34 @@ class TestDamagedOrUnreadableFiles:
                 has_checksum=False,
             )
         assert "half marked" in str(refusal.value)
+
+    def test_a_corrupted_index_checksum_is_refused(self, tmp_path):
+        """A changed but in-bounds offset can otherwise show the wrong real chunk."""
+        image, _ = an_image(
+            tmp_path / "bad-checksum.zarr",
+            (512, 512),
+            (128, 128),
+            (256, 256),
+            compressed=False,
+        )
+        shard = Path(image) / "c" / "0" / "0"
+        damaged = bytearray(shard.read_bytes())
+        damaged[-1] ^= 1
+        shard.write_bytes(damaged)
+
+        with pytest.raises(ZmartLiveError, match="CRC32C checksum"):
+            where_one_chunk_lives(image, (0, 0))
+
+    def test_two_index_entries_cannot_claim_the_same_bytes(self):
+        table = struct.pack("<QQ", 0, 16) + struct.pack("<QQ", 8, 16)
+        with pytest.raises(ZmartLiveError, match="overlapping bytes"):
+            read_the_index(
+                bytes(32) + table,
+                inner_chunk=(128, 128),
+                shard_shape=(128, 256),
+                index_location="end",
+                has_checksum=False,
+            )
 
     def test_a_file_that_is_not_an_array_is_refused(self, tmp_path):
         empty = tmp_path / "nothing"
@@ -667,6 +707,46 @@ class TestDamagedOrUnreadableFiles:
         with pytest.raises(ZmartLiveError) as refusal:
             where_one_chunk_lives(image, (0, 0, 0))
         assert "one number per axis" in str(refusal.value)
+
+        with pytest.raises(ZmartLiveError, match="whole numbers"):
+            where_one_chunk_lives(image, (0.5, 0))
+
+    def test_an_unknown_index_byte_order_is_refused(self, tmp_path):
+        image, _ = an_image(
+            tmp_path / "big-endian-index.zarr",
+            (512, 512),
+            (128, 128),
+            (256, 256),
+            compressed=False,
+        )
+        description = Path(image) / "zarr.json"
+        metadata = json.loads(description.read_text(encoding="utf-8"))
+        sharding = next(
+            codec for codec in metadata["codecs"] if codec["name"] == "sharding_indexed"
+        )
+        sharding["configuration"]["index_codecs"][0]["configuration"]["endian"] = "big"
+        description.write_text(json.dumps(metadata), encoding="utf-8")
+
+        with pytest.raises(ZmartLiveError, match="little-endian"):
+            describe_the_bundling(image)
+
+    def test_chunk_metadata_cannot_escape_the_array_folder(self, tmp_path):
+        folder = tmp_path / "unsafe-key.zarr"
+        zarr.create_array(
+            store=str(folder),
+            shape=(128, 128),
+            chunks=(128, 128),
+            dtype="uint16",
+            compressors=None,
+            fill_value=0,
+        )
+        description = folder / "zarr.json"
+        metadata = json.loads(description.read_text(encoding="utf-8"))
+        metadata["chunk_key_encoding"]["configuration"]["separator"] = "/../"
+        description.write_text(json.dumps(metadata), encoding="utf-8")
+
+        with pytest.raises(ZmartLiveError, match="outside its array folder"):
+            where_one_chunk_lives(folder, (0, 0))
 
 
 # ---------------------------------------------------------------------------
@@ -714,7 +794,7 @@ class TestDescribingAWholeShard:
 
     def test_a_position_outside_the_shard_is_refused(self, tmp_path):
         index = read_the_index(
-            bytes(64) + b"".join(struct.pack("<QQ", 0, 16) for _ in range(4)),
+            bytes(64) + b"".join(struct.pack("<QQ", offset, 16) for offset in (0, 16, 32, 48)),
             inner_chunk=(128, 128),
             shard_shape=(256, 256),
             index_location="end",

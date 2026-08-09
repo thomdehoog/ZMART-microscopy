@@ -57,6 +57,7 @@ The words themselves
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -486,6 +487,12 @@ class LevelGeometry:
             object.__setattr__(self, "shard", _frozen_axis_map(self.shard))
         if self.level < 0:
             raise ZmartLiveError(f"Pyramid levels are numbered from zero; got {self.level}.")
+        for axis, factor in self.downsampling.items():
+            if factor <= 0:
+                raise ZmartLiveError(
+                    f"The downsampling on axis '{axis}' at level {self.level} is "
+                    f"{factor}, but a scale factor has to be positive."
+                )
         for axis, size in self.inner_chunk.items():
             if size <= 0:
                 raise ZmartLiveError(
@@ -494,6 +501,11 @@ class LevelGeometry:
                 )
         if self.shard is not None:
             for axis, shard_size in self.shard.items():
+                if shard_size <= 0:
+                    raise ZmartLiveError(
+                        f"The file bundle on axis '{axis}' at level {self.level} is "
+                        f"{shard_size}, but a bundle has to hold at least one pixel."
+                    )
                 chunk_size = self.inner_chunk.get(axis)
                 if chunk_size is None:
                     raise ZmartLiveError(
@@ -573,11 +585,24 @@ class AcquisitionProfile:
     def __post_init__(self) -> None:
         object.__setattr__(self, "axes", tuple(self.axes))
         object.__setattr__(self, "frame_shape", _frozen_axis_map(self.frame_shape))
+        object.__setattr__(
+            self,
+            "voxel_size",
+            FrozenMap({str(axis): float(size) for axis, size in self.voxel_size.items()}),
+        )
         object.__setattr__(self, "overlap_pixels", _frozen_axis_map(self.overlap_pixels))
         object.__setattr__(self, "analysis_halo", _frozen_axis_map(self.analysis_halo))
         object.__setattr__(self, "levels", tuple(self.levels))
         object.__setattr__(self, "codecs", tuple(self.codecs))
 
+        if not self.profile_id or not self.acquisition_type:
+            raise ZmartLiveError(
+                "An acquisition profile has to name both its identity and its type."
+            )
+        if not self.axes or len(self.axes) != len(set(self.axes)):
+            raise ZmartLiveError(f"Axis names must be present and unique; got {self.axes}.")
+        if not self.dtype:
+            raise ZmartLiveError("An acquisition profile has to name its pixel dtype.")
         if self.topology not in TOPOLOGIES:
             raise ZmartLiveError(
                 f"'{self.topology}' is not a known arrangement of positions. "
@@ -600,6 +625,26 @@ class AcquisitionProfile:
                     f"The frame gives a size for axis '{axis}', which is not in the "
                     f"declared axis order {self.axes}."
                 )
+        for axis, frame in self.frame_shape.items():
+            if frame <= 0:
+                raise ZmartLiveError(
+                    f"The frame size on axis '{axis}' is {frame}, but a frame has "
+                    "to hold at least one pixel."
+                )
+        for axis, size in self.voxel_size.items():
+            if axis not in self.axes or size <= 0 or not math.isfinite(size):
+                raise ZmartLiveError(
+                    f"The voxel size on axis '{axis}' is {size}. It has to be "
+                    "finite, positive, and belong to the declared axis order."
+                )
+        if not self.voxel_unit:
+            raise ZmartLiveError("Voxel size needs a unit, such as 'micrometer'.")
+        for axis, halo in self.analysis_halo.items():
+            if axis not in self.axes or halo < 0:
+                raise ZmartLiveError(
+                    f"The analysis halo on axis '{axis}' is {halo}. It has to be "
+                    "non-negative and belong to the declared axis order."
+                )
         for axis, overlap in self.overlap_pixels.items():
             frame = self.frame_shape.get(axis)
             if frame is None:
@@ -619,12 +664,46 @@ class AcquisitionProfile:
                     f"frame. A tile that shares its whole width with its neighbour "
                     f"shows nothing new."
                 )
+            if self.overlap_band is not None and not self.overlap_band.permits(overlap / frame):
+                raise ZmartLiveError(
+                    f"Axis '{axis}' uses {overlap} pixels of overlap in a "
+                    f"{frame}-pixel frame ({overlap / frame:.1%}), outside the "
+                    "permitted overlap band recorded by this same profile."
+                )
         seen_levels = [level.level for level in self.levels]
-        if seen_levels != sorted(set(seen_levels)):
+        if seen_levels != list(range(len(seen_levels))):
             raise ZmartLiveError(
                 f"The zoomed-out levels should be listed once each, in order, "
                 f"starting at zero; got {seen_levels}."
             )
+        linkable = [level.level for level in self.levels if level.linkable]
+        if linkable != list(range(len(linkable))):
+            raise ZmartLiveError(
+                f"Directly linked pyramid levels have to form one prefix starting "
+                f"at zero; got {linkable}. A view cannot skip a level and resume "
+                "pointing further down."
+            )
+        for level in self.levels:
+            if not level.linkable:
+                continue
+            for axis in self.tiled_axes:
+                factor = level.downsampling.get(axis)
+                chunk = level.inner_chunk.get(axis)
+                if factor is None or chunk is None:
+                    raise ZmartLiveError(
+                        f"Linkable level {level.level} does not describe both the "
+                        f"scale and inner chunk on tiled axis '{axis}'."
+                    )
+                step = self.grid_step(axis)
+                phase = factor * chunk
+                if step % phase:
+                    raise ZmartLiveError(
+                        f"Level {level.level} is marked linkable on axis '{axis}', "
+                        f"but its {chunk}-pixel chunk at {factor}x downsampling "
+                        f"covers {phase} full-resolution pixels and does not divide "
+                        f"the {step}-pixel grid step. It would place a seam through "
+                        "the middle of a source chunk."
+                    )
 
     @property
     def tiled_axes(self) -> tuple[str, ...]:
@@ -1014,10 +1093,18 @@ class SceneLayoutRevision:
         run has a hole in it, which is a genuine finding rather than a rounding
         quirk.
         """
-        for placement in self.positions:
-            if placement.owns_point_in_run(point):
-                return placement.position_id
-        return None
+        owners = [
+            placement.position_id
+            for placement in self.positions
+            if placement.owns_point_in_run(point)
+        ]
+        if len(owners) > 1:
+            raise ZmartLiveError(
+                f"Layout revision {self.revision} gives point {dict(point)} to "
+                f"more than one position: {owners}. Returning either one would "
+                "silently count the same specimen twice."
+            )
+        return owners[0] if owners else None
 
     def to_json(self) -> dict[str, Any]:
         """A plain dictionary, for writing to disk."""
@@ -1113,10 +1200,41 @@ class CommitEvent:
                 f"Published revisions are counted from one, so that 'revision 0' can "
                 f"mean 'nothing published yet'; got {self.revision}."
             )
+        for name, value in (
+            ("position", self.position_id),
+            ("run", self.run_id),
+            ("acquisition type", self.acquisition_type),
+            ("acquisition profile", self.acquisition_profile_id),
+        ):
+            if not value:
+                raise ZmartLiveError(f"A commit has to name its {name}.")
+        if self.scene_layout_revision < 0 or self.link_revision < 0:
+            raise ZmartLiveError(
+                "Layout and link revisions cannot be negative; got "
+                f"{self.scene_layout_revision} and {self.link_revision}."
+            )
+        if self.timepoint is not None and self.timepoint < 0:
+            raise ZmartLiveError(f"Timepoints are counted from zero; got {self.timepoint}.")
         if self.event_type == "timepoint_committed" and self.timepoint is None:
             raise ZmartLiveError(
                 "A timepoint commit has to say which timepoint it publishes; this one "
                 "leaves it blank."
+            )
+        if (
+            not self.channels
+            or len(self.channels) != len(set(self.channels))
+            or any(not channel for channel in self.channels)
+        ):
+            raise ZmartLiveError(
+                f"A commit's channel names must be present and unique; got {self.channels}."
+            )
+        if (
+            not self.levels
+            or len(self.levels) != len(set(self.levels))
+            or any(level < 0 for level in self.levels)
+        ):
+            raise ZmartLiveError(
+                f"A commit's pyramid levels must be unique non-negative numbers; got {self.levels}."
             )
 
     @property
@@ -1128,10 +1246,7 @@ class CommitEvent:
         assume that anything it can see is complete.
         """
         return (
-            self.pyramids_ready
-            and self.links_ready
-            and self.coarse_chunks_ready
-            and self.validated
+            self.pyramids_ready and self.links_ready and self.coarse_chunks_ready and self.validated
         )
 
     def to_json(self) -> dict[str, Any]:

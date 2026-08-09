@@ -76,6 +76,7 @@ from __future__ import annotations
 
 import json
 import math
+import operator
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -296,7 +297,13 @@ def _unflatten(position: int, extents: Sequence[int]) -> tuple[int, ...]:
 
 def _whole_numbers(values: Sequence[int], what: str) -> tuple[int, ...]:
     """Check that a shape is made of positive whole numbers, and return it as one."""
-    result = tuple(int(value) for value in values)
+    try:
+        result = tuple(operator.index(value) for value in values)
+    except (TypeError, ValueError) as why:
+        raise ZmartLiveError(
+            f"The {what} must contain whole numbers; got {tuple(values)}. Rounding "
+            "a shape or coordinate would silently select different pixels."
+        ) from why
     for value in result:
         if value <= 0:
             raise ZmartLiveError(
@@ -305,6 +312,16 @@ def _whole_numbers(values: Sequence[int], what: str) -> tuple[int, ...]:
                 f"was written in the wrong order or filled in from an empty setting."
             )
     return result
+
+
+def _crc32c(content: bytes) -> int:
+    """The Castagnoli checksum used by Zarr's four-byte ``crc32c`` codec."""
+    checksum = 0xFFFFFFFF
+    for byte in content:
+        checksum ^= byte
+        for _ in range(8):
+            checksum = (checksum >> 1) ^ 0x82F63B78 if checksum & 1 else checksum >> 1
+    return (~checksum) & 0xFFFFFFFF
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +400,8 @@ def read_the_index(
     trailing = _BYTES_PER_CHECKSUM if has_checksum else 0
 
     shard_bytes, table = _read_the_table_bytes(shard, table_bytes, trailing, index_location)
+    index_start = 0 if index_location == "start" else shard_bytes - table_bytes - trailing
+    index_stop = table_bytes + trailing if index_location == "start" else shard_bytes
 
     places: list[tuple[int, int] | None] = []
     for entry in range(entries):
@@ -397,16 +416,29 @@ def read_the_index(
                 f"recorded properly or marked absent in both numbers, so this file has "
                 f"been damaged and should not be read."
             )
-        if offset + length > shard_bytes:
+        overlaps_index = offset < index_stop and offset + length > index_start
+        if length == 0 or offset + length > shard_bytes or overlaps_index:
             raise ZmartLiveError(
                 f"This shard's table of contents claims a chunk running from byte "
                 f"{offset} for {length} bytes, but the file is only {shard_bytes} "
-                f"bytes long. The shard has been cut short — most often by a disk "
-                f"filling up mid-acquisition, or by a copy that was interrupted. "
-                f"Nothing can safely be read from it; the shard needs writing again "
-                f"from the source data."
+                f"bytes long and its index occupies bytes {index_start} to "
+                f"{index_stop}. A chunk must be non-empty, end inside the file, and "
+                f"not overlap the index. The shard is damaged — most often cut "
+                f"short by a full disk or interrupted copy — and needs writing "
+                f"again from the source data."
             )
         places.append((int(offset), int(length)))
+
+    occupied = sorted(place for place in places if place is not None)
+    for before, after in zip(occupied, occupied[1:], strict=False):
+        before_offset, before_length = before
+        after_offset, _ = after
+        if before_offset + before_length > after_offset:
+            raise ZmartLiveError(
+                "Two entries in this shard's table point at overlapping bytes. "
+                "Distinct chunks cannot occupy the same encoded data, so serving "
+                "either range could show pixels belonging to its neighbour."
+            )
 
     return ShardIndex(
         chunks_per_shard=tuple(chunks_per_shard),
@@ -448,20 +480,31 @@ def _read_the_table_bytes(
         begins_at = table_starts_at if table_starts_at >= 0 else shard_bytes + table_starts_at
         with path.open("rb") as opened:
             opened.seek(begins_at)
-            table = opened.read(table_bytes)
+            encoded_index = opened.read(table_bytes + trailing)
     else:
         raw = bytes(shard)
         shard_bytes = len(raw)
         _refuse_a_shard_that_is_too_short("shard", shard_bytes, table_bytes, trailing)
         begins_at = table_starts_at if table_starts_at >= 0 else shard_bytes + table_starts_at
-        table = raw[begins_at : begins_at + table_bytes]
+        encoded_index = raw[begins_at : begins_at + table_bytes + trailing]
 
-    if len(table) != table_bytes:
+    if len(encoded_index) != table_bytes + trailing:
         raise ZmartLiveError(
-            f"Only {len(table)} bytes of the shard's {table_bytes}-byte table of "
+            f"Only {len(encoded_index)} bytes of the shard's "
+            f"{table_bytes + trailing}-byte encoded table of "
             f"contents could be read. The file is shorter than it says it is, which "
             f"means it was not finished being written."
         )
+    table = encoded_index[:table_bytes]
+    if trailing:
+        expected = int.from_bytes(encoded_index[table_bytes:], "little")
+        actual = _crc32c(table)
+        if actual != expected:
+            raise ZmartLiveError(
+                f"The shard index's CRC32C checksum is 0x{expected:08x}, but its "
+                f"contents calculate to 0x{actual:08x}. The table has changed or "
+                "been damaged, so none of its byte ranges can be trusted."
+            )
     return shard_bytes, table
 
 
@@ -513,13 +556,18 @@ def _read_the_array_description(array_path: str | Path) -> tuple[Path, dict]:
             f"it there is no way to know how this image is chunked."
         ) from problem
 
+    if not isinstance(content, dict):
+        raise ZmartLiveError(
+            f"The description at '{description}' is valid JSON but is not a table "
+            "of array metadata."
+        )
     if content.get("node_type") != "array":
         raise ZmartLiveError(
             f"'{path}' describes a {content.get('node_type', 'thing of unknown kind')} "
             f"rather than an image array. Linked views are made from arrays, so this "
             f"should point at one level of one image."
         )
-    if int(content.get("zarr_format", 0)) != 3:
+    if content.get("zarr_format") != 3:
         raise ZmartLiveError(
             f"'{path}' is stored in Zarr format {content.get('zarr_format')}. Bundling "
             f"chunks into shards only exists from format 3 onwards, so this array "
@@ -543,10 +591,52 @@ def _the_sharding_settings(content: dict) -> dict | None:
     ``sharding_indexed`` and carries the bundling settings inside it. When no such
     entry is there, the array simply stores one chunk per file.
     """
-    for codec in content.get("codecs", ()) or ():
-        if isinstance(codec, dict) and codec.get("name") == "sharding_indexed":
-            return codec.get("configuration", {}) or {}
-    return None
+    found = [
+        codec
+        for codec in content.get("codecs", ()) or ()
+        if isinstance(codec, dict) and codec.get("name") == "sharding_indexed"
+    ]
+    if not found:
+        return None
+    if len(found) > 1:
+        raise ZmartLiveError(
+            "The array declares more than one sharding codec. There is no single "
+            "bundle geometry or index to resolve safely."
+        )
+    settings = found[0].get("configuration", {}) or {}
+    if not isinstance(settings, dict):
+        raise ZmartLiveError("The sharding codec's configuration is not a table.")
+    return settings
+
+
+def _index_has_a_supported_encoding(path: Path, settings: dict) -> bool:
+    """Validate the fixed little-endian index chain and report CRC32C use."""
+    codecs = settings.get("index_codecs")
+    if not isinstance(codecs, list) or not codecs:
+        raise ZmartLiveError(
+            f"'{path}' does not declare how its shard index is encoded. The Zarr "
+            "sharding specification requires one array-to-bytes index codec."
+        )
+    names = [codec.get("name") if isinstance(codec, dict) else None for codec in codecs]
+    if names[0] != "bytes":
+        raise ZmartLiveError(
+            f"'{path}' encodes its shard index with {names}. This resolver supports "
+            "the standard bytes codec followed optionally by CRC32C; treating any "
+            "other bytes as uint64 offsets would point at the wrong pixels."
+        )
+    configuration = codecs[0].get("configuration", {}) or {}
+    if not isinstance(configuration, dict) or configuration.get("endian") != "little":
+        raise ZmartLiveError(
+            f"'{path}' does not encode its shard offsets as little-endian numbers. "
+            "This resolver will not guess their byte order."
+        )
+    remaining = names[1:]
+    if remaining not in ([], ["crc32c"]):
+        raise ZmartLiveError(
+            f"'{path}' applies unsupported shard-index codecs {remaining}. Serving "
+            "the undecoded bytes as offsets would select the wrong chunks."
+        )
+    return remaining == ["crc32c"]
 
 
 def describe_the_bundling(array_path: str | Path) -> Bundling:
@@ -590,8 +680,18 @@ def _the_bundling_of(path: Path, content: dict) -> Bundling:
             f"coordinate to a place in a file."
         )
 
-    array_shape = _whole_numbers(content["shape"], "image shape")
-    grid_chunk = _whole_numbers(grid["configuration"]["chunk_shape"], "stored chunk shape")
+    try:
+        array_shape = _whole_numbers(content["shape"], "image shape")
+        grid_chunk = _whole_numbers(grid["configuration"]["chunk_shape"], "stored chunk shape")
+    except (KeyError, TypeError) as why:
+        raise ZmartLiveError(
+            f"'{path}' does not contain a complete regular chunk-grid description."
+        ) from why
+    if len(array_shape) != len(grid_chunk):
+        raise ZmartLiveError(
+            f"'{path}' has {len(array_shape)} array axes but a chunk shape over "
+            f"{len(grid_chunk)} axes."
+        )
 
     settings = _the_sharding_settings(content)
     if settings is None:
@@ -606,7 +706,17 @@ def _the_bundling_of(path: Path, content: dict) -> Bundling:
             sharded=False,
         )
 
-    inner_chunk = _whole_numbers(settings["chunk_shape"], "chunk shape inside the bundle")
+    try:
+        inner_chunk = _whole_numbers(settings["chunk_shape"], "chunk shape inside the bundle")
+    except (KeyError, TypeError) as why:
+        raise ZmartLiveError(
+            f"'{path}' does not say how large an inner chunk is on every axis."
+        ) from why
+    if len(inner_chunk) != len(grid_chunk):
+        raise ZmartLiveError(
+            f"'{path}' has a {len(grid_chunk)}-axis shard but a "
+            f"{len(inner_chunk)}-axis inner chunk."
+        )
     index_location = str(settings.get("index_location", "end"))
     if index_location not in INDEX_LOCATIONS:
         raise ZmartLiveError(
@@ -614,10 +724,7 @@ def _the_bundling_of(path: Path, content: dict) -> Bundling:
             f"not one of the two places the format allows "
             f"({' or '.join(INDEX_LOCATIONS)})."
         )
-    has_checksum = any(
-        isinstance(codec, dict) and codec.get("name") == "crc32c"
-        for codec in settings.get("index_codecs", ()) or ()
-    )
+    has_checksum = _index_has_a_supported_encoding(path, settings)
 
     chunks_per_shard: list[int] = []
     for axis, (bundle_size, chunk_size) in enumerate(zip(grid_chunk, inner_chunk, strict=True)):
@@ -650,9 +757,7 @@ def _grid_extent(array_shape: Sequence[int], chunk: Sequence[int]) -> tuple[int,
     into 128-pixel chunks needs three of them, and the third only holds 44 real
     pixels. It still counts as a whole chunk, because that is how it is stored.
     """
-    return tuple(
-        -(-int(size) // int(step)) for size, step in zip(array_shape, chunk, strict=True)
-    )
+    return tuple(-(-int(size) // int(step)) for size, step in zip(array_shape, chunk, strict=True))
 
 
 # ---------------------------------------------------------------------------
@@ -676,9 +781,20 @@ def _chunk_file(array_path: Path, content: dict, coordinate: Sequence[int]) -> P
 
     if name == "default":
         separator = str(settings.get("separator", "/"))
+        if separator not in ("/", "."):
+            raise ZmartLiveError(
+                f"'{array_path}' declares {separator!r} as its chunk-key separator. "
+                "Only '/' and '.' are Zarr separators; accepting path punctuation "
+                "here could resolve a chunk outside its array folder."
+            )
         key = separator.join(["c", *numbers]) if numbers else "c"
     elif name == "v2":
         separator = str(settings.get("separator", "."))
+        if separator not in ("/", "."):
+            raise ZmartLiveError(
+                f"'{array_path}' declares {separator!r} as its chunk-key separator. "
+                "Only '/' and '.' are safe Zarr separators."
+            )
         key = separator.join(numbers) if numbers else "0"
     else:
         raise ZmartLiveError(
@@ -689,9 +805,7 @@ def _chunk_file(array_path: Path, content: dict, coordinate: Sequence[int]) -> P
     return array_path.joinpath(*key.split("/"))
 
 
-def where_one_chunk_lives(
-    array_path: str | Path, chunk_coordinate: Sequence[int]
-) -> Held | None:
+def where_one_chunk_lives(array_path: str | Path, chunk_coordinate: Sequence[int]) -> Held | None:
     """Say which file holds one chunk, at which byte, and for how many bytes.
 
     This is the question a linked view asks, once per chunk it wants to advertise.
@@ -724,16 +838,20 @@ def where_one_chunk_lives(
     path, content = _read_the_array_description(array_path)
     bundling = _the_bundling_of(path, content)
 
-    coordinate = tuple(int(index) for index in chunk_coordinate)
+    try:
+        coordinate = tuple(operator.index(index) for index in chunk_coordinate)
+    except (TypeError, ValueError) as why:
+        raise ZmartLiveError(
+            f"Chunk coordinate {tuple(chunk_coordinate)} is not made of whole "
+            "numbers. Rounding it would silently select another chunk."
+        ) from why
     if len(coordinate) != len(bundling.chunks_in_array):
         raise ZmartLiveError(
             f"This image is arranged over {len(bundling.chunks_in_array)} axes, but the "
             f"chunk coordinate given names {len(coordinate)} of them ({coordinate}). "
             f"The coordinate needs one number per axis, in the image's own axis order."
         )
-    for axis, (index, extent) in enumerate(
-        zip(coordinate, bundling.chunks_in_array, strict=True)
-    ):
+    for axis, (index, extent) in enumerate(zip(coordinate, bundling.chunks_in_array, strict=True)):
         if not 0 <= index < extent:
             raise ZmartLiveError(
                 f"Chunk coordinate {coordinate} asks for chunk {index} along axis "

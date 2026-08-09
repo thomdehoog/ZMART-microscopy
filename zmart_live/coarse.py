@@ -51,13 +51,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .model import (
-    AcquisitionProfile,
-    Box,
-    Interval,
-    PositionPlacement,
-    ZmartLiveError,
-)
+from .model import AcquisitionProfile, Box, Interval, PositionPlacement, ZmartLiveError
 
 __all__ = [
     "CoarseChunk",
@@ -72,8 +66,10 @@ __all__ = [
 class CoarseChunk:
     """One stored piece of the zoomed-out picture.
 
-    ``level`` counts from zero, where zero is full resolution, so level 3 is
-    eight times smaller in each direction. ``index`` gives the piece's place on
+    ``level`` counts from zero, where zero is full resolution. The profile says
+    how much smaller that level is on each axis; this is deliberately not
+    inferred from the level number because anisotropic volumes do not
+    necessarily halve every axis together. ``index`` gives the piece's place on
     that level's grid, counted in whole pieces rather than pixels — the piece at
     index ``(2, 5)`` is the third down and the sixth across.
     """
@@ -89,10 +85,10 @@ class CoarseChunk:
         it can be compared directly against a position's owned region, which is
         always recorded at full resolution.
         """
-        shrink = 2**self.level
+        scale = _scale_at(profile, self.level)
         spans = {}
         for axis, place in zip(self.axes, self.index, strict=True):
-            across = chunk[axis] * shrink
+            across = chunk[axis] * scale[axis]
             spans[axis] = Interval(place * across, (place + 1) * across)
         return Box.of(**spans)
 
@@ -100,7 +96,25 @@ class CoarseChunk:
 def _chunk_at(profile: AcquisitionProfile, level: int) -> dict[str, int]:
     """The size of one stored piece at ``level``, on each tiled axis."""
     geometry = profile.level(level)
+    missing = [axis for axis in profile.tiled_axes if axis not in geometry.inner_chunk]
+    if missing:
+        raise ZmartLiveError(
+            f"Level {level} has no inner-chunk size for tiled axis/axes "
+            f"{', '.join(missing)}. It cannot name run-wide coarse chunks."
+        )
     return {axis: geometry.inner_chunk[axis] for axis in profile.tiled_axes}
+
+
+def _scale_at(profile: AcquisitionProfile, level: int) -> dict[str, int]:
+    """The full-resolution pixels represented by one pixel at ``level``."""
+    geometry = profile.level(level)
+    missing = [axis for axis in profile.tiled_axes if axis not in geometry.downsampling]
+    if missing:
+        raise ZmartLiveError(
+            f"Level {level} has no downsampling factor for tiled axis/axes "
+            f"{', '.join(missing)}. It cannot locate run-wide coarse chunks."
+        )
+    return {axis: geometry.downsampling[axis] for axis in profile.tiled_axes}
 
 
 def chunks_touched_by(
@@ -123,13 +137,13 @@ def chunks_touched_by(
     if level < 0:
         raise ZmartLiveError(f"Zoom levels are counted from zero; got {level}.")
     chunk = _chunk_at(profile, level)
-    shrink = 2**level
+    scale = _scale_at(profile, level)
     axes = profile.tiled_axes
 
     owned = placement.visual_source_roi.shifted(placement.origin)
     ranges: list[range] = []
     for axis in axes:
-        across = chunk[axis] * shrink
+        across = chunk[axis] * scale[axis]
         span = owned[axis]
         if span.is_empty:
             return ()
@@ -184,8 +198,8 @@ def what_a_chunk_should_hold(
     nothing, and the ground it will eventually cover stays empty until it does.
 
     An operator seeing that empty ground is seeing the truth — that part of the
-    specimen has not finished being imaged yet — rather than a picture assembled
-    from half-written data, which would look like a finished result.
+    specimen has not finished imaging yet — rather than a picture assembled from
+    half-written data, which would look like a finished result.
     """
     return tuple(
         placement
@@ -246,18 +260,14 @@ def rebuild_after_committing(
             f"{sorted(placements_by_id) or 'no positions at all'}."
         )
     arriving = placements_by_id[position_id]
-    wanted = levels if levels is not None else tuple(
-        level.level for level in profile.levels
-    )
+    wanted = levels if levels is not None else tuple(level.level for level in profile.levels)
 
     work: list[Rebuild] = []
     for level in wanted:
         pieces = chunks_touched_by(profile, arriving, level)
         neighbours: set[str] = set()
         for piece in pieces:
-            for other in what_a_chunk_should_hold(
-                profile, piece, placements, committed
-            ):
+            for other in what_a_chunk_should_hold(profile, piece, placements, committed):
                 if other.position_id != position_id:
                     neighbours.add(other.position_id)
         work.append(

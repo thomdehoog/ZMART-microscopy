@@ -70,7 +70,10 @@ overlap — more than twice the microscope time — for *shallower* pointing tha
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
+
+import numpy as np
 
 from .model import (
     AcquisitionProfile,
@@ -204,13 +207,21 @@ def choose_the_geometry(
     permitted overlap band lines up at all, which happens for frames that are
     awkward numbers. The message says so plainly and suggests a frame that works.
     """
+    if frame <= 0:
+        raise ZmartLiveError(f"A frame has to hold at least one pixel on each side; got {frame}.")
+    if enough_depth < 1:
+        raise ZmartLiveError(
+            f"Pointing depth is counted from one; got enough_depth={enough_depth}."
+        )
+    if not chunk_choices or any(chunk <= 0 for chunk in chunk_choices):
+        raise ZmartLiveError(f"Every candidate chunk has to be positive; got {chunk_choices}.")
     best: tuple[tuple, Geometry] | None = None
     for chunk in chunk_choices:
         if frame % chunk:
-            continue                                  # a chunk has to divide the frame
+            continue  # a chunk has to divide the frame
         kept = _levels_a_position_keeps(frame, chunk)
         for multiples in range(1, frame // chunk):
-            overlap = multiples * chunk               # whole chunks, for a one-sided seam
+            overlap = multiples * chunk  # whole chunks, for a one-sided seam
             fraction = overlap / frame
             if fraction < band.permitted_fraction[0]:
                 continue
@@ -242,8 +253,12 @@ def choose_the_geometry(
                 -fraction,
             )
             candidate = Geometry(
-                frame=frame, chunk=chunk, overlap=overlap, step=frame - overlap,
-                pointed_levels=depth, kept_levels=kept,
+                frame=frame,
+                chunk=chunk,
+                overlap=overlap,
+                step=frame - overlap,
+                pointed_levels=depth,
+                kept_levels=kept,
                 chunks_per_plane=(frame // chunk) ** 2,
             )
             if best is None or score > best[0]:
@@ -259,11 +274,7 @@ def choose_the_geometry(
             f"keeping the overlap between "
             f"{band.permitted_fraction[0] * 100:.0f}% and "
             f"{band.permitted_fraction[1] * 100:.0f}%. "
-            + (
-                f"A {kinder} pixel frame would work well, at 11.1% overlap. "
-                if kinder
-                else ""
-            )
+            + (f"A {kinder} pixel frame would work well, at 11.1% overlap. " if kinder else "")
             + "If the frame cannot be changed, widen the permitted overlap band."
         )
     return best[1]
@@ -296,6 +307,8 @@ def a_kinder_frame(frame: int, band: OverlapBand | None = None) -> int | None:
     Only suggests a size in the same ballpark. Proposing a 1152 pixel frame to
     somebody with a 5120 pixel camera helps nobody.
     """
+    if frame <= 0:
+        raise ZmartLiveError(f"A frame has to hold at least one pixel on each side; got {frame}.")
     band = band or DEFAULTS["overview"].overlap_band
     if _is_already_kind(frame, band):
         return None
@@ -438,8 +451,6 @@ DEFAULTS: dict[str, AcquisitionDefaults] = {
 # Putting the two together
 # ---------------------------------------------------------------------------
 
-_BYTES_PER_VALUE = {"uint8": 1, "int8": 1, "uint16": 2, "int16": 2, "float32": 4}
-
 
 def _z_planes_per_shard(frame: int, dtype: str, target_bytes: int, z_planes: int) -> int:
     """How many planes to bundle into one file, to land near the wanted size.
@@ -449,7 +460,18 @@ def _z_planes_per_shard(frame: int, dtype: str, target_bytes: int, z_planes: int
     light-sheet plane differ by twenty-five times in size, so a fixed plane count
     would give tiny files on one and unmanageable ones on the other.
     """
-    plane_bytes = frame * frame * _BYTES_PER_VALUE.get(dtype, 2)
+    try:
+        pixel_type = np.dtype(dtype)
+    except (TypeError, ValueError) as why:
+        raise ZmartLiveError(
+            f"{dtype!r} is not a NumPy pixel dtype, so its storage size is unknown."
+        ) from why
+    if pixel_type.hasobject:
+        raise ZmartLiveError(
+            f"{dtype!r} stores Python objects rather than fixed-size pixel values "
+            "and cannot be used for an OME-Zarr acquisition."
+        )
+    plane_bytes = frame * frame * pixel_type.itemsize
     wanted = max(1, round(target_bytes / plane_bytes))
     return max(1, min(wanted, z_planes))
 
@@ -486,6 +508,28 @@ def plan_the_writing(
             f"{', '.join(sorted(DEFAULTS))}. Either use one of those, or pass a "
             f"prepared AcquisitionDefaults of your own."
         )
+    if wanted.acquisition_type != acquisition_type:
+        raise ZmartLiveError(
+            f"The supplied defaults describe {wanted.acquisition_type!r}, not the "
+            f"requested acquisition type {acquisition_type!r}. Copy the defaults "
+            "under the right type rather than sealing a misleading profile."
+        )
+    if z_planes <= 0:
+        raise ZmartLiveError(f"A position has to contain at least one z plane; got {z_planes}.")
+    if not channels or any(not str(channel).strip() for channel in channels):
+        raise ZmartLiveError("An acquisition has to contain at least one named channel.")
+    if len(set(channels)) != len(channels):
+        raise ZmartLiveError(f"Channel names have to be unique; got {channels}.")
+    if len(voxel_size) != 3 or any(size <= 0 or not math.isfinite(size) for size in voxel_size):
+        raise ZmartLiveError(
+            f"Voxel size must give finite, positive z, y and x values; got {voxel_size}."
+        )
+    if not voxel_unit:
+        raise ZmartLiveError("Voxel size needs a unit, such as 'micrometer'.")
+    if wanted.target_shard_bytes <= 0:
+        raise ZmartLiveError(
+            f"A target bundle size has to be positive; got {wanted.target_shard_bytes}."
+        )
 
     geometry = choose_the_geometry(frame, band=wanted.overlap_band)
 
@@ -516,9 +560,7 @@ def plan_the_writing(
     # two of them would have to be rewritten after the first was already visible.
     slab = _z_planes_per_shard(frame, dtype, wanted.target_shard_bytes, z_planes)
     levels = [
-        replace(level, shard={"z": slab, "y": frame, "x": frame})
-        if level.level == 0
-        else level
+        replace(level, shard={"z": slab, "y": frame, "x": frame}) if level.level == 0 else level
         for level in levels
     ]
 
@@ -528,9 +570,7 @@ def plan_the_writing(
         axes=("t", "c", "z", "y", "x"),
         frame_shape={"z": z_planes, "y": frame, "x": frame},
         dtype=dtype,
-        voxel_size=FrozenMap(
-            {"z": voxel_size[0], "y": voxel_size[1], "x": voxel_size[2]}
-        ),
+        voxel_size=FrozenMap({"z": voxel_size[0], "y": voxel_size[1], "x": voxel_size[2]}),
         voxel_unit=voxel_unit,
         overlap_pixels={"y": geometry.overlap, "x": geometry.overlap},
         overlap_band=wanted.overlap_band,

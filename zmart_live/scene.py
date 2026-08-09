@@ -103,9 +103,12 @@ What is in this file
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any
+from urllib.parse import unquote
 
 from .manifest import CommittedState
 from .model import (
@@ -178,6 +181,36 @@ _NON_SPATIAL_UNITS = {"t": "second", "c": ""}
 _SCHEMA = "zmart-live-neuroglancer-scene/1"
 
 
+def _safe_relative_store_path(path: str) -> None:
+    """Refuse a store address that can leave the run folder or change a URL."""
+    decoded = unquote(path)
+    candidate = PurePosixPath(decoded)
+    if (
+        not path
+        or "\\" in decoded
+        or "?" in decoded
+        or "#" in decoded
+        or candidate.is_absolute()
+        or any(part in ("", ".", "..") or ":" in part for part in candidate.parts)
+    ):
+        raise SceneRefused(
+            f"{path!r} is not a safe store path inside the run. Store paths are "
+            "relative names and may not contain parent steps, URL punctuation, "
+            "backslashes, or drive names."
+        )
+
+
+def _safe_name(name: str, what: str) -> None:
+    """Check a name before it is used as one component of a store path."""
+    decoded = unquote(name)
+    if (
+        not name
+        or decoded in (".", "..")
+        or any(mark in decoded for mark in ("/", "\\", "?", "#", ":"))
+    ):
+        raise SceneRefused(f"The {what} name {name!r} cannot be used safely in a store path.")
+
+
 def _frozen_number_map(values: Mapping[str, float] | None) -> FrozenMap:
     """Turn an axis-keyed table of numbers into one that cannot be edited afterwards."""
     if values is None:
@@ -213,10 +246,11 @@ class CoordinateSystem:
         object.__setattr__(self, "axes", tuple(self.axes))
         if not isinstance(self.units, FrozenMap):
             object.__setattr__(self, "units", FrozenMap(self.units))
-        if not self.axes:
+        if not self.name:
+            raise SceneRefused("A coordinate system needs a name.")
+        if not self.axes or len(self.axes) != len(set(self.axes)):
             raise SceneRefused(
-                "A coordinate system with no axes cannot place anything. It needs at "
-                "least the axes the acquisition writes, such as z, y and x."
+                f"A coordinate system needs at least one uniquely named axis; got {self.axes}."
             )
         for axis in self.units:
             if axis not in self.axes:
@@ -293,17 +327,21 @@ class AffinePlacement:
         object.__setattr__(
             self,
             "translation",
-            _frozen_number_map(
-                {axis: self.translation.get(axis, 0.0) for axis in self.axes}
-            ),
+            _frozen_number_map({axis: self.translation.get(axis, 0.0) for axis in self.axes}),
         )
         for axis, size in self.scale.items():
-            if size == 0:
+            if size == 0 or not math.isfinite(size):
                 raise SceneRefused(
-                    f"The placement scales axis '{axis}' by zero, which would flatten "
-                    f"the image to nothing along that axis. A voxel size of zero "
+                    f"The placement scales axis '{axis}' by {size}, which would "
+                    f"flatten it or place it outside finite coordinates. A bad size "
                     f"usually means it was never recorded; leave it out and it will "
                     f"be taken as one."
+                )
+        for axis, offset in self.translation.items():
+            if not math.isfinite(offset):
+                raise SceneRefused(
+                    f"The placement moves axis '{axis}' by {offset}, which is not a "
+                    "finite coordinate."
                 )
 
     def scale_row(self) -> tuple[float, ...]:
@@ -411,6 +449,23 @@ class SceneImage:
             )
         if not self.image_id:
             raise SceneRefused("Every image in a scene needs a name to be referred to by.")
+        if not self.axes or len(self.axes) != len(set(self.axes)):
+            raise SceneRefused(f"Image '{self.image_id}' needs unique axes; got {self.axes}.")
+        _safe_relative_store_path(self.path)
+        if not self.channels or len(self.channels) != len(set(self.channels)):
+            raise SceneRefused(
+                f"Image '{self.image_id}' needs present, unique channel names; got {self.channels}."
+            )
+        for axis, size in self.voxel_size.items():
+            if axis not in self.axes or size <= 0 or not math.isfinite(size):
+                raise SceneRefused(
+                    f"Image '{self.image_id}' has invalid voxel size {size} on axis '{axis}'."
+                )
+        if self.selector_axis in self.axes:
+            raise SceneRefused(
+                f"Image '{self.image_id}' uses '{self.selector_axis}' both as an "
+                "image axis and as its local tile selector."
+            )
         if self.placement is None:
             object.__setattr__(self, "placement", AffinePlacement(axes=self.axes))
         if tuple(self.placement.axes) != self.axes:
@@ -425,6 +480,11 @@ class SceneImage:
                 f"Position '{self.image_id}' claims to show {len(self.draws)} other "
                 f"positions. A position holds the specimen's own pixels; it is the "
                 f"overviews that are made of positions."
+            )
+        if self.role == POSITION_ROLE and self.position_id != self.image_id:
+            raise SceneRefused(
+                f"Position image '{self.image_id}' identifies its pixels as "
+                f"{self.position_id!r}. Those identities have to agree."
             )
 
     @property
@@ -494,6 +554,8 @@ class Scene:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "images", tuple(self.images))
+        if not self.scene_id or not self.run_id or not self.profile_id:
+            raise SceneRefused("A scene has to name its scene, run, and acquisition profile.")
         if self.layout_revision < 0:
             raise SceneRefused(
                 f"Layout revisions start at zero; this scene claims {self.layout_revision}."
@@ -508,9 +570,7 @@ class Scene:
                     f"to say which was meant."
                 )
             seen.add(image.identity)
-        known_positions = {
-            image.image_id for image in self.images if image.role == POSITION_ROLE
-        }
+        known_positions = {image.image_id for image in self.images if image.role == POSITION_ROLE}
         for image in self.images:
             for position_id in image.draws:
                 if position_id not in known_positions:
@@ -538,8 +598,7 @@ class Scene:
         """Every image playing one part, in the order the scene lists them."""
         if role not in SCENE_ROLES:
             raise SceneRefused(
-                f"'{role}' is not a part an image can play. The parts are "
-                f"{', '.join(SCENE_ROLES)}."
+                f"'{role}' is not a part an image can play. The parts are {', '.join(SCENE_ROLES)}."
             )
         return tuple(image for image in self.images if image.role == role)
 
@@ -617,9 +676,7 @@ def _wants_a_seamless_view(profile: AcquisitionProfile) -> bool:
 
 def _units_for(profile: AcquisitionProfile) -> dict[str, str]:
     """What one step along each of the profile's axes means."""
-    return {
-        axis: _NON_SPATIAL_UNITS.get(axis, profile.voxel_unit) for axis in profile.axes
-    }
+    return {axis: _NON_SPATIAL_UNITS.get(axis, profile.voxel_unit) for axis in profile.axes}
 
 
 def _voxel_sizes(profile: AcquisitionProfile) -> dict[str, float]:
@@ -658,6 +715,39 @@ def build_the_scene(
     Raises :class:`SceneRefused` when the description does not hold together — a
     position named twice, a view claiming a position that is not there.
     """
+    if not profile.sealed:
+        raise SceneRefused(
+            f"Acquisition profile '{profile.profile_id}' is not sealed. A scene "
+            "cannot be published while its storage interpretation can still change."
+        )
+    if layout.profile_id != profile.profile_id:
+        raise SceneRefused(
+            f"Layout revision {layout.revision} belongs to profile "
+            f"{layout.profile_id!r}, not {profile.profile_id!r}. Combining them "
+            "would place real pixels using another acquisition's geometry."
+        )
+    if layout.acquisition_type != profile.acquisition_type:
+        raise SceneRefused(
+            f"The layout describes acquisition type {layout.acquisition_type!r}, "
+            f"while the profile describes {profile.acquisition_type!r}."
+        )
+    if (
+        not channels
+        or len(channels) != len(set(channels))
+        or any(not channel for channel in channels)
+    ):
+        raise SceneRefused(f"A scene needs present, unique channel names; got {channels}.")
+    for name, value in (
+        ("positions folder", positions_folder),
+        ("views folder", views_folder),
+    ):
+        _safe_relative_store_path(value)
+        if len(PurePosixPath(unquote(value)).parts) != 1:
+            raise SceneRefused(f"The {name} must be one folder name; got {value!r}.")
+    _safe_name(overview_name, "overview")
+    for placement in layout.positions:
+        _safe_name(placement.position_id, "position")
+
     axes = tuple(profile.axes)
     voxel_size = _voxel_sizes(profile)
     world = CoordinateSystem(
@@ -746,9 +836,7 @@ def build_the_scene(
                 placement=AffinePlacement(
                     axes=axes,
                     scale=FrozenMap(product_voxels),
-                    translation=FrozenMap(
-                        {axis: float(offset.get(axis, 0.0)) for axis in axes}
-                    ),
+                    translation=FrozenMap({axis: float(offset.get(axis, 0.0)) for axis in axes}),
                 ),
                 channels=product.channels,
                 draws=tuple(product.draws),
@@ -1003,6 +1091,12 @@ def compile_for_neuroglancer(
     :class:`SceneRefused` if two views would compile to the same identity, which
     would mean one silently replacing the other.
     """
+    if committed.run_id and committed.run_id != scene.run_id:
+        raise SceneRefused(
+            f"This scene belongs to run {scene.run_id!r}, but the publication "
+            f"record belongs to {committed.run_id!r}. Visibility from one run "
+            "cannot be applied to another."
+        )
     sources: list[CompiledSource] = []
     grouped: dict[tuple[str, str, str], list[tuple[SceneImage, int, str]]] = {}
     order: list[tuple[str, str, str]] = []

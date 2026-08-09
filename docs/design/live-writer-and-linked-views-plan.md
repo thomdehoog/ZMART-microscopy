@@ -1,8 +1,10 @@
 # Building the live writer and the two linked overviews
 
-**Status:** implementation plan, revised after review and after running the
-experiments it depends on. Nothing is built yet beyond the shared vocabulary in
-`zmart_live/model.py`.
+**Status:** implementation plan with a tested reference implementation in
+`zmart_live/`. The profile, ownership, manifest, coarse-chunk planner, shard-index
+resolver and scene compiler exist. They are not yet one production pipeline: the
+coordinator that earns readiness, the view stores, the shard resolver's backend
+route and the live viewer refresh still have to be connected.
 
 This is the plan for turning
 [`live-position-timepoint-publication-decisions.md`](live-position-timepoint-publication-decisions.md)
@@ -139,6 +141,19 @@ The first draft put the unmeasured performance claim first and the commit record
 third. That is backwards: the commit record depends on no claim at all, and it is
 what makes the thing testable.
 
+### Current implementation boundary
+
+| phase | present in `zmart_live/` | still missing before production |
+| --- | --- | --- |
+| chunk/profile | chooser, sealed records, divisibility validation | Windows and real-viewer benchmark |
+| publication | durable monotonic manifest, recovery, single-writer exclusion | coordinator that validates real artifacts before setting readiness |
+| timepoints | event semantics inside already declared array room | growing beyond declared room and microscope integration |
+| ownership | visual and analysis ROIs, exhaustive small-grid tests | persisted-layout validator against the sealed profile |
+| coarse levels | exact affected-chunk and committed-contributor plans | actual raw/seamless coarse writers and timing budget |
+| sharding | checked inner-chunk byte-range resolver | routing those ranges through the linked-view backend |
+| scenes | internal scene model and bounded Neuroglancer adapter payload | actual raw selector store, 0.5 metadata adapter and frontend refresh |
+| browser | real-Neuroglancer synthetic run and sabotage harness | production-path integration test and portable Chromium provisioning |
+
 ### Phase 0 — Settle the chunk question before building on it
 
 `viz_studio/measure_the_chunk_size.py` already exists and **has never been run**.
@@ -158,10 +173,11 @@ measurement here has already been recorded as worthless.
 
 ### Phase 0b — Make `linkable` computed, never declared
 
-`LevelGeometry.linkable` is a boolean that is currently trusted. A level wrongly
-declared linkable produces a wrong picture with **no error anywhere**. Compute it
-from the corrected formula, validate it against the real refusal, and refuse a
-profile that claims more than it can deliver.
+`LevelGeometry.linkable` remains serialized as a boolean, but the profile now
+validates every true value against the grid-step, downsampling and inner-chunk
+geometry and requires the linked levels to form one prefix. The remaining step is
+to make it wholly derived at the serialization boundary and validate the result
+against the backend route that will actually serve it.
 
 ### Phase 1 — The commit record
 
@@ -175,10 +191,10 @@ byte length of an arriving-positions file. Both are guesses about a write that
 may still be in progress, and neither moves at all when a moment is written into
 room declared earlier.
 
-Integration must be cheap: fold the event file's `(mtime, size)` into the
-existing revision fingerprint so a commit moves it, parse only inside the config
-rebuild that already runs when the fingerprint moves, and read only the tail
-using the same cursor trick the pointer reader uses.
+Integration must be cheap: use the atomic truth file's metadata fingerprint
+(`mtime_ns`, `ctime_ns`, size and inode) so a commit moves it, parse only inside
+the config rebuild that already runs when the fingerprint moves, and read only
+the history tail using the same cursor trick the pointer reader uses.
 
 Publish the committed revision **per store**, beside the existing per-store frame
 counts. Not in the chunk URL — a revision in the address makes the engine treat
@@ -358,21 +374,21 @@ five and a half million unsharded. That is the property worth having.
 ### What the profile builder chooses, across the envelope
 
 Preference order, which encodes what actually costs what: enough pointed depth
-that the written levels stay small; then the largest chunk, because that is the
-fewest requests to fill a screen; then the least overlap, because overlap is
-microscope time.
+that the written levels stay small; then staying inside the comfortable overlap
+band, because overlap is microscope time; then the largest chunk, because that
+is the fewest requests to fill a screen; then the least overlap as the tie-break.
 
 | frame | chunk | overlap | fraction | step | pointed levels | chunks per plane |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1024 | 128 | 256 | 25.0% | 768 | 2 | 64 |
 | 1280 | 256 | 256 | 20.0% | 1024 | 3 | 25 |
-| 1536 | 192 | 384 | 25.0% | 1152 | 2 | 64 |
+| 1536 | 128 | 256 | 16.7% | 1280 | 2 | 144 |
 | 2048 | 128 | 512 | 25.0% | 1536 | 3 | 256 |
 | 2160 | 144 | 432 | 20.0% | 1728 | 3 | 225 |
 | **2304** | **256** | **256** | **11.1%** | 2048 | **4** | **81** |
 | 2560 | 512 | 512 | 20.0% | 2048 | 3 | 25 |
-| 3072 | 192 | 768 | 25.0% | 2304 | 3 | 256 |
-| 4096 | 256 | 1024 | 25.0% | 3072 | 3 | 256 |
+| 3072 | 128 | 512 | 16.7% | 2560 | 3 | 576 |
+| 4096 | 128 | 512 | 12.5% | 3584 | 3 | 1024 |
 | 5120 | 512 | 1024 | 20.0% | 4096 | 4 | 100 |
 
 ### The convention: nine chunks across, one chunk of overlap
@@ -397,9 +413,10 @@ uniform lower/right trim: every placement number is a multiple of the step, so a
 step that is a pure power of two is exactly what buys pointing depth, and nine
 chunks minus one chunk is eight chunks.
 
-The round numbers are the trap. A 1024 or 2048 frame is the **worst** available
-choice — both are forced to 25% overlap, more than twice the microscope time, for
-shallower pointing than 1152 or 2304 achieve at 11.1%:
+Some round numbers are a trap. A 1024 or 2048 frame is forced to 25% overlap for
+shallower pointing than 1152 or 2304 achieves at 11.1%. A 4096 frame can reach
+12.5% overlap, but only by choosing 128-pixel chunks, which means 1,024 chunks per
+plane:
 
 | frame | best overlap in band | pointed | verdict |
 | ---: | ---: | ---: | --- |
@@ -407,7 +424,7 @@ shallower pointing than 1152 or 2304 achieve at 11.1%:
 | **1152** | **11.1%** | **4** | excellent |
 | 2048 | 25.0% | 3 | workable |
 | **2304** | **11.1%** | **4** | excellent |
-| 4096 | 25.0% | 3 | workable |
+| 4096 | 12.5% | 3 | workable, but many small chunks |
 | **4608** | **11.1%** | **4** | excellent |
 | 5120 | 20.0% | 4 | workable |
 
@@ -417,11 +434,9 @@ frame is fixed — an sCMOS at 5120 — the same arithmetic simply reports the
 honest cost, which at 20% overlap and four pointed levels is perfectly workable.
 
 **A finding worth acting on.** A 2304 frame is markedly better than its
-neighbours: it is the only size in the envelope that reaches a good chunk and
-four pointed levels at **11.1%** overlap, where everything else needs twenty to
-twenty-five per cent. Overlap is microscope time, so that is roughly a tenth of
-the run's imaging saved, along with a quarter as many requests per plane as a
-2048 frame.
+neighbours: it combines a 256-pixel chunk and four pointed levels at **11.1%**
+overlap. Overlap is microscope time, so that is roughly a tenth of the run's
+imaging saved, along with a quarter as many requests per plane as a 2048 frame.
 
 Where ZMART controls an adjustable scan format, the profile builder should say so
 and offer the better format rather than silently accepting a worse one. Where the
@@ -448,8 +463,9 @@ as the decision record already asks.
 
 ### Deferred, deliberately
 
-The analysis-ownership half of Decision 9. Stating that plainly so the omission
-is a decision rather than an oversight.
+End-to-end concurrent analysis consumption. The layout records and ownership
+ROIs now exist and are tested, but the production analysis runner does not yet
+pin a committed layout revision and reject results outside that revision's core.
 
 ## Also fix on the way past
 

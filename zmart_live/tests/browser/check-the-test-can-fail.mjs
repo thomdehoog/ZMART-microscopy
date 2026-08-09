@@ -57,20 +57,45 @@ const FAULTS = [
   },
 ];
 
-const missed = [];
-for (const fault of FAULTS) {
-  console.log(`\n--- with this broken on purpose: ${fault.what}\n`);
-  const finished = spawnSync(
+function runBrowserTest(sabotage) {
+  const environment = { ...process.env };
+  delete environment.ZMART_SABOTAGE;
+  if (sabotage) environment.ZMART_SABOTAGE = sabotage;
+  return spawnSync(
     "npx",
     ["playwright", "test", "--config", path.join(here, "playwright.config.mjs")],
     {
       cwd: OPERATOR_PAGE,
       stdio: "inherit",
-      env: { ...process.env, ZMART_SABOTAGE: fault.name },
+      env: environment,
       shell: process.platform === "win32",
     },
   );
-  const caught = finished.status !== 0;
+}
+
+console.log("\n--- first prove the unmodified browser test is green\n");
+const baseline = runBrowserTest(null);
+if (baseline.status !== 0) {
+  console.error(
+    "\nThe unmodified browser test is not green, so a red sabotage run would " +
+    "prove nothing. Fix the browser, build, or Playwright environment before " +
+    "trusting this fault check.",
+  );
+  process.exit(2);
+}
+
+const missed = [];
+for (const fault of FAULTS) {
+  console.log(`\n--- with this broken on purpose: ${fault.what}\n`);
+  const finished = runBrowserTest(fault.name);
+  const caught = finished.status === 1;
+  if (finished.status !== 0 && finished.status !== 1) {
+    console.error(
+      `\nThe test runner stopped with status ${finished.status}; this is not ` +
+      "evidence that an assertion caught the fault.",
+    );
+    process.exit(2);
+  }
   console.log(
     caught
       ? `\ncaught: the test went red, as it should have. ${fault.caughtBy} did its job.`

@@ -29,10 +29,9 @@ better than the silence that was there before.
 
 from __future__ import annotations
 
-import re
-import subprocess
-import sys
 from pathlib import Path
+
+from ._fault_check import replace_source, require_green_baseline, run_pytest
 
 HERE = Path(__file__).resolve()
 PACKAGE = HERE.parent.parent
@@ -45,13 +44,14 @@ REPO = PACKAGE.parent
 MANIFEST_FAULTS: list[tuple[str, str, str]] = [
     (
         "publish anything, ready or not",
-        "if not allow_incomplete and not event.ready:",
+        "if not event.ready:",
         "if False:",
     ),
     (
         "let the counter stand still instead of going up",
-        "if event.revision <= state.revision:",
-        "if False:",
+        "expected = max(state.revision, last_recorded) + 1\n"
+        "            if event.revision != expected:",
+        "expected = max(state.revision, last_recorded) + 1\n            if False:",
     ),
     (
         "forget to record which position changed",
@@ -60,13 +60,18 @@ MANIFEST_FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "never notice that anything changed",
-        "return (stamp.st_mtime_ns, stamp.st_size)",
-        "return (0, 0)",
+        "return (\n"
+        "            stamp.st_mtime_ns,\n"
+        "            stamp.st_ctime_ns,\n"
+        "            stamp.st_size,\n"
+        '            getattr(stamp, "st_ino", 0),\n'
+        "        )",
+        "return (0, 0, 0, 0)",
     ),
     (
         "ignore where the reader had got to",
-        "if event.revision > after:",
-        "if True:",
+        "if event.revision > after and (",
+        "if True and (",
     ),
     (
         "skip pushing to the disk before renaming",
@@ -74,14 +79,40 @@ MANIFEST_FAULTS: list[tuple[str, str, str]] = [
         "os.replace",
     ),
     (
-        "treat damage anywhere as merely a half-written last line",
-        "if number == len(lines):",
-        "if True:",
+        "silently skip every complete history record",
+        "if stripped:",
+        "if False:",
+    ),
+    (
+        "accept duplicate or out-of-order history revisions",
+        "expected = len(self._events_cache) + len(new_events) + 1\n"
+        "                if event.revision != expected:",
+        "expected = len(self._events_cache) + len(new_events) + 1\n                if False:",
+    ),
+    (
+        "extend a truth file whose published history has disappeared",
+        "if state.revision > last_recorded:",
+        "if False:",
+    ),
+    (
+        "keep stale cached events after the history file disappears",
+        "if not self.history.exists():\n            self._reset_history_reader()",
+        "if not self.history.exists():\n            pass",
     ),
     (
         "trust the history over what was actually announced",
-        "unannounced = [e for e in self.events() if e.revision > state.revision]",
-        "unannounced = []",
+        "and (ceiling is None or event.revision <= ceiling)",
+        "and True",
+    ),
+    (
+        "accept a commit belonging to another run",
+        "if event.run_id != state.run_id:",
+        "if False:",
+    ),
+    (
+        "leave an unpublished crash tail in the active history",
+        "history.truncate(keep_to)",
+        "history.truncate(self._read_to)",
     ),
 ]
 
@@ -131,6 +162,14 @@ OWNERSHIP_FAULTS: list[tuple[str, str, str]] = [
     ),
 ]
 
+LAYOUT_FAULTS: list[tuple[str, str, str]] = [
+    (
+        "silently choose the first tile when a stored layout has two owners",
+        "if len(owners) > 1:",
+        "if False:",
+    ),
+]
+
 #: The zoomed-out picture is where an unfinished position would show up quietly,
 #: at low magnification, looking exactly like specimen.
 COARSE_FAULTS: list[tuple[str, str, str]] = [
@@ -146,7 +185,7 @@ COARSE_FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "forget that a piece covers more ground the further out it is",
-        "across = chunk[axis] * shrink",
+        "across = chunk[axis] * scale[axis]",
         "across = chunk[axis]",
     ),
     (
@@ -170,25 +209,9 @@ COARSE_FAULTS: list[tuple[str, str, str]] = [
 SUBJECTS: list[tuple[str, str, str, list[tuple[str, str, str]]]] = [
     ("the commit record", "manifest.py", "test_manifest.py", MANIFEST_FAULTS),
     ("seam ownership", "ownership.py", "test_ownership.py", OWNERSHIP_FAULTS),
+    ("stored layout ownership", "model.py", "test_ownership.py", LAYOUT_FAULTS),
     ("the zoomed-out picture", "coarse.py", "test_coarse.py", COARSE_FAULTS),
 ]
-
-
-def _run_the_tests(tests: Path) -> tuple[int, str]:
-    """Run one test file and report how many failed, and the first one."""
-    finished = subprocess.run(
-        [
-            sys.executable, "-m", "pytest", str(tests),
-            "-q", "--no-header", "-x", "--tb=no",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=REPO,
-    )
-    failures = re.search(r"(\d+) failed", finished.stdout)
-    how_many = int(failures.group(1)) if failures else 0
-    named = re.search(r"FAILED \S+::(\S+)", finished.stdout)
-    return how_many, (named.group(1) if named else "")
 
 
 def main() -> int:
@@ -199,6 +222,9 @@ def main() -> int:
         tests = HERE.parent / test_name
         original = source.read_text(encoding="utf-8")
 
+        if not require_green_baseline(REPO, tests):
+            return 2
+
         print()
         print(f"== {title} ==")
         print(f"{'fault introduced':<52}{'caught?':>9}   noticed by")
@@ -206,24 +232,29 @@ def main() -> int:
         try:
             for description, find, replace_with in faults:
                 if find not in original:
-                    print(f"{description:<52}{'STALE':>9}   the code has moved on; "
-                          f"update this list")
+                    print(
+                        f"{description:<52}{'STALE':>9}   the code has moved on; update this list"
+                    )
                     unnoticed.append(f"{description} (could not be introduced)")
                     continue
 
-                source.write_text(
-                    original.replace(find, replace_with, 1), encoding="utf-8"
-                )
-                how_many, named = _run_the_tests(tests)
-                source.write_text(original, encoding="utf-8")
+                replace_source(source, original.replace(find, replace_with, 1))
+                try:
+                    result = run_pytest(REPO, tests)
+                finally:
+                    replace_source(source, original)
 
-                if how_many:
-                    print(f"{description:<52}{'yes':>9}   {named[:40]}")
+                if result.caught_the_fault:
+                    print(f"{description:<52}{'yes':>9}   {result.first_failure[:40]}")
+                elif result.could_not_run_tests:
+                    print(f"{description:<52}{'ERROR':>9}   pytest did not finish")
+                    print(result.output)
+                    return 2
                 else:
                     print(f"{description:<52}{'NO':>9}   nothing noticed")
                     unnoticed.append(description)
         finally:
-            source.write_text(original, encoding="utf-8")
+            replace_source(source, original)
 
     print()
     if unnoticed:

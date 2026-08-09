@@ -171,11 +171,15 @@ def plan_one_tile(
 
         # Is there a tile beyond this one on this axis? If not, this tile is on
         # the mosaic's outer edge and there is nobody to hand the strip to.
-        beyond = GridCell(cell.row + 1, cell.column) if axis == "y" else GridCell(
-            cell.row, cell.column + 1
+        beyond = (
+            GridCell(cell.row + 1, cell.column)
+            if axis == "y"
+            else GridCell(cell.row, cell.column + 1)
         )
-        before = GridCell(cell.row - 1, cell.column) if axis == "y" else GridCell(
-            cell.row, cell.column - 1
+        before = (
+            GridCell(cell.row - 1, cell.column)
+            if axis == "y"
+            else GridCell(cell.row, cell.column - 1)
         )
         has_one_beyond = beyond in occupied
         has_one_before = before in occupied
@@ -307,7 +311,7 @@ def the_far_edges(
             frame = profile.frame_shape[axis]
             shown = placement.visual_source_roi[axis]
             if shown.stop >= frame:
-                continue                      # this tile already keeps its edge
+                continue  # this tile already keeps its edge
             start = placement.origin[axis] + shown.stop
             edges.append(
                 FarEdge(
