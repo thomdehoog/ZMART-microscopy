@@ -23,6 +23,7 @@ from zmart_live.model import (
     AcquisitionProfile,
     GridCell,
     LevelGeometry,
+    MosaicComponent,
     SceneLayoutRevision,
     ZmartLiveError,
 )
@@ -277,12 +278,28 @@ class TestTheGridHasToMeanWhatItSays:
         assert component.complete is True
         assert len(component.cells) == 6
 
+    @pytest.mark.parametrize(
+        "cell", [GridCell(-1, 0), GridCell(0, -1), GridCell(0.5, 0), GridCell(True, 0)]
+    )
+    def test_grid_coordinates_are_non_negative_whole_numbers(self, cell):
+        with pytest.raises(TopologyRefused, match="non-negative whole-number"):
+            check_the_grid_holds_together({cell: "posA"})
+
+    def test_a_tile_cannot_be_planned_at_a_negative_array_origin(self):
+        with pytest.raises(TopologyRefused, match="wrong place"):
+            one_tile(a_plan(), GridCell(-1, 0))
+
     def test_the_same_position_in_two_squares_is_refused(self):
         cells = a_square_of(1, 2)
         cells[GridCell(0, 1)] = cells[GridCell(0, 0)]
         with pytest.raises(TopologyRefused) as refused:
             check_the_grid_holds_together(cells)
         assert "pos00" in str(refused.value)
+
+    def test_position_names_that_collide_on_windows_are_refused(self):
+        cells = {GridCell(0, 0): "posA", GridCell(0, 1): "POSA"}
+        with pytest.raises(TopologyRefused, match="case-insensitive Windows"):
+            check_the_grid_holds_together(cells)
 
     def test_a_tile_touching_only_at_a_corner_is_refused(self):
         """Two tiles meeting diagonally share no edge, so neither can trim
@@ -312,6 +329,22 @@ class TestTheGridHasToMeanWhatItSays:
         assert component.complete is False
         assert len(component.cells) == 8
 
+    def test_an_incomplete_footprint_cannot_publish_ownership_regions(self):
+        """A hole must not be turned into four overlapping outer boundaries.
+
+        Before this refusal, the four diagonal pairs around a missing centre
+        each owned the same patch of specimen.  The production 1152/128 profile
+        duplicated four 64 by 64 regions, large enough to double-count whole
+        nuclei.  The planned footprint is settled before acquisition, so waiting
+        for an explicit complete footprint does not make ownership depend on the
+        order in which tiles arrive.
+        """
+        cells = a_square_of(3, 3)
+        del cells[GridCell(1, 1)]
+
+        with pytest.raises(TopologyRefused, match="incomplete"):
+            place_the_tiles(a_plan(), cells)
+
     def test_an_empty_component_is_refused(self):
         with pytest.raises(TopologyRefused):
             check_the_grid_holds_together({})
@@ -329,6 +362,15 @@ class TestTheRecordsSurviveBeingStored:
 
         component = check_the_grid_holds_together(a_square_of(2, 2))
         assert MosaicComponent.from_json(component.to_json()).to_json() == (component.to_json())
+
+    def test_a_component_cannot_name_one_windows_folder_twice(self):
+        with pytest.raises(ZmartLiveError, match="same folder"):
+            MosaicComponent(
+                component_id="component-0",
+                profile_id="test",
+                cells={GridCell(0, 0): "posA", GridCell(0, 1): "POSA"},
+                complete=True,
+            )
 
 
 class TestAStoredLayoutNeverGuessesBetweenTwoOwners:
@@ -358,3 +400,19 @@ class TestAStoredLayoutNeverGuessesBetweenTwoOwners:
 
         with pytest.raises(ZmartLiveError, match="more than one position"):
             layout.owner_of_point({"z": 0, "y": 1, "x": 1})
+
+    def test_position_names_that_share_one_windows_folder_are_refused(self):
+        with pytest.raises(ZmartLiveError, match="same folder"):
+            SceneLayoutRevision(
+                revision=1,
+                schema_version="zmart-live-layout/1",
+                run_id="run-1",
+                acquisition_type="overview",
+                profile_id="test",
+                positions=(
+                    one_tile(a_plan(), GridCell(0, 0)),
+                    plan_one_tile(
+                        a_plan(), GridCell(0, 1), position_id="POS00"
+                    ),
+                ),
+            )

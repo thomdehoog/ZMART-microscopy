@@ -82,6 +82,14 @@ class TestNothingIsVisibleUntilItIsPublished:
         assert run.revision() == 0
         assert run.events() == []
 
+    def test_the_position_generation_survives_json(self):
+        event = a_finished_position(
+            2,
+            event_type="position_replaced",
+            position_generation=1,
+        )
+        assert CommitEvent.from_json(event.to_json()).position_generation == 1
+
     def test_a_half_written_position_is_refused_while_a_finished_one_is_published(self, run):
         """The load-bearing test, with both arms in it.
 

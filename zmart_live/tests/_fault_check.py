@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import importlib
 import re
+import signal
 import subprocess
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,6 +42,39 @@ class PytestRun:
     def could_not_run_tests(self) -> bool:
         """Collection, usage, interruption and internal errors are not catches."""
         return self.returncode not in (0, 1)
+
+
+@contextmanager
+def make_interruptions_reach_finally():
+    """Turn Ctrl-C and termination into exceptions while a campaign mutates code.
+
+    Python normally turns Ctrl-C into :class:`KeyboardInterrupt`, but SIGTERM
+    ends the process immediately and skips every ``finally`` block. That was
+    observed to leave a deliberately faulty coordinator in the working tree.
+    During a mutation campaign both ordinary stop signals therefore raise the
+    same exception. The handler ignores a second stop while the stack unwinds,
+    so restoration itself cannot be interrupted, then reinstates the process's
+    previous handlers.
+
+    SIGKILL and loss of power cannot be caught by any process. A campaign stopped
+    that way still requires restoring the subject from version control before
+    another test run.
+    """
+    watched = (signal.SIGINT, signal.SIGTERM)
+    previous = {which: signal.getsignal(which) for which in watched}
+
+    def stop_after_restoring(_signal_number, _frame):
+        for which in watched:
+            signal.signal(which, signal.SIG_IGN)
+        raise KeyboardInterrupt("mutation campaign interrupted")
+
+    for which in watched:
+        signal.signal(which, stop_after_restoring)
+    try:
+        yield
+    finally:
+        for which, handler in previous.items():
+            signal.signal(which, handler)
 
 
 def run_pytest(repository: Path, tests: Path) -> PytestRun:
@@ -80,6 +115,32 @@ def require_green_baseline(repository: Path, tests: Path) -> bool:
         "nothing. Fix the baseline or its environment before trusting this check."
     )
     print(baseline.output)
+    return False
+
+
+def require_green_subject(repository: Path, tests: Path, source: Path) -> bool:
+    """Run the baseline from source, never from a stale compiled mutation."""
+    _forget_the_compiled_copy(source)
+    return require_green_baseline(repository, tests)
+
+
+def require_restored_subject(
+    repository: Path, tests: Path, source: Path, original: str
+) -> bool:
+    """Prove both the source bytes and its tests are sound after mutations."""
+    if source.read_text(encoding="utf-8") != original:
+        print(
+            f"Mutation subject {source} was not restored byte-for-byte. Stop here "
+            "and restore it before running any other tests."
+        )
+        return False
+    if require_green_subject(repository, tests, source):
+        return True
+    print(
+        f"Mutation subject {source} has its original bytes back, but its clean "
+        "tests are red. A stale compiled mutation or another damaged dependency "
+        "may remain, so the campaign cannot claim successful restoration."
+    )
     return False
 
 

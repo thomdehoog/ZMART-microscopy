@@ -652,6 +652,25 @@ class ViewRoute:
         """
         return self.where_this_chunk_is(chunk_coordinate) is not None
 
+    def covers(self, chunk_coordinate: Sequence[int]) -> bool:
+        """Whether a position is responsible for this spatial view chunk.
+
+        Unlike :meth:`advertises`, this does not require the source chunk to
+        exist.  A server uses the distinction to tell a genuinely materialized
+        outer edge from a routed chunk whose canonical bytes have gone missing:
+        the first may fall back to the view store, while the second must fail
+        closed instead of hiding corruption behind an older copied chunk.
+        """
+        wanted = _whole_numbers(chunk_coordinate, "chunk coordinate")
+        if len(wanted) != len(self.storage.chunk) or any(index < 0 for index in wanted):
+            return False
+        spatial = wanted[-3:]
+        if any(
+            spatial[axis] >= self.chunks_in_view[axis] for axis in range(3)
+        ):
+            return False
+        return self._position_covering(spatial) is not None
+
 
 def route_the_view(
     positions: Sequence[Placed],

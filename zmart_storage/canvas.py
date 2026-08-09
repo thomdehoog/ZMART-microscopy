@@ -1474,9 +1474,16 @@ class TileCanvases:
         ):
             at = (frame, channel)
             if at_full_size:
-                picture.arrays[0][
-                    *at, z0:z0 + depth, y0:y0 + height, x0:x0 + width
-                ] = image
+                # A tuple of indices works on every supported Python.  Starred
+                # expressions written directly inside ``[...]`` require 3.11,
+                # while this project deliberately supports 3.10 as well.
+                destination = (
+                    *at,
+                    slice(z0, z0 + depth),
+                    slice(y0, y0 + height),
+                    slice(x0, x0 + width),
+                )
+                picture.arrays[0][destination] = image
             self._write_smaller_copies(image, origin, channel, frame,
                                        from_level=from_level)
             picture.written.append(occupied)
@@ -1702,7 +1709,9 @@ class TileCanvases:
             if height <= 0 or width <= 0:
                 continue
             at = (frame, channel)
-            array[*at, z0:z0 + depth, y0:y0 + height, x0:x0 + width] = (
+            target = (*at, slice(z0, z0 + depth), slice(y0, y0 + height),
+                      slice(x0, x0 + width))
+            array[target] = (
                 smaller[:, :height, :width]
             )
 

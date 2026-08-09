@@ -127,6 +127,14 @@ RESERVED_DEVICE_NAMES = frozenset(
 #: system or means something special to a shell.
 _ALLOWED_IN_A_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 
+# Replacements are stored as ``<position>.generation-<number>.ome.zarr``.  If a
+# caller could choose that suffix for an ordinary position, replacing ``sample``
+# would target the canonical store of ``sample.generation-1`` and could delete it
+# before copying the replacement.  Case-insensitive filesystems make spelling
+# variants collide too, so the internal namespace is reserved without regard to
+# case.
+_GENERATION_SUFFIX = re.compile(r"\.generation-\d+$", re.IGNORECASE)
+
 
 def is_a_safe_name(name: object) -> bool:
     """True when ``name`` can be used as a single folder or file name anywhere.
@@ -170,6 +178,7 @@ def check_the_name_is_safe(name: object, *, what: str = "identifier") -> str:
     advice = (
         "A name has to be one plain word made of letters, digits, '-', '_' and "
         "'.', with no folder separators, no leading or trailing dots or spaces, "
+        "not ending in the internal '.generation-N' replacement suffix, "
         "and not one of the names Windows reserves for its own hardware "
         "(CON, PRN, AUX, NUL, COM1-9, LPT1-9)."
     )
@@ -207,6 +216,14 @@ def check_the_name_is_safe(name: object, *, what: str = "identifier") -> str:
             f"'{name}' cannot be used as {a} {what} name, because Windows reserves "
             f"that name for a piece of hardware. Opening it would talk to the "
             f"console or a printer port rather than write to the disk. {advice}"
+        )
+    if _GENERATION_SUFFIX.search(name):
+        raise ZmartLiveError(
+            f"'{name}' cannot be used as {a} {what} name, because names ending in "
+            "'.generation-N' are reserved for immutable replacement stores. An "
+            "ordinary position with that name and generation N of the name before "
+            "it would otherwise be the same folder, so replacing one could erase "
+            f"the other. {advice}"
         )
     return name
 
@@ -554,8 +571,9 @@ TOPOLOGIES = ("independent", "grid")
 
 #: Where the seam is placed when two tiles overlap and the quick-look view has to
 #: choose which one to show. ``"one_sided"`` gives the whole overlap to the tile
-#: above or to the left; ``"midpoint"`` cuts it down the middle. The reasoning
-#: for keeping both is in Decision 7 of the architecture record.
+#: below or to the right, so every source tile contributes from its own origin;
+#: ``"midpoint"`` cuts it down the middle. The reasoning for keeping both is in
+#: Decision 7 of the architecture record.
 SEAMLESS_OWNERSHIP_POLICIES = ("one_sided", "midpoint")
 
 #: Where the boundary sits for deciding which tile's *measurements* count. This
@@ -985,8 +1003,9 @@ class PositionPlacement:
 
     ``visual_source_roi``
         The part of this tile the seamless quick-look view actually shows. Where
-        a tile has a neighbour above or to the left, this excludes the shared
-        strip, because the neighbour is showing it.
+        a tile has a neighbour below or to the right, this excludes its far
+        shared strip, because that neighbour is showing it. The remaining strips
+        at the declared outside edge are materialized separately.
 
     ``analysis_input_roi``
         What a model is given to look at — normally the whole tile, overlap
@@ -1106,8 +1125,18 @@ class MosaicComponent:
         # Any name that *is* given still has to be safe.
         if self.profile_id:
             check_the_name_is_safe(self.profile_id, what="acquisition profile")
+        seen_component_names: dict[str, str] = {}
         for position_id in self.cells.values():
             check_the_name_is_safe(position_id, what="position")
+            disk_name = position_id.casefold()
+            if disk_name in seen_component_names:
+                raise ZmartLiveError(
+                    f"Positions {seen_component_names[disk_name]!r} and "
+                    f"{position_id!r} "
+                    "differ only by letter case and would be the same folder on "
+                    "a Windows microscope computer."
+                )
+            seen_component_names[disk_name] = position_id
 
     def position_at(self, cell: GridCell) -> str | None:
         """Which tile occupies ``cell``, or ``None`` when nothing has been placed there."""
@@ -1205,6 +1234,7 @@ class SceneLayoutRevision:
         check_the_name_is_safe(self.acquisition_type, what="acquisition type")
         check_the_name_is_safe(self.profile_id, what="acquisition profile")
         seen: set[str] = set()
+        seen_layout_names: dict[str, str] = {}
         for placement in self.positions:
             if placement.position_id in seen:
                 raise ZmartLiveError(
@@ -1212,6 +1242,15 @@ class SceneLayoutRevision:
                     f"revision {self.revision}. Each tile is described exactly once."
                 )
             seen.add(placement.position_id)
+            layout_disk_name = placement.position_id.casefold()
+            if layout_disk_name in seen_layout_names:
+                raise ZmartLiveError(
+                    f"Positions {seen_layout_names[layout_disk_name]!r} and "
+                    f"{placement.position_id!r} in layout revision {self.revision} "
+                    "differ only by letter case and would be the same folder on "
+                    "a Windows microscope computer."
+                )
+            seen_layout_names[layout_disk_name] = placement.position_id
 
     def placement(self, position_id: str) -> PositionPlacement:
         """The record for one tile, by its name."""
@@ -1328,6 +1367,7 @@ class CommitEvent:
     acquisition_profile_id: str
     scene_layout_revision: int
     link_revision: int
+    position_generation: int = 0
     timepoint: int | None = None
     component_id: str | None = None
     cell: GridCell | None = None
@@ -1376,6 +1416,11 @@ class CommitEvent:
                 "Layout and link revisions cannot be negative; got "
                 f"{self.scene_layout_revision} and {self.link_revision}."
             )
+        if self.position_generation < 0:
+            raise ZmartLiveError(
+                "Position generations are counted from zero; got "
+                f"{self.position_generation}."
+            )
         if self.timepoint is not None and self.timepoint < 0:
             raise ZmartLiveError(f"Timepoints are counted from zero; got {self.timepoint}.")
         if self.event_type == "timepoint_committed" and self.timepoint is None:
@@ -1423,6 +1468,7 @@ class CommitEvent:
             "acquisition_profile_id": self.acquisition_profile_id,
             "scene_layout_revision": self.scene_layout_revision,
             "link_revision": self.link_revision,
+            "position_generation": self.position_generation,
             "timepoint": self.timepoint,
             "component_id": self.component_id,
             "cell": None if self.cell is None else self.cell.to_json(),
@@ -1451,6 +1497,7 @@ class CommitEvent:
             acquisition_profile_id=value["acquisition_profile_id"],
             scene_layout_revision=int(value["scene_layout_revision"]),
             link_revision=int(value["link_revision"]),
+            position_generation=int(value.get("position_generation", 0)),
             timepoint=None if value.get("timepoint") is None else int(value["timepoint"]),
             component_id=value.get("component_id"),
             cell=None if cell is None else GridCell.from_json(cell),

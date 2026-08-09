@@ -1,6 +1,8 @@
 # Live publication of positions and timepoints
 
-**Status:** architecture decision record; no production code is changed by this document.
+**Status:** accepted architecture decision, substantially implemented in
+`zmart_live`; the analysis consumer, automatic frontend refresh, and
+Windows/SMB performance qualification remain separate follow-up work.
 
 This records the decision made after discussing how a smart-microscopy run should appear in Neuroglancer while the microscope is still acquiring it.
 
@@ -43,8 +45,8 @@ must not be conflated:
       0/ 1/ 2/ ...                      real pixels and complete pyramids
     pos-00002.ome.zarr/
   views/
-    overview-seamless.ome.zarr/         one virtual source for Neuroglancer
-    overview-raw.ome.zarr/              overlap-preserving selector view
+    overview-seamless.ome.zarr/         multiscale OME image + virtual routing
+    overview-raw.zarr/                  multiscale overlap selector extension
   zmart-live/
     profiles/ layouts/ manifest/ ...    ZMART operational state
 ```
@@ -59,14 +61,16 @@ must not be conflated:
    generic OME-Zarr 0.5 readers will not automatically know that sibling
    `positions/` and `views/` form one scene. That limits automatic discovery of
    the whole run; it does not reduce the portability of any child position.
-3. **A virtual view has OME-Zarr-facing metadata but ZMART-specific pixel
-   routing.** The linked chunk/range map is not currently part of standard
-   OME-Zarr. The ZMART adapter resolves it and exposes a stable image endpoint to
-   Neuroglancer. Opening the link records directly with an unrelated reader is
-   therefore not promised to work. A view becomes independently portable only
-   when its pixels are materialized as an ordinary OME-Zarr image.
+3. **The seamless view is an OME-Zarr multiscale image with optional
+   ZMART-specific pixel routing.** Its metadata and materialized chunks are
+   ordinary OME-Zarr 0.5. At linkable levels, the production backend may answer
+   a requested view chunk with the already-encoded inner chunk in a canonical
+   position. The linked chunk/range map is not part of standard OME-Zarr, so an
+   unrelated reader sees only the materialized representation, while the ZMART
+   adapter can use the zero-copy route.
 
-The raw-overlap view's local tile selector is also a presentation extension: it
+The raw-overlap view is deliberately named `.zarr`, not `.ome.zarr`, because its
+local tile selector is a presentation extension: it
 lets Neuroglancer choose among multiple measurements of the same specimen
 location without creating one drawing source per position. Canonical access to
 those measurements remains through the standard position images.
@@ -147,6 +151,15 @@ frontend is notified
           v
 Neuroglancer reads the new committed revision
 ```
+
+For a replacement of an already-visible unit, the candidate generation map is
+installed before any shared physical view chunk changes. That makes the gateway
+temporarily withhold the affected position while the candidate views are built.
+The manifest commit then reveals the new generation atomically. If any step
+fails, the old generation's shared pixels are restored while the candidate map
+still withholds them, and the old map is restored last. Readers therefore see
+the previous committed answer or a temporary refusal, never uncommitted
+replacement pixels.
 
 A reader therefore sees either the previous complete revision or the next complete revision, never a mixture.
 
@@ -267,15 +280,14 @@ Where ZMART controls acquisition, the selected profile is sent to the microscope
 
 ## Decision 7: seamless overlap ownership need not be split in half
 
-A 50/50 split is an option, not a requirement. For a regular raster, the simpler quick-look rule is **top/left predecessor wins**:
+A 50/50 split is an option, not a requirement. For a regular raster, the selected quick-look rule is **lower/right neighbour wins**:
 
-- the first tile keeps its complete image;
-- a tile with a real left neighbour omits the complete overlap on its left;
-- a tile with a real top neighbour omits the complete overlap on its top;
-- a tile below and to the right omits both strips; and
-- outer edges are kept where no neighbour exists.
+- every tile contributes from its own top-left origin rather than from an offset;
+- every tile contributes exactly one grid step on each tiled axis;
+- the tile to the right supplies a horizontal overlap and the tile below supplies a vertical overlap; and
+- the otherwise-uncovered far-right and bottom acquisition strips are materialized from the complete outer-edge tiles.
 
-At a four-tile intersection, the same rule gives every output location one deterministic owner. There is no configurable per-tile ownership priority and no dependency on acquisition arrival order: the integer grid coordinates define the result. The smaller column owns a horizontal overlap and the smaller row owns a vertical overlap.
+At a four-tile intersection, the same rule gives every output location one deterministic owner. There is no configurable per-tile ownership priority and no dependency on acquisition arrival order: the planned integer grid coordinates define the result. The larger column owns a horizontal overlap and the larger row owns a vertical overlap. This direction is selected because a zero source offset keeps more pyramid levels directly linkable; it changes which acquisition supplies a seam pixel, not the covered specimen extent.
 
 ### Enforced overlapping-grid contract
 
@@ -301,7 +313,7 @@ An isolated target or a separate target patch is an explicit singleton/new mosai
 
 The plan is validated before a ZMART-controlled acquisition and again when each completed position commits. Externally produced data enters the direct-link path only if it declares or reconstructs the same grid contract. A topology violation is refused by the seamless acquisition view; the position remains available as canonical raw data for a separate component or stitching, but it is never silently inserted into the grid.
 
-Completion order remains irrelevant. A tile's left/top crop follows its declared neighbours even if asynchronous writing delivers the positions in another order. No `ownership_priority` field is required.
+Completion order remains irrelevant. A tile's lower/right ownership follows the complete planned footprint even if asynchronous writing delivers the positions in another order. A missing expected cell remains incomplete and is never reclassified as an outer boundary. No `ownership_priority` field is required.
 
 The directly linked seamless view deliberately uses this nominal grid. Measured deviations from the planned stage step do not participate in its chunk mapping; a visible step at the seam is accepted. Canonical positions remain untouched and retain every overlap pixel and any measured stage metadata.
 
@@ -425,7 +437,7 @@ Computing predictions more than once in an overlap is permitted and often desira
 
 Both rules are derived from the same realized acquisition layout, but they need not use the same seam:
 
-- `visual_source_roi` selects the pixels exposed by the seamless quick-look view. It may use the chunk-aligned top/left-predecessor rule from Decision 7.
+- `visual_source_roi` selects the pixels exposed by the seamless quick-look view. It may use the chunk-aligned lower/right-neighbour rule from Decision 7.
 - `analysis_core_roi` selects the output region for which a position owns analysis results. It may use the same rule, but models that need context on both sides of an internal boundary should normally place this boundary inside the overlap, commonly near its midpoint.
 - `analysis_input_roi` is normally the complete canonical position. It includes the core plus the available overlap halo.
 

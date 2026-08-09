@@ -2,7 +2,10 @@
 
 The backend is a set of plain modules under ``backend/`` rather than an
 installed package (the tool is launched by path, not imported by consumers), so
-tests put that directory on ``sys.path`` the same way ``run_demo.py`` does.
+tests put that directory on ``sys.path`` the same way ``run_demo.py`` does. The
+repository root is included as well because the backend's live-publication gate
+is the installed `zmart_live` package in production, while a source-tree test
+must be able to exercise it before the editable install has been made.
 
 The browser-driven tests are opt-out rather than opt-in: they run wherever the
 page has been built and a Chromium is available, and skip with a clear reason
@@ -30,6 +33,7 @@ import pytest
 
 _VIZ_ROOT = Path(__file__).resolve().parent.parent
 _BACKEND = _VIZ_ROOT / "backend"
+_REPO_ROOT = _VIZ_ROOT.parent
 
 # Set this on any machine that is supposed to be able to draw — a CI runner, the
 # microscope PC — and the run *fails* if the tests that look at pixels did not run,
@@ -91,8 +95,9 @@ def _give_up_on_the_picture(reason: str) -> None:
     pytest.skip(f"{PIXELS_NOT_LOOKED_AT}: {reason}")
 
 
-if str(_BACKEND) not in sys.path:
-    sys.path.insert(0, str(_BACKEND))
+for source_root in (_REPO_ROOT, _BACKEND):
+    if str(source_root) not in sys.path:
+        sys.path.insert(0, str(source_root))
 
 from demo_data import write_demo_zarr  # noqa: E402
 from server import make_server  # noqa: E402

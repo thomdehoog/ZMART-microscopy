@@ -27,14 +27,22 @@ source file while it works, so it is a thing you run deliberately::
 
     python -m zmart_live.tests.check_the_scene_tests_can_fail
 
-It always puts the file back, including when it is interrupted.
+It puts the file back after completion, exceptions, Ctrl-C and SIGTERM. No
+process can recover after SIGKILL or loss of power; after either, restore the
+mutation subject from version control before running anything else.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from ._fault_check import replace_source, require_green_baseline, run_pytest
+from ._fault_check import (
+    make_interruptions_reach_finally,
+    replace_source,
+    require_green_subject,
+    require_restored_subject,
+    run_pytest,
+)
 
 HERE = Path(__file__).resolve()
 PACKAGE = HERE.parent.parent
@@ -126,16 +134,16 @@ SUBJECTS: list[tuple[str, str, str, list[tuple[str, str, str]]]] = [
 ]
 
 
-def main() -> int:
+def _main() -> int:
     unnoticed: list[str] = []
 
     for title, source_name, test_name, faults in SUBJECTS:
         source = PACKAGE / source_name
         tests = HERE.parent / test_name
-        original = source.read_text(encoding="utf-8")
 
-        if not require_green_baseline(REPO, tests):
+        if not require_green_subject(REPO, tests, source):
             return 2
+        original = source.read_text(encoding="utf-8")
 
         print()
         print(f"== {title} ==")
@@ -167,6 +175,8 @@ def main() -> int:
                     unnoticed.append(description)
         finally:
             replace_source(source, original)
+        if not require_restored_subject(REPO, tests, source, original):
+            return 2
 
     print()
     if unnoticed:
@@ -179,6 +189,11 @@ def main() -> int:
 
     print("Every fault was caught. The tests are making the claims they appear to.")
     return 0
+
+
+def main() -> int:
+    with make_interruptions_reach_finally():
+        return _main()
 
 
 if __name__ == "__main__":

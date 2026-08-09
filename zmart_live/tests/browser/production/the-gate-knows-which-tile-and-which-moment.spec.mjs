@@ -189,9 +189,9 @@ async function startTheRun({ tiles, moments }) {
   return {
     address,
     /** The run-wide picture that crops the overlaps away. */
-    seamless: `${address}/views/overview-seamless.ome.zarr/|zarr3:`,
+    seamless: `${address}/views/overview-seamless.ome.zarr/0/|zarr3:`,
     /** The run-wide picture that keeps every pixel every tile recorded. */
-    everyOverlappingPixel: `${address}/views/overview-raw.ome.zarr/|zarr3:`,
+    everyOverlappingPixel: `${address}/views/overview-raw.zarr/0/|zarr3:`,
     state,
     /** The whole production path for one moment of one position, ending in a commit. */
     publish: (position, moment) => tell("publish", position, moment),
