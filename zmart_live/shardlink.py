@@ -57,6 +57,35 @@ entries describe (0, 0), then (0, 1), then (1, 0), then (1, 1). Getting this
 order wrong does not produce an error — it produces the wrong picture, quietly —
 which is why it is stated here and checked by the tests.
 
+Why the table is remembered, and how that stays safe
+----------------------------------------------------
+
+Reading the table is not free. One bundle written by the overview plan holds a
+whole 1152-pixel frame across ninety-six planes, which is 7,776 chunk positions
+and a table 124 kilobytes long, and every one of those entries has to be checked
+before any chunk in the bundle can be pointed at. Filling one screen of the
+viewer takes dozens of chunks, and nearly all of them come from the same few
+bundles, so reading that same table dozens of times is most of what the viewer
+was waiting for.
+
+So a table that has been read is kept for a while. The danger in keeping anything
+is obvious and it is worth saying out loud: a table that has gone out of date does
+not produce an error. It produces a byte range that points somewhere real, decodes
+perfectly, and shows a plausible picture of the wrong part of the specimen.
+
+What makes it safe is that the table is remembered against the *identity of the
+file it came from* — its path, together with the things about it that cannot stay
+the same if it were written again: how large it is, when it last changed, and
+which inode holds it. A bundle that has grown because the acquisition wrote more
+chunks into it, or that has been replaced, no longer matches what was remembered,
+so its table is read again. Only a file that is byte for byte the one already
+looked at is answered from memory, which is what a committed bundle is: the
+publication rules never rewrite one.
+
+The memory has a limit, so that a run lasting all night cannot slowly fill it.
+:data:`PLACES_REMEMBERED_AT_MOST` and :data:`BUNDLES_REMEMBERED_AT_MOST` say
+what that limit is and explain how each was chosen.
+
 What this module offers
 -----------------------
 
@@ -70,6 +99,19 @@ What this module offers
 :func:`where_one_chunk_lives`
     The question this module was written for: given an array and the coordinate
     of one chunk, which file, which byte, how many bytes.
+
+:func:`how_the_array_is_stored`
+    Reads an array's description once and hands back something that can answer
+    that question many times without reading it again. Use this when you are
+    about to ask about more than one chunk of the same array.
+
+:func:`how_the_remembering_is_going`
+    Reports how many tables were read from disk and how many were answered from
+    memory, which is the honest way to tell whether the remembering is working.
+
+:func:`forget_every_remembered_index`
+    Empties the memory. Chiefly for tests, which need each one to start from the
+    same place as every other.
 """
 
 from __future__ import annotations
@@ -77,19 +119,29 @@ from __future__ import annotations
 import json
 import math
 import operator
+import os
+from collections import OrderedDict
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from struct import unpack_from
+from threading import Lock
 
 from .model import ZmartLiveError
 
 __all__ = [
+    "BUNDLES_REMEMBERED_AT_MOST",
     "Bundling",
     "Held",
     "INDEX_LOCATIONS",
+    "PLACES_REMEMBERED_AT_MOST",
+    "Remembering",
     "ShardIndex",
+    "StoredArray",
     "describe_the_bundling",
+    "forget_every_remembered_index",
+    "how_the_array_is_stored",
+    "how_the_remembering_is_going",
     "read_the_index",
     "where_one_chunk_lives",
 ]
@@ -314,14 +366,218 @@ def _whole_numbers(values: Sequence[int], what: str) -> tuple[int, ...]:
     return result
 
 
+def _one_byte_of_checksum_at_a_time() -> tuple[int, ...]:
+    """Work out, once, what the checksum does to each of the 256 possible bytes.
+
+    A checksum of this kind is defined one *bit* at a time, and following that
+    definition literally means eight turns of a loop for every byte of the table.
+    On a 124-kilobyte table that is a million turns, and it was measured to be
+    almost the entire cost of resolving a chunk.
+
+    The eight steps for a given byte always end in the same place, so they can be
+    worked out ahead of time and looked up instead. This builds that lookup when
+    the module is first imported, which takes about a millisecond and is then done
+    with. The answers it produces are identical to following the definition — the
+    tests check exactly that against known values.
+    """
+    table: list[int] = []
+    for byte in range(256):
+        value = byte
+        for _ in range(8):
+            value = (value >> 1) ^ 0x82F63B78 if value & 1 else value >> 1
+        table.append(value)
+    return tuple(table)
+
+
+_CHECKSUM_OF_EACH_BYTE = _one_byte_of_checksum_at_a_time()
+
+
 def _crc32c(content: bytes) -> int:
     """The Castagnoli checksum used by Zarr's four-byte ``crc32c`` codec."""
+    lookup = _CHECKSUM_OF_EACH_BYTE
     checksum = 0xFFFFFFFF
     for byte in content:
-        checksum ^= byte
-        for _ in range(8):
-            checksum = (checksum >> 1) ^ 0x82F63B78 if checksum & 1 else checksum >> 1
+        checksum = lookup[(checksum ^ byte) & 0xFF] ^ (checksum >> 8)
     return (~checksum) & 0xFFFFFFFF
+
+
+# ---------------------------------------------------------------------------
+# Remembering the tables we have already read
+# ---------------------------------------------------------------------------
+
+
+#: How many chunk positions may be held in memory at once, across every bundle
+#: remembered.
+#:
+#: A remembered table costs roughly a hundred and twenty bytes for each chunk
+#: position that was actually written and eight for each that was not, so this
+#: limit is worth about thirty megabytes in the worst case, where every position
+#: in every remembered bundle holds data. That is the number to change if the
+#: viewer is ever short of memory.
+#:
+#: It is counted in chunk positions rather than in bundles because bundles are not
+#: all the same size. One bundle of the overview plan holds 7,776 positions, so
+#: this is about thirty of them — comfortably more than the handful a screenful of
+#: the viewer touches, and far short of the ten thousand positions a long run
+#: reaches. The lesson behind that choice is written down in
+#: ``viz_studio/LESSONS_ome_zarr_and_neuroglancer.md``: an index with an entry per
+#: chunk, held for a whole run, was once sixteen gigabytes of memory.
+PLACES_REMEMBERED_AT_MOST = 250_000
+
+#: How many bundles may be remembered at once, whatever their size.
+#:
+#: The limit above would allow a quarter of a million tiny bundles, and each one
+#: costs a few hundred bytes of bookkeeping even when its table is nearly empty.
+#: This second limit keeps that in hand. Whichever limit is reached first, the
+#: bundle nobody has asked about for longest is forgotten.
+BUNDLES_REMEMBERED_AT_MOST = 256
+
+
+@dataclass(frozen=True)
+class Remembering:
+    """How the remembering of shard tables is going.
+
+    This is what to look at when you want to know whether keeping tables in
+    memory is actually helping. ``read_from_disk`` counts the tables that had to
+    be read and checked; ``answered_from_memory`` counts those that did not.
+
+    Counts are given rather than timings on purpose. A timing on a busy machine
+    tells you about the machine; a count tells you about the program, and is the
+    same every time.
+    """
+
+    read_from_disk: int
+    answered_from_memory: int
+    bundles_held: int
+    places_held: int
+
+
+@dataclass(frozen=True)
+class _WhichFileThisWas:
+    """Enough about a shard file to be sure it is still the very same file.
+
+    Remembering a table is only safe while the file it came from has not changed.
+    Every one of these is something that cannot stay as it was if the file were
+    written again: how large it is, when its contents last changed, when the file
+    system last altered anything about it, and which inode — the file system's own
+    numbered slot — is holding it. Comparing all of them together means a bundle
+    that has grown, been replaced, or been swapped for a different file of the
+    same length is recognised as a different file and read afresh.
+
+    The shapes are part of it too. They come from the array's own description, and
+    if that description were edited the same bytes on disk would have to be read as
+    a different table. Including them costs nothing and removes a whole way of
+    being quietly wrong.
+    """
+
+    path: str
+    device: int
+    inode: int
+    size: int
+    contents_changed_at: int
+    file_changed_at: int
+    inner_chunk: tuple[int, ...]
+    shard_shape: tuple[int, ...]
+    index_location: str
+    has_checksum: bool
+
+
+#: The tables already read, oldest-asked-for first, so the one to forget when the
+#: limit is reached is simply the first.
+_REMEMBERED: OrderedDict[_WhichFileThisWas, ShardIndex] = OrderedDict()
+_PLACES_HELD = 0
+_READ_FROM_DISK = 0
+_ANSWERED_FROM_MEMORY = 0
+
+#: The viewer's own server answers several requests at the same time, on separate
+#: threads, and they all share the memory above. Only the few lines that look
+#: things up or put them away are held under this; the reading and checking of a
+#: table, which is the slow part, deliberately happens outside it. Two threads
+#: that both want the same new bundle will therefore read it twice, which wastes a
+#: little work and is entirely safe. Doing it the other way round — holding the
+#: lock while reading — would make every request wait for whichever one happened
+#: to arrive first.
+_ONE_AT_A_TIME = Lock()
+
+
+def how_the_remembering_is_going() -> Remembering:
+    """Report how many shard tables were read from disk and how many were not.
+
+    Useful in a benchmark, and useful in a test: a test that wants to prove a
+    table was not read a second time can watch this count rather than watch a
+    clock, which is both quicker and steadier.
+    """
+    return Remembering(
+        read_from_disk=_READ_FROM_DISK,
+        answered_from_memory=_ANSWERED_FROM_MEMORY,
+        bundles_held=len(_REMEMBERED),
+        places_held=_PLACES_HELD,
+    )
+
+
+def forget_every_remembered_index() -> None:
+    """Empty the memory of shard tables, and reset the counts above.
+
+    Nothing in ordinary use needs this: a table is forgotten by itself once its
+    file changes or once the memory is full. It is here for tests, each of which
+    has to start from the same place as every other, and for anybody who wants to
+    measure the cost of reading a table cold.
+    """
+    global _PLACES_HELD, _READ_FROM_DISK, _ANSWERED_FROM_MEMORY
+    with _ONE_AT_A_TIME:
+        _REMEMBERED.clear()
+        _PLACES_HELD = 0
+        _READ_FROM_DISK = 0
+        _ANSWERED_FROM_MEMORY = 0
+
+
+def _which_file_this_was(path: Path, settings: tuple) -> _WhichFileThisWas | None:
+    """Take the identity of a shard file, or ``None`` if it cannot be looked at.
+
+    A file that has just vanished, or that the acquisition has not written yet, is
+    not an error here. It simply cannot be remembered against, and the caller goes
+    on to read it and report whatever it finds.
+    """
+    try:
+        about = os.stat(path)
+    except OSError:
+        return None
+    inner_chunk, shard_shape, index_location, has_checksum = settings
+    return _WhichFileThisWas(
+        path=str(path),
+        device=about.st_dev,
+        inode=about.st_ino,
+        size=about.st_size,
+        contents_changed_at=about.st_mtime_ns,
+        file_changed_at=about.st_ctime_ns,
+        inner_chunk=inner_chunk,
+        shard_shape=shard_shape,
+        index_location=index_location,
+        has_checksum=has_checksum,
+    )
+
+
+def _remember(which: _WhichFileThisWas, index: ShardIndex) -> None:
+    """Keep one shard's table, forgetting older ones if the memory is now too full.
+
+    When there is no room, what goes is whatever nobody has asked about for
+    longest. A viewer looks at one part of the slide for a while, so the bundles
+    it has just used are the ones it is about to use again, and keeping those is
+    the whole benefit.
+    """
+    global _PLACES_HELD
+    with _ONE_AT_A_TIME:
+        already = _REMEMBERED.pop(which, None)
+        if already is not None:
+            _PLACES_HELD -= already.entry_count
+        _REMEMBERED[which] = index
+        _PLACES_HELD += index.entry_count
+        while _REMEMBERED and (
+            len(_REMEMBERED) > BUNDLES_REMEMBERED_AT_MOST
+            or _PLACES_HELD > PLACES_REMEMBERED_AT_MOST
+        ):
+            _, forgotten = _REMEMBERED.popitem(last=False)
+            _PLACES_HELD -= forgotten.entry_count
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +592,7 @@ def read_the_index(
     shard_shape: Sequence[int],
     index_location: str = "end",
     has_checksum: bool = True,
+    remember: bool = True,
 ) -> ShardIndex:
     """Read the table of contents out of a single shard file.
 
@@ -353,10 +610,21 @@ def read_the_index(
         file, which is usual, or at the ``"start"``. ``has_checksum`` says
         whether four bytes of checksum sit alongside it.
 
+        ``remember`` decides whether a table read from a file may be kept for the
+        next time the same unchanged file is asked about. Leaving it as it is, so
+        that tables are kept, is what makes the viewer quick; turning it off is
+        for measuring what reading one cold really costs. It has no effect when
+        the shard is handed over as bytes, since there is then no file to notice a
+        change in.
+
     What comes back
         A :class:`ShardIndex`: one answer per chunk position in the shard, each
         being either an offset and a length, or ``None`` for a position that was
         never written.
+
+        The same table is never handed back for a file that has changed since it
+        was read. See the note at the top of this module for how that is decided,
+        and why a wrong answer here would be so hard to notice.
 
     What can go wrong
         A :class:`~zmart_live.model.ZmartLiveError` is raised when the bundle
@@ -367,6 +635,8 @@ def read_the_index(
         matters: without it a truncated file would quietly yield a byte range
         that reads as plausible-looking nonsense.
     """
+    global _READ_FROM_DISK, _ANSWERED_FROM_MEMORY
+
     if index_location not in INDEX_LOCATIONS:
         raise ZmartLiveError(
             f"'{index_location}' is not a place the table of contents can sit. It is "
@@ -398,6 +668,22 @@ def read_the_index(
     entries = math.prod(chunks_per_shard)
     table_bytes = entries * _BYTES_PER_ENTRY
     trailing = _BYTES_PER_CHECKSUM if has_checksum else 0
+
+    # A shard given as a path can be remembered against; one given as bytes has
+    # no file behind it to notice a change in, so it is simply read.
+    was = None
+    if remember and isinstance(shard, (str, Path)):
+        was = _which_file_this_was(
+            Path(shard), (inner, bundle, index_location, has_checksum)
+        )
+        if was is not None:
+            with _ONE_AT_A_TIME:
+                already_read = _REMEMBERED.get(was)
+                if already_read is not None:
+                    _REMEMBERED.move_to_end(was)
+                    _ANSWERED_FROM_MEMORY += 1
+                    return already_read
+    _READ_FROM_DISK += 1
 
     shard_bytes, table = _read_the_table_bytes(shard, table_bytes, trailing, index_location)
     index_start = 0 if index_location == "start" else shard_bytes - table_bytes - trailing
@@ -440,13 +726,26 @@ def read_the_index(
                 "either range could show pixels belonging to its neighbour."
             )
 
-    return ShardIndex(
+    index = ShardIndex(
         chunks_per_shard=tuple(chunks_per_shard),
         places=tuple(places),
         shard_bytes=shard_bytes,
         index_location=index_location,
         has_checksum=has_checksum,
     )
+
+    # Look at the file once more before keeping anything. If the acquisition wrote
+    # into the bundle while we were reading it, what we have just parsed does not
+    # belong to either version of the file, and remembering it under the identity
+    # taken beforehand would go on being wrong until the file changed again. The
+    # table is still returned — it is the best answer available for a file that is
+    # moving underneath us, and the same answer this function has always given —
+    # but it is not kept.
+    if was is not None and _which_file_this_was(
+        Path(shard), (inner, bundle, index_location, has_checksum)  # type: ignore[arg-type]
+    ) == was:
+        _remember(was, index)
+    return index
 
 
 def _read_the_table_bytes(
@@ -805,6 +1104,71 @@ def _chunk_file(array_path: Path, content: dict, coordinate: Sequence[int]) -> P
     return array_path.joinpath(*key.split("/"))
 
 
+class StoredArray:
+    """One image array whose own description has already been read.
+
+    Asking where a chunk lives means knowing two things: how the array is chunked
+    and bundled, and what it calls its files. Both come out of the array's
+    ``zarr.json``, and both are settled for as long as the array exists. Reading
+    that file again for every chunk therefore buys nothing, and a viewer filling
+    one screen asks about dozens of chunks of the same array in a row.
+
+    So this reads it once. Build one with :func:`how_the_array_is_stored`, then
+    ask it :meth:`where_one_chunk_lives` as many times as you like.
+
+    This holds no pixels and no tables of contents. Those are looked after
+    separately, and are refreshed whenever the file they came from changes, so a
+    :class:`StoredArray` kept for a whole run still gives correct answers about a
+    position the acquisition is still writing into.
+
+    Attributes:
+        path: the folder of the array this was read from.
+        bundling: how the array is chunked and bundled, exactly as
+            :func:`describe_the_bundling` reports it.
+        description: everything the array's ``zarr.json`` said, for the sake of
+            callers that need more of it than the bundling — what a pixel is, what
+            a chunk is compressed with. Read it rather than changing it: the
+            bundling above was worked out from it and would not follow a change.
+    """
+
+    def __init__(self, path: Path, description: dict) -> None:
+        self.path = path
+        self.description = description
+        self.bundling = _the_bundling_of(path, description)
+
+    def where_one_chunk_lives(self, chunk_coordinate: Sequence[int]) -> Held | None:
+        """Say which file holds one chunk, at which byte, and for how many bytes.
+
+        This is the same question :func:`where_one_chunk_lives` answers, and it
+        gives the same answer; the only difference is that the array's description
+        has already been read, so asking is cheap enough to do it for every piece
+        of a screenful.
+        """
+        return _where_one_chunk_lives(
+            self.path, self.description, self.bundling, chunk_coordinate
+        )
+
+
+def how_the_array_is_stored(array_path: str | Path) -> StoredArray:
+    """Read one array's description once, ready to be asked about many chunks.
+
+    What goes in
+        The path to one array — one level of one image — being the folder that
+        holds a ``zarr.json`` file.
+
+    What comes back
+        A :class:`StoredArray`. Its ``bundling`` says how the array is chunked and
+        bundled, exactly as :func:`describe_the_bundling` would, and its
+        :meth:`~StoredArray.where_one_chunk_lives` answers for any chunk of it.
+
+    What can go wrong
+        The same things that can go wrong in :func:`describe_the_bundling`: the
+        path may hold no array description, or one written in a format whose
+        chunks cannot be resolved to byte ranges.
+    """
+    return StoredArray(*_read_the_array_description(array_path))
+
+
 def where_one_chunk_lives(array_path: str | Path, chunk_coordinate: Sequence[int]) -> Held | None:
     """Say which file holds one chunk, at which byte, and for how many bytes.
 
@@ -834,10 +1198,23 @@ def where_one_chunk_lives(array_path: str | Path, chunk_coordinate: Sequence[int
         names the wrong number of axes or points outside the image, and when the
         shard holding it turns out to be damaged or cut short. A chunk that is
         merely absent never raises; it comes back as ``None``.
-    """
-    path, content = _read_the_array_description(array_path)
-    bundling = _the_bundling_of(path, content)
 
+    A note on asking many times
+        This reads the array's description afresh on every call, which is right
+        for asking about one chunk and wasteful for asking about a hundred. When
+        you are about to ask repeatedly about the same array, read it once with
+        :func:`how_the_array_is_stored` and ask that instead.
+    """
+    return how_the_array_is_stored(array_path).where_one_chunk_lives(chunk_coordinate)
+
+
+def _where_one_chunk_lives(
+    path: Path,
+    content: dict,
+    bundling: Bundling,
+    chunk_coordinate: Sequence[int],
+) -> Held | None:
+    """The arithmetic behind both ways of asking, once the description is in hand."""
     try:
         coordinate = tuple(operator.index(index) for index in chunk_coordinate)
     except (TypeError, ValueError) as why:

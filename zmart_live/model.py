@@ -14,7 +14,7 @@ idea of where a tile sits, they would eventually disagree, and a disagreement of
 that kind shows up as a cell counted twice or a stripe of specimen that belongs
 to nobody.
 
-Two habits run through everything below.
+Three habits run through everything below.
 
 **Regions are half-open.** A region that runs from 0 to 100 contains pixel 0 and
 stops just before pixel 100. Two regions written this way, 0-to-100 and
@@ -29,6 +29,13 @@ result says "I used layout revision 7", revision 7 still means today what it
 meant when the result was written. If layouts could be edited in place, a tile
 arriving later could quietly change what an already published measurement was
 supposed to mean.
+
+**Names have to be safe to write into a path.** A position, a run, a profile and
+a mosaic component all become folder names on disk, so every record below checks
+its identifiers as it is built. A position called ``../../escaped`` is not an
+exotic thing to worry about; it is what a mistyped position list looks like, and
+written straight into a folder name it would put that position's images outside
+the run entirely. :func:`check_the_name_is_safe` says what is allowed, and why.
 
 The words themselves
 --------------------
@@ -58,6 +65,7 @@ The words themselves
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -65,6 +73,7 @@ from typing import Any
 __all__ = [
     "ANALYSIS_OWNERSHIP_POLICIES",
     "EVENT_TYPES",
+    "RESERVED_DEVICE_NAMES",
     "SEAMLESS_OWNERSHIP_POLICIES",
     "TOPOLOGIES",
     "AcquisitionProfile",
@@ -79,6 +88,8 @@ __all__ = [
     "PositionPlacement",
     "SceneLayoutRevision",
     "ZmartLiveError",
+    "check_the_name_is_safe",
+    "is_a_safe_name",
 ]
 
 
@@ -91,6 +102,113 @@ class ZmartLiveError(Exception):
     expected, what arrived instead, and — where there is one — what to do about
     it.
     """
+
+
+# ---------------------------------------------------------------------------
+# What a name is allowed to be
+# ---------------------------------------------------------------------------
+
+#: The names Windows keeps for its own hardware. They date from MS-DOS and they
+#: are still live: a file called ``CON`` talks to the console instead of the
+#: disk, ``PRN`` and ``LPT1`` go to a printer port, and ``NUL`` throws away
+#: everything written to it. A folder cannot be created under any of them at all.
+#: Because a microscope computer in this facility is usually a Windows machine,
+#: a position named after one of these would fail there and nowhere else, which
+#: is the worst kind of fault to discover.
+RESERVED_DEVICE_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{digit}" for digit in range(1, 10)}
+    | {f"lpt{digit}" for digit in range(1, 10)}
+)
+
+#: Letters, digits, and the three punctuation marks that are safe everywhere.
+#: Everything else — slashes, backslashes, colons, spaces, quotes, control
+#: characters — either separates one folder from the next on some operating
+#: system or means something special to a shell.
+_ALLOWED_IN_A_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def is_a_safe_name(name: object) -> bool:
+    """True when ``name`` can be used as a single folder or file name anywhere.
+
+    This is the quiet form of :func:`check_the_name_is_safe`, for the occasions
+    when a caller wants to look before it leaps rather than catch a refusal.
+    """
+    try:
+        check_the_name_is_safe(name, what="name")
+    except ZmartLiveError:
+        return False
+    return True
+
+
+def check_the_name_is_safe(name: object, *, what: str = "identifier") -> str:
+    """Refuse any identifier that would not be a plain, harmless folder name.
+
+    Positions, runs, profiles and mosaic components all end up as folder and file
+    names on disk. That makes their identifiers more than labels: a position
+    called ``../../escaped`` does not merely look odd, it writes that position's
+    images two directories above the run, outside the run folder entirely, where
+    nobody will think to look for them and where they may quietly overwrite
+    something else.
+
+    So a name has to be one plain word: letters, digits, and the three
+    punctuation marks ``-``, ``_`` and ``.``. No slashes or backslashes, because
+    those separate one folder from the next. No colons, because Windows reads
+    them as a drive letter or as a hidden second stream inside a file. Nothing
+    that is only dots, because ``.`` and ``..`` mean "here" and "one level up".
+    No leading or trailing spaces or dots, because Windows silently removes them
+    and two names that looked different then turn out to be the same folder. And
+    none of the reserved device names listed in :data:`RESERVED_DEVICE_NAMES`.
+
+    ``what`` names the kind of thing being checked, so that the refusal can say
+    "position" or "run" rather than something abstract.
+
+    Returns the name unchanged when it is safe, so that it can be used inline
+    where a value is being stored. Raises :class:`ZmartLiveError` otherwise, with
+    a message that shows the offending name and says what is allowed instead.
+    """
+    advice = (
+        "A name has to be one plain word made of letters, digits, '-', '_' and "
+        "'.', with no folder separators, no leading or trailing dots or spaces, "
+        "and not one of the names Windows reserves for its own hardware "
+        "(CON, PRN, AUX, NUL, COM1-9, LPT1-9)."
+    )
+    # Only so that the message reads as a sentence: "an acquisition profile"
+    # rather than "a acquisition profile".
+    a = "an" if what[:1].lower() in "aeiou" else "a"
+    if not isinstance(name, str):
+        raise ZmartLiveError(
+            f"{a.capitalize()} {what} has to be named in text; got {type(name).__name__}. {advice}"
+        )
+    if not name:
+        raise ZmartLiveError(f"{a.capitalize()} {what} cannot be left unnamed. {advice}")
+    if len(name) > 120:
+        raise ZmartLiveError(
+            f"This {what} name is {len(name)} characters long, which is more than "
+            f"many filesystems will accept once it is joined to a run folder. Keep "
+            f"it to 120 characters or fewer."
+        )
+    if not _ALLOWED_IN_A_NAME.match(name):
+        raise ZmartLiveError(f"'{name}' cannot be used as {a} {what} name. {advice}")
+    if set(name) == {"."}:
+        raise ZmartLiveError(
+            f"'{name}' cannot be used as {a} {what} name, because a name made only "
+            f"of dots means 'this folder' or 'the folder above' rather than a place "
+            f"of its own. {advice}"
+        )
+    if name[0] in " ." or name[-1] in " .":
+        raise ZmartLiveError(
+            f"'{name}' cannot be used as {a} {what} name, because Windows quietly "
+            f"strips spaces and dots from the ends of a name, so two identifiers "
+            f"that look different here would become the same folder there. {advice}"
+        )
+    if name.split(".")[0].lower() in RESERVED_DEVICE_NAMES:
+        raise ZmartLiveError(
+            f"'{name}' cannot be used as {a} {what} name, because Windows reserves "
+            f"that name for a piece of hardware. Opening it would talk to the "
+            f"console or a printer port rather than write to the disk. {advice}"
+        )
+    return name
 
 
 # ---------------------------------------------------------------------------
@@ -563,6 +681,11 @@ class AcquisitionProfile:
     ``analysis_halo`` is how much specimen, in pixels, a model wants to see
     beyond the region it is being asked to judge. It comes from the analysis, not
     from the viewer, which is why it is recorded here rather than assumed.
+
+    ``channels`` names the colours the acquisition records. It belongs here
+    rather than being left to the commit records because two acquisitions that
+    image different colours are genuinely different acquisitions, and a profile
+    that did not mention them could not tell the two apart.
     """
 
     profile_id: str
@@ -580,6 +703,7 @@ class AcquisitionProfile:
     analysis_halo: FrozenMap = field(default_factory=FrozenMap)
     levels: tuple[LevelGeometry, ...] = ()
     codecs: tuple[str, ...] = ()
+    channels: tuple[str, ...] = ()
     sealed: bool = True
 
     def __post_init__(self) -> None:
@@ -594,10 +718,22 @@ class AcquisitionProfile:
         object.__setattr__(self, "analysis_halo", _frozen_axis_map(self.analysis_halo))
         object.__setattr__(self, "levels", tuple(self.levels))
         object.__setattr__(self, "codecs", tuple(self.codecs))
+        object.__setattr__(self, "channels", tuple(self.channels))
 
         if not self.profile_id or not self.acquisition_type:
             raise ZmartLiveError(
                 "An acquisition profile has to name both its identity and its type."
+            )
+        # Both of these become folder names when the profile is stored beside the
+        # run, so both have to be plain, harmless words.
+        check_the_name_is_safe(self.profile_id, what="acquisition profile")
+        check_the_name_is_safe(self.acquisition_type, what="acquisition type")
+        if len(set(self.channels)) != len(self.channels) or any(
+            not str(channel).strip() for channel in self.channels
+        ):
+            raise ZmartLiveError(
+                f"An acquisition's channel names have to be present and unique; got "
+                f"{self.channels}."
             )
         if not self.axes or len(self.axes) != len(set(self.axes)):
             raise ZmartLiveError(f"Axis names must be present and unique; got {self.axes}.")
@@ -765,6 +901,7 @@ class AcquisitionProfile:
             "analysis_halo": self.analysis_halo.as_dict(),
             "levels": [level.to_json() for level in self.levels],
             "codecs": list(self.codecs),
+            "channels": list(self.channels),
             "sealed": self.sealed,
         }
 
@@ -788,6 +925,7 @@ class AcquisitionProfile:
             analysis_halo=value.get("analysis_halo", {}),
             levels=tuple(LevelGeometry.from_json(lvl) for lvl in value.get("levels", ())),
             codecs=tuple(value.get("codecs", ())),
+            channels=tuple(value.get("channels", ())),
             sealed=bool(value.get("sealed", True)),
         )
 
@@ -881,6 +1019,11 @@ class PositionPlacement:
             object.__setattr__(self, "neighbours", FrozenMap(self.neighbours))
         if not isinstance(self.on_outer_boundary, FrozenMap):
             object.__setattr__(self, "on_outer_boundary", FrozenMap(self.on_outer_boundary))
+        # A tile's name becomes the folder its image is written into, so an
+        # identifier that could climb out of the run folder is refused here,
+        # before any pixels are written rather than after.
+        check_the_name_is_safe(self.position_id, what="position")
+        check_the_name_is_safe(self.component_id, what="mosaic component")
 
     def visual_roi_in_run(self) -> Box:
         """The shown part of this tile, expressed in the run's shared coordinates."""
@@ -957,6 +1100,14 @@ class MosaicComponent:
     def __post_init__(self) -> None:
         if not isinstance(self.cells, FrozenMap):
             object.__setattr__(self, "cells", FrozenMap(self.cells))
+        check_the_name_is_safe(self.component_id, what="mosaic component")
+        # A component may be worked out from the grid alone, before anybody has
+        # said which profile it belongs to, so an unattributed one is allowed.
+        # Any name that *is* given still has to be safe.
+        if self.profile_id:
+            check_the_name_is_safe(self.profile_id, what="acquisition profile")
+        for position_id in self.cells.values():
+            check_the_name_is_safe(position_id, what="position")
 
     def position_at(self, cell: GridCell) -> str | None:
         """Which tile occupies ``cell``, or ``None`` when nothing has been placed there."""
@@ -1050,6 +1201,9 @@ class SceneLayoutRevision:
         object.__setattr__(self, "analysis_halo", _frozen_axis_map(self.analysis_halo))
         if self.revision < 0:
             raise ZmartLiveError(f"Layout revisions start at zero; got {self.revision}.")
+        check_the_name_is_safe(self.run_id, what="run")
+        check_the_name_is_safe(self.acquisition_type, what="acquisition type")
+        check_the_name_is_safe(self.profile_id, what="acquisition profile")
         seen: set[str] = set()
         for placement in self.positions:
             if placement.position_id in seen:
@@ -1208,6 +1362,15 @@ class CommitEvent:
         ):
             if not value:
                 raise ZmartLiveError(f"A commit has to name its {name}.")
+        # Every one of these is looked up as a folder or a file at some point by
+        # the viewer or by an analysis, so none of them may be able to point
+        # somewhere outside the run.
+        check_the_name_is_safe(self.position_id, what="position")
+        check_the_name_is_safe(self.run_id, what="run")
+        check_the_name_is_safe(self.acquisition_type, what="acquisition type")
+        check_the_name_is_safe(self.acquisition_profile_id, what="acquisition profile")
+        if self.component_id is not None:
+            check_the_name_is_safe(self.component_id, what="mosaic component")
         if self.scene_layout_revision < 0 or self.link_revision < 0:
             raise ZmartLiveError(
                 "Layout and link revisions cannot be negative; got "

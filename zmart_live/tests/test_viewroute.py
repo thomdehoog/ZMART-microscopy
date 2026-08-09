@@ -65,8 +65,13 @@ import numpy as np
 import pytest
 import zarr
 
+from zmart_live import shardlink
 from zmart_live.model import ZmartLiveError
 from zmart_live.profiles import plan_the_writing
+from zmart_live.shardlink import (
+    forget_every_remembered_index,
+    how_the_remembering_is_going,
+)
 from zmart_live.viewroute import (
     Placed,
     Serving,
@@ -93,6 +98,21 @@ SEAM = 3 * CHUNK[-1]
 # ---------------------------------------------------------------------------
 # Writing positions to point at, and reading pieces back out of them
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def start_with_nothing_remembered():
+    """Give every test the same empty memory of bundle tables to start from.
+
+    A bundle's table of contents, once read, is kept for as long as the file it
+    came from is unchanged — that is what makes the route quick. It also means one
+    test could be answered from something an earlier test left behind, and a few of
+    the tests below count how many tables were read off the disk. A count is only
+    worth anything if it starts at zero.
+    """
+    forget_every_remembered_index()
+    yield
+    forget_every_remembered_index()
 
 
 def some_specimen(shape, seed=0):
@@ -789,3 +809,170 @@ def test_the_sharded_plan_the_profile_chooses_now_links(tmp_path):
     serving = route.where_this_chunk_is((0, 0, 0, 0, step // chunk[-1] - 1))
     assert serving is not None
     assert serving.length < serving.path.stat().st_size
+
+
+# ---------------------------------------------------------------------------
+# What the route keeps between requests, and what it must not
+# ---------------------------------------------------------------------------
+
+
+def swap_two_entries_in_the_bundles_table(bundle, first, second, entries):
+    """Exchange two entries in a bundle's table, writing the file back in place.
+
+    This stands in for the position having been written again — the same chunks,
+    packed in a different order. It is the change hardest to notice, because the
+    file keeps exactly the same length and every byte range it describes still
+    points at real, decodable pixels. The file is opened for updating rather than
+    replaced, so it keeps the same inode, which is the file system's own numbered
+    slot for it.
+
+    Working out the checksum again afterwards is the writer's job, and this is
+    standing in for a writer. Without it a reader would refuse the bundle for the
+    wrong reason and the test would pass without ever asking its question.
+    """
+    raw = bytearray(Path(bundle).read_bytes())
+    table_at = len(raw) - entries * 16 - 4
+    here, there = table_at + first * 16, table_at + second * 16
+    raw[here : here + 16], raw[there : there + 16] = (
+        raw[there : there + 16],
+        raw[here : here + 16],
+    )
+    table = bytes(raw[table_at : table_at + entries * 16])
+    raw[table_at + entries * 16 :] = shardlink._crc32c(table).to_bytes(4, "little")
+    with Path(bundle).open("r+b") as opened:
+        opened.write(bytes(raw))
+
+
+def test_a_position_written_again_is_never_served_from_its_old_table(tmp_path):
+    """A bundle repacked since the route was built is read again, not remembered.
+
+    A bundle's table of contents is kept between requests, because reading it is
+    the expensive part of answering and one screenful asks about dozens of chunks
+    out of the same bundle. The danger that creates is the one this test is about.
+    A table that no longer describes its file does not produce an error: it
+    produces a byte range that decodes perfectly and shows the wrong part of the
+    specimen, which is exactly the kind of fault an operator cannot see.
+
+    Here the bundle is repacked with two of its chunks exchanged. It keeps the
+    same length and the same inode, so the only thing that has changed about it is
+    when it changed. What is checked is not that the answer moved, but that the
+    pixels the answer leads to are the ones now stored at that place.
+    """
+    position, pixels = a_position(tmp_path / "pos")
+    route = route_the_view([Placed(position, lands_at=(0, 0, 0))])
+
+    before = route.where_this_chunk_is((0, 0, 0, 0, 0))
+    assert before is not None
+    assert np.array_equal(
+        decoded(the_bytes_of(before), tmp_path / "scratch", route),
+        pixels[0:1, 0:1, 0:1, 0:128, 0:128],
+    )
+
+    # The bundle holds one moment, one colour, two planes and two chunks each way,
+    # so eight chunk positions in all. Entries are in row-major order, which puts
+    # the chunk at column zero first and its neighbour at column one second.
+    bundle = Path(position) / "c" / "0" / "0" / "0" / "0" / "0"
+    was = bundle.stat()
+    swap_two_entries_in_the_bundles_table(bundle, 0, 1, entries=8)
+    now = bundle.stat()
+    assert (now.st_size, now.st_ino) == (was.st_size, was.st_ino), (
+        "the point of this test is a file that changed without being replaced"
+    )
+    assert now.st_mtime_ns != was.st_mtime_ns, (
+        "this file system does not record when a file changed finely enough for the "
+        "change to be noticed, so this test cannot make its claim here"
+    )
+
+    # The pixels being compared against are the ones handed to the acquisition,
+    # not what Zarr reads back now. Reading them back would go through the very
+    # table that has just been altered, so it would agree with a stale answer as
+    # readily as with a fresh one and the test would prove nothing.
+    after = route.where_this_chunk_is((0, 0, 0, 0, 0))
+    assert after is not None
+    assert np.array_equal(
+        decoded(the_bytes_of(after), tmp_path / "scratch", route),
+        pixels[0:1, 0:1, 0:1, 0:128, 128:256],
+    ), "the piece served came from the bundle as it used to be packed"
+
+
+def test_a_position_the_run_is_still_writing_shows_what_arrives(tmp_path):
+    """Ground that fills in later starts being advertised, without anything restarting.
+
+    This is the worry that once kept bundle tables from being remembered at all.
+    While a run is going, chunks are still landing in a bundle the viewer is
+    already watching. A table kept from a moment ago would go on saying "nothing
+    was ever written there", and an operator would watch a position stop filling in
+    halfway and never recover, with nothing anywhere reporting a problem.
+    """
+    position, _ = a_position(
+        tmp_path / "pos", written=(0, 0, 0, slice(0, 128), slice(0, 128))
+    )
+    route = route_the_view([Placed(position, lands_at=(0, 0, 0))])
+
+    assert route.advertises((0, 0, 0, 0, 0)), "the corner that was written is missing"
+    assert not route.advertises((0, 0, 0, 1, 1)), "nothing has been written there yet"
+
+    arrived = some_specimen((128, 128), seed=77)
+    zarr.open_array(str(position), mode="r+")[0, 0, 0, 128:256, 128:256] = arrived
+
+    serving = route.where_this_chunk_is((0, 0, 0, 1, 1))
+    assert serving is not None, "the chunk that has since arrived is still not advertised"
+    assert np.array_equal(
+        decoded(the_bytes_of(serving), tmp_path / "scratch", route),
+        the_same_region(position, (0, 0, 0, 1, 1), CHUNK),
+    )
+
+
+def test_one_screenful_reads_one_bundles_table(tmp_path):
+    """Every piece of a screenful out of one bundle costs one reading of its table.
+
+    A count is checked rather than a stopwatch, because a count says the same thing
+    on a busy machine as on an idle one. This is the whole benefit in one line: the
+    eight pieces of this small position come out of one bundle, and that bundle's
+    table is read once.
+    """
+    position, _ = a_position(tmp_path / "pos")
+    route = route_the_view([Placed(position, lands_at=(0, 0, 0))])
+
+    asked = 0
+    for plane in range(2):
+        for row in range(2):
+            for column in range(2):
+                assert route.where_this_chunk_is((0, 0, plane, row, column)) is not None
+                asked += 1
+
+    going = how_the_remembering_is_going()
+    assert going.read_from_disk == 1, "the same bundle's table was read more than once"
+    assert going.answered_from_memory == asked - 1
+
+
+def test_a_positions_own_description_is_read_once_and_not_again(tmp_path):
+    """The route reads each position's ``zarr.json`` when it is built, and never after.
+
+    How a position is chunked, how it is bundled and what it calls its files are
+    settled before any pixels are written, so re-reading that small file for every
+    piece the viewer asks for buys nothing at all. It was worth doing something
+    about only once the reading of bundle tables had stopped dominating; the
+    measurement is in ``zmart_live/tests/measure_the_resolver.py``.
+    """
+    position, _ = a_position(tmp_path / "pos")
+    route = route_the_view([Placed(position, lands_at=(0, 0, 0))])
+
+    read_again: list[object] = []
+    as_it_really_is = shardlink._read_the_array_description
+
+    def note_that_it_was_read(array_path):
+        read_again.append(array_path)
+        return as_it_really_is(array_path)
+
+    shardlink._read_the_array_description = note_that_it_was_read
+    try:
+        for column in range(2):
+            assert route.where_this_chunk_is((0, 0, 0, 0, column)) is not None
+    finally:
+        shardlink._read_the_array_description = as_it_really_is
+
+    assert read_again == [], (
+        "the position's description was read again while answering requests, which "
+        "it does not need to be"
+    )

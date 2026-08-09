@@ -25,11 +25,28 @@ Thursday afternoon: starting to read the table one byte off, forgetting the
 checksum that sits beside it, taking the axes in the wrong order, trusting an
 offset without checking it fits inside the file, or mistaking "nothing was ever
 written here" for "here is a chunk".
+
+The last group of them is about keeping a table in memory once it has been read.
+That is where the module is now quickest and most dangerous at the same time: a
+table kept a moment too long hands back a byte range that decodes perfectly and
+shows the wrong part of the specimen, and every way of getting the keeping wrong
+— remembering against a file's name rather than the file, missing that it has
+been written again, letting the memory grow all night, throwing away the very
+bundle the viewer is using — fails in exactly that silent way.
+
+One check is deliberately not in this list, and it is written down here rather
+than left to be discovered. After reading a table, the module looks at the file
+once more and keeps nothing if the file changed while it was being read. There is
+no way to demonstrate that from inside a test: it would need the acquisition to
+write into the bundle in the middle of the read and then leave the file looking
+exactly as it did beforehand, and a file's changed-at times cannot be put back.
+The check is cheap and it is correct, but nothing here proves it.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from shutil import rmtree
 
 from ._fault_check import replace_source, require_green_baseline, run_pytest
 
@@ -139,7 +156,82 @@ FAULTS: list[tuple[str, str, str]] = [
         "        if not 0 <= index < extent:",
         "        if False:",
     ),
+    # ------------------------------------------------------------------
+    # Keeping a table in memory once it has been read
+    # ------------------------------------------------------------------
+    (
+        "remember a bundle's table against its path alone",
+        "        device=about.st_dev,\n"
+        "        inode=about.st_ino,\n"
+        "        size=about.st_size,\n"
+        "        contents_changed_at=about.st_mtime_ns,\n"
+        "        file_changed_at=about.st_ctime_ns,",
+        "        device=0,\n"
+        "        inode=0,\n"
+        "        size=0,\n"
+        "        contents_changed_at=0,\n"
+        "        file_changed_at=0,",
+    ),
+    (
+        "remember a bundle's table under the name it has inside its position",
+        "        path=str(path),\n"
+        "        device=about.st_dev,\n"
+        "        inode=about.st_ino,\n"
+        "        size=about.st_size,\n"
+        "        contents_changed_at=about.st_mtime_ns,\n"
+        "        file_changed_at=about.st_ctime_ns,",
+        "        path=path.name,\n"
+        "        device=0,\n"
+        "        inode=0,\n"
+        "        size=0,\n"
+        "        contents_changed_at=0,\n"
+        "        file_changed_at=0,",
+    ),
+    (
+        "forget which shapes a remembered table was read with",
+        "        inner_chunk=inner_chunk,\n        shard_shape=shard_shape,",
+        "        inner_chunk=(),\n        shard_shape=(),",
+    ),
+    (
+        "let the memory hold any number of bundles",
+        "        len(_REMEMBERED) > BUNDLES_REMEMBERED_AT_MOST",
+        "        False",
+    ),
+    (
+        "let the memory hold any number of chunk positions",
+        "        or _PLACES_HELD > PLACES_REMEMBERED_AT_MOST",
+        "        or False",
+    ),
+    (
+        "forget the bundle in use rather than the one nobody wants",
+        "                _REMEMBERED.move_to_end(was)",
+        "                pass",
+    ),
+    (
+        "work the checksum lookup out with the wrong polynomial",
+        "            value = (value >> 1) ^ 0x82F63B78 if value & 1 else value >> 1",
+        "            value = (value >> 1) ^ (0x82F63B78 + 1) if value & 1 else value >> 1",
+    ),
 ]
+
+
+def put_the_source_back(original: str) -> None:
+    """Restore the mutated file, and throw away Python's compiled copy of it.
+
+    Restoring the text is not quite enough on its own, and the reason is worth
+    knowing because it once made a whole run of this check meaningless. Python
+    keeps a compiled copy of each module beside it and decides whether that copy
+    is still good by looking at the source file's size and the second in which it
+    last changed. A fault that replaces one character with another leaves the file
+    exactly the same size, and putting it back a fraction of a second later leaves
+    it in the same second — so the compiled copy of the *faulty* module goes on
+    being used afterwards, and every later result is about code nobody meant to
+    run. Throwing the compiled copy away costs a few milliseconds and removes the
+    possibility entirely.
+    """
+    replace_source(SOURCE, original)
+    for compiled in SOURCE.parent.rglob("__pycache__"):
+        rmtree(compiled, ignore_errors=True)
 
 
 def main() -> int:
@@ -163,7 +255,7 @@ def main() -> int:
             try:
                 result = run_pytest(repository, TESTS)
             finally:
-                replace_source(SOURCE, original)
+                put_the_source_back(original)
 
             if result.caught_the_fault:
                 print(f"{description:<52}{'yes':>9}   {result.first_failure[:40]}")
@@ -175,7 +267,7 @@ def main() -> int:
                 print(f"{description:<52}{'NO':>9}   nothing noticed")
                 unnoticed.append(description)
     finally:
-        replace_source(SOURCE, original)
+        put_the_source_back(original)
 
     print()
     if unnoticed:
