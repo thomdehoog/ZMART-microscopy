@@ -92,9 +92,12 @@ All new code is under `zmart_live/`.
 | `manifest.py` | durable monotonic publication record, recovery and one-writer exclusion |
 | `ownership.py` | every pixel of a mosaic has exactly one owner, visually and for analysis |
 | `coarse.py` | a zoomed-out piece never shows an uncommitted position |
-| `shardlink.py` | validates and locates one encoded inner chunk inside a Zarr v3 shard; it is not yet connected to the linked-view backend |
+| `shardlink.py` | validates and locates one encoded inner chunk inside a Zarr v3 shard |
 | `scene.py` | internal scene contract compiles to a bounded Neuroglancer adapter payload; it does not create the backing view stores |
-| `tests/browser/` | real-Neuroglancer synthetic publication harness; it does not yet traverse the production coordinator/backend |
+| `coordinator.py` | readiness is earned by inspection, never accepted from a caller; writes both view stores and refuses publication until all five checks hold |
+| `viewroute.py` | a view advertises inner chunks while its positions stay bundled, so sharding does not constrain chunk choice |
+| `tests/browser/` | real-Neuroglancer publication harness over a synthetic writer |
+| `tests/browser/production/` | the same sequence driven by `LivePublisher`, the production path; both sabotages verified red |
 
 **257 Python tests pass in about three seconds in the review environment.** The
 browser test takes roughly a minute on the authoring machine.
@@ -104,19 +107,23 @@ payload of about 1,700 characters**, none of which grows with the run.
 
 ## Before anything else: try to make the tests lie
 
-There are four fault checks. Each introduces deliberate faults one at a time and
+There are six fault checks. Each introduces deliberate faults one at a time and
 reports whether the suite noticed:
 
 ```
-python -m zmart_live.tests.check_the_tests_can_fail            # commit record, ownership, zoomed-out
+python -m zmart_live.tests.check_the_tests_can_fail            # commit record, ownership, zoomed-out, coordinator
 python -m zmart_live.tests.check_the_shardlink_tests_can_fail  # byte ranges out of bundles
 python -m zmart_live.tests.check_the_scene_tests_can_fail      # sources and layers
-node zmart_live/tests/browser/check-the-test-can-fail.mjs      # the real neuroglancer test
+python -m zmart_live.tests.check_the_viewroute_tests_can_fail  # inner chunks out of a bundled position
+node zmart_live/tests/browser/check-the-test-can-fail.mjs                  # the synthetic neuroglancer test
+node zmart_live/tests/browser/production/check-the-production-test-can-fail.mjs   # the production one
 ```
 
-They currently claim **62 faults, all caught** (including the two browser
-sabotages). Your first job is to add faults
-they do not cover and find one that survives. A surviving fault is a claim the
+The last two take a few minutes each and need a Chromium that Playwright can
+drive; the four Python ones take about ten minutes together.
+
+They currently claim **94 Python faults and 4 browser sabotages, all caught**.
+Your first job is to add faults they do not cover and find one that survives. A surviving fault is a claim the
 suite is not really making, and it is the cheapest real finding available to you.
 
 ## The claims I want attacked
@@ -155,9 +162,14 @@ one that reversed a decision in the architecture record.
    sequence — crash, two writers, a clock change, a reader mid-read, a full disk
    — where a viewer can observe a revision not fully backed by data. The claim is
    that a reader sees either the previous complete revision or the next, never a
-   mixture. Then make the crucial distinction: no production coordinator yet
-   earns those four flags by validating real artifacts, so the broader
-   end-to-end claim remains unimplemented.
+   mixture.
+
+   The flags are now *earned* rather than asserted: `coordinator.py` inspects
+   what landed on disk and has no parameter that accepts a readiness flag. So
+   the sharper question is whether its five checks are each independently
+   load-bearing. Find damage that one of them should catch and none does —
+   three faults of exactly that shape were found while writing it, and one was
+   a real bug rather than a missing test.
 
 5. **Every pixel has exactly one owner.** `ownership.py` claims no gaps and no
    duplicates for any rectangular mosaic, including odd overlaps and four-tile
@@ -174,10 +186,16 @@ one that reversed a decision in the architecture record.
    every tile boundary that looks like specimen rather than a fault.
 
 7. **Sharding does not constrain chunk choice.** `shardlink.py` lifts one inner
-   chunk out of a Zarr v3 shard by byte range. Check the index parsing against
-   the sharding-indexed spec: index location, CRC32C handling, entry order, the
-   empty-chunk sentinel, and behaviour on a truncated file. A wrong byte range
-   here decodes to plausible noise rather than failing.
+   chunk out of a Zarr v3 shard by byte range, and `viewroute.py` uses that so a
+   view can advertise inner chunks while its positions stay bundled. Check the
+   index parsing against the sharding-indexed spec: index location, CRC32C
+   handling, entry order, the empty-chunk sentinel, and behaviour on a truncated
+   file. A wrong byte range here decodes to plausible noise rather than failing.
+
+   `test_the_sharded_plan_the_profile_chooses_now_links` asserts that the step
+   divides the chunk but *not* the bundle, then serves pieces either side of the
+   seam. Try to break the seam case where an inner chunk sits in the middle of a
+   bundle, and the case where two positions could both claim one piece.
 
 8. **Never one Neuroglancer source per position.** Measured
    in this repo, a thousand positions handed over separately drew 24 frames in
@@ -210,12 +228,14 @@ it exists:
 
 - Growing a run *beyond* the declared timepoint room.
 - Any measurement on Windows, where the file-count argument actually bites.
-- The production coordinator that validates pixels, pyramids, links, affected
-  coarse chunks and layout before it creates a ready commit event.
-- The backing non-seamless selector store and the raw/seamless coarse writers.
-- The route that exposes `shardlink.py` byte ranges through the linked-view
-  backend; today the real linker still rejects the planned sharded profile.
-- Production viewer refresh. The browser harness proves its synthetic server's
+- Zoomed-out copies for either view store. Both are written at full resolution
+  only, so the run-wide picture has no prepared levels of its own.
+- OME-Zarr metadata naming the raw view's selector dimension, which a viewer
+  would need in order to label that slider.
+- The last step of the shard route: `viz_studio/backend/linking.py` still
+  understands only whole files, so exposing a byte range through the viewer's
+  own server means adding a range form to the pointer record.
+- Production viewer refresh. The browser harness proves the server's
   gate, not the application path that will consume the scene adapter.
 - Native OME-Zarr 0.6 scene serialization; the current object is internal scene
   semantics with a 0.5-era adapter contract.
