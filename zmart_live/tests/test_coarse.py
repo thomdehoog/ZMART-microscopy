@@ -62,7 +62,14 @@ def a_plan(frame: int = 90, overlap: int = 10, chunk: int = 10, levels: int = 5)
                 level=level,
                 downsampling={"y": 2**level, "x": 2**level},
                 inner_chunk={"y": chunk, "x": chunk},
-                linkable=(frame - overlap) % (chunk * 2**level) == 0,
+                # This file tests physical coarse-piece ownership, not virtual
+                # routing. Mark a level linkable only when the newer strict
+                # frame/overlap/step rule genuinely holds.
+                linkable=(
+                    frame % (chunk * 2**level) == 0
+                    and overlap % (chunk * 2**level) == 0
+                    and (frame - overlap) % (chunk * 2**level) == 0
+                ),
             )
             for level in range(levels)
         ),

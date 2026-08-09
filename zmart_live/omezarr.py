@@ -362,6 +362,7 @@ def the_image_description(
     profile: AcquisitionProfile,
     *,
     name: str,
+    levels: Sequence[LevelGeometry] | None = None,
     channels: Sequence[str | Channel] = (),
     origin_pixels: Mapping[str, float] | None = None,
     seconds_between_timepoints: float = A_SECOND,
@@ -379,6 +380,9 @@ def the_image_description(
             zoomed-out levels.
         name: what to call this picture. A reader shows it when it has nothing
             better, so the position's own identifier is the useful thing to pass.
+        levels: the pyramid levels to describe. By default this is the profile's
+            complete canonical pyramid; a virtual view may pass its advertised
+            subset without changing the sealed profile.
         channels: the colours of light the run records, either as plain names or
             as prepared :class:`zmart_storage.canvas.Channel` values. A run that
             knows roughly how bright its images are should pass prepared channels
@@ -409,7 +413,8 @@ def the_image_description(
             f"a reader that assumed averaging would trust a zoomed-out picture "
             f"more than it should."
         )
-    if not profile.levels:
+    described_levels = tuple(profile.levels if levels is None else levels)
+    if not described_levels:
         raise ZmartLiveError(
             "This profile advertises no zoomed-out levels at all, so there is no "
             "picture to describe. Every image has to list at least its "
@@ -419,7 +424,7 @@ def the_image_description(
     axes = the_axes(profile, time_unit=time_unit)
 
     datasets = []
-    for level in profile.levels:
+    for level in described_levels:
         # The scale first and the translation second, always and in that order.
         # The offset is given as a real distance rather than as a count of
         # voxels, so a reader applies it after the scale; the two written the
@@ -526,6 +531,7 @@ def describe_the_position(
     profile: AcquisitionProfile,
     *,
     name: str | None = None,
+    levels: Sequence[LevelGeometry] | None = None,
     channels: Sequence[str | Channel] = (),
     origin_pixels: Mapping[str, float] | None = None,
     seconds_between_timepoints: float = A_SECOND,
@@ -551,6 +557,8 @@ def describe_the_position(
         name: what to call this picture. Defaults to the folder's own name with
             the ``.ome.zarr`` ending taken off, which for a live run is the
             position's identifier.
+        levels: the pyramid levels present below ``store``. By default every
+            canonical level in the profile is required and described.
         channels: the colours of light the run records, as names or as prepared
             :class:`zmart_storage.canvas.Channel` values.
         origin_pixels: where this position's first voxel sits, counted in
@@ -580,13 +588,16 @@ def describe_the_position(
             f"usually a sign that the writing has not happened yet."
         )
 
+    described_levels = tuple(profile.levels if levels is None else levels)
     missing = [
-        level.level for level in profile.levels if not (store / str(level.level)).is_dir()
+        level.level
+        for level in described_levels
+        if not (store / str(level.level)).is_dir()
     ]
     if missing:
         raise ZmartLiveError(
             f"The position at {store} promises zoomed-out copies at levels "
-            f"{[level.level for level in profile.levels]}, but {missing} have not "
+            f"{[level.level for level in described_levels]}, but {missing} have not "
             f"been written. An image that lists a copy nobody can find is worse "
             f"than one that is plainly unfinished: it opens, and then fails when "
             f"somebody zooms out."
@@ -595,6 +606,7 @@ def describe_the_position(
     described = the_image_description(
         profile,
         name=name if name is not None else _the_plain_name_of(store),
+        levels=described_levels,
         channels=channels,
         origin_pixels=origin_pixels,
         seconds_between_timepoints=seconds_between_timepoints,
@@ -609,7 +621,7 @@ def describe_the_position(
     # something that announces itself as a proper image and is not one, which is
     # the sort of half-truth that travels.
     axes = described["multiscales"][0]["axes"]
-    for level in profile.levels:
+    for level in described_levels:
         _name_the_dimensions_of(store / str(level.level), axes)
 
     # Opened rather than created, and never with ``mode="w"``. Creating would

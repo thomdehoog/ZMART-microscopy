@@ -259,9 +259,9 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
         "pyramids_ready=True,",
     ),
     (
-        "let an unpublished position into the run-wide picture",
-        "if unit in committed_units:",
-        "if True:",
+        "accept copied chunks in the seamless virtual view",
+        'if (path / "c").exists():',
+        "if False:",
     ),
     (
         "stop checking that the arrangement can be read back",
@@ -283,17 +283,11 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
         "slice(place * size, min(place * size + size, reach))",
         "slice(place * size, place * size + size)",
     ),
-    # The raw overlap view. Every fault below ends with one of two measurements
-    # of the same specimen quietly gone, which is the one thing that view is
-    # built to make impossible.
+    # The raw selector has to keep measurements separate and remain metadata-only.
     (
-        "let the tile written last win in the overlap",
-        "target = (\n"
-        "                    self.tile_stop_of(position_id),\n"
-        "                    moment,",
-        "target = (\n"
-        "                    0,\n"
-        "                    moment,",
+        "stop checking that raw selector stops keep overlaps apart",
+        "        self._no_two_tiles_on_one_stop_overlap()",
+        "        pass",
     ),
     (
         "drop the dimension that keeps overlapping tiles apart",
@@ -303,27 +297,13 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
         "                self.timepoints,",
     ),
     (
-        "let an unpublished position into the raw overlap view",
-        "if (position_id, moment) in committed_units:",
-        "if True:",
-    ),
-    (
-        "reopen every old position when one seamless unit changes",
-        "units_to_write = set(self._as_position_moments(only))",
-        "units_to_write = {\n"
-        "                (placement.position_id, moment)\n"
-        "                for placement in self.layout.positions\n"
-        "                for moment in range(self.timepoints)\n"
-        "            }",
-    ),
-    (
-        "reopen every old position when one raw unit changes",
-        "units_to_write = set(self._as_position_moments(only)).copy()",
-        "units_to_write = {\n"
-        "                (placement.position_id, moment)\n"
-        "                for placement in self.layout.positions\n"
-        "                for moment in range(self.timepoints)\n"
-        "            }",
+        "accept copied chunks in the raw virtual view",
+        '                if (path / "c").exists():\n'
+        "                    complaints.append(\n"
+        "                        f\"Level {level.level} of the raw overlap view",
+        "                if False:\n"
+        "                    complaints.append(\n"
+        "                        f\"Level {level.level} of the raw overlap view",
     ),
     (
         "call the raw overlap view ready without looking at it",
@@ -331,24 +311,22 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
         "raw_overlap_ready=True,",
     ),
     (
-        "say a raw overlap view that is missing is merely unreadable",
+        "say a missing raw selector is acceptable",
         "if not self.raw_overlap_store.exists():\n"
         "            complaints.append(\n"
-        '                "The raw overlap view has not been built yet,',
+        '                "The raw-overlap virtual view has not been described yet,',
         "if False:\n"
         "            complaints.append(\n"
-        '                "The raw overlap view has not been built yet,',
+        '                "The raw-overlap virtual view has not been described yet,',
     ),
     (
-        "trust the raw overlap view instead of comparing it to the pixels",
-        "not np.array_equal(\n"
-        "                    as_stored, as_written\n"
-        "                )",
-        "False",
+        "ignore a raw-view dtype that cannot decode canonical chunks",
+        '                    or str(raw_description.get("data_type")) != route.storage.dtype',
+        "                    or False",
     ),
     (
-        "report the raw overlap comparison as done without saying how much",
-        "compared += int(as_stored.size)",
+        "report raw route checking as done without measuring it",
+        "compared += int(np.prod(source.shape[1:], dtype=np.int64))",
         "compared += 0",
     ),
     # One position at one moment is what gets published, so every check has to
@@ -364,14 +342,11 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
         "piece for piece in owed if where_one_chunk_lives(path, piece) is None",
         "piece for piece in owed if False",
     ),
-    # The two shared pictures and the arrangement. All three can be present,
-    # readable and wrong, which is the only reason these checks exist.
+    # Both virtual descriptions and the arrangement can be readable and wrong.
     (
-        "accept a zoomed-out picture without looking at its pixels",
-        "not np.array_equal(\n"
-        "                    as_shown, as_written\n"
-        "                )",
-        "False",
+        "accept seamless metadata that cannot decode its routes",
+        "                refuse_a_view_stored_differently(path, route)",
+        "                pass",
     ),
     (
         "leave the mosaic's outer edge to a neighbour that does not exist",
@@ -581,13 +556,28 @@ PROFILE_PLANNING_FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "bundle only part of a rectangular frame into one file",
-        'shard={"z": slab, "y": height, "x": width}',
-        'shard={"z": slab, "y": height, "x": height}',
+        '                    "x": level_shape[1],',
+        '                    "x": level_shape[0],',
     ),
     (
         "measure the width's overlap against the height",
-        "for overlap_x in _overlaps_worth_trying(width, chunk, band):",
-        "for overlap_x in _overlaps_worth_trying(height, chunk, band):",
+        "        else _axis_choices(\n            width,",
+        "        else _axis_choices(\n            height,",
+    ),
+    (
+        "enumerate overlaps that do not survive every pyramid level",
+        "for overlap in range(first, high + 1, deepest):",
+        "for overlap in range(low, high + 1):",
+    ),
+    (
+        "choose the smallest valid chunk instead of the largest",
+        "chunks.append(max(permitted))",
+        "chunks.append(min(permitted))",
+    ),
+    (
+        "leave every coarse canonical level unsharded",
+        "                shard={",
+        "                shard=None if level else {",
     ),
     (
         "hand back one side of a rectangle when asked for 'the' frame",
@@ -612,14 +602,19 @@ GATEWAY_FAULTS: list[tuple[str, str, str]] = [
         "if False:",
     ),
     (
-        "mistake a materialized outer edge for a broken virtual route",
-        "if not route.covers(piece):",
+        "accept copied chunks in the seamless view at the serving boundary",
+        'if (seamless_array / "c").exists():',
         "if False:",
     ),
     (
+        "accept copied chunks in the raw view at the serving boundary",
+        '                if (self.folder / _RAW / str(level_number) / "c").exists():',
+        "                if False:",
+    ),
+    (
         "gate a raw chunk by moment zero whichever moment was requested",
-        "self.published(owners[0].position_id, piece[1], generation)",
-        "self.published(owners[0].position_id, 0, generation)",
+        "return self._published_serving(route, piece[1:])",
+        "return self._published_serving(route, (0, *piece[2:]))",
     ),
     (
         "hide inherited published moments after replacing one moment",

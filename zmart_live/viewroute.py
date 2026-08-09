@@ -656,10 +656,9 @@ class ViewRoute:
         """Whether a position is responsible for this spatial view chunk.
 
         Unlike :meth:`advertises`, this does not require the source chunk to
-        exist.  A server uses the distinction to tell a genuinely materialized
-        outer edge from a routed chunk whose canonical bytes have gone missing:
-        the first may fall back to the view store, while the second must fail
-        closed instead of hiding corruption behind an older copied chunk.
+        exist. A server uses the distinction to tell an absent route from a
+        routed chunk whose canonical bytes have gone missing. The latter must
+        fail closed; a metadata-only view has no copied payload to fall back to.
         """
         wanted = _whole_numbers(chunk_coordinate, "chunk coordinate")
         if len(wanted) != len(self.storage.chunk) or any(index < 0 for index in wanted):

@@ -605,9 +605,10 @@ class LevelGeometry:
     nothing about where seams can fall.
 
     ``linkable`` says whether the seamless view may point straight at this
-    level's chunks. A level can only be pointed at when the overlap divides
-    evenly into its chunks at that magnification; above that point the view has
-    to build its own zoomed-out copies instead.
+    level's chunks. A level can only be pointed at when its complete frame,
+    overlap and grid step all contain whole chunks at that magnification. This
+    deliberately rules out short terminal chunks: both the seamless and raw
+    views must be able to return an existing encoded position chunk unchanged.
     """
 
     level: int
@@ -848,15 +849,36 @@ class AcquisitionProfile:
                         f"Linkable level {level.level} does not describe both the "
                         f"scale and inner chunk on tiled axis '{axis}'."
                     )
+                frame = self.frame_shape[axis]
+                overlap = self.overlap_pixels[axis]
                 step = self.grid_step(axis)
-                phase = factor * chunk
-                if step % phase:
+                if frame % factor or overlap % factor or step % factor:
                     raise ZmartLiveError(
                         f"Level {level.level} is marked linkable on axis '{axis}', "
-                        f"but its {chunk}-pixel chunk at {factor}x downsampling "
-                        f"covers {phase} full-resolution pixels and does not divide "
-                        f"the {step}-pixel grid step. It would place a seam through "
-                        "the middle of a source chunk."
+                        f"but its frame ({frame}), overlap ({overlap}) and grid "
+                        f"step ({step}) do not all divide exactly by its "
+                        f"{factor}x downsampling. A linked view cannot round a "
+                        "seam or a camera edge to the nearest coarse pixel."
+                    )
+                frame_at_level = frame // factor
+                overlap_at_level = overlap // factor
+                step_at_level = step // factor
+                if any(
+                    size % chunk
+                    for size in (
+                        frame_at_level,
+                        overlap_at_level,
+                        step_at_level,
+                    )
+                ):
+                    raise ZmartLiveError(
+                        f"Level {level.level} is marked linkable on axis '{axis}', "
+                        f"but at {factor}x downsampling its frame, overlap and "
+                        f"step are {frame_at_level}, {overlap_at_level} and "
+                        f"{step_at_level} pixels, and its chunk is {chunk}. Every "
+                        "one of those lengths must contain whole chunks; otherwise "
+                        "the view would need a partial source chunk at a seam or "
+                        "camera edge."
                     )
 
     @property
@@ -1005,7 +1027,8 @@ class PositionPlacement:
         The part of this tile the seamless quick-look view actually shows. Where
         a tile has a neighbour below or to the right, this excludes its far
         shared strip, because that neighbour is showing it. The remaining strips
-        at the declared outside edge are materialized separately.
+        at the declared outside edge are routed from the same tile's complete
+        canonical frame.
 
     ``analysis_input_roi``
         What a model is given to look at — normally the whole tile, overlap

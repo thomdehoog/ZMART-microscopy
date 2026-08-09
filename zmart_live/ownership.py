@@ -41,18 +41,17 @@ The obvious rule is that the first tile keeps its whole image and each later one
 gives up the strip on its left and top. It reads naturally, and it was the first
 thing written down.
 
-Measuring it against the real writer showed it to be the expensive choice. Under
-that rule every interior tile is taken from an offset of one overlap into its own
-store, and that offset is the smallest number in the whole arrangement, so it is
-what limits how far the overview can point rather than copy.
+Measuring it against the real writer showed it to be the restrictive choice.
+Under that rule every interior tile is taken from an offset of one overlap into
+its own store, and that offset is the smallest number in the arrangement, so it
+constrains the chunk geometry at every pyramid level.
 
 Describing exactly the same seams from the other side — **every tile gives up its
 lower and right strip, so every tile contributes its first ``step`` pixels** —
-makes that offset zero for every tile alike. On a 3×3 mosaic of 2304 pixel frames
-that took the number of zoom levels the overview could point at from one to four.
-A level it cannot point at has to be built by reading every tile back and writing
-new pixels *during the acquisition*, so this is the difference between an
-overview that costs almost nothing and one that writes a third of the run again.
+makes that offset zero for every tile alike. The strict acquisition optimizer
+then chooses the overlap and each level's chunk so all advertised levels route
+canonical encoded bytes; it refuses a profile that would require copied view
+pixels.
 
 It is also the simpler rule. Every tile is treated identically: taken from its
 own corner, trimmed to one step, landing at its place in the grid. There is no
@@ -62,14 +61,14 @@ tiles happen to arrive in.
 The two rules cover the mosaic identically. Every output pixel still has exactly
 one owner; the seams simply sit one overlap-width over.
 
-What it costs, said plainly
----------------------------
+The outer edge
+--------------
 
 Trimming every tile alike leaves the mosaic's far edge uncovered — the last
-column's right strip and the last row's bottom strip. Those are written rather
-than pointed at. On a ten-by-ten mosaic that is a few tens of megabytes against a
-run of hundreds of gigabytes, and :func:`the_far_edges` says exactly which
-strips they are so nobody has to work it out again.
+column's right strip and the last row's bottom strip. Under a strict profile the
+complete frame is chunk-aligned, so the edge tiles retain those strips through
+the same canonical route. :func:`the_far_edges` names them so the coordinator
+and gateway apply exactly the same boundary rule.
 """
 
 from __future__ import annotations
@@ -154,12 +153,10 @@ def plan_one_tile(
     sits in the run's shared coordinates, which is what turns one into the other.
 
     ``keep_the_far_edge`` applies to a tile with no neighbour beyond it. Left
-    alone, every tile is trimmed identically, which is what keeps the overview
-    cheap; the uncovered strip at the mosaic's far edge is written instead. Set
-    it and the edge tiles keep their whole frame, which covers the mosaic
-    completely from pointers alone but makes those tiles line up less well, so
-    the overview cannot point as deeply. :func:`the_far_edges` reports the strips
-    the default leaves behind.
+    alone, every placement records the same one-step visual ROI;
+    :func:`the_far_edges` separately reports the complete outer strips that the
+    strict virtual route adds back. Set it to include those strips in the ROI
+    itself when a caller wants one combined interval.
     """
     _check_the_cell_is_a_forward_grid_index(cell)
     tiled = profile.tiled_axes
@@ -306,13 +303,11 @@ def place_the_tiles(
 
 @dataclass(frozen=True)
 class FarEdge:
-    """A strip at the mosaic's outer edge that no tile hands over.
+    """A canonical strip routed from a tile on the mosaic's outer edge.
 
-    Trimming every tile alike is what keeps the overview cheap, and the price is
-    that the last row and last column each leave a strip uncovered. These are
-    written rather than pointed at. They are small — one overlap wide, along one
-    side of the mosaic — and naming them here means nobody has to rediscover
-    which pixels are missing when the overview turns out to stop slightly short.
+    The ordinary one-step ROI leaves the last row and column one overlap short.
+    Naming the extension explicitly keeps placement, route generation and route
+    validation on the same boundary rule without storing view-owned pixels.
     """
 
     axis: str
@@ -331,10 +326,10 @@ def the_far_edges(
     profile: AcquisitionProfile,
     placements: tuple[PositionPlacement, ...],
 ) -> tuple[FarEdge, ...]:
-    """The strips left uncovered by trimming every tile the same way.
+    """The canonical strips added after trimming every tile the same way.
 
     Returns nothing when the placements were made with ``keep_the_far_edge``,
-    because in that case the edge tiles already cover them.
+    because in that case their visual ROIs already include them.
     """
     edges: list[FarEdge] = []
     for placement in placements:

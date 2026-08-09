@@ -1,10 +1,20 @@
 # Building the live writer and the two linked overviews
 
-**Status:** implementation plan with a tested end-to-end reference pipeline in
-`zmart_live/`. The production coordinator earns readiness, writes both multiscale
-views, and serves manifest-gated inner-chunk ranges through `viz_studio/backend`.
-Automatic frontend refresh, removal of materialized duplicates at routed levels,
-microscope integration, and Windows/SMB qualification remain follow-up work.
+**Status:** implemented reference pipeline in `zmart_live/`. The production
+coordinator earns readiness, keeps both multiscale views metadata-only, and
+serves manifest-gated canonical inner-chunk ranges through `viz_studio/backend`.
+Automatic frontend refresh, microscope integration, and Windows/SMB and real-
+viewer qualification remain follow-up work.
+
+> **Implementation amendment, 2026-08-09:** the strict optimizer now selects a
+> possibly rectangular inner chunk independently at every exact power-of-two
+> level. Every canonical level is sharded, including level 0. Raw and seamless
+> views route every advertised level and the complete outer edge without any
+> `views/**/c` payload. Sections below that discuss a partially pointed pyramid,
+> written far-edge/global/coarse chunks, 25% default overlap, or the old
+> nine-chunks-across convention are preserved as design history and are not the
+> current storage contract. The normative implementation is
+> [`zero-copy-acquisition-optimizer.md`](zero-copy-acquisition-optimizer.md).
 
 This is the plan for turning
 [`live-position-timepoint-publication-decisions.md`](live-position-timepoint-publication-decisions.md)
@@ -17,8 +27,8 @@ later piece of work can build on rather than unpick.
 
 A **writer** that is told what kind of acquisition is coming — frame size, how
 much overlap is wanted, whether the tiles form a mosaic — and works out for
-itself how to store it: chunk size, overlap in whole pixels, how many zoomed-out
-levels, and how deep those levels can be *pointed at* rather than copied. It
+writes itself how to store it: per-level chunk sizes, overlap in whole pixels,
+how many zoomed-out levels, and whether all levels can be directly routed. It
 writes each position as an ordinary OME-Zarr image. On top of those positions it
 maintains **two overviews**, a **seamless** one and a **non-seamless** one, each
 of which is a single image that points at the positions. A position or a
@@ -81,10 +91,10 @@ so this is a change of which tile supplies a pixel, not of what the operator
 sees. The decision record should be amended to say lower/right, with this
 measurement as the reason.
 
-**The cost, stated plainly.** Trimming every tile alike leaves the mosaic's far
-edge uncovered — the last column's right strip and the last row's bottom strip.
-Those are written rather than pointed at. On a 10×10 mosaic that is a few tens of
-megabytes against a run of hundreds of gigabytes.
+**Outer-edge consequence.** Trimming every ordinary tile alike would leave the
+last column's right strip and the last row's bottom strip uncovered. The current
+strict profile makes complete outer frames chunk-aligned, so those edge tiles
+retain and route the strips directly rather than writing view-owned pixels.
 
 ### Two corrections carried over from review
 
@@ -124,16 +134,15 @@ Overlap is chosen from the frame, not fixed in advance, but it has a settled
 band and a default:
 
 ```text
-permitted   10% to 25%
+permitted   10% to 20%
 preferred   10% to 20%
-aim near    12%
+aim near    12.5%
 ```
 
-At least ten per cent, comfortable up to twenty, twenty-five tolerated where the
-arithmetic needs it, and aimed at the low end because overlap is microscope time.
-Values like 11.1% or 12.5% are good answers and are not rejected for being
-unround — a 2304 frame with 256 pixels of overlap is 11.1% and is exactly the
-geometry that gives four pointed levels at a 256 chunk.
+The default is at least ten per cent and no more than twenty, aimed at the low
+end because overlap is microscope time. Values such as 11.1% or 12.5% are not
+rejected for being unround. An acquisition type may explicitly supply another
+band before sealing; the optimizer never expands one silently.
 
 ## The phases, in the order they should be done
 
@@ -145,11 +154,11 @@ what makes the thing testable.
 
 | phase | present in `zmart_live/` | still missing before production |
 | --- | --- | --- |
-| chunk/profile | chooser, sealed records, divisibility validation | Windows and real-viewer benchmark |
+| chunk/profile | strict per-axis/per-level optimizer, Pareto alternatives, sealed records, and format-envelope tests | Windows and real-viewer benchmark |
 | publication | durable monotonic manifest, recovery, single-writer exclusion, and a production coordinator that reads artifacts back before committing | microscope integration and filesystem qualification on Windows/SMB |
 | timepoints | per-position/per-moment view writes, manifest gating, immutable replacement generations, restart recovery, and refusal to reopen existing arrays with different declared room | growing beyond declared room and microscope integration |
 | ownership | visual and analysis ROIs, complete-footprint refusal, immutable layout snapshots, and exhaustive small-grid tests | the deliberately deferred concurrent-analysis consumer |
-| view pyramids | incremental raw and seamless multiscale writers that update only the affected unit and validate every advertised level | stop materializing duplicate linkable chunks; retain only routed levels plus required physical edge/global coarse chunks |
+| view pyramids | metadata-only raw and seamless multiscales; every level and outer edge resolves to canonical encoded bytes | real-viewer performance qualification |
 | sharding | checked inner-chunk byte-range resolver wired through the shared gateway into `viz_studio/backend` | real-viewer shard geometry benchmark and Windows/SMB timing |
 | scenes | internal scene model, real raw selector store, OME-Zarr 0.5 seamless metadata, and bounded Neuroglancer adapter payload | automatic manifest-driven frontend refresh and later scene-standard serialization |
 | browser/backend | real-Neuroglancer synthetic run and sabotage harness, plus a real-HTTP test of the application backend gate | a browser test that starts the application backend itself and portable Chromium provisioning |
@@ -475,11 +484,11 @@ writer that restarts mid-run therefore loses every tile written before the
 restart, permanently, at the moment the run ends. For a design whose premise is a
 durable record, that comes first among the small things.
 
-## Open questions the review did not settle
+## Remaining qualification questions
 
-1. What a bigger chunk is actually worth to a real viewer, once one linked image
-   has already removed the per-position cost. Phase 0.
-2. Whether the far-edge strips are better written or better handled by letting
-   the edge tiles keep their whole frame at a shallower pointed depth.
-3. What the coarse-level rebuild costs per commit, and what the writer should do
-   when it exceeds the interval between positions.
+1. What the selected logical chunk grids cost in a real Neuroglancer session at
+   representative mosaic sizes.
+2. What full-position spatial shards and their z slabs cost on the actual
+   Windows/SMB microscope and transfer paths.
+3. How automatic manifest-driven frontend refresh integrates with the operator
+   application while preserving viewer state.
