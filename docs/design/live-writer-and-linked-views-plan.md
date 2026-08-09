@@ -1,10 +1,12 @@
 # Building the live writer and the two linked overviews
 
 **Status:** implemented reference pipeline in `zmart_live/`. The production
-coordinator earns readiness, keeps both multiscale views metadata-only, and
-serves manifest-gated canonical inner-chunk ranges through `viz_studio/backend`.
-Automatic frontend refresh, microscope integration, and Windows/SMB and real-
-viewer qualification remain follow-up work.
+coordinator earns readiness, keeps both multiscale views metadata-only, serves
+manifest-gated canonical inner-chunk ranges through `viz_studio/backend`, and
+the production frontend now refreshes affected stable aggregate sources from a
+watched committed revision. Microscope integration, Windows/SMB qualification,
+and execution of the new pixel scenarios on each target browser/GPU remain
+environmental qualification work.
 
 > **Implementation amendment, 2026-08-09:** the strict optimizer now selects a
 > possibly rectangular inner chunk independently at every exact power-of-two

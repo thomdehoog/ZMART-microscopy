@@ -41,6 +41,12 @@
  */
 
 import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
+import {
+  advancingSourceRevisions,
+  memoEntriesForStableSource,
+  rememberedSourceRevisions,
+  sourceRevisionsFor,
+} from "./live-refresh.js";
 
 // -- what each layer was last told ---------------------------------------------
 //
@@ -63,6 +69,21 @@ const sourcesApplied = new WeakMap();
 // for what asking the wrong question cost. Kept beside the addresses above and for the
 // same reason: a layer being thrown away takes its entry with it.
 const framesSeen = new WeakMap();
+
+// The committed revision last applied for each stable aggregate source.  Kept
+// separately from the URL because the URL deliberately never changes when a
+// position or moment is published.
+const revisionsSeen = new WeakMap();
+
+// Request-cost evidence exposed to the browser tests.  ``sources`` contains
+// only stable source identities that advanced on the most recent sync pass;
+// unchanged and unrelated sources must never appear here.
+export const sourceRefreshing = {
+  passes: 0,
+  sources: [],
+  metadataEntries: 0,
+  decodedEntries: 0,
+};
 
 function sourceList(spec) {
   if (spec.source == null) return [];
@@ -478,6 +499,40 @@ function forgetWhatWasReadAbout(chunkManager, url) {
   }
 }
 
+/**
+ * Drop cached knowledge and decoded absence for one aggregate source only.
+ *
+ * A newly committed tile may occupy coordinates this source previously found
+ * empty.  Metadata-only forgetting is therefore insufficient: the empty chunk
+ * holder would survive and no pixel request would be made.  Neuroglancer files
+ * both kinds of memoized object under keys containing the store folder; decoded
+ * holders are the entries naming a constructor. Metadata identities are removed
+ * so the existing layer's source re-resolution reads them again. Each matching
+ * decoded holder is asked to clear its own chunks, while holders belonging to
+ * every other stable URL remain untouched.
+ */
+function forgetOneStableSource(chunkManager, url) {
+  const remembered = chunkManager?.memoize?.map;
+  const removed = { metadata: 0, decoded: 0 };
+  if (!remembered) return removed;
+  const matching = memoEntriesForStableSource(remembered.keys(), url);
+  for (const question of matching.metadata) {
+    if (remembered.delete(question)) removed.metadata += 1;
+  }
+  for (const question of matching.decoded) {
+    const holder = remembered.get(question);
+    if (holder && typeof holder.invalidateCache === "function") {
+      holder.invalidateCache();
+      removed.decoded += 1;
+    }
+  }
+  return removed;
+}
+
+function revisionsFor(spec) {
+  return sourceRevisionsFor(sourceList(spec), spec.sourceIds, spec.sourceRevisions);
+}
+
 // -- bringing the engine into line with the panel -----------------------------
 //
 // This is the heart of the module: given the scene the panel wants, change as
@@ -501,7 +556,14 @@ function forgetWhatWasReadAbout(chunkManager, url) {
  * Returns how many images were added, so the caller knows whether the shape of
  * the scene changed.
  */
-function syncSources(layer, spec, reread = false, chunkManager = undefined, forgotten = null) {
+function syncSources(
+  layer,
+  spec,
+  reread = false,
+  chunkManager = undefined,
+  forgotten = null,
+  refreshed = null,
+) {
   const wanted = sourceList(spec);
   // Held as a set rather than a list. A row can be drawn from as many stores as
   // the run has positions, and asking a list "do you already contain this?" for
@@ -510,6 +572,36 @@ function syncSources(layer, spec, reread = false, chunkManager = undefined, forg
   // contrast drag, on the same thread the engine draws with.
   const already = sourcesApplied.get(layer) || new Set();
   const fresh = wanted.filter((url) => !already.has(url));
+
+  // A valid higher revision refreshes the stable aggregate source inside this
+  // existing layer.  No URL is added and the layer is not rebuilt, so camera and
+  // every operator-owned setting stay where they are.
+  const revisions = revisionsFor(spec);
+  const lastRevisions = revisionsSeen.get(layer);
+  const advanced = advancingSourceRevisions(lastRevisions, revisions);
+  if (revisions.size) {
+    revisionsSeen.set(layer, rememberedSourceRevisions(revisions));
+  }
+  if (advanced.length) {
+    const growing = new Map(
+      advanced.map(([identity, value]) => [value.url.split("|")[0], identity]),
+    );
+    for (const source of layer.dataSources) {
+      const store = source.spec.url.split("|")[0];
+      const identity = growing.get(store);
+      if (identity == null) continue;
+      if (!refreshed || !refreshed.has(identity)) {
+        const removed = forgetOneStableSource(chunkManager, store);
+        sourceRefreshing.sources.push(identity);
+        sourceRefreshing.metadataEntries += removed.metadata;
+        sourceRefreshing.decodedEntries += removed.decoded;
+        if (refreshed) refreshed.add(identity);
+      }
+      // Resolves the same stable address again after its affected memoized
+      // entries were removed.  This changes the source, not the layer.
+      source.spec = { ...source.spec };
+    }
+  }
 
   // Which of this row's stores have gained a frame since the last look.
   //
@@ -707,6 +799,11 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
   // The stores already forgotten on this pass, so that a store feeding several
   // rows is forgotten once rather than once per row. See syncSources.
   const forgotten = new Set();
+  const refreshed = new Set();
+  sourceRefreshing.passes += 1;
+  sourceRefreshing.sources = [];
+  sourceRefreshing.metadataEntries = 0;
+  sourceRefreshing.decodedEntries = 0;
 
   // Anything the panel no longer lists has genuinely been closed, so let it go.
   // Doing this first also frees the name, in case something new is taking it.
@@ -738,7 +835,14 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
       reshaped += 1;
     }
     if (managed) {
-      reshaped += syncSources(managed.layer, spec, reread, viewer.chunkManager, forgotten);
+      reshaped += syncSources(
+        managed.layer,
+        spec,
+        reread,
+        viewer.chunkManager,
+        forgotten,
+        refreshed,
+      );
       applySettings(managed, spec);
       return;
     }
@@ -776,6 +880,10 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
         managed.layer,
         new Map(sourceList(spec).map((url, at) => [url, spec.frameCounts[at]])),
       );
+    }
+    const initialRevisions = revisionsFor(spec);
+    if (initialRevisions.size) {
+      revisionsSeen.set(managed.layer, rememberedSourceRevisions(initialRevisions));
     }
     viewer.layerSpecification.add(managed, index);
     reshaped += 1;

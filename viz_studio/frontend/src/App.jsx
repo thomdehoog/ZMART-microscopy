@@ -7,6 +7,7 @@ import {
   chooseScaleWhenTheImagesAreMeasured,
   letGoOfDecodedPieces,
   lettingGo,
+  sourceRefreshing,
   sourcesStillWaiting,
   syncLayers,
   syncView,
@@ -14,11 +15,13 @@ import {
 import ScaleBar from "./ScaleBar.jsx";
 import AxisSlider from "./AxisSlider.jsx";
 import { LOOKUP_TABLE_NAMES, layerKey, layersFor } from "./scene.js";
+import { liveStateProblem } from "./live-refresh.js";
 
 // The two ways of looking at a volume, and the only thing the operator has to
 // choose between. 2-D is the working view -- one plane, scroll through the
 // stack. 3-D is for reading shape: the same data ray-cast, rotatable.
 const MODES = { flat: "2D", volume: "3D" };
+const LIVE_STATE_CHECK_MS = 10_000;
 
 // Which of the engine's named panel layouts the flat view asks for.
 //
@@ -66,6 +69,22 @@ async function fetchConfig() {
     const response = await fetch("/api/config");
     if (!response.ok) return null;
     return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchLiveState(etag = null) {
+  try {
+    const headers = etag ? { "If-None-Match": etag } : {};
+    const response = await fetch("/api/live-state", { headers });
+    if (response.status === 304) return { unchanged: true, etag };
+    if (!response.ok) return null;
+    return {
+      unchanged: false,
+      etag: response.headers.get("ETag"),
+      state: await response.json(),
+    };
   } catch {
     return null;
   }
@@ -281,6 +300,12 @@ export default function App() {
     //
     // What changed is also reported back, because the caller needs it in order to
     // decide whether the engine has to be told to look at the disk again.
+    const unsafe = liveStateProblem(previous?.liveState, loaded.liveState);
+    if (unsafe) {
+      setStoreNotice(`Live publication state is stale: ${unsafe}. The last safe image is still shown.`);
+      return "rejected";
+    }
+    setStoreNotice(null);
     if (previous && JSON.stringify(previous) === JSON.stringify(loaded)) return "unchanged";
     const outcome = anyStoreGainedItsFirstImage(previous, loaded) ? "gained-image" : "changed";
     applied.current = loaded;
@@ -408,6 +433,7 @@ export default function App() {
   // not know which we have, and "listen" is the right assumption: a live run that
   // heard nothing would sit there missing its own data.
   const shouldListen = config === null || config.live !== false;
+  const hasManifestState = Boolean(config?.liveState?.runs?.length);
 
   // Listen for the server saying that something has changed.
   //
@@ -517,6 +543,47 @@ export default function App() {
     // same value and nothing happens.
   }, [catchUp, shouldListen]);
 
+  // SSE is the immediate path; this slow conditional check is the recovery
+  // path.  A proxy, sleeping laptop or brief disconnect can lose a hint.  The
+  // authoritative revision cannot be lost, so a later 200 catches up while the
+  // ordinary idle answer is a header-only 304 and never reaches Neuroglancer.
+  React.useEffect(() => {
+    if (!shouldListen || !hasManifestState) return undefined;
+    let stopped = false;
+    let checking = false;
+    let etag = null;
+    const check = async () => {
+      if (stopped || checking) return;
+      checking = true;
+      try {
+        const answer = await fetchLiveState(etag);
+        if (stopped || !answer) return;
+        etag = answer.etag || etag;
+        if (answer.unchanged) return;
+        const unsafe = liveStateProblem(config.liveState, answer.state);
+        if (unsafe) {
+          setStoreNotice(
+            `Live publication state is stale: ${unsafe}. The last safe image is still shown.`,
+          );
+          return;
+        }
+        setStoreNotice(null);
+        if (JSON.stringify(answer.state) !== JSON.stringify(config.liveState)) {
+          await catchUp();
+        }
+      } finally {
+        checking = false;
+      }
+    };
+    const asked = Number(globalThis.zmartLiveCheckMs);
+    const every = Number.isFinite(asked) && asked > 0 ? asked : LIVE_STATE_CHECK_MS;
+    const timer = setInterval(check, every);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [catchUp, config?.liveState, hasManifestState, shouldListen]);
+
   // Everything the engine should be showing, in the order it should be drawn.
   //
   // This is worked out here, on its own, so that it is recomputed only when
@@ -574,6 +641,8 @@ export default function App() {
           ]),
         )
       : null;
+    const zoom = viewer.navigationState.zoomFactor.value;
+    const perspectiveZoom = viewer.perspectiveNavigationState.zoomFactor.value;
 
     syncView(viewer, {
       layout: mode === "volume" ? VOLUME_LAYOUT : SLICE_LAYOUT,
@@ -587,6 +656,7 @@ export default function App() {
     const reread = rereadWanted.current;
     rereadWanted.current = false;
     const reshaped = syncLayers(viewer, scene, { reread });
+    const refreshed = sourceRefreshing.sources.length;
     window.zmartLayersReshaped = reshaped; // what the browser tests count
     // How many stores are still queued to be handed to the engine. Asked as a question
     // rather than left as a number, because the answer changes while a large folder is
@@ -597,12 +667,13 @@ export default function App() {
     // how many sources it asked the last time. The browser tests read this to tell an
     // announcement that did nothing from one that did something that did not help.
     window.zmartLetGo = lettingGo;
+    window.zmartSourceRefreshing = sourceRefreshing;
 
     // Only a change in the shape of the scene can move the view: adding or
     // removing an image makes the engine work out the coordinate space afresh,
     // and it lands somewhere sensible rather than where the operator was. Turning
     // a knob cannot, so in that far more common case nothing here runs at all.
-    if (!reshaped || !looking) return undefined;
+    if ((!reshaped && !refreshed) || !looking) return undefined;
     const lookAgain = () => {
       const position = viewer.navigationState.position;
       const now = position.coordinateSpace.value;
@@ -616,6 +687,15 @@ export default function App() {
         }
       });
       if (changed) position.value = moved;
+      if (Number.isFinite(zoom) && viewer.navigationState.zoomFactor.value !== zoom) {
+        viewer.navigationState.zoomFactor.value = zoom;
+      }
+      if (
+        Number.isFinite(perspectiveZoom)
+        && viewer.perspectiveNavigationState.zoomFactor.value !== perspectiveZoom
+      ) {
+        viewer.perspectiveNavigationState.zoomFactor.value = perspectiveZoom;
+      }
     };
     lookAgain();
     // The coordinate space settles a moment after the images are attached, so it
@@ -707,6 +787,38 @@ export default function App() {
       .map((spec) => spec.frames)
       .filter((n) => typeof n === "number" && n > 0);
     return counts.length ? Math.max(...counts) : null;
+  }, [config]);
+
+  // Manifest runs may publish timepoints with gaps, so a single high-water
+  // number is not an honest description. Read the explicit half-open ranges
+  // directly from authoritative live state, not from declared array shape or a
+  // convenience field on a layer row. Ordinary folders alongside it retain
+  // their existing counted limit.
+  const committedTimeRanges = React.useMemo(() => {
+    const rows = config?.layers || [];
+    const liveRuns = config?.liveState?.runs;
+    if (!Array.isArray(liveRuns) || !liveRuns.length) return null;
+    const ranges = [
+      ...liveRuns.flatMap((run) => (
+        run.sources || []
+      ).flatMap((source) => source.committed_time_ranges || [])),
+      ...rows
+        .filter((spec) => spec.liveRunId == null)
+        .flatMap((spec) => (
+          typeof spec.frames === "number" && spec.frames > 0
+            ? [{ start: 0, stop: spec.frames }]
+            : []
+        )),
+    ]
+      .map((range) => ({ start: range.start, stop: range.stop }))
+      .sort((one, other) => one.start - other.start || one.stop - other.stop);
+    const merged = [];
+    for (const range of ranges) {
+      const last = merged[merged.length - 1];
+      if (last && range.start <= last.stop) last.stop = Math.max(last.stop, range.stop);
+      else merged.push(range);
+    }
+    return merged;
   }, [config]);
 
   // Where the chosen channel now sits in the list. Falling back to the first row
@@ -832,6 +944,7 @@ export default function App() {
             // "nothing here" for a frame looked at too early and will not look
             // again -- so that frame would stay blank for the rest of the session.
             limit={framesAvailable}
+            ranges={committedTimeRanges}
           />
         </div>
       </main>

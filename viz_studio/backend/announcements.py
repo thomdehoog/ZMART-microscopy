@@ -8,9 +8,11 @@ has caught us out more than once: most recently a description file that was
 filled in rather than created, which left an acquisition invisible for a whole
 session.
 
-The application driving the microscope does not have to infer anything. It called
-for the acquisition and it waited for the write to finish, so it knows. This
-module is the way for it to say so, and the way an open page hears it.
+For a manifest-driven ZMART run, the atomic publication marker is the authority.
+The writer does not know or care whether a viewer exists.  A watcher observes
+that small marker and nudges open pages only after a higher valid revision has
+been read.  Ordinary live folders have no such marker and retain the generic
+folder watcher below.
 
 The shape is deliberately small. There is one kind of message — *something
 changed* — and a page that receives it asks for the current state of things in
@@ -188,10 +190,10 @@ class FolderWatcher:
     nothing is going to say "this position is ready", and the only way to notice
     is to look.
 
-    It is worth being clear that this is the weaker mechanism of the two. Looking
-    at the disk can only ever infer that a write has finished, and inference is
-    what has caught us out before. An announcement from the application driving
-    the microscope is authoritative and should be preferred wherever there is one.
+    It is worth being clear that this is the path only for folders without a
+    publication manifest. Looking at the disk can only infer that a write has
+    finished, which is why a recognized ZMART run is excluded and observed by
+    :class:`ManifestWatcher` instead.
 
     What has changed is *where* the looking happens. It used to be the page that
     asked, several times a second, for as long as it was open — so two windows
@@ -200,10 +202,21 @@ class FolderWatcher:
     when there is something to say. On finished data it does not run at all.
     """
 
-    def __init__(self, library, announcements: Announcements, *, every: float = 1.0) -> None:
+    def __init__(
+        self,
+        library,
+        announcements: Announcements,
+        *,
+        every: float = 1.0,
+        excluding=frozenset(),
+    ) -> None:
         self._library = library
         self._announcements = announcements
         self._every = every
+        # Datasets governed by a ZMART publication manifest must not be inferred
+        # from directory changes.  Their dedicated watcher below is the only
+        # thing allowed to announce them.
+        self._excluding = excluding
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -223,7 +236,11 @@ class FolderWatcher:
         last = None
         while not self._stop.is_set():
             try:
-                now = self._library.revision()
+                now = (
+                    self._library.revision(excluding=self._excluding)
+                    if callable(self._excluding) or self._excluding
+                    else self._library.revision()
+                )
             except Exception:
                 # A folder that cannot be read this moment -- a share hiccuping --
                 # is not a reason to stop watching for the rest of the session.
@@ -244,4 +261,85 @@ class FolderWatcher:
                 if now != self._announcements.already_told_about():
                     self._announcements.say_something_changed()
             last = now
+            self._stop.wait(self._every)
+
+
+class ManifestWatcher:
+    """Announce only higher, strictly validated manifest revisions.
+
+    Each tracker stats one ``committed.json`` marker while idle.  Its own strict
+    state machine retains the last good scene on damage, regression or a foreign
+    run identity; those observations are therefore recorded as degraded but are
+    never announced.  A jump over several revisions produces one nudge, because
+    the browser will fetch current authoritative state rather than replaying
+    hints.
+    """
+
+    def __init__(
+        self,
+        trackers,
+        announcements: Announcements,
+        *,
+        every: float = 1.0,
+    ) -> None:
+        self._trackers = trackers if callable(trackers) else lambda: tuple(trackers)
+        self._announcements = announcements
+        self._every = every
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        initial = self._trackers()
+        self._announced = {tracker: tracker.revision for tracker in initial}
+
+    def check_once(self) -> int:
+        """Observe every marker once and return effective announcements made."""
+        announced = 0
+        trackers = self._trackers()
+        alive = set(trackers)
+        self._announced = {
+            tracker: revision
+            for tracker, revision in self._announced.items()
+            if tracker in alive
+        }
+        for tracker in trackers:
+            tracker.observe()
+            if tracker not in self._announced:
+                # A run may have been opened explicitly (whose response already
+                # carries it) or may have gained its first marker inside a folder
+                # that was already open. One harmless nudge covers both and is
+                # required for the latter to reach an already-open browser.
+                self._announced[tracker] = tracker.revision
+                self._announcements.say_something_changed()
+                announced += 1
+                continue
+            previous = self._announced[tracker]
+            # Another request may share this tracker and observe the marker just
+            # before this thread.  Publication is still news to every other tab,
+            # so compare with what this watcher announced rather than relying on
+            # which caller happened to perform the state transition.
+            if tracker.error is not None or tracker.revision <= previous:
+                continue
+            self._announced[tracker] = tracker.revision
+            self._announcements.say_something_changed()
+            announced += 1
+        return announced
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(
+            target=self._watch,
+            daemon=True,
+            name="zmart-manifest-watch",
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+            self._thread = None
+
+    def _watch(self) -> None:
+        while not self._stop.is_set():
+            self.check_once()
             self._stop.wait(self._every)

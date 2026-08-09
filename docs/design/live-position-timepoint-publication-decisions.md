@@ -210,7 +210,9 @@ The linked pointer map, available timepoints, coverage summary, and view invalid
 
 ## Decision 5: refresh the source, not the entire page
 
-After observing a higher committed revision, the TypeScript controller refreshes or replaces only the affected versioned Neuroglancer source. It preserves:
+After observing a higher committed revision, the controller refreshes only the
+affected stable Neuroglancer source inside its existing layer. The source's
+revision is a separate field; its URL does not change. The controller preserves:
 
 - camera position and zoom;
 - selected time and z position where still valid;
@@ -219,9 +221,18 @@ After observing a higher committed revision, the TypeScript controller refreshes
 - selected channels and visibility; and
 - the remaining open datasets.
 
-The page itself should not reload.
+The page itself does not reload. The implemented controller removes only the
+affected stable store's memoized metadata, asks only that store's decoded chunk
+holders to invalidate their chunks, then resolves the same address again. This
+makes a previously requested empty chunk eligible to load after publication
+without discarding cached data from another view or acquisition. Putting a
+revision in the address, walking the global cache, and rebuilding the layer are
+all explicitly excluded.
 
-Revision-addressed metadata and chunk responses prevent the browser or Neuroglancer cache from serving an older answer under an unchanged address. In particular, an unwritten future chunk must not become a permanently cached blank after it is committed.
+SSE remains a hurry-up signal. The browser rereads authoritative state before it
+touches a source, reconnects through the browser's normal `EventSource` behavior,
+and performs a slow conditional `/api/live-state` check so a missed hint cannot
+leave it permanently stale. An unchanged `304` touches no Neuroglancer state.
 
 ## Consequences for time storage
 

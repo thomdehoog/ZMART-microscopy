@@ -54,6 +54,19 @@ def test_written_pixels_are_withheld_until_the_manifest_commit(tmp_path):
     assert after is not None and after.allowed is True
 
 
+def test_a_missing_committed_marker_does_not_turn_a_known_run_into_static_data(tmp_path):
+    run = a_live_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(1700))
+    source = where_one_chunk_lives(
+        run.position_store("posA") / "0", (0, 0, 0, 0, 0)
+    )
+    assert source is not None
+
+    run.manifest.truth.unlink()
+    answer = answer_from_a_live_run(source.path)
+    assert answer is not None and answer.allowed is False
+
+
 def test_the_seamless_route_is_virtual_and_gated_per_moment(tmp_path):
     run = a_live_run(tmp_path, timepoints=2)
     run.write_and_publish("posA", some_specimen(700))

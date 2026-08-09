@@ -7,6 +7,13 @@ idea that some view levels or outer-edge strips could be copied into `views/`.
 The canonical position pyramids hold every pixel. Both operator views contain
 only array descriptions and routes back to those canonical bytes.
 
+The production viewer now follows the same boundary. Its backend watches only
+the atomic `zmart-live/committed.json` marker, exposes bounded aggregate-source
+revisions and committed-time ranges, and sends SSE only as a nudge to reread that
+truth. A higher valid source revision re-resolves the same raw and seamless URLs
+inside their existing layers. No notification makes a route readable, and no
+frontend refresh creates payload under `views/`.
+
 ## The layout
 
 ```text
