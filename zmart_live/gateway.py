@@ -7,7 +7,7 @@ between the viewer server and those files: metadata is always readable, while
 pixel requests are attributed to one position and moment and are served only when
 the run manifest says that exact unit is published.
 
-For the seamless view it also completes the zero-copy route.  A missing view
+For both overview views it also completes the zero-copy route.  A missing view
 chunk can be answered by an encoded inner chunk inside a canonical position's
 shard, using :mod:`zmart_live.viewroute`; no pixel is decoded or copied.
 """
@@ -20,7 +20,6 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from .coarse import CoarseChunk
 from .identity import load_a_layout_revision, load_the_profile
 from .manifest import RunManifest
 from .model import (
@@ -29,14 +28,20 @@ from .model import (
     SceneLayoutRevision,
     ZmartLiveError,
 )
-from .viewroute import Placed, Serving, ViewRoute, route_the_view
+from .viewroute import (
+    Placed,
+    Serving,
+    ViewRoute,
+    refuse_a_view_stored_differently,
+    route_the_view,
+)
 
 __all__ = ["LiveResponse", "answer_from_a_live_run", "forget_live_run"]
 
 _BOOKKEEPING = "zmart-live"
 _TRUTH = "committed.json"
 _LINKS = "links.json"
-_LINKS_SCHEMA = "zmart-live-links/1"
+_LINKS_SCHEMA = "zmart-live-links/2"
 _SEAMLESS = Path("views/overview-seamless.ome.zarr")
 _RAW = Path("views/overview-raw.zarr")
 _GENERATION = re.compile(r"^(?P<position>.+)\.generation-(?P<generation>\d+)\.ome\.zarr$")
@@ -47,9 +52,10 @@ class LiveResponse:
     """What the server should do with one pixel request from a live run.
 
     ``allowed=False`` means answer with ordinary sparse-image absence (HTTP 404).
-    ``serving`` names existing encoded bytes for a virtual seamless chunk.  When
-    it is ``None`` and the request is allowed, the server serves the requested
-    physical file normally.
+    ``serving`` names existing encoded canonical bytes for a virtual view chunk.
+    When it is ``None`` and the request is allowed, the request itself names a
+    canonical position file or ordinary metadata and is served normally. View
+    chunk requests never use that path.
     """
 
     allowed: bool
@@ -115,7 +121,8 @@ class _LiveRun:
         self._profile: AcquisitionProfile | None = None
         self._links_mark: tuple[int, int, int, int] | None = None
         self._routes: dict[int, ViewRoute] = {}
-        self._link_generations: dict[str, int] = {}
+        self._raw_routes: dict[tuple[int, int], ViewRoute] = {}
+        self._raw_levels: frozenset[int] = frozenset()
         self._lock = threading.RLock()
 
     def _published_units(self) -> frozenset[tuple[str, int, int]]:
@@ -204,11 +211,14 @@ class _LiveRun:
             if not isinstance(generations, dict):
                 raise ValueError("the live view generation map is not a table")
             routes: dict[int, ViewRoute] = {}
+            raw_routes: dict[tuple[int, int], ViewRoute] = {}
             routed_levels: set[int] = set()
+            entries_by_level: dict[int, tuple[dict, ...]] = {}
             for level in held.get("levels", ()):
                 level_number = int(level["level"])
                 routed_levels.add(level_number)
-                entries = level.get("positions") or ()
+                entries = tuple(level.get("positions") or ())
+                entries_by_level[level_number] = entries
                 if not entries:
                     continue
                 placed = []
@@ -238,6 +248,8 @@ class _LiveRun:
                 )
                 if tuple(level["view_shape"]) != expected_view_shape:
                     raise ValueError("a live view route declares the wrong view shape")
+                largest_row = max(item.cell.row for item in layout.positions)
+                largest_column = max(item.cell.column for item in layout.positions)
                 for entry in entries:
                     position_id = str(entry["position_id"])
                     if position_id not in generations:
@@ -264,8 +276,18 @@ class _LiveRun:
                     )
                     expected_size = (
                         profile.frame_shape.get("z", 1) // by_z,
-                        placement.visual_source_roi["y"].length // by_y,
-                        placement.visual_source_roi["x"].length // by_x,
+                        (
+                            profile.frame_shape["y"]
+                            if placement.cell.row == largest_row
+                            else placement.visual_source_roi["y"].length
+                        )
+                        // by_y,
+                        (
+                            profile.frame_shape["x"]
+                            if placement.cell.column == largest_column
+                            else placement.visual_source_roi["x"].length
+                        )
+                        // by_x,
                     )
                     if (
                         tuple(entry["lands_at"]) != expected_lands_at
@@ -283,18 +305,120 @@ class _LiveRun:
                             size=tuple(entry["size"]),
                         )
                     )
-                routes[level_number] = route_the_view(
+                route = route_the_view(
                     placed,
                     view_shape=tuple(level["view_shape"]),
                 )
+                seamless_array = self.folder / _SEAMLESS / str(level_number)
+                if (seamless_array / "c").exists():
+                    raise ValueError("the seamless virtual view contains pixel chunks")
+                refuse_a_view_stored_differently(seamless_array, route)
+                routes[level_number] = route
             expected_levels = set(profile.linkable_levels) if generations else set()
             if routed_levels != expected_levels:
                 raise ValueError("the live view route has the wrong pyramid levels")
+
+            raw_levels_list = held.get("raw_linkable_levels") or ()
+            if (
+                not isinstance(raw_levels_list, list)
+                or any(
+                    not isinstance(level, int) or isinstance(level, bool)
+                    for level in raw_levels_list
+                )
+                or len(raw_levels_list) != len(set(raw_levels_list))
+            ):
+                raise ValueError("the raw-view linkable levels are not a unique list")
+            raw_levels = frozenset(raw_levels_list)
+            if raw_levels != routed_levels:
+                raise ValueError(
+                    "the raw and seamless virtual views must link the same levels"
+                )
+            raw_group = self.folder / _RAW / "zarr.json"
+            if raw_levels:
+                raw_description = json.loads(raw_group.read_text(encoding="utf-8"))
+                described_levels = (
+                    (raw_description.get("attributes") or {})
+                    .get("zmart", {})
+                    .get("linkable_levels")
+                )
+                if described_levels != list(raw_levels_list):
+                    raise ValueError(
+                        "the raw view metadata and link map disagree about linked levels"
+                    )
+            for level_number in raw_levels:
+                geometry = profile.level(level_number)
+                by_z = geometry.downsampling.get("z", 1)
+                by_y = geometry.downsampling.get("y", 1)
+                by_x = geometry.downsampling.get("x", 1)
+                reach = (
+                    profile.frame_shape.get("z", 1) // by_z,
+                    max(
+                        placement.origin["y"] + profile.frame_shape["y"]
+                        for placement in layout.positions
+                    )
+                    // by_y,
+                    max(
+                        placement.origin["x"] + profile.frame_shape["x"]
+                        for placement in layout.positions
+                    )
+                    // by_x,
+                )
+                by_stop: dict[int, list[Placed]] = {}
+                for entry in entries_by_level.get(level_number, ()):
+                    position_id = str(entry["position_id"])
+                    placement = layout.placement(position_id)
+                    by_stop.setdefault(
+                        self._tile_stop(placement, profile), []
+                    ).append(
+                        Placed(
+                            array=(self.folder / entry["array"]).resolve(),
+                            lands_at=(
+                                0,
+                                placement.origin["y"] // by_y,
+                                placement.origin["x"] // by_x,
+                            ),
+                            taken_from=(0, 0, 0),
+                            size=(
+                                profile.frame_shape.get("z", 1) // by_z,
+                                profile.frame_shape["y"] // by_y,
+                                profile.frame_shape["x"] // by_x,
+                            ),
+                        )
+                    )
+                first_route: ViewRoute | None = None
+                for stop, placed in by_stop.items():
+                    route = route_the_view(placed, view_shape=reach)
+                    raw_routes[(level_number, stop)] = route
+                    if first_route is None:
+                        first_route = route
+                if first_route is None:
+                    raise ValueError("a declared raw linked level contains no positions")
+                raw_array = json.loads(
+                    (self.folder / _RAW / str(level_number) / "zarr.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                if (self.folder / _RAW / str(level_number) / "c").exists():
+                    raise ValueError("the raw virtual view contains pixel chunks")
+                raw_chunk = tuple(
+                    raw_array["chunk_grid"]["configuration"]["chunk_shape"]
+                )
+                if raw_chunk != (1, 1, 1, *first_route.storage.chunk[-3:]):
+                    raise ValueError(
+                        "the raw view chunk shape cannot decode canonical chunk bytes"
+                    )
+                if (
+                    str(raw_array.get("data_type")) != first_route.storage.dtype
+                    or raw_array.get("fill_value") != first_route.storage.fill_value
+                    or tuple(raw_array.get("codecs") or ())
+                    != first_route.storage.codecs
+                ):
+                    raise ValueError(
+                        "the raw view encoding cannot decode canonical chunk bytes"
+                    )
             self._routes = routes
-            self._link_generations = {
-                str(position_id): int(generation)
-                for position_id, generation in generations.items()
-            }
+            self._raw_routes = raw_routes
+            self._raw_levels = raw_levels
             self._links_mark = mark
             return routes
 
@@ -320,79 +444,13 @@ class _LiveRun:
             inside = relative.relative_to(_SEAMLESS)
         except ValueError:
             return None
-        # Today the view is a root array.  The optional numeric prefix also
-        # accepts the multiscale group layout the coarse-view writer is moving to.
+        # Accept a numeric multiscale level between the view group and ``c``.
         before_chunk = inside.parts[: inside.parts.index("c")]
         level = int(before_chunk[-1]) if before_chunk and before_chunk[-1].isdigit() else 0
         route = self._routes_now().get(level)
-        if route is None:
-            return self._physical_seamless_piece(level, piece)
-        if not route.covers(piece):
-            return self._physical_seamless_piece(level, piece)
+        if route is None or not route.covers(piece):
+            return LiveResponse(False)
         return self._published_serving(route, piece)
-
-    def _physical_seamless_piece(
-        self, level: int, piece: tuple[int, ...]
-    ) -> LiveResponse:
-        """Gate a materialized edge/coarse chunk that cannot be pointed at."""
-        if len(piece) != 5:
-            return LiveResponse(False)
-        layout, profile = self._geometry()
-        owners = self._seamless_owners(layout, profile, level, piece[-2:])
-        if len(owners) != 1:
-            return LiveResponse(False)
-        generation = self._generation_of(owners[0].position_id)
-        return LiveResponse(
-            self.published(owners[0].position_id, piece[0], generation)
-        )
-
-    def _seamless_owners(
-        self,
-        layout: SceneLayoutRevision,
-        profile: AcquisitionProfile,
-        level: int,
-        index: tuple[int, int],
-    ) -> list[PositionPlacement]:
-        ground = CoarseChunk(level=level, index=index, axes=("y", "x")).covers(
-            profile, profile.level(level).inner_chunk
-        )
-        largest_row = max(p.cell.row for p in layout.positions)
-        largest_column = max(p.cell.column for p in layout.positions)
-        owners = []
-        for placement in layout.positions:
-            shown = placement.visual_source_roi
-            y_stop = (
-                profile.frame_shape["y"]
-                if placement.cell.row == largest_row
-                else shown["y"].stop
-            )
-            x_stop = (
-                profile.frame_shape["x"]
-                if placement.cell.column == largest_column
-                else shown["x"].stop
-            )
-            extended = type(shown).of(
-                y=(shown["y"].start, y_stop),
-                x=(shown["x"].start, x_stop),
-            ).shifted(placement.origin)
-            if extended.overlaps(ground):
-                owners.append(placement)
-        return owners
-
-    def _generation_of(self, position_id: str) -> int:
-        # The link map is written before the atomic commit and names the exact
-        # generation whose bytes the candidate views contain.  Using only the
-        # latest *published* generation here would expose replacement pixels
-        # under the superseded generation during that pre-commit window.
-        self._routes_now()
-        if position_id in self._link_generations:
-            return self._link_generations[position_id]
-        generations = [
-            generation
-            for candidate, _moment, generation in self._published_units()
-            if candidate == position_id
-        ]
-        return max(generations, default=0)
 
     @staticmethod
     def _tile_stop(
@@ -415,22 +473,13 @@ class _LiveRun:
             return LiveResponse(False)
         before_chunk = inside.parts[: inside.parts.index("c")]
         level = int(before_chunk[-1]) if before_chunk and before_chunk[-1].isdigit() else 0
-        layout, profile = self._geometry()
-        ground = CoarseChunk(level=level, index=piece[-2:], axes=("y", "x")).covers(
-            profile, profile.level(level).inner_chunk
-        )
-        owners = [
-            placement
-            for placement in layout.positions
-            if self._tile_stop(placement, profile) == piece[0]
-            and placement.analysis_input_roi.shifted(placement.origin).overlaps(ground)
-        ]
-        if len(owners) != 1:
+        self._routes_now()
+        if level not in self._raw_levels:
             return LiveResponse(False)
-        generation = self._generation_of(owners[0].position_id)
-        return LiveResponse(
-            self.published(owners[0].position_id, piece[1], generation)
-        )
+        route = self._raw_routes.get((level, piece[0]))
+        if route is None or not route.covers(piece[1:]):
+            return LiveResponse(False)
+        return self._published_serving(route, piece[1:])
 
     def answer(self, target: Path) -> LiveResponse | None:
         """Classify one resolved request target, or leave ordinary data alone."""

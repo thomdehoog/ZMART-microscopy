@@ -60,6 +60,7 @@ from zmart_live.omezarr import (
     describe_the_position,
     the_image_description,
 )
+from zmart_live.profiles import plan_the_writing
 
 # How the little acquisition below is set up. The numbers are chosen so that a
 # mistake shows rather than hides.
@@ -946,7 +947,13 @@ def test_the_live_seamless_view_is_also_opened_by_the_outside_reader(
     ngff_zarr = pytest.importorskip("ngff_zarr", reason="an optional outside reader")
     from zmart_live.coordinator import LivePublisher
 
-    profile = _a_profile()
+    profile, _geometry = plan_the_writing(
+        "overview",
+        frame=FRAME,
+        z_planes=Z_PLANES,
+        channels=COLOURS,
+        voxel_size=VOXEL_UM,
+    )
     publisher = LivePublisher(
         folder=tmp_path / "run",
         profile=profile,

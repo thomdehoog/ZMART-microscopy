@@ -792,9 +792,21 @@ def test_the_sharded_plan_the_profile_chooses_now_links(tmp_path):
         ((0, 0, 1, 4, step // chunk[-1] - 1), stores[0], (0, 0, 1, 4, step // chunk[-1] - 1)),
         ((0, 0, 0, 0, step // chunk[-1]), stores[1], (0, 0, 0, 0, 0)),
         (
-            (0, 0, 1, 8, (step + frame) // chunk[-1] - 1),
+            (
+                0,
+                0,
+                1,
+                frame // chunk[-2] - 1,
+                (step + frame) // chunk[-1] - 1,
+            ),
             stores[1],
-            (0, 0, 1, 8, frame // chunk[-1] - 1),
+            (
+                0,
+                0,
+                1,
+                frame // chunk[-2] - 1,
+                frame // chunk[-1] - 1,
+            ),
         ),
     ):
         serving = route.where_this_chunk_is(at)

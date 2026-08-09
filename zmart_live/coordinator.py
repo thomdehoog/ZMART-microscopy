@@ -1,164 +1,29 @@
-"""Earning the right to publish, rather than asserting it.
+"""Write canonical positions and publish strictly virtual acquisition views.
 
-The publication record refuses an event whose readiness is not claimed. That is
-necessary and it is not sufficient, because until now nothing *checked* those
-claims — a caller could set every flag to true and the record would believe it.
-The promise "nothing half-written is ever visible" was therefore only as good as
-the caller's honesty, which is not a property you can test.
+The manifest refuses an event whose readiness is not proved from the bytes on
+disk. A caller cannot supply readiness flags: this coordinator writes a complete
+position or timepoint, reads every promised canonical pyramid level back, follows
+the stored routes, validates both view descriptions and the realized layout, and
+only then advances the atomic publication record.
 
-This module is what makes the claims mean something. It writes a position, then
-goes and looks at what actually landed on disk, and builds the publication event
-out of **what it found** rather than what anybody asserted. There is deliberately
-no way to hand it a readiness flag.
+All pixels live below ``positions/``. Every canonical pyramid level is sharded
+and independently portable as part of its position OME-Zarr image. The two
+run-wide presentations below ``views/`` are descriptions and routes only:
 
-The two pictures this builds, and why there have to be two
-----------------------------------------------------------
+* the seamless view gives each overlap one deterministic owner and lets the
+  outermost row and column retain their complete camera edge; and
+* the raw view adds a compact ``tile`` selector axis so both measurements in an
+  overlap remain available without one source per position.
 
-A mosaic is imaged with its tiles deliberately overlapping, so along every seam
-there is a strip of specimen that two tiles both photographed. That leaves two
-honest but different ways to show the run, and this module writes both of them.
+Neither view may contain a ``c/`` payload tree. Each advertised view chunk is an
+already-encoded canonical inner chunk located by byte range inside a source
+shard. Publication fails closed if the acquisition profile, route geometry,
+encoding, far edge, selector assignment, or manifest generation disagrees.
 
-The **seamless** view crops each tile so that no piece of specimen appears
-twice. It is the quick-look picture an operator navigates by, and it is the one
-that answers "where am I?".
-
-The **raw overlap** view keeps every pixel each tile recorded, overlap included.
-It is the picture you open when you want to see what the microscope actually
-did: whether the two tiles agree along the seam, whether the illumination fell
-away at a frame edge, whether the stage went where it was asked to go.
-
-The raw view cannot simply be the tiles painted into one picture. Inside an
-overlap strip, two tiles hold two genuinely different measurements of the same
-place on the specimen, and one grey value per place can only hold one of them.
-Painting them into a single picture means whichever tile happened to be written
-last silently replaces the other's measurement — which destroys exactly the
-evidence somebody opened this view to look at. The decision record says the same
-thing in one sentence: *"A single scalar composite cannot expose two different
-measurements at the same world coordinate simultaneously, so a truly raw overlap
-presentation must retain distinct position sources/layers or provide a
-position-selection mechanism."*
-
-Handing the viewer one source per position is the other way to keep them apart,
-and ``scene.py`` explains at length why that is ruinous: every source becomes a
-drawing layer that takes part in every frame for as long as the viewer is open.
-So the raw view is one store with **one extra dimension** — a slider the
-operator steps through to choose which tile they are looking at. That is what
-``scene.py`` already declares for this view under the name ``tile``, and it is
-what this module writes.
-
-What one stop on that slider means
-----------------------------------
-
-The tempting arrangement is one stop per position, and it is the wrong one: on a
-real run the slider would have five thousand stops, nearly all of them empty
-wherever the operator happens to be looking, and finding the two that meet at
-the seam in front of them would be hopeless.
-
-The arrangement used here is much smaller and is fixed by the geometry alone.
-Two tiles can only overlap if they sit within a frame's width of one another, so
-tiles that are far enough apart in the grid can safely share a stop. Counting
-how many tiles it takes to travel one frame gives the number of stops needed on
-each tiled axis — with a 1152-pixel frame and a 128-pixel overlap the stage moves
-1024 pixels between tiles, so two tiles in a row can overlap and two stops are
-enough. A tile's stop is then simply its row and column counted round that many
-places, which for an ordinary mosaic gives four stops in total: the tiles fall
-into four interleaved sets, like the squares of a chessboard, and no two tiles
-within one set ever touch.
-
-Three things follow, and each is worth having. Both measurements in an overlap
-are always kept, because two overlapping tiles always land on different stops.
-No measurement is ever overwritten, because two tiles sharing a stop never share
-any specimen. And the number of stops depends on the acquisition geometry rather
-than on how many positions have arrived, so the slider means the same thing at
-the beginning of a run as at the end.
-
-That reasoning is checked rather than trusted:
-:meth:`LivePublisher.write_the_raw_overlap_view` refuses to write at all if any
-two tiles sharing a stop would in fact share specimen.
-
-What this view does not do yet is worth saying plainly. It is written at full
-resolution only, like the seamless view, so zooming out in the raw view has no
-prepared copies to fall back on. Nothing about the arrangement above prevents
-those being added; they simply are not here.
-
-What is published, and what "ready" is made to mean
----------------------------------------------------
-
-The thing that becomes visible is never "a position" in the abstract. It is one
-position **at one moment** — one position together with one timepoint — because
-a timelapse writes the same position over and over and each of those moments is
-finished at a different time. Every check below is therefore asked about that
-pair and about nothing else. Asking about the position as a whole was the
-original mistake, and it allowed a moment for which not one byte had been
-written to be published as complete, since a store politely returns empty ground
-for any piece it does not hold.
-
-Five things are checked, and each corresponds to a way an operator could
-otherwise be shown a confident picture of nothing.
-
-**The pixels and their zoomed-out copies.** For every level the position
-advertises, the exact list of pieces that moment ought to have produced is
-worked out, and the store is asked, piece by piece, whether it really holds each
-one. That is not the same as reading the level back and finding numbers in it: a
-piece that was never stored reads back as perfectly ordinary empty ground, so
-reading alone cannot tell "nothing was written here" from "this part of the
-slide is blank". Everything that *is* stored is then decoded as well, because a
-file can exist and be half a chunk long, and half a chunk is exactly what a
-viewer would draw as plausible noise.
-
-**The pointers.** At the levels the overview points at rather than copies, it
-stores no pixels of its own; when the viewer asks for a piece, the answer is a
-stretch of bytes inside a position that was already written. Which position
-answers for which piece is written down as a map beside the run, and that map is
-then read back and followed: every piece this position supplies is resolved to a
-byte range, decoded on its own, and compared against what the position's own
-array returns. This is the check that catches a wrong byte range, which produces
-a picture rather than an error.
-
-**The shared zoomed-out picture.** The pieces this position disturbs are rebuilt
-from the committed positions only, and then the ground this position covers is
-read back out of that picture and compared, pixel for pixel, against the
-position's own store. Comparing the pixels is the whole point: a picture that is
-present but black, or one that still shows the ground as it was before this
-position arrived, is not a fault anybody would notice on screen — it looks like
-specimen that has not been imaged.
-
-**The raw overlap picture.** The whole frame this position recorded is read back
-out of the stop on the tile slider that belongs to it, and compared pixel for
-pixel against the position's own store. This is what catches another tile having
-written over these measurements, which is the one failure the raw view exists to
-make impossible and the one that leaves no trace on screen — the strip still
-looks like specimen, it is simply the neighbour's specimen.
-
-**The arrangement.** The layout that says who owns what is written down and read
-back before it is referred to, because every published measurement will point at
-it later. It is not enough that the file parses. It has to be *this* run's
-arrangement, so its run, its storage plan and its revision number are all
-compared against the run in hand; a well-formed layout belonging to a different
-experiment would otherwise be accepted without a word.
-
-Only when all five hold is an event created, and only then does the record move.
-
-Once published, pixels stop being editable
-------------------------------------------
-
-Somebody reading a published revision is entitled to assume that everything that
-revision covers still says what it said. So once a position at one moment has
-been committed, writing over it is refused. Data can of course turn out to be
-wrong, and :meth:`LivePublisher.replace_a_position` is the way to say so: it
-writes the new pixels into a **new generation** of that position's store, leaves
-the old generation exactly where it is, rebuilds both shared pictures from the
-new one, and publishes the change as its own revision. Nothing anybody has
-already been shown is altered; a newer answer simply appears beside it.
-
-What this module is not
------------------------
-
-It is one narrow path: a small mosaic, one moment, written locally. It is meant
-to be the first thing that is true end to end rather than the last word on any
-part of it. What it does not yet do is written down in
-``docs/design/live-writer-and-linked-views-plan.md`` rather than implied by
-silence here.
+Published canonical bytes are immutable. Replacing a moment creates a new
+position generation, refreshes the generation-specific routes and metadata, and
+publishes that answer as a new revision. A failed replacement restores the old
+route map; there are no shared view pixels to roll back.
 """
 
 from __future__ import annotations
@@ -172,7 +37,6 @@ import numpy as np
 import zarr
 from zarr.codecs import ZstdCodec
 
-from .coarse import chunks_touched_by, what_a_chunk_should_hold
 from .identity import (
     latest_layout_revision,
     record_the_layout,
@@ -191,7 +55,7 @@ from .model import (
 from .omezarr import describe_the_position
 from .ownership import check_the_grid_holds_together, place_the_tiles, the_far_edges
 from .shardlink import where_one_chunk_lives
-from .viewroute import Placed, route_the_view
+from .viewroute import Placed, refuse_a_view_stored_differently, route_the_view
 
 __all__ = [
     "Inspection",
@@ -204,7 +68,7 @@ _LINKS = "links.json"
 
 #: The name written into the map of pointers, so that anybody reading that file
 #: can tell at once whether it is one this version of ZMART understands.
-_LINKS_SCHEMA = "zmart-live-links/1"
+_LINKS_SCHEMA = "zmart-live-links/2"
 
 
 class NotReadyToPublish(ZmartLiveError):
@@ -267,23 +131,20 @@ class Inspection:
                 f"{which} is complete: {self.pieces_read} pixels read back out of "
                 f"the pieces the store really holds, {self.ranges_checked} pointers "
                 f"resolved through the stored map and decoded, "
-                f"{self.coarse_pieces_rebuilt} pieces of the zoomed-out picture "
-                f"rebuilt from the positions already published, and "
-                f"{self.raw_pixels_compared} pixels of the raw overlap view found "
-                f"to still be this position's own measurements."
+                f"{self.coarse_pieces_rebuilt} seamless virtual levels validated "
+                f"without copied payload, and {self.raw_pixels_compared} raw "
+                f"selector routes checked against this position's canonical bytes."
             )
         return f"{which} is not ready to be shown. " + " ".join(self.complaints)
 
 
 @dataclass
 class LivePublisher:
-    """Writes a small mosaic and publishes each position once it is genuinely done.
+    """Publish complete positions through two metadata-only run-wide views.
 
-    The order it insists on is the order the architecture record lays out: pixels
-    and their zoomed-out copies, then the pointers, then the two run-wide
-    pictures — the seamless one and the raw one that keeps every overlapping
-    pixel — then the arrangement, and only then one indivisible commit. Nothing
-    is visible until that last step, however finished the files may look.
+    Canonical pixels and pyramids are finalized first, then both route sets and
+    view descriptions, then the realized layout, and finally one indivisible
+    manifest commit. Nothing is visible until that last step.
     """
 
     folder: Path
@@ -796,38 +657,25 @@ class LivePublisher:
         *,
         only: frozenset[str | tuple[str, int]] | None = None,
     ) -> None:
-        """Rebuild the run-wide picture from the positions already published.
+        """Describe the seamless image without storing any of its pixels.
 
-        The rule this carries out is the one the zoomed-out picture exists to
-        obey: a position appears here only once it has been committed. Ground
-        belonging to a position that is still being written stays empty, which is
-        the truth — that part of the specimen is not finished — rather than a
-        picture assembled from half-written data.
+        ``committed`` and ``only`` remain in the public signature because the
+        publication sequence calls both views in the same way. Visibility lives
+        in the link map and manifest, however; changing either set never requires
+        rewriting view pixels because there are no view pixels.
 
-        Every tile hands its far strip to the neighbour beyond it, which is what
-        keeps all the tiles' numbers lined up and lets the overview point at their
-        pixels instead of copying them. A tile at the outside of the mosaic has no
-        neighbour to hand that strip to, so nobody would cover it and roughly a
-        fifth of every edge tile would come out black.
-        :func:`zmart_live.ownership.the_far_edges` says exactly which strips those
-        are, and they are written here.
+        Existing ``c/`` payload trees are removed deliberately. They came from
+        the earlier copying implementation and would otherwise leave a stale
+        second source of truth beside the canonical position chunks.
         """
-        committed_units = self._as_position_moments(committed)
-        created = not self.seamless_store.exists()
-        if created or only is None:
-            units_to_write = {
-                (placement.position_id, moment)
-                for placement in self.layout.positions
-                for moment in range(self.timepoints)
-            }
-        else:
-            units_to_write = set(self._as_position_moments(only))
-
+        del committed, only
+        levels = self._strict_zero_copy_levels()
         zarr.open_group(str(self.seamless_store), mode="a", zarr_format=3)
-        sources: dict[tuple[str, int], object] = {}
-        for level in self.profile.levels:
-            factor_y = level.downsampling.get("y", 1)
-            factor_x = level.downsampling.get("x", 1)
+        self._remove_unadvertised_view_levels(
+            self.seamless_store,
+            {level.level for level in levels},
+        )
+        for level in levels:
             depth, height, width = self._how_big_the_overview_is(level.level)
             shape = (self.timepoints, len(self.channels), depth, height, width)
             chunks = (
@@ -849,54 +697,46 @@ class LivePublisher:
                     dimension_names=self.profile.axes,
                     overwrite=False,
                 )
-            view = zarr.open_array(str(path), mode="r+")
-            for position_id, moment in sorted(units_to_write):
-                placement = self.layout.placement(position_id)
-                shown = self._what_this_tile_fills_in(placement)
-                y = self._interval_at_level(shown["y"], factor_y)
-                x = self._interval_at_level(shown["x"], factor_x)
-                lands_y = placement.origin["y"] // factor_y
-                lands_x = placement.origin["x"] // factor_x
-                target = (
-                    moment,
-                    slice(None),
-                    slice(None),
-                    slice(lands_y, lands_y + y.length),
-                    slice(lands_x, lands_x + x.length),
-                )
-                unit = (position_id, moment)
-                if unit in committed_units:
-                    key = (position_id, level.level)
-                    source = sources.get(key)
-                    if source is None:
-                        source = zarr.open_array(
-                            str(self.position_store(position_id) / str(level.level)),
-                            mode="r",
-                        )
-                        sources[key] = source
-                    z = slice(0, depth)
-                    view[target] = source[moment, :, z, y.start:y.stop, x.start:x.stop]
-                else:
-                    view[target] = 0
+            self._remove_view_payload(path)
 
         describe_the_position(
             self.seamless_store,
             self.profile,
             name="overview-seamless",
+            levels=levels,
             channels=self.channels,
             origin_pixels={"z": 0, "y": 0, "x": 0},
         )
 
-    @staticmethod
-    def _interval_at_level(interval: Interval, factor: int) -> Interval:
-        """Express a full-resolution interval on one pyramid level exactly."""
-        if interval.start % factor or interval.stop % factor:
+    def _strict_zero_copy_levels(self):
+        """Return all levels, or refuse a profile requiring view-owned pixels."""
+        missing = [level.level for level in self.profile.levels if not level.linkable]
+        if not self.profile.levels or missing:
             raise ZmartLiveError(
-                f"The interval {interval.start}:{interval.stop} does not land on "
-                f"whole pixels after downsampling by {factor}. This level cannot "
-                "be assembled without resampling across a declared seam."
+                f"Profile {self.profile.profile_id!r} cannot publish strict "
+                f"zero-copy views: levels {missing or 'none'} are not linkable. "
+                "Plan the frame, overlap and per-level chunks together; this "
+                "publisher will not hide the mismatch by copying view pixels."
             )
-        return Interval(interval.start // factor, interval.stop // factor)
+        return self.profile.levels
+
+    @staticmethod
+    def _remove_view_payload(path: Path) -> None:
+        """Remove legacy view chunks while preserving the array description."""
+        payload = path / "c"
+        if payload.is_dir():
+            shutil.rmtree(payload)
+        elif payload.exists():
+            payload.unlink()
+
+    @staticmethod
+    def _remove_unadvertised_view_levels(store: Path, advertised: set[int]) -> None:
+        """Remove obsolete numeric arrays that the virtual view no longer lists."""
+        if not store.exists():
+            return
+        for child in store.iterdir():
+            if child.is_dir() and child.name.isdigit() and int(child.name) not in advertised:
+                shutil.rmtree(child)
 
     def _what_this_tile_fills_in(self, placement) -> dict[str, Interval]:
         """Which part of one tile the seamless picture is filled in from.
@@ -929,40 +769,29 @@ class LivePublisher:
         *,
         only: frozenset[str | tuple[str, int]] | None = None,
     ) -> None:
-        """Rebuild the picture that keeps every pixel every tile recorded.
+        """Describe the raw selector without copying any position pixels.
 
-        Each published tile is copied in whole, overlap included, at the stop on
-        the tile slider that belongs to it. Where two tiles meet, both of their
-        measurements are therefore on disk, at the same place on the specimen but
-        at different stops, and an operator can step from one to the other to see
-        whether the microscope agreed with itself.
-
-        The same rule as the seamless view applies here, for the same reason: a
-        position appears only once it has been committed, so nothing half-written
-        is ever shown.
-
-        Raises :class:`~zmart_live.model.ZmartLiveError` if two tiles that share
-        specimen would be written to one stop, because writing that view would
-        throw away one of the two measurements it exists to keep.
+        The extra ``tile`` axis keeps both measurements of an overlap available,
+        while every requested chunk is still routed to a canonical position.
+        Publication state is applied by the gateway from the manifest and link
+        map, not by filling or clearing this metadata-only array.
         """
+        del committed, only
         self._no_two_tiles_on_one_stop_overlap()
-
-        created = not self.raw_overlap_store.exists()
-        committed_units = self._as_position_moments(committed)
-        if created or only is None:
-            units_to_write = {
-                (placement.position_id, moment)
-                for placement in self.layout.positions
-                for moment in range(self.timepoints)
-            }
-        else:
-            units_to_write = set(self._as_position_moments(only)).copy()
-
+        levels = self._strict_zero_copy_levels()
+        if self.raw_linkable_levels != tuple(level.level for level in levels):
+            raise ZmartLiveError(
+                "The profile is linkable for the seamless view but its complete "
+                "camera frames do not land on whole chunks in the raw selector. "
+                "Replan the overlap and per-level chunks; raw view pixels will "
+                "not be copied as a fallback."
+            )
         group = zarr.open_group(str(self.raw_overlap_store), mode="a", zarr_format=3)
-        sources: dict[tuple[str, int], object] = {}
-        for level in self.profile.levels:
-            factor_y = level.downsampling.get("y", 1)
-            factor_x = level.downsampling.get("x", 1)
+        self._remove_unadvertised_view_levels(
+            self.raw_overlap_store,
+            {level.level for level in levels},
+        )
+        for level in levels:
             depth, height, width = self._how_big_the_overview_is(level.level)
             shape = (
                 self.tile_stop_count,
@@ -992,36 +821,7 @@ class LivePublisher:
                     dimension_names=("tile", *self.profile.axes),
                     overwrite=False,
                 )
-            view = zarr.open_array(str(path), mode="r+")
-            for position_id, moment in sorted(units_to_write):
-                placement = self.layout.placement(position_id)
-                everything = placement.analysis_input_roi
-                y = self._interval_at_level(everything["y"], factor_y)
-                x = self._interval_at_level(everything["x"], factor_x)
-                lands_y = placement.origin["y"] // factor_y
-                lands_x = placement.origin["x"] // factor_x
-                target = (
-                    self.tile_stop_of(position_id),
-                    moment,
-                    slice(None),
-                    slice(None),
-                    slice(lands_y, lands_y + y.length),
-                    slice(lands_x, lands_x + x.length),
-                )
-                if (position_id, moment) in committed_units:
-                    key = (position_id, level.level)
-                    source = sources.get(key)
-                    if source is None:
-                        source = zarr.open_array(
-                            str(self.position_store(position_id) / str(level.level)),
-                            mode="r",
-                        )
-                        sources[key] = source
-                    view[target] = source[
-                        moment, :, :, y.start:y.stop, x.start:x.stop
-                    ]
-                else:
-                    view[target] = 0
+            self._remove_view_payload(path)
 
         group.attrs["zmart"] = {
             "schema": "zmart-live-raw-multiscale/1",
@@ -1032,9 +832,47 @@ class LivePublisher:
                     "path": str(level.level),
                     "downsampling": dict(level.downsampling),
                 }
-                for level in self.profile.levels
+                for level in levels
             ],
+            "linkable_levels": list(self.raw_linkable_levels),
         }
+
+    @property
+    def raw_linkable_levels(self) -> tuple[int, ...]:
+        """Levels whose complete camera frames reuse canonical chunks unchanged."""
+        return tuple(
+            level.level
+            for level in self.profile.levels
+            if level.linkable and self._raw_level_is_linkable(level)
+        )
+
+    def _raw_level_is_linkable(self, level) -> bool:
+        """Whether every raw tile lands on whole, byte-compatible chunks."""
+        reach = self._how_big_the_overview_is(level.level)
+        smaller = level.downsampling
+        local = tuple(
+            self.profile.frame_shape.get(axis, 1) // smaller.get(axis, 1)
+            for axis in ("z", "y", "x")
+        )
+        view_chunk = tuple(
+            min(level.inner_chunk[axis], reach[at])
+            for at, axis in enumerate(("z", "y", "x"))
+        )
+        position_chunk = tuple(
+            min(level.inner_chunk[axis], local[at])
+            for at, axis in enumerate(("z", "y", "x"))
+        )
+        if view_chunk != position_chunk:
+            return False
+        if any(size % piece for size, piece in zip(local, view_chunk, strict=True)):
+            return False
+        for placement in self.layout.positions:
+            for at, axis in enumerate(("z", "y", "x")):
+                origin = 0 if axis == "z" else placement.origin[axis]
+                factor = smaller.get(axis, 1)
+                if origin % factor or (origin // factor) % view_chunk[at]:
+                    return False
+        return True
 
     def write_the_layout(self) -> None:
         """Persist the immutable arrangement a published result points at.
@@ -1051,15 +889,14 @@ class LivePublisher:
         """Where one tile's own pixels sit in the overview, at one zoom level.
 
         Everything here is in that level's own pixels, so the full-resolution
-        numbers are divided by how much smaller the level is. What is pointed at
-        is the tile's ``visual_source_roi`` and nothing more: the strips along the
-        mosaic's outer edge are written into the seamless store rather than
-        pointed at, because they are what is left over once every tile has been
-        trimmed the same way.
+        numbers are divided by how much smaller the level is. Ordinary tiles
+        contribute one grid step. Tiles on the last row or column extend to their
+        complete camera edge, which is also chunk-aligned under a strict profile
+        and therefore needs no physical fallback.
         """
         placement = self.layout.placement(position_id)
         smaller = self.profile.level(level_number).downsampling
-        shown = placement.visual_source_roi
+        shown = self._what_this_tile_fills_in(placement)
         depth = self.profile.frame_shape.get("z", 1)
         by = {axis: smaller.get(axis, 1) for axis in ("z", "y", "x")}
         return Placed(
@@ -1074,6 +911,27 @@ class LivePublisher:
                 depth // by["z"],
                 shown["y"].length // by["y"],
                 shown["x"].length // by["x"],
+            ),
+        )
+
+    def _where_one_raw_tile_is_pointed_at(
+        self, position_id: str, level_number: int
+    ) -> Placed:
+        """Place one complete camera frame inside one raw selector stop."""
+        placement = self.layout.placement(position_id)
+        smaller = self.profile.level(level_number).downsampling
+        by = {axis: smaller.get(axis, 1) for axis in ("z", "y", "x")}
+        return Placed(
+            array=self.position_store(position_id) / str(level_number),
+            lands_at=(
+                0,
+                placement.origin["y"] // by["y"],
+                placement.origin["x"] // by["x"],
+            ),
+            taken_from=(0, 0, 0),
+            size=tuple(
+                self.profile.frame_shape.get(axis, 1) // by[axis]
+                for axis in ("z", "y", "x")
             ),
         )
 
@@ -1140,6 +998,26 @@ class LivePublisher:
                     ],
                 }
             )
+        # The raw selector can point at a level only when the *whole* camera
+        # frame, rather than the trimmed seamless rectangle, is made of whole
+        # chunks.  Build every stop's route now for its refusals.  The placements
+        # themselves need not be written twice: the immutable layout, profile and
+        # generation table above determine them completely, and the gateway
+        # rebuilds and validates the same routes when it opens this map.
+        raw_linkable = list(self.raw_linkable_levels) if showing else []
+        for level_number in raw_linkable:
+            by_stop: dict[int, list[Placed]] = {}
+            for position_id in showing:
+                by_stop.setdefault(self.tile_stop_of(position_id), []).append(
+                    self._where_one_raw_tile_is_pointed_at(
+                        position_id, level_number
+                    )
+                )
+            for placed in by_stop.values():
+                route_the_view(
+                    placed,
+                    view_shape=self._how_big_the_overview_is(level_number),
+                )
         target = self.link_map_file
         target.parent.mkdir(parents=True, exist_ok=True)
         _write_and_replace(
@@ -1154,6 +1032,7 @@ class LivePublisher:
                         position_id: self.generations.get(position_id, 0)
                         for position_id in showing
                     },
+                    "raw_linkable_levels": raw_linkable,
                     "created_at": now_in_words(),
                     "levels": levels,
                 },
@@ -1590,143 +1469,166 @@ class LivePublisher:
     def _check_the_zoomed_out_picture(
         self, position_id: str, timepoint: int, complaints: list[str]
     ) -> int:
-        """Confirm the shared picture really shows this position's own pixels.
+        """Confirm the seamless view is metadata-only and byte-compatible.
 
-        Counting the pieces that had to be rebuilt says how much work the commit
-        brought with it, and that number is worth keeping. What it cannot say is
-        whether the picture is *right*, and the only way to find that out is to
-        read the ground this position covers back out of the picture and compare
-        it, pixel for pixel, against the position's own store. A picture that is
-        present but black passes every test except this one, and on the screen it
-        looks exactly like specimen nobody has imaged yet.
+        The pointer check already follows and decodes every canonical chunk this
+        position supplies. This separate check proves that the virtual arrays
+        advertise exactly that encoding and contain no copied payload tree which
+        could become a stale second source of truth.
         """
-        placement = self.layout.placement(position_id)
+        del position_id, timepoint
         if not self.seamless_store.exists():
             complaints.append(
-                "The run-wide zoomed-out picture has not been built yet, so this "
-                "position would be complete zoomed in and missing zoomed out."
+                "The seamless virtual view has not been described yet, so the "
+                "position would be complete in its own store and unreachable "
+                "through the run-wide picture."
             )
             return 0
-        rebuilt = 0
+        checked = 0
         try:
-            for level_number in (level.level for level in self.profile.levels):
-                for piece in chunks_touched_by(self.profile, placement, level_number):
-                    allowed = what_a_chunk_should_hold(
-                        self.profile, piece, self.layout.positions,
-                        frozenset(self.manifest.committed().by_store) | {position_id},
-                    )
-                    if not allowed:
-                        continue
-                    rebuilt += 1
-                level = self.profile.level(level_number)
-                factor_y = level.downsampling.get("y", 1)
-                factor_x = level.downsampling.get("x", 1)
-                shown = self._what_this_tile_fills_in(placement)
-                y = self._interval_at_level(shown["y"], factor_y)
-                x = self._interval_at_level(shown["x"], factor_x)
-                y0 = placement.origin["y"] // factor_y
-                x0 = placement.origin["x"] // factor_x
-                source = zarr.open_array(
-                    str(self.position_store(position_id) / str(level_number)),
-                    mode="r",
-                )
-                view = zarr.open_array(
-                    str(self.seamless_level(level_number)), mode="r"
-                )
-                as_written = source[
-                    timepoint, :, :, y.start:y.stop, x.start:x.stop
-                ]
-                as_shown = view[
-                    timepoint,
-                    :,
-                    :,
-                    y0 : y0 + y.length,
-                    x0 : x0 + x.length,
-                ]
-                if as_shown.size == 0:
+            stored = self._read_the_link_map()
+            described = {
+                int(item["level"]): item for item in stored.get("levels", ())
+            }
+            for level in self._strict_zero_copy_levels():
+                entry = described.get(level.level)
+                if entry is None:
                     complaints.append(
-                        f"Level {level_number} of the zoomed-out picture does not "
-                        "reach the ground this position covers."
+                        f"The seamless virtual view has no route for level "
+                        f"{level.level}."
                     )
-                elif as_shown.shape != as_written.shape or not np.array_equal(
-                    as_shown, as_written
-                ):
+                    continue
+                path = self.seamless_level(level.level)
+                if (path / "c").exists():
                     complaints.append(
-                        f"Level {level_number} of the zoomed-out picture does not "
-                        f"show '{position_id}'s own pixels over the ground it "
-                        f"covers at moment {timepoint}. Empty ground and somebody "
-                        "else's specimen both look completely ordinary on the "
-                        "screen, so only comparing the pixels notices."
+                        f"Level {level.level} of the seamless view contains copied "
+                        "chunks. A zero-copy view may contain metadata and routes "
+                        "only."
                     )
+                    continue
+                route = route_the_view(
+                    [
+                        Placed(
+                            array=self.folder / item["array"],
+                            lands_at=tuple(item["lands_at"]),
+                            taken_from=tuple(item["taken_from"]),
+                            size=tuple(item["size"]),
+                        )
+                        for item in entry.get("positions", ())
+                    ],
+                    view_shape=tuple(entry["view_shape"]),
+                )
+                refuse_a_view_stored_differently(path, route)
+                checked += 1
         except Exception as trouble:
-            complaints.append(f"The zoomed-out picture could not be read: {trouble}")
-        return rebuilt
+            complaints.append(f"The seamless virtual view could not be checked: {trouble}")
+        return checked
 
     def _check_the_raw_overlap_view(
         self, position_id: str, timepoint: int, complaints: list[str]
     ) -> int:
-        """Confirm this position's own measurements are still in the raw view.
-
-        The whole frame is read back out of the stop belonging to this position
-        and compared, pixel for pixel, against the position's own store. Counting
-        files or trusting that the write happened would not do: the failure this
-        catches is another tile's pixels sitting where these ones should be, and
-        those are perfectly readable pixels that look exactly like specimen.
-
-        Returns how many pixels were compared, which is taken from the array that
-        came back rather than from any description of it, so that removing the
-        read cannot leave the count looking healthy.
-        """
-        placement = self.layout.placement(position_id)
+        """Follow the raw selector routes and prove it owns no pixel payload."""
         if not self.raw_overlap_store.exists():
             complaints.append(
-                "The raw overlap view has not been built yet, so the measurements "
-                "this position made where it meets its neighbours would exist only "
-                "in its own store, with nowhere for an operator to compare them."
+                "The raw-overlap virtual view has not been described yet, so an "
+                "operator has no selector for comparing neighbouring measurements."
             )
             return 0
         try:
-            compared = 0
-            for level in self.profile.levels:
-                factor_y = level.downsampling.get("y", 1)
-                factor_x = level.downsampling.get("x", 1)
-                view = zarr.open_array(
-                    str(self.raw_overlap_level(level.level)), mode="r"
+            stored = self._read_the_link_map()
+            declared_raw = stored.get("raw_linkable_levels") or []
+            if declared_raw != list(self.raw_linkable_levels):
+                complaints.append(
+                    "The raw overlap view and its stored pointer map disagree "
+                    "about which pyramid levels are linked."
                 )
+                return 0
+            compared = 0
+            described = {
+                int(item["level"]): item for item in stored.get("levels", ())
+            }
+            for level in self._strict_zero_copy_levels():
+                path = self.raw_overlap_level(level.level)
+                if (path / "c").exists():
+                    complaints.append(
+                        f"Level {level.level} of the raw overlap view contains "
+                        "copied chunks. A zero-copy selector may contain metadata "
+                        "and routes only."
+                    )
+                    continue
                 source = zarr.open_array(
                     str(self.position_store(position_id) / str(level.level)),
                     mode="r",
                 )
-                everything = placement.analysis_input_roi
-                y = self._interval_at_level(everything["y"], factor_y)
-                x = self._interval_at_level(everything["x"], factor_x)
-                lands_y = placement.origin["y"] // factor_y
-                lands_x = placement.origin["x"] // factor_x
-                as_written = source[
-                    timepoint, :, :, y.start:y.stop, x.start:x.stop
-                ]
-                as_stored = view[
-                    self.tile_stop_of(position_id),
-                    timepoint,
-                    :,
-                    :,
-                    lands_y : lands_y + y.length,
-                    lands_x : lands_x + x.length,
-                ]
-                if as_stored.shape != as_written.shape or not np.array_equal(
-                    as_stored, as_written
-                ):
+                described_level = described.get(level.level)
+                if described_level is None:
                     complaints.append(
-                        f"Level {level.level} of the raw overlap view does not "
-                        f"show '{position_id}'s own measurements where it should. "
-                        "Another tile's pixels sitting here would still look like "
-                        "specimen, so nothing on screen would say that this "
-                        "position's record of the overlap has been lost."
+                        f"The raw overlap view declares level {level.level} as "
+                        "linked, but its pointer map has no such level."
                     )
-                compared += int(as_stored.size)
+                    continue
+                same_stop = []
+                mine = None
+                for entry in described_level.get("positions", ()):
+                    candidate = str(entry["position_id"])
+                    if self.tile_stop_of(candidate) != self.tile_stop_of(position_id):
+                        continue
+                    placed = self._where_one_raw_tile_is_pointed_at(
+                        candidate, level.level
+                    )
+                    placed = Placed(
+                        array=self.folder / entry["array"],
+                        lands_at=placed.lands_at,
+                        taken_from=placed.taken_from,
+                        size=placed.size,
+                    )
+                    same_stop.append(placed)
+                    if candidate == position_id:
+                        mine = {
+                            "lands_at": list(placed.lands_at),
+                            "taken_from": list(placed.taken_from),
+                            "size": list(placed.size),
+                        }
+                if mine is None:
+                    complaints.append(
+                        f"The raw pointer map does not place '{position_id}' at "
+                        f"its selector stop on level {level.level}."
+                    )
+                    continue
+                route = route_the_view(
+                    same_stop,
+                    view_shape=self._how_big_the_overview_is(level.level),
+                )
+                raw_description = json.loads(
+                    (path / "zarr.json").read_text(encoding="utf-8")
+                )
+                raw_chunk = tuple(
+                    raw_description["chunk_grid"]["configuration"]["chunk_shape"]
+                )
+                if (
+                    raw_chunk != (1, *route.storage.chunk)
+                    or str(raw_description.get("data_type")) != route.storage.dtype
+                    or raw_description.get("fill_value") != route.storage.fill_value
+                    or tuple(raw_description.get("codecs") or ())
+                    != route.storage.codecs
+                ):
+                    raise ZmartLiveError(
+                        f"Level {level.level} of the raw selector cannot decode "
+                        "the canonical chunks its route supplies."
+                    )
+                served = self._every_piece_of_mine_is_served(
+                    position_id,
+                    level.level,
+                    mine,
+                    route,
+                    timepoint,
+                    complaints,
+                )
+                if served:
+                    compared += int(np.prod(source.shape[1:], dtype=np.int64))
             return compared
         except Exception as trouble:
-            complaints.append(f"The raw overlap view could not be read: {trouble}")
+            complaints.append(f"The raw-overlap virtual view could not be checked: {trouble}")
             return 0
 
     def _layout_reads_back(self, complaints: list[str]) -> bool:
@@ -1834,10 +1736,9 @@ class LivePublisher:
     ) -> CommitEvent:
         """The whole ordered sequence for one position, in the order it must happen.
 
-        Pixels and their zoomed-out copies, then both shared pictures rebuilt from
-        what is already published plus this, then the map of pointers and the
-        arrangement, then one commit. Doing these in another order is what
-        produces a viewer showing something that is not finished.
+        Pixels and their zoomed-out copies come first, followed by the complete
+        virtual routes and metadata for both views, the arrangement, and one
+        commit. Doing these in another order can expose an unfinished answer.
         """
         self.write_a_position(position_id, pixels, timepoint=timepoint or 0)
         return self._rebuild_everything_shared_and_publish(
@@ -1858,9 +1759,9 @@ class LivePublisher:
         So this makes a **new generation** of the position instead. Everything the
         position already held is carried across into a new folder, the new pixels
         are written into that copy, and the old folder is left exactly as it was.
-        Both shared pictures are then rebuilt from the new generation and the
-        change is published as its own revision, so the two pictures move
-        together and an earlier revision goes on meaning what it meant.
+        Both virtual route sets are then refreshed for the new generation and
+        the change is published as its own revision, so the views move together
+        and an earlier revision goes on meaning what it meant.
 
         Carrying the position across means copying it, and for a large position
         that is a real cost — worth knowing before this is used as a matter of
@@ -1921,11 +1822,11 @@ class LivePublisher:
     ) -> None:
         """Put the last committed generation back after a candidate aborts.
 
-        The candidate link map deliberately withholds the position before either
-        shared view is changed. Recovery keeps that withholding map in place while
-        copying the old generation back into the affected physical view pieces,
-        then restores the old map last. A reader therefore sees either the old
-        committed pixels or a temporary refusal, never the failed candidate.
+        The candidate link map deliberately withholds the position while its two
+        metadata-only view descriptions are refreshed. Recovery regenerates those
+        descriptions from the last committed units and restores the old map last.
+        A reader therefore sees the old committed bytes or a temporary refusal,
+        never the failed candidate.
         """
         units = frozenset(self._committed_units())
         affected = frozenset({(position_id, timepoint)})
@@ -1940,15 +1841,14 @@ class LivePublisher:
         timepoint: int | None = None,
         superseding: bool = False,
     ) -> CommitEvent:
-        """Rebuild every shared picture from what is published, then commit once."""
+        """Refresh both virtual views from committed units, then commit once."""
         moment = 0 if timepoint is None else timepoint
         units = frozenset(self._committed_units()) | {(position_id, moment)}
         affected = frozenset({(position_id, moment)})
         positions = frozenset(position for position, _ in units)
         # Write the candidate generation map first. For a replacement, this makes
-        # the gateway withhold that position before any already-public physical
-        # edge or raw-view chunk is changed. The manifest commit later makes the
-        # new generation visible in one step.
+        # the gateway withhold that position while metadata points at the new
+        # generation. The manifest commit later makes it visible in one step.
         self.write_the_link_map(positions)
         self.write_the_seamless_view(units, only=affected)
         self.write_the_raw_overlap_view(units, only=affected)
