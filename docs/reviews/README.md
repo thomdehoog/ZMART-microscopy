@@ -3,7 +3,7 @@
 This folder holds the written record of code reviews done on this
 repository.
 
-Three documents live at the top level:
+Four documents live at the top level:
 
 - `MAINTAINER_DECISIONS.md` — decisions the maintainer has made about how
   the code should behave. Code and tests cite these decisions by section
@@ -14,6 +14,13 @@ Three documents live at the top level:
 - `2026-07-19-leica-driver-review.md` — the Leica driver review: how the
   driver is organized, the limits model, the reorganization that followed,
   and the quirk catalog with what is resolved and what remains.
+- `2026-08-09-live-position-timepoint-publication-review.md` — an
+  independent review of the live OME-Zarr publication branch
+  (`agent/live-position-timepoint-publication`). It says which of that
+  branch's promises were tested by running them, which held up, and which
+  did not. The important one for anybody imaging a region that is not a
+  plain rectangle: on such a mosaic the code currently lets two tiles own
+  the same piece of specimen, so objects there are counted twice.
 
 Everything in `archive/` is history: earlier review rounds, the prompts
 that were used to run them, and progress snapshots from along the way.
