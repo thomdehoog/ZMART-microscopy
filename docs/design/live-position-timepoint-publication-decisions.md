@@ -29,6 +29,56 @@ This decision refines the live behavior described in
 [`../../viz_studio/OPEN_a_run_that_changes_while_you_watch.md`](../../viz_studio/OPEN_a_run_that_changes_while_you_watch.md)
 and [`../../viz_studio/DATA_LAYOUT.md`](../../viz_studio/DATA_LAYOUT.md).
 
+## Decision: interoperability stops at a deliberate boundary
+
+The `positions/` and `views/` arrangement is kept. It is not what makes the data
+non-interoperable. Interoperability applies at three different layers, and they
+must not be conflated:
+
+```text
+<run>/                                  ZMART run container
+  positions/
+    pos-00001.ome.zarr/                 canonical, portable OME-Zarr image
+      zarr.json
+      0/ 1/ 2/ ...                      real pixels and complete pyramids
+    pos-00002.ome.zarr/
+  views/
+    overview-seamless.ome.zarr/         one virtual source for Neuroglancer
+    overview-raw.ome.zarr/              overlap-preserving selector view
+  zmart-live/
+    profiles/ layouts/ manifest/ ...    ZMART operational state
+```
+
+1. **Every canonical position is independently interoperable.** Its own path is
+   a conforming OME-Zarr image with `ome.version`, `multiscales`, named axes,
+   per-level scale and translation, and matching array `dimension_names`. A
+   standard reader can open a position directly without understanding ZMART,
+   the run container, or either view.
+2. **The run container is a ZMART collection layer.** A plain directory is the
+   least ambiguous representation today. It may instead be a Zarr group, but
+   generic OME-Zarr 0.5 readers will not automatically know that sibling
+   `positions/` and `views/` form one scene. That limits automatic discovery of
+   the whole run; it does not reduce the portability of any child position.
+3. **A virtual view has OME-Zarr-facing metadata but ZMART-specific pixel
+   routing.** The linked chunk/range map is not currently part of standard
+   OME-Zarr. The ZMART adapter resolves it and exposes a stable image endpoint to
+   Neuroglancer. Opening the link records directly with an unrelated reader is
+   therefore not promised to work. A view becomes independently portable only
+   when its pixels are materialized as an ordinary OME-Zarr image.
+
+The raw-overlap view's local tile selector is also a presentation extension: it
+lets Neuroglancer choose among multiple measurements of the same specimen
+location without creating one drawing source per position. Canonical access to
+those measurements remains through the standard position images.
+
+Native OME-Zarr scene metadata can later make the outer collection and spatial
+relationships discoverable to scene-aware tools. It changes the serialization
+of the collection, not the canonical position layout or the live publication
+contract. Until then, documentation and APIs must say precisely whether they
+mean a portable position, an adapter-backed virtual view, or the ZMART run as a
+whole; "OME-Zarr" must not be used to imply that all three have identical reader
+support.
+
 ## Decision 1: the atomic publication units
 
 There are two valid live commits:
