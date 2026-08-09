@@ -32,10 +32,9 @@ It always puts the file back, including when it is interrupted.
 
 from __future__ import annotations
 
-import re
-import subprocess
-import sys
 from pathlib import Path
+
+from ._fault_check import replace_source, require_green_baseline, run_pytest
 
 HERE = Path(__file__).resolve()
 PACKAGE = HERE.parent.parent
@@ -55,7 +54,7 @@ SCENE_FAULTS: list[tuple[str, str, str]] = [
         "put the revision in the store's address",
         "            url=_the_address_of(store_root, image.path),",
         "            url=_the_address_of(store_root, image.path)"
-        " + f\"?revision={_revision_for(image, committed)}\",",
+        ' + f"?revision={_revision_for(image, committed)}",',
     ),
     (
         "let the two overviews share one row of controls",
@@ -85,14 +84,12 @@ SCENE_FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "use the run-wide counter where a per-position one was known",
-        "    return max(committed.by_store.get(position_id, 0) "
-        "for position_id in image.draws)",
+        "    return max(committed.by_store.get(position_id, 0) for position_id in image.draws)",
         "    return committed.revision",
     ),
     (
         "forget the voxel size, so everything is one unit across",
-        "    return {axis: float(profile.voxel_size.get(axis, 1.0)) "
-        "for axis in profile.axes}",
+        "    return {axis: float(profile.voxel_size.get(axis, 1.0)) for axis in profile.axes}",
         "    return {axis: 1.0 for axis in profile.axes}",
     ),
     (
@@ -129,23 +126,6 @@ SUBJECTS: list[tuple[str, str, str, list[tuple[str, str, str]]]] = [
 ]
 
 
-def _run_the_tests(tests: Path) -> tuple[int, str]:
-    """Run one test file and report how many failed, and the first one."""
-    finished = subprocess.run(
-        [
-            sys.executable, "-m", "pytest", str(tests),
-            "-q", "--no-header", "-x", "--tb=no",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=REPO,
-    )
-    failures = re.search(r"(\d+) (?:failed|error)", finished.stdout)
-    how_many = int(failures.group(1)) if failures else 0
-    named = re.search(r"(?:FAILED|ERROR) \S+::(\S+)", finished.stdout)
-    return how_many, (named.group(1) if named else "")
-
-
 def main() -> int:
     unnoticed: list[str] = []
 
@@ -154,6 +134,9 @@ def main() -> int:
         tests = HERE.parent / test_name
         original = source.read_text(encoding="utf-8")
 
+        if not require_green_baseline(REPO, tests):
+            return 2
+
         print()
         print(f"== {title} ==")
         print(f"{'fault introduced':<58}{'caught?':>9}   noticed by")
@@ -161,24 +144,29 @@ def main() -> int:
         try:
             for description, find, replace_with in faults:
                 if find not in original:
-                    print(f"{description:<58}{'STALE':>9}   the code has moved on; "
-                          f"update this list")
+                    print(
+                        f"{description:<58}{'STALE':>9}   the code has moved on; update this list"
+                    )
                     unnoticed.append(f"{description} (could not be introduced)")
                     continue
 
-                source.write_text(
-                    original.replace(find, replace_with, 1), encoding="utf-8"
-                )
-                how_many, named = _run_the_tests(tests)
-                source.write_text(original, encoding="utf-8")
+                replace_source(source, original.replace(find, replace_with, 1))
+                try:
+                    result = run_pytest(REPO, tests)
+                finally:
+                    replace_source(source, original)
 
-                if how_many:
-                    print(f"{description:<58}{'yes':>9}   {named[:40]}")
+                if result.caught_the_fault:
+                    print(f"{description:<58}{'yes':>9}   {result.first_failure[:40]}")
+                elif result.could_not_run_tests:
+                    print(f"{description:<58}{'ERROR':>9}   pytest did not finish")
+                    print(result.output)
+                    return 2
                 else:
                     print(f"{description:<58}{'NO':>9}   nothing noticed")
                     unnoticed.append(description)
         finally:
-            source.write_text(original, encoding="utf-8")
+            replace_source(source, original)
 
     print()
     if unnoticed:

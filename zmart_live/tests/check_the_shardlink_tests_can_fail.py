@@ -29,10 +29,9 @@ written here" for "here is a chunk".
 
 from __future__ import annotations
 
-import re
-import subprocess
-import sys
 from pathlib import Path
+
+from ._fault_check import replace_source, require_green_baseline, run_pytest
 
 HERE = Path(__file__).resolve()
 SOURCE = HERE.parent.parent / "shardlink.py"
@@ -50,6 +49,11 @@ FAULTS: list[tuple[str, str, str]] = [
         "forget the checksum sitting beside the table",
         "trailing = _BYTES_PER_CHECKSUM if has_checksum else 0",
         "trailing = 0",
+    ),
+    (
+        "read an index whose checksum says its bytes changed",
+        "if actual != expected:",
+        "if False:",
     ),
     (
         "look for the table at the wrong end of the shard",
@@ -79,8 +83,8 @@ FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "trust an offset without checking it fits in the file",
-        "if offset + length > shard_bytes:",
-        "if False:",
+        "if length == 0 or offset + length > shard_bytes or overlaps_index:",
+        "if length == 0 or False or overlaps_index:",
     ),
     (
         "let a shard shorter than its own table through",
@@ -122,8 +126,7 @@ FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "read the bundle shape as though it were the chunk",
-        'inner_chunk = _whole_numbers(settings["chunk_shape"], '
-        '"chunk shape inside the bundle")',
+        'inner_chunk = _whole_numbers(settings["chunk_shape"], "chunk shape inside the bundle")',
         "inner_chunk = grid_chunk",
     ),
     (
@@ -139,48 +142,40 @@ FAULTS: list[tuple[str, str, str]] = [
 ]
 
 
-def _run_the_tests() -> tuple[int, str]:
-    """Run the shardlink tests and report how many failed, and the first one."""
-    finished = subprocess.run(
-        [
-            sys.executable, "-m", "pytest", str(TESTS),
-            "-q", "--no-header", "-x", "--tb=no",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=SOURCE.parent.parent,
-    )
-    failures = re.search(r"(\d+) (?:failed|error)", finished.stdout)
-    how_many = int(failures.group(1)) if failures else 0
-    named = re.search(r"(?:FAILED|ERROR) \S+::(\S+)", finished.stdout)
-    return how_many, (named.group(1) if named else "")
-
-
 def main() -> int:
     original = SOURCE.read_text(encoding="utf-8")
     unnoticed: list[str] = []
+
+    repository = SOURCE.parent.parent
+    if not require_green_baseline(repository, TESTS):
+        return 2
 
     print(f"{'fault introduced':<52}{'caught?':>9}   noticed by")
     print("-" * 100)
     try:
         for description, find, replace_with in FAULTS:
             if find not in original:
-                print(f"{description:<52}{'STALE':>9}   the code has moved on; "
-                      f"update this list")
+                print(f"{description:<52}{'STALE':>9}   the code has moved on; update this list")
                 unnoticed.append(f"{description} (could not be introduced)")
                 continue
 
-            SOURCE.write_text(original.replace(find, replace_with, 1), encoding="utf-8")
-            how_many, named = _run_the_tests()
-            SOURCE.write_text(original, encoding="utf-8")
+            replace_source(SOURCE, original.replace(find, replace_with, 1))
+            try:
+                result = run_pytest(repository, TESTS)
+            finally:
+                replace_source(SOURCE, original)
 
-            if how_many:
-                print(f"{description:<52}{'yes':>9}   {named[:40]}")
+            if result.caught_the_fault:
+                print(f"{description:<52}{'yes':>9}   {result.first_failure[:40]}")
+            elif result.could_not_run_tests:
+                print(f"{description:<52}{'ERROR':>9}   pytest did not finish")
+                print(result.output)
+                return 2
             else:
                 print(f"{description:<52}{'NO':>9}   nothing noticed")
                 unnoticed.append(description)
     finally:
-        SOURCE.write_text(original, encoding="utf-8")
+        replace_source(SOURCE, original)
 
     print()
     if unnoticed:

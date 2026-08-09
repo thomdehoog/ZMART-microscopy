@@ -13,10 +13,10 @@ wrong, in an order we can act on.
 | --- | --- |
 | **GitHub repository** | `thomdehoog/ZMART-microscopy` — https://github.com/thomdehoog/ZMART-microscopy |
 | **Branch to review** | `agent/live-position-timepoint-publication` |
-| **Head commit** | `24a19144` |
+| **Head commit** | Use the branch's current `HEAD`; this prompt is versioned on that same branch, so pinning its own commit here is necessarily one commit stale. |
 | **Compare against** | `claude/omezarr-neuroglancer-structure-srnwu6` (`2027f911`) |
 | **Pull request** | #8 (draft) — https://github.com/thomdehoog/ZMART-microscopy/pull/8 |
-| **Size of the change** | 21 commits, 39 files, about 11,000 added lines |
+| **Size of the change** | Use the compare command below for the current count; do not infer it from the branch's distance from `main`. |
 
 **Do not diff against `main`.** This branch sits on top of another piece of work,
 so `main` shows more than five hundred unrelated commits. The comparison that
@@ -39,14 +39,23 @@ under `docs/design/`.
 ## Running it
 
 ```bash
-pip install "zarr>=3" numpy pytest        # the whole runtime need
-python -m pytest zmart_live/ -q           # 211 tests, about 5 seconds
+python -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+.venv/bin/python -m pytest zmart_live/ -q
 ```
 
-The browser test needs a Chromium that Playwright can drive. In the authoring
-environment the pinned Playwright wanted a build that was not installed, so the
-tests pass an explicit `executablePath`; if yours differs, that is the setting to
-change. Everything except the browser test runs with the three packages above.
+The browser test also uses the operator page's Node dependencies:
+
+```bash
+cd workflows/target_acquisition/webapp-ui
+npm ci
+PLAYWRIGHT_CHROMIUM=/path/to/chrome \
+  npx playwright test --config ../../../zmart_live/tests/browser/playwright.config.mjs
+```
+
+`PLAYWRIGHT_CHROMIUM` is optional when the configured authoring path exists. A
+missing browser is an environment failure, not evidence that a sabotage was
+caught; the fault harness now refuses to conflate those outcomes.
 
 ---
 
@@ -80,14 +89,15 @@ All new code is under `zmart_live/`.
 | --- | --- |
 | `model.py` | one shared vocabulary; half-open regions; records that cannot be edited after publication |
 | `profiles.py` | chooses chunk, overlap, step, pyramid depth and shard shape per acquisition type |
-| `manifest.py` | nothing half-written is ever published; the revision only goes up |
+| `manifest.py` | durable monotonic publication record, recovery and one-writer exclusion |
 | `ownership.py` | every pixel of a mosaic has exactly one owner, visually and for analysis |
 | `coarse.py` | a zoomed-out piece never shows an uncommitted position |
-| `shardlink.py` | one chunk can be lifted from a Zarr v3 shard by byte range, so bundling does not constrain chunk choice |
-| `scene.py` | a whole run compiles to a handful of Neuroglancer sources, never one per position |
-| `tests/browser/` | the above, proven in a real Chromium with a real Neuroglancer |
+| `shardlink.py` | validates and locates one encoded inner chunk inside a Zarr v3 shard; it is not yet connected to the linked-view backend |
+| `scene.py` | internal scene contract compiles to a bounded Neuroglancer adapter payload; it does not create the backing view stores |
+| `tests/browser/` | real-Neuroglancer synthetic publication harness; it does not yet traverse the production coordinator/backend |
 
-**211 Python tests, about 5 seconds. The browser test takes about 47 seconds.**
+**257 Python tests pass in about three seconds in the review environment.** The
+browser test takes roughly a minute on the authoring machine.
 
 Measured on a 71×71 mosaic: 5,041 positions become **2 sources, 2 layers, and a
 payload of about 1,700 characters**, none of which grows with the run.
@@ -104,7 +114,8 @@ python -m zmart_live.tests.check_the_scene_tests_can_fail      # sources and lay
 node zmart_live/tests/browser/check-the-test-can-fail.mjs      # the real neuroglancer test
 ```
 
-They currently claim **55 faults, all caught**. Your first job is to add faults
+They currently claim **62 faults, all caught** (including the two browser
+sabotages). Your first job is to add faults
 they do not cover and find one that survives. A surviving fault is a claim the
 suite is not really making, and it is the cheapest real finding available to you.
 
@@ -124,11 +135,13 @@ one that reversed a decision in the architecture record.
    harmless because both rules cover the mosaic identically and only move which
    tile supplies a pixel. Is that actually true at the component edges?
 
-2. **`plan_the_writing` never emits a plan the real writer rejects.** The stated
-   rule `overlap % chunk == 0` is known to be necessary but not sufficient — a
-   2000-pixel frame satisfies it and is still refused. Find a frame, overlap band
-   or acquisition type where the chooser emits something `link_the_tiles` will
-   not accept. **This is the highest-value bug available to you.**
+2. **The unsharded geometry survives the real linker, while the planned sharded
+   route deliberately does not yet.** The stated rule `overlap % chunk == 0` is
+   necessary but not sufficient — a 2000-pixel frame satisfies it and is still
+   refused. Attack the unsharded test across frames and bands. Separately verify
+   the explicit regression showing that `plan_the_writing`'s level-0 shard is
+   rejected by the current whole-shard `link_the_tiles`; do not mistake the
+   standalone byte-range resolver for completed integration.
 
 3. **The preference ordering in `choose_the_geometry`.** It ranks staying inside
    the comfortable overlap band *above* chunk size, arguing that overlap is
@@ -137,12 +150,14 @@ one that reversed a decision in the architecture record.
    development. Is the current order right in every case, or is there a geometry
    where it produces a bad plan?
 
-4. **Nothing half-written can be published.** `manifest.py` gates on four
-   readiness flags and publishes by renaming a small file over another. Find a
+4. **The manifest cannot publish an event whose readiness flags are false.** It
+   publishes by renaming a small file over another. Find a
    sequence — crash, two writers, a clock change, a reader mid-read, a full disk
    — where a viewer can observe a revision not fully backed by data. The claim is
    that a reader sees either the previous complete revision or the next, never a
-   mixture.
+   mixture. Then make the crucial distinction: no production coordinator yet
+   earns those four flags by validating real artifacts, so the broader
+   end-to-end claim remains unimplemented.
 
 5. **Every pixel has exactly one owner.** `ownership.py` claims no gaps and no
    duplicates for any rectangular mosaic, including odd overlaps and four-tile
@@ -193,13 +208,17 @@ cached by the browser across a commit; a partially written chunk served with a
 State these as findings only if you think the omission is wrong, not merely that
 it exists:
 
-- The analysis-ownership half of Decision 9 (required tests 17–22).
 - Growing a run *beyond* the declared timepoint room.
 - Any measurement on Windows, where the file-count argument actually bites.
-- The non-seamless overview. `viz_studio/backend/library.py` groups stores by
-  voxel size and channel names, which the two overviews agree about exactly, so
-  they would merge into one row with one contrast control. Is the proposed fix
-  in the plan sufficient?
+- The production coordinator that validates pixels, pyramids, links, affected
+  coarse chunks and layout before it creates a ready commit event.
+- The backing non-seamless selector store and the raw/seamless coarse writers.
+- The route that exposes `shardlink.py` byte ranges through the linked-view
+  backend; today the real linker still rejects the planned sharded profile.
+- Production viewer refresh. The browser harness proves its synthetic server's
+  gate, not the application path that will consume the scene adapter.
+- Native OME-Zarr 0.6 scene serialization; the current object is internal scene
+  semantics with a 0.5-era adapter contract.
 
 ## How to report
 

@@ -15,9 +15,17 @@ check that stops being run.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
-from zmart_live.model import AcquisitionProfile, GridCell, LevelGeometry, ZmartLiveError
+from zmart_live.model import (
+    AcquisitionProfile,
+    GridCell,
+    LevelGeometry,
+    SceneLayoutRevision,
+    ZmartLiveError,
+)
 from zmart_live.ownership import (
     TopologyRefused,
     check_the_grid_holds_together,
@@ -43,8 +51,12 @@ def a_plan(frame: int = 90, overlap: int = 10, chunk: int = 10) -> AcquisitionPr
         overlap_pixels={"y": overlap, "x": overlap},
         topology="grid",
         levels=(
-            LevelGeometry(level=0, downsampling={"y": 1, "x": 1},
-                          inner_chunk={"y": chunk, "x": chunk}, linkable=True),
+            LevelGeometry(
+                level=0,
+                downsampling={"y": 1, "x": 1},
+                inner_chunk={"y": chunk, "x": chunk},
+                linkable=(frame - overlap) % chunk == 0,
+            ),
         ),
     )
 
@@ -67,7 +79,9 @@ class TestEveryPieceOfSpecimenHasExactlyOneOwner:
         Every place the mosaic covers is asked which tile owns it. Two owners is
         a nucleus counted twice; none is specimen that vanishes.
         """
-        profile = a_plan()
+        # The arithmetic is size-independent. A small nine-chunk frame lets this
+        # inspect every pixel rather than sampling every third one.
+        profile = a_plan(frame=18, overlap=2, chunk=2)
         placements = place_the_tiles(profile, a_square_of(rows, columns))
         step = profile.grid_step("x")
         frame = profile.frame_shape["x"]
@@ -75,8 +89,8 @@ class TestEveryPieceOfSpecimenHasExactlyOneOwner:
         reach_y = (rows - 1) * step + frame
         reach_x = (columns - 1) * step + frame
         owners_seen = set()
-        for y in range(0, reach_y, 3):
-            for x in range(0, reach_x, 3):
+        for y in range(reach_y):
+            for x in range(reach_x):
                 owning = [
                     p.position_id
                     for p in placements
@@ -184,9 +198,7 @@ class TestShowingAndCountingAreAllowedToDiffer:
 
     def test_the_seam_shown_and_the_seam_counted_are_not_the_same_line(self):
         profile = a_plan()
-        placement = plan_one_tile(
-            profile, GridCell(0, 0), occupied=frozenset(a_square_of(2, 2))
-        )
+        placement = plan_one_tile(profile, GridCell(0, 0), occupied=frozenset(a_square_of(2, 2)))
         shown = placement.visual_source_roi["x"]
         counted = placement.analysis_core_roi["x"]
         assert shown.stop != counted.stop
@@ -194,18 +206,14 @@ class TestShowingAndCountingAreAllowedToDiffer:
     def test_a_model_is_given_the_whole_tile_including_the_overlap(self):
         """The overlap is the context that lets a model judge an object at the edge."""
         profile = a_plan()
-        placement = plan_one_tile(
-            profile, GridCell(1, 1), occupied=frozenset(a_square_of(3, 3))
-        )
+        placement = plan_one_tile(profile, GridCell(1, 1), occupied=frozenset(a_square_of(3, 3)))
         for axis in ("y", "x"):
             assert placement.analysis_input_roi[axis].start == 0
             assert placement.analysis_input_roi[axis].stop == profile.frame_shape[axis]
 
     def test_what_counts_is_narrower_than_what_is_looked_at(self):
         profile = a_plan()
-        placement = plan_one_tile(
-            profile, GridCell(1, 1), occupied=frozenset(a_square_of(3, 3))
-        )
+        placement = plan_one_tile(profile, GridCell(1, 1), occupied=frozenset(a_square_of(3, 3)))
         for axis in ("y", "x"):
             looked = placement.analysis_input_roi[axis]
             counts = placement.analysis_core_roi[axis]
@@ -215,9 +223,7 @@ class TestShowingAndCountingAreAllowedToDiffer:
     def test_a_tile_at_the_mosaic_edge_counts_right_up_to_that_edge(self):
         """There is no neighbour out there to hand it to, so it keeps it."""
         profile = a_plan()
-        placement = plan_one_tile(
-            profile, GridCell(0, 0), occupied=frozenset(a_square_of(2, 2))
-        )
+        placement = plan_one_tile(profile, GridCell(0, 0), occupied=frozenset(a_square_of(2, 2)))
         assert placement.analysis_core_roi["y"].start == 0
         assert placement.analysis_core_roi["x"].start == 0
         assert placement.on_outer_boundary["y_low"] is True
@@ -239,8 +245,11 @@ class TestAxesThatAreNotTiledAreNotDivided:
 
     def test_a_plan_with_no_overlap_at_all_is_refused_rather_than_guessed_at(self):
         flat = AcquisitionProfile(
-            profile_id="flat", acquisition_type="targets",
-            axes=("y", "x"), frame_shape={"y": 90, "x": 90}, dtype="uint16",
+            profile_id="flat",
+            acquisition_type="targets",
+            axes=("y", "x"),
+            frame_shape={"y": 90, "x": 90},
+            dtype="uint16",
         )
         with pytest.raises(ZmartLiveError):
             plan_one_tile(flat, GridCell(0, 0))
@@ -299,17 +308,40 @@ class TestTheRecordsSurviveBeingStored:
     def test_a_placement_reads_back_exactly(self):
         from zmart_live.model import PositionPlacement
 
-        placement = plan_one_tile(
-            a_plan(), GridCell(1, 2), occupied=frozenset(a_square_of(3, 3))
-        )
-        assert PositionPlacement.from_json(placement.to_json()).to_json() == (
-            placement.to_json()
-        )
+        placement = plan_one_tile(a_plan(), GridCell(1, 2), occupied=frozenset(a_square_of(3, 3)))
+        assert PositionPlacement.from_json(placement.to_json()).to_json() == (placement.to_json())
 
     def test_a_component_reads_back_exactly(self):
         from zmart_live.model import MosaicComponent
 
         component = check_the_grid_holds_together(a_square_of(2, 2))
-        assert MosaicComponent.from_json(component.to_json()).to_json() == (
-            component.to_json()
+        assert MosaicComponent.from_json(component.to_json()).to_json() == (component.to_json())
+
+
+class TestAStoredLayoutNeverGuessesBetweenTwoOwners:
+    def test_one_owner_is_returned(self):
+        placement = plan_one_tile(a_plan(), GridCell(0, 0))
+        layout = SceneLayoutRevision(
+            revision=1,
+            schema_version="zmart-live-layout/1",
+            run_id="run-1",
+            acquisition_type="overview",
+            profile_id="test",
+            positions=(placement,),
         )
+        assert layout.owner_of_point({"z": 0, "y": 1, "x": 1}) == placement.position_id
+
+    def test_overlapping_ownership_is_refused_instead_of_returning_the_first(self):
+        first = plan_one_tile(a_plan(), GridCell(0, 0))
+        second = replace(first, position_id="another-position")
+        layout = SceneLayoutRevision(
+            revision=1,
+            schema_version="zmart-live-layout/1",
+            run_id="run-1",
+            acquisition_type="overview",
+            profile_id="test",
+            positions=(first, second),
+        )
+
+        with pytest.raises(ZmartLiveError, match="more than one position"):
+            layout.owner_of_point({"z": 0, "y": 1, "x": 1})

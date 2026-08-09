@@ -442,7 +442,7 @@ def make_handler(run: GrowingRun, page: Path):
                 self._send_json(run.state())
                 return
             if asked.startswith("/page/"):
-                self._serve_file(page / asked[len("/page/"):], gate=False)
+                self._serve_file(page / asked[len("/page/") :], gate=False)
                 return
             self._serve_file(run.folder / asked.lstrip("/"), gate=True)
 
@@ -472,7 +472,9 @@ def make_handler(run: GrowingRun, page: Path):
                 self._send(404, b"not here", "text/plain")
                 return
             kinds = {
-                ".html": "text/html", ".js": "text/javascript", ".css": "text/css",
+                ".html": "text/html",
+                ".js": "text/javascript",
+                ".css": "text/css",
                 ".json": "application/json",
             }
             self._send(200, body, kinds.get(where.suffix, "application/octet-stream"))
@@ -497,13 +499,16 @@ def serve(folder: Path, port: int) -> tuple[ThreadingHTTPServer, GrowingRun]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--folder", required=True, type=Path,
-                        help="where to write the run; emptied first")
-    parser.add_argument("--port", required=True, type=int,
-                        help="which port to serve it on")
-    parser.add_argument("--commit-first-position", action="store_true",
-                        help="write and commit position A before serving, which is "
-                             "where the browser test's three-step sequence begins")
+    parser.add_argument(
+        "--folder", required=True, type=Path, help="where to write the run; emptied first"
+    )
+    parser.add_argument("--port", required=True, type=int, help="which port to serve it on")
+    parser.add_argument(
+        "--commit-first-position",
+        action="store_true",
+        help="write and commit position A before serving, which is "
+        "where the browser test's three-step sequence begins",
+    )
     chosen = parser.parse_args()
 
     if chosen.folder.exists():
@@ -515,8 +520,7 @@ def main() -> None:
     address = f"http://127.0.0.1:{chosen.port}"
     print(f"the run is on {address}, serving {STORE}", flush=True)
     print(
-        f"open {address}/page/index.html"
-        f"?store={address}/{STORE}/%7Czarr2:",
+        f"open {address}/page/index.html?store={address}/{STORE}/%7Czarr2:",
         flush=True,
     )
     try:

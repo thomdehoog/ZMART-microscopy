@@ -24,7 +24,13 @@ from zmart_live.coarse import (
     rebuild_after_committing,
     what_a_chunk_should_hold,
 )
-from zmart_live.model import AcquisitionProfile, GridCell, LevelGeometry, ZmartLiveError
+from zmart_live.model import (
+    AcquisitionProfile,
+    GridCell,
+    Interval,
+    LevelGeometry,
+    ZmartLiveError,
+)
 from zmart_live.ownership import place_the_tiles
 
 
@@ -56,7 +62,7 @@ def a_plan(frame: int = 90, overlap: int = 10, chunk: int = 10, levels: int = 5)
                 level=level,
                 downsampling={"y": 2**level, "x": 2**level},
                 inner_chunk={"y": chunk, "x": chunk},
-                linkable=True,
+                linkable=(frame - overlap) % (chunk * 2**level) == 0,
             )
             for level in range(levels)
         ),
@@ -151,13 +157,9 @@ class TestAnUnfinishedPositionNeverAppears:
         profile, placements = mosaic
         deepest = max(level.level for level in profile.levels)
         piece = chunks_touched_by(profile, placements[0], level=deepest)[0]
-        assert what_a_chunk_should_hold(
-            profile, piece, placements, committed=frozenset()
-        ) == ()
+        assert what_a_chunk_should_hold(profile, piece, placements, committed=frozenset()) == ()
 
-    def test_a_position_written_but_not_committed_is_indistinguishable_from_absent(
-        self, mosaic
-    ):
+    def test_a_position_written_but_not_committed_is_indistinguishable_from_absent(self, mosaic):
         """The whole point, stated as an equality.
 
         Whether the second position exists on disk or has not been started makes
@@ -215,10 +217,7 @@ class TestOnlyTheRightPiecesAreDisturbed:
     def test_fewer_pieces_are_disturbed_the_further_out_you_zoom(self, mosaic):
         """Which is what keeps the work a commit brings with it bounded."""
         profile, placements = mosaic
-        counts = [
-            len(chunks_touched_by(profile, placements[0], level=level))
-            for level in range(5)
-        ]
+        counts = [len(chunks_touched_by(profile, placements[0], level=level)) for level in range(5)]
         assert counts == sorted(counts, reverse=True)
         assert counts[0] > counts[-1]
 
@@ -242,9 +241,7 @@ class TestTheWorkOneCommitBringsWithIt:
     def test_the_first_position_of_a_run_shares_with_nobody(self, mosaic):
         """The other arm, so the test above cannot pass by naming everything."""
         profile, placements = mosaic
-        work = rebuild_after_committing(
-            profile, placements, "pos00", committed=frozenset()
-        )
+        work = rebuild_after_committing(profile, placements, "pos00", committed=frozenset())
         assert all(item.shared_with == () for item in work)
 
     def test_a_position_is_never_listed_as_its_own_neighbour(self, mosaic):
@@ -262,8 +259,10 @@ class TestTheWorkOneCommitBringsWithIt:
         """
         profile, placements = mosaic
         careless = rebuild_after_committing(
-            profile, placements, "pos01",
-            committed=frozenset({"pos00", "pos01"}),      # pos01 wrongly included
+            profile,
+            placements,
+            "pos01",
+            committed=frozenset({"pos00", "pos01"}),  # pos01 wrongly included
         )
         for item in careless:
             assert "pos01" not in item.shared_with
@@ -276,29 +275,21 @@ class TestTheWorkOneCommitBringsWithIt:
 
     def test_it_covers_every_level_the_plan_declares(self, mosaic):
         profile, placements = mosaic
-        work = rebuild_after_committing(
-            profile, placements, "pos00", committed=frozenset()
-        )
-        assert [item.level for item in work] == [
-            level.level for level in profile.levels
-        ]
+        work = rebuild_after_committing(profile, placements, "pos00", committed=frozenset())
+        assert [item.level for item in work] == [level.level for level in profile.levels]
 
     def test_the_work_is_reported_so_it_can_be_budgeted(self, mosaic):
         """The architecture record puts this on the acquisition's critical path,
         so somebody has to be able to see how much of it there is."""
         profile, placements = mosaic
-        work = rebuild_after_committing(
-            profile, placements, "pos00", committed=frozenset()
-        )
+        work = rebuild_after_committing(profile, placements, "pos00", committed=frozenset())
         assert sum(item.how_much_work for item in work) > 0
         assert work[0].how_much_work >= work[-1].how_much_work
 
     def test_a_position_that_is_not_in_the_layout_is_refused(self, mosaic):
         profile, placements = mosaic
         with pytest.raises(ZmartLiveError) as refused:
-            rebuild_after_committing(
-                profile, placements, "pos99", committed=frozenset()
-            )
+            rebuild_after_committing(profile, placements, "pos99", committed=frozenset())
         assert "pos99" in str(refused.value)
 
     def test_a_negative_level_is_refused_rather_than_wrapped_around(self, mosaic):
@@ -325,3 +316,36 @@ class TestThePiecesDescribeThemselvesHonestly:
         second = CoarseChunk(level=1, index=(0, 1), axes=("y", "x")).covers(profile, chunk)
         assert first["x"].stop == second["x"].start
         assert not first.overlaps(second)
+
+    def test_the_profile_scale_is_used_instead_of_guessing_from_level_number(self):
+        """Confocal and volume pyramids may scale axes at different rates."""
+        profile = AcquisitionProfile(
+            profile_id="anisotropic",
+            acquisition_type="confocal",
+            axes=("z", "y", "x"),
+            frame_shape={"z": 4, "y": 90, "x": 90},
+            dtype="uint16",
+            overlap_pixels={"y": 10, "x": 10},
+            topology="grid",
+            levels=(
+                LevelGeometry(
+                    level=0,
+                    downsampling={"z": 1, "y": 1, "x": 1},
+                    inner_chunk={"z": 1, "y": 10, "x": 10},
+                ),
+                LevelGeometry(
+                    level=1,
+                    downsampling={"z": 1, "y": 3, "x": 5},
+                    inner_chunk={"z": 1, "y": 10, "x": 10},
+                ),
+            ),
+        )
+        piece = CoarseChunk(level=1, index=(1, 2), axes=("y", "x"))
+        covered = piece.covers(profile, {"y": 10, "x": 10})
+
+        assert covered["y"] == Interval(30, 60)
+        assert covered["x"] == Interval(100, 150)
+
+        placement = place_the_tiles(profile, a_square_of(1, 1))[0]
+        touched = chunks_touched_by(profile, placement, level=1)
+        assert {chunk.index[1] for chunk in touched} == {0, 1}
