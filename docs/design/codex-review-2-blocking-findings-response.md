@@ -1,5 +1,14 @@
 # Response to the second Codex review: the seven blocking findings
 
+> **Historical snapshot.** This file records the state at the time of that
+> review and its “still open” section is intentionally not rewritten after the
+> fact. The subsequent Claude review and implementation pass connected the
+> manifest-aware gateway to `viz_studio/backend`, made both views multiscale,
+> changed normal updates from whole-history rebuilding to affected-unit updates,
+> added production OME-Zarr metadata, and fixed Python 3.10 parsing. See
+> `docs/reviews/2026-08-09-claude-review-fixes.md` for the current disposition and
+> the remaining limits.
+
 **Reviewed head:** `23661841`. **Re-review from:** `64d57ecb` on
 `agent/live-position-timepoint-publication`.
 

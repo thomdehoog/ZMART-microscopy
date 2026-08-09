@@ -15,7 +15,9 @@ source file while it works, so it is a thing you run deliberately::
 
     python -m zmart_live.tests.check_the_tests_can_fail
 
-It always puts the file back, including when it is interrupted.
+It puts the file back after completion, exceptions, Ctrl-C and SIGTERM. No
+process can recover after SIGKILL or loss of power; after either, restore the
+mutation subject from version control before running anything else.
 
 One real gap it found
 ---------------------
@@ -31,7 +33,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ._fault_check import replace_source, require_green_baseline, run_pytest
+from ._fault_check import (
+    make_interruptions_reach_finally,
+    replace_source,
+    require_green_subject,
+    require_restored_subject,
+    run_pytest,
+)
 
 HERE = Path(__file__).resolve()
 PACKAGE = HERE.parent.parent
@@ -121,6 +129,14 @@ MANIFEST_FAULTS: list[tuple[str, str, str]] = [
 #: a mosaic assembled with the boundary one pixel out looks entirely normal.
 OWNERSHIP_FAULTS: list[tuple[str, str, str]] = [
     (
+        "let a negative grid coordinate become a slice from the array's far edge",
+        "if any(\n"
+        "        not isinstance(index, int) or isinstance(index, bool) or index < 0\n"
+        "        for index in coordinates\n"
+        "    ):",
+        "if False:",
+    ),
+    (
         "give the extra pixel of an odd overlap to both neighbours",
         "half_before = overlap // 2 if has_one_before else 0",
         "half_before = (overlap - overlap // 2) if has_one_before else 0",
@@ -146,8 +162,8 @@ OWNERSHIP_FAULTS: list[tuple[str, str, str]] = [
         "if False:",
     ),
     (
-        "let one position sit in two squares",
-        "if position_id in seen:",
+        "let one position sit twice or two names resolve to one Windows folder",
+        "if disk_name in seen_on_disk:",
         "if False:",
     ),
     (
@@ -166,6 +182,16 @@ LAYOUT_FAULTS: list[tuple[str, str, str]] = [
     (
         "silently choose the first tile when a stored layout has two owners",
         "if len(owners) > 1:",
+        "if False:",
+    ),
+    (
+        "store two component positions under one Windows folder name",
+        "if disk_name in seen_component_names:",
+        "if False:",
+    ),
+    (
+        "store two layout positions under one Windows folder name",
+        "if layout_disk_name in seen_layout_names:",
         "if False:",
     ),
 ]
@@ -217,8 +243,15 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "treat a missing zoomed-out copy as acceptable",
-        "if not path.exists():\n                complaints.append(",
-        "if False:\n                complaints.append(",
+        "            if not path.exists():\n"
+        "                complaints.append(\n"
+        "                    f\"'{position_id}' promises a zoomed-out copy at level \"\n"
+        "                    f\"{level.level}, but it has not been written. A viewer zooming \"\n"
+        "                    f\"out would find nothing there.\"\n"
+        "                )\n"
+        "                continue",
+        "            if not path.exists():\n"
+        "                continue",
     ),
     (
         "call the pixels ready even when something was complained about",
@@ -227,8 +260,8 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "let an unpublished position into the run-wide picture",
-        "if placement.position_id not in committed:",
-        "if False:",
+        "if unit in committed_units:",
+        "if True:",
     ),
     (
         "stop checking that the arrangement can be read back",
@@ -255,22 +288,42 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     # built to make impossible.
     (
         "let the tile written last win in the overlap",
-        "self.tile_stop_of(placement.position_id),",
-        "0,",
+        "target = (\n"
+        "                    self.tile_stop_of(position_id),\n"
+        "                    moment,",
+        "target = (\n"
+        "                    0,\n"
+        "                    moment,",
     ),
     (
         "drop the dimension that keeps overlapping tiles apart",
-        "self.tile_stop_count,\n            self.timepoints,",
-        "1,\n            self.timepoints,",
+        "                self.tile_stop_count,\n"
+        "                self.timepoints,",
+        "                1,\n"
+        "                self.timepoints,",
     ),
     (
         "let an unpublished position into the raw overlap view",
-        "# Not published yet means not shown here either, exactly as in the\n"
-        "            # seamless view above.\n"
-        "            if placement.position_id not in committed:",
-        "# Not published yet means not shown here either, exactly as in the\n"
-        "            # seamless view above.\n"
-        "            if False:",
+        "if (position_id, moment) in committed_units:",
+        "if True:",
+    ),
+    (
+        "reopen every old position when one seamless unit changes",
+        "units_to_write = set(self._as_position_moments(only))",
+        "units_to_write = {\n"
+        "                (placement.position_id, moment)\n"
+        "                for placement in self.layout.positions\n"
+        "                for moment in range(self.timepoints)\n"
+        "            }",
+    ),
+    (
+        "reopen every old position when one raw unit changes",
+        "units_to_write = set(self._as_position_moments(only)).copy()",
+        "units_to_write = {\n"
+        "                (placement.position_id, moment)\n"
+        "                for placement in self.layout.positions\n"
+        "                for moment in range(self.timepoints)\n"
+        "            }",
     ),
     (
         "call the raw overlap view ready without looking at it",
@@ -288,17 +341,15 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "trust the raw overlap view instead of comparing it to the pixels",
-        "if as_stored.shape != as_written.shape or not np.array_equal(\n"
-        "                as_stored, as_written\n"
-        "            ):",
-        "if False and np.array_equal(\n"
-        "                as_stored, as_written\n"
-        "            ):",
+        "not np.array_equal(\n"
+        "                    as_stored, as_written\n"
+        "                )",
+        "False",
     ),
     (
         "report the raw overlap comparison as done without saying how much",
-        "return int(as_stored.size)",
-        "return 1",
+        "compared += int(as_stored.size)",
+        "compared += 0",
     ),
     # One position at one moment is what gets published, so every check has to
     # be about that moment. Each fault below ends with a moment nobody wrote, or
@@ -317,12 +368,10 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     # readable and wrong, which is the only reason these checks exist.
     (
         "accept a zoomed-out picture without looking at its pixels",
-        "elif as_shown.shape != as_written.shape or not np.array_equal(\n"
-        "                as_shown, as_written\n"
-        "            ):",
-        "elif False and np.array_equal(\n"
-        "                as_shown, as_written\n"
-        "            ):",
+        "not np.array_equal(\n"
+        "                    as_shown, as_written\n"
+        "                )",
+        "False",
     ),
     (
         "leave the mosaic's outer edge to a neighbour that does not exist",
@@ -331,10 +380,8 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "make the zoomed-out picture one plane deep whatever was recorded",
-        'depth = self.profile.frame_shape.get("z", 1)\n'
-        "        shape = (self.timepoints, len(self.channels), depth, height, width)",
-        "depth = 1\n"
-        "        shape = (self.timepoints, len(self.channels), depth, height, width)",
+        '            depth // smaller.get("z", 1),',
+        "            1,",
     ),
     (
         "accept an arrangement belonging to another run",
@@ -344,7 +391,7 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     # The map saying which position answers for which piece of the overview.
     (
         "never write down where the overview's pieces come from",
-        "self.write_the_link_map(already)",
+        "self.write_the_link_map(positions)",
         "pass",
     ),
     (
@@ -374,6 +421,58 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
         "self.generations[position_id] = now",
         "pass",
     ),
+    (
+        "forget the replacement generation after a restart",
+        "self._restore_generations_from_the_manifest()",
+        "pass",
+    ),
+    (
+        "reopen one run under a different profile or spatial plan",
+        "newest is not None\n"
+        "            and spatial_fingerprint_of_a_layout(newest)\n"
+        "            != spatial_fingerprint_of_a_layout(candidate_layout)",
+        "False",
+    ),
+    (
+        "let a live image have no declared channel",
+        "if not profile_channels:",
+        "if False:",
+    ),
+    (
+        "label fixed-order array indexes with a different axis order",
+        "if self.profile.axes != expected_axes:",
+        "if False:",
+    ),
+    (
+        "let the writer's channel identities contradict its sealed profile",
+        "if self.channels != profile_channels:",
+        "if False:",
+    ),
+    (
+        "allow a run to declare no timepoints",
+        "or self.timepoints < 1",
+        "or False",
+    ),
+    (
+        "reopen existing arrays with a different declared shape",
+        "if tuple(found.shape) != expected:",
+        "if False:",
+    ),
+    (
+        "write a frame whose shape contradicts the acquisition profile",
+        "if tuple(settled.shape[1:]) != expected_shape:",
+        "if False:",
+    ),
+    (
+        "leave the acquisition profile only in process memory",
+        "store_the_profile(self.folder, self.profile)",
+        "pass",
+    ),
+    (
+        "leave the initial layout only in process memory",
+        "self.layout = record_the_layout(self.folder, self.layout)",
+        "pass",
+    ),
 ]
 
 #: What a name is allowed to be. These faults all end the same way: a position
@@ -397,6 +496,11 @@ NAMING_FAULTS: list[tuple[str, str, str]] = [
         "if False:",
     ),
     (
+        "let an ordinary position collide with an immutable replacement store",
+        "if _GENERATION_SUFFIX.search(name):",
+        "if False:",
+    ),
+    (
         "stop checking a tile's name where the tile is described",
         'check_the_name_is_safe(self.position_id, what="position")\n'
         '        check_the_name_is_safe(self.component_id, what="mosaic component")',
@@ -417,6 +521,16 @@ IDENTITY_FAULTS: list[tuple[str, str, str]] = [
         "fingerprint only the kind of acquisition, not its contents",
         "described = profile.to_json()",
         'described = {"acquisition_type": profile.acquisition_type}',
+    ),
+    (
+        "store a profile under a name that does not cover its contents",
+        "if not profile.profile_id.endswith(expected):",
+        "if False:",
+    ),
+    (
+        "store two profiles under one Windows file name",
+        "if stored_id != profile.profile_id and stored_id.casefold() == profile.profile_id.casefold():",
+        "if False:",
     ),
     (
         "never actually write the profile down",
@@ -482,6 +596,73 @@ PROFILE_PLANNING_FAULTS: list[tuple[str, str, str]] = [
     ),
 ]
 
+
+# Publication has to be enforced again at the HTTP boundary.  These mutations
+# target the shared gateway used by the real backend, rather than the synthetic
+# browser server, so a green result demonstrates the path an operator uses.
+GATEWAY_FAULTS: list[tuple[str, str, str]] = [
+    (
+        "serve a canonical position before its commit",
+        "return (position_id, moment, generation) in self._published_units()",
+        "return True",
+    ),
+    (
+        "serve a virtual seamless chunk before its commit",
+        "if not self.published(position_id, moment, generation):",
+        "if False:",
+    ),
+    (
+        "mistake a materialized outer edge for a broken virtual route",
+        "if not route.covers(piece):",
+        "if False:",
+    ),
+    (
+        "gate a raw chunk by moment zero whichever moment was requested",
+        "self.published(owners[0].position_id, piece[1], generation)",
+        "self.published(owners[0].position_id, 0, generation)",
+    ),
+    (
+        "hide inherited published moments after replacing one moment",
+        "for inherited in already_visible",
+        "for inherited in ()",
+    ),
+    (
+        "trust a live link map belonging to another run",
+        "if held.get(key) != expected:",
+        "if False:",
+    ),
+    (
+        "trust a live link map that moves a tile",
+        'tuple(entry["lands_at"]) != expected_lands_at',
+        "False",
+    ),
+    (
+        "misread a canonical position name as a replacement suffix",
+        'if store_name == f"{position_id}.ome.zarr":',
+        "if False:",
+    ),
+]
+
+
+REPLACEMENT_GATE_FAULTS: list[tuple[str, str, str]] = [
+    (
+        "change public shared chunks before withholding a replacement generation",
+        "self.write_the_link_map(positions)\n"
+        "        self.write_the_seamless_view(units, only=affected)\n"
+        "        self.write_the_raw_overlap_view(units, only=affected)",
+        "self.write_the_seamless_view(units, only=affected)\n"
+        "        self.write_the_raw_overlap_view(units, only=affected)\n"
+        "        self.write_the_link_map(positions)",
+    ),
+    (
+        "leave failed replacement pixels and routing in the shared views",
+        "self._restore_shared_state_after_failed_replacement(\n"
+        "                    position_id, timepoint\n"
+        "                )",
+        "pass",
+    ),
+]
+
 #: Which faults belong to which file, and which tests should notice them.
 SUBJECTS: list[tuple[str, str, str, list[tuple[str, str, str]]]] = [
     ("the commit record", "manifest.py", "test_manifest.py", MANIFEST_FAULTS),
@@ -502,19 +683,31 @@ SUBJECTS: list[tuple[str, str, str, list[tuple[str, str, str]]]] = [
         "test_coordinator.py",
         COORDINATOR_FAULTS,
     ),
+    (
+        "enforcing publication at the real serving boundary",
+        "gateway.py",
+        "test_gateway.py",
+        GATEWAY_FAULTS,
+    ),
+    (
+        "gating and rolling back position replacements",
+        "coordinator.py",
+        "test_gateway.py",
+        REPLACEMENT_GATE_FAULTS,
+    ),
 ]
 
 
-def main() -> int:
+def _main() -> int:
     unnoticed: list[str] = []
 
     for title, source_name, test_name, faults in SUBJECTS:
         source = PACKAGE / source_name
         tests = HERE.parent / test_name
-        original = source.read_text(encoding="utf-8")
 
-        if not require_green_baseline(REPO, tests):
+        if not require_green_subject(REPO, tests, source):
             return 2
+        original = source.read_text(encoding="utf-8")
 
         print()
         print(f"== {title} ==")
@@ -546,6 +739,8 @@ def main() -> int:
                     unnoticed.append(description)
         finally:
             replace_source(source, original)
+        if not require_restored_subject(REPO, tests, source, original):
+            return 2
 
     print()
     if unnoticed:
@@ -558,6 +753,11 @@ def main() -> int:
 
     print("Every fault was caught. The tests are making the claims they appear to.")
     return 0
+
+
+def main() -> int:
+    with make_interruptions_reach_finally():
+        return _main()
 
 
 if __name__ == "__main__":

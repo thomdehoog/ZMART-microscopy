@@ -39,12 +39,14 @@ when the outside reader is not installed, and say so rather than quietly passing
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 import zarr
 
+from zmart_live.identity import name_for_a_profile
 from zmart_live.model import (
     AcquisitionProfile,
     GridCell,
@@ -86,7 +88,7 @@ def _a_profile() -> AcquisitionProfile:
     of the picture, each half the width and height of the one before it, with the
     depth never reduced.
     """
-    return AcquisitionProfile(
+    profile = AcquisitionProfile(
         profile_id="overview-512-128",
         acquisition_type="overview",
         axes=("t", "c", "z", "y", "x"),
@@ -95,6 +97,7 @@ def _a_profile() -> AcquisitionProfile:
         voxel_size={"z": VOXEL_UM[0], "y": VOXEL_UM[1], "x": VOXEL_UM[2]},
         voxel_unit="micrometer",
         overlap_pixels={"y": OVERLAP, "x": OVERLAP},
+        channels=COLOURS,
         levels=tuple(
             LevelGeometry(
                 level=step,
@@ -109,6 +112,10 @@ def _a_profile() -> AcquisitionProfile:
             )
             for step in range(3)
         ),
+    )
+    return replace(
+        profile,
+        profile_id=name_for_a_profile(profile, readable_prefix="overview-512-128"),
     )
 
 
@@ -791,7 +798,7 @@ def test_a_picture_whose_shape_does_not_match_its_axes_is_refused(tmp_path):
 
 
 def test_another_reader_opens_the_position_and_agrees_where_it_sits(
-    a_described_position,
+    a_described_position, tmp_path, monkeypatch
 ):
     """The question that actually matters: does this travel?
 
@@ -801,6 +808,7 @@ def test_another_reader_opens_the_position_and_agrees_where_it_sits(
     much of the Python imaging world read OME-Zarr through, and it is asked where
     it thinks the picture sits and how large a voxel is.
     """
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     ngff_zarr = pytest.importorskip(
         "ngff_zarr",
         reason="ngff-zarr is an optional check that our images travel; "
@@ -829,8 +837,11 @@ def test_another_reader_opens_the_position_and_agrees_where_it_sits(
         )
 
 
-def test_another_reader_agrees_the_copies_nest(a_described_position):
+def test_another_reader_agrees_the_copies_nest(
+    a_described_position, tmp_path, monkeypatch
+):
     """Read from outside, each copy is coarser and still begins in the same place."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     ngff_zarr = pytest.importorskip("ngff_zarr", reason="an optional outside reader")
     store, _ = a_described_position
 
@@ -844,7 +855,9 @@ def test_another_reader_agrees_the_copies_nest(a_described_position):
         assert image.scale["z"] == pytest.approx(VOXEL_UM[0])
 
 
-def test_the_description_satisfies_the_published_schema(a_described_position):
+def test_the_description_satisfies_the_published_schema(
+    a_described_position, tmp_path, monkeypatch
+):
     """Checked against the specification's own machine-readable rules.
 
     This is the closest thing to an impartial opinion available: the OME-NGFF
@@ -860,6 +873,7 @@ def test_the_description_satisfies_the_published_schema(a_described_position):
     above transcribe by hand, and this check stands beside them rather than in
     place of them.
     """
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     ngff_zarr = pytest.importorskip("ngff_zarr", reason="an optional outside reader")
     pytest.importorskip(
         "jsonschema",
@@ -902,14 +916,6 @@ def test_a_position_a_live_run_actually_wrote_can_be_opened(tmp_path):
     )
     store = publisher.position_store("pos00001")
 
-    describe_the_position(
-        store,
-        profile,
-        name="pos00001",
-        channels=COLOURS,
-        origin_pixels=publisher.layout.placement("pos00001").origin,
-    )
-
     opened = zarr.open_group(str(store), mode="r")
     assert sorted(opened.array_keys(), key=int) == [
         str(level.level) for level in profile.levels
@@ -930,3 +936,35 @@ def test_a_position_a_live_run_actually_wrote_can_be_opened(tmp_path):
     stated = dict(zip(axes, corner, strict=True))
     assert stated["x"] == pytest.approx(placed["x"] * VOXEL_UM[2])
     assert stated["y"] == pytest.approx(placed["y"] * VOXEL_UM[1])
+
+
+def test_the_live_seamless_view_is_also_opened_by_the_outside_reader(
+    tmp_path, monkeypatch
+):
+    """The operator-facing multiscale image is not merely a folder of arrays."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    ngff_zarr = pytest.importorskip("ngff_zarr", reason="an optional outside reader")
+    from zmart_live.coordinator import LivePublisher
+
+    profile = _a_profile()
+    publisher = LivePublisher(
+        folder=tmp_path / "run",
+        profile=profile,
+        run_id="a-view-run",
+        cells={GridCell(0, 0): "pos00000"},
+        channels=COLOURS,
+        timepoints=MOMENTS,
+    )
+    publisher.write_a_position(
+        "pos00000", np.full((len(COLOURS), Z_PLANES, FRAME, FRAME), 900, "uint16")
+    )
+    publisher.write_the_seamless_view(frozenset({("pos00000", 0)}))
+
+    multiscales = ngff_zarr.from_ngff_zarr(publisher.seamless_store)
+    assert len(multiscales.images) == len(profile.levels)
+    assert tuple(multiscales.images[0].dims) == profile.axes
+
+    attributes = json.loads(
+        (publisher.seamless_store / "zarr.json").read_text(encoding="utf-8")
+    )["attributes"]
+    ngff_zarr.validate(attributes, version=OME_ZARR_VERSION, model="image")

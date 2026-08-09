@@ -20,7 +20,9 @@ so it is something you run deliberately::
 
     python -m zmart_live.tests.check_the_viewroute_tests_can_fail
 
-It always puts the file back, including when it is interrupted.
+It puts the file back after completion, exceptions, Ctrl-C and SIGTERM. No
+process can recover after SIGKILL or loss of power; after either, restore the
+mutation subject from version control before running anything else.
 
 The faults are the ones this particular module invites. Measuring alignment in
 the wrong unit is the first, because getting it right is the whole reason the
@@ -45,7 +47,13 @@ from __future__ import annotations
 from pathlib import Path
 from shutil import rmtree
 
-from ._fault_check import replace_source, require_green_baseline, run_pytest
+from ._fault_check import (
+    make_interruptions_reach_finally,
+    replace_source,
+    require_green_subject,
+    require_restored_subject,
+    run_pytest,
+)
 
 HERE = Path(__file__).resolve()
 SOURCE = HERE.parent.parent / "viewroute.py"
@@ -215,13 +223,13 @@ def put_the_source_back(original: str) -> None:
         rmtree(compiled, ignore_errors=True)
 
 
-def main() -> int:
-    original = SOURCE.read_text(encoding="utf-8")
+def _main() -> int:
     unnoticed: list[str] = []
 
     repository = SOURCE.parent.parent
-    if not require_green_baseline(repository, TESTS):
+    if not require_green_subject(repository, TESTS, SOURCE):
         return 2
+    original = SOURCE.read_text(encoding="utf-8")
 
     print(f"{'fault introduced':<52}{'caught?':>9}   noticed by")
     print("-" * 100)
@@ -249,6 +257,8 @@ def main() -> int:
                 unnoticed.append(description)
     finally:
         put_the_source_back(original)
+    if not require_restored_subject(repository, TESTS, SOURCE, original):
+        return 2
 
     print()
     if unnoticed:
@@ -261,6 +271,11 @@ def main() -> int:
 
     print("Every fault was caught. The tests are making the claims they appear to.")
     return 0
+
+
+def main() -> int:
+    with make_interruptions_reach_finally():
+        return _main()
 
 
 if __name__ == "__main__":

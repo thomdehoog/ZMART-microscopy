@@ -219,6 +219,24 @@ def store_the_profile(run_folder: Path | str, profile: AcquisitionProfile) -> Pa
     name that is already taken is refused, because a sealed description that
     could be replaced would not be sealed.
     """
+    expected = fingerprint_of_a_profile(profile)
+    if not profile.profile_id.endswith(expected):
+        raise ZmartLiveError(
+            f"Acquisition profile {profile.profile_id!r} does not end in the "
+            f"fingerprint {expected!r} of its own contents. Storing it under "
+            "that name would create a record this package refuses to load later. "
+            "Create it through plan_the_writing() or name_for_a_profile() first."
+        )
+
+    for stored_id in stored_profile_ids(run_folder):
+        if stored_id != profile.profile_id and stored_id.casefold() == profile.profile_id.casefold():
+            raise ZmartLiveError(
+                f"Acquisition profiles {stored_id!r} and {profile.profile_id!r} "
+                "differ only by letter case and would be one file on a "
+                "case-insensitive Windows microscope computer. Refusing to store "
+                "the second prevents either profile from changing meaning."
+            )
+
     where = _profile_file(run_folder, profile.profile_id)
     text = json.dumps(profile.to_json(), indent=2, sort_keys=True) + "\n"
     if where.exists():

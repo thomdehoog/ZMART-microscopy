@@ -248,7 +248,7 @@ async function startTheRun() {
   return {
     address,
     /** The one image the viewer opens: the run's seamless overview. */
-    store: `${address}/views/overview-seamless.ome.zarr/|zarr3:`,
+    store: `${address}/views/overview-seamless.ome.zarr/0/|zarr3:`,
     state,
     /** The whole production path for one position, ending in a commit. */
     publish: (position) => tell("publish", position),

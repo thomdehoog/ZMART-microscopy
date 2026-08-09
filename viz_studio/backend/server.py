@@ -66,6 +66,8 @@ from stores import (
     zarr_scheme,
 )
 
+from zmart_live.gateway import answer_from_a_live_run
+
 # Where the two kinds of content live on disk. Both are resolved to absolute
 # paths so the server behaves the same regardless of the working directory it
 # was started from.
@@ -325,7 +327,40 @@ class _Handler(SimpleHTTPRequestHandler):
         if target is None:
             self._send_empty(HTTPStatus.FORBIDDEN)
             return
+
+        # A live run writes pixels before it atomically publishes them.  Static
+        # file existence is therefore not permission to serve.  This gate also
+        # resolves a seamless view chunk straight to the encoded bytes in its
+        # canonical position, including an inner chunk held inside a shard.
+        live = answer_from_a_live_run(target)
+        if live is not None:
+            if not live.allowed:
+                self._send_empty(HTTPStatus.NOT_FOUND)
+                return
+            if live.serving is not None:
+                number = rel.partition("/")[0]
+                root = self._library.resolve(f"{number}/.")
+                source = live.serving.path.resolve()
+                if root is None or (source != root and root not in source.parents):
+                    self._send_empty(HTTPStatus.FORBIDDEN)
+                    return
+                if not source.is_file():
+                    self._send_empty(HTTPStatus.NOT_FOUND)
+                    return
+                self._send_file(
+                    source,
+                    begins_at=live.serving.offset,
+                    how_many=live.serving.length,
+                )
+                return
         if not target.is_file():
+            if live is not None:
+                # The live gateway already classified this as a materialized
+                # piece.  If that file has disappeared, do not let the older
+                # generic pointer mechanism answer with some other bytes and
+                # hide the damage behind a plausible image.
+                self._send_empty(HTTPStatus.NOT_FOUND)
+                return
             # Before deciding there is nothing here: some pictures are never
             # written down at all. An acquisition can be shown as one image whose
             # full-size picture is a list of pointers into the tiles that already
@@ -386,6 +421,8 @@ class _Handler(SimpleHTTPRequestHandler):
         """Answer with a bare status, keeping the connection open for the next ask."""
         self.send_response(status)
         self.send_header("Content-Length", "0")
+        if self._live:
+            self.send_header("Cache-Control", "no-store")
         self.end_headers()
 
     # An OME-Zarr describes itself in small files named like this: what the axes

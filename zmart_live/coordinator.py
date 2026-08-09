@@ -173,7 +173,13 @@ import zarr
 from zarr.codecs import ZstdCodec
 
 from .coarse import chunks_touched_by, what_a_chunk_should_hold
-from .manifest import RunManifest, now_in_words
+from .identity import (
+    latest_layout_revision,
+    record_the_layout,
+    spatial_fingerprint_of_a_layout,
+    store_the_profile,
+)
+from .manifest import RunManifest, _write_and_replace, now_in_words
 from .model import (
     AcquisitionProfile,
     CommitEvent,
@@ -182,6 +188,7 @@ from .model import (
     SceneLayoutRevision,
     ZmartLiveError,
 )
+from .omezarr import describe_the_position
 from .ownership import check_the_grid_holds_together, place_the_tiles, the_far_edges
 from .shardlink import where_one_chunk_lives
 from .viewroute import Placed, route_the_view
@@ -283,7 +290,7 @@ class LivePublisher:
     profile: AcquisitionProfile
     run_id: str
     cells: dict[GridCell, str]
-    channels: tuple[str, ...] = ("green",)
+    channels: tuple[str, ...] | None = None
     timepoints: int = 1
     manifest: RunManifest = field(init=False)
     layout: SceneLayoutRevision = field(init=False)
@@ -297,22 +304,145 @@ class LivePublisher:
         (self.folder / "positions").mkdir(parents=True, exist_ok=True)
         (self.folder / "views").mkdir(parents=True, exist_ok=True)
 
-        check_the_grid_holds_together(
+        profile_channels = tuple(self.profile.channels)
+        if not profile_channels:
+            raise ZmartLiveError(
+                "A live image profile has to declare at least one channel. The "
+                "writer cannot give an unnamed empty colour axis a scientific "
+                "meaning after pixels have been published."
+            )
+        expected_axes = ("t", "c", "z", "y", "x")
+        if self.profile.axes != expected_axes:
+            raise ZmartLiveError(
+                f"This live writer indexes arrays as {expected_axes}, but profile "
+                f"{self.profile.profile_id!r} declares {self.profile.axes}. "
+                "Reordering those axes without reordering every write and route "
+                "would mislabel pixels, so this profile is refused."
+            )
+        if self.channels is None:
+            self.channels = profile_channels
+        else:
+            self.channels = tuple(self.channels)
+            if self.channels != profile_channels:
+                raise ZmartLiveError(
+                    f"This writer was given the channels {list(self.channels)}, but "
+                    f"its sealed acquisition profile declares "
+                    f"{list(profile_channels)}. Channel identity is part of the "
+                    "profile and cannot be changed independently; plan a profile "
+                    "with those channels instead."
+                )
+        if (
+            not isinstance(self.timepoints, int)
+            or isinstance(self.timepoints, bool)
+            or self.timepoints < 1
+        ):
+            raise ZmartLiveError(
+                f"A live position store needs room for at least one timepoint; got "
+                f"{self.timepoints!r}."
+            )
+
+        component = check_the_grid_holds_together(
             self.cells, profile_id=self.profile.profile_id
         )
+        if not component.complete:
+            raise ZmartLiveError(
+                "The planned mosaic footprint is incomplete. Missing cells inside "
+                "the footprint cannot be treated as outer boundaries, because the "
+                "neighbouring tiles would then own and display the same specimen "
+                "twice. Supply the complete planned footprint before starting this "
+                "publisher."
+            )
         placements = place_the_tiles(self.profile, self.cells)
-        self.layout = SceneLayoutRevision(
+        candidate_layout = SceneLayoutRevision(
             revision=1,
             schema_version="zmart-live-layout/1",
             run_id=self.run_id,
             acquisition_type=self.profile.acquisition_type,
             profile_id=self.profile.profile_id,
             positions=placements,
+            components=(component,),
             seamless_ownership=self.profile.seamless_ownership,
             analysis_ownership=self.profile.analysis_ownership,
             created_at=now_in_words(),
         )
         self.manifest = RunManifest.start(self.folder, run_id=self.run_id)
+
+        newest = latest_layout_revision(self.folder)
+        if (
+            newest is not None
+            and spatial_fingerprint_of_a_layout(newest)
+            != spatial_fingerprint_of_a_layout(candidate_layout)
+        ):
+            raise ZmartLiveError(
+                f"Run {self.run_id!r} already has immutable layout revision "
+                f"{newest.revision}, and reopening it with this acquisition "
+                "profile, grid, or ownership policy would give its existing "
+                "pixels a different meaning. Resume it with exactly the same "
+                "plan, or start the changed acquisition in a new run folder."
+            )
+
+        store_the_profile(self.folder, self.profile)
+        self.layout = record_the_layout(self.folder, candidate_layout)
+        self._restore_generations_from_the_manifest()
+        self._check_existing_position_shapes_match_the_plan()
+
+    def _restore_generations_from_the_manifest(self) -> None:
+        """Recover which immutable position generation every commit refers to.
+
+        New records state the generation directly.  Records made before that
+        field existed can still be recovered because each replacement advanced
+        the generation exactly once.  This keeps old runs readable while making
+        every new commit self-describing.
+        """
+        restored: dict[str, int] = {}
+        replacements_seen: dict[str, int] = {}
+        for event in self.manifest.events():
+            inferred = replacements_seen.get(event.position_id, 0)
+            if event.event_type == "position_replaced":
+                inferred += 1
+                replacements_seen[event.position_id] = inferred
+            generation = max(event.position_generation, inferred)
+            if generation:
+                restored[event.position_id] = max(
+                    restored.get(event.position_id, 0), generation
+                )
+        self.generations = restored
+
+    def _check_existing_position_shapes_match_the_plan(self) -> None:
+        """Refuse to reinterpret arrays left by an earlier writer process.
+
+        Timepoint room is declared when the arrays are first made. It is not a
+        spatial layout property, so the layout fingerprint cannot protect it.
+        The arrays themselves are the durable declaration: once any current
+        position exists, reopening the run must agree with its complete level-0
+        shape, including time and channel room.
+        """
+        expected = (
+            self.timepoints,
+            len(self.channels),
+            self.profile.frame_shape["z"],
+            self.profile.frame_shape["y"],
+            self.profile.frame_shape["x"],
+        )
+        for placement in self.layout.positions:
+            level_zero = self.position_store(placement.position_id) / "0"
+            if not level_zero.exists():
+                continue
+            try:
+                found = zarr.open_array(str(level_zero), mode="r")
+            except Exception as trouble:
+                raise ZmartLiveError(
+                    f"The existing level-zero array for {placement.position_id!r} "
+                    f"cannot be checked while reopening this run: {trouble}"
+                ) from trouble
+            if tuple(found.shape) != expected:
+                raise ZmartLiveError(
+                    f"The existing level-zero array for {placement.position_id!r} "
+                    f"has shape {tuple(found.shape)}, but this reopened writer "
+                    f"would use {expected}. In particular, declared timepoint "
+                    "room and channels cannot change after pixels exist; resume "
+                    "with the original plan or start a new run folder."
+                )
 
     # -- where things live ---------------------------------------------------
 
@@ -333,18 +463,28 @@ class LivePublisher:
 
     @property
     def seamless_store(self) -> Path:
-        """The folder holding the run-wide zoomed-out picture."""
+        """The OME-Zarr group holding the seamless multiscale picture."""
         return self.folder / "views" / "overview-seamless.ome.zarr"
+
+    def seamless_level(self, level: int = 0) -> Path:
+        """One resolution level inside the seamless OME-Zarr image."""
+        return self.seamless_store / str(level)
 
     @property
     def raw_overlap_store(self) -> Path:
-        """The folder holding the picture that keeps every overlapping pixel.
+        """The Zarr group holding every overlapping pixel at every scale.
 
         The name is not free to choose: :func:`zmart_live.scene.build_the_scene`
         tells the viewer where to find this view, and the two have to agree or
-        the operator is handed an address with nothing behind it.
+        the operator is handed an address with nothing behind it.  This is not
+        called ``.ome.zarr`` because its extra ``tile`` selector is deliberately
+        outside the OME-Zarr 0.5 image-axis model.
         """
-        return self.folder / "views" / "overview-raw.ome.zarr"
+        return self.folder / "views" / "overview-raw.zarr"
+
+    def raw_overlap_level(self, level: int = 0) -> Path:
+        """One resolution level inside the raw selector view."""
+        return self.raw_overlap_store / str(level)
 
     @property
     def link_map_file(self) -> Path:
@@ -540,6 +680,15 @@ class LivePublisher:
             self._write_one_level(store, level, shrinking, timepoint)
             shrinking = _halve(shrinking)
 
+        placement = self.layout.placement(position_id)
+        describe_the_position(
+            store,
+            self.profile,
+            name=position_id,
+            channels=self.channels,
+            origin_pixels=placement.origin,
+        )
+
     def _one_moment_of_every_colour(self, pixels: np.ndarray) -> np.ndarray:
         """Read what the caller handed over as ``(colour, z, y, x)``, or say why not.
 
@@ -551,23 +700,38 @@ class LivePublisher:
         """
         given = np.asarray(pixels)
         if given.ndim == 3 and len(self.channels) == 1:
-            return given[np.newaxis]
-        if given.ndim == 4:
+            settled = given[np.newaxis]
+        elif given.ndim == 4:
             if given.shape[0] != len(self.channels):
                 raise ZmartLiveError(
                     f"This run records the colours {list(self.channels)}, so it "
                     f"expects pixels for {len(self.channels)} of them, but it was "
                     f"handed {given.shape[0]}."
                 )
-            return given
-        raise ZmartLiveError(
-            f"This run records the colours {list(self.channels)}. Pixels for it "
-            f"have to arrive as (colour, z, y, x), one stack of planes per colour; "
-            f"what arrived has the shape {tuple(given.shape)}. A run with a single "
-            f"colour may also hand over a plain (z, y, x) stack, but a run with "
-            f"more than one cannot, because copying one colour's pixels into the "
-            f"others would look exactly like a successful acquisition."
+            settled = given
+        else:
+            raise ZmartLiveError(
+                f"This run records the colours {list(self.channels)}. Pixels for it "
+                f"have to arrive as (colour, z, y, x), one stack of planes per "
+                f"colour; what arrived has the shape {tuple(given.shape)}. A run "
+                f"with a single colour may also hand over a plain (z, y, x) stack, "
+                f"but a run with more than one cannot, because copying one colour's "
+                "pixels into the others would look exactly like a successful "
+                "acquisition."
+            )
+
+        expected_shape = tuple(
+            self.profile.frame_shape[axis] for axis in ("z", "y", "x")
         )
+        if tuple(settled.shape[1:]) != expected_shape:
+            raise ZmartLiveError(
+                f"Profile {self.profile.profile_id!r} declares each position as "
+                f"(z, y, x)={expected_shape}, but the pixels supplied have spatial "
+                f"shape {tuple(settled.shape[1:])}. Writing them would make the "
+                "OME-Zarr description disagree with its arrays, so nothing was "
+                "written. Use the profile for this camera/acquisition format."
+            )
+        return settled
 
     def _write_one_level(self, store: Path, level, pixels: np.ndarray, timepoint: int):
         """Create or open one zoomed-out level and put this moment's pixels in it."""
@@ -604,7 +768,34 @@ class LivePublisher:
         for channel in range(colours):
             array[timepoint, channel] = pixels[channel]
 
-    def write_the_seamless_view(self, committed: frozenset[str]) -> None:
+    def _as_position_moments(
+        self, committed: frozenset[str | tuple[str, int]]
+    ) -> frozenset[tuple[str, int]]:
+        """Normalize the old position shorthand without ever meaning all moments.
+
+        A plain position name predates timepoint publication and safely means
+        moment zero only.  Treating it as every moment is the bug this boundary
+        exists to prevent.
+        """
+        units: set[tuple[str, int]] = set()
+        for item in committed:
+            if isinstance(item, str):
+                units.add((item, 0))
+                continue
+            position_id, moment = item
+            if not isinstance(position_id, str) or not isinstance(moment, int):
+                raise ZmartLiveError(
+                    "A published view unit has to be a (position name, moment) pair."
+                )
+            units.add((position_id, moment))
+        return frozenset(units)
+
+    def write_the_seamless_view(
+        self,
+        committed: frozenset[str | tuple[str, int]],
+        *,
+        only: frozenset[str | tuple[str, int]] | None = None,
+    ) -> None:
         """Rebuild the run-wide picture from the positions already published.
 
         The rule this carries out is the one the zoomed-out picture exists to
@@ -621,37 +812,91 @@ class LivePublisher:
         :func:`zmart_live.ownership.the_far_edges` says exactly which strips those
         are, and they are written here.
         """
-        height, width = self._mosaic_extent()
-        level = self.profile.level(0)
-        depth = self.profile.frame_shape.get("z", 1)
-        shape = (self.timepoints, len(self.channels), depth, height, width)
-        chunks = (
-            1, 1,
-            min(level.inner_chunk["z"], depth),
-            level.inner_chunk["y"],
-            level.inner_chunk["x"],
-        )
-        if not self.seamless_store.exists():
-            zarr.create_array(
-                store=str(self.seamless_store), shape=shape, chunks=chunks,
-                dtype=self.profile.dtype, zarr_format=3,
-                compressors=[ZstdCodec(level=3)], overwrite=False,
-            )
-        view = zarr.open_array(str(self.seamless_store), mode="r+")
+        committed_units = self._as_position_moments(committed)
+        created = not self.seamless_store.exists()
+        if created or only is None:
+            units_to_write = {
+                (placement.position_id, moment)
+                for placement in self.layout.positions
+                for moment in range(self.timepoints)
+            }
+        else:
+            units_to_write = set(self._as_position_moments(only))
 
-        for placement in self.layout.positions:
-            if placement.position_id not in committed:
-                continue
-            shown = self._what_this_tile_fills_in(placement)
-            source = zarr.open_array(
-                str(self.position_store(placement.position_id) / "0"), mode="r"
+        zarr.open_group(str(self.seamless_store), mode="a", zarr_format=3)
+        sources: dict[tuple[str, int], object] = {}
+        for level in self.profile.levels:
+            factor_y = level.downsampling.get("y", 1)
+            factor_x = level.downsampling.get("x", 1)
+            depth, height, width = self._how_big_the_overview_is(level.level)
+            shape = (self.timepoints, len(self.channels), depth, height, width)
+            chunks = (
+                1,
+                1,
+                min(level.inner_chunk["z"], depth),
+                min(level.inner_chunk["y"], height),
+                min(level.inner_chunk["x"], width),
             )
-            y, x = shown["y"], shown["x"]
-            lands_y = placement.origin["y"]
-            lands_x = placement.origin["x"]
-            view[:, :, :, lands_y:lands_y + y.length, lands_x:lands_x + x.length] = (
-                source[:, :, :, y.start:y.stop, x.start:x.stop]
+            path = self.seamless_level(level.level)
+            if not path.exists():
+                zarr.create_array(
+                    store=str(path),
+                    shape=shape,
+                    chunks=chunks,
+                    dtype=self.profile.dtype,
+                    zarr_format=3,
+                    compressors=[ZstdCodec(level=3)],
+                    dimension_names=self.profile.axes,
+                    overwrite=False,
+                )
+            view = zarr.open_array(str(path), mode="r+")
+            for position_id, moment in sorted(units_to_write):
+                placement = self.layout.placement(position_id)
+                shown = self._what_this_tile_fills_in(placement)
+                y = self._interval_at_level(shown["y"], factor_y)
+                x = self._interval_at_level(shown["x"], factor_x)
+                lands_y = placement.origin["y"] // factor_y
+                lands_x = placement.origin["x"] // factor_x
+                target = (
+                    moment,
+                    slice(None),
+                    slice(None),
+                    slice(lands_y, lands_y + y.length),
+                    slice(lands_x, lands_x + x.length),
+                )
+                unit = (position_id, moment)
+                if unit in committed_units:
+                    key = (position_id, level.level)
+                    source = sources.get(key)
+                    if source is None:
+                        source = zarr.open_array(
+                            str(self.position_store(position_id) / str(level.level)),
+                            mode="r",
+                        )
+                        sources[key] = source
+                    z = slice(0, depth)
+                    view[target] = source[moment, :, z, y.start:y.stop, x.start:x.stop]
+                else:
+                    view[target] = 0
+
+        describe_the_position(
+            self.seamless_store,
+            self.profile,
+            name="overview-seamless",
+            channels=self.channels,
+            origin_pixels={"z": 0, "y": 0, "x": 0},
+        )
+
+    @staticmethod
+    def _interval_at_level(interval: Interval, factor: int) -> Interval:
+        """Express a full-resolution interval on one pyramid level exactly."""
+        if interval.start % factor or interval.stop % factor:
+            raise ZmartLiveError(
+                f"The interval {interval.start}:{interval.stop} does not land on "
+                f"whole pixels after downsampling by {factor}. This level cannot "
+                "be assembled without resampling across a declared seam."
             )
+        return Interval(interval.start // factor, interval.stop // factor)
 
     def _what_this_tile_fills_in(self, placement) -> dict[str, Interval]:
         """Which part of one tile the seamless picture is filled in from.
@@ -678,7 +923,12 @@ class LivePublisher:
             fills[edge.axis] = Interval(fills[edge.axis].start, edge.taken_from.stop)
         return fills
 
-    def write_the_raw_overlap_view(self, committed: frozenset[str]) -> None:
+    def write_the_raw_overlap_view(
+        self,
+        committed: frozenset[str | tuple[str, int]],
+        *,
+        only: frozenset[str | tuple[str, int]] | None = None,
+    ) -> None:
         """Rebuild the picture that keeps every pixel every tile recorded.
 
         Each published tile is copied in whole, overlap included, at the stop on
@@ -697,55 +947,103 @@ class LivePublisher:
         """
         self._no_two_tiles_on_one_stop_overlap()
 
-        height, width = self._mosaic_extent()
-        level = self.profile.level(0)
-        depth = self.profile.frame_shape.get("z", 1)
-        shape = (
-            self.tile_stop_count,
-            self.timepoints,
-            len(self.channels),
-            depth,
-            height,
-            width,
-        )
-        chunks = (
-            1, 1, 1,
-            min(level.inner_chunk["z"], depth),
-            level.inner_chunk["y"],
-            level.inner_chunk["x"],
-        )
-        if not self.raw_overlap_store.exists():
-            zarr.create_array(
-                store=str(self.raw_overlap_store), shape=shape, chunks=chunks,
-                dtype=self.profile.dtype, zarr_format=3,
-                compressors=[ZstdCodec(level=3)], overwrite=False,
-            )
-        view = zarr.open_array(str(self.raw_overlap_store), mode="r+")
+        created = not self.raw_overlap_store.exists()
+        committed_units = self._as_position_moments(committed)
+        if created or only is None:
+            units_to_write = {
+                (placement.position_id, moment)
+                for placement in self.layout.positions
+                for moment in range(self.timepoints)
+            }
+        else:
+            units_to_write = set(self._as_position_moments(only)).copy()
 
-        for placement in self.layout.positions:
-            # Not published yet means not shown here either, exactly as in the
-            # seamless view above.
-            if placement.position_id not in committed:
-                continue
-            everything = placement.analysis_input_roi
-            source = zarr.open_array(
-                str(self.position_store(placement.position_id) / "0"), mode="r"
+        group = zarr.open_group(str(self.raw_overlap_store), mode="a", zarr_format=3)
+        sources: dict[tuple[str, int], object] = {}
+        for level in self.profile.levels:
+            factor_y = level.downsampling.get("y", 1)
+            factor_x = level.downsampling.get("x", 1)
+            depth, height, width = self._how_big_the_overview_is(level.level)
+            shape = (
+                self.tile_stop_count,
+                self.timepoints,
+                len(self.channels),
+                depth,
+                height,
+                width,
             )
-            y, x = everything["y"], everything["x"]
-            lands_y = placement.origin["y"]
-            lands_x = placement.origin["x"]
-            view[
-                self.tile_stop_of(placement.position_id),
-                :, :, :,
-                lands_y:lands_y + y.length,
-                lands_x:lands_x + x.length,
-            ] = source[:, :, :, y.start:y.stop, x.start:x.stop]
+            chunks = (
+                1,
+                1,
+                1,
+                min(level.inner_chunk["z"], depth),
+                min(level.inner_chunk["y"], height),
+                min(level.inner_chunk["x"], width),
+            )
+            path = self.raw_overlap_level(level.level)
+            if not path.exists():
+                zarr.create_array(
+                    store=str(path),
+                    shape=shape,
+                    chunks=chunks,
+                    dtype=self.profile.dtype,
+                    zarr_format=3,
+                    compressors=[ZstdCodec(level=3)],
+                    dimension_names=("tile", *self.profile.axes),
+                    overwrite=False,
+                )
+            view = zarr.open_array(str(path), mode="r+")
+            for position_id, moment in sorted(units_to_write):
+                placement = self.layout.placement(position_id)
+                everything = placement.analysis_input_roi
+                y = self._interval_at_level(everything["y"], factor_y)
+                x = self._interval_at_level(everything["x"], factor_x)
+                lands_y = placement.origin["y"] // factor_y
+                lands_x = placement.origin["x"] // factor_x
+                target = (
+                    self.tile_stop_of(position_id),
+                    moment,
+                    slice(None),
+                    slice(None),
+                    slice(lands_y, lands_y + y.length),
+                    slice(lands_x, lands_x + x.length),
+                )
+                if (position_id, moment) in committed_units:
+                    key = (position_id, level.level)
+                    source = sources.get(key)
+                    if source is None:
+                        source = zarr.open_array(
+                            str(self.position_store(position_id) / str(level.level)),
+                            mode="r",
+                        )
+                        sources[key] = source
+                    view[target] = source[
+                        moment, :, :, y.start:y.stop, x.start:x.stop
+                    ]
+                else:
+                    view[target] = 0
+
+        group.attrs["zmart"] = {
+            "schema": "zmart-live-raw-multiscale/1",
+            "selector_axis": "tile",
+            "axes": ["tile", *self.profile.axes],
+            "datasets": [
+                {
+                    "path": str(level.level),
+                    "downsampling": dict(level.downsampling),
+                }
+                for level in self.profile.levels
+            ],
+        }
 
     def write_the_layout(self) -> None:
-        """Put the arrangement on disk, where a published result can point at it."""
-        target = self.folder / "zmart-live" / _LAYOUT
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(self.layout.to_json(), indent=2))
+        """Persist the immutable arrangement a published result points at.
+
+        The convenience ``layout.json`` pointer is updated atomically, while the
+        numbered snapshot it names is write-once.  Repeating an unchanged layout
+        reuses its revision; a genuine spatial change receives a new one.
+        """
+        self.layout = record_the_layout(self.folder, self.layout)
 
     # -- the pointers the overview is served from ----------------------------
 
@@ -844,18 +1142,23 @@ class LivePublisher:
             )
         target = self.link_map_file
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
+        _write_and_replace(
+            target,
             json.dumps(
                 {
                     "schema": _LINKS_SCHEMA,
                     "run_id": self.run_id,
                     "profile_id": self.profile.profile_id,
                     "scene_layout_revision": self.layout.revision,
+                    "position_generations": {
+                        position_id: self.generations.get(position_id, 0)
+                        for position_id in showing
+                    },
                     "created_at": now_in_words(),
                     "levels": levels,
                 },
                 indent=2,
-            )
+            ),
         )
 
     def _read_the_link_map(self) -> dict:
@@ -1306,8 +1609,7 @@ class LivePublisher:
             return 0
         rebuilt = 0
         try:
-            view = zarr.open_array(str(self.seamless_store), mode="r")
-            for level_number in (0,):
+            for level_number in (level.level for level in self.profile.levels):
                 for piece in chunks_touched_by(self.profile, placement, level_number):
                     allowed = what_a_chunk_should_hold(
                         self.profile, piece, self.layout.positions,
@@ -1316,33 +1618,46 @@ class LivePublisher:
                     if not allowed:
                         continue
                     rebuilt += 1
-            shown = self._what_this_tile_fills_in(placement)
-            y, x = shown["y"], shown["x"]
-            y0, x0 = placement.origin["y"], placement.origin["x"]
-            source = zarr.open_array(
-                str(self.position_store(position_id) / "0"), mode="r"
-            )
-            as_written = source[timepoint, :, :, y.start:y.stop, x.start:x.stop]
-            as_shown = view[
-                timepoint, :, :,
-                y0:y0 + y.length,
-                x0:x0 + x.length,
-            ]
-            if as_shown.size == 0:
-                complaints.append(
-                    "The zoomed-out picture does not reach the ground this "
-                    "position covers."
+                level = self.profile.level(level_number)
+                factor_y = level.downsampling.get("y", 1)
+                factor_x = level.downsampling.get("x", 1)
+                shown = self._what_this_tile_fills_in(placement)
+                y = self._interval_at_level(shown["y"], factor_y)
+                x = self._interval_at_level(shown["x"], factor_x)
+                y0 = placement.origin["y"] // factor_y
+                x0 = placement.origin["x"] // factor_x
+                source = zarr.open_array(
+                    str(self.position_store(position_id) / str(level_number)),
+                    mode="r",
                 )
-            elif as_shown.shape != as_written.shape or not np.array_equal(
-                as_shown, as_written
-            ):
-                complaints.append(
-                    f"The zoomed-out picture does not show '{position_id}'s own "
-                    f"pixels over the ground it covers at moment {timepoint}. "
-                    f"Empty ground and somebody else's specimen both look "
-                    f"completely ordinary on the screen, so only comparing the "
-                    f"pixels notices."
+                view = zarr.open_array(
+                    str(self.seamless_level(level_number)), mode="r"
                 )
+                as_written = source[
+                    timepoint, :, :, y.start:y.stop, x.start:x.stop
+                ]
+                as_shown = view[
+                    timepoint,
+                    :,
+                    :,
+                    y0 : y0 + y.length,
+                    x0 : x0 + x.length,
+                ]
+                if as_shown.size == 0:
+                    complaints.append(
+                        f"Level {level_number} of the zoomed-out picture does not "
+                        "reach the ground this position covers."
+                    )
+                elif as_shown.shape != as_written.shape or not np.array_equal(
+                    as_shown, as_written
+                ):
+                    complaints.append(
+                        f"Level {level_number} of the zoomed-out picture does not "
+                        f"show '{position_id}'s own pixels over the ground it "
+                        f"covers at moment {timepoint}. Empty ground and somebody "
+                        "else's specimen both look completely ordinary on the "
+                        "screen, so only comparing the pixels notices."
+                    )
         except Exception as trouble:
             complaints.append(f"The zoomed-out picture could not be read: {trouble}")
         return rebuilt
@@ -1371,32 +1686,45 @@ class LivePublisher:
             )
             return 0
         try:
-            view = zarr.open_array(str(self.raw_overlap_store), mode="r")
-            source = zarr.open_array(
-                str(self.position_store(position_id) / "0"), mode="r"
-            )
-            everything = placement.analysis_input_roi
-            y, x = everything["y"], everything["x"]
-            lands_y = placement.origin["y"]
-            lands_x = placement.origin["x"]
-            as_written = source[timepoint, :, :, y.start:y.stop, x.start:x.stop]
-            as_stored = view[
-                self.tile_stop_of(position_id),
-                timepoint, :, :,
-                lands_y:lands_y + y.length,
-                lands_x:lands_x + x.length,
-            ]
-            if as_stored.shape != as_written.shape or not np.array_equal(
-                as_stored, as_written
-            ):
-                complaints.append(
-                    f"The raw overlap view does not show '{position_id}'s own "
-                    f"measurements where it should. Another tile's pixels sitting "
-                    f"here would still look like specimen, so nothing on screen "
-                    f"would say that this position's record of the overlap has "
-                    f"been lost."
+            compared = 0
+            for level in self.profile.levels:
+                factor_y = level.downsampling.get("y", 1)
+                factor_x = level.downsampling.get("x", 1)
+                view = zarr.open_array(
+                    str(self.raw_overlap_level(level.level)), mode="r"
                 )
-            return int(as_stored.size)
+                source = zarr.open_array(
+                    str(self.position_store(position_id) / str(level.level)),
+                    mode="r",
+                )
+                everything = placement.analysis_input_roi
+                y = self._interval_at_level(everything["y"], factor_y)
+                x = self._interval_at_level(everything["x"], factor_x)
+                lands_y = placement.origin["y"] // factor_y
+                lands_x = placement.origin["x"] // factor_x
+                as_written = source[
+                    timepoint, :, :, y.start:y.stop, x.start:x.stop
+                ]
+                as_stored = view[
+                    self.tile_stop_of(position_id),
+                    timepoint,
+                    :,
+                    :,
+                    lands_y : lands_y + y.length,
+                    lands_x : lands_x + x.length,
+                ]
+                if as_stored.shape != as_written.shape or not np.array_equal(
+                    as_stored, as_written
+                ):
+                    complaints.append(
+                        f"Level {level.level} of the raw overlap view does not "
+                        f"show '{position_id}'s own measurements where it should. "
+                        "Another tile's pixels sitting here would still look like "
+                        "specimen, so nothing on screen would say that this "
+                        "position's record of the overlap has been lost."
+                    )
+                compared += int(as_stored.size)
+            return compared
         except Exception as trouble:
             complaints.append(f"The raw overlap view could not be read: {trouble}")
             return 0
@@ -1484,6 +1812,7 @@ class LivePublisher:
             acquisition_profile_id=self.profile.profile_id,
             scene_layout_revision=self.layout.revision,
             link_revision=self.layout.revision,
+            position_generation=self.generations.get(position_id, 0),
             timepoint=timepoint,
             component_id=placement.component_id,
             cell=placement.cell,
@@ -1565,12 +1894,44 @@ class LivePublisher:
             return self._rebuild_everything_shared_and_publish(
                 position_id, timepoint=timepoint, superseding=True
             )
-        except BaseException:
+        except BaseException as failure:
             # Nothing was published, so the run goes back to the generation it was
             # reading a moment ago rather than being left pointing at a half
             # written one.
-            self.generations[position_id] = was
+            if was:
+                self.generations[position_id] = was
+            else:
+                self.generations.pop(position_id, None)
+            try:
+                self._restore_shared_state_after_failed_replacement(
+                    position_id, timepoint
+                )
+            except BaseException as recovery_failure:
+                raise ZmartLiveError(
+                    f"Replacing moment {timepoint} of {position_id!r} failed "
+                    f"({failure!r}), and restoring its previously published "
+                    f"shared views also failed ({recovery_failure!r}). The gateway "
+                    "continues to fail closed, but this run needs operator "
+                    "attention before acquisition resumes."
+                ) from recovery_failure
             raise
+
+    def _restore_shared_state_after_failed_replacement(
+        self, position_id: str, timepoint: int
+    ) -> None:
+        """Put the last committed generation back after a candidate aborts.
+
+        The candidate link map deliberately withholds the position before either
+        shared view is changed. Recovery keeps that withholding map in place while
+        copying the old generation back into the affected physical view pieces,
+        then restores the old map last. A reader therefore sees either the old
+        committed pixels or a temporary refusal, never the failed candidate.
+        """
+        units = frozenset(self._committed_units())
+        affected = frozenset({(position_id, timepoint)})
+        self.write_the_seamless_view(units, only=affected)
+        self.write_the_raw_overlap_view(units, only=affected)
+        self.write_the_link_map(frozenset(position for position, _ in units))
 
     def _rebuild_everything_shared_and_publish(
         self,
@@ -1580,10 +1941,17 @@ class LivePublisher:
         superseding: bool = False,
     ) -> CommitEvent:
         """Rebuild every shared picture from what is published, then commit once."""
-        already = frozenset(self.manifest.committed().by_store) | {position_id}
-        self.write_the_seamless_view(already)
-        self.write_the_raw_overlap_view(already)
-        self.write_the_link_map(already)
+        moment = 0 if timepoint is None else timepoint
+        units = frozenset(self._committed_units()) | {(position_id, moment)}
+        affected = frozenset({(position_id, moment)})
+        positions = frozenset(position for position, _ in units)
+        # Write the candidate generation map first. For a replacement, this makes
+        # the gateway withhold that position before any already-public physical
+        # edge or raw-view chunk is changed. The manifest commit later makes the
+        # new generation visible in one step.
+        self.write_the_link_map(positions)
+        self.write_the_seamless_view(units, only=affected)
+        self.write_the_raw_overlap_view(units, only=affected)
         self.write_the_layout()
         return self.publish(position_id, timepoint=timepoint, superseding=superseding)
 

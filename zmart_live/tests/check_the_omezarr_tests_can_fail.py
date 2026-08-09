@@ -25,16 +25,24 @@ source file while it works, so it is a thing you run deliberately::
 
     python -m zmart_live.tests.check_the_omezarr_tests_can_fail
 
-It always puts the file back, including when it is interrupted, and it refuses to
-draw any conclusion at all unless the unmodified tests are green first — a red
-baseline makes every later failure meaningless.
+It puts the file back after completion, exceptions, Ctrl-C and SIGTERM. No
+process can recover after SIGKILL or loss of power; after either, restore the
+mutation subject from version control before running anything else. It also
+refuses to draw any conclusion unless the unmodified tests are green first — a
+red baseline makes every later failure meaningless.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from ._fault_check import replace_source, require_green_baseline, run_pytest
+from ._fault_check import (
+    make_interruptions_reach_finally,
+    replace_source,
+    require_green_subject,
+    require_restored_subject,
+    run_pytest,
+)
 
 HERE = Path(__file__).resolve()
 PACKAGE = HERE.parent.parent
@@ -164,6 +172,35 @@ OMEZARR_FAULTS: list[tuple[str, str, str]] = [
 ]
 
 
+# These two faults live in the production coordinator rather than the metadata
+# helper.  Keeping them in this campaign matters: an excellent description
+# routine is irrelevant if the path used by a live microscope never calls it.
+PRODUCTION_PATH_FAULTS: list[tuple[str, str, str]] = [
+    (
+        "leave a position written by a live run undescribed",
+        "        describe_the_position(\n"
+        "            store,\n"
+        "            self.profile,\n"
+        "            name=position_id,\n"
+        "            channels=self.channels,\n"
+        "            origin_pixels=placement.origin,\n"
+        "        )",
+        "        pass",
+    ),
+    (
+        "leave the live seamless pyramid undescribed",
+        "        describe_the_position(\n"
+        "            self.seamless_store,\n"
+        "            self.profile,\n"
+        '            name="overview-seamless",\n'
+        "            channels=self.channels,\n"
+        '            origin_pixels={"z": 0, "y": 0, "x": 0},\n'
+        "        )",
+        "        pass",
+    ),
+]
+
+
 #: Which faults belong to which file, and which tests should notice them. Kept in
 #: the same shape as the other fault checks in this folder so that a reader who
 #: has seen one has seen them all.
@@ -174,19 +211,25 @@ SUBJECTS: list[tuple[str, str, str, list[tuple[str, str, str]]]] = [
         "test_omezarr.py",
         OMEZARR_FAULTS,
     ),
+    (
+        "the real live writer calling that description",
+        "coordinator.py",
+        "test_omezarr.py",
+        PRODUCTION_PATH_FAULTS,
+    ),
 ]
 
 
-def main() -> int:
+def _main() -> int:
     unnoticed: list[str] = []
 
     for title, source_name, test_name, faults in SUBJECTS:
         source = PACKAGE / source_name
         tests = HERE.parent / test_name
-        original = source.read_text(encoding="utf-8")
 
-        if not require_green_baseline(REPO, tests):
+        if not require_green_subject(REPO, tests, source):
             return 2
+        original = source.read_text(encoding="utf-8")
 
         print()
         print(f"== {title} ==")
@@ -219,6 +262,8 @@ def main() -> int:
                     unnoticed.append(description)
         finally:
             _put_back(source, original)
+        if not require_restored_subject(REPO, tests, source, original):
+            return 2
 
     print()
     if unnoticed:
@@ -231,6 +276,11 @@ def main() -> int:
 
     print("Every fault was caught. The tests are making the claims they appear to.")
     return 0
+
+
+def main() -> int:
+    with make_interruptions_reach_finally():
+        return _main()
 
 
 if __name__ == "__main__":

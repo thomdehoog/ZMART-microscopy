@@ -793,10 +793,11 @@ def build_the_scene(
     # size alone. They deliberately share a name: they are two presentations of one
     # overview, and their role is what tells them apart.
     def an_overview(role: str, suffix: str, selector: str | None) -> SceneImage:
+        ending = "zarr" if selector is not None else "ome.zarr"
         return SceneImage(
             image_id=overview_name,
             role=role,
-            path=f"{views_folder}/{overview_name}-{suffix}.ome.zarr",
+            path=f"{views_folder}/{overview_name}-{suffix}.{ending}",
             axes=axes,
             voxel_size=FrozenMap(voxel_size),
             voxel_unit=profile.voxel_unit,

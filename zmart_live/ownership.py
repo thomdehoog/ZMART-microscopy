@@ -84,6 +84,7 @@ from .model import (
     MosaicComponent,
     PositionPlacement,
     ZmartLiveError,
+    check_the_name_is_safe,
 )
 
 __all__ = [
@@ -122,6 +123,21 @@ def _cell_index(cell: GridCell, axis: str) -> int:
     return cell.row if axis == "y" else cell.column
 
 
+def _check_the_cell_is_a_forward_grid_index(cell: GridCell) -> None:
+    """Keep external grid coordinates out of Python's negative-slice semantics."""
+    coordinates = (cell.row, cell.column)
+    if any(
+        not isinstance(index, int) or isinstance(index, bool) or index < 0
+        for index in coordinates
+    ):
+        raise TopologyRefused(
+            f"Grid cells are non-negative whole-number row/column indexes from "
+            f"the mosaic's top-left corner; got row {cell.row!r}, column "
+            f"{cell.column!r}. A negative origin would be interpreted as a slice "
+            "from the far edge of a Zarr array and put the tile in the wrong place."
+        )
+
+
 def plan_one_tile(
     profile: AcquisitionProfile,
     cell: GridCell,
@@ -145,6 +161,7 @@ def plan_one_tile(
     the overview cannot point as deeply. :func:`the_far_edges` reports the strips
     the default leaves behind.
     """
+    _check_the_cell_is_a_forward_grid_index(cell)
     tiled = profile.tiled_axes
     if not tiled:
         raise ZmartLiveError(
@@ -252,6 +269,22 @@ def place_the_tiles(
     happened to be acquired in never enters into it, which is what makes the
     answer the same whether a run finished tidily or was interrupted and resumed.
     """
+    component = check_the_grid_holds_together(
+        cells,
+        component_id=component_id,
+        profile_id=profile.profile_id,
+    )
+    if not component.complete:
+        raise TopologyRefused(
+            f"Mosaic component '{component_id}' is incomplete: one or more cells "
+            "inside its planned rectangular footprint are missing. Treating those "
+            "missing cells as outer boundaries would make diagonal neighbours own "
+            "the same specimen twice. Keep the complete planned footprint until "
+            "those positions arrive, or describe an intentional irregular boundary "
+            "with a future explicit boundary model; this box-shaped ownership "
+            "format cannot represent it safely."
+        )
+
     occupied = frozenset(cells)
     return tuple(
         plan_one_tile(
@@ -367,17 +400,28 @@ def check_the_grid_holds_together(
             f"nothing to check and nothing to show."
         )
 
-    seen: dict[str, GridCell] = {}
+    seen_on_disk: dict[str, tuple[str, GridCell]] = {}
     for cell, position_id in sorted(cells.items()):
-        if position_id in seen:
+        _check_the_cell_is_a_forward_grid_index(cell)
+        check_the_name_is_safe(position_id, what="position")
+        disk_name = position_id.casefold()
+        if disk_name in seen_on_disk:
+            first_name, first_cell = seen_on_disk[disk_name]
+            if first_name == position_id:
+                raise TopologyRefused(
+                    f"Position {position_id!r} is placed at both row "
+                    f"{first_cell.row}, column {first_cell.column} and row "
+                    f"{cell.row}, column {cell.column}. A position sits in one "
+                    "square; putting it in two would claim the same specimen twice."
+                )
             raise TopologyRefused(
-                f"Position '{position_id}' is placed at both "
-                f"row {seen[position_id].row}, column {seen[position_id].column} "
-                f"and row {cell.row}, column {cell.column}. A position sits in one "
-                f"square; putting it in two would have it claim the same specimen "
-                f"twice."
+                f"Positions {first_name!r} at row {first_cell.row}, column "
+                f"{first_cell.column} and {position_id!r} at row {cell.row}, "
+                f"column {cell.column} differ only by letter case. They are one "
+                "folder on the case-insensitive Windows filesystems used by "
+                "microscope computers, so one position would overwrite the other."
             )
-        seen[position_id] = cell
+        seen_on_disk[disk_name] = (position_id, cell)
 
     # Walk outwards from one square, stepping only between edge neighbours.
     # Anything the walk cannot reach is not joined on, whatever its coordinates

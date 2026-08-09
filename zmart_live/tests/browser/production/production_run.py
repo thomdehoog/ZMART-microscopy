@@ -280,7 +280,7 @@ SEAMLESS = "views/overview-seamless.ome.zarr"
 #: opens it, but its pieces are gated all the same, because a piece of image that
 #: nobody has published must not be readable by anybody, whichever picture it
 #: happens to sit in.
-RAW_OVERLAP = "views/overview-raw.ome.zarr"
+RAW_OVERLAP = "views/overview-raw.zarr"
 
 #: Where each position's own image lives, relative to the run folder.
 POSITIONS = "positions"
@@ -493,13 +493,15 @@ class ProductionRun:
         """
         with self._lock:
             self._check_the_moment(moment)
-            already = frozenset(self.publisher.manifest.committed().by_store) | {name}
             self.publisher.write_a_position(
                 name, _a_frame(self._seed(name)), timepoint=moment
             )
-            self.publisher.write_the_seamless_view(already)
-            self.publisher.write_the_raw_overlap_view(already)
-            self.publisher.write_the_link_map(already)
+            units = frozenset(self.publisher._committed_units()) | {(name, moment)}
+            affected = frozenset({(name, moment)})
+            self.publisher.write_the_seamless_view(units, only=affected)
+            self.publisher.write_the_raw_overlap_view(units, only=affected)
+            positions = frozenset(position for position, _ in units)
+            self.publisher.write_the_link_map(positions)
             self.publisher.write_the_layout()
 
     def commit_only(self, name: str, moment: int = 0) -> int:
@@ -1067,12 +1069,12 @@ def main() -> None:
     )
     print(
         f"the seamless picture:   {address}/page/index.html"
-        f"?store={address}/{SEAMLESS}/%7Czarr3:",
+        f"?store={address}/{SEAMLESS}/0/%7Czarr3:",
         flush=True,
     )
     print(
         f"every overlapping pixel: {address}/page/index.html"
-        f"?store={address}/{RAW_OVERLAP}/%7Czarr3:",
+        f"?store={address}/{RAW_OVERLAP}/0/%7Czarr3:",
         flush=True,
     )
     try:

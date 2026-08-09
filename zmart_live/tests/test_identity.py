@@ -28,6 +28,7 @@ look for it, outside the run entirely.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -134,6 +135,16 @@ class TestANameThatWouldEscapeTheRunFolder:
 
     @pytest.mark.parametrize(
         "name",
+        ["sample.generation-1", "sample.Generation-12", "x.generation-0003"],
+    )
+    def test_a_replacement_store_suffix_is_reserved(self, name):
+        """Two distinct position identifiers must never resolve to one folder."""
+        assert not is_a_safe_name(name)
+        with pytest.raises(ZmartLiveError, match="replacement stores"):
+            check_the_name_is_safe(name, what="position")
+
+    @pytest.mark.parametrize(
+        "name",
         [
             "pos000",
             "posA",
@@ -189,6 +200,17 @@ class TestAProfileCanBeFoundAgainAfterTheRun:
         again = load_the_profile(tmp_path, profile.profile_id)
         assert again.to_json() == profile.to_json()
 
+    def test_a_profile_with_a_name_that_omits_its_fingerprint_is_not_stored(
+        self, tmp_path
+    ):
+        profile, _ = plan_the_writing("confocal", frame=1152, z_planes=8)
+        badly_named = replace(profile, profile_id="confocal-tuesday")
+
+        with pytest.raises(ZmartLiveError, match="refuses to load later"):
+            store_the_profile(tmp_path, badly_named)
+
+        assert stored_profile_ids(tmp_path) == ()
+
     def test_storing_it_twice_is_harmless(self, tmp_path):
         """Rerunning the setup step of a run must not be a destructive act."""
         profile, _ = plan_the_writing("overview", frame=2304)
@@ -205,6 +227,20 @@ class TestAProfileCanBeFoundAgainAfterTheRun:
         assert stored_profile_ids(tmp_path) == tuple(
             sorted((overview.profile_id, confocal.profile_id))
         )
+
+    def test_profile_names_that_share_one_windows_file_are_refused(self, tmp_path):
+        first, _ = plan_the_writing(
+            "overview", frame=2304, readable_prefix="Tuesday-overview"
+        )
+        second, _ = plan_the_writing(
+            "overview", frame=2304, readable_prefix="tuesday-overview"
+        )
+        assert first.profile_id != second.profile_id
+        assert first.profile_id.casefold() == second.profile_id.casefold()
+
+        store_the_profile(tmp_path, first)
+        with pytest.raises(ZmartLiveError, match="case-insensitive Windows"):
+            store_the_profile(tmp_path, second)
 
     def test_asking_for_one_that_was_never_stored_says_what_is_there(self, tmp_path):
         profile, _ = plan_the_writing("overview", frame=2304)

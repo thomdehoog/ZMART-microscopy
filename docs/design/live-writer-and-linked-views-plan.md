@@ -1,10 +1,10 @@
 # Building the live writer and the two linked overviews
 
-**Status:** implementation plan with a tested reference implementation in
-`zmart_live/`. The profile, ownership, manifest, coarse-chunk planner, shard-index
-resolver and scene compiler exist. They are not yet one production pipeline: the
-coordinator that earns readiness, the view stores, the shard resolver's backend
-route and the live viewer refresh still have to be connected.
+**Status:** implementation plan with a tested end-to-end reference pipeline in
+`zmart_live/`. The production coordinator earns readiness, writes both multiscale
+views, and serves manifest-gated inner-chunk ranges through `viz_studio/backend`.
+Automatic frontend refresh, removal of materialized duplicates at routed levels,
+microscope integration, and Windows/SMB qualification remain follow-up work.
 
 This is the plan for turning
 [`live-position-timepoint-publication-decisions.md`](live-position-timepoint-publication-decisions.md)
@@ -146,13 +146,13 @@ what makes the thing testable.
 | phase | present in `zmart_live/` | still missing before production |
 | --- | --- | --- |
 | chunk/profile | chooser, sealed records, divisibility validation | Windows and real-viewer benchmark |
-| publication | durable monotonic manifest, recovery, single-writer exclusion | coordinator that validates real artifacts before setting readiness |
-| timepoints | event semantics inside already declared array room | growing beyond declared room and microscope integration |
-| ownership | visual and analysis ROIs, exhaustive small-grid tests | persisted-layout validator against the sealed profile |
-| coarse levels | exact affected-chunk and committed-contributor plans | actual raw/seamless coarse writers and timing budget |
-| sharding | checked inner-chunk byte-range resolver | routing those ranges through the linked-view backend |
-| scenes | internal scene model and bounded Neuroglancer adapter payload | actual raw selector store, 0.5 metadata adapter and frontend refresh |
-| browser | real-Neuroglancer synthetic run and sabotage harness | production-path integration test and portable Chromium provisioning |
+| publication | durable monotonic manifest, recovery, single-writer exclusion, and a production coordinator that reads artifacts back before committing | microscope integration and filesystem qualification on Windows/SMB |
+| timepoints | per-position/per-moment view writes, manifest gating, immutable replacement generations, restart recovery, and refusal to reopen existing arrays with different declared room | growing beyond declared room and microscope integration |
+| ownership | visual and analysis ROIs, complete-footprint refusal, immutable layout snapshots, and exhaustive small-grid tests | the deliberately deferred concurrent-analysis consumer |
+| view pyramids | incremental raw and seamless multiscale writers that update only the affected unit and validate every advertised level | stop materializing duplicate linkable chunks; retain only routed levels plus required physical edge/global coarse chunks |
+| sharding | checked inner-chunk byte-range resolver wired through the shared gateway into `viz_studio/backend` | real-viewer shard geometry benchmark and Windows/SMB timing |
+| scenes | internal scene model, real raw selector store, OME-Zarr 0.5 seamless metadata, and bounded Neuroglancer adapter payload | automatic manifest-driven frontend refresh and later scene-standard serialization |
+| browser/backend | real-Neuroglancer synthetic run and sabotage harness, plus a real-HTTP test of the application backend gate | a browser test that starts the application backend itself and portable Chromium provisioning |
 
 ### Phase 0 — Settle the chunk question before building on it
 

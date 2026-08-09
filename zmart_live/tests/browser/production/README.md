@@ -32,12 +32,13 @@ from the test. A real viewer is not driven that way.
 
 What these tests genuinely prove is narrower than "the application is safe", and
 it is still worth having. Every pixel on screen was written, inspected and
-committed by `LivePublisher` — the production writer — and the rule "unpublished
-pixels are never served" is enforced in one place that every reader has to pass
-through, and a real drawing engine is watched to see what it does when that rule
-is applied. What is **not** proved is that the application's own serving path
-enforces the same rule, because the application's serving path is not exercised
-here at all. Somebody should write that test; this is not it.
+committed by `LivePublisher` — the production writer — and a real drawing engine
+is watched while a manifest-aware gate is applied. The application backend now
+uses the shared `zmart_live.gateway` and has a real-HTTP regression that withholds
+and then byte-routes the same chunk. What is **still not** proved here is the full
+browser chain through that backend, scene discovery, and automatic production
+refresh. This suite and the backend integration test cover different boundaries;
+neither should be described as the other.
 
 ## What is different about these tests
 
