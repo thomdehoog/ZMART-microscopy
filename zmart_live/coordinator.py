@@ -11,10 +11,80 @@ goes and looks at what actually landed on disk, and builds the publication event
 out of **what it found** rather than what anybody asserted. There is deliberately
 no way to hand it a readiness flag.
 
+The two pictures this builds, and why there have to be two
+----------------------------------------------------------
+
+A mosaic is imaged with its tiles deliberately overlapping, so along every seam
+there is a strip of specimen that two tiles both photographed. That leaves two
+honest but different ways to show the run, and this module writes both of them.
+
+The **seamless** view crops each tile so that no piece of specimen appears
+twice. It is the quick-look picture an operator navigates by, and it is the one
+that answers "where am I?".
+
+The **raw overlap** view keeps every pixel each tile recorded, overlap included.
+It is the picture you open when you want to see what the microscope actually
+did: whether the two tiles agree along the seam, whether the illumination fell
+away at a frame edge, whether the stage went where it was asked to go.
+
+The raw view cannot simply be the tiles painted into one picture. Inside an
+overlap strip, two tiles hold two genuinely different measurements of the same
+place on the specimen, and one grey value per place can only hold one of them.
+Painting them into a single picture means whichever tile happened to be written
+last silently replaces the other's measurement — which destroys exactly the
+evidence somebody opened this view to look at. The decision record says the same
+thing in one sentence: *"A single scalar composite cannot expose two different
+measurements at the same world coordinate simultaneously, so a truly raw overlap
+presentation must retain distinct position sources/layers or provide a
+position-selection mechanism."*
+
+Handing the viewer one source per position is the other way to keep them apart,
+and ``scene.py`` explains at length why that is ruinous: every source becomes a
+drawing layer that takes part in every frame for as long as the viewer is open.
+So the raw view is one store with **one extra dimension** — a slider the
+operator steps through to choose which tile they are looking at. That is what
+``scene.py`` already declares for this view under the name ``tile``, and it is
+what this module writes.
+
+What one stop on that slider means
+----------------------------------
+
+The tempting arrangement is one stop per position, and it is the wrong one: on a
+real run the slider would have five thousand stops, nearly all of them empty
+wherever the operator happens to be looking, and finding the two that meet at
+the seam in front of them would be hopeless.
+
+The arrangement used here is much smaller and is fixed by the geometry alone.
+Two tiles can only overlap if they sit within a frame's width of one another, so
+tiles that are far enough apart in the grid can safely share a stop. Counting
+how many tiles it takes to travel one frame gives the number of stops needed on
+each tiled axis — with a 1152-pixel frame and a 128-pixel overlap the stage moves
+1024 pixels between tiles, so two tiles in a row can overlap and two stops are
+enough. A tile's stop is then simply its row and column counted round that many
+places, which for an ordinary mosaic gives four stops in total: the tiles fall
+into four interleaved sets, like the squares of a chessboard, and no two tiles
+within one set ever touch.
+
+Three things follow, and each is worth having. Both measurements in an overlap
+are always kept, because two overlapping tiles always land on different stops.
+No measurement is ever overwritten, because two tiles sharing a stop never share
+any specimen. And the number of stops depends on the acquisition geometry rather
+than on how many positions have arrived, so the slider means the same thing at
+the beginning of a run as at the end.
+
+That reasoning is checked rather than trusted:
+:meth:`LivePublisher.write_the_raw_overlap_view` refuses to write at all if any
+two tiles sharing a stop would in fact share specimen.
+
+What this view does not do yet is worth saying plainly. It is written at full
+resolution only, like the seamless view, so zooming out in the raw view has no
+prepared copies to fall back on. Nothing about the arrangement above prevents
+those being added; they simply are not here.
+
 What "ready" is made to mean
 ----------------------------
 
-Four things are checked, and each corresponds to a way an operator could
+Five things are checked, and each corresponds to a way an operator could
 otherwise be shown a confident picture of nothing.
 
 **The pixels and their zoomed-out copies.** Every level the position advertises
@@ -32,11 +102,18 @@ from the committed positions only, and read back. A piece that still shows the
 ground as it was before is not a fault anybody would notice; it looks like
 specimen that has not been imaged.
 
+**The raw overlap picture.** The whole frame this position recorded is read back
+out of the stop on the tile slider that belongs to it, and compared pixel for
+pixel against the position's own store. This is what catches another tile having
+written over these measurements, which is the one failure the raw view exists to
+make impossible and the one that leaves no trace on screen — the strip still
+looks like specimen, it is simply the neighbour's specimen.
+
 **The arrangement.** The layout that says who owns what is written down and read
 back before it is referred to, because every published measurement will point at
 it later.
 
-Only when all four hold is an event created, and only then does the record move.
+Only when all five hold is an event created, and only then does the record move.
 
 What this module is not
 -----------------------
@@ -102,19 +179,22 @@ class Inspection:
     pyramids_ready: bool = False
     links_ready: bool = False
     coarse_chunks_ready: bool = False
+    raw_overlap_ready: bool = False
     layout_ready: bool = False
     pieces_read: int = 0
     ranges_checked: int = 0
     coarse_pieces_rebuilt: int = 0
+    raw_pixels_compared: int = 0
     complaints: tuple[str, ...] = ()
 
     @property
     def everything_checks_out(self) -> bool:
-        """True only when all four checks held and nothing was complained about."""
+        """True only when all five checks held and nothing was complained about."""
         return (
             self.pyramids_ready
             and self.links_ready
             and self.coarse_chunks_ready
+            and self.raw_overlap_ready
             and self.layout_ready
             and not self.complaints
         )
@@ -124,9 +204,11 @@ class Inspection:
         if self.everything_checks_out:
             return (
                 f"'{self.position_id}' is complete: {self.pieces_read} pieces read "
-                f"back, {self.ranges_checked} pointers resolved and decoded, and "
+                f"back, {self.ranges_checked} pointers resolved and decoded, "
                 f"{self.coarse_pieces_rebuilt} pieces of the zoomed-out picture "
-                f"rebuilt from the positions already published."
+                f"rebuilt from the positions already published, and "
+                f"{self.raw_pixels_compared} pixels of the raw overlap view found "
+                f"to still be this position's own measurements."
             )
         return (
             f"'{self.position_id}' is not ready to be shown. "
@@ -139,8 +221,9 @@ class LivePublisher:
     """Writes a small mosaic and publishes each position once it is genuinely done.
 
     The order it insists on is the order the architecture record lays out: pixels
-    and their zoomed-out copies, then the pointers, then the shared zoomed-out
-    picture, then the arrangement, and only then one indivisible commit. Nothing
+    and their zoomed-out copies, then the pointers, then the two run-wide
+    pictures — the seamless one and the raw one that keeps every overlapping
+    pixel — then the arrangement, and only then one indivisible commit. Nothing
     is visible until that last step, however finished the files may look.
     """
 
@@ -185,6 +268,115 @@ class LivePublisher:
     def seamless_store(self) -> Path:
         """The folder holding the run-wide zoomed-out picture."""
         return self.folder / "views" / "overview-seamless.ome.zarr"
+
+    @property
+    def raw_overlap_store(self) -> Path:
+        """The folder holding the picture that keeps every overlapping pixel.
+
+        The name is not free to choose: :func:`zmart_live.scene.build_the_scene`
+        tells the viewer where to find this view, and the two have to agree or
+        the operator is handed an address with nothing behind it.
+        """
+        return self.folder / "views" / "overview-raw.ome.zarr"
+
+    # -- the stops on the tile slider ----------------------------------------
+
+    @property
+    def tile_stops_per_axis(self) -> dict[str, int]:
+        """How many stops the tile slider needs along each tiled axis.
+
+        Two tiles can only share specimen if they sit within one frame's width of
+        one another, so this is simply how many tiles it takes to travel one
+        frame. With a 1152-pixel frame and the stage moving 1024 pixels between
+        tiles, two tiles in a row can overlap and the answer is two.
+        """
+        return {
+            axis: -(-self.profile.frame_shape[axis] // self.profile.grid_step(axis))
+            for axis in self.profile.tiled_axes
+        }
+
+    @property
+    def tile_stop_count(self) -> int:
+        """How many stops the tile slider has in total.
+
+        This comes from the acquisition geometry alone, never from how many
+        positions have arrived, so a stop means the same thing on the first
+        commit of the run as on the last.
+        """
+        total = 1
+        for stops in self.tile_stops_per_axis.values():
+            total *= stops
+        return total
+
+    def tile_stop_of(self, position_id: str) -> int:
+        """Which stop on the tile slider shows this position.
+
+        A tile's row and column are counted round the number of stops on each
+        axis, in the same way the days of a week come round. Neighbouring tiles
+        therefore always land on different stops, and two tiles that do share a
+        stop are always far enough apart to share no specimen at all.
+        """
+        cell = self.layout.placement(position_id).cell
+        stop = 0
+        for axis, stops in self.tile_stops_per_axis.items():
+            index = cell.row if axis == "y" else cell.column
+            stop = stop * stops + index % stops
+        return stop
+
+    def _no_two_tiles_on_one_stop_overlap(self) -> None:
+        """Refuse to write a raw view in which one tile could erase another.
+
+        The arrangement above makes this impossible, and that is exactly why it
+        is worth checking rather than believing: if the rule for choosing stops
+        were ever changed or broken, the damage would be a strip of one tile's
+        specimen quietly replaced by its neighbour's, which looks entirely
+        normal on screen. Checking is cheap, because only tiles a few grid
+        squares apart could reach one another at all.
+        """
+        by_cell = {
+            placement.cell: placement for placement in self.layout.positions
+        }
+        stops = self.tile_stops_per_axis
+        # How far apart two tiles can be and still share specimen, counted in
+        # grid squares. On a tiled axis that is the number of stops. An axis with
+        # no overlap declared is not laid out side by side at all, so every tile
+        # sits at the same place along it and any two of them have to be
+        # compared; that is a strange acquisition, and the point of looking is to
+        # notice rather than to assume.
+        rows = [placement.cell.row for placement in self.layout.positions] or [0]
+        columns = [placement.cell.column for placement in self.layout.positions] or [0]
+        reach_rows = stops.get("y", max(rows) - min(rows) + 1)
+        reach_columns = stops.get("x", max(columns) - min(columns) + 1)
+        for placement in self.layout.positions:
+            here = placement.cell
+            for row_step in range(-reach_rows + 1, reach_rows):
+                for column_step in range(-reach_columns + 1, reach_columns):
+                    other = by_cell.get(
+                        GridCell(here.row + row_step, here.column + column_step)
+                    )
+                    if other is None or other.position_id == placement.position_id:
+                        continue
+                    if self.tile_stop_of(other.position_id) != self.tile_stop_of(
+                        placement.position_id
+                    ):
+                        continue
+                    shares_specimen = all(
+                        placement.origin[axis]
+                        < other.origin[axis] + self.profile.frame_shape[axis]
+                        and other.origin[axis]
+                        < placement.origin[axis] + self.profile.frame_shape[axis]
+                        for axis in self.profile.tiled_axes
+                    )
+                    if not shares_specimen:
+                        continue
+                    raise ZmartLiveError(
+                        f"'{placement.position_id}' and '{other.position_id}' both "
+                        f"photographed the same specimen and would be written to the "
+                        f"same stop on the raw view's tile slider, so one would erase "
+                        f"the other's measurements. The raw overlap view exists to "
+                        f"keep both, so it is not written at all rather than written "
+                        f"wrongly."
+                    )
 
     def _mosaic_extent(self) -> tuple[int, int]:
         """How far the whole mosaic reaches in y and x, in full-resolution pixels."""
@@ -288,6 +480,69 @@ class LivePublisher:
                 source[:, :, :, y.start:y.stop, x.start:x.stop]
             )
 
+    def write_the_raw_overlap_view(self, committed: frozenset[str]) -> None:
+        """Rebuild the picture that keeps every pixel every tile recorded.
+
+        Each published tile is copied in whole, overlap included, at the stop on
+        the tile slider that belongs to it. Where two tiles meet, both of their
+        measurements are therefore on disk, at the same place on the specimen but
+        at different stops, and an operator can step from one to the other to see
+        whether the microscope agreed with itself.
+
+        The same rule as the seamless view applies here, for the same reason: a
+        position appears only once it has been committed, so nothing half-written
+        is ever shown.
+
+        Raises :class:`~zmart_live.model.ZmartLiveError` if two tiles that share
+        specimen would be written to one stop, because writing that view would
+        throw away one of the two measurements it exists to keep.
+        """
+        self._no_two_tiles_on_one_stop_overlap()
+
+        height, width = self._mosaic_extent()
+        level = self.profile.level(0)
+        depth = self.profile.frame_shape.get("z", 1)
+        shape = (
+            self.tile_stop_count,
+            self.timepoints,
+            len(self.channels),
+            depth,
+            height,
+            width,
+        )
+        chunks = (
+            1, 1, 1,
+            min(level.inner_chunk["z"], depth),
+            level.inner_chunk["y"],
+            level.inner_chunk["x"],
+        )
+        if not self.raw_overlap_store.exists():
+            zarr.create_array(
+                store=str(self.raw_overlap_store), shape=shape, chunks=chunks,
+                dtype=self.profile.dtype, zarr_format=3,
+                compressors=[ZstdCodec(level=3)], overwrite=False,
+            )
+        view = zarr.open_array(str(self.raw_overlap_store), mode="r+")
+
+        for placement in self.layout.positions:
+            # Not published yet means not shown here either, exactly as in the
+            # seamless view above.
+            if placement.position_id not in committed:
+                continue
+            everything = placement.analysis_input_roi
+            source = zarr.open_array(
+                str(self.position_store(placement.position_id) / "0"), mode="r"
+            )
+            y, x = everything["y"], everything["x"]
+            lands_y = placement.origin["y"]
+            lands_x = placement.origin["x"]
+            view[
+                self.tile_stop_of(placement.position_id),
+                :, :, :,
+                lands_y:lands_y + y.length,
+                lands_x:lands_x + x.length,
+            ] = source[:, :, :, y.start:y.stop, x.start:x.stop]
+
     def write_the_layout(self) -> None:
         """Put the arrangement on disk, where a published result can point at it."""
         target = self.folder / "zmart-live" / _LAYOUT
@@ -310,11 +565,13 @@ class LivePublisher:
         about_pixels: list[str] = []
         about_pointers: list[str] = []
         about_the_picture: list[str] = []
+        about_the_overlaps: list[str] = []
         about_the_layout: list[str] = []
 
         pieces_read = self._read_every_piece(position_id, about_pixels)
         ranges = self._resolve_every_pointer(position_id, about_pointers)
         rebuilt = self._check_the_zoomed_out_picture(position_id, about_the_picture)
+        compared = self._check_the_raw_overlap_view(position_id, about_the_overlaps)
         layout_ok = self._layout_reads_back(about_the_layout)
 
         return Inspection(
@@ -323,12 +580,18 @@ class LivePublisher:
             pyramids_ready=pieces_read > 0 and not about_pixels,
             links_ready=ranges > 0 and not about_pointers,
             coarse_chunks_ready=rebuilt > 0 and not about_the_picture,
+            raw_overlap_ready=compared > 0 and not about_the_overlaps,
             layout_ready=layout_ok and not about_the_layout,
             pieces_read=pieces_read,
             ranges_checked=ranges,
             coarse_pieces_rebuilt=rebuilt,
+            raw_pixels_compared=compared,
             complaints=tuple(
-                about_pixels + about_pointers + about_the_picture + about_the_layout
+                about_pixels
+                + about_pointers
+                + about_the_picture
+                + about_the_overlaps
+                + about_the_layout
             ),
         )
 
@@ -466,6 +729,60 @@ class LivePublisher:
             complaints.append(f"The zoomed-out picture could not be read: {trouble}")
         return rebuilt
 
+    def _check_the_raw_overlap_view(
+        self, position_id: str, complaints: list[str]
+    ) -> int:
+        """Confirm this position's own measurements are still in the raw view.
+
+        The whole frame is read back out of the stop belonging to this position
+        and compared, pixel for pixel, against the position's own store. Counting
+        files or trusting that the write happened would not do: the failure this
+        catches is another tile's pixels sitting where these ones should be, and
+        those are perfectly readable pixels that look exactly like specimen.
+
+        Returns how many pixels were compared, which is taken from the array that
+        came back rather than from any description of it, so that removing the
+        read cannot leave the count looking healthy.
+        """
+        placement = self.layout.placement(position_id)
+        if not self.raw_overlap_store.exists():
+            complaints.append(
+                "The raw overlap view has not been built yet, so the measurements "
+                "this position made where it meets its neighbours would exist only "
+                "in its own store, with nowhere for an operator to compare them."
+            )
+            return 0
+        try:
+            view = zarr.open_array(str(self.raw_overlap_store), mode="r")
+            source = zarr.open_array(
+                str(self.position_store(position_id) / "0"), mode="r"
+            )
+            everything = placement.analysis_input_roi
+            y, x = everything["y"], everything["x"]
+            lands_y = placement.origin["y"]
+            lands_x = placement.origin["x"]
+            as_written = source[:, :, :, y.start:y.stop, x.start:x.stop]
+            as_stored = view[
+                self.tile_stop_of(position_id),
+                :, :, :,
+                lands_y:lands_y + y.length,
+                lands_x:lands_x + x.length,
+            ]
+            if as_stored.shape != as_written.shape or not np.array_equal(
+                as_stored, as_written
+            ):
+                complaints.append(
+                    f"The raw overlap view does not show '{position_id}'s own "
+                    f"measurements where it should. Another tile's pixels sitting "
+                    f"here would still look like specimen, so nothing on screen "
+                    f"would say that this position's record of the overlap has "
+                    f"been lost."
+                )
+            return int(as_stored.size)
+        except Exception as trouble:
+            complaints.append(f"The raw overlap view could not be read: {trouble}")
+            return 0
+
     def _layout_reads_back(self, complaints: list[str]) -> bool:
         """The arrangement must be on disk before anything points at it."""
         target = self.folder / "zmart-live" / _LAYOUT
@@ -528,14 +845,15 @@ class LivePublisher:
     ) -> CommitEvent:
         """The whole ordered sequence for one position, in the order it must happen.
 
-        Pixels and their zoomed-out copies, then the shared picture rebuilt from
-        what is already published plus this, then the arrangement, then one
+        Pixels and their zoomed-out copies, then both shared pictures rebuilt
+        from what is already published plus this, then the arrangement, then one
         commit. Doing these in another order is what produces a viewer showing
         something that is not finished.
         """
         self.write_a_position(position_id, pixels, timepoint=timepoint or 0)
         already = frozenset(self.manifest.committed().by_store) | {position_id}
         self.write_the_seamless_view(already)
+        self.write_the_raw_overlap_view(already)
         self.write_the_layout()
         return self.publish(position_id, timepoint=timepoint)
 
