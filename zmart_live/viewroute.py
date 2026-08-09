@@ -103,7 +103,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .model import ZmartLiveError
-from .shardlink import Bundling, describe_the_bundling, where_one_chunk_lives
+from .shardlink import Bundling, Held, StoredArray, how_the_array_is_stored
 
 __all__ = [
     "Placed",
@@ -211,18 +211,32 @@ class ViewStorage:
 
 @dataclass(frozen=True)
 class _HowAPositionIsStored:
-    """Everything about one position that the view has to copy exactly."""
+    """Everything about one position that the view has to copy exactly.
+
+    ``on_disk`` is the position's own description, read once when the route was
+    built. Keeping it is what stops every request re-reading the same small file
+    to rediscover facts that cannot have changed.
+    """
 
     array: Path
-    bundling: Bundling
+    on_disk: StoredArray
     dtype: str
     fill_value: object
     chunk_codecs: tuple[dict, ...]
 
     @property
+    def bundling(self) -> Bundling:
+        """How this position is chunked and bundled."""
+        return self.on_disk.bundling
+
+    @property
     def axes(self) -> int:
         """How many axes the position's picture has, usually five."""
         return len(self.bundling.array_shape)
+
+    def where_one_chunk_lives(self, coordinate: Sequence[int]) -> Held | None:
+        """Which file holds one of this position's chunks, at which byte, how long."""
+        return self.on_disk.where_one_chunk_lives(coordinate)
 
 
 def _the_description_of(array: Path) -> dict:
@@ -244,13 +258,19 @@ def _the_description_of(array: Path) -> dict:
 def _how_a_position_is_stored(array: Path) -> _HowAPositionIsStored:
     """Read one level of one position: its chunk grid, its bundling, its encoding.
 
-    The geometry comes from :func:`zmart_live.shardlink.describe_the_bundling`,
+    The geometry comes from :func:`zmart_live.shardlink.how_the_array_is_stored`,
     which is the part that has been proven against real files. What is added here
     is the encoding: the kind of number a pixel is, and what is done to a chunk on
     its way to disk. Those are what the view has to declare about itself.
+
+    The description is read once here and kept, rather than being read again for
+    every piece the viewer asks for. Nothing in it can change while the run goes
+    on: an array says how it is chunked and how a chunk is compressed before any
+    pixels are written, and rewriting that would mean rewriting the position.
     """
-    bundling = describe_the_bundling(array)
-    content = _the_description_of(array)
+    on_disk = how_the_array_is_stored(array)
+    bundling = on_disk.bundling
+    content = on_disk.description
 
     if bundling.sharded:
         # The codecs that matter are the ones *inside* the bundle. The bundle's own
@@ -273,7 +293,7 @@ def _how_a_position_is_stored(array: Path) -> _HowAPositionIsStored:
 
     return _HowAPositionIsStored(
         array=Path(array),
-        bundling=bundling,
+        on_disk=on_disk,
         dtype=str(content.get("data_type")),
         fill_value=content.get("fill_value"),
         chunk_codecs=chunk_codecs,
@@ -462,14 +482,25 @@ class ViewRoute:
     of which **rows** of the view's chunk grid it reaches into. Finding a piece
     then means looking in one row and checking the few positions there.
 
-    What is deliberately *not* remembered is any position's table of contents.
-    Each request reads the few hundred bytes of the table out of the bundle again,
-    and that is on purpose rather than an oversight: while a run is going, chunks
-    are still landing in that bundle, and a remembered table would go on saying
-    "nothing was ever written there" long after something was. An operator would
-    see a position that stopped filling in halfway and never recovered. Reading it
-    afresh costs one short seek per piece, which is small beside the cost of
-    sending the pixels themselves.
+    What each position *does* keep is its own description — how it is chunked, how
+    it is bundled, what it calls its files. None of that can change while a run is
+    going, since an array settles it before any pixels are written, so reading it
+    again for every piece would be pure waste.
+
+    A position's table of contents is looked after in
+    :mod:`zmart_live.shardlink` rather than here, and it is worth knowing how,
+    because an earlier version of this class deliberately refused to keep one. The
+    worry then was a live run: chunks are still landing in a bundle while the
+    viewer is watching, and a table kept from an hour ago would go on saying
+    "nothing was ever written there" long after something was, so an operator would
+    watch a position stop filling in halfway and never recover. That worry was
+    right, and it is answered rather than ignored. A table is kept against the
+    identity of the file it was read from — its size, when it last changed, and
+    which inode holds it — so a bundle the acquisition has written into is no
+    longer the file that was remembered and its table is read afresh. A bundle that
+    has not been touched since is byte for byte the one already read, and answering
+    from memory cannot be wrong. That is what turns dozens of full table reads per
+    screenful into one.
     """
 
     def __init__(
@@ -592,7 +623,7 @@ class ViewRoute:
             # been asked to record yet. There is nothing to hand over.
             return None
 
-        held = where_one_chunk_lives(block.stored.array, coordinate)
+        held = block.stored.where_one_chunk_lives(coordinate)
         if held is None:
             # Nothing was ever written at that chunk. The view should advertise
             # nothing there, so that the viewer draws the fill value rather than

@@ -33,6 +33,11 @@ KIND_FRAMES = (1152, 2304, 4608)
 # Sizes an operator would reach for by habit, which turn out to behave worse.
 ROUND_FRAMES = (1024, 2048, 4096)
 
+# Frames that are not square, in both orientations and at two aspect ratios. Real
+# instruments produce these: scientific cameras are often wider than they are
+# tall, and a confocal's scan format is a software setting that can be asked for.
+RECTANGLES = ((1152, 2304), (2304, 1152), (1152, 4608), (4608, 1152))
+
 
 class TestTheNineChunkConvention:
     """The one arrangement that comes out best at every scale."""
@@ -259,6 +264,127 @@ class TestWhatIsPromisedIsComputedRatherThanTrusted:
         profile, geometry = plan_the_writing("overview", frame=2304)
         assert len(profile.levels) == geometry.kept_levels
         assert max(profile.linkable_levels) < geometry.kept_levels
+
+
+class TestARectangularFrameIsPlannedJustAsWell:
+    """Observed before this was fixed: only one square frame value was accepted.
+
+    ``choose_the_geometry`` and ``plan_the_writing`` took a single number and
+    used it for both the height and the width, so a camera with a 2048 by 2048
+    sensor was describable and a 1152 by 2304 scan format, or any of the many
+    cameras whose sensor is wider than it is tall, simply was not. There was no
+    refusal either: the number given was silently used for both sides, which
+    would have written a profile describing a frame the microscope never
+    produced.
+
+    The nine-chunk convention still applies, but now once per axis. A frame of
+    1152 by 2304 in 128-pixel chunks is nine chunks tall and eighteen across, and
+    each axis gets whole chunks of overlap chosen to sit inside the same band.
+
+    The shapes below are checked in both orientations and at two aspect ratios.
+    Using only one shape hid a real fault while this was being written: a version
+    that measured the width's overlap against the *height* still gave the right
+    answer for a frame twice as wide as it was tall, and only came apart on a
+    frame four times as wide.
+    """
+
+    def test_a_pair_gives_a_different_height_and_width(self):
+        geometry = choose_the_geometry((1152, 2304), band=DEFAULTS["overview"].overlap_band)
+        assert geometry.height == 1152
+        assert geometry.width == 2304
+
+    def test_one_number_still_means_a_square_frame(self):
+        """Every existing caller passes a single number and must be unaffected."""
+        square = choose_the_geometry(1152, band=DEFAULTS["overview"].overlap_band)
+        spelled_out = choose_the_geometry((1152, 1152), band=DEFAULTS["overview"].overlap_band)
+        assert square == spelled_out
+        assert square.frame == 1152
+
+    @pytest.mark.parametrize("shape", RECTANGLES)
+    def test_the_chunk_divides_both_sides(self, shape):
+        """A chunk that does not divide a side cannot tile it, so there is no plan."""
+        geometry = choose_the_geometry(shape, band=DEFAULTS["overview"].overlap_band)
+        assert geometry.height % geometry.chunk == 0
+        assert geometry.width % geometry.chunk == 0
+
+    @pytest.mark.parametrize("shape", RECTANGLES)
+    def test_each_side_overlaps_by_whole_chunks_inside_the_band(self, shape):
+        """Each side is judged against its own length, which is the easy thing to
+        get wrong: a strip of 128 pixels is a comfortable overlap on a
+        1152-pixel side and far too little on a 4608-pixel one."""
+        band = DEFAULTS["overview"].overlap_band
+        geometry = choose_the_geometry(shape, band=band)
+        for overlap, side in zip(geometry.overlap_shape, geometry.frame_shape, strict=True):
+            assert overlap % geometry.chunk == 0
+            assert band.permits(overlap / side)
+
+    @pytest.mark.parametrize("shape", RECTANGLES)
+    def test_the_step_is_the_frame_minus_the_overlap_on_each_axis(self, shape):
+        geometry = choose_the_geometry(shape, band=DEFAULTS["overview"].overlap_band)
+        assert geometry.step_shape == (
+            geometry.height - geometry.overlap_shape[0],
+            geometry.width - geometry.overlap_shape[1],
+        )
+
+    @pytest.mark.parametrize("shape", RECTANGLES)
+    def test_a_rectangular_frame_still_reaches_the_pointing_depth(self, shape):
+        """The whole reason for the convention: nothing has to be written."""
+        geometry = choose_the_geometry(shape, band=DEFAULTS["overview"].overlap_band)
+        assert geometry.written_levels == 0
+        assert geometry.pointed_levels >= 4
+
+    @pytest.mark.parametrize("shape", RECTANGLES)
+    def test_the_nine_chunk_convention_holds_on_both_axes(self, shape):
+        """Eleven per cent either way, whatever the aspect ratio.
+
+        This is the pleasing part of doing the arithmetic per axis: a frame four
+        times as wide as it is tall simply gets four chunks of overlap across
+        instead of one, and pays the same eleven per cent of microscope time on
+        both sides as a square frame does.
+        """
+        geometry = choose_the_geometry(shape, band=DEFAULTS["overview"].overlap_band)
+        for fraction in geometry.overlap_fractions:
+            assert fraction == pytest.approx(1 / 9, abs=0.001)
+
+    def test_the_square_shorthand_refuses_to_answer_for_a_rectangle(self):
+        """``geometry.frame`` cannot mean anything when the sides differ.
+
+        Returning one of the two would be the dangerous answer: the caller would
+        get a plausible number and quietly plan for the wrong shape.
+        """
+        geometry = choose_the_geometry((1152, 2304), band=DEFAULTS["overview"].overlap_band)
+        for shorthand in ("frame", "overlap", "step", "overlap_fraction"):
+            with pytest.raises(ZmartLiveError):
+                getattr(geometry, shorthand)
+
+    def test_a_plan_records_the_rectangle_it_was_given(self):
+        profile, geometry = plan_the_writing("confocal", frame=(1152, 2304), z_planes=8)
+        assert profile.frame_shape["y"] == 1152
+        assert profile.frame_shape["x"] == 2304
+        assert profile.overlap_pixels["y"] == geometry.overlap_shape[0]
+        assert profile.overlap_pixels["x"] == geometry.overlap_shape[1]
+
+    def test_a_rectangular_bundle_still_covers_the_whole_frame(self):
+        profile, _ = plan_the_writing("confocal", frame=(1152, 2304), z_planes=8)
+        shard = profile.level(0).shard
+        assert shard["y"] == 1152
+        assert shard["x"] == 2304
+
+    def test_the_levels_marked_pointable_match_the_arithmetic(self):
+        profile, geometry = plan_the_writing("overview", frame=(1152, 2304))
+        assert profile.linkable_levels == tuple(range(geometry.pointed_levels))
+
+    def test_a_frame_given_the_wrong_shape_is_refused_plainly(self):
+        for wrong in [(1152,), (1152, 1152, 1152), (0, 1152), (1152, -1), "1152"]:
+            with pytest.raises(ZmartLiveError):
+                choose_the_geometry(wrong, band=DEFAULTS["overview"].overlap_band)
+
+    def test_a_rectangle_no_chunk_can_tile_says_so(self):
+        """1152 and 2000 share no chunk that behaves, and the refusal names both."""
+        with pytest.raises(ZmartLiveError) as raised:
+            choose_the_geometry((1152, 2000), band=DEFAULTS["overview"].overlap_band)
+        message = str(raised.value)
+        assert "1152" in message and "2000" in message
 
 
 class TestTheProfileSurvivesBeingStored:

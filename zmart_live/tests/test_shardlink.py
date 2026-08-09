@@ -52,13 +52,24 @@ import numpy as np
 import pytest
 import zarr
 
+from zmart_live import shardlink
 from zmart_live.model import ZmartLiveError
 from zmart_live.shardlink import (
     Held,
     describe_the_bundling,
+    forget_every_remembered_index,
+    how_the_array_is_stored,
+    how_the_remembering_is_going,
     read_the_index,
     where_one_chunk_lives,
 )
+
+# Working out the checksum is the writer's job, not a reader's, but two tests
+# below have to stand in for a writer: they alter a shard's table of contents on
+# purpose and then have to leave a checksum that matches, or the reader would
+# refuse the file for the wrong reason. Borrowing the module's own is the only way
+# to be sure the two agree.
+from zmart_live.shardlink import _crc32c as the_checksum_of
 
 # Zarr's older creation entry point is the only one that lets us choose where the
 # table of contents sits, and it warns that it is on its way out. We use it only
@@ -69,6 +80,21 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="zarr")
 # ---------------------------------------------------------------------------
 # Building images to test against, and taking chunks back out of them
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def start_with_nothing_remembered():
+    """Give every test the same empty memory of shard tables to start from.
+
+    The tables already read are kept for the whole program, which is the point of
+    keeping them, but it means one test could otherwise be answered from something
+    an earlier test left behind. Several of the tests below count how many tables
+    were read off the disk, and a count is only worth anything if it starts at
+    zero.
+    """
+    forget_every_remembered_index()
+    yield
+    forget_every_remembered_index()
 
 
 def a_picture(shape, seed=0):
@@ -803,3 +829,380 @@ class TestDescribingAWholeShard:
         with pytest.raises(ZmartLiveError) as refusal:
             index.place_of((2, 0))
         assert "falls outside this shard" in str(refusal.value)
+
+
+# ---------------------------------------------------------------------------
+# Remembering what a shard's table of contents said
+# ---------------------------------------------------------------------------
+
+
+def swap_two_entries_in_the_table(shard, first, second, entries):
+    """Exchange two entries in a shard's table, writing the file back in place.
+
+    This stands in for a writer that has produced the bundle differently — the
+    same chunks, packed in another order — which is the change most likely to go
+    unnoticed, because the file stays exactly the same length and every byte range
+    it describes still points at real, decodable pixels.
+
+    The file is opened for updating rather than replaced, so it keeps the same
+    inode: the file system's own numbered slot for it. That matters, because it
+    means this test is checking that a changed *file* is noticed, not merely that
+    a *new* file is.
+
+    The checksum is worked out again afterwards, since a reader would otherwise
+    refuse the shard for the wrong reason and the test would pass without ever
+    having asked the question.
+    """
+    raw = bytearray(Path(shard).read_bytes())
+    table_at = len(raw) - entries * 16 - 4
+    here, there = table_at + first * 16, table_at + second * 16
+    raw[here : here + 16], raw[there : there + 16] = (
+        raw[there : there + 16],
+        raw[here : here + 16],
+    )
+    table = bytes(raw[table_at : table_at + entries * 16])
+    raw[table_at + entries * 16 :] = the_checksum_of(table).to_bytes(4, "little")
+    with Path(shard).open("r+b") as opened:
+        opened.write(bytes(raw))
+
+
+def the_bytes_at(held):
+    """Read exactly the stretch of a file one answer describes."""
+    with held.path.open("rb") as opened:
+        opened.seek(held.offset)
+        return opened.read(held.length)
+
+
+class TestRememberingWhatABundlesTableSaid:
+    """A table already read is reused, and only ever for the file it came from.
+
+    Reading a bundle's table is the expensive part of answering, and a viewer
+    filling one screen asks about dozens of chunks out of the same few bundles. So
+    a table that has been read is kept. Everything in this class is about the one
+    danger that creates: a table that no longer describes the file it came from
+    does not produce an error. It produces a byte range that decodes perfectly and
+    shows the wrong part of the specimen.
+    """
+
+    def test_one_bundle_is_read_once_however_often_it_is_asked_about(self, tmp_path):
+        """Four questions about one bundle, and only the first reads the table.
+
+        The count is what is checked rather than a stopwatch. A count says the
+        same thing on a busy machine as on an idle one, which a timing does not.
+        """
+        image, _ = an_image(
+            tmp_path / "one.zarr", (256, 256), (128, 128), (256, 256), compressed=False
+        )
+        stored = how_the_array_is_stored(image)
+        for coordinate in ((0, 0), (0, 1), (1, 0), (1, 1)):
+            assert stored.where_one_chunk_lives(coordinate) is not None
+
+        going = how_the_remembering_is_going()
+        assert going.read_from_disk == 1, "the same bundle should be read once"
+        assert going.answered_from_memory == 3
+        assert going.bundles_held == 1
+
+    def test_a_bundle_written_again_is_never_answered_from_the_old_table(self, tmp_path):
+        """The test this whole arrangement has to pass.
+
+        The bundle is written again with its chunks in a different order. It keeps
+        exactly the same length and exactly the same inode, so nothing about it
+        looks new except when it changed. A reader still holding the old table
+        would hand back a byte range that is a real chunk, decodes without
+        complaint, and shows the wrong quarter of the frame — which is the failure
+        nobody would catch by looking at the screen.
+
+        So the check is not that the answer changed. It is that the pixels the
+        answer leads to are the ones now stored at that place.
+        """
+        image, pixels = an_image(
+            tmp_path / "rewritten.zarr", (256, 256), (128, 128), (256, 256), compressed=False
+        )
+        stored = how_the_array_is_stored(image)
+        before = stored.where_one_chunk_lives((0, 0))
+        its_neighbour = stored.where_one_chunk_lives((0, 1))
+        assert before is not None and its_neighbour is not None
+
+        shard = Path(image) / "c" / "0" / "0"
+        was = shard.stat()
+        swap_two_entries_in_the_table(shard, 0, 1, entries=4)
+        now = shard.stat()
+
+        # If either of these ever stops being true, this test has quietly lost its
+        # teeth and would pass without asking anything, so it says so instead.
+        assert now.st_size == was.st_size, "the point is a file that did not change size"
+        assert now.st_ino == was.st_ino, "the point is the same file, not a new one"
+        assert now.st_mtime_ns != was.st_mtime_ns, (
+            "this file system does not record when a file changed finely enough for "
+            "the change to be noticed, so this test cannot make its claim here"
+        )
+
+        after = stored.where_one_chunk_lives((0, 0))
+        assert after is not None
+        assert (after.offset, after.length) == (its_neighbour.offset, its_neighbour.length)
+        assert np.array_equal(
+            decoded(the_bytes_at(after), tmp_path / "scratch.zarr", (128, 128), image),
+            pixels[0:128, 128:256],
+        ), "the chunk served is not the one now stored at that place in the bundle"
+
+    def test_a_bundle_the_run_is_still_writing_into_fills_in(self, tmp_path):
+        """A position half written now must not look half written for ever.
+
+        This is the worry that once kept tables from being remembered at all, and
+        it is the reason the memory is tied to the file rather than to the path.
+        While a run is going, chunks are still landing in a bundle the viewer is
+        already watching. A remembered table would go on saying "nothing was ever
+        written there" long after something was, and an operator would watch a
+        position stop filling in and never recover.
+        """
+        pixels = np.zeros((256, 256), dtype=np.uint16)
+        pixels[0:128, 0:128] = a_picture((128, 128), seed=21)
+        image, _ = an_image(
+            tmp_path / "growing.zarr",
+            (256, 256),
+            (128, 128),
+            (256, 256),
+            compressed=False,
+            pixels=pixels,
+        )
+        stored = how_the_array_is_stored(image)
+        assert stored.where_one_chunk_lives((0, 0)) is not None
+        assert stored.where_one_chunk_lives((1, 1)) is None, (
+            "nothing has been written in that corner yet"
+        )
+
+        arrived = a_picture((128, 128), seed=22)
+        zarr.open_array(str(image), mode="r+")[128:256, 128:256] = arrived
+
+        held = stored.where_one_chunk_lives((1, 1))
+        assert held is not None, "the chunk that has since arrived is still reported absent"
+        assert np.array_equal(
+            decoded(the_bytes_at(held), tmp_path / "scratch.zarr", (128, 128), image),
+            arrived,
+        )
+
+    def test_two_positions_whose_bundles_share_a_name_are_not_confused(self, tmp_path):
+        """Every position calls its first bundle ``c/0/0``, and they are all different.
+
+        A run has thousands of positions, and the file inside each of them is named
+        by where the chunk sits in *that* position, so the names repeat endlessly.
+        Two positions whose bundles happen to be packed differently would then be
+        served each other's byte ranges, which is a picture of the right specimen
+        taken from the wrong place on the slide.
+        """
+        crowded = a_picture((256, 256), seed=31)
+        one, _ = an_image(
+            tmp_path / "posA.zarr",
+            (256, 256),
+            (128, 128),
+            (256, 256),
+            compressed=False,
+            pixels=crowded,
+        )
+        nearly_empty = np.zeros((256, 256), dtype=np.uint16)
+        nearly_empty[128:256, 128:256] = a_picture((128, 128), seed=32)
+        other, _ = an_image(
+            tmp_path / "posB.zarr",
+            (256, 256),
+            (128, 128),
+            (256, 256),
+            compressed=False,
+            pixels=nearly_empty,
+        )
+
+        from_one = where_one_chunk_lives(one, (1, 1))
+        from_other = where_one_chunk_lives(other, (1, 1))
+        assert from_one is not None and from_other is not None
+        assert from_one.path.name == from_other.path.name == "0", (
+            "both positions really do name this bundle the same"
+        )
+        assert from_one.offset != from_other.offset, (
+            "the two bundles happen to be packed alike, so this test cannot tell "
+            "whether they were confused"
+        )
+        assert np.array_equal(
+            decoded(the_bytes_at(from_other), tmp_path / "scratch.zarr", (128, 128), other),
+            nearly_empty[128:256, 128:256],
+        )
+
+    def test_a_bundle_read_as_a_different_shape_is_not_answered_from_memory(self, tmp_path):
+        """The same file, read as though it were bundled differently, is read afresh.
+
+        How large a chunk is and how many of them a bundle holds come from the
+        array's own description, and they decide where in the file the table sits
+        and how long it is. So they are part of what a remembered table is
+        remembered against. Reading the same file under a different pair of shapes
+        has to go back to the file, where it finds — correctly — that the bytes
+        there are not a table of that size.
+        """
+        image, _ = an_image(
+            tmp_path / "shapes.zarr", (256, 256), (128, 128), (256, 256), compressed=False
+        )
+        shard = Path(image) / "c" / "0" / "0"
+        proper = read_the_index(shard, inner_chunk=(128, 128), shard_shape=(256, 256))
+        assert proper.entry_count == 4
+
+        with pytest.raises(ZmartLiveError):
+            read_the_index(shard, inner_chunk=(256, 256), shard_shape=(256, 256))
+
+    def test_a_shard_handed_over_as_bytes_is_never_remembered(self, tmp_path):
+        """Bytes in memory have no file behind them to notice a change in.
+
+        Remembering them would mean remembering against nothing at all, so it is
+        not done. Reading the same bytes twice reads them twice.
+        """
+        image, _ = an_image(
+            tmp_path / "asbytes.zarr", (256, 256), (128, 128), (256, 256), compressed=False
+        )
+        raw = (Path(image) / "c" / "0" / "0").read_bytes()
+        for _ in range(2):
+            read_the_index(raw, inner_chunk=(128, 128), shard_shape=(256, 256))
+        going = how_the_remembering_is_going()
+        assert (going.read_from_disk, going.answered_from_memory) == (2, 0)
+        assert going.bundles_held == 0
+
+    def test_the_remembering_can_be_turned_off(self, tmp_path):
+        """Asked not to remember, it reads the table every time.
+
+        This is what the benchmark uses to find out what reading one cold really
+        costs, so it has to genuinely read.
+        """
+        image, _ = an_image(
+            tmp_path / "cold.zarr", (256, 256), (128, 128), (256, 256), compressed=False
+        )
+        shard = Path(image) / "c" / "0" / "0"
+        for _ in range(3):
+            read_the_index(
+                shard, inner_chunk=(128, 128), shard_shape=(256, 256), remember=False
+            )
+        going = how_the_remembering_is_going()
+        assert (going.read_from_disk, going.answered_from_memory) == (3, 0)
+        assert going.bundles_held == 0
+
+
+class TestTheMemoryHasALimit:
+    """A run lasting all night cannot fill memory with tables it no longer needs.
+
+    The limits are set deliberately low here so the tests stay quick. What is being
+    checked is that there *is* a limit and that reaching it forgets something, not
+    what the everyday numbers happen to be.
+    """
+
+    def three_bundles(self, tmp_path):
+        """Three separate positions, each with one bundle holding four chunks."""
+        return [
+            an_image(
+                tmp_path / f"pos{which}.zarr",
+                (256, 256),
+                (128, 128),
+                (256, 256),
+                compressed=False,
+                pixels=a_picture((256, 256), seed=40 + which),
+            )[0]
+            for which in range(3)
+        ]
+
+    def test_only_so_many_bundles_are_kept(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(shardlink, "BUNDLES_REMEMBERED_AT_MOST", 2)
+        monkeypatch.setattr(shardlink, "PLACES_REMEMBERED_AT_MOST", 10**9)
+
+        for image in self.three_bundles(tmp_path):
+            assert where_one_chunk_lives(image, (0, 0)) is not None
+
+        going = how_the_remembering_is_going()
+        assert going.bundles_held == 2, "a third bundle should have pushed the first out"
+        assert going.read_from_disk == 3
+
+    def test_only_so_many_chunk_positions_are_kept(self, tmp_path, monkeypatch):
+        """The limit that really matters is counted in chunk positions.
+
+        Bundles are not all the same size — one of the overview plan's holds nearly
+        eight thousand chunk positions — so a limit counted in bundles alone would
+        mean something quite different on one instrument than on another. The
+        lesson behind that is in ``viz_studio/LESSONS_ome_zarr_and_neuroglancer.md``:
+        an index with an entry per chunk, kept for a whole run, was once sixteen
+        gigabytes of memory.
+        """
+        monkeypatch.setattr(shardlink, "BUNDLES_REMEMBERED_AT_MOST", 10**9)
+        monkeypatch.setattr(shardlink, "PLACES_REMEMBERED_AT_MOST", 6)
+
+        for image in self.three_bundles(tmp_path):
+            assert where_one_chunk_lives(image, (0, 0)) is not None
+            assert how_the_remembering_is_going().places_held <= 6
+
+        going = how_the_remembering_is_going()
+        assert going.bundles_held == 1, "each bundle holds four positions, so only one fits"
+
+    def test_the_bundle_being_used_is_the_one_kept(self, tmp_path, monkeypatch):
+        """When something has to be forgotten, it is what nobody has asked for.
+
+        A viewer looks at one part of the slide for a while, so the bundles it has
+        just used are the ones it is about to use again. Forgetting those and
+        keeping the ones nobody has touched would leave the limit in place and the
+        benefit gone.
+        """
+        monkeypatch.setattr(shardlink, "BUNDLES_REMEMBERED_AT_MOST", 2)
+        monkeypatch.setattr(shardlink, "PLACES_REMEMBERED_AT_MOST", 10**9)
+        first, second, third = self.three_bundles(tmp_path)
+
+        where_one_chunk_lives(first, (0, 0))
+        where_one_chunk_lives(second, (0, 0))
+        where_one_chunk_lives(first, (0, 1))
+        assert how_the_remembering_is_going().read_from_disk == 2
+
+        # The third bundle fills the memory. What has to go is the one nobody has
+        # looked at since, which is the second, not the first.
+        where_one_chunk_lives(third, (0, 0))
+        where_one_chunk_lives(first, (0, 1))
+        assert how_the_remembering_is_going().read_from_disk == 3, (
+            "the bundle in use was forgotten in favour of one that was not"
+        )
+
+
+class TestTheChecksumOverTheTable:
+    """The quick way of working out the checksum agrees with the slow definition.
+
+    The checksum is defined one bit at a time, and following that literally was
+    measured to be almost the whole cost of resolving a chunk on a real bundle. It
+    is now worked out by looking each byte up in a small table prepared once. That
+    is only safe if the two give identical answers, so this checks them against
+    each other and against a published value.
+    """
+
+    def the_definition(self, content):
+        """The checksum exactly as it is written down, one bit at a time."""
+        checksum = 0xFFFFFFFF
+        for byte in content:
+            checksum ^= byte
+            for _ in range(8):
+                checksum = (checksum >> 1) ^ 0x82F63B78 if checksum & 1 else checksum >> 1
+        return (~checksum) & 0xFFFFFFFF
+
+    def test_it_matches_the_published_value(self):
+        """``123456789`` is the string every CRC implementation is checked against."""
+        assert the_checksum_of(b"123456789") == 0xE3069283
+
+    def test_it_matches_the_definition_at_every_length(self):
+        """Including the empty table and the odd lengths where an error would hide."""
+        generator = np.random.default_rng(99)
+        for length in (0, 1, 2, 3, 7, 15, 16, 17, 64, 255, 4096):
+            content = generator.integers(0, 256, size=length, dtype=np.uint8).tobytes()
+            assert the_checksum_of(content) == self.the_definition(content), length
+
+    def test_a_table_whose_checksum_disagrees_is_refused(self, tmp_path):
+        """A bundle whose table has been damaged is not read at all.
+
+        Serving a byte range out of a damaged table would give a chunk that decodes
+        to something, which is worse than an error, so the shard is refused.
+        """
+        image, _ = an_image(
+            tmp_path / "damaged.zarr", (256, 256), (128, 128), (256, 256), compressed=False
+        )
+        shard = Path(image) / "c" / "0" / "0"
+        raw = bytearray(shard.read_bytes())
+        raw[-1] ^= 0xFF
+        shard.write_bytes(bytes(raw))
+
+        with pytest.raises(ZmartLiveError) as refusal:
+            read_the_index(shard, inner_chunk=(128, 128), shard_shape=(256, 256))
+        assert "CRC32C" in str(refusal.value)

@@ -29,11 +29,21 @@ The rest are the confusions that live one line apart: a bundle's coordinate used
 where a chunk's belongs, a position's own corner forgotten, a piece nobody has
 written yet advertised anyway, a byte range widened until it is the whole file
 again.
+
+Three of them are about what the route keeps between requests, which is where
+this module was made quicker. Keeping the wrong thing here is unusually tempting
+and unusually quiet: remembering the answer for each piece looks like an obvious
+saving and would stop a running acquisition from ever filling in; asking the wrong
+position for a piece draws the right specimen from the wrong place on the slide;
+and reading each position's description again for every piece is not wrong at all,
+merely slow, which is why it is caught by a test that counts rather than by one
+that compares pixels.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from shutil import rmtree
 
 from ._fault_check import replace_source, require_green_baseline, run_pytest
 
@@ -77,9 +87,8 @@ FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "mistake a chunk's coordinate for its bundle's",
-        "        held = where_one_chunk_lives(block.stored.array, coordinate)",
-        "        held = where_one_chunk_lives(\n"
-        "            block.stored.array,\n"
+        "        held = block.stored.where_one_chunk_lives(coordinate)",
+        "        held = block.stored.where_one_chunk_lives(\n"
         "            (\n"
         "                *coordinate[:-3],\n"
         "                *(\n"
@@ -90,7 +99,26 @@ FAULTS: list[tuple[str, str, str]] = [
         "                        strict=True,\n"
         "                    )\n"
         "                ),\n"
-        "            ),\n"
+        "            )\n"
+        "        )",
+    ),
+    (
+        "ask the first position for every piece of the view",
+        "        held = block.stored.where_one_chunk_lives(coordinate)",
+        "        held = self._blocks[0].stored.where_one_chunk_lives(coordinate)",
+    ),
+    (
+        "read the position's description again for every piece",
+        "        held = block.stored.where_one_chunk_lives(coordinate)",
+        "        held = how_the_array_is_stored(block.stored.array)"
+        ".where_one_chunk_lives(coordinate)",
+    ),
+    (
+        "remember the answer for each piece, so a run stops filling in",
+        "        held = block.stored.where_one_chunk_lives(coordinate)",
+        '        held = globals().setdefault("_answers_already_given", {}).setdefault(\n'
+        "            (block.stored.array, coordinate),\n"
+        "            block.stored.where_one_chunk_lives(coordinate),\n"
         "        )",
     ),
     (
@@ -168,6 +196,25 @@ FAULTS: list[tuple[str, str, str]] = [
 ]
 
 
+def put_the_source_back(original: str) -> None:
+    """Restore the mutated file, and throw away Python's compiled copy of it.
+
+    Restoring the text is not quite enough on its own, and the reason is worth
+    knowing because it once made a whole run of this check meaningless. Python
+    keeps a compiled copy of each module beside it and decides whether that copy
+    is still good by looking at the source file's size and the second in which it
+    last changed. A fault that replaces one character with another leaves the file
+    exactly the same size, and putting it back a fraction of a second later leaves
+    it in the same second — so the compiled copy of the *faulty* module goes on
+    being used afterwards, and every later result is about code nobody meant to
+    run. Throwing the compiled copy away costs a few milliseconds and removes the
+    possibility entirely.
+    """
+    replace_source(SOURCE, original)
+    for compiled in SOURCE.parent.rglob("__pycache__"):
+        rmtree(compiled, ignore_errors=True)
+
+
 def main() -> int:
     original = SOURCE.read_text(encoding="utf-8")
     unnoticed: list[str] = []
@@ -189,7 +236,7 @@ def main() -> int:
             try:
                 result = run_pytest(repository, TESTS)
             finally:
-                replace_source(SOURCE, original)
+                put_the_source_back(original)
 
             if result.caught_the_fault:
                 print(f"{description:<52}{'yes':>9}   {result.first_failure[:40]}")
@@ -201,7 +248,7 @@ def main() -> int:
                 print(f"{description:<52}{'NO':>9}   nothing noticed")
                 unnoticed.append(description)
     finally:
-        replace_source(SOURCE, original)
+        put_the_source_back(original)
 
     print()
     if unnoticed:

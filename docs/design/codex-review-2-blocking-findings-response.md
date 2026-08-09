@@ -29,15 +29,68 @@ found to be uncatchable and had to be rewritten rather than quietly counted.
 
 ### 1–5. The coordinator
 
-*Status: in progress at the time of writing. This section will state what was
-fixed, what was reproduced first, and what was not fixed, once that work has
-landed and I have verified it myself rather than relayed a report.*
+**All five fixed.** Each was reproduced by a failing test before anything was
+changed, and each was then independently attacked a second time by writing the
+exploit afresh from the review's description rather than re-running the test that
+came with the fix. A fix that only satisfies the test written beside it has not
+really been checked, so both columns below matter.
 
-The five defects are: a completely unwritten timepoint could be committed;
-readiness was still false in four independent ways; the seamless image silently
-lost every tile's far edge; Z stacks were truncated to one plane and channels
-were copied rather than written; and committed canonical pixels remained
-mutable, so two readers could see different data under one revision.
+| the defect | how it was got away with before | now |
+| --- | --- | --- |
+| an unwritten moment could be committed | `inspect(…, timepoint=1)` returned `pyramids_ready=True`, `pieces_read=3,525,120`, and the counter advanced for a moment holding not one byte | refused |
+| a middle chunk of a zoomed-out level deleted | inspection still passed | refused |
+| the seamless picture replaced entirely with zeros | `coarse_chunks_ready=True`, published a black image | refused |
+| another run's arrangement swapped in | `layout_ready=True`, published | refused |
+| the far edge of a lone tile | 21% of the image silently black | **0% black**, exact expected width |
+| a three-plane stack | only plane 111 reached the seamless view | all of 111, 222, 333 |
+| one plane offered for a two-colour run | copied into every colour | refused |
+| a committed moment written over | canonical became 2000, the view stayed 1000, revision unchanged | refused |
+
+The fixes worth describing rather than listing:
+
+**Readiness is now derived from the exact pieces a moment owes.** Inspection
+builds the list of chunks that moment is responsible for — its index on time,
+every colour, plane, row and column — and asks the store for each one by key,
+rather than reading the array and trusting what comes back. That distinction is
+the whole defect: Zarr answers for an absent chunk with fill values, so
+`array[:]` cannot tell "written as zeros" from "never written". Reading the array
+is kept, but as the *decode* check it always was, since a chunk can exist and be
+half a chunk long.
+
+**The seamless picture is compared against the pixels, not measured.** The old
+check asked whether an 8×8 corner had non-zero *size*, which is true of an
+all-black image. It now reads the ground this position covers out of the view and
+compares it against the position's own store at that moment.
+
+**`links_ready` means something for the first time.** It was previously true with
+no route map existing anywhere. A real route is now built through
+`viewroute.route_the_view` — which refuses misaligned or doubly-claimed pieces —
+persisted to `zmart-live/links.json`, read back, checked against this run and
+plan, and then *followed*: every piece this position supplies at every linkable
+level is resolved and its bytes decoded and compared. Ninety-three pieces where
+two corners were checked before.
+
+**The far-edge writer is called from production code.** `ownership.the_far_edges()`
+existed and was exercised only by its own tests. The seamless writer now paints
+what it reports, and the seamless *check* uses the same helper, so the writer and
+the checker cannot drift apart.
+
+**Replacement is explicit and generational.** A committed `(position, moment)` is
+refused outright. `replace_a_position()` is the deliberate route: it writes a new
+generation beside the old, leaves the old untouched, rebuilds both shared pictures
+and the route map from it, and publishes a `position_replaced` event — so the two
+readers move together under one new revision instead of disagreeing under the
+same one.
+
+Twelve faults were added to the coordinator's campaign, nothing removed. **All 27
+coordinator faults are caught**, and the 15 that predate this work still fire, so
+none went stale.
+
+Two caveats recorded rather than smoothed over. `pieces_read` still counts through
+`array[:]`, which reads every moment rather than only the one being inspected —
+a genuine decode check, just broader than the unit. And the far-edge strips are
+written into the seamless store rather than pointed at, so the route map
+deliberately does not cover them.
 
 ### 6. The browser harness gated by position, not by moment
 
@@ -83,6 +136,40 @@ test would have passed against the unfixed code. And the multiscale `type` is
 `"mean"` rather than `"nearest"`, because the coordinator genuinely averages
 two-by-two blocks; describing it otherwise would have been a false statement
 about the data in a file other people's software reads.
+
+## What was verified, and how
+
+Everything below was run on a settled tree after all the work had landed, not
+reported from the workers who did it.
+
+| check | result |
+| --- | --- |
+| Python suite | 461 passed |
+| `ruff check zmart_live/` | clean |
+| full fault campaign | **71 faults, none uncaught** |
+| independently written exploits for findings 1–5 | 8 of 8 blocked |
+| browser tests against the landed coordinator | 3 passed |
+| production sabotages | **6 of 6 went red** |
+
+The exploits were written afresh from the review's wording rather than by
+re-running the tests that came with each fix, because a fix that only satisfies
+the test written beside it has not really been checked.
+
+Two corrections to my own checking, recorded because they are the same class of
+mistake this review is about. My first exploit reported the far edge still 66.7%
+black; that was my test's fault — it built a run with three moments and wrote
+one, so two thirds was legitimately unwritten. Measured on the moment actually
+written, the seamless picture is 0% black at one tile and at two. And my first
+sabotage run appeared to show five faults caught rather than six; that was a
+filter in my own command dropping a line, not a fault surviving.
+
+The browser harness's drift guard had to be reconciled with the coordinator's
+refactor, which split `write_and_publish` into a public method and a private
+helper. Rather than update the list of steps it compares against — which would
+have made it weaker — the guard now **follows into private helpers**, so it reads
+the real sequence wherever the code puts it. Otherwise a refactor that merely
+moved those steps somewhere it could not see would leave the test measuring a
+sequence nobody runs, which is the exact failure the guard exists to prevent.
 
 ## Identity and persistence
 

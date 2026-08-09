@@ -61,6 +61,19 @@ def a_plan(frame: int = 90, overlap: int = 10, chunk: int = 10) -> AcquisitionPr
     )
 
 
+def one_tile(profile: AcquisitionProfile, cell: GridCell, **rest):
+    """Plan one tile, giving it a plain name that is safe to put in a path.
+
+    A position's name becomes a folder on disk, so the records now refuse
+    anything that is not a plain word — no slashes, no colons, nothing that could
+    climb out of the run folder. :func:`plan_one_tile` will invent a name when it
+    is not given one, and the name it invents contains a colon, which Windows
+    reads as a drive letter. Naming the tile here keeps these tests about
+    ownership rather than about naming, which has its own tests elsewhere.
+    """
+    return plan_one_tile(profile, cell, position_id=f"pos{cell.row}{cell.column}", **rest)
+
+
 def a_square_of(rows: int, columns: int) -> dict[GridCell, str]:
     return {
         GridCell(row, column): f"pos{row}{column}"
@@ -198,7 +211,7 @@ class TestShowingAndCountingAreAllowedToDiffer:
 
     def test_the_seam_shown_and_the_seam_counted_are_not_the_same_line(self):
         profile = a_plan()
-        placement = plan_one_tile(profile, GridCell(0, 0), occupied=frozenset(a_square_of(2, 2)))
+        placement = one_tile(profile, GridCell(0, 0), occupied=frozenset(a_square_of(2, 2)))
         shown = placement.visual_source_roi["x"]
         counted = placement.analysis_core_roi["x"]
         assert shown.stop != counted.stop
@@ -206,14 +219,14 @@ class TestShowingAndCountingAreAllowedToDiffer:
     def test_a_model_is_given_the_whole_tile_including_the_overlap(self):
         """The overlap is the context that lets a model judge an object at the edge."""
         profile = a_plan()
-        placement = plan_one_tile(profile, GridCell(1, 1), occupied=frozenset(a_square_of(3, 3)))
+        placement = one_tile(profile, GridCell(1, 1), occupied=frozenset(a_square_of(3, 3)))
         for axis in ("y", "x"):
             assert placement.analysis_input_roi[axis].start == 0
             assert placement.analysis_input_roi[axis].stop == profile.frame_shape[axis]
 
     def test_what_counts_is_narrower_than_what_is_looked_at(self):
         profile = a_plan()
-        placement = plan_one_tile(profile, GridCell(1, 1), occupied=frozenset(a_square_of(3, 3)))
+        placement = one_tile(profile, GridCell(1, 1), occupied=frozenset(a_square_of(3, 3)))
         for axis in ("y", "x"):
             looked = placement.analysis_input_roi[axis]
             counts = placement.analysis_core_roi[axis]
@@ -223,7 +236,7 @@ class TestShowingAndCountingAreAllowedToDiffer:
     def test_a_tile_at_the_mosaic_edge_counts_right_up_to_that_edge(self):
         """There is no neighbour out there to hand it to, so it keeps it."""
         profile = a_plan()
-        placement = plan_one_tile(profile, GridCell(0, 0), occupied=frozenset(a_square_of(2, 2)))
+        placement = one_tile(profile, GridCell(0, 0), occupied=frozenset(a_square_of(2, 2)))
         assert placement.analysis_core_roi["y"].start == 0
         assert placement.analysis_core_roi["x"].start == 0
         assert placement.on_outer_boundary["y_low"] is True
@@ -239,7 +252,7 @@ class TestAxesThatAreNotTiledAreNotDivided:
 
     def test_depth_is_owned_whole(self):
         profile = a_plan()
-        placement = plan_one_tile(profile, GridCell(0, 0))
+        placement = one_tile(profile, GridCell(0, 0))
         assert placement.analysis_core_roi["z"].start == 0
         assert placement.analysis_core_roi["z"].stop == profile.frame_shape["z"]
 
@@ -252,7 +265,7 @@ class TestAxesThatAreNotTiledAreNotDivided:
             dtype="uint16",
         )
         with pytest.raises(ZmartLiveError):
-            plan_one_tile(flat, GridCell(0, 0))
+            one_tile(flat, GridCell(0, 0))
 
 
 class TestTheGridHasToMeanWhatItSays:
@@ -308,7 +321,7 @@ class TestTheRecordsSurviveBeingStored:
     def test_a_placement_reads_back_exactly(self):
         from zmart_live.model import PositionPlacement
 
-        placement = plan_one_tile(a_plan(), GridCell(1, 2), occupied=frozenset(a_square_of(3, 3)))
+        placement = one_tile(a_plan(), GridCell(1, 2), occupied=frozenset(a_square_of(3, 3)))
         assert PositionPlacement.from_json(placement.to_json()).to_json() == (placement.to_json())
 
     def test_a_component_reads_back_exactly(self):
@@ -320,7 +333,7 @@ class TestTheRecordsSurviveBeingStored:
 
 class TestAStoredLayoutNeverGuessesBetweenTwoOwners:
     def test_one_owner_is_returned(self):
-        placement = plan_one_tile(a_plan(), GridCell(0, 0))
+        placement = one_tile(a_plan(), GridCell(0, 0))
         layout = SceneLayoutRevision(
             revision=1,
             schema_version="zmart-live-layout/1",
@@ -332,7 +345,7 @@ class TestAStoredLayoutNeverGuessesBetweenTwoOwners:
         assert layout.owner_of_point({"z": 0, "y": 1, "x": 1}) == placement.position_id
 
     def test_overlapping_ownership_is_refused_instead_of_returning_the_first(self):
-        first = plan_one_tile(a_plan(), GridCell(0, 0))
+        first = one_tile(a_plan(), GridCell(0, 0))
         second = replace(first, position_id="another-position")
         layout = SceneLayoutRevision(
             revision=1,
