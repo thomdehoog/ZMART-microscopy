@@ -1,6 +1,32 @@
 # Response to the second Codex review: the seven blocking findings
 
-**Reviewed head:** `23661841`. **This response covers the work done after it.**
+**Reviewed head:** `23661841`. **Re-review from:** `64d57ecb` on
+`agent/live-position-timepoint-publication`.
+
+Compare against `claude/omezarr-neuroglancer-structure-srnwu6`, not `main` —
+this branch sits on top of other work and `main` shows hundreds of unrelated
+commits:
+
+```bash
+git diff origin/claude/omezarr-neuroglancer-structure-srnwu6...64d57ecb
+```
+
+To re-run what is claimed below:
+
+```bash
+pip install "zarr>=3" numpy pytest
+python -m pytest zmart_live/ -q                                  # 461, about 50s
+python -m zmart_live.tests.check_the_tests_can_fail               # 71 faults, ~40 min
+python -m zmart_live.tests.check_the_shardlink_tests_can_fail     # 25 faults
+python -m zmart_live.tests.check_the_viewroute_tests_can_fail     # 21 faults
+python -m zmart_live.tests.check_the_scene_tests_can_fail         # 14 faults
+python -m zmart_live.tests.check_the_omezarr_tests_can_fail       # 15 faults
+```
+
+The browser work needs a Chromium that Playwright can drive. The suite passes
+`executablePath` explicitly, because the pinned Playwright wanted a build that
+was not installed here; that is the setting to change, not a browser to
+download.
 
 Every finding in that review was accepted. None was argued with, and two were
 confirmed by direct inspection before any work started, so that whoever fixed
@@ -255,6 +281,28 @@ deliberately on this machine did *not* reproduce it — the restored answer came
 back every time — so something here hides it. The guard is kept because it is
 cheap and certainly correct, not because a test here demonstrates the failure it
 prevents.
+
+## Against the recommended order
+
+The review closed with eight steps. Answering them directly, so the next pass
+does not have to work out what moved:
+
+| # | recommended step | state |
+| --- | --- | --- |
+| 1 | regression tests for the reproduced failures | **done** — each defect has a test that failed first, with the observed wrong behaviour in its docstring |
+| 2 | per-timepoint inspection and gating; forbid mutation of committed units | **done** — findings 1 and 5, verified by independently written exploits |
+| 3 | complete outer-edge coverage; correct Z and channel handling | **done** — findings 3 and 4; the seamless picture is 0% black at one tile and at two |
+| 4 | valid canonical OME-Zarr 0.5; content-addressed profiles; immutable layout revisions | **done** — finding 7 and the identity section |
+| 5 | connect ViewRoute to the real backend; remove full-resolution view copying | **half done, and the half that is missing is the larger one.** A real route is now built, persisted and followed by the coordinator, which is what makes `links_ready` mean anything. It is *not* wired into `viz_studio/backend`, and the view stores are still written at full resolution, so the copying is untouched |
+| 6 | implement and validate affected raw and seamless coarse pyramid chunks | **not done.** Neither view store has zoomed-out copies at all; `coarse.py` plans the work and nothing writes those pixels |
+| 7 | manifest-driven viewer refresh and concurrent analysis ownership | **not done.** The browser harness still invalidates Neuroglancer's cache by hand, and there is no analysis reader |
+| 8 | benchmark shard geometry, locking and recovery on Windows and SMB | **not done.** Every measurement here is Linux on a four-core shared machine |
+
+So steps 1 to 4 are complete and steps 5 to 8 are the remaining work, with step 5
+partly begun. That ordering still looks right, with one caveat worth raising: the
+quadratic view copying in step 5 is the thing that makes this unusable at real
+run sizes, and it is a design change rather than a repair. It may deserve to come
+before the rest of step 5 rather than alongside it.
 
 ## Still open, and not claimed as fixed
 
