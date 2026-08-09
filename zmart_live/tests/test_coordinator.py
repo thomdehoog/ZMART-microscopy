@@ -85,6 +85,7 @@ class TestDamageThatWouldNotAnnounceItself:
         """The quiet failure: complete zoomed in, empty zoomed out."""
         run.write_a_position("posA", some_specimen())
         run.write_the_seamless_view(frozenset({"posA"}))
+        run.write_the_raw_overlap_view(frozenset({"posA"}))
         run.write_the_layout()
 
         # It would have gone through.
@@ -107,6 +108,7 @@ class TestDamageThatWouldNotAnnounceItself:
         """A file can exist and hold half a piece, and half a piece decodes."""
         run.write_a_position("posA", some_specimen())
         run.write_the_seamless_view(frozenset({"posA"}))
+        run.write_the_raw_overlap_view(frozenset({"posA"}))
         run.write_the_layout()
         assert run.inspect("posA").everything_checks_out
 
@@ -141,6 +143,7 @@ class TestDamageThatWouldNotAnnounceItself:
         """A published measurement has to have something to point back at."""
         run.write_a_position("posA", some_specimen())
         run.write_the_seamless_view(frozenset({"posA"}))
+        run.write_the_raw_overlap_view(frozenset({"posA"}))
         found = run.inspect("posA")
         assert not found.everything_checks_out
         assert not found.layout_ready
@@ -148,6 +151,7 @@ class TestDamageThatWouldNotAnnounceItself:
     def test_an_unreadable_arrangement_is_caught(self, run):
         run.write_a_position("posA", some_specimen())
         run.write_the_seamless_view(frozenset({"posA"}))
+        run.write_the_raw_overlap_view(frozenset({"posA"}))
         run.write_the_layout()
         (run.folder / "zmart-live" / "layout.json").write_text("not json")
         found = run.inspect("posA")
@@ -188,6 +192,7 @@ class TestReadinessCannotBeAsserted:
         assert found.pieces_read > 0
         assert found.ranges_checked > 0
         assert found.coarse_pieces_rebuilt > 0
+        assert found.raw_pixels_compared > 0
 
     def test_an_inspection_that_found_nothing_is_not_ready(self):
         """The record's default has to be the safe one."""
@@ -219,6 +224,237 @@ class TestTheZoomedOutPictureOnlyShowsPublishedWork:
         view = zarr.open_array(str(run.seamless_store), mode="r")
         after = view[0, 0, 0, y0:y0 + 4, x0:x0 + 4]
         assert int(after.max()) == 2000
+
+
+def where_the_two_tiles_meet(run) -> tuple[int, int]:
+    """The strip of specimen that both posA and posB photographed.
+
+    They sit side by side, so the strip runs from where posB's frame begins to
+    where posA's frame ends, measured in the run's own pixels. Inside it, two
+    tiles hold two genuinely different measurements of the same place.
+    """
+    left = run.layout.placement("posA")
+    right = run.layout.placement("posB")
+    begins = right.origin["x"]
+    ends = left.origin["x"] + run.profile.frame_shape["x"]
+    assert ends > begins, "these two tiles were expected to share an overlap"
+    return begins, ends
+
+
+class TestTheRawViewKeepsBothMeasurementsOfAnOverlap:
+    """The claim this view exists to make.
+
+    Where two tiles meet, the microscope recorded the same piece of specimen
+    twice, and the two records need not agree — that disagreement is the whole
+    reason somebody opens this view. So the test that matters is not that the
+    picture appears, but that *both* measurements can still be read back out of
+    it afterwards.
+    """
+
+    def test_both_measurements_in_the_overlap_are_recoverable(self, run):
+        import zarr
+
+        run.write_and_publish("posA", some_specimen(1000))
+        run.write_and_publish("posB", some_specimen(2000))
+
+        begins, ends = where_the_two_tiles_meet(run)
+        view = zarr.open_array(str(run.raw_overlap_store), mode="r")
+        from_the_left = view[
+            run.tile_stop_of("posA"), 0, 0, 0, :, begins:ends
+        ]
+        from_the_right = view[
+            run.tile_stop_of("posB"), 0, 0, 0, :, begins:ends
+        ]
+
+        assert sorted(np.unique(from_the_left)) == [1000], (
+            "posA's own measurement of the shared strip is not in the raw view"
+        )
+        assert sorted(np.unique(from_the_right)) == [2000], (
+            "posB's own measurement of the shared strip is not in the raw view"
+        )
+
+        # And the comparison that makes this second view worth building at all:
+        # the seamless view holds one value per place, so over the same strip it
+        # can only be showing one of the two tiles. The rows are limited to the
+        # ground the seamless view covers — the strip along the mosaic's far edge
+        # is handed over by no tile, and this narrow path does not write it.
+        seamless = zarr.open_array(str(run.seamless_store), mode="r")
+        covered = run.profile.grid_step("y")
+        chosen = np.unique(seamless[0, 0, 0, :covered, begins:ends])
+        assert len(chosen) == 1 and chosen[0] in (1000, 2000), (
+            "in the overlap the seamless view shows one tile's measurement and "
+            "not the other's"
+        )
+
+    def test_two_tiles_that_meet_are_never_written_to_one_stop(self, run):
+        """The property the whole arrangement rests on."""
+        import zarr
+
+        run.write_and_publish("posA", some_specimen(1000))
+        assert run.tile_stop_of("posA") != run.tile_stop_of("posB")
+
+        view = zarr.open_array(str(run.raw_overlap_store), mode="r")
+        assert view.shape[0] == run.tile_stop_count
+        assert run.tile_stop_count == 4, (
+            "an ordinary mosaic needs two stops along each of y and x, so four "
+            "in total, however many positions the run holds"
+        )
+
+    def test_a_wider_overlap_asks_for_more_stops(self, tmp_path):
+        """The rule is not the chessboard; the chessboard is what it gives here.
+
+        An acquisition whose tiles overlap by more than half a frame has three
+        tiles sharing specimen at once, and the number of stops grows to match
+        rather than the third measurement being lost.
+        """
+        from zmart_live.model import AcquisitionProfile, FrozenMap
+
+        crowded = AcquisitionProfile(
+            profile_id="crowded",
+            acquisition_type="overview",
+            axes=("t", "c", "z", "y", "x"),
+            frame_shape=FrozenMap({"z": 1, "y": 64, "x": 64}),
+            dtype="uint16",
+            overlap_pixels=FrozenMap({"y": 48, "x": 48}),
+            topology="grid",
+        )
+        run = LivePublisher(
+            tmp_path,
+            crowded,
+            run_id="run-crowded",
+            cells={
+                GridCell(0, 0): "posA",
+                GridCell(0, 1): "posB",
+                GridCell(0, 2): "posC",
+            },
+        )
+        # The stage moves 16 pixels between tiles and a frame is 64 wide, so four
+        # tiles in a row can share specimen and four stops are needed on x.
+        assert run.tile_stops_per_axis == {"y": 4, "x": 4}
+        assert len({run.tile_stop_of(name) for name in ("posA", "posB", "posC")}) == 3
+
+    def test_an_unpublished_position_never_reaches_the_raw_view(self, run):
+        """The same rule as the seamless view, for the same reason."""
+        import zarr
+
+        run.write_and_publish("posA", some_specimen(1000))
+        # posB's pixels are on disk, but nobody has said they are finished.
+        run.write_a_position("posB", some_specimen(2000))
+        run.write_the_raw_overlap_view(frozenset({"posA"}))
+
+        view = zarr.open_array(str(run.raw_overlap_store), mode="r")
+        stop = run.tile_stop_of("posB")
+        placement = run.layout.placement("posB")
+        y0, x0 = placement.origin["y"], placement.origin["x"]
+        theirs = view[stop, 0, 0, 0, y0:y0 + 8, x0:x0 + 8]
+        assert int(theirs.max()) != 2000, (
+            "an unpublished position's pixels have reached the raw view"
+        )
+
+        # And they do arrive once it is published, so this cannot be passing
+        # merely because the raw view is empty everywhere.
+        run.write_and_publish("posB", some_specimen(2000))
+        view = zarr.open_array(str(run.raw_overlap_store), mode="r")
+        after = view[stop, 0, 0, 0, y0:y0 + 8, x0:x0 + 8]
+        assert int(after.max()) == 2000
+
+    def test_publication_is_refused_while_the_raw_view_is_missing(self, run):
+        """Complete everywhere else is still not complete."""
+        run.write_a_position("posA", some_specimen())
+        run.write_the_seamless_view(frozenset({"posA"}))
+        run.write_the_layout()
+
+        found = run.inspect("posA")
+        assert found.raw_overlap_ready is False
+        assert not found.everything_checks_out
+        assert any("has not been built yet" in note for note in found.complaints), (
+            "an operator should be told the view is missing, which is a different "
+            "situation from one that is there and will not read"
+        )
+        with pytest.raises(NotReadyToPublish):
+            run.publish("posA")
+        assert run.manifest.revision() == 0
+
+    def test_a_raw_view_that_will_not_read_is_caught(self, run):
+        run.write_a_position("posA", some_specimen())
+        run.write_the_seamless_view(frozenset({"posA"}))
+        run.write_the_raw_overlap_view(frozenset({"posA"}))
+        run.write_the_layout()
+        assert run.inspect("posA").everything_checks_out
+
+        pieces = [
+            p
+            for p in run.raw_overlap_store.rglob("*")
+            if p.is_file() and p.name != "zarr.json"
+        ]
+        assert pieces, "expected the raw view to have stored some pieces"
+        whole = pieces[0].read_bytes()
+        pieces[0].write_bytes(whole[: len(whole) // 3])
+
+        found = run.inspect("posA")
+        assert found.raw_overlap_ready is False
+        with pytest.raises(NotReadyToPublish):
+            run.publish("posA")
+        assert run.manifest.revision() == 0
+
+    def test_a_raw_view_holding_somebody_elses_pixels_is_caught(self, run):
+        """The quiet failure: a strip of specimen replaced by another tile's.
+
+        Nothing is damaged and nothing fails to decode. The picture still looks
+        like specimen; it is simply no longer this position's record of it. Only
+        comparing the view against the position's own store notices.
+        """
+        import zarr
+
+        run.write_a_position("posA", some_specimen(1000))
+        run.write_the_seamless_view(frozenset({"posA"}))
+        run.write_the_raw_overlap_view(frozenset({"posA"}))
+        run.write_the_layout()
+        assert run.inspect("posA").everything_checks_out
+
+        view = zarr.open_array(str(run.raw_overlap_store), mode="r+")
+        view[run.tile_stop_of("posA"), 0, 0, 0, :64, :64] = 2000
+
+        found = run.inspect("posA")
+        assert found.raw_overlap_ready is False
+        assert found.pyramids_ready is True, (
+            "the position's own pixels are untouched, so they must not be blamed"
+        )
+        with pytest.raises(NotReadyToPublish):
+            run.publish("posA")
+        assert run.manifest.revision() == 0
+
+    def test_writing_is_refused_rather_than_losing_a_measurement(
+        self, run, monkeypatch
+    ):
+        """The fail-closed guard, exercised by breaking the rule it protects.
+
+        If the way stops are chosen were ever changed so that two overlapping
+        tiles landed on the same one, the damage would be silent: one tile's
+        measurements simply replaced by its neighbour's. So the writer checks
+        instead of assuming, and refuses.
+        """
+        monkeypatch.setattr(LivePublisher, "tile_stop_of", lambda self, name: 0)
+        run.write_a_position("posA", some_specimen(1000))
+        with pytest.raises(ZmartLiveError) as refused:
+            run.write_the_raw_overlap_view(frozenset({"posA"}))
+        assert "erase" in str(refused.value)
+
+    def test_the_viewer_is_told_where_this_store_actually_is(self, run):
+        """The scene hands the viewer an address; it has to be this one.
+
+        A scene naming a store that nothing writes produces an empty layer with
+        no error anywhere, which is the sort of thing that is noticed weeks
+        later.
+        """
+        from zmart_live.scene import build_the_scene
+
+        scene = build_the_scene(run.profile, run.layout, channels=run.channels)
+        raw = next(image for image in scene.images if image.role == "non_seamless")
+        assert run.folder / raw.path == run.raw_overlap_store
+        assert raw.selector_axis == "tile", (
+            "the scene's tile selector is the dimension this store is written with"
+        )
 
 
 class TestTheRunIsDescribedHonestly:
@@ -256,6 +492,7 @@ class TestEachCheckStandsOnItsOwn:
         """
         run.write_a_position("posA", some_specimen())
         run.write_the_seamless_view(frozenset({"posA"}))
+        run.write_the_raw_overlap_view(frozenset({"posA"}))
         run.write_the_layout()
         assert run.inspect("posA").pyramids_ready
 
@@ -275,6 +512,10 @@ class TestEachCheckStandsOnItsOwn:
         assert found.layout_ready is True, (
             "damaged pixels must not be reported as a damaged arrangement"
         )
+        assert found.raw_overlap_ready is True, (
+            "a damaged zoomed-out copy must not be reported as a damaged raw "
+            "overlap view; the raw view is built from level zero and is untouched"
+        )
 
     def test_the_pieces_read_count_comes_from_actually_reading(self, run):
         """If it came from the description, the read could be deleted unnoticed."""
@@ -284,6 +525,13 @@ class TestEachCheckStandsOnItsOwn:
         # At least one full plane of values, which no amount of metadata
         # inspection would produce on its own.
         assert found.pieces_read >= level_zero.inner_chunk["y"] * level_zero.inner_chunk["x"]
+        # The same argument for the raw overlap view: the comparison covers this
+        # position's whole frame, overlap included, so anything smaller means
+        # part of it was never looked at.
+        whole_frame = (
+            run.profile.frame_shape["y"] * run.profile.frame_shape["x"]
+        )
+        assert found.raw_pixels_compared >= whole_frame
 
     def test_a_pointer_to_the_wrong_bytes_is_caught(self, run, monkeypatch):
         """The failure that produces a picture rather than an error.
@@ -299,6 +547,7 @@ class TestEachCheckStandsOnItsOwn:
 
         run.write_a_position("posA", some_specimen(1000))
         run.write_the_seamless_view(frozenset({"posA"}))
+        run.write_the_raw_overlap_view(frozenset({"posA"}))
         run.write_the_layout()
         assert run.inspect("posA").links_ready, "should be sound before meddling"
 

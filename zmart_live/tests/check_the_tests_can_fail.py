@@ -250,6 +250,56 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
         "slice(place * size, min(place * size + size, reach))",
         "slice(place * size, place * size + size)",
     ),
+    # The raw overlap view. Every fault below ends with one of two measurements
+    # of the same specimen quietly gone, which is the one thing that view is
+    # built to make impossible.
+    (
+        "let the tile written last win in the overlap",
+        "self.tile_stop_of(placement.position_id),",
+        "0,",
+    ),
+    (
+        "drop the dimension that keeps overlapping tiles apart",
+        "self.tile_stop_count,\n            self.timepoints,",
+        "1,\n            self.timepoints,",
+    ),
+    (
+        "let an unpublished position into the raw overlap view",
+        "# Not published yet means not shown here either, exactly as in the\n"
+        "            # seamless view above.\n"
+        "            if placement.position_id not in committed:",
+        "# Not published yet means not shown here either, exactly as in the\n"
+        "            # seamless view above.\n"
+        "            if False:",
+    ),
+    (
+        "call the raw overlap view ready without looking at it",
+        "raw_overlap_ready=compared > 0 and not about_the_overlaps,",
+        "raw_overlap_ready=True,",
+    ),
+    (
+        "say a raw overlap view that is missing is merely unreadable",
+        "if not self.raw_overlap_store.exists():\n"
+        "            complaints.append(\n"
+        '                "The raw overlap view has not been built yet,',
+        "if False:\n"
+        "            complaints.append(\n"
+        '                "The raw overlap view has not been built yet,',
+    ),
+    (
+        "trust the raw overlap view instead of comparing it to the pixels",
+        "if as_stored.shape != as_written.shape or not np.array_equal(\n"
+        "                as_stored, as_written\n"
+        "            ):",
+        "if False and np.array_equal(\n"
+        "                as_stored, as_written\n"
+        "            ):",
+    ),
+    (
+        "report the raw overlap comparison as done without saying how much",
+        "return int(as_stored.size)",
+        "return 1",
+    ),
 ]
 
 #: Which faults belong to which file, and which tests should notice them.

@@ -90,21 +90,77 @@ look wrong at every level whose width is not a whole number of pieces.
 
 | # | item | status |
 | --- | --- | --- |
-| 1 | No coordinator earns readiness | **closed** — `coordinator.py`, 19 tests, 8 mutation faults all caught |
-| 2 | The shard resolver is not connected to a view | **in progress**, not claimed |
-| 3 | The raw and seamless stores are descriptions | **partly** — the seamless store is written and validated; the non-seamless one is in progress |
-| 4 | The browser harness bypasses the production path | **in progress** — the harness now runs, but still against a synthetic server |
+| 1 | No coordinator earns readiness | **closed** — `coordinator.py`, 15 mutation faults all caught |
+| 2 | The shard resolver is not connected to a view | **closed in `zmart_live`** — `viewroute.py`, 25 tests, 18 faults caught; the viewer's own server still speaks whole files |
+| 3 | The raw and seamless stores are descriptions | **closed** — both are written, validated, and refused when absent |
+| 4 | The browser harness bypasses the production path | **closed** — the sequence now runs through `LivePublisher`, both sabotages red |
 | 5 | Windows and target-filesystem behaviour unmeasured | **open**, and untouched |
 | 6 | OME-Zarr scenes remain semantic only | **open by choice**, consistent with the decision record |
 
-Two notes on the ones still open.
+### Finding 2: what is closed and what is not
 
-**Finding 4 has two halves and only one is closed.** The renderer demonstrably
-behaves correctly when a server gates chunks on the manifest. That is evidence
-about Neuroglancer and about the commit rule. It is still not evidence about
-production scene discovery, per-source invalidation or shard-range serving, none
-of which that harness touches. The finding stands as written until the sequence
-is driven by `LivePublisher` against the real route.
+A view can now advertise **inner chunks** while its positions stay bundled.
+`viewroute.py` resolves a view chunk to a byte range inside a bundle, and a test
+builds exactly the geometry `plan_the_writing("overview", frame=1152)` emits,
+asserts `step % chunk == 0` while `step % bundle != 0` — the finding stated as an
+assertion — and then decodes pieces on both sides of the seam to bytes identical
+to what zarr returns.
+
+A companion test watches `zmart_storage.linked.link_the_tiles` **refuse** the same
+seam while the new route accepts and serves it, which is the whole-file
+limitation demonstrated rather than described.
+
+`zmart_storage` was not modified. The remaining step is the viewer's own server:
+`viz_studio/backend/linking.py` still understands only `held_as: "file"`, and
+connecting it means adding a range form to the pointer record. Small, on a proven
+format, and **not done**.
+
+The writer's single scalar shard was deliberately left alone. On this route the
+view is never bundled — it hands over one encoded chunk, so it must declare the
+inner chunk and no sharding of its own. Bundling exists to reduce file count, and
+the view writes no picture files at all.
+
+### Finding 3: how two measurements of one place are both kept
+
+Two overlapping tiles genuinely recorded different measurements of the same
+specimen. Writing them into one scalar picture means the last writer wins, which
+destroys one measurement silently — the exact failure this package exists to
+prevent.
+
+The raw view therefore has a **selector** dimension. What one stop on it means is
+chosen from the geometry rather than from the positions: two tiles can only share
+specimen if they sit within one frame of each other, so the number of stops per
+axis is `ceil(frame / step)` — two for the 1152 profile, four stops in total. The
+tiles fall into interleaved sets like the squares of a chessboard, and no two
+tiles in one set ever touch.
+
+This matters at scale: one stop per position would be a five-thousand-stop slider
+on a real run, nearly all of it empty wherever the operator is looking. Four
+stops stay four stops however large the mosaic grows.
+
+Verified directly: two neighbours written as 1000 and 2000, and over the strip
+they both photographed, one stop reads uniformly 1000 while the other reads
+uniformly 2000. The seamless view over that same strip holds exactly one of the
+two, which is the contrast that justifies keeping both stores.
+
+### Finding 4: closed, and what it does and does not show
+
+The three-step sequence now runs against a real Neuroglancer with the run written
+and published by `LivePublisher`. The middle step is `write_and_publish` stopped
+one step short of the commit, which matters: writing the position alone would
+leave its pixels out of the picture the viewer reads, so "not drawn" would be
+true because there was nothing to draw and the gate would be untested. As
+written, the pixels genuinely sit in the served image and only the commit hides
+them — which the `commit-b-early` sabotage proves by measuring a full 1.000 the
+instant it is committed, with no image bytes changed.
+
+A guard parses what `write_and_publish` actually does and refuses to start if the
+test's copy of the sequence falls behind it.
+
+Still not shown by this: per-source invalidation, and shard-range serving through
+the viewer's own server. Only level 0 is served, so the case where one coarse
+piece covers a committed and an uncommitted position at once is out of its scope
+— that one is covered separately in `test_coarse.py`.
 
 **Finding 5 is the one that should worry a reader most.** Every measurement on
 this branch is from Linux. The file-count argument that justified sharding at all
