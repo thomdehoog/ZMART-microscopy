@@ -208,10 +208,16 @@ def live_rows(
             {"start": start, "stop": stop}
             for start, stop in source_states[0].committed_time_ranges
         ]
+        # Keep the legacy `frames` field useful without allowing a gap to look
+        # like a transition from "no image" to "first image". New frontends use
+        # committedTimeRanges as the authority. A gapped manifest therefore gets
+        # a zero legacy count, which is still an honest contiguous prefix and is
+        # non-null so the old first-image cache heuristic cannot fire when the gap
+        # is later filled. The authoritative half-open ranges remain unchanged.
         contiguous_frames = (
             available[0]["stop"]
             if len(available) == 1 and available[0]["start"] == 0
-            else None
+            else 0
         )
         local_position = [layer.channel_index]
         if sources[0].local_dimension is not None:
@@ -230,9 +236,6 @@ def live_rows(
                 ],
                 "sourceRevisions": [source.revision for source in source_states],
                 "committedTimeRanges": available,
-                # Retained for old frontends.  New ones use the ranges above and
-                # therefore do not turn a gap into published time. It is omitted
-                # as a high-water answer whenever publication is not contiguous.
                 "frames": contiguous_frames,
                 "liveRunId": snapshot.state.run_id,
                 **display,
