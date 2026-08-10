@@ -23,16 +23,28 @@ The one decision worth arguing about
 
 A tile lands at a fractional position, and the built picture is a grid of whole
 voxels, so a tile has to be **rounded to the nearest voxel** of whichever copy is
-being drawn.
+being drawn. At full resolution that rounding is 0.06 of a voxel on the Thy1 set,
+a hundredth of a micrometre, far below what the objective resolves.
 
-That sounds like an approximation and mostly is not one. A copy of the picture
-shrunk eight times cannot express a position more finely than one of its own
-voxels; rounding to the nearest is not losing accuracy that copy had, it is
-declining to invent accuracy it never had. At full resolution the rounding is
-0.06 of a voxel on the Thy1 set — a hundredth of a micrometre — which is far below
-what the objective resolves.
+The coarser copies are where this needs stating carefully, because an earlier
+version of this note got it wrong. It claimed the rounding was not a loss, since a
+copy shrunk eight times cannot express a position more finely than one of its own
+voxels. That is true of any *one* copy and it hid the thing that matters: two
+copies can disagree with *each other*, and that is what shows on screen, as detail
+sliding when you zoom.
 
-What it is *not* is the rounding that breaks pointing. That one rounds to the
+So the bound is worth stating outright rather than argued away. **A copy sits
+within half of one of its own voxels of where full resolution puts the same
+specimen** — see :meth:`Mosaic.lands_at` for how that is held to. The drawing
+engine picks the copy whose voxels are about one screen pixel, so this is half a
+screen pixel at any zoom, and it does not grow as you zoom out. Where it could
+be seen is a seam: two neighbouring tiles may round opposite ways, so their
+displacement relative to one another is a whole coarse voxel rather than half.
+
+``check_the_pyramid.py`` measures it, through micrometres rather than through the
+code here.
+
+What none of this is is the rounding that breaks pointing. That one rounds to the
 nearest whole **chunk**, hundreds of voxels at a time, which is why it is refused
 rather than done.
 """
@@ -153,13 +165,43 @@ class Mosaic:
     def lands_at(self, tile: Tile, level: int) -> tuple[int, int, int]:
         """Where a tile's first voxel goes in the built picture, in whole voxels.
 
-        Rounded, for the reason set out at the top of this module: a copy cannot
-        express a position more finely than one of its own voxels.
+        Full resolution is rounded from the micrometres the tile records. **Every
+        coarser copy is then worked out from that**, rather than being rounded from
+        the micrometres again on its own.
+
+        The difference is not obvious and it was measured before it was believed.
+        Rounding each copy separately lets them disagree with one another: a tile
+        at 2658.82 voxels rounds to 2659 at full resolution, and 2658.82 halves to
+        1329 while 2659 halves to 1329.5 — so the coarse copy put the specimen half
+        one of its own voxels from where the fine copy put it, and each copy did
+        that independently, so the disagreement could compound down the pyramid.
+        On screen that is detail sliding as you zoom.
+
+        Working the coarse copies out from full resolution does not make the
+        rounding go away — 2659 is odd and cannot be halved — but it bounds the
+        disagreement at half a voxel *of the copy being drawn*, with nothing
+        accumulating. Since the drawing engine picks the copy whose voxels are
+        about one screen pixel, that is half a screen pixel at any zoom.
+
+        ``check_the_pyramid.py`` is what measures this, and it goes through
+        micrometres rather than through this function, so it can catch this being
+        got wrong.
         """
-        copy = tile.copies[level]
+        at_full_resolution = tuple(
+            int(round((tile.copies[0].corner_um[axis] - self.corner_um[axis])
+                      / self.voxel_um(0)[axis]))
+            for axis in range(3)
+        )
+        if level == 0:
+            return at_full_resolution  # type: ignore[return-value]
+        # How much smaller this copy is, per axis, read from the voxel sizes rather
+        # than assumed to be two. A transfer need not shrink every axis at every
+        # step: Thy1 leaves depth alone for three levels, its voxels being a
+        # micrometre deep against 0.17 across.
+        finest = self.voxel_um(0)
         voxel = self.voxel_um(level)
         return tuple(
-            int(round((copy.corner_um[axis] - self.corner_um[axis]) / voxel[axis]))
+            int(round(at_full_resolution[axis] / (voxel[axis] / finest[axis])))
             for axis in range(3)
         )  # type: ignore[return-value]
 
