@@ -123,7 +123,64 @@ THE_WHOLE_SWEEP = "ZMART_THE_WHOLE_SWEEP"
 # Software rendering, so this gives the same answer on a machine without a graphics
 # card as on one with. The frame counts will be better on a real card; the counts
 # of voxels lost and requests made will not change, and those are the point.
-BROWSER_ARGS = ["--use-gl=angle", "--use-angle=swiftshader", "--ignore-gpu-blocklist"]
+SOFTWARE_ARGS = ["--use-gl=angle", "--use-angle=swiftshader", "--ignore-gpu-blocklist"]
+
+# The machine's own card instead, when ZMART_ON_THE_CARD is set.
+#
+# **Two things are needed and neither is obvious.** The software flags have to go,
+# which is the easy half. And the browser has to open a *window*: measured on this
+# machine on 6 August 2026 and again on 11 August, a headless Chromium reports
+# SwiftShader whatever arguments it is given, while the same browser with a window
+# reports the card. Removing the flags is necessary and not sufficient.
+#
+# The frame limiter goes too. Without this every row reads about 300 frames in five
+# seconds whatever is behind it, because that is 60 Hz and not a measurement -- the
+# figure cannot move, so it says nothing about whether drawing got harder.
+ON_THE_CARD_ARGS = ["--ignore-gpu-blocklist",
+                    "--disable-gpu-vsync", "--disable-frame-rate-limit"]
+
+# Which of the two to use. Off by default, so that the figures already written down
+# in this repository stay comparable with new runs -- they were all measured in
+# software, and a card would silently make them look better for no reason anybody
+# reading the table could see.
+ON_THE_CARD = bool(os.environ.get("ZMART_ON_THE_CARD"))
+BROWSER_ARGS = ON_THE_CARD_ARGS if ON_THE_CARD else SOFTWARE_ARGS
+
+# Renderer names meaning the picture was drawn on the processor after all. Matched
+# loosely and in lower case, because each driver writes its name its own way and
+# buries it in a longer string.
+SOFTWARE_RENDERERS = ("swiftshader", "llvmpipe", "software", "microsoft basic")
+
+WHAT_IS_DRAWING = """() => {
+  const c = document.createElement('canvas');
+  const gl = c.getContext('webgl2') || c.getContext('webgl');
+  if (!gl) return 'no webgl at all';
+  const d = gl.getExtension('WEBGL_debug_renderer_info');
+  return d ? gl.getParameter(d.UNMASKED_RENDERER_WEBGL)
+           : gl.getParameter(gl.RENDERER);
+}"""
+
+
+def say_what_drew(browser) -> str:
+    """Ask the browser what actually drew, and say so out loud.
+
+    Asking for a card is not the same as getting one, and a silent fallback to
+    software is indistinguishable from a card in every number that follows. So it
+    is read from the browser rather than assumed from the arguments, and printed
+    where whoever reads the table will see it.
+    """
+    page = browser.new_page()
+    try:
+        page.goto("about:blank")
+        drew = str(page.evaluate(WHAT_IS_DRAWING))
+    finally:
+        page.close()
+    software = any(one in drew.lower() for one in SOFTWARE_RENDERERS)
+    print(f"  drawn by: {drew}")
+    if ON_THE_CARD and software:
+        print("  ** asked for the card and got software; these frame counts are "
+              "not the card's **")
+    return drew
 
 # How many different tiles to make up and then reuse. Making a fresh one for every
 # tile of a ten-thousand-tile run would spend more time inventing pictures than
@@ -541,7 +598,7 @@ def _a_browser(pw):
     rather than report nothing.
     """
     try:
-        return pw.chromium.launch(args=BROWSER_ARGS)
+        return pw.chromium.launch(args=BROWSER_ARGS, headless=not ON_THE_CARD)
     except Exception:
         sys.path.insert(0, str(VIZ / "tests"))
         from conftest import find_a_chromium
@@ -550,7 +607,8 @@ def _a_browser(pw):
         if already_here is None:
             raise
         return pw.chromium.launch(
-            executable_path=str(already_here), args=BROWSER_ARGS
+            executable_path=str(already_here), args=BROWSER_ARGS,
+            headless=not ON_THE_CARD,
         )
 
 

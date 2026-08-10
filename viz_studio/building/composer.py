@@ -80,6 +80,25 @@ PIECE = 512
 # holds on every transfer tried and fails on the one that matters.
 SLABS_WEIGH_AT_MOST = 256 * 1024 * 1024
 
+# How much memory the decoded tile blocks may take between them.
+#
+# **This is the one that decides whether panning feels instant.** A piece of the
+# picture is smaller than a block of a tile -- 512 voxels against Thy1's 1264 by
+# 1480 -- so neighbouring pieces need the *same* block, and without this each of
+# them decompresses it again. Measured on the live viewer: a screenful of sixteen
+# fresh pieces at full resolution took 1841 ms, where the same sixteen already
+# built took 64. Most of that was one handful of blocks decompressed sixteen times
+# over.
+#
+# It is the same mistake as building a plane at a time instead of a slab, made in
+# the other two directions: work is thrown away because the unit asked for is
+# smaller than the unit stored.
+#
+# A gigabyte because a Thy1 block is 120 MB decompressed and a screenful spans six
+# to nine of them. On a machine with 31 GB that is a fair share; it is a number to
+# lower on a smaller machine rather than a constant of nature.
+BLOCKS_WEIGH_AT_MOST = 1024 * 1024 * 1024
+
 # What a piece is encoded with. Declared here and checked against what zarr
 # actually writes, because a description promising one encoding over bytes in
 # another is not an error anywhere -- it is a window full of noise, with nothing
@@ -94,10 +113,19 @@ class Composer:
     """Answers for a picture that is never stored, out of the tiles that are."""
 
     def __init__(self, mosaic: Mosaic, piece: int = PIECE,
-                 weighing_at_most: int = SLABS_WEIGH_AT_MOST) -> None:
+                 weighing_at_most: int = SLABS_WEIGH_AT_MOST,
+                 blocks_weighing_at_most: int = BLOCKS_WEIGH_AT_MOST) -> None:
         self.mosaic = mosaic
         self.piece = piece
         self._weighing_at_most = weighing_at_most
+
+        # Decoded blocks of the tiles, most recently used last. Kept because a
+        # piece of the picture is smaller than a block of a tile, so neighbouring
+        # pieces want the same block and would otherwise each decompress it.
+        self._blocks: OrderedDict[tuple, np.ndarray] = OrderedDict()
+        self._blocks_weigh = 0
+        self._blocks_weighing_at_most = blocks_weighing_at_most
+        self._block_guard = threading.Lock()
 
         # Built slabs, most recently used last. Guarded because the server answers
         # several requests at once and two of them wanting the same slab must not
@@ -186,6 +214,74 @@ class Composer:
             self._indexed[level] = index
             return index
 
+    def _a_block_of(self, copy, at: tuple[int, int, int]) -> np.ndarray:
+        """One whole stored block of a tile, decoded, kept for whoever needs it next.
+
+        ``at`` names the block in the tile's own grid of them, as ``(z, y, x)``.
+
+        Asked for **whole** rather than as the part wanted, and that is the point.
+        Zarr decompresses the whole block either way -- that is what a block is --
+        so asking for a corner of it costs exactly as much as asking for all of it
+        and throws the rest away. Keeping it means the next piece of the picture
+        along, which wants the same block, gets it for nothing.
+        """
+        key = (copy.held_in, at)
+        with self._block_guard:
+            found = self._blocks.get(key)
+            if found is not None:
+                self._blocks.move_to_end(key)
+                return found
+
+        size = copy.chunks
+        held = np.asarray(copy.array[
+            at[0] * size[0]:(at[0] + 1) * size[0],
+            at[1] * size[1]:(at[1] + 1) * size[1],
+            at[2] * size[2]:(at[2] + 1) * size[2],
+        ])
+
+        with self._block_guard:
+            if key not in self._blocks:
+                self._blocks_weigh += held.nbytes
+            self._blocks[key] = held
+            self._blocks.move_to_end(key)
+            # Always keep the newest, however large: a single Thy1 block is 120 MB
+            # and dropping the one just decoded would mean decoding it again for
+            # the very next piece.
+            while (len(self._blocks) > 1
+                   and self._blocks_weigh > self._blocks_weighing_at_most):
+                _, dropped = self._blocks.popitem(last=False)
+                self._blocks_weigh -= dropped.nbytes
+        return held
+
+    def _read_from(self, copy, low: tuple[int, int, int],
+                   high: tuple[int, int, int]) -> np.ndarray:
+        """A rectangle of one tile, assembled out of whichever blocks hold it.
+
+        The same numbers zarr would have returned for the same slice. The only
+        difference is which blocks were decoded to get there, and whether they are
+        still to hand afterwards.
+        """
+        size = copy.chunks
+        out = np.empty(tuple(high[axis] - low[axis] for axis in range(3)),
+                       copy.dtype)
+        for bz in range(low[0] // size[0], (high[0] - 1) // size[0] + 1):
+            for by in range(low[1] // size[1], (high[1] - 1) // size[1] + 1):
+                for bx in range(low[2] // size[2], (high[2] - 1) // size[2] + 1):
+                    block = self._a_block_of(copy, (bz, by, bx))
+                    began = (bz * size[0], by * size[1], bx * size[2])
+                    from_ = tuple(max(low[axis], began[axis]) for axis in range(3))
+                    to = tuple(min(high[axis], began[axis] + block.shape[axis])
+                               for axis in range(3))
+                    if any(from_[axis] >= to[axis] for axis in range(3)):
+                        continue
+                    out[from_[0] - low[0]:to[0] - low[0],
+                        from_[1] - low[1]:to[1] - low[1],
+                        from_[2] - low[2]:to[2] - low[2]] = block[
+                            from_[0] - began[0]:to[0] - began[0],
+                            from_[1] - began[1]:to[1] - began[1],
+                            from_[2] - began[2]:to[2] - began[2]]
+        return out
+
     def _build_slab(self, level: int, plane: int, row: int, column: int) -> np.ndarray:
         """Lay the tiles into one column of ground, for every plane of one file.
 
@@ -216,11 +312,10 @@ class Composer:
             from_x, to_x = max(left, at[2]), min(right, at[2] + held.shape[2])
             slab[from_z - low_z:to_z - low_z,
                  from_y - top:to_y - top,
-                 from_x - left:to_x - left] = held[
-                     from_z - at[0]:to_z - at[0],
-                     from_y - at[1]:to_y - at[1],
-                     from_x - at[2]:to_x - at[2],
-                 ]
+                 from_x - left:to_x - left] = self._read_from(
+                     tile.copies[level],
+                     (from_z - at[0], from_y - at[1], from_x - at[2]),
+                     (to_z - at[0], to_y - at[1], to_x - at[2]))
         return slab
 
     def _slab_for(self, level: int, plane: int, row: int, column: int) -> np.ndarray:
