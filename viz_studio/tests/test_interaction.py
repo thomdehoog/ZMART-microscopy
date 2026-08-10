@@ -84,8 +84,73 @@ def set_range(page, label, value):
     page.wait_for_timeout(600)
 
 
+_WHERE_THE_MIDDLE_IS = """() => {
+  const v = window.zmartViewer;
+  const space = v.navigationState.position.coordinateSpace.value;
+  const drawn = new Set(v.navigationState.pose.displayDimensions.value.displayDimensionIndices);
+  const middle = [], at = [];
+  for (let axis = 0; axis < space.rank; axis += 1) {
+    if (!drawn.has(axis)) continue;
+    middle.push((space.bounds.lowerBounds[axis] + space.bounds.upperBounds[axis]) / 2);
+    at.push(v.navigationState.position.value[axis]);
+  }
+  return { middle, at };
+}"""
+
+
 def test_the_viewer_opens_as_a_single_panel(viewer_page):
     assert viewer_page.evaluate("() => document.querySelectorAll('.neuroglancer-panel').length") == 1
+
+
+def test_the_centre_button_brings_a_lost_picture_back(viewer_page):
+    """Pan the specimen off the screen, and get it back in one click.
+
+    This is the state the button exists for and it is worth saying why it cannot
+    be reached any other way: the only recentring the engine offers is its right
+    button, which centres on the point clicked, and once nothing of the specimen
+    is on screen there is nothing left to click on.
+    """
+    point = centre(viewer_page)
+    for _ in range(4):
+        drag(viewer_page, point["x"], point["y"], 300, 220)
+    lost = viewer_page.evaluate(_WHERE_THE_MIDDLE_IS)
+    assert any(
+        abs(where - middle) > 1 for where, middle in zip(lost["at"], lost["middle"])
+    ), "the drag did not move the view off the picture, so the test proves nothing"
+
+    viewer_page.get_by_role("button", name="Centre").click()
+    viewer_page.wait_for_timeout(800)
+
+    found = viewer_page.evaluate(_WHERE_THE_MIDDLE_IS)
+    for where, middle in zip(found["at"], found["middle"]):
+        assert abs(where - middle) < 1, f"the view sits at {where}, not at the middle {middle}"
+
+
+def test_centring_leaves_the_plane_where_the_operator_put_it(viewer_page):
+    """Going back to the whole field must not lose your place in the stack.
+
+    Only the axes being drawn are moved. Depth and time are the operator's, and
+    a control that quietly reset them would cost more than it gave.
+    """
+    point = centre(viewer_page)
+    # Moved with the gesture rather than the slider, because the slider only
+    # appears for an image with more than one plane and this test should hold for
+    # any demo volume.
+    viewer_page.mouse.move(point["x"], point["y"])
+    viewer_page.keyboard.down("Shift")
+    viewer_page.mouse.wheel(0, -300)
+    viewer_page.keyboard.up("Shift")
+    viewer_page.wait_for_timeout(600)
+    before = viewer_page.evaluate(_STATE)
+
+    drag(viewer_page, point["x"], point["y"], 320, 240)
+    viewer_page.get_by_role("button", name="Centre").click()
+    viewer_page.wait_for_timeout(800)
+
+    after = viewer_page.evaluate(_STATE)
+    assert after["zPosition"] == before["zPosition"], (
+        "centring the view moved the operator through the stack"
+    )
 
 
 def test_dragging_pans(viewer_page):

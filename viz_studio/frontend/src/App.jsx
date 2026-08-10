@@ -4,6 +4,7 @@ import LayerPanel from "./LayerPanel.jsx";
 import TargetsPanel from "./TargetsPanel.jsx";
 import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/annotations.js";
 import {
+  bringThePictureBack,
   chooseScaleWhenTheImagesAreMeasured,
   letGoOfDecodedPieces,
   lettingGo,
@@ -154,6 +155,28 @@ function ModeToggle({ mode, onChange }) {
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * The way back when the specimen has been panned off the screen.
+ *
+ * It sits beside the 2-D/3-D toggle rather than in the panel because it is
+ * needed at exactly the moment the panel is no use: the operator cannot see the
+ * picture, and the control that would bring it back must be visible without
+ * anything being opened first. It is deliberately not called Reset -- the panel
+ * already has one of those and it puts back the brightness window.
+ */
+function BringItBack({ viewer }) {
+  if (!viewer) return null;
+  return (
+    <button
+      onClick={() => bringThePictureBack(viewer)}
+      style={{ ...styles.button, ...styles.bringItBack }}
+      title="Centre the picture and fit it to the window; the plane and the moment stay where they are"
+    >
+      Centre
+    </button>
   );
 }
 
@@ -948,6 +971,7 @@ export default function App() {
       <main style={styles.stage}>
         <NeuroglancerView onViewer={setViewer} />
         <ModeToggle mode={mode} onChange={setMode} />
+        <BringItBack viewer={viewer} />
         <ScaleBar viewer={viewer} />
         {/* The two sliders are placed to match the directions they move in, which
             makes them quicker to reach for without reading the labels. Depth runs
@@ -1112,6 +1136,19 @@ const styles = {
     cursor: "pointer",
   },
   buttonActive: { background: "#2f6feb", color: "#fff" },
+  // Beside the 2-D/3-D toggle rather than inside it: the toggle is a choice
+  // between two states and this is an action, so it gets its own edge and never
+  // looks like a third mode. The 12 of gap matches the toggle's own inset from
+  // the corner, so the two read as one row.
+  bringItBack: {
+    position: "absolute",
+    top: 12,
+    left: 108,
+    zIndex: 10,
+    borderRadius: 6,
+    border: "1px solid #2c333d",
+    boxShadow: "0 1px 4px rgba(0,0,0,.5)",
+  },
   // The sliders stack in one column at the bottom of the stage, so a timelapse
   // showing both Z and T never has them overlapping.
   // Down the right-hand edge, between the scale bar in the top corner and the time
