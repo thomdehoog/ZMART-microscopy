@@ -223,27 +223,22 @@ that exists on disk, so the server has to say it. Note that the position must be
 written beside each resolution, not once for the image; the reasoning is in
 `INTEROP.md` §1 and the writer already does it this way.
 
-**Keep the index.** *Written, and it has a problem worth fixing before this meets a
-real run.* Which piece of the view is which piece of which tile is written to a
-small file kept beside the images, in `zmart-links/` and named after the view it
-describes, which lists each tile once — ten thousand tiles are ten thousand lines,
-and that part is fine. (It sat *inside* the view's own folder at first; it was
-moved out because anything inside an `.ome.zarr` makes zarr warn whoever opens it,
-and because rewriting it there on every tile looked to the viewer like the
-acquisition itself changing.)
+**Keep the index.** *Written, and the problem an earlier draft warned about here
+has since been fixed and measured.* Which piece of the view is which piece of
+which tile is written down listing each tile once — ten thousand tiles are ten
+thousand lines, and the map travels inside the picture's own description. (It
+sat in a loose file at first; the reader still understands the older
+arrangements, so a run already on disk keeps working.)
 
-The trouble is what the server does with it on opening. `linking.py` spreads that
-list out into one entry per *piece*, so it can find a piece in a single step. A
-tile 2048 voxels across in pieces of 128 is 16 by 16 pieces, times the planes and
-the moments and the colours — and at ten thousand tiles that arithmetic reaches
-tens of gigabytes of memory for a file that was a few megabytes on disk. It works
-in the tests because the test tiles are small.
-
-The fix is not difficult and does not change the file: keep the tile list as it is
-written, sorted, and find a piece by asking which tile's rectangle contains it,
-rather than by having written every piece down in advance. That is a handful of
-comparisons instead of a lookup, which is more than fast enough, and it uses
-memory proportional to the number of tiles rather than the number of pieces.
+An earlier `linking.py` spread that list out into one entry per *piece* on
+opening, which at ten thousand tiles reaches tens of gigabytes of memory for a
+file that was a megabyte on disk. It now keeps one note per tile per row of
+pieces the tile crosses, and finds a piece by asking which tile in that row
+covers it — a handful of comparisons, and memory in proportion to the tiles.
+Measured over 9,231 positions (`measure_ten_thousand_linked.py`): the map is
+1 MB on disk, parsing and indexing it costs 8 MB of memory and about half a
+second once per change, one lookup takes about 30 microseconds, and every one
+of 1,846 sampled pointers resolved to the right tile.
 
 **Answer for ground no tile covers.** *Written.* Most of a scattered run's bounding box is
 empty. The server already answers a plain "nothing here" — a 404 — and the pointing
@@ -298,8 +293,8 @@ the section above, and it is the largest piece of work left.
 **Handle a run that has drifted.** Build the ownership arrangement described above.
 Everything else on this list is smaller than this one.
 
-**Shrink the index in memory.** Rectangle arithmetic instead of an entry per piece,
-as described under "Keep the index".
+**Shrink the index in memory.** *Done, and measured at ten thousand positions —
+see "Keep the index" above for the numbers.*
 
 **Tell "nothing imaged here" apart from "something is wrong".** Right now both
 answer 404, and that is correct for the first and quietly wrong for the second. If
@@ -404,28 +399,36 @@ picture: the description, the smaller copies **as real pixels**, and the map of
 pointers. `viz_studio/backend/linking.py` answers for it -- a piece is looked up
 in the map and the tile's own file is handed over unchanged.
 
-## Each pyramid level doubles the grid the tiles must land on
+## Each pyramid level doubles the grid the tiles can be *pointed at* on
 
 The condition above -- a piece of the view is a piece of a tile -- has a second
 half that only appears when you ask for more than one level. The view points at
-the tiles' *zoomed-out* copies as well as their full-size pictures, so for `L`
-levels every tile has to begin on a multiple of `chunk x 2**(L-1)`.
+the tiles' *zoomed-out* copies as well as their full-size pictures, and pointing
+`L` levels deep needs every tile to begin on a multiple of `chunk x 2**(L-1)`:
+shrinking keeps every Nth voxel counted from the picture's own corner, so a tile
+starting out of step keeps a different set of voxels from the ones the view
+would have kept, and the specimen drawn when zoomed out is not the specimen.
 
-The writer refuses a placement that does not, and says why: shrinking keeps every
-Nth voxel counted from the picture's own corner, so a tile starting out of step
-keeps a different set of voxels from the ones the view would have kept, and the
-specimen drawn when zoomed out is not the specimen.
+**The builder no longer refuses a run over this, and no longer asks for smaller
+pieces.** An earlier version demanded the full depth and refused anything less,
+which forced the piece size down to whatever divided the step -- that is how the
+16-position measurement below ended up at 32-voxel pieces and 925 requests. Now
+the depth is worked out from the run: the view points as deep as the tiles
+genuinely line up -- and as deep as the tiles' own pieces stay full-size, since
+a copy smaller than one piece is stored as a smaller piece that a larger view
+cannot hand over -- and **writes the copies below that depth** as an ordinary
+canvas would. A run aligned all the way down writes nothing; one aligned only at
+full size writes about a quarter of the picture; one level of pointing brings
+that to ~7%, two to ~2%. The view records how deep its pointers go
+(`pointed_levels`, both in the map and on `LinkedView`), and every zoom is right
+either way -- `test_a_view_that_writes_nothing.py` follows both paths voxel for
+voxel.
 
-**This is what makes an ordinary overlap hard.** Tiles of 256 stepping 224 -- a
-12.5% overlap -- put 224 = 32 x 7 into the arithmetic, so `chunk x 2**(L-1)`
-can be at most 32: one level at 32-voxel pieces, or three at 8-voxel pieces and
-eight times as many files. A quarter overlap divides properly: 512-voxel tiles
-stepping 384 support three levels at 32.
-
-**Padding is the way out**, and it is the same trick recorded in
-`PLAN_placement_by_transform.md`: pad each tile's low edge by however far the
-stage overshot, so its own grid of pieces lands on the run's grid. The padding is
-never served and costs nothing at draw time.
+So the rule for acquisitions stays simple and is now about cost rather than
+possibility: **step by a whole number of pieces to link at all, and by
+`piece x 2**(L-1)` to also point `L` levels deep and write nothing.** Padding a
+tile's low edge (as `PLAN_placement_by_transform.md` records) remains the trick
+for bringing a run onto that coarser grid at write time.
 
 ## Measured, 2026-08-10
 
