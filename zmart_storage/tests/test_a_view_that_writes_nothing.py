@@ -149,24 +149,101 @@ def test_every_zoom_is_the_picture_it_should_be(tmp_path):
         )
 
 
-def test_a_tile_off_the_coarse_grid_is_refused(tmp_path):
+def test_a_tile_off_the_coarse_grid_points_less_deep_and_writes_the_rest(tmp_path):
     """Landing on a whole piece is not enough once the copies are pointed at too.
 
-    The nudge here is exactly one piece, so the older rule — that a tile must begin
-    on a piece boundary — is perfectly satisfied and the full-size picture would be
-    served correctly. The zoomed-out copies would not. Shrinking keeps every eighth
-    voxel counted from the picture's own corner, and a tile one piece out keeps a
-    different set of voxels entirely, so the specimen when zoomed out would not be
-    the specimen and nothing on screen would say so.
+    The nudge here is exactly one piece, so the full-size picture can be served
+    from pointers perfectly well. The zoomed-out copies cannot: shrinking keeps
+    every second voxel counted from the picture's own corner, and a tile one piece
+    out keeps a different set of voxels entirely, so pointing at its own copies
+    would draw a specimen that is not the specimen.
 
-    That is why this rule is separate and stricter: a multiple of the piece size
-    times the largest shrink, rather than of the piece size alone.
+    What the builder does about it is not refuse — it points at the full-size
+    picture, where the run does line up, and writes the zoomed-out copies from the
+    tiles' pixels the way an ordinary canvas would. The view says how deep its
+    pointers go, and every zoom of the picture still has to be right.
     """
-    tiles, _ = a_run(tmp_path, levels=4, nudge=PIECE)
-    with pytest.raises(ValueError, match="multiple of"):
-        link_the_tiles(
-            tmp_path, name="v", tiles=tiles, levels=4,
-            view_shape=(TILE[0], ACROSS * TILE[1] + PIECE, ACROSS * TILE[2] + PIECE))
+    levels = 4
+    tiles, whole = a_run(tmp_path, levels=levels, nudge=PIECE)
+    built = link_the_tiles(
+        tmp_path, name="v", tiles=tiles, levels=levels,
+        view_shape=(TILE[0], ACROSS * TILE[1] + PIECE, ACROSS * TILE[2] + PIECE))
+
+    assert built.pointed_levels == 1, (
+        "a run one piece out of step with the coarse grid can point only at the "
+        "full-size picture, and the view should say so"
+    )
+    assert picture_files_in(built.path, 0) == [], (
+        "the full-size picture lines up and should still be pointers, not pixels"
+    )
+    assert picture_files_in(built.path, 1), (
+        "the zoomed-out copies cannot be pointed at for this run, so they have "
+        "to be written"
+    )
+    # And the picture is right at every zoom: the written copies were shrunk from
+    # the view's own corner, so they hold the voxels the view would have chosen —
+    # which is the whole reason pointing at the tiles' copies had to be given up.
+    #
+    # The nudged run does not cover its whole picture — shifting three of the four
+    # tiles leaves L-shaped bands of ground nobody imaged — so the expectation is
+    # assembled the same way the view is: each tile's part pasted where it lands,
+    # unimaged ground left at the fill value, and the result shrunk from the
+    # picture's own corner.
+    covered = np.zeros((ACROSS * TILE[1] + PIECE, ACROSS * TILE[2] + PIECE),
+                       dtype=whole.dtype)
+    for index in range(ACROSS * ACROSS):
+        lands_y = (index // ACROSS) * TILE[1] + (PIECE if index else 0)
+        lands_x = (index % ACROSS) * TILE[2] + (PIECE if index else 0)
+        covered[lands_y:lands_y + TILE[1], lands_x:lands_x + TILE[2]] = (
+            whole[lands_y:lands_y + TILE[1], lands_x:lands_x + TILE[2]])
+    for level in range(1, levels):
+        factor = 2 ** level
+        wanted = covered[::factor, ::factor]
+        written = np.asarray(
+            zarr.open_group(str(built.path), mode="r")[str(level)])[0, 0, 0]
+        assert np.array_equal(written[:wanted.shape[0], :wanted.shape[1]], wanted), (
+            f"level {level}, written rather than pointed, is not the picture "
+            "shrinking what the tiles cover gives"
+        )
+
+
+def test_pointing_stops_where_a_tile_s_pieces_stop_being_full_size(tmp_path):
+    """A copy smaller than one piece cannot be handed over, and must be written.
+
+    A tile 128 voxels across shrunk four times is 8 voxels across — smaller than a
+    16-voxel piece — so zarr stores that whole copy as one piece of 8. The view at
+    that zoom is still larger than a piece, so its grid stays at 16, and a file of
+    8-voxel pieces handed over there would be drawn wrongly or not at all, with
+    nothing on screen to say so.
+
+    Before the depth was worked out per level this went unchecked: only the
+    full-size copy's storage was compared, and a view five levels deep would have
+    pointed at those wrongly-sized files. Now the pointers stop one level above,
+    the view says so, and the deepest copy is written instead.
+    """
+    levels = 5
+    tiles, whole = a_run(tmp_path, levels=levels)
+    built = link_the_tiles(tmp_path, name="v", tiles=tiles, levels=levels,
+                           view_shape=(TILE[0], ACROSS * TILE[1], ACROSS * TILE[2]))
+
+    assert built.pointed_levels == 4, (
+        "the tiles' fourth shrink is smaller than one piece, so the pointers "
+        "can go four levels deep and no further"
+    )
+    for level in range(4):
+        assert picture_files_in(built.path, level) == [], (
+            f"level {level} lines up and should be pointers, not pixels"
+        )
+    assert picture_files_in(built.path, 4), (
+        "the copy below the pointers has to be written, or that zoom is blank"
+    )
+    wanted = whole[::16, ::16]
+    written = np.asarray(
+        zarr.open_group(str(built.path), mode="r")["4"])[0, 0, 0]
+    assert np.array_equal(written[:wanted.shape[0], :wanted.shape[1]], wanted), (
+        "the written deepest copy is not the picture shrinking the whole "
+        "thing gives"
+    )
 
 
 def test_tiles_keeping_one_copy_still_work_and_the_view_writes_the_rest(tmp_path):
