@@ -1402,6 +1402,7 @@ class TileCanvases:
         frame: int = 0,
         tile_index: tuple[int, int, int] | None = None,
         from_level: int = 1,
+        ground_may_be_imaged_twice: bool = False,
     ) -> Path:
         """Fill in a tile's part of the zoomed-out copies, and nothing else.
 
@@ -1425,6 +1426,17 @@ class TileCanvases:
             channel: which colour of light this tile was recorded in.
             frame: which moment it belongs to.
             tile_index: the tile's place in the scan pattern, if it has one.
+            ground_may_be_imaged_twice: whether a tile landing on ground another
+                tile already covered is expected here rather than a fault. An
+                ordinary acquisition refuses that, because writing would silently
+                replace the earlier recording. A *view* is different: its tiles
+                overlap wherever the run's placements did — a run whose fields of
+                view meet, chosen targets that happen to touch — and the tiles
+                themselves keep every recorded voxel safely regardless. These
+                zoomed-out copies are derived from the tiles, not the record of
+                them, so the later tile standing for the shared ground loses
+                nothing. The view's list of pointers decides what full size
+                shows; this only decides the shrunken copies.
 
         Returns:
             The image folder the copies were written into.
@@ -1433,6 +1445,7 @@ class TileCanvases:
             image, origin=origin, channel=channel, frame=frame,
             tile_index=tile_index, at_full_size=False,
             from_level=from_level,
+            ground_may_be_imaged_twice=ground_may_be_imaged_twice,
         )
 
     def _put_a_tile_in(
@@ -1445,6 +1458,7 @@ class TileCanvases:
         tile_index: tuple[int, int, int] | None,
         at_full_size: bool,
         from_level: int = 1,
+        ground_may_be_imaged_twice: bool = False,
     ) -> Path:
         """The body of :meth:`write`, shared with :meth:`only_the_zoomed_out_copies`.
 
@@ -1466,7 +1480,7 @@ class TileCanvases:
         # A tile is only in the way of another if it is in the same moment and the
         # same colour as well as the same place.
         occupied = (frame, channel, *footprint)
-        if tile_index is None:
+        if tile_index is None and not ground_may_be_imaged_twice:
             self._check_nothing_is_already_here(occupied)
 
         with self._while_nothing_else_holds_these_pieces(
