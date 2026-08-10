@@ -141,7 +141,11 @@ It buffers one shard's worth of frames and flushes each shard in a single
 write, validates every frame on arrival, refuses to overwrite existing data
 unless asked, and fails loudly if a stack ends short. Its own test suite is
 [`test_buffered_zarr_writer.py`](test_buffered_zarr_writer.py) — including a
-test instrumenting the store to prove the slow read-back path is never taken.
+test instrumenting the store to prove the slow read-back path is never taken,
+a seeded randomized sweep over 30 awkward geometries, and a cross-check that
+reads the written store back with tensorstore (an independent C++ Zarr
+implementation, skipped when not installed) to confirm the files conform to
+the Zarr v3 format itself, not merely to zarr-python's own round trip.
 (`zarr_write_strategies.py` remains the benchmark/comparison harness; the
 writer file is the one to take home.)
 
