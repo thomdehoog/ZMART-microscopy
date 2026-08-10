@@ -7,7 +7,10 @@ name = "zmart-viewer"
 version = "0.1.0"
 description = "A viewer for large, changing, multi-channel microscopy images, and the writer that feeds it while a run is going."
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+# No upper bound: the canonical environment (environment.yml, env zmart-viz) runs
+# Python 3.14, and the whole suite passes there. The old `<3.13` cap predates that
+# env and refused the very interpreter the project is developed on.
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 
