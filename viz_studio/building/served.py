@@ -44,6 +44,20 @@ from mosaic import read_the_transfer
 _composers: dict[Path, Composer | None] = {}
 _guard = threading.Lock()
 
+# One lock per picture, held while its composer is being made.
+#
+# **Why this is not merely tidiness.** The drawing engine asks for many pieces at
+# once the moment a picture is opened -- dozens of requests, each on its own
+# thread. Without this, every one of them finds no composer, every one of them
+# reads the whole transfer, and one of them wins; the rest of that work is thrown
+# away. At six tiles nobody would notice. At ten thousand it was measured at 14
+# seconds for the first piece, where every piece after it took under a fifth of
+# one. So the first thread through makes the composer and the others wait for it.
+#
+# A lock per picture rather than one lock for all of them, so that opening a
+# second picture is not held up behind the first.
+_being_made: dict[Path, threading.Lock] = {}
+
 
 def _what_it_was_built_from(store: Path) -> dict | None:
     """What a store records about being built, or ``None`` for an ordinary image."""
@@ -71,14 +85,22 @@ def _composer_for(store: Path) -> Composer | None:
     with _guard:
         if store in _composers:
             return _composers[store]
-    ours = _what_it_was_built_from(store)
-    made = None
-    if ours is not None:
-        made = Composer(read_the_transfer(Path(ours["built_from"])),
-                        piece=int(ours.get("piece") or 512))
-    with _guard:
-        _composers.setdefault(store, made)
-        return _composers[store]
+        making = _being_made.setdefault(store, threading.Lock())
+
+    # Held across the reading of the transfer, so the many requests the engine
+    # makes at once produce one composer between them rather than one each.
+    with making:
+        with _guard:
+            if store in _composers:
+                return _composers[store]
+        ours = _what_it_was_built_from(store)
+        made = None
+        if ours is not None:
+            made = Composer(read_the_transfer(Path(ours["built_from"])),
+                            piece=int(ours.get("piece") or 512))
+        with _guard:
+            _composers[store] = made
+            return made
 
 
 def the_bytes_behind(store: Path, inside: str) -> bytes | None:
@@ -115,4 +137,6 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
 def forget(store: Path) -> None:
     """Let go of a built picture, closing the tiles it was holding open."""
     with _guard:
-        _composers.pop(Path(store).resolve(), None)
+        where = Path(store).resolve()
+        _composers.pop(where, None)
+        _being_made.pop(where, None)
