@@ -68,10 +68,17 @@ from mosaic import Mosaic
 # so 512 is reasoning rather than measurement and is worth revisiting.
 PIECE = 512
 
-# How many slabs of built pieces to keep. One slab is PIECE x PIECE x however deep
-# the tiles' files are -- 16 MB for Thy1's 32 -- so this is the memory this holds.
-# Sixteen is a few screenfuls, which is what makes scrolling through depth cheap.
-SLABS_KEPT = 16
+# How much memory the kept slabs may take between them.
+#
+# Counted in bytes rather than in slabs, and that is the whole point. A slab is
+# PIECE x PIECE x however deep the tiles' own files are, and that last number
+# belongs to the transfer rather than to us: Thy1 keeps 32 planes in a file at
+# full resolution and 64 at every coarser one, so a slab is 16 MB in one place
+# and 33 MB in another. A transfer chunking 256 planes would make it 134 MB. So
+# "keep sixteen slabs" was a memory limit that the data got to choose, somewhere
+# between a quarter of a gigabyte and two -- which is the kind of limit that
+# holds on every transfer tried and fails on the one that matters.
+SLABS_WEIGH_AT_MOST = 256 * 1024 * 1024
 
 # What a piece is encoded with. Declared here and checked against what zarr
 # actually writes, because a description promising one encoding over bytes in
@@ -87,18 +94,20 @@ class Composer:
     """Answers for a picture that is never stored, out of the tiles that are."""
 
     def __init__(self, mosaic: Mosaic, piece: int = PIECE,
-                 slabs_kept: int = SLABS_KEPT) -> None:
+                 weighing_at_most: int = SLABS_WEIGH_AT_MOST) -> None:
         self.mosaic = mosaic
         self.piece = piece
-        self._slabs_kept = slabs_kept
+        self._weighing_at_most = weighing_at_most
 
         # Built slabs, most recently used last. Guarded because the server answers
         # several requests at once and two of them wanting the same slab must not
         # both build it.
         self._slabs: OrderedDict[tuple[int, int, int, int], np.ndarray] = OrderedDict()
+        self._weighs = 0
         self._guard = threading.Lock()
         # Which tiles fall in each piece, per resolution, built on first use.
         self._indexed: dict[int, dict[tuple[int, int], list]] = {}
+        self._indexing = threading.Lock()
 
         self._encoder = zarr.create_array(
             store=zarr.storage.MemoryStore(),
@@ -153,17 +162,29 @@ class Composer:
         found = self._indexed.get(level)
         if found is not None:
             return found
-        index: dict[tuple[int, int], list] = {}
-        for tile, at in self.mosaic.placements(level):
-            held = tile.copies[level].shape
-            for row in range(at[1] // self.piece,
-                             (at[1] + held[1] - 1) // self.piece + 1):
-                for column in range(at[2] // self.piece,
-                                    (at[2] + held[2] - 1) // self.piece + 1):
-                    index.setdefault((row, column), []).append((tile, at))
-        with self._guard:
+        # Built while holding a lock, so that the many requests the engine makes
+        # the instant a resolution is first drawn produce one index between them
+        # rather than one each. Building it is proportional to the transfer -- 18
+        # ms at ten thousand tiles -- and thirty-six threads each doing that and
+        # discarding all but one is the same waste that cost 14 seconds when
+        # ``served.py`` made composers the same way.
+        #
+        # A lock of its own rather than the one guarding the slabs, so that
+        # requests already being answered are not held up behind it.
+        with self._indexing:
+            found = self._indexed.get(level)
+            if found is not None:
+                return found
+            index: dict[tuple[int, int], list] = {}
+            for tile, at in self.mosaic.placements(level):
+                held = tile.copies[level].shape
+                for row in range(at[1] // self.piece,
+                                 (at[1] + held[1] - 1) // self.piece + 1):
+                    for column in range(at[2] // self.piece,
+                                        (at[2] + held[2] - 1) // self.piece + 1):
+                        index.setdefault((row, column), []).append((tile, at))
             self._indexed[level] = index
-        return index
+            return index
 
     def _build_slab(self, level: int, plane: int, row: int, column: int) -> np.ndarray:
         """Lay the tiles into one column of ground, for every plane of one file.
@@ -213,10 +234,17 @@ class Composer:
                 return found
         built = self._build_slab(level, plane, row, column)
         with self._guard:
+            if key not in self._slabs:
+                self._weighs += built.nbytes
             self._slabs[key] = built
             self._slabs.move_to_end(key)
-            while len(self._slabs) > self._slabs_kept:
-                self._slabs.popitem(last=False)
+            # Let go of the least recently wanted until what is held fits. Always
+            # keep one, however large it is: dropping the slab that was just built
+            # would mean building it again for the very next plane, which is the
+            # thing this cache exists to prevent.
+            while len(self._slabs) > 1 and self._weighs > self._weighing_at_most:
+                _, dropped = self._slabs.popitem(last=False)
+                self._weighs -= dropped.nbytes
         return built
 
     def bytes_for(self, level: int, plane: int, row: int, column: int) -> bytes:

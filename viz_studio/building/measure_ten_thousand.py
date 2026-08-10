@@ -203,7 +203,7 @@ def main() -> None:
     full, empty = [], []
     for row, column in places:
         began = time.perf_counter()
-        Composer(mosaic, slabs_kept=1)._build_slab(0, 0, row, column)
+        Composer(mosaic)._build_slab(0, 0, row, column)
         spent = (time.perf_counter() - began) * 1000
         (full if index.get((row, column)) else empty).append(spent)
 
@@ -227,7 +227,7 @@ def main() -> None:
     for row, column in places:
         if not index.get((row, column)) or checked >= given.checks:
             continue
-        built = Composer(mosaic, slabs_kept=1)._build_slab(0, 0, row, column)[0]
+        built = Composer(mosaic)._build_slab(0, 0, row, column)[0]
         wrong += int((built != truth_for(mosaic, composer, 0, row, column)).sum())
         checked += 1
     print(f"  {'PASS' if wrong == 0 else 'FAIL'} — {wrong} wrong voxels "
