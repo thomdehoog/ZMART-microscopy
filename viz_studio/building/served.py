@@ -1,0 +1,118 @@
+"""Supplying the pieces of a built picture while the viewer is open.
+
+This is the other half of :mod:`declare`. The description of a built picture is on
+disk and is served as ordinary files; every piece of the picture is not, and is
+made here when the browser asks.
+
+It is the counterpart of ``backend/linking.py``, which answers for a picture whose
+pieces are files somewhere else. The two answer the same question — *where is this
+piece?* — and give opposite answers: linking hands over a file that already exists,
+building makes bytes that never existed. A viewer opens both without knowing which
+it has.
+
+Held open between requests
+--------------------------
+
+A composer keeps every tile of a transfer open, and opening a store is not the
+small thing it sounds — measured elsewhere in this repo at 86% of the time spent
+building a view, at sixteen hundred tiles. So one composer per built picture is
+kept for as long as the viewer is looking at it, rather than made per request.
+
+The one difference from pointing worth knowing about
+----------------------------------------------------
+
+A pointed-at piece is resolved by the viewer's own library, so it is held to the
+same rule as every other file: it can only reach inside a folder somebody opened.
+A built piece is read straight from the transfer the description names, which may
+be anywhere on the machine. That is a genuine widening of what the server will
+read, and it is deliberate — a transfer usually sits on a different disk from
+anything the operator opened — but it should be a decision somebody made rather
+than one they discover.
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+from pathlib import Path
+
+from composer import Composer
+from declare import OURS
+from mosaic import read_the_transfer
+
+# One composer per built picture, kept for as long as the viewer is open on it.
+_composers: dict[Path, Composer | None] = {}
+_guard = threading.Lock()
+
+
+def _what_it_was_built_from(store: Path) -> dict | None:
+    """What a store records about being built, or ``None`` for an ordinary image."""
+    described = store / "zarr.json"
+    if not described.is_file():
+        return None
+    try:
+        held = json.loads(described.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    ours = (held.get("attributes") or {}).get(OURS)
+    if isinstance(ours, dict) and ours.get("built_from"):
+        return ours
+    return None
+
+
+def _composer_for(store: Path) -> Composer | None:
+    """The composer for this picture, opened once and kept.
+
+    ``None`` — remembered as well as returned — for an ordinary image, so that a
+    store which is not built costs one look at its description for the whole time
+    the viewer is open rather than one per piece asked for.
+    """
+    store = store.resolve()
+    with _guard:
+        if store in _composers:
+            return _composers[store]
+    ours = _what_it_was_built_from(store)
+    made = None
+    if ours is not None:
+        made = Composer(read_the_transfer(Path(ours["built_from"])),
+                        piece=int(ours.get("piece") or 512))
+    with _guard:
+        _composers.setdefault(store, made)
+        return _composers[store]
+
+
+def the_bytes_behind(store: Path, inside: str) -> bytes | None:
+    """The piece of a built picture the browser asked for, made now.
+
+    Args:
+        store: the built picture's own folder.
+        inside: what came after it — ``0/c/145/9/8``: the resolution, then one
+            number per axis.
+
+    Returns:
+        The encoded piece, or ``None`` when this is not a built picture, when the
+        address is not a piece, or when it falls outside the picture. All three
+        are ordinary answers rather than faults.
+    """
+    composer = _composer_for(Path(store))
+    if composer is None:
+        return None
+    parts = inside.strip("/").split("/")
+    if len(parts) != 5 or parts[1] != "c" or not parts[0].isdigit():
+        return None
+    if not all(one.isdigit() for one in parts[2:]):
+        return None
+    level = int(parts[0])
+    if not 0 <= level < composer.mosaic.levels:
+        return None
+    plane, row, column = (int(one) for one in parts[2:])
+    deep, down, across = composer.grid(level)
+    if not (0 <= plane < deep and 0 <= row < down and 0 <= column < across):
+        return None
+    return composer.bytes_for(level, plane, row, column)
+
+
+def forget(store: Path) -> None:
+    """Let go of a built picture, closing the tiles it was holding open."""
+    with _guard:
+        _composers.pop(Path(store).resolve(), None)
