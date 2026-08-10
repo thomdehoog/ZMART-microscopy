@@ -370,3 +370,76 @@ sizes and opens each one, so the only thing differing between the rows is how
 finely the picture is divided. **It has not been run.** It needs no linking layer
 and no new format, and it answers the question that decides whether any of this is
 worth building.
+
+---
+
+## How you actually build one
+
+Four steps, and the third is one call.
+
+**1. You already have the tiles.** Each position is an ordinary OME-Zarr that
+says where it sits.
+
+**2. Say where each one lands in the picture**, in voxels:
+
+```python
+from zmart_storage.linked import PlacedTile, link_the_tiles
+
+tiles = [PlacedTile(store=folder / f"Tile{i}.ome.zarr", lands_at=(0, y, x))
+         for i, (y, x) in enumerate(corners)]
+```
+
+`taken_from` and `size` are there too, for showing only part of a tile -- which
+is how a run whose tiles overlap can skip the strip its neighbour is showing,
+without a trimmed canvas existing anywhere.
+
+**3. Build it:**
+
+```python
+view = link_the_tiles(folder, tiles=tiles, name="canvas", levels=3)
+```
+
+**4. What lands on disk** is a normal-looking OME-Zarr that holds no full-size
+picture: the description, the smaller copies **as real pixels**, and the map of
+pointers. `viz_studio/backend/linking.py` answers for it -- a piece is looked up
+in the map and the tile's own file is handed over unchanged.
+
+## Each pyramid level doubles the grid the tiles must land on
+
+The condition above -- a piece of the view is a piece of a tile -- has a second
+half that only appears when you ask for more than one level. The view points at
+the tiles' *zoomed-out* copies as well as their full-size pictures, so for `L`
+levels every tile has to begin on a multiple of `chunk x 2**(L-1)`.
+
+The writer refuses a placement that does not, and says why: shrinking keeps every
+Nth voxel counted from the picture's own corner, so a tile starting out of step
+keeps a different set of voxels from the ones the view would have kept, and the
+specimen drawn when zoomed out is not the specimen.
+
+**This is what makes an ordinary overlap hard.** Tiles of 256 stepping 224 -- a
+12.5% overlap -- put 224 = 32 x 7 into the arithmetic, so `chunk x 2**(L-1)`
+can be at most 32: one level at 32-voxel pieces, or three at 8-voxel pieces and
+eight times as many files. A quarter overlap divides properly: 512-voxel tiles
+stepping 384 support three levels at 32.
+
+**Padding is the way out**, and it is the same trick recorded in
+`PLAN_placement_by_transform.md`: pad each tile's low edge by however far the
+stage overshot, so its own grid of pieces lands on the run's grid. The padding is
+never served and costs nothing at draw time.
+
+## Measured, 2026-08-10
+
+Building the view, over runs of 512-voxel tiles stepping 384, three levels:
+
+| positions | linking | the view weighs | the run weighs |
+| --- | --- | --- | --- |
+| 1 | 0.02 s | ~0 MB | 4 MB |
+| 16 | 0.03 s | ~0 MB | 67 MB |
+| 128 (one level) | 0.12 s | 33 kB | 132 MB |
+
+**Linking is free and stays free.** What is not yet understood is the cost of
+*opening* one: a 16-position view took 925 requests and 2.5 s to settle, where
+the same specimen written as one canvas takes 128-301 requests and under a
+second. One source either way. The likeliest cause is that a pointer map hands
+out pieces one at a time where a written pyramid gives the engine runs of
+neighbouring chunks -- but that is a guess and it is the next thing to measure.

@@ -1088,6 +1088,58 @@ function startTimeAtTheFirstMoment(viewer) {
  * Returns a function that stops the waiting, for the caller to use when the
  * viewer goes away.
  */
+/**
+ * Bring the picture back: centre what is on screen and choose the magnification
+ * afresh, as if the image had just been opened.
+ *
+ * This exists because there was no way back. The only recentring the engine
+ * offers is its right button, which centres on the point clicked -- and once an
+ * operator has panned far enough that no part of the specimen is on screen,
+ * there is nothing left to click on. The picture is still there, correctly
+ * placed, and unreachable. The one button labelled Reset puts back the
+ * brightness window and does not move the view, so pressing it in that state
+ * changes the contrast of a picture nobody can see.
+ *
+ * **Only the axes being drawn are moved.** Where the operator is in depth or in
+ * time is theirs, and losing your place in a stack because you asked to see the
+ * whole field would be its own small betrayal. So the plane and the moment stay
+ * where they were and the view slides back over them.
+ *
+ * The magnification is cleared rather than computed, for the reason set out at
+ * :func:`chooseScaleWhenTheImagesAreMeasured` -- the engine's own default is
+ * right once it knows how big a voxel is, and by the time anybody presses this
+ * it does.
+ *
+ * Returns whether anything could be done, which is false only before the image
+ * has said how big it is.
+ */
+export function bringThePictureBack(viewer) {
+  const { position } = viewer.navigationState;
+  const space = position.coordinateSpace.value;
+  if (!space?.rank) return false;
+
+  // The first two display dimensions only -- the plane on screen. The third is
+  // the depth the operator is looking through, and moving it would step them
+  // somewhere else in the stack, which is what the test below caught: in a
+  // cross-section the engine still counts the perpendicular axis as displayed.
+  const drawn = viewer.navigationState.pose.displayDimensions.value;
+  const onScreen = new Set((drawn?.displayDimensionIndices ?? []).slice(0, 2));
+  const { lowerBounds, upperBounds } = space.bounds;
+
+  const middle = Float32Array.from(position.value);
+  for (let axis = 0; axis < space.rank; axis += 1) {
+    if (!onScreen.has(axis)) continue;
+    const low = lowerBounds[axis];
+    const high = upperBounds[axis];
+    if (Number.isFinite(low) && Number.isFinite(high)) middle[axis] = (low + high) / 2;
+  }
+  position.value = middle;
+
+  viewer.navigationState.zoomFactor.reset();
+  viewer.perspectiveNavigationState.zoomFactor.reset();
+  return true;
+}
+
 export function chooseScaleWhenTheImagesAreMeasured(viewer) {
   const { position } = viewer.navigationState;
   // Axes, not images: a space with no axes is the placeholder described above.

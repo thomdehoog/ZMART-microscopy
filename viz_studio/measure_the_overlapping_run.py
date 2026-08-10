@@ -214,6 +214,13 @@ def write_the_run(folder: Path, size: int) -> dict:
                   for name in ("488", "561")[:channels]],
         frames=frames,
         chunk=CHUNK,
+        # 0.5, which is what this project writes -- Decision 1 in
+        # docs/design/ome-zarr-decisions.md, and for the reason that decides it
+        # here: 0.4 cannot bundle chunks into shards at all, and this sweep is
+        # partly a measurement of how many files and requests a run costs. The
+        # writers still default to 0.4 (decision B11, not yet carried out), so it
+        # has to be said here rather than left to fall out.
+        ome_zarr_version="0.5",
     )
 
     library = [_a_tile(seed) for seed in range(HOW_MANY_DIFFERENT_TILES)]
@@ -255,6 +262,23 @@ def _which_tile(across: int, row: int, column: int, channel: int, frame: int) ->
     ) % HOW_MANY_DIFFERENT_TILES
 
 
+def _description(store: Path) -> dict:
+    """What a store says about itself, in whichever generation it was written.
+
+    0.4 keeps it in a ``.zattrs`` file beside the image; 0.5 keeps it inside
+    ``zarr.json`` under an ``ome`` key. Reading both means this sweep measures
+    either without caring which, which matters because the two are not
+    interchangeable here: only 0.5 can bundle chunks into shards, and the file
+    count is one of the things being measured.
+    """
+    import json
+
+    if (store / ".zattrs").exists():
+        return json.loads((store / ".zattrs").read_text(encoding="utf-8"))
+    inside = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
+    return inside["attributes"]["ome"]
+
+
 def count_what_was_lost(folder: Path, shape: dict) -> dict:
     """Read every whole tile back and count the voxels that do not match.
 
@@ -274,8 +298,15 @@ def count_what_was_lost(folder: Path, shape: dict) -> dict:
     recorded = 0
     found = 0
     for store in sorted(folder.glob("*.ome.zarr")):
-        moved = json.loads((store / ".zattrs").read_text(encoding="utf-8"))[
-            "multiscales"][0]["coordinateTransformations"][0]["translation"]
+        # Where the tile says it sits. The writer records that against the
+        # full-resolution dataset, which is where OME-Zarr puts a transform that
+        # applies to one array; a transform at the multiscales level applies to
+        # every level at once and this writer has never written one. Looking only
+        # there raised KeyError on every store and stopped the sweep before it
+        # measured anything.
+        described = _description(store)["multiscales"][0]
+        placed = described["datasets"][0]["coordinateTransformations"]
+        moved = next(step for step in placed if step["type"] == "translation")["translation"]
         row = round(moved[3] / VOXEL_UM[1]) // STEP[1]
         column = round(moved[4] / VOXEL_UM[2]) // STEP[2]
         whole = np.asarray(zarr.open_group(str(store), mode="r")["0"][:])
