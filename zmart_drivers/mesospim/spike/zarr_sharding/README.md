@@ -123,6 +123,28 @@ like — chunks per shard is free — as long as each shard is written in a
 single operation. The moment a shard is filled in *N* separate writes, you
 pay for it roughly *N*/2 times over.
 
+## The take-away, as usable code
+
+The winning strategy is packaged as a standalone, production-ready writer in
+[`buffered_zarr_writer.py`](buffered_zarr_writer.py) — one class, depending
+only on `numpy` and `zarr >= 3`, that you can copy into any project as-is:
+
+```python
+from buffered_zarr_writer import ZarrStackWriter
+
+with ZarrStackWriter("stack.zarr", shape=(128, 2048, 2048)) as writer:
+    for frame in camera:          # 2-D numpy arrays, in z order
+        writer.append(frame)
+```
+
+It buffers one shard's worth of frames and flushes each shard in a single
+write, validates every frame on arrival, refuses to overwrite existing data
+unless asked, and fails loudly if a stack ends short. Its own test suite is
+[`test_buffered_zarr_writer.py`](test_buffered_zarr_writer.py) — including a
+test instrumenting the store to prove the slow read-back path is never taken.
+(`zarr_write_strategies.py` remains the benchmark/comparison harness; the
+writer file is the one to take home.)
+
 ## Running it yourself
 
 The spike needs `zarr >= 3` (not part of the canonical ZMART environment;
