@@ -96,6 +96,21 @@ class Mosaic:
     dtype: str
     corner_um: tuple[float, float, float] = field(default=(0.0, 0.0, 0.0))
 
+    # Where every tile lands, and how large the picture is, worked out once per
+    # resolution and kept.
+    #
+    # This was a method that recomputed from micrometres each time, which read
+    # more honestly -- nothing cached, nothing to fall out of step -- and cost far
+    # too much to keep. Building one piece asks where the tiles are three times
+    # over, and at four thousand tiles that was 89 milliseconds a piece against
+    # the 9 the reading itself takes. The arithmetic cannot change while a
+    # transfer is open, since it comes from descriptions on disk that are not
+    # being written, so working it out once is safe as well as necessary.
+    _placed: dict[int, list[tuple[Tile, tuple[int, int, int]]]] = field(
+        default_factory=dict, repr=False)
+    _shape: dict[int, tuple[int, int, int]] = field(
+        default_factory=dict, repr=False)
+
     def voxel_um(self, level: int) -> tuple[float, float, float]:
         """How large one voxel of the built picture is at this resolution.
 
@@ -120,17 +135,36 @@ class Mosaic:
             for axis in range(3)
         )  # type: ignore[return-value]
 
+    def placements(self, level: int) -> list[tuple[Tile, tuple[int, int, int]]]:
+        """Every tile and where it lands at this resolution, worked out once."""
+        found = self._placed.get(level)
+        if found is None:
+            found = [(tile, self.lands_at(tile, level)) for tile in self.tiles]
+            self._placed[level] = found
+        return found
+
     def shape(self, level: int) -> tuple[int, int, int]:
         """How large the built picture is at this resolution, in voxels."""
-        return tuple(
-            max(self.lands_at(tile, level)[axis] + tile.copies[level].array.shape[axis]
-                for tile in self.tiles)
-            for axis in range(3)
-        )  # type: ignore[return-value]
+        found = self._shape.get(level)
+        if found is None:
+            placed = self.placements(level)
+            found = tuple(
+                max(at[axis] + tile.copies[level].array.shape[axis]
+                    for tile, at in placed)
+                for axis in range(3)
+            )
+            self._shape[level] = found  # type: ignore[assignment]
+        return found  # type: ignore[return-value]
 
     def reaching_into(self, level: int, low: tuple[int, int, int],
                       high: tuple[int, int, int]) -> list[tuple[Tile, tuple[int, int, int]]]:
         """Which tiles cover any part of this box, and where each of them lands.
+
+        This looks at every tile, which is right for a handful and wrong for
+        thousands. :class:`composer.Composer` indexes the placements by which
+        pieces they fall in and does not come through here; this stays because it
+        says plainly what the question is, and is what a caller with no index
+        should use.
 
         Args:
             level: which copy of the picture the box is measured in.
@@ -140,14 +174,12 @@ class Mosaic:
         Returns:
             Each tile that overlaps the box at all, paired with where it lands.
         """
-        found = []
-        for tile in self.tiles:
-            at = self.lands_at(tile, level)
-            held = tile.copies[level].array.shape
-            if all(max(low[axis], at[axis]) < min(high[axis], at[axis] + held[axis])
-                   for axis in range(3)):
-                found.append((tile, at))
-        return found
+        return [
+            (tile, at) for tile, at in self.placements(level)
+            if all(max(low[axis], at[axis])
+                   < min(high[axis], at[axis] + tile.copies[level].array.shape[axis])
+                   for axis in range(3))
+        ]
 
 
 def _the_description_of(store: Path) -> tuple[dict, str]:

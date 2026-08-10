@@ -90,6 +90,8 @@ class Composer:
         # both build it.
         self._slabs: OrderedDict[tuple[int, int, int, int], np.ndarray] = OrderedDict()
         self._guard = threading.Lock()
+        # Which tiles fall in each piece, per resolution, built on first use.
+        self._indexed: dict[int, dict[tuple[int, int], list]] = {}
 
         self._encoder = zarr.create_array(
             store=zarr.storage.MemoryStore(),
@@ -125,6 +127,37 @@ class Composer:
 
     # -- building ------------------------------------------------------------
 
+    def _tiles_in_each_piece(self, level: int) -> dict[tuple[int, int], list]:
+        """Which tiles fall in each piece of the picture, worked out once.
+
+        Building a piece has to know which tiles reach it, and asking every tile
+        is what stops this scaling: measured at four thousand tiles, the sweeps
+        cost 89 milliseconds a piece where the reading itself took 9.
+
+        The answer does not need a sweep. A tile covers a small rectangle of
+        pieces, so every tile is written into the few pieces it touches, once,
+        when a resolution is first asked for. Looking up is then a dictionary
+        lookup and the cost of building a piece is the cost of its own ground —
+        which is the whole claim this arrangement rests on.
+
+        Building the index is proportional to the transfer, not to its square: a
+        tile lands in about four pieces whatever else is in the run.
+        """
+        found = self._indexed.get(level)
+        if found is not None:
+            return found
+        index: dict[tuple[int, int], list] = {}
+        for tile, at in self.mosaic.placements(level):
+            held = tile.copies[level].array.shape
+            for row in range(at[1] // self.piece,
+                             (at[1] + held[1] - 1) // self.piece + 1):
+                for column in range(at[2] // self.piece,
+                                    (at[2] + held[2] - 1) // self.piece + 1):
+                    index.setdefault((row, column), []).append((tile, at))
+        with self._guard:
+            self._indexed[level] = index
+        return index
+
     def _build_slab(self, level: int, plane: int, row: int, column: int) -> np.ndarray:
         """Lay the tiles into one column of ground, for every plane of one file.
 
@@ -133,8 +166,8 @@ class Composer:
         """
         depth = self.slab_depth(level)
         low_z = (plane // depth) * depth
-        _, height, width = self.mosaic.shape(level)
-        high_z = min(low_z + depth, self.mosaic.shape(level)[0])
+        deep, height, width = self.mosaic.shape(level)
+        high_z = min(low_z + depth, deep)
 
         top, left = row * self.piece, column * self.piece
         bottom = min(top + self.piece, height)
@@ -142,9 +175,14 @@ class Composer:
 
         slab = np.zeros((high_z - low_z, self.piece, self.piece),
                         self.mosaic.dtype)
-        for tile, at in self.mosaic.reaching_into(
-                level, (low_z, top, left), (high_z, bottom, right)):
+        for tile, at in self._tiles_in_each_piece(level).get((row, column), ()):
             held = tile.copies[level].array
+            # The index answers by piece across the specimen, which is where tiles
+            # differ. Depth it says nothing about, and a tile shallower than the
+            # picture -- Thy1's are 256 planes against one of 291 -- reaches this
+            # piece without reaching this slab. So depth is checked here.
+            if not (max(low_z, at[0]) < min(high_z, at[0] + held.shape[0])):
+                continue
             from_z, to_z = max(low_z, at[0]), min(high_z, at[0] + held.shape[0])
             from_y, to_y = max(top, at[1]), min(bottom, at[1] + held.shape[1])
             from_x, to_x = max(left, at[2]), min(right, at[2] + held.shape[2])
