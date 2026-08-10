@@ -1,0 +1,94 @@
+name: Review fixes
+
+on:
+  push:
+    branches: [agent/live-position-timepoint-publication]
+
+permissions:
+  contents: write
+
+jobs:
+  review-fixes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply F1/F2/F3 fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path("viz_studio/frontend/src/App.jsx")
+          text = app.read_text()
+          old = '''    if (!was) return false; // newly arrived, so nothing has been decoded for it\n    const hadNothing = was.histogram == null && was.frames == null;'''
+          new = '''    if (!was) return false; // newly arrived, so nothing has been decoded for it\n    // Manifest-driven rows are governed by committed publication state. Their\n    // legacy `frames` transition from null to a contiguous count is not a\n    // first-image transition and must never trigger the legacy global decoded\n    // cache flush. Their source revisions are refreshed selectively below.\n    if (was.liveRunId != null || spec.liveRunId != null) return false;\n    const hadNothing = was.histogram == null && was.frames == null;'''
+          if old not in text:
+              raise SystemExit("App.jsx F2 target not found")
+          app.write_text(text.replace(old, new, 1))
+
+          browser = Path("viz_studio/tests/test_manifest_refresh_browser.py")
+          text = browser.read_text()
+          replacements = [
+              (
+                  '''        [dataset, revision],\n        timeout=60_000,''',
+                  '''        arg=[dataset, revision],\n        timeout=60_000,''',
+              ),
+              (
+                  '''          groupOpacity: Number(document.querySelector(\n            '[aria-label="opacity group overview"]').value),''',
+                  '''          groupOpacity: Number(document.querySelector(\n            `[aria-label="opacity group ${window.zmartConfig.groups[0]}"]`).value),''',
+              ),
+              (
+                  '''    _set_range(page, "opacity group overview", 0.91)''',
+                  '''    group = page.evaluate("() => window.zmartConfig.groups[0]")\n    _set_range(page, f"opacity group {group}", 0.91)''',
+              ),
+              ('page.get_by_label("t position").count()', 'page.get_by_label("t position", exact=True).count()'),
+              ('page.get_by_label("t position").wait_for(', 'page.get_by_label("t position", exact=True).wait_for('),
+              ('page.get_by_label("t position").get_attribute(', 'page.get_by_label("t position", exact=True).get_attribute('),
+              ('_set_range(page, "t position", 1)', '_set_range(page, "t position", 1)'),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f"browser target not found: {old[:80]!r}")
+              text = text.replace(old, new)
+
+          text = text.replace(
+              'from server import make_server\n',
+              'import server as server_module\nfrom server import make_server\n',
+              1,
+          )
+
+          start = text.index('def test_lost_sse_hint_is_recovered_by_conditional_check_and_eventsource_reconnects(')
+          replacement = '''def test_suppressed_sse_hint_is_recovered_by_conditional_check(\n    browser, built_dist, tmp_path, monkeypatch\n):\n    run = a_live_run(tmp_path)\n    with _serving(built_dist, run) as address:\n        page = browser.new_page(viewport={"width": 1200, "height": 900})\n        page.add_init_script("globalThis.zmartLiveCheckMs = 500")\n        try:\n            _open(page, address, 0)\n\n            # Suppress the announcement at its producer, not by taking the\n            # browser transport offline. The EventSource stays healthy, but no\n            # publication hint can reach it; only the authoritative conditional\n            # revision check may discover this commit.\n            monkeypatch.setattr(\n                server_module.Announcements,\n                "say_something_changed",\n                lambda self, **kwargs: 0,\n            )\n            run.write_and_publish("posA", some_specimen(1700))\n            _wait_for_revision(page, 1)\n            _wait_for_picture(page)\n            assert fraction_lit(page) > 0.04\n\n            run.write_and_publish("posB", some_specimen(2900))\n            _wait_for_revision(page, 2)\n            _wait_for_picture(page)\n            assert fraction_lit(page) > 0.08\n        finally:\n            page.close()\n\n\ndef test_filling_a_committed_time_gap_does_not_globally_flush_decoded_cache(\n    browser, built_dist, tmp_path\n):\n    run = a_live_run(tmp_path, timepoints=3)\n    run.write_and_publish("posA", some_specimen(1500), timepoint=0)\n    with _serving(built_dist, run) as address:\n        page = browser.new_page(viewport={"width": 1200, "height": 900})\n        try:\n            _open(page, address, 1)\n            _wait_for_picture(page)\n            baseline = page.evaluate("() => window.zmartLetGo.times")\n\n            run.write_and_publish("posA", some_specimen(2200), timepoint=2)\n            _wait_for_revision(page, 2)\n            _wait_for_picture(page)\n            assert page.evaluate(\n                "() => window.zmartConfig.layers[0].committedTimeRanges"\n            ) == [{"start": 0, "stop": 1}, {"start": 2, "stop": 3}]\n\n            run.write_and_publish("posA", some_specimen(3000), timepoint=1)\n            _wait_for_revision(page, 3)\n            _wait_for_picture(page)\n            assert page.evaluate(\n                "() => window.zmartConfig.layers[0].committedTimeRanges"\n            ) == [{"start": 0, "stop": 3}]\n            assert page.evaluate("() => window.zmartLetGo.times") == baseline, (\n                "filling a manifest-driven time gap must refresh its affected\n                "source revisions, not invoke the legacy global decoded-cache flush"\n            )\n        finally:\n            page.close()\n'''
+          text = text[:start] + replacement
+          browser.write_text(text)
+          PY
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install numpy 'zarr>=3,<4' pytest playwright pillow
+          python -m playwright install --with-deps chromium
+          npm --prefix viz_studio/frontend ci
+          npm --prefix viz_studio/frontend run build
+
+      - name: Run focused backend and browser tests
+        env:
+          ZMART_REQUIRE_BROWSER: '1'
+        run: |
+          python -m pytest -q zmart_live/tests viz_studio/tests/test_live_publication_gateway.py
+          python -m pytest -q viz_studio/tests/test_manifest_refresh_browser.py -rs
+
+      - name: Run Ruff and whitespace checks
+        run: |
+          ruff check viz_studio/backend/announcements.py viz_studio/backend/live_config.py viz_studio/backend/server.py zmart_live/live_state.py
+          git diff --check
+
+      - name: Commit and push the fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add viz_studio/frontend/src/App.jsx viz_studio/tests/test_manifest_refresh_browser.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Fix adversarial live refresh review findings"
+          git push origin HEAD:agent/live-position-timepoint-publication
