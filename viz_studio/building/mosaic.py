@@ -88,6 +88,7 @@ class Copy:
     held_in: Path
     shape: tuple[int, int, int]
     chunks: tuple[int, int, int]
+    dtype: str
     voxel_um: tuple[float, float, float]
     corner_um: tuple[float, float, float]
     _opened: zarr.Array | None = field(default=None, repr=False)
@@ -113,6 +114,10 @@ class Tile:
     name: str
     store: Path
     copies: list[Copy]
+    # What this tile's axes mean, kept from the one reading of its description.
+    # Comparing tiles needs it, and reading every description a second time to
+    # get it cost more than the whole of the rest of opening.
+    axes: tuple[str, ...] = ()
 
     @property
     def keeps(self) -> int:
@@ -299,7 +304,7 @@ def _how_a_resolution_is_stored(held_in: Path) -> tuple[tuple[int, ...],
     )
 
 
-def _placed_copies_of(store: Path) -> list[Copy]:
+def _read_one_tile(store: Path) -> Tile:
     """Every resolution a tile keeps, each with its own voxel size and corner.
 
     OME-Zarr allows a position to be written beside each resolution or once for the
@@ -310,6 +315,8 @@ def _placed_copies_of(store: Path) -> list[Copy]:
     described, _ = _the_description_of(store)
     multiscale = (described.get("multiscales") or [{}])[0]
     datasets = multiscale.get("datasets") or []
+    axes = tuple(str(axis.get("name", ""))
+                 for axis in multiscale.get("axes") or ())
     if not datasets:
         raise ValueError(
             f"{store} says it keeps no copies of its picture, so there is nothing "
@@ -339,15 +346,75 @@ def _placed_copies_of(store: Path) -> list[Copy]:
                 "copy is, so a picture built over it could not be drawn to scale."
             )
         held_in = store / str(dataset["path"])
-        shape, chunks, _ = _how_a_resolution_is_stored(held_in)
+        shape, chunks, kind = _how_a_resolution_is_stored(held_in)
         copies.append(Copy(
             held_in=held_in,
             shape=(shape[0], shape[1], shape[2]),
             chunks=(chunks[0], chunks[1], chunks[2]),
+            dtype=kind,
             voxel_um=voxel,
             corner_um=(corner[0], corner[1], corner[2]),
         ))
-    return copies
+    return Tile(name=store.name, store=store, copies=copies, axes=axes)
+
+
+def _refuse_tiles_that_disagree(tiles: list[Tile]) -> str:
+    """Stop a transfer whose tiles are not all the same kind of picture.
+
+    **What has to agree here is much less than for a pointed-at view, and it is
+    worth saying why.** :mod:`zmart_storage.linked` hands a tile's bytes to the
+    viewer untouched, so it has to refuse tiles that differ in *anything* about
+    how those bytes are laid out — the compression, the endianness, the chunking.
+    Building decodes every tile and encodes the result itself, so all of that may
+    differ freely: two tiles compressed differently make one perfectly good
+    picture.
+
+    Three things still cannot differ, and each fails silently rather than loudly,
+    which is why they are checked at the door:
+
+    - **the kind of number.** The built picture is declared as one type. A tile
+      of another is read into it by numpy, which converts rather than complains:
+      eight-bit specimen laid into a sixteen-bit picture is a black square, and
+      sixteen into eight is wrapped-around noise. Nothing reports either.
+    - **how large a voxel is.** Two magnifications are two acquisitions, not two
+      tiles of one picture, and every tile's place is worked out by dividing
+      micrometres by this. Getting it from the wrong tile puts the rest of the
+      run in the wrong place.
+    - **what the axes mean.** A tile stored depth-height-width beside one stored
+      height-width-depth holds the same bytes for a different picture, and the
+      only sign is a specimen that looks strange.
+
+    Returns:
+        The kind of number the whole transfer holds, since it has been read here.
+    """
+    first = tiles[0]
+    kind = first.copies[0].dtype
+
+    for tile in tiles[1:]:
+        theirs = tile.copies[0].dtype
+        if theirs != kind:
+            raise ValueError(
+                f"{first.store.name} holds {kind} and {tile.store.name} holds "
+                f"{theirs}. A built picture is one image and is declared as one "
+                "kind of number, so a tile of another would be converted into it "
+                "silently — which is a black square or a field of noise, with "
+                "nothing anywhere to report it.\n\n"
+                "This usually means two acquisitions have been gathered into one "
+                "folder. Build a picture over each of them separately."
+            )
+        for level, (ours, other) in enumerate(zip(first.copies, tile.copies,
+                                                  strict=True)):
+            if ours.voxel_um != other.voxel_um:
+                raise ValueError(
+                    f"{first.store.name} was taken with voxels of "
+                    f"{ours.voxel_um} micrometres and {tile.store.name} with "
+                    f"{other.voxel_um} (copy {level}). Those are two "
+                    "magnifications, which makes them two acquisitions rather "
+                    "than two tiles of one picture — and every tile's place is "
+                    "worked out by dividing micrometres by this, so the rest of "
+                    "the run would be drawn in the wrong place."
+                )
+    return kind
 
 
 def read_the_transfer(folder: str | Path) -> Mosaic:
@@ -381,9 +448,7 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
     # A survey is thousands of tiles and this is the whole of what opening one
     # costs, so it is worth the four lines.
     with ThreadPoolExecutor(max_workers=min(32, (len(stores) + 3) // 4 or 1)) as pool:
-        copies = list(pool.map(_placed_copies_of, stores))
-    tiles = [Tile(name=store.name, store=store, copies=held)
-             for store, held in zip(stores, copies, strict=True)]
+        tiles = list(pool.map(_read_one_tile, stores))
 
     keeps = {tile.keeps for tile in tiles}
     if len(keeps) != 1:
@@ -394,9 +459,17 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
             "two runs."
         )
 
-    described, _ = _the_description_of(tiles[0].store)
-    multiscale = (described.get("multiscales") or [{}])[0]
-    axes = tuple(str(axis.get("name", "")) for axis in multiscale.get("axes") or ())
+    axes = tiles[0].axes
+    for tile in tiles[1:]:
+        others = tile.axes
+        if others != axes:
+            raise ValueError(
+                f"{tiles[0].store.name} stores its picture as {', '.join(axes)} "
+                f"and {tile.store.name} as {', '.join(others)}. The same bytes "
+                "read under two different meanings is a specimen that looks "
+                "strange for no reason anybody can point at, so this is refused "
+                "rather than drawn."
+            )
     if len(axes) != 3:
         raise ValueError(
             f"{tiles[0].store} stores its picture as {', '.join(axes)}. This builds "
@@ -405,6 +478,8 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
             "pointing instead; see zmart_storage.linked."
         )
 
+    kind = _refuse_tiles_that_disagree(tiles)
+
     corner = tuple(
         min(tile.copies[0].corner_um[axis] for tile in tiles) for axis in range(3)
     )
@@ -412,6 +487,6 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
         tiles=tiles,
         levels=tiles[0].keeps,
         axes=axes,  # type: ignore[arg-type]
-        dtype=_how_a_resolution_is_stored(tiles[0].copies[0].held_in)[2],
+        dtype=kind,
         corner_um=corner,  # type: ignore[arg-type]
     )
