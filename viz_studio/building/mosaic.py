@@ -40,9 +40,11 @@ rather than done.
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import zarr
 
 # The name every OME-Zarr image folder ends in. A transfer holds one per tile, and
@@ -51,19 +53,45 @@ import zarr
 IMAGE_SUFFIX = ".ome.zarr"
 
 
-@dataclass(frozen=True)
+@dataclass
 class Copy:
-    """One resolution of one tile: its pixels, how large a voxel is, where it sits.
+    """One resolution of one tile: how large it is, where it sits, and its pixels.
+
+    **The pixels are not opened until something reads them**, and that is the whole
+    point of this class rather than holding a :class:`zarr.Array` outright.
+    Opening a transfer needs to know where every tile is and how large — the index
+    is built from all of them at once — and none of that needs an opened array.
+    Measured on Thy1: reading each resolution's description as plain JSON costs
+    0.58 ms a tile, and opening them through zarr costs 4.84 ms, so eight times
+    the work was being done to learn a shape that was written in a file.
 
     Attributes:
-        array: the tile's picture at this resolution, opened read-only.
+        held_in: the folder this resolution's picture is stored in.
+        shape: how large it is, as ``(z, y, x)`` in voxels.
+        chunks: how much of it is kept in one file, as ``(z, y, x)``.
         voxel_um: how large one of its voxels is, as ``(z, y, x)`` in micrometres.
         corner_um: where its first voxel sits on the stage, as ``(z, y, x)``.
     """
 
-    array: zarr.Array
+    held_in: Path
+    shape: tuple[int, int, int]
+    chunks: tuple[int, int, int]
     voxel_um: tuple[float, float, float]
     corner_um: tuple[float, float, float]
+    _opened: zarr.Array | None = field(default=None, repr=False)
+
+    @property
+    def array(self) -> zarr.Array:
+        """The pixels, opened the first time anything asks for them.
+
+        Not guarded. Two threads racing here both open the array and one of them
+        wins, which costs a few milliseconds once and is correct either way — a
+        lock held across every read of every tile would cost far more than it
+        could ever save.
+        """
+        if self._opened is None:
+            self._opened = zarr.open_array(str(self.held_in), mode="r")
+        return self._opened
 
 
 @dataclass
@@ -149,7 +177,7 @@ class Mosaic:
         if found is None:
             placed = self.placements(level)
             found = tuple(
-                max(at[axis] + tile.copies[level].array.shape[axis]
+                max(at[axis] + tile.copies[level].shape[axis]
                     for tile, at in placed)
                 for axis in range(3)
             )
@@ -177,7 +205,7 @@ class Mosaic:
         return [
             (tile, at) for tile, at in self.placements(level)
             if all(max(low[axis], at[axis])
-                   < min(high[axis], at[axis] + tile.copies[level].array.shape[axis])
+                   < min(high[axis], at[axis] + tile.copies[level].shape[axis])
                    for axis in range(3))
         ]
 
@@ -196,6 +224,36 @@ def _the_description_of(store: Path) -> tuple[dict, str]:
         f"{store} does not look like an OME-Zarr image: it holds neither a "
         "zarr.json nor a .zattrs. A picture can only be built over images, so "
         "check this is the folder the transfer wrote rather than the one above it."
+    )
+
+
+def _how_a_resolution_is_stored(held_in: Path) -> tuple[tuple[int, ...],
+                                                        tuple[int, ...], str]:
+    """How large one resolution is, how it is chunked, and what a voxel holds.
+
+    Read out of the array's own description rather than by opening it through
+    zarr, which is the same answer for an eighth of the work. Both generations of
+    the format are read, because a transfer may be written in either.
+    """
+    for name in ("zarr.json", ".zarray"):
+        described = held_in / name
+        if described.is_file():
+            held = json.loads(described.read_text(encoding="utf-8"))
+            shape = tuple(int(n) for n in held["shape"])
+            if held.get("zarr_format") == 2:
+                chunks = tuple(int(n) for n in held["chunks"])
+                # Version 2 spells the kind of number the way numpy does --
+                # "<u2" -- and the rest of this works in the plain name.
+                kind = np.dtype(held["dtype"]).name
+            else:
+                grid = (held.get("chunk_grid") or {}).get("configuration") or {}
+                chunks = tuple(int(n) for n in grid["chunk_shape"])
+                kind = str(held["data_type"])
+            return shape, chunks, kind
+    raise ValueError(
+        f"{held_in} holds no array description, so how its picture is stored "
+        "cannot be read. That resolution was probably never finished being "
+        "written."
     )
 
 
@@ -238,8 +296,12 @@ def _placed_copies_of(store: Path) -> list[Copy]:
                 f"{store} does not say how large a voxel of its {dataset['path']!r} "
                 "copy is, so a picture built over it could not be drawn to scale."
             )
+        held_in = store / str(dataset["path"])
+        shape, chunks, _ = _how_a_resolution_is_stored(held_in)
         copies.append(Copy(
-            array=zarr.open_array(str(store / str(dataset["path"])), mode="r"),
+            held_in=held_in,
+            shape=(shape[0], shape[1], shape[2]),
+            chunks=(chunks[0], chunks[1], chunks[2]),
             voxel_um=voxel,
             corner_um=(corner[0], corner[1], corner[2]),
         ))
@@ -271,8 +333,15 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
             "is probably the folder above it, or a single tile rather than the set."
         )
 
-    tiles = [Tile(name=store.name, store=store, copies=_placed_copies_of(store))
-             for store in stores]
+    # Read several tiles at once. Every tile costs a handful of small file reads
+    # and almost no arithmetic, so this waits on the disk rather than on the
+    # processor -- which is exactly the case threads help with, even in Python.
+    # A survey is thousands of tiles and this is the whole of what opening one
+    # costs, so it is worth the four lines.
+    with ThreadPoolExecutor(max_workers=min(32, (len(stores) + 3) // 4 or 1)) as pool:
+        copies = list(pool.map(_placed_copies_of, stores))
+    tiles = [Tile(name=store.name, store=store, copies=held)
+             for store, held in zip(stores, copies, strict=True)]
 
     keeps = {tile.keeps for tile in tiles}
     if len(keeps) != 1:
@@ -301,6 +370,6 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
         tiles=tiles,
         levels=tiles[0].keeps,
         axes=axes,  # type: ignore[arg-type]
-        dtype=str(tiles[0].copies[0].array.dtype),
+        dtype=_how_a_resolution_is_stored(tiles[0].copies[0].held_in)[2],
         corner_um=corner,  # type: ignore[arg-type]
     )

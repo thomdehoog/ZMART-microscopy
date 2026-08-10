@@ -133,7 +133,7 @@ def measure(folder: Path, tiles: int) -> dict:
     places = [(down // 2, column) for column in
               range(0, max(1, across), max(1, across // SAMPLES))][:SAMPLES]
 
-    finding, building, covering = [], [], []
+    finding, building, rebuilding, covering = [], [], [], []
     for row, column in places:
         low = (0, row * composer.piece, column * composer.piece)
         high = (min(deep, 1), low[1] + composer.piece, low[2] + composer.piece)
@@ -152,12 +152,27 @@ def measure(folder: Path, tiles: int) -> dict:
         fresh.bytes_for(0, 0, row, column)
         building.append((time.perf_counter() - began) * 1000)
 
+        # The same piece again, with a composer that has no slab of it kept but
+        # over the same tiles, which are now open. Opening a tile's picture waits
+        # until something reads it, so the first piece to touch a tile pays for
+        # it and every piece after that does not -- and the two are worth telling
+        # apart, because a viewer pays the first once and the second for ever.
+        again = Composer(mosaic)
+        # Its index warmed too, for the same reason the first one's was: the
+        # server keeps one composer per picture and builds the index once, so
+        # charging it to a piece would be measuring the harness.
+        again._tiles_in_each_piece(0)
+        began = time.perf_counter()
+        again.bytes_for(0, 0, row, column)
+        rebuilding.append((time.perf_counter() - began) * 1000)
+
     return {
         "tiles": tiles,
         "picture": f"{height} x {width}",
         "opening_ms": opening,
         "finding_ms": statistics.median(finding),
         "building_ms": statistics.median(building),
+        "rebuilding_ms": statistics.median(rebuilding),
         "covering": statistics.median(covering),
     }
 
@@ -179,8 +194,8 @@ def main() -> None:
           f"({STEP_UM / VOXEL_UM[1]:.2f} voxels -- not a whole number),"
           f"\n  pieces of 512, one plane, nothing cached.\n")
     print(f"  {'tiles':>7} {'picture':>15} {'opening':>10} {'finding':>10} "
-          f"{'building':>10} {'tiles a piece':>14}")
-    print("  " + "-" * 72)
+          f"{'1st build':>11} {'after':>9} {'tiles a piece':>14}")
+    print("  " + "-" * 82)
 
     rows = []
     for tiles in rungs:
@@ -192,7 +207,8 @@ def main() -> None:
         rows.append(row)
         print(f"  {row['tiles']:>7} {row['picture']:>15} "
               f"{row['opening_ms']:>7.0f} ms {row['finding_ms']:>7.2f} ms "
-              f"{row['building_ms']:>7.1f} ms {row['covering']:>14.0f}")
+              f"{row['building_ms']:>8.1f} ms {row['rebuilding_ms']:>6.1f} ms "
+              f"{row['covering']:>14.0f}")
         shutil.rmtree(folder)
 
     if len(rows) >= 2:
@@ -201,7 +217,8 @@ def main() -> None:
         print(f"\n  From {first['tiles']} tiles to {last['tiles']} — {grew:.0f}x more:")
         print(f"    opening   {last['opening_ms'] / max(0.001, first['opening_ms']):>8.1f}x")
         print(f"    finding   {last['finding_ms'] / max(0.001, first['finding_ms']):>8.1f}x")
-        print(f"    building  {last['building_ms'] / max(0.001, first['building_ms']):>8.1f}x")
+        print(f"    1st build {last['building_ms'] / max(0.001, first['building_ms']):>8.1f}x")
+        print(f"    after     {last['rebuilding_ms'] / max(0.001, first['rebuilding_ms']):>8.1f}x")
         print("\n  Building is the number that decides this. If it held while the")
         print("  transfer grew a thousandfold, a piece really does cost what its")
         print("  own ground costs and nothing more.\n")

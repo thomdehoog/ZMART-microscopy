@@ -29,13 +29,20 @@ nearest voxel *of that copy*, which :mod:`mosaic` argues at length is not an
 approximation — a copy shrunk eight times cannot express a position more finely
 than one of its own voxels.
 
-What is not solved here
------------------------
+Why it keeps costing the same however large the transfer is
+-----------------------------------------------------------
 
-Finding which tiles reach a piece is a scan of every tile, which is right for a
-transfer of six and wrong for one of ten thousand. The fix is a sorted index of
-rectangles rather than a scan, exactly as ``LINKING_INSTEAD_OF_COPYING.md``
-describes for the pointing path, and it does not change anything else here.
+A piece of the picture is covered by a handful of tiles — nine, on a run
+overlapping by a tenth — and that is true whether the transfer holds six tiles or
+ten thousand. So building a piece ought to cost what its own ground costs and
+nothing more, and that is the whole reason this scales where handing the viewer
+one source per tile does not.
+
+Ought to, and at first did not. Finding which tiles reached a piece looked at
+every tile, and the geometry behind it was recomputed each time: 9 ms a piece at
+64 tiles and 89 ms at 4096, with the same nine tiles being read either way. So the
+tiles are indexed by which pieces they fall in, once per resolution, and it is now
+flat — 9.3 ms at 64 tiles, 9.9 ms at 4096.
 """
 
 from __future__ import annotations
@@ -123,7 +130,7 @@ class Composer:
         This is what a slab is worth building: read one plane and the file's other
         planes have been decompressed already, so building them costs nothing extra.
         """
-        return int(self.mosaic.tiles[0].copies[level].array.chunks[0])
+        return int(self.mosaic.tiles[0].copies[level].chunks[0])
 
     # -- building ------------------------------------------------------------
 
@@ -148,7 +155,7 @@ class Composer:
             return found
         index: dict[tuple[int, int], list] = {}
         for tile, at in self.mosaic.placements(level):
-            held = tile.copies[level].array.shape
+            held = tile.copies[level].shape
             for row in range(at[1] // self.piece,
                              (at[1] + held[1] - 1) // self.piece + 1):
                 for column in range(at[2] // self.piece,
