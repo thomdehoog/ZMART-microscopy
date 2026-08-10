@@ -37,6 +37,7 @@ import math
 import os
 import queue
 import re
+import sys
 import tempfile
 import threading
 from http import HTTPStatus
@@ -51,6 +52,16 @@ from pathlib import Path
 import announcements as announcements_mod
 import linking
 from announcements import Announcements, FolderWatcher, ManifestWatcher
+
+# The other way a picture can exist without being written: built when asked for,
+# rather than pointed at. Its folder sits beside the viewer's own modules rather
+# than among them, so its path is added here -- and the import is guarded, because
+# a checkout without it should still serve every ordinary image.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "building"))
+try:
+    import served as building
+except ImportError:  # pragma: no cover - a checkout without the building module
+    building = None
 from contrast import coarsest_level_is_written, intensity_histogram, measure
 from library import Library
 from live_config import LiveRegistry, capture_live_state, live_rows
@@ -378,6 +389,15 @@ class _Handler(SimpleHTTPRequestHandler):
                 target, begins_at, how_many = elsewhere
                 self._send_file(target, begins_at=begins_at, how_many=how_many)
                 return
+            # And some pictures are not written down *or* pointed at. A transfer
+            # from another microscope has tiles that land nowhere near a whole
+            # file, so no piece of it can be handed over as it is; the piece is
+            # built out of whichever tiles cover that ground and served as bytes
+            # that never existed until now. See viz_studio/building/served.py.
+            made = self._built(rel)
+            if made is not None:
+                self._send_bytes(made)
+                return
             # A piece that was never imaged is the *ordinary* case, not an error:
             # most of a live acquisition has not been written yet, and the engine
             # asks about those regions constantly.
@@ -422,6 +442,50 @@ class _Handler(SimpleHTTPRequestHandler):
         if where is None:
             return None
         return where, found.offset, found.length
+
+    def _built(self, rel: str) -> bytes | None:
+        """This piece, built now, when the picture it belongs to holds no pixels.
+
+        ``rel`` is what came after ``/data/``: the opened folder's number, then the
+        image, then the piece inside it. A picture declared by
+        ``viz_studio/building/declare.py`` records which transfer it was built from,
+        and the tiles of that transfer are read to make the piece.
+
+        ``None`` means this is not a built picture — the answer for every ordinary
+        image, and for a pointed-at one — which costs one look at the store's own
+        description the first time and nothing afterwards.
+
+        Note that the tiles read here are **not** resolved by the library, unlike a
+        pointed-at piece, because a transfer normally sits on a different disk from
+        anything the operator opened. ``served.py`` says more about why that is a
+        decision rather than an oversight.
+        """
+        if building is None:
+            return None
+        number, _, rest = rel.partition("/")
+        image, _, inside = rest.partition("/")
+        if not inside:
+            return None
+        store = self._library.resolve(f"{number}/{image}")
+        if store is None:
+            return None
+        return building.the_bytes_behind(store, inside)
+
+    def _send_bytes(self, body: bytes) -> None:
+        """Answer with bytes that are not a file and never were.
+
+        Kept apart from :meth:`_send_file` deliberately. That one is about a file —
+        its size on disk, ranges out of the middle of it, the repairs a description
+        may need on the way out. None of that applies to a piece that was made a
+        moment ago and is already exactly what was asked for.
+        """
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(body)))
+        if self._live:
+            self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _send_empty(self, status: HTTPStatus) -> None:
         """Answer with a bare status, keeping the connection open for the next ask."""
