@@ -137,7 +137,25 @@ class Composer:
         self._indexed: dict[int, dict[tuple[int, int], list]] = {}
         self._indexing = threading.Lock()
 
-        self._encoder = zarr.create_array(
+        # One encoder per thread, made when that thread first needs one.
+        #
+        # **There was one, shared, and it handed pieces to the wrong requests.**
+        # Encoding writes the piece into a little array and reads the encoded
+        # chunk straight back out of it, and the server answers several requests
+        # at once -- so two threads wrote into the same array and both read the
+        # same key, and one of them got the other's specimen. Measured before it
+        # was fixed: asking for 25 pieces at once, 13 to 22 of them came back as
+        # somebody else's, differently every round.
+        #
+        # It survived every check in this folder because all of them build one
+        # piece at a time. A picture that is right when asked politely and wrong
+        # when asked in parallel is exactly what nothing here was looking for.
+        self._encoders = threading.local()
+
+        # Made once here as well, to check the encoding at the door rather than on
+        # the first request. See below: a description promising one encoding over
+        # bytes in another is a black window with nothing to explain it.
+        _ = zarr.create_array(
             store=zarr.storage.MemoryStore(),
             shape=(1, piece, piece),
             chunks=(1, piece, piece),
@@ -146,7 +164,7 @@ class Composer:
             dimension_names=list(mosaic.axes),
             overwrite=True,
         )
-        written = [dict(one) for one in self._encoder.metadata.to_dict()["codecs"]]
+        written = [dict(one) for one in _.metadata.to_dict()["codecs"]]
         if written != CODECS:
             raise RuntimeError(
                 f"a piece would be encoded as {written} but the picture is declared "
@@ -342,12 +360,36 @@ class Composer:
                 self._weighs -= dropped.nbytes
         return built
 
+    def _my_encoder(self):
+        """This thread's own little array to encode a piece through.
+
+        Per thread rather than shared, because encoding writes a piece in and
+        reads the encoded chunk straight back out: one array between several
+        requests means one request reading another's specimen. Per thread rather
+        than behind a lock, because a lock would make every request queue for the
+        one part of answering that is otherwise free.
+        """
+        held = getattr(self._encoders, "array", None)
+        if held is None:
+            held = zarr.create_array(
+                store=zarr.storage.MemoryStore(),
+                shape=(1, self.piece, self.piece),
+                chunks=(1, self.piece, self.piece),
+                dtype=self.mosaic.dtype,
+                zarr_format=3,
+                dimension_names=list(self.mosaic.axes),
+                overwrite=True,
+            )
+            self._encoders.array = held
+        return held
+
     def bytes_for(self, level: int, plane: int, row: int, column: int) -> bytes:
         """One piece of the picture, encoded exactly as its description promises."""
         slab = self._slab_for(level, plane, row, column)
         depth = self.slab_depth(level)
-        self._encoder[0] = slab[plane - (plane // depth) * depth]
-        return bytes(self._encoder.store._store_dict["c/0/0/0"].to_bytes())
+        encoder = self._my_encoder()
+        encoder[0] = slab[plane - (plane // depth) * depth]
+        return bytes(encoder.store._store_dict["c/0/0/0"].to_bytes())
 
     # -- what the picture says about itself ----------------------------------
 

@@ -23,6 +23,7 @@ Run it with the transfer to check::
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -141,6 +142,45 @@ def main() -> None:
               f"wrong voxels: {differing}")
 
     print(f"\n  {'PASS' if wrong == 0 else 'FAIL'} — {wrong} wrong voxels in all\n")
+
+    # -- 5: and the same pieces asked for all at once ------------------------
+    #
+    # Everything above builds one piece at a time, and a picture can be right
+    # when asked politely and wrong when asked in parallel. It was: one encoder
+    # was shared between threads, so a request could be handed another request's
+    # specimen -- 13 to 22 of 25 pieces, differently every round, and no check
+    # here could see it. The browser fetches chunks on many threads at once, so
+    # this is the ordinary case rather than an unusual one.
+    print("  the same pieces, all asked for at once:")
+    for level in range(min(3, mosaic.levels)):
+        deep, down, across = composer.grid(level)
+        plane = int(deep * SHARE_OF_THE_DEPTH)
+        places = [(row, column)
+                  for row in range(min(3, down)) for column in range(min(4, across))]
+        one_at_a_time = {
+            place: Composer(mosaic).bytes_for(level, plane, *place)
+            for place in places
+        }
+        together: dict = {}
+        keeping = threading.Lock()
+        racing = Composer(mosaic)
+
+        def fetch(place, held=racing, into=together, guard=keeping, at=level, p=plane):
+            body = held.bytes_for(at, p, *place)
+            with guard:
+                into[place] = body
+
+        threads = [threading.Thread(target=fetch, args=(one,)) for one in places]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        muddled = [one for one in places if together[one] != one_at_a_time[one]]
+        wrong += len(muddled)
+        print(f"    L{level}  {len(places):>3} pieces at once   "
+              f"handed the wrong piece: {len(muddled)}")
+
+    print(f"\n  {'PASS' if wrong == 0 else 'FAIL'} — {wrong} wrong in all\n")
 
     # -- 4: what a slab saves ------------------------------------------------
     fresh = Composer(mosaic)
