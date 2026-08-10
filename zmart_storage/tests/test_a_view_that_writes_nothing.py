@@ -246,6 +246,46 @@ def test_pointing_stops_where_a_tile_s_pieces_stop_being_full_size(tmp_path):
     )
 
 
+def test_tiles_that_overlap_still_build_and_the_later_one_stands(tmp_path):
+    """A run whose placements overlap is a run, not a fault.
+
+    Fields of view meet whenever targets are chosen close together, and every
+    recorded voxel is safe in the tiles themselves — a view copies nothing at
+    full size. So overlap must not refuse the view. At full size the list of
+    pointers decides which tile answers for a shared piece; in the *written*
+    zoomed-out copies the later tile's pixels stand for the shared ground, which
+    for a real specimen is the same specimen either way.
+
+    The writer used to refuse this outright — the ordinary canvas's protection
+    against silently overwriting an acquisition, doing its job in the wrong
+    place — so this test is the record of why that guard does not apply here.
+    """
+    tiles = []
+    for number, lands_x in enumerate((0, 64)):
+        store = tmp_path / f"tile{number}.ome.zarr"
+        arrays = _declare_one(
+            store, canvas_shape=TILE, frames=1, channels=1, dtype="uint16",
+            chunk=PIECE, levels=1, voxel_size_um=VOXEL_UM,
+            origin_um=(ORIGIN_UM[0], ORIGIN_UM[1],
+                       ORIGIN_UM[2] + lands_x * VOXEL_UM[2]),
+            channel_blocks=[Channel("488", window=(0, 65535)).described(65535)],
+        )
+        arrays[0][0, 0] = np.full(TILE, 100 * (number + 1), dtype="uint16")
+        tiles.append(PlacedTile(store=store, lands_at=(0, 0, lands_x)))
+
+    built = link_the_tiles(tmp_path, name="v", tiles=tiles, levels=2,
+                           view_shape=(TILE[0], TILE[1], TILE[2] + 64))
+
+    assert built.tiles == 2
+    written = np.asarray(
+        zarr.open_group(str(built.path), mode="r")["1"])[0, 0, 0]
+    # The first tile alone covers columns 0..64; from 64 on, the later tile
+    # stands — both over the shared strip and over its own ground beyond.
+    half = 64 // 2
+    assert np.all(written[:, :half] == 100)
+    assert np.all(written[:, half:(TILE[2] + 64) // 2] == 200)
+
+
 def test_tiles_keeping_one_copy_still_work_and_the_view_writes_the_rest(tmp_path):
     """A run whose tiles keep only themselves has to be shown as before.
 

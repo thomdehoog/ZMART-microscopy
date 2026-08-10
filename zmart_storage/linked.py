@@ -1386,6 +1386,11 @@ class GrowingLinkedView:
                     channel=channel,
                     frame=frame,
                     from_level=self._pointing_at,
+                    # A view's tiles overlap wherever the run's placements did,
+                    # and every recorded voxel is safe in the tiles themselves —
+                    # so ground covered twice is expected here, not a fault, and
+                    # the later tile stands for it in the shrunken copies.
+                    ground_may_be_imaged_twice=True,
                 )
 
     def finish(self) -> LinkedView:
@@ -1816,6 +1821,11 @@ def _fill_in_the_zoomed_out_copies(
                     channel=channel,
                     frame=frame,
                     from_level=pointing_at,
+                    # A view's tiles overlap wherever the run's placements did,
+                    # and every recorded voxel is safe in the tiles themselves —
+                    # so ground covered twice is expected here, not a fault, and
+                    # the later tile stands for it in the shrunken copies.
+                    ground_may_be_imaged_twice=True,
                 )
         pointed_at += frames * channels * size[0]
     return pointed_at
