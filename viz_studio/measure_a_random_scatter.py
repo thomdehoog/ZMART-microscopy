@@ -35,6 +35,12 @@ Run it with::
 
     python measure_a_random_scatter.py           # 10,000 positions
     python measure_a_random_scatter.py 2000      # fewer, if time is short
+    python measure_a_random_scatter.py --headed  # reach the graphics card
+
+The card is asked for first and the renderer that really drew is announced on
+every run. On Windows, ``--headed`` is what makes the card reachable at all:
+a headless Chromium draws in SwiftShader whatever arguments it is given, so a
+headless run measures the processor however good the card is.
 
 It writes about 6 GB under a temporary folder and removes it afterwards, and it
 needs a browser (the same fallback the test suite uses). Building takes several
@@ -62,9 +68,12 @@ sys.path.insert(0, str(VIZ))
 sys.path.insert(0, str(VIZ / "tests"))
 
 import linking  # noqa: E402
+from measure_the_frame_rate_of_a_linked_view import (  # noqa: E402
+    another_browser,
+    say_what_is_drawing,
+)
 from measure_the_overlapping_run import (  # noqa: E402
     SETTLED,
-    _a_browser,
     _lit,
     _the_middle_of,
 )
@@ -174,7 +183,9 @@ def check_pointers(work: Path, spots: list[tuple[int, int]]) -> tuple[int, int]:
     return followed, empty
 
 
-def open_zoom_and_report(work: Path, spots: list[tuple[int, int]]) -> None:
+def open_zoom_and_report(
+    work: Path, spots: list[tuple[int, int]], headed: bool = False,
+) -> None:
     from playwright.sync_api import sync_playwright
     from server import make_server
 
@@ -198,12 +209,13 @@ def open_zoom_and_report(work: Path, spots: list[tuple[int, int]]) -> None:
         # startup. A moment's patience and a second try is all it needs.
         for attempt in range(3):
             try:
-                browser = _a_browser(pw)
+                browser = another_browser(pw, headed)
                 break
             except Exception:
                 if attempt == 2:
                     raise
                 time.sleep(2)
+        say_what_is_drawing(browser)
         page = browser.new_page(viewport={"width": 1400, "height": 900})
         page.on("request", lambda r: asked.update(
             pieces=1) if "/data/" in r.url else None)
@@ -261,7 +273,21 @@ def open_zoom_and_report(work: Path, spots: list[tuple[int, int]]) -> None:
 
 
 def main() -> None:
-    count = int(sys.argv[1]) if len(sys.argv) > 1 else 10_000
+    import argparse
+
+    parsing = argparse.ArgumentParser(description=__doc__)
+    parsing.add_argument(
+        "count", type=int, nargs="?", default=10_000,
+        help="how many positions to scatter (default 10,000)",
+    )
+    parsing.add_argument(
+        "--headed", action="store_true",
+        help="open a visible window, which on Windows is the only way the "
+             "browser reaches the graphics card — headless Chromium draws in "
+             "SwiftShader whatever arguments it is given",
+    )
+    asked = parsing.parse_args()
+    count = asked.count
     work = Path(tempfile.mkdtemp(prefix="scatter-"))
     try:
         spots = scatter(np.random.default_rng(11), count)
@@ -275,7 +301,7 @@ def main() -> None:
         followed, empty = check_pointers(work, spots)
         print(f"  {followed} pointers followed and proven to cover their "
               f"piece; {empty} asks were empty ground")
-        open_zoom_and_report(work, spots)
+        open_zoom_and_report(work, spots, asked.headed)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
