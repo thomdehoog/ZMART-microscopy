@@ -23,4 +23,4 @@ pillow>=10
 # share, and one such misunderstanding did reach real data — see viz_studio/INTEROP.md.
 # This is the reader that multiview-stitcher and much of the Python imaging world
 # use, so it stands in for them. Nothing in ZMART needs it in order to run.
-ngff-zarr>=0.41
+ngff-zarr[validate]>=0.41

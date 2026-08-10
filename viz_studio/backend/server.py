@@ -31,6 +31,7 @@ posture is what keeps it from being reachable across the network.
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
 import math
 import os
@@ -49,9 +50,10 @@ from pathlib import Path
 # startup instead of on the first request an operator makes.
 import announcements as announcements_mod
 import linking
-from announcements import Announcements, FolderWatcher
+from announcements import Announcements, FolderWatcher, ManifestWatcher
 from contrast import coarsest_level_is_written, intensity_histogram, measure
 from library import Library
+from live_config import LiveRegistry, capture_live_state, live_rows
 from stores import (
     DESCRIPTION_FILES,
     axis_names,
@@ -65,6 +67,8 @@ from stores import (
     written_timepoints,
     zarr_scheme,
 )
+
+from zmart_live.gateway import answer_from_a_live_run
 
 # Where the two kinds of content live on disk. Both are resolved to absolute
 # paths so the server behaves the same regardless of the working directory it
@@ -200,6 +204,7 @@ class _Handler(SimpleHTTPRequestHandler):
         browse=None,
         live: bool = True,
         announcements=None,
+        live_state=None,
         forget_measurements=None,
         **kwargs,
     ):
@@ -210,6 +215,9 @@ class _Handler(SimpleHTTPRequestHandler):
         self._live = live  # is the data still being written? decides what may be kept
         # How open pages are told that something has changed. See announcements.py.
         self._announcements = announcements or announcements_mod.Announcements()
+        # A cheap authoritative answer used for conditional catch-up after a
+        # missed SSE hint.  It returns ``(document, etag)`` and touches no image.
+        self._live_state = live_state
         # Asked afresh on each /api/config request rather than held as a fixed
         # answer, so a store written after the viewer opened can still appear.
         self._config = config
@@ -325,7 +333,40 @@ class _Handler(SimpleHTTPRequestHandler):
         if target is None:
             self._send_empty(HTTPStatus.FORBIDDEN)
             return
+
+        # A live run writes pixels before it atomically publishes them.  Static
+        # file existence is therefore not permission to serve.  This gate also
+        # resolves a seamless view chunk straight to the encoded bytes in its
+        # canonical position, including an inner chunk held inside a shard.
+        live = answer_from_a_live_run(target)
+        if live is not None:
+            if not live.allowed:
+                self._send_empty(HTTPStatus.NOT_FOUND)
+                return
+            if live.serving is not None:
+                number = rel.partition("/")[0]
+                root = self._library.resolve(f"{number}/.")
+                source = live.serving.path.resolve()
+                if root is None or (source != root and root not in source.parents):
+                    self._send_empty(HTTPStatus.FORBIDDEN)
+                    return
+                if not source.is_file():
+                    self._send_empty(HTTPStatus.NOT_FOUND)
+                    return
+                self._send_file(
+                    source,
+                    begins_at=live.serving.offset,
+                    how_many=live.serving.length,
+                )
+                return
         if not target.is_file():
+            if live is not None:
+                # The live gateway already classified this as a materialized
+                # piece.  If that file has disappeared, do not let the older
+                # generic pointer mechanism answer with some other bytes and
+                # hide the damage behind a plausible image.
+                self._send_empty(HTTPStatus.NOT_FOUND)
+                return
             # Before deciding there is nothing here: some pictures are never
             # written down at all. An acquisition can be shown as one image whose
             # full-size picture is a list of pointers into the tiles that already
@@ -386,6 +427,8 @@ class _Handler(SimpleHTTPRequestHandler):
         """Answer with a bare status, keeping the connection open for the next ask."""
         self.send_response(status)
         self.send_header("Content-Length", "0")
+        if self._live:
+            self.send_header("Cache-Control", "no-store")
         self.end_headers()
 
     # An OME-Zarr describes itself in small files named like this: what the axes
@@ -552,6 +595,9 @@ class _Handler(SimpleHTTPRequestHandler):
         if self.path.rstrip("/") == "/api/config":
             self._serve_config()
             return
+        if self.path.rstrip("/") == "/api/live-state":
+            self._serve_live_state()
+            return
         if self.path.rstrip("/") == "/api/annotations":
             path = self._data_dir / _ANNOTATIONS_FILE
             try:
@@ -633,12 +679,13 @@ class _Handler(SimpleHTTPRequestHandler):
             self._announcements.stop_listening(waiting)
 
     def _serve_announcement(self, payload: object) -> None:
-        """Take an announcement from whatever is driving the microscope.
+        """Accept the legacy optional hint used by generic live folders.
 
-        The application running the experiment knows things the viewer can only
-        guess at: it asked for the acquisition and it waited for the write to
-        finish. This is where it says so, and every open page is told to look
-        again.
+        Manifest-governed ZMART runs never need this endpoint: their watcher
+        observes the atomic committed marker and announces only after rereading
+        that authoritative state.  Keeping the endpoint preserves generic live
+        folder and explicit in-place-write behaviour without making a microscope
+        responsible for controlling the viewer.
 
         The body is almost never read for content, and that is on purpose. What a
         page does on hearing this is ask for the current state of things, which is
@@ -647,10 +694,11 @@ class _Handler(SimpleHTTPRequestHandler):
         step. Callers are welcome to send something readable for the sake of anyone
         watching the traffic.
 
-        There is exactly one thing read from the body, and it is read because the disk
-        genuinely cannot say it. Send ``{"wrote_image_in_place": true}`` when what was
-        written went *into* a store the viewer may already have open — a tile landing in
-        its place inside one large OME-Zarr — rather than into a new store of its own.
+        There is exactly one thing read from the body, and it is read because a
+        generic folder cannot say it. Send ``{"wrote_image_in_place": true}`` when
+        what was written went *into* a store the viewer may already have open — a
+        tile landing in its place inside one large OME-Zarr — rather than into a
+        new store of its own.
         Nothing about any description changes in that case: same store, same name, same
         size. The viewer would go on showing the emptiness it settled on earlier and
         would never look again, so it has to be told. Leave it out for the ordinary
@@ -700,6 +748,24 @@ class _Handler(SimpleHTTPRequestHandler):
         request is the cheap part, which is looking to see what is now there.
         """
         self._send_json(self._config())
+
+    def _serve_live_state(self) -> None:
+        """Return bounded committed revisions, conditionally when unchanged."""
+        if self._live_state is None:
+            self._send_empty(HTTPStatus.NOT_FOUND)
+            return
+        document, etag = self._live_state()
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(HTTPStatus.NOT_MODIFIED)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self._send_json(
+            document,
+            headers={"ETag": etag, "Cache-Control": "no-store"},
+        )
 
     def _serve_api_post(self) -> None:
         """Handle the things the viewer asks Python to do.
@@ -887,13 +953,22 @@ class _Handler(SimpleHTTPRequestHandler):
             return
         self._send_json(document)
 
-    def _send_json(self, obj: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
+    def _send_json(
+        self,
+        obj: dict,
+        status: HTTPStatus = HTTPStatus.OK,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         body = json.dumps(obj).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     # Quieten the default per-request logging so the console stays readable.
     def log_message(self, *args) -> None:  # noqa: D401
@@ -1040,10 +1115,36 @@ def make_server(
             name=spec.get("name"),
         )
 
-    # How open pages are told that something has changed, and the two things that
-    # do the telling. See announcements.py for why there are two.
+    # How open pages are told that something has changed.  A recognized ZMART
+    # run is governed only by its atomic publication marker; ordinary folders
+    # retain the generic directory watcher.
     told = Announcements()
-    watcher = FolderWatcher(library, told) if live else None
+    live_registry = LiveRegistry(library)
+    live_registry.refresh()
+    watchers = []
+    if live:
+        # Both providers are dynamic: the existing open/close API may add or
+        # remove a manifest run after the server has begun serving.
+        watchers.append(
+            FolderWatcher(
+                library,
+                told,
+                excluding=live_registry.dataset_numbers,
+            )
+        )
+        watchers.append(ManifestWatcher(live_registry.trackers, told))
+
+    def captured_live_state():
+        bindings, governed = live_registry.refresh()
+        document, snapshots = capture_live_state(bindings)
+        settled = json.dumps(document, sort_keys=True, separators=(",", ":"))
+        etag = '"' + hashlib.sha256(settled.encode("utf-8")).hexdigest() + '"'
+        return bindings, governed, document, snapshots, etag
+
+    def live_state_now() -> tuple[dict, str]:
+        """Bounded truth and its conditional-request identity."""
+        _bindings, _governed, document, _snapshots, etag = captured_live_state()
+        return document, etag
 
     # Measuring a store's display window and histogram means reading pixels, so
     # each store is measured once and the answer kept. The list of stores is
@@ -1241,7 +1342,17 @@ def make_server(
     building = threading.Lock()
 
     def config_now() -> dict:
-        revision = library.revision()
+        (
+            live_bindings,
+            live_numbers,
+            live_document,
+            live_snapshots,
+            live_etag,
+        ) = captured_live_state()
+        revision = (
+            library.revision(excluding=live_numbers),
+            live_etag,
+        )
         if last_built["revision"] == revision:
             return last_built["config"]
         with building:
@@ -1249,12 +1360,22 @@ def make_server(
             # built exactly what this one was about to build.
             if last_built["revision"] == revision:
                 return last_built["config"]
-            built = build_config()
+            built = build_config(
+                live_document,
+                live_bindings,
+                live_snapshots,
+                live_numbers,
+            )
             last_built["revision"] = revision
             last_built["config"] = built
             return built
 
-    def build_config() -> dict:
+    def build_config(
+        live_document: dict,
+        live_bindings,
+        live_snapshots,
+        live_numbers: frozenset[int],
+    ) -> dict:
         """Describe every row the layer panel should show, and its group.
 
         A row is one channel of one acquisition type. Which stores contribute to a
@@ -1288,6 +1409,8 @@ def make_server(
         # each needing its own setup and its own shader compiled.
         merged: dict[tuple, dict] = {}
         for (root_number, root, name), label in zip(entries, labels, strict=True):
+            if root_number in live_numbers:
+                continue
             group = groups_named[root_number]
             store_path = root / name
             # Where this store is read from. It follows from the store's name, so
@@ -1417,6 +1540,15 @@ def make_server(
                     row["sources"].append(source)
                     row["frameCounts"].append(frames)
         rows = [{"kind": "image", **row} for row in merged.values()]
+        for binding in live_bindings:
+            rows.extend(
+                live_rows(
+                    binding,
+                    chosen_window=window,
+                    group=groups_named[binding.dataset_number],
+                    snapshot=live_snapshots[binding.dataset_number],
+                )
+            )
         # Group order follows first appearance, which follows the sorted store
         # names, so the panel does not reshuffle itself between runs.
         groups = list(dict.fromkeys(row["group"] for row in rows))
@@ -1437,6 +1569,10 @@ def make_server(
             # Whether the page should keep asking if anything has changed. See
             # ``live`` above: on finished data there is nothing to notice.
             "live": live,
+            # Kept beside the complete row description so the browser can reject
+            # regressions before asking Neuroglancer to touch a source. Ordinary
+            # folders retain their existing response shape.
+            **({"liveState": live_document} if live_bindings else {}),
         }
 
     class _Server(ThreadingHTTPServer):
@@ -1449,7 +1585,7 @@ def make_server(
         def serve_forever(self, *args, **kwargs):
             # The disk is watched only while the server is actually running, and
             # only for data that is still being written -- see FolderWatcher.
-            if watcher is not None:
+            for watcher in watchers:
                 watcher.start()
             super().serve_forever(*args, **kwargs)
 
@@ -1457,7 +1593,7 @@ def make_server(
             # Let the listeners go before stopping, or each would sit through its
             # own quiet heartbeat before noticing the server had gone.
             told.close()
-            if watcher is not None:
+            for watcher in watchers:
                 watcher.stop()
             super().shutdown()
 
@@ -1470,6 +1606,7 @@ def make_server(
         browse=browse,
         live=live,
         announcements=told,
+        live_state=live_state_now,
         forget_measurements=forget_measurements,
     )
     try:

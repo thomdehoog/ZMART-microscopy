@@ -1,0 +1,14 @@
+# Things this folder generates rather than holds.
+#
+# The browser test builds a small page and installs the packages it needs, and
+# neither belongs in the repository: the packages are described by the lock file
+# beside them, and the built page is a few megabytes that would change on every
+# rebuild for no reason anybody could read in a diff.
+#
+# The photographs are deliberately *not* ignored. They are the evidence that the
+# test proved what it claims, and this project trusts a picture over a number.
+node_modules
+node_modules/
+page/built/
+test-results/
+playwright-report/

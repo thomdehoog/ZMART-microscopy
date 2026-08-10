@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Does a commit decide what is drawn?</title>
+    <!-- An empty icon, declared so that the browser does not go looking for one.
+         Left out, it asks the run's own server for /favicon.ico, is told there
+         is nothing there, and writes a complaint into its console — which the
+         test would then have to tell apart from a complaint that mattered. -->
+    <link rel="icon" href="data:," />
+    <style>
+      /* The page is deliberately plain. Nothing is drawn on it except the
+         picture itself, because anything else — a title bar, a status line, a
+         border — would be counted as "something is lit" by the measurement the
+         test makes, and the whole question here is whether the *picture* is
+         there. */
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        overflow: hidden;
+      }
+      /* A box of exactly the size the run is, in voxels: 1024 across and 512
+         down. The viewer is then told to draw one voxel to one screen pixel and
+         to look at the middle of the run, so the left half of this box is
+         always position A's ground and the right half is always position B's.
+         Those two halves are what the test measures, and because they are fixed
+         they mean the same thing in every photograph. */
+      /* The two pieces of furniture the engine draws for itself and offers no
+         setting to turn off: the axis names in the top-left corner, and the
+         layout buttons in the top-right. Both are light on the screen, and this
+         test measures light. They sit outside the rectangles it measures in, so
+         hiding them changes no number — but a rectangle is one edit away from
+         reaching a corner, and a measurement that quietly counted a button as
+         picture would be very hard to spot afterwards. */
+      .neuroglancer-display-dimensions-widget,
+      .neuroglancer-data-panel-layout-controls {
+        display: none !important;
+      }
+      #picture {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1024px;
+        height: 512px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="picture"></div>
+    <script type="module" src="./viewer.js"></script>
+  </body>
+</html>

@@ -30,6 +30,7 @@ dev = [
     "ruff>=0.6",
     "playwright>=1.58,<2",
     "pillow>=10",
+    "ngff-zarr[validate]>=0.41",
 ]
 
 [tool.setuptools.dynamic]
@@ -47,7 +48,7 @@ dependencies = { file = ["requirements.txt"] }
 # started from inside its own folder -- see viz_studio/README.md. Turning it into
 # a package is worth doing and is not a small change, because a dozen scripts and
 # the whole browser test suite import those modules by bare name.
-packages = ["zmart_storage"]
+packages = ["zmart_storage", "zmart_live"]
 
 [tool.ruff]
 target-version = "py310"
