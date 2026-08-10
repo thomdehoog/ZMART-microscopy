@@ -65,6 +65,11 @@ import zarr
 # annotations -- is not a tile and is skipped.
 IMAGE_SUFFIX = ".ome.zarr"
 
+# The key, beside the format's own, under which a tile may say how far it is
+# turned. OME-Zarr 0.5 has nowhere to put a rotation, so this is ours; a tile
+# without one is not turned.
+OURS_IN_THE_DESCRIPTION = "zmart"
+
 
 @dataclass
 class Copy:
@@ -115,10 +120,45 @@ class Tile:
     name: str
     store: Path
     copies: list[Copy]
+    # How far this tile is turned about its own centre, in radians, anticlockwise
+    # in the plane across the specimen. Nought for an ordinary transfer, and that
+    # is the case worth keeping fast: a tile that is not turned is copied
+    # rectangle by rectangle, exactly, and only a turned one is resampled.
+    #
+    # OME-Zarr 0.5 defines scale and translation and not rotation, so there is
+    # nowhere in the format to put this. It is read from a field of ours beside
+    # the format's own, and a transfer that does not carry one is simply not
+    # turned -- which is every transfer anybody has actually sent us.
+    turned: float = 0.0
     # What this tile's axes mean, kept from the one reading of its description.
     # Comparing tiles needs it, and reading every description a second time to
     # get it cost more than the whole of the rest of opening.
     axes: tuple[str, ...] = ()
+
+    def footprint(self, level: int, at: tuple[int, int, int]
+                  ) -> tuple[int, int, int, int]:
+        """The box this tile occupies across the specimen once it is turned.
+
+        Returned as ``(top, bottom, left, right)`` in the picture's own voxels at
+        this resolution. For a tile that is not turned this is simply where it
+        lands and how large it is; for a turned one it is the box around its four
+        corners, which is what has to be indexed, since a turned tile reaches into
+        pieces its unturned self would not.
+        """
+        held = self.copies[level].shape
+        if not self.turned:
+            return at[1], at[1] + held[1], at[2], at[2] + held[2]
+        middle = (held[1] / 2, held[2] / 2)
+        cos, sin = math.cos(self.turned), math.sin(self.turned)
+        corners = []
+        for down in (-middle[0], middle[0]):
+            for across in (-middle[1], middle[1]):
+                corners.append((down * cos - across * sin + middle[0] + at[1],
+                                down * sin + across * cos + middle[1] + at[2]))
+        return (math.floor(min(one[0] for one in corners)),
+                math.ceil(max(one[0] for one in corners)),
+                math.floor(min(one[1] for one in corners)),
+                math.ceil(max(one[1] for one in corners)))
 
     @property
     def keeps(self) -> int:
@@ -353,7 +393,10 @@ def _read_one_tile(store: Path) -> Tile:
             voxel_um=voxel,
             corner_um=(corner[0], corner[1], corner[2]),
         ))
-    return Tile(name=store.name, store=store, copies=copies, axes=axes)
+    ours = described.get(OURS_IN_THE_DESCRIPTION)
+    turned = float((ours or {}).get("turned_radians") or 0.0)
+    return Tile(name=store.name, store=store, copies=copies, axes=axes,
+                turned=turned)
 
 
 def _refuse_tiles_that_disagree(tiles: list[Tile]) -> str:
