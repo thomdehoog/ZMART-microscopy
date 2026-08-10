@@ -79,6 +79,50 @@ and every shard depth (8, 16, 32 frames on a 67 MB stack too):
 1 × 512 × 512, shards 16–32 frames deep covering the full frame — and fall
 back to `plane-shards` when the buffer RAM is not available.
 
+## How time scales with chunks per shard
+
+A dedicated sweep (32 × 1024 × 1024 stack, 67 MB, 256-pixel chunks, shard
+depth 1–32 frames, so 16–512 chunks per shard) pins down the scaling law:
+
+| shard depth | chunks/shard | naive wall_s | naive write_amp | buffered wall_s | buffered write_amp |
+| ----------: | -----------: | -----------: | --------------: | --------------: | -----------------: |
+|           1 |           16 |         0.71 |            0.55 |            0.56 |               0.55 |
+|           2 |           32 |         0.74 |            0.82 |            0.52 |               0.55 |
+|           4 |           64 |         0.68 |            1.37 |            0.48 |               0.55 |
+|           8 |          128 |         0.73 |            2.47 |            0.50 |               0.55 |
+|          16 |          256 |         1.17 |            4.64 |            0.49 |               0.55 |
+|          32 |          512 |         1.78 |            8.93 |            0.50 |               0.55 |
+
+What this says, strategy by strategy:
+
+- **`naive-sharded` grows linearly with shard depth.** Each frame write
+  repacks everything already in the shard, so filling an *N*-frame shard
+  writes it out *N* times at growing sizes — about (*N* + 1)/2 times the
+  shard's bytes in total. The measured amplification follows that formula
+  exactly: 0.55 × (*N* + 1)/2 (0.55 is the compression ratio). Wall time
+  looks flat at small depths only because fixed per-write costs dominate on
+  fast local disk; once the rewrite traffic outweighs them (here around
+  depth 8) time climbs linearly, and on slower network storage the linear
+  term takes over almost immediately.
+- **Every other strategy is flat** — constant in shard depth, because each
+  fills every shard in exactly one write. `buffered-sharded` sits at
+  ~0.5 s and amplification 0.55 whether shards hold 16 or 512 chunks;
+  `plane-shards` is the depth-1 point of the same flat line;
+  `write-then-reshard` is a flat line at roughly 2× (constant amplification
+  1.10, everything written twice); `unsharded` has no shards to scale with.
+- **It is the number of writes per shard that matters, not the chunk count
+  itself.** At a fixed 16-frame depth, naive writing was slow at 1024, 256,
+  and 64 chunks per shard alike (its amplification stayed ≈ 4.7 in all
+  three) — varying *how many chunks* a shard holds changes little, while
+  varying *how many separate writes* fill it changes everything. Chunk size
+  has its own independent, gentler effect through per-chunk compressor and
+  file overhead (small chunks cost more for every strategy).
+
+So the rule of thumb for any writer: you may make shards as deep as you
+like — chunks per shard is free — as long as each shard is written in a
+single operation. The moment a shard is filled in *N* separate writes, you
+pay for it roughly *N*/2 times over.
+
 ## Running it yourself
 
 The spike needs `zarr >= 3` (not part of the canonical ZMART environment;
