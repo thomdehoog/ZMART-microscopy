@@ -93,6 +93,13 @@ def _set_range(page, label, value):
     page.evaluate(
         """([label, value]) => {
           const element = document.querySelector(`[aria-label="${label}"]`);
+          // Say which control is missing. Without this the next line calls a
+          // setter on null and the browser reports "Illegal invocation", which
+          // names neither the control nor the fact that it was renamed --
+          // exactly what happened when the panel's black/white became min/max.
+          if (!element) {
+            throw new Error(`no control is labelled "${label}"`);
+          }
           const set = Object.getOwnPropertyDescriptor(
             window.HTMLInputElement.prototype, "value").set;
           set.call(element, String(value));
@@ -111,10 +118,10 @@ def _operator_state(page):
           perspectiveZoom: window.zmartViewer.perspectiveNavigationState.zoomFactor.value,
           layers: window.zmartViewer.layerManager.managedLayers.map((managed) => managed.name),
           layerState: JSON.parse(JSON.stringify(window.zmartLayerState)),
-          black: Number(document.querySelector(
-            '[aria-label="black overview (seamless) channel 0"]').value),
-          white: Number(document.querySelector(
-            '[aria-label="white overview (seamless) channel 0"]').value),
+          min: Number(document.querySelector(
+            '[aria-label="min overview (seamless) channel 0"]').value),
+          max: Number(document.querySelector(
+            '[aria-label="max overview (seamless) channel 0"]').value),
           opacity: Number(document.querySelector(
             '[aria-label="opacity overview (seamless) channel 0"]').value),
           group: window.zmartConfig.groups[0],
@@ -130,8 +137,8 @@ def _tune(page):
     page.locator(
         "[aria-label='toggle overview (seamless) channel 0']"
     ).locator("xpath=../..").click()
-    _set_range(page, "black overview (seamless) channel 0", 100)
-    _set_range(page, "white overview (seamless) channel 0", 3500)
+    _set_range(page, "min overview (seamless) channel 0", 100)
+    _set_range(page, "max overview (seamless) channel 0", 3500)
     _set_range(page, "opacity overview (seamless) channel 0", 0.83)
     group = page.evaluate("() => window.zmartConfig.groups[0]")
     _set_range(page, f"opacity group {group}", 0.91)
@@ -164,8 +171,8 @@ def _assert_operator_state(before, after):
     assert np.allclose(after["position"], before["position"])
     assert after["zoom"] == before["zoom"]
     assert after["perspectiveZoom"] == before["perspectiveZoom"]
-    assert after["black"] == 100
-    assert after["white"] == 3500
+    assert after["min"] == 100
+    assert after["max"] == 3500
     assert after["opacity"] == 0.83
     assert after["group"] == before["group"]
     assert after["groupOpacity"] == 0.91

@@ -227,8 +227,15 @@ class TestSegmentationMasks:
         # handles are not labelled "nuclei", which proves nothing.
         masked_page.get_by_label("toggle nuclei").locator("xpath=../..").click()
         masked_page.wait_for_timeout(300)
-        assert masked_page.get_by_label("black nuclei").count() == 0
-        assert masked_page.get_by_label("white nuclei").count() == 0
+        # The two ends of the window are labelled min and max, following Fiji,
+        # and brightness and contrast drive the same window from the other side.
+        # None of the four means anything on an identity number, so all four
+        # must be absent. Naming them exactly as the panel does is the whole
+        # point: while this asked for "black" and "white", which the panel had
+        # stopped offering to any layer at all, it passed by finding nothing
+        # whatever the mask showed.
+        for handle in ("min", "max", "brightness", "contrast"):
+            assert masked_page.get_by_label(f"{handle} nuclei").count() == 0
         # It can still be hidden and faded like anything else.
         assert masked_page.get_by_label("toggle nuclei").count() == 1
         assert masked_page.get_by_label("opacity nuclei").count() == 1
