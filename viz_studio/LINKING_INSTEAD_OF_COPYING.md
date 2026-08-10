@@ -446,3 +446,32 @@ the same specimen written as one canvas takes 128-301 requests and under a
 second. One source either way. The likeliest cause is that a pointer map hands
 out pieces one at a time where a written pyramid gives the engine runs of
 neighbouring chunks -- but that is a guess and it is the next thing to measure.
+
+## Measured later the same day: ten thousand at random, and the 925 explained
+
+The guess above did not survive its measurement. `measure_the_chunk_size.py`
+showed the same picture written as an ordinary canvas costs 46 requests in
+pieces of 256 and 1,925 in pieces of 32, no pointers anywhere -- so the 925 was
+the piece size the old depth rule forced, not the pointing. With the depth now
+worked out from the run (see "Each pyramid level..." above), the piece size
+stays whatever the acquisition chose, and the linked view opens like a canvas.
+
+Then the placement was made as hard as it gets, on this project's own piece
+size: **10,000 positions of 512 voxels placed at random** over an 81,920-voxel
+stage, 5,693 of them overlapping another tile, one linked source, measured
+through the viewer's own server in a real browser
+(`measure_a_random_scatter.py`, software renderer, so seconds are a floor):
+
+| | |
+| --- | --- |
+| growing the view, positions written included | 44 ms a position |
+| fully loaded from a cold page | **1.3 s, 71 pieces** |
+| the whole 29 mm stage fitted and settled | 2.2 s from cold, 82 pieces |
+| zoom ladder, full resolution to whole stage | every rung settled in ~0.3 s |
+| pieces per rung, zooming out 4x at a time | 515, 367, 76, 8, 2 |
+| pointers followed into the overlap and proven to cover their piece | 990 of 990 |
+
+Random placement, holes and overlap change nothing about the opening cost,
+because the browser is never told they exist: it sees one image and asks by
+screen and piece size. The same ten thousand positions as separate sources
+would be about 48,000 requests on the measured 5.2-per-tile curve.
