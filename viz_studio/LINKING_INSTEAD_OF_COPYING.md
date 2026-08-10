@@ -475,3 +475,55 @@ Random placement, holes and overlap change nothing about the opening cost,
 because the browser is never told they exist: it sees one image and asks by
 screen and piece size. The same ten thousand positions as separate sources
 would be about 48,000 requests on the measured 5.2-per-tile curve.
+
+## Measured on real hardware, 11 August 2026
+
+Everything above was taken on a software renderer, and the handover said
+plainly that a machine with a card would have to redo the frame numbers. That
+machine turned up: an NVIDIA T400 4GB, drawing through ANGLE and Direct3D 11.
+Two things had to be true before the card could be measured at all, and both
+are now in the scripts rather than in anybody's memory: the SwiftShader pin had
+to come out of the launcher (`measure_a_random_scatter.py` borrowed the sweep's,
+which forces software on purpose), and the browser has to be **headed** —
+a headless Chromium on this machine reports SwiftShader whatever arguments it
+is given, so `--headed` is what reaches the card, and every run now announces
+which renderer really drew.
+
+The scatter, at 2,000 positions on the same seed, both renderers on the same
+box (`measure_a_random_scatter.py 2000` and the same with `--headed`):
+
+| | software (SwiftShader) | the card (T400) |
+| --- | --- | --- |
+| fully loaded from a cold page | 0.53 s, 71 pieces | 0.61 s, 71 pieces |
+| the whole stage fitted and settled | 1.21 s, 82 pieces | 1.27 s, 82 pieces |
+| zoom ladder, every rung | ~0.32 s | ~0.32 s |
+
+**Opening did not notice the card, and the piece counts did not notice the
+machine.** 71 pieces from a cold page is the same 71 the sandbox measured at
+ten thousand positions — the browser asks by screen and piece size, so the
+count belongs to the window, not to the run or the box. The seconds belong to
+disk and requests, which never go near the card. Both of those were
+predictions in `HANDOVER_overlapping_runs.md`; they are now measurements.
+
+What the card does buy is frames
+(`measure_the_frame_rate_of_a_linked_view.py --steps 100,400,1600`, and the
+same with `--headed`; 1,600-tile rows, screen 0.9 lit):
+
+| | fps | middle frame | worst |
+| --- | --- | --- | --- |
+| the sandbox that wrote this document (4 cores, software) | 25–28 | 33 ms | 100 ms |
+| this machine, software | 89 | 8 ms | 19 ms |
+| this machine, **the card** | **123** | **2 ms** | 19 ms |
+
+The flatness claim survives on real hardware — 124 fps at 400 tiles, 123 at
+1,600 — and the rate the sandbox could only call "more than half the frames
+available" is 123 frames a second with a 2 ms middle frame on a modest card.
+
+One operational finding from the same afternoon, recorded because it will bite
+whoever runs this next: the 10,000-position build was **killed twice by this
+machine's endpoint protection** — silently, exit code 5, no traceback, at a
+different point each time. Writing tens of thousands of small files at full
+speed is exactly the pattern a ransomware heuristic watches for. The 2,000
+rows above exist because that is the size that got through; the counts lose
+nothing (see the 71 above), but the 10,000-row seconds on this machine are
+still owed, and want an antivirus exclusion before they are attempted.

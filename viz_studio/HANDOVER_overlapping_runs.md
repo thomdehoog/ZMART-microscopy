@@ -59,6 +59,17 @@ So the numbers that matter — frames a second in the volume, how a contrast dra
 feels with ten thousand tiles open — can only come from your hardware. If your
 figures disagree with any in this document, **yours are the real ones**.
 
+**Done, 11 August 2026, on an NVIDIA T400 4GB.** The flat view's real figures
+are in `LINKING_INSTEAD_OF_COPYING.md` under "Measured on real hardware": 123
+frames a second and a 2 ms middle frame at 1,600 tiles, against 25–28 and
+33 ms in this document's tables — and opening, requests and piece counts did
+not move at all, which is what "neither goes near the card" predicted below.
+Two practical notes for whoever repeats it: the card is only reachable
+**headed** (`--headed` on the measuring scripts; headless Chromium reports
+SwiftShader whatever it is asked), and this section's own sweep still pins
+software deliberately, because its columns are counts. The volume's frame rate
+remains unmeasured.
+
 `HANDOVER_3D.md` has the three commands for getting the volume view up.
 
 ---
