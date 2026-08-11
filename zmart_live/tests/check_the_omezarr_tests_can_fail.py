@@ -188,11 +188,12 @@ PRODUCTION_PATH_FAULTS: list[tuple[str, str, str]] = [
         "        pass",
     ),
     (
-        "leave the live seamless pyramid undescribed",
+        "leave the live linked pyramid undescribed",
         "        describe_the_position(\n"
-        "            self.seamless_store,\n"
+        "            self.view_store,\n"
         "            self.profile,\n"
-        '            name="overview-seamless",\n'
+        '            name="overview",\n'
+        "            levels=levels,\n"
         "            channels=self.channels,\n"
         '            origin_pixels={"z": 0, "y": 0, "x": 0},\n'
         "        )",

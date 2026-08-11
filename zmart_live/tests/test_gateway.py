@@ -244,19 +244,61 @@ def test_a_link_map_from_another_run_fails_closed_after_publication(tmp_path):
     assert refused is not None and refused.allowed is False
 
 
-def test_a_link_map_that_moves_a_tile_fails_closed(tmp_path):
+def test_a_link_map_that_reorders_the_draw_order_fails_closed(tmp_path):
+    """The stored order is the draw order, so a lie about it is a lie about pixels.
+
+    Swapping two committed positions in the map would quietly hand the overlap
+    to the earlier arrival — specimen that looks entirely plausible — so the
+    gateway checks the order against the manifest and refuses the map instead.
+    """
     run = a_live_run(tmp_path)
+    run.write_and_publish("posB", some_specimen(900))
     run.write_and_publish("posA", some_specimen(700))
     requested = run.view_level() / "c/0/0/0/0/0"
+    sound = answer_from_a_live_run(requested)
+    assert sound is not None and sound.allowed is True
 
     link_map = run.link_map_file
     damaged = json.loads(link_map.read_text(encoding="utf-8"))
-    damaged["levels"][0]["positions"][0]["lands_at"][2] += 128
+    for level in damaged["levels"]:
+        level["positions"].reverse()
     link_map.write_text(json.dumps(damaged), encoding="utf-8")
     forget_live_run(run.folder)
 
     refused = answer_from_a_live_run(requested)
     assert refused is not None and refused.allowed is False
+
+
+def test_a_link_map_that_moves_a_tile_fails_closed(tmp_path):
+    """A map that slides a tile inward must be refused, not partly served.
+
+    Under later-wins an inward move is the dangerous direction: nothing else
+    collides, the route still builds, and the moved tile would simply claim
+    its neighbour's ground and be served there — plausible specimen, wrong
+    place. Only the check against the immutable layout stands between that
+    map and the screen, so both the vacated ground and the wrongly claimed
+    ground have to come back refused.
+    """
+    run = a_live_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+
+    link_map = run.link_map_file
+    damaged = json.loads(link_map.read_text(encoding="utf-8"))
+    # One whole chunk inward at full resolution: chunk-aligned, entirely inside
+    # the picture, colliding with nothing — the move only the layout check sees.
+    damaged["levels"][0]["positions"][0]["lands_at"][2] += run.profile.level(
+        0
+    ).inner_chunk["x"]
+    link_map.write_text(json.dumps(damaged), encoding="utf-8")
+    forget_live_run(run.folder)
+
+    vacated = answer_from_a_live_run(run.view_level() / "c/0/0/0/0/0")
+    assert vacated is not None and vacated.allowed is False
+    claimed = answer_from_a_live_run(run.view_level() / "c/0/0/0/0/1")
+    assert claimed is not None and claimed.allowed is False, (
+        "ground the moved tile wrongly claims must be refused, never served "
+        "out of the wrong part of the specimen"
+    )
 
 
 def test_a_lone_legacy_generation_looking_name_is_not_misparsed():

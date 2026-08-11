@@ -1,5 +1,17 @@
 # Positions in a zarr, and one more for the viewer
 
+> **2026-08-11, on the lab Windows machine: built, one step further than
+> below.** Forget the trimming too. The governed live coordinator
+> (`zmart_live`) now writes exactly this shape — positions whole below
+> `positions/`, one linked view at `views/overview.ome.zarr` — and the view
+> does **no** trimming at all: every position is routed whole, overlap
+> intact, and where two cover the same ground the one committed later is
+> drawn on top, proven at ten thousand overlapping positions with every
+> sampled pointer resolving to the later tile. The raw evidence needs no
+> second view, because the positions keep both recordings of shared ground
+> and each one's own OME-Zarr metadata places it on the specimen. The
+> trimming-with-pointers note below is the step this superseded.
+
 > **Where this got to, 2026-08-10, late.** Forget the cropping. The positions are
 > written whole and the view does the trimming with pointers -- `PlacedTile`
 > already carries `taken_from` and `size` for exactly that, and
