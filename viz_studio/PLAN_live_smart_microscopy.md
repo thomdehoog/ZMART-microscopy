@@ -144,28 +144,37 @@ times over.
   `no-store` while a run is live, so the browser holds nothing stale to begin
   with.
 
-## What has to be built
+## What had to be built — done 11 August 2026, same day as the plan
 
-Listed smallest first; the first three are hours each, not days.
-
-1. **Positions directly inside the view.** `keeps_its_tiles_in` today wants a
-   named subfolder; teach it (or a sibling flag) that the tiles are the view's
-   own non-numeric children, and make `discard_existing_run` step around them
-   there too.
-2. **A change counter in the view's description.** Goes up on every change,
-   including the ones the file's length cannot show. The reader watches it;
-   the announcements channel relays it. This is the counter
+1. **Positions directly inside the view.** *Built.* `keeps_its_tiles_in="."`
+   says the tiles are the view's own children named ``.ome.zarr`` — checked,
+   not trusted — and everything that empties or inspects an image steps around
+   them by one shared rule. The viewer needed no change: an image is an image
+   because of its own description, so the picture stays one image however many
+   positions it holds inside.
+2. **A change counter in the view's description.** *Built.* Every rewrite of
+   the list moves ``generation``, and `note_a_change` moves it for the changes
+   no file's length can show. This is the counter
    `OPEN_a_run_that_changes_while_you_watch.md` asked for.
-3. **Frames-imaged-so-far in the manifest**, so the time slider follows what
-   exists rather than the declared room. The canvas writer already computes
-   this for timelapses; it needs saying for linked views too.
-4. **The writer's time API.** `start_a_run` grows a `frames=` room and a way
-   to write a given position at its next moment; the revision bump rides the
-   same announcement a new position already sends.
-5. **Sharded growth, tested.** Sharded tiles link and draw today
-   (`test_a_pointed_at_view_of_the_newer_format.py`), but two combinations are
-   untested and this plan needs both: a *growing* view over sharded positions,
-   and sharded tiles pointed at more than one level deep.
+3. **Frames-imaged-so-far.** *Already existed, now fed.* The viewer counts how
+   far time reaches from the written copies (`written_timepoints` in
+   `stores.py`) and stops the slider there; what was missing was later moments
+   ever reaching those copies, which item 4 fixed. `Run.frames_reached` says
+   the same number without looking at disk.
+4. **The writer's time API.** *Built.* A later moment written into an existing
+   position updates that moment's share of the written zoomed-out copies and
+   moves the change counter (`GrowingLinkedView.imaged_again`); adding a tile
+   can be told which moment just landed, so a long declared timelapse costs
+   what was imaged rather than what was declared; and `Run.image_again`
+   records a revisited place at its own next moment, never over an earlier
+   observation.
+5. **Sharded growth, tested.** *Both combinations now pinned.* A growing view
+   over bundled tiles answers correctly mid-run. Bundled tiles that carry
+   their own copies point at full size only — the served unit changes between
+   levels, so deeper pointing is capped and the deeper zooms are written,
+   which the test proves gives the right picture. Deeper pointing over
+   bundles means the map carrying each level's own unit: future work, not a
+   gap in correctness.
 
 ## Benchmark last: sharding against not, once everything works
 

@@ -308,9 +308,21 @@ index says a tile *should* be there and the file is not, that deserves a line in
 the log and a note in the viewer's own status, even though the reply on the wire
 stays the same. This came out of the third review and it is a real gap.
 
-**Decide about sharding.** If tiles are written as sharded zarr, a piece lives
-*inside* a file rather than being one, so handing it over means serving part of a
-file rather than a file. Still possible, no longer simple.
+**Decide about sharding.** *Decided, built, and tested — for the full-size
+picture.* A sharded tile's pieces live inside bundles, and the bundle is the
+file, so the bundle is what is handed over: the view is declared bundled
+exactly as its tiles are, the engine reads each bundle's own index and asks for
+pieces by byte range, and the server answers single ranges. Growing views over
+bundled tiles answer mid-run like any other. The rule to know is that **the
+bundle becomes the placement unit** — tiles land on whole bundles, and a larger
+bundle makes placement harder, not easier.
+
+What stays open is pointing at a bundled tile's *deeper copies*: the unit the
+picture is served in changes between levels (the bundle at full size, the bare
+piece below), the map speaks one unit, so the depth is capped at full size and
+the deeper zooms are written instead — pinned by
+`test_bundled_tiles_point_one_level_and_the_next_zoom_is_written_right`. Going
+deeper would mean the map carrying each level's own unit.
 
 **Keep it current during a run.** A tile arriving adds pointers, which is cheap.
 Two things are not.
