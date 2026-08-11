@@ -341,3 +341,13 @@ woven through the gateway and its tests. **Open cleanup, its own session:**
 strip the coordinator back to positions plus the one later-wins linked view.
 Until then the two extra views cost routing metadata and per-commit work, not
 pixels, and everything measured in this plan stands either way.
+
+Measured the same evening, and the sharpest argument for that cleanup: a
+governed run watched live on the Windows machine **died at revision 36 of
+144** — the same reader-holds-the-file race the tile writer had already been
+cured of, this time on the per-commit atomic rewrite of a view's
+`zarr.json`, and the file it died on was the raw-overlap view's. The
+patient-write fix lives in the storage layer's pixel path and does not reach
+the coordinator's metadata rewrites. The cleanup should remove the doomed
+view rather than teach it patience, and give whatever per-commit metadata
+rewriting survives the same brief-hold patience as the pixel writes.
