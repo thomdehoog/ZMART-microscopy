@@ -196,6 +196,31 @@ file count by the stack depth, leaves every read the same, and costs only the
 position-sized write buffer the acquisition holds anyway. If any column says
 otherwise, the shard shape above is wrong, not the idea.
 
+### First rows, sandbox, 11 August 2026 — the graphics-card rows still owed
+
+Both arms at 2,000 positions on identical spots
+(`measure_a_random_scatter.py 2000 --coarse` against `--sharded`, software
+renderer, single-plane demo positions of 512 voxels in 2 x 2 pieces):
+
+| | plain | bundled |
+| --- | --- | --- |
+| writing and linking, per position | 42 ms | 42 ms |
+| files on disk | 17,482 | 11,485 |
+| fully loaded from a cold page | 1.27 s, 61 pieces | 1.32 s, 50 pieces |
+| whole stage fitted | 1.95 s | 2.01 s |
+| zoom ladder | ~0.3-0.5 s a rung | ~0.3-0.5 s a rung |
+| pointers proven to cover their piece | 251 of 251 | 251 of 251 |
+
+**Reads the same, writes the same, correctness the same** — the expectation
+holds. The file count deserves the honest reading: each position went from six
+files to three (four pieces into one bundle, plus its two descriptions), and
+the rest of both totals is the view's written zoom levels, identical either
+way. A single-plane 2 x 2-piece demo position is the *worst* case for
+bundling; the plan's real shape — a whole stack of single-plane pieces in one
+bundle — divides a position's picture files by pieces-per-position, which for
+a 30-plane, 2048-voxel position is hundreds into one. The division grows with
+exactly the thing that makes runs heavy.
+
 ## What this plan deliberately does not do
 
 No stitching, no blending, no sub-voxel placement — those change pixels and
