@@ -144,7 +144,13 @@ from pathlib import Path
 import numpy as np
 import zarr
 
-from .canvas import _IMAGE_SUFFIX, Channel, TileCanvases, copies_for_a_canvas
+from .canvas import (
+    _IMAGE_SUFFIX,
+    TILES_LIVE_DIRECTLY_INSIDE,
+    Channel,
+    TileCanvases,
+    copies_for_a_canvas,
+)
 
 # The folder, sitting beside the images rather than inside any of them, holding one
 # list of pointers per view: ``zmart-links/overview.ome.zarr.json`` says which piece
@@ -879,6 +885,23 @@ def _refuse_tiles_that_are_not_where_the_view_says_they_are(
     name at a time would mean running this once per tile to find that out.
     """
     wanted = (folder / f"{name}{_IMAGE_SUFFIX}" / inside).resolve()
+    # Tiles living directly among the view's levels are protected from the
+    # writer's emptying sweep by their name alone — every child ending
+    # ``.ome.zarr`` is stepped around, everything else is the view's own and is
+    # cleared. A tile named any other way would be deleted by the very
+    # declaration that means to point at it, so it is refused here, before
+    # anything is written.
+    if inside == TILES_LIVE_DIRECTLY_INSIDE:
+        misnamed = [Path(tile.store) for tile in tiles
+                    if not Path(tile.store).name.endswith(_IMAGE_SUFFIX)]
+        if misnamed:
+            raise ValueError(
+                f"{misnamed[0]} lives directly inside the view, and a position "
+                f"there must be named ending {_IMAGE_SUFFIX!r} — that ending is "
+                "what tells the writer it is a position to step around rather "
+                "than a leftover of the view to clear away. Named otherwise it "
+                "would be deleted the next time the view is declared."
+            )
     astray = []
     for tile in tiles:
         where = Path(tile.store).resolve()
@@ -944,19 +967,24 @@ def link_the_tiles(
             canvas uses decides it from the size of the picture.
         discard_existing_run: whether to throw away a view already built in this
             folder under this name. The tiles are never touched either way.
-        keeps_its_tiles_in: the name of a subfolder *inside* the view where the
-            tiles live, such as ``"positions"``. Left out — the usual arrangement
-            — the view is a folder beside the tiles and each is separate.
+        keeps_its_tiles_in: where *inside* the view the tiles live: the name of
+            a subfolder such as ``"positions"``, or ``"."`` to say the tiles sit
+            directly among the view's own levels with nothing between. Left out
+            — the usual arrangement — the view is a folder beside the tiles and
+            each is separate.
 
-            Giving it says the view and its tiles are one thing on disk::
+            Giving it says the view and its tiles are one thing on disk, here
+            in the direct arrangement::
 
                 plate.ome.zarr/          <- open this; it is one whole picture
-                  .zattrs .zgroup        <- what the picture is
-                  0/ 1/ 2/ 3/            <- descriptions only, no picture at all
-                  zmart-links.json       <- which piece is which piece of which tile
-                  positions/
-                    pos00000.ome.zarr/   <- a complete image in its own right
-                    pos00001.ome.zarr/
+                  zarr.json              <- what the picture is, and the map
+                  0/ 1/ 2/ 3/            <- the levels: pointed ones hold nothing
+                  pos00000.ome.zarr/     <- a complete image in its own right
+                  pos00001.ome.zarr/
+
+            A tile living directly inside must be named ending ``.ome.zarr`` —
+            that ending is what the writer's emptying sweep steps around — and
+            this is checked rather than trusted.
 
             The reason to want it is that there is then **one folder to open, to
             move and to copy**, and nothing of a run can be separated from the
