@@ -596,18 +596,123 @@ def test_every_axis_is_measured_against_its_own_chunk(tmp_path):
     assert route.advertises((0, 0, 1, 0, 0))
 
 
-def test_two_positions_claiming_the_same_piece_are_refused(tmp_path):
-    """An undecided seam is refused rather than settled by list order."""
+def test_a_shared_piece_is_drawn_from_the_later_position(tmp_path):
+    """Where two whole positions overlap, the one listed later answers.
+
+    Overlap is not an undecided seam any more: positions are routed whole, in
+    the order they arrived, and a later arrival is simply drawn over an earlier
+    one. The order of the list is therefore load-bearing, and this checks it in
+    both directions — the shared piece answers from the later position, and the
+    ground only the earlier one covers still answers from the earlier one.
+    """
+    left, left_pixels = a_position(tmp_path / "pos0", seed=15)
+    right, right_pixels = a_position(tmp_path / "pos1", seed=16)
+    route = route_the_view(
+        [
+            Placed(left, lands_at=(0, 0, 0)),
+            Placed(right, lands_at=(0, 0, SEAM)),
+        ],
+        view_shape=(SHAPE[2], SHAPE[3], SEAM + SHAPE[4]),
+    )
+    shared = (0, 0, 0, 0, SEAM // CHUNK[-1])
+    answer = route.where_this_chunk_is(shared)
+    assert answer is not None and answer.position == right
+    only_left = (0, 0, 0, 0, 0)
+    answer = route.where_this_chunk_is(only_left)
+    assert answer is not None and answer.position == left
+
+
+def test_the_drawn_piece_holds_the_later_positions_own_pixels(tmp_path):
+    """The bytes handed over for a shared piece decode to the later measurement.
+
+    Serving the earlier position's copy of shared ground would look exactly like
+    specimen, so the claim has to be proven at the pixel level: the piece the
+    route hands over for the overlap is byte-for-byte the later position's own
+    recording of it, read back through ordinary Zarr.
+    """
     left, _ = a_position(tmp_path / "pos0", seed=15)
     right, _ = a_position(tmp_path / "pos1", seed=16)
-    with pytest.raises(ZmartLiveError, match="same piece"):
-        route_the_view(
-            [
-                Placed(left, lands_at=(0, 0, 0)),
-                Placed(right, lands_at=(0, 0, SEAM)),
-            ]
-        )
-    # Trimmed so that they meet rather than overlap, the same pair is fine.
+    route = route_the_view(
+        [
+            Placed(left, lands_at=(0, 0, 0)),
+            Placed(right, lands_at=(0, 0, SEAM)),
+        ],
+        view_shape=(SHAPE[2], SHAPE[3], SEAM + SHAPE[4]),
+    )
+    shared = (0, 0, 0, 0, SEAM // CHUNK[-1])
+    raw = the_bytes_of(route.where_this_chunk_is(shared))
+    theirs = the_same_region(right, (0, 0, 0, 0, 0), CHUNK)
+    assert np.array_equal(decoded(raw, tmp_path / "scratch", route), theirs)
+
+
+def test_every_claim_on_a_shared_piece_is_reachable_newest_first(tmp_path):
+    """Both recordings of shared ground stay reachable, ordered newest first.
+
+    The drawn picture shows the later position, but the earlier measurement is
+    not lost — a caller that needs it (the publication gateway, while the later
+    position is written but not yet committed) walks the claims. The order is
+    the contract: the first claim is the one the picture draws.
+    """
+    left, _ = a_position(tmp_path / "pos0", seed=15)
+    right, _ = a_position(tmp_path / "pos1", seed=16)
+    route = route_the_view(
+        [
+            Placed(left, lands_at=(0, 0, 0)),
+            Placed(right, lands_at=(0, 0, SEAM)),
+        ],
+        view_shape=(SHAPE[2], SHAPE[3], SEAM + SHAPE[4]),
+    )
+    shared = (0, 0, 0, 0, SEAM // CHUNK[-1])
+    claims = route.claims_on(shared)
+    assert [claim.position for claim in claims] == [right, left]
+    for claim, owner in zip(claims, (right, left), strict=True):
+        serving = claim.serving()
+        assert serving is not None and serving.position == owner
+    # Ground only one of them covers has exactly one claim, and unimaged ground
+    # has none at all.
+    assert [claim.position for claim in route.claims_on((0, 0, 0, 0, 0))] == [left]
+    assert route.claims_on((0, 0, 1, 40, 40)) == ()
+
+
+def test_an_unwritten_piece_of_the_later_position_is_not_served_from_the_earlier(
+    tmp_path,
+):
+    """A later position that has not written a shared chunk yields absence, not
+    the earlier position's copy.
+
+    The drawn answer follows the newest claim wherever it covers. If that
+    position has not written the chunk yet, the honest answer is "nothing here"
+    — quietly falling back to the earlier recording would show pixels that the
+    newer, authoritative measurement is about to contradict. Callers that may
+    show the older recording while the newer is unpublished do so deliberately,
+    through the claims, never by accident here.
+    """
+    left, _ = a_position(tmp_path / "pos0", seed=15)
+    right, _ = a_position(
+        tmp_path / "pos1", seed=16, written=np.s_[0, 0, :, 0:128, 0:128]
+    )
+    route = route_the_view(
+        [
+            Placed(left, lands_at=(0, 0, 0)),
+            Placed(right, lands_at=(0, 0, SEAM)),
+        ],
+        view_shape=(SHAPE[2], SHAPE[3], SEAM + SHAPE[4]),
+    )
+    unwritten_in_right = (0, 0, 0, 1, SEAM // CHUNK[-1])
+    assert route.where_this_chunk_is(unwritten_in_right) is None
+    assert not route.advertises(unwritten_in_right)
+    # The earlier position's recording is still there, one claim down.
+    claims = route.claims_on(unwritten_in_right)
+    assert [claim.position for claim in claims] == [right, left]
+    assert claims[0].serving() is None
+    older = claims[1].serving()
+    assert older is not None and older.position == left
+
+
+def test_trimmed_positions_that_merely_meet_still_route(tmp_path):
+    """A pair trimmed to meet at a boundary keeps working exactly as before."""
+    left, _ = a_position(tmp_path / "pos0", seed=15)
+    right, _ = a_position(tmp_path / "pos1", seed=16)
     route = route_the_view(
         [
             Placed(left, lands_at=(0, 0, 0), size=(SHAPE[2], SHAPE[3], SEAM)),
