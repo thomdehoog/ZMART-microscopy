@@ -1699,12 +1699,20 @@ class LivePublisher:
             raise NotReadyToPublish(found.describe())
 
         placement = self.layout.placement(position_id)
+        # The kind belongs to the position's history, not to how the call was
+        # spelled: a position's first commit is its arrival whichever moment it
+        # names, and only a position the record already knows can gain a moment.
+        # Chosen from the durable record rather than remembered, for the same
+        # reason as _committed_units itself.
+        already_published = any(
+            position == position_id for position, _ in self._committed_units()
+        )
         if superseding:
             kind = "position_replaced"
-        elif timepoint is None:
-            kind = "position_committed"
-        else:
+        elif already_published and timepoint is not None:
             kind = "timepoint_committed"
+        else:
+            kind = "position_committed"
         event = CommitEvent(
             revision=self.manifest.next_revision(),
             event_type=kind,

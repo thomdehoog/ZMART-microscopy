@@ -721,6 +721,39 @@ class TestOneMomentAtATimeIsWhatGetsChecked:
         assert event.timepoint == 1
         assert run.manifest.revision() == 2
 
+    def test_a_positions_first_publication_may_name_its_moment(
+        self, tmp_path, profile
+    ):
+        """The first commit of a position is its arrival, whichever moment it names.
+
+        ``write_and_publish(position, pixels, timepoint=0)`` used to pick the
+        event kind from the ``timepoint`` argument alone, so a position's very
+        first publication went out as ``timepoint_committed`` — which the record
+        rightly refuses for a position it has never seen. The kind belongs to
+        the position's history, not to how the call was spelled.
+        """
+        run = LivePublisher(
+            tmp_path,
+            profile,
+            run_id="run-first-named",
+            cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+            timepoints=3,
+        )
+        event = run.write_and_publish("posA", some_specimen(1500), timepoint=0)
+        assert event.event_type == "position_committed"
+        assert event.timepoint == 0
+
+        later = run.write_and_publish("posA", some_specimen(2200), timepoint=2)
+        assert later.event_type == "timepoint_committed"
+        assert later.timepoint == 2
+        assert run._committed_units() == {("posA", 0), ("posA", 2)}
+
+        # A position may even arrive at a later moment than zero: the run
+        # skipped it at first and imaged it once things got interesting.
+        arrived_late = run.write_and_publish("posB", some_specimen(1800), timepoint=1)
+        assert arrived_late.event_type == "position_committed"
+        assert arrived_late.timepoint == 1
+
     def test_an_uncommitted_moment_stays_out_when_another_position_commits(
         self, tmp_path, profile
     ):

@@ -819,16 +819,24 @@ class RunManifest:
                     f"{event.event_type!r} refers to {event.position_id!r}, but that "
                     "position has never been published. Publish the position first."
                 )
-            if event.event_type == "timepoint_committed" and any(
-                past.position_id == event.position_id
-                and past.event_type == "timepoint_committed"
-                and past.timepoint == event.timepoint
-                for past in recorded
-            ):
-                raise PublicationRefused(
-                    f"Timepoint {event.timepoint} of {event.position_id!r} already "
-                    "has a commit. Reusing it would give one moment two histories."
-                )
+            # Every event kind lands on a moment — a position commit without a
+            # timepoint lands on moment zero — so the duplicate check compares
+            # moments rather than spellings. Replacements are the one deliberate
+            # exception: superseding a moment is 'position_replaced', which is
+            # allowed onto a committed moment because that is its entire job.
+            if event.event_type == "timepoint_committed":
+                moment = event.timepoint
+                if any(
+                    past.position_id == event.position_id
+                    and (0 if past.timepoint is None else past.timepoint) == moment
+                    for past in recorded
+                ):
+                    raise PublicationRefused(
+                        f"Timepoint {moment} of {event.position_id!r} already "
+                        "has a commit. Reusing it would give one moment two "
+                        "histories; replacing its pixels uses the explicit "
+                        "'position_replaced' event."
+                    )
 
             line = json.dumps(event.to_json(), sort_keys=True)
 
