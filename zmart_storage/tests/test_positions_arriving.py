@@ -583,3 +583,44 @@ def test_imaging_a_place_again_records_a_later_observation(tmp_path):
     assert np.array_equal(stored[0, 0], first) and np.array_equal(stored[1, 0], second), (
         "both observations should be on disk, each at its own moment"
     )
+
+
+def test_a_run_can_bundle_its_positions_pieces(tmp_path):
+    """A run asked to shard writes bundled positions, and the picture follows.
+
+    Bundling packs the pieces of a position into fewer files — the file count is
+    what filesystems, backups and endpoint protection punish at scale — while
+    the pieces inside stay the size the viewer reads by. The view must then be
+    declared bundled exactly as its positions are, or its description and their
+    bytes would disagree, and the bundle becomes the unit a position lands on.
+    """
+    folder = tmp_path / "experiment"
+    colours = [Channel("488", window=(0, 4000))]
+    with start_a_run(
+        folder, name="overview", room=(TILE[0], 8 * 64, 8 * 64),
+        tile_shape=TILE, voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+        channels=colours, piece=32, shard=64,
+    ) as run:
+        run.write(_a_picture(6), at=(0, 0, 0))
+        run.write(_a_picture(7), at=(0, 0, 64))
+        view = run.path
+
+    def bundling_of(level: Path) -> tuple[list, list]:
+        described = json.loads((level / "zarr.json").read_text(encoding="utf-8"))
+        inside = [codec["configuration"]["chunk_shape"]
+                  for codec in described.get("codecs", [])
+                  if codec["name"] == "sharding_indexed"]
+        return inside, described["chunk_grid"]["configuration"]["chunk_shape"]
+
+    position = _the_positions_in(view)[0]
+    inside, per_file = bundling_of(position / "0")
+    assert inside and inside[0][-2:] == [32, 32], (
+        "the pieces inside a position's bundle should stay the reading size"
+    )
+    assert per_file[-2:] == [64, 64], (
+        "one file of a position should hold a whole bundle"
+    )
+    assert bundling_of(view / "0") == (inside, per_file), (
+        "the picture must be declared bundled exactly as its positions are, or "
+        "its description and their bytes disagree"
+    )

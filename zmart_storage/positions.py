@@ -219,7 +219,8 @@ class Run:
                  voxel_size_um: tuple[float, float, float],
                  origin_um: tuple[float, float, float],
                  channels: list[Channel], frames: int, dtype: str, piece: int,
-                 levels: int | None, ome_zarr_version: str) -> None:
+                 levels: int | None, ome_zarr_version: str,
+                 shard: int | None = None) -> None:
         self.folder = Path(folder)
         self.name = name
         # The positions sit **directly inside** the picture itself, among its
@@ -240,6 +241,7 @@ class Run:
         self._frames = int(frames)
         self._dtype = dtype
         self._piece = int(piece)
+        self._shard = None if shard is None else int(shard)
         self._levels = levels
         self._ome_zarr_version = ome_zarr_version
         # How many copies each position keeps of itself. This is what lets the
@@ -463,6 +465,7 @@ class Run:
             channels=len(self._channels),
             dtype=self._dtype,
             chunk=self._piece,
+            shard=self._shard,
             levels=self._position_levels,
             voxel_size_um=self._voxel_size_um,  # type: ignore[arg-type]
             origin_um=corner_um,  # type: ignore[arg-type]
@@ -508,6 +511,7 @@ def start_a_run(
     frames: int = 1,
     dtype: str = "uint16",
     piece: int = 128,
+    shard: int | None = None,
     levels: int | None = None,
     ome_zarr_version: str = "0.5",
 ) -> Run:
@@ -539,6 +543,15 @@ def start_a_run(
         piece: how large a piece of the picture is, in voxels across y and x. Every
             position has to begin on a multiple of this, because the view hands a
             position's own file to the browser untouched.
+        shard: how much picture to bundle into one **file**, in voxels across y
+            and x, or left out to keep every piece a file of its own. Bundling
+            keeps a long run from leaving hundreds of thousands of small files
+            behind — the pattern filesystems, backups and endpoint protection
+            all punish — while the pieces inside stay the size the viewer reads
+            by, served as stretches of the file. The bundle becomes the unit a
+            position must land on, so the step coarsens to a multiple of it;
+            and a position is written whole, so the writer already holds every
+            bundle it writes. See ``PLAN_live_smart_microscopy.md``.
         levels: how many progressively smaller copies the picture keeps, counting
             the full-size one. Normally left out, so the size of the picture
             decides — which is what keeps a large run opening quickly.
@@ -560,6 +573,7 @@ def start_a_run(
         frames=frames,
         dtype=dtype,
         piece=piece,
+        shard=shard,
         levels=levels,
         ome_zarr_version=ome_zarr_version,
     )
