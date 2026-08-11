@@ -1327,11 +1327,20 @@ class GrowingLinkedView:
         """How many tiles have been added so far."""
         return len(self._listed)
 
-    def add(self, tile: PlacedTile) -> None:
+    def add(self, tile: PlacedTile,
+            imaged: tuple[int, int] | None = None) -> None:
         """Add one tile that has just landed, and make it visible.
 
         Args:
             tile: the tile and where it belongs in the view. See :class:`PlacedTile`.
+            imaged: which ``(moment, colour)`` of the tile actually holds a
+                picture so far, or ``None`` for all of them. A live run knows
+                exactly which one just came off the camera, and saying so keeps
+                the cost of adding a tile at what was measured: reading back
+                every declared moment of a long timelapse to fill the zoomed-out
+                copies would grow with the declared room rather than with what
+                was imaged. The moments that come later are handed to
+                :meth:`imaged_again` as they land.
 
         Raises:
             ValueError: if the tile was stored differently from the ones already in
@@ -1374,7 +1383,7 @@ class GrowingLinkedView:
         _refuse_a_placement_that_does_not_line_up_when_shrunk(
             [placed], [size], self._stored, self._pointing_at)  # type: ignore[arg-type]
         if self._levels > self._pointing_at:
-            self._fill_this_tile_in(placed, size)  # type: ignore[arg-type]
+            self._fill_this_tile_in(placed, size, imaged)  # type: ignore[arg-type]
         self._pointers += (
             self._stored.frames * self._stored.channels * size[0]
         )
@@ -1388,8 +1397,8 @@ class GrowingLinkedView:
         # show the newly written line to any other program reading the file.
         self._added.flush()
 
-    def _fill_this_tile_in(self, placed: PlacedTile,
-                           size: tuple[int, int, int]) -> None:
+    def _fill_this_tile_in(self, placed: PlacedTile, size: tuple[int, int, int],
+                           imaged: tuple[int, int] | None = None) -> None:
         """Write one tile's share of the zoomed-out copies.
 
         The full-size picture is pointed at and so nothing of it is written. The
@@ -1397,29 +1406,80 @@ class GrowingLinkedView:
         exist in no file, so this tile's part of them is written now — from its own
         pixels, which is the one place in adding a tile where pixels are read at
         all. It costs the same for the first tile of a run as for the last.
+
+        ``imaged`` narrows the work to one ``(moment, colour)``, for a run that
+        knows which one just landed; left out, every declared moment and colour
+        is read and written, which is right for a finished tile and wasteful
+        for a timelapse that has barely begun.
         """
         held = zarr.open_group(str(placed.store), mode="r")["0"]
         low = placed.taken_from
-        picture = np.asarray(held[
-            :, :,
-            low[0]:low[0] + size[0],
-            low[1]:low[1] + size[1],
-            low[2]:low[2] + size[2],
-        ])
-        for frame in range(self._stored.frames):
-            for channel in range(self._stored.channels):
-                self._canvas.only_the_zoomed_out_copies(
-                    picture[frame, channel],
-                    origin=placed.lands_at,
-                    channel=channel,
-                    frame=frame,
-                    from_level=self._pointing_at,
-                    # A view's tiles overlap wherever the run's placements did,
-                    # and every recorded voxel is safe in the tiles themselves —
-                    # so ground covered twice is expected here, not a fault, and
-                    # the later tile stands for it in the shrunken copies.
-                    ground_may_be_imaged_twice=True,
-                )
+        moments_and_colours = (
+            [imaged] if imaged is not None
+            else [(frame, channel)
+                  for frame in range(self._stored.frames)
+                  for channel in range(self._stored.channels)]
+        )
+        for frame, channel in moments_and_colours:
+            picture = np.asarray(held[
+                frame, channel,
+                low[0]:low[0] + size[0],
+                low[1]:low[1] + size[1],
+                low[2]:low[2] + size[2],
+            ])
+            self._canvas.only_the_zoomed_out_copies(
+                picture,
+                origin=placed.lands_at,
+                channel=channel,
+                frame=frame,
+                from_level=self._pointing_at,
+                # A view's tiles overlap wherever the run's placements did,
+                # and every recorded voxel is safe in the tiles themselves —
+                # so ground covered twice is expected here, not a fault, and
+                # the later tile stands for it in the shrunken copies.
+                ground_may_be_imaged_twice=True,
+            )
+
+    def imaged_again(self, tile: PlacedTile, *, frame: int,
+                     channel: int = 0) -> int:
+        """A place already in the picture holds new pixels; catch the view up.
+
+        This is how time grows. The pointers need nothing — they are arithmetic
+        over the moments, so the new pieces are simply found on the next request
+        — but two things do: the tile's share of the **written** zoomed-out
+        copies for that moment, which is written here from the new pixels, and
+        the view's change counter, which is moved because nothing else about
+        this change is visible to a watcher — the list of pointers keeps its
+        length and every pointed file keeps its name.
+
+        Args:
+            tile: the tile as it was added, at the same place.
+            frame: the moment that now holds a picture.
+            channel: the colour it was recorded in.
+
+        Returns:
+            The view's new change count, for passing along in an announcement.
+
+        Raises:
+            ValueError: if the view has been closed, or the tile does not land
+                on whole pieces — the same refusals adding it would have made.
+        """
+        if not self._open:
+            raise ValueError(
+                "this view has been closed, so nothing more can be imaged into "
+                "it. A view is held open for the length of a run and closed "
+                "once at the end."
+            )
+        placed = PlacedTile(
+            Path(tile.store), tuple(int(n) for n in tile.lands_at),  # type: ignore[arg-type]
+            tuple(int(n) for n in tile.taken_from), tile.size)  # type: ignore[arg-type]
+        size = tuple(int(n) for n in
+                     (placed.size if placed.size is not None else self._stored.shape))
+        _refuse_a_placement_that_does_not_land_on_whole_pieces(
+            [placed], self._stored, [size])  # type: ignore[arg-type]
+        if self._levels > self._pointing_at:
+            self._fill_this_tile_in(placed, size, (int(frame), int(channel)))  # type: ignore[arg-type]
+        return note_a_change(self._view)
 
     def finish(self) -> LinkedView:
         """Close the view and say what it ended up holding.

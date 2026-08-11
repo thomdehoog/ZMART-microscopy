@@ -491,3 +491,95 @@ def test_a_position_of_the_wrong_size_is_refused(tmp_path):
         with pytest.raises(ValueError) as refused:
             run.write(np.zeros((1, 32, 32), "uint16"), at=(0, 0, 64))
     assert "declared" in str(refused.value)
+
+
+def test_a_later_moment_reaches_the_picture_and_is_counted(tmp_path):
+    """Time grows by frames simply beginning to exist, and the run says how far.
+
+    The map of pointers never changes for a later moment — pointers are
+    arithmetic over time — so three other things carry the change instead, and
+    each is checked here: the position's own image holds the new picture, the
+    view's *written* zoomed-out copies gain that moment's share, and the view's
+    change counter moves, because nothing else about the change is visible to a
+    watcher.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "viz_studio" / "backend"))
+    from stores import written_timepoints
+
+    folder = tmp_path / "experiment"
+    colours = [Channel("488", window=(0, 4000))]
+    with start_a_run(
+        folder, name="overview", room=(TILE[0], 8 * 64, 8 * 64),
+        tile_shape=TILE, voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+        channels=colours, frames=4, piece=PIECE,
+    ) as run:
+        first = _a_picture(1)
+        run.write(first, at=(0, 0, 0), frame=0)
+        counted_before = the_map_inside(run.path)["generation"]
+
+        later = _a_picture(2)
+        run.write(later, at=(0, 0, 0), frame=2)
+
+        assert run.frames_reached == 3, (
+            "one past the furthest moment imaged, which is moment 2"
+        )
+        assert the_map_inside(run.path)["generation"] > counted_before, (
+            "a later moment leaves every watched file its length and name, so "
+            "the change counter is the one thing that says it happened"
+        )
+        view = run.path
+
+    import zarr
+    stored = np.asarray(
+        zarr.open_group(str(_the_positions_in(view)[0]), mode="r")["0"])
+    assert np.array_equal(stored[2, 0], later), (
+        "the later moment should hold exactly what the camera recorded"
+    )
+    assert np.array_equal(stored[0, 0], first), (
+        "and the first moment should be untouched by it"
+    )
+    reaches = written_timepoints(view)
+    assert reaches == 3, (
+        f"the viewer counts how far time reaches from the written copies, and "
+        f"should find 3 rather than {reaches} — this is what stops the slider "
+        "at the moments that exist"
+    )
+
+
+def test_imaging_a_place_again_records_a_later_observation(tmp_path):
+    """Re-imaging never writes over data: it goes to the place's next moment.
+
+    A targetscan revisits a place on purpose, and what it records is a later
+    observation. The run keeps count per place, so the caller does not, and a
+    run that declared too little room in time is refused with the fix named
+    rather than quietly wrapped around.
+    """
+    folder = tmp_path / "experiment"
+    colours = [Channel("488", window=(0, 4000))]
+    with start_a_run(
+        folder, name="overview", room=(TILE[0], 8 * 64, 8 * 64),
+        tile_shape=TILE, voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+        channels=colours, frames=2, piece=PIECE,
+    ) as run:
+        first = _a_picture(3)
+        second = _a_picture(4)
+        _, at_moment = run.image_again(first, at=(0, 0, 0))
+        assert at_moment == 0, "a place never imaged starts at its first moment"
+        _, at_moment = run.image_again(second, at=(0, 0, 0))
+        assert at_moment == 1, "imaged again, the same place moves to its next"
+
+        with pytest.raises(ValueError) as refused:
+            run.image_again(_a_picture(5), at=(0, 0, 0))
+        assert "room" in str(refused.value), (
+            "a run out of declared time should say to declare more, not wrap "
+            "around and write over an observation"
+        )
+        view = run.path
+
+    import zarr
+    stored = np.asarray(
+        zarr.open_group(str(_the_positions_in(view)[0]), mode="r")["0"])
+    assert np.array_equal(stored[0, 0], first) and np.array_equal(stored[1, 0], second), (
+        "both observations should be on disk, each at its own moment"
+    )
