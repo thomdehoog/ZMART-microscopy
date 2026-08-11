@@ -74,6 +74,29 @@ with nothing to invalidate.
 byte-identical to the first answer. Corrupt one cached piece by hand and
 confirm the checksum check rebuilds it rather than serving it.
 
+**Large transfers.** The worry that this cache grows without limit has an
+arithmetic answer. Its ceiling is the fully built picture — the transfer's own
+size plus a third for the pyramid — and reaching that ceiling just means the
+lazy conversion completed. For a transfer too large to ever hold whole, say
+800 GB, the pyramid does the work: each level is a quarter of the one above,
+so levels two and coarser for the *entire* picture come to well under a tenth
+of the transfer — pin those, and all navigation everywhere is permanently
+instant. The two finest levels are where operators visit only regions of
+interest, a few gigabytes each, and the byte-bounded oldest-out rule keeps
+exactly the regions that were visited. Ten to twenty percent of the
+transfer's size is a comfortable budget; an evicted piece is not an error but
+30 ms of rebuilding, so the budget is a dial, never a cliff. One cache folder
+per transfer with a last-touched date, so cleaning up after a finished
+project is one visible delete rather than a surprise found later.
+
+**The browser's own layers stack on top.** Built pieces are immutable, so the
+server should say `Cache-Control: immutable` on them and let the operator's
+own browser be the front line — revisits then never even reach the network.
+The live path is the opposite and must be marked `no-store`: a
+browser-remembered "withheld" would hold published ground blank, and a
+remembered chunk could outlive a rollback. Nothing between the gateway and
+the operator's eyes may remember a live answer.
+
 ### 3. Build the pieces of a screenful in parallel
 
 **What.** A screenful is 8 - 16 independent pieces, and the expensive step —
@@ -170,3 +193,35 @@ finish and the disk cache first, because they are small and pay immediately;
 parallel building third; the prefetcher once there is a cache for it to fill;
 the priorities and the piece-size measurement last, on the lab machine, where
 the numbers mean something.
+
+## Neuroglancer and the live view: what was looked up, for someday
+
+The live page makes Neuroglancer notice a grown run by calling
+`invalidateCache()` on its chunk sources — see `goBackToTheStore` in
+`zmart_live/tests/browser/page/viewer.js`. That call is wholesale: the public
+API (`src/chunk_manager/frontend.ts` in google/neuroglancer) offers only
+"drop everything this source holds", no per-chunk form, and the Python side's
+`LocalVolume.invalidate()` is the same. So today one committed position makes
+Neuroglancer refetch every chunk it is displaying.
+
+Checked against the upstream source on 2026-08-11: this is a limit of the
+public API, not of the machinery. The backend keeps its cache as a map keyed
+by chunk key and already has `removeChunk` for exactly one chunk; the
+wholesale call is a thin RPC over granular internals, and no upstream issue
+or pull request exposes the granular form. Three routes, in order:
+
+1. *Live with it, measured* — which is what this plan assumes. Only visible
+   chunks are refetched, a pointer answer costs about half a millisecond, so
+   a commit that flushes a viewport of a hundred chunks costs ~50 ms of
+   server work. The gateway's parallel-fire tests hammer exactly this storm.
+2. *Patch our own bundle* — the page already builds Neuroglancer from source
+   and already reaches past the public API to find the sources it
+   invalidates, so adding an `invalidateChunks(keys)` RPC to our bundled
+   copy is the same kind of move, and a day's prototype.
+3. *Offer it upstream* — the patch rides entirely on existing primitives,
+   and live-updating microscopy is a use case upstream has no story for.
+   The prototype from route 2 is the evidence for the pull request.
+
+A commit touches a handful of chunks; per-chunk invalidation turns ~100
+refetches per commit into ~10. Worth doing when commit rates rise, not
+before.
