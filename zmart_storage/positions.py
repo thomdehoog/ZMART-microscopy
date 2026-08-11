@@ -257,6 +257,16 @@ class Run:
         # again — in another colour, or at a later moment — writes into the same
         # image and must not be added to the view a second time.
         self._told_the_view: set[tuple[int, int, int]] = set()
+        # One past the furthest moment each place has imaged, so that imaging a
+        # place *again* can go to its next moment without the caller keeping
+        # count — a re-imaged position is a later observation, not a
+        # replacement, and recording it as one is what keeps every recorded
+        # voxel and spares the viewer a change it cannot see.
+        self._moments_at: dict[tuple[int, int, int], int] = {}
+        # One past the furthest moment any place has imaged. The time slider
+        # stops here, and the viewer works the same number out from the written
+        # copies on disk; this one is for the acquisition to read back cheaply.
+        self._frames_reached = 0
         # The view is started by the *first* position rather than here, because it
         # has to be told what the positions look like and the honest way to know
         # that is to read one that exists.
@@ -281,6 +291,16 @@ class Run:
     def positions(self) -> int:
         """How many places on the stage have been imaged so far."""
         return len(self._written)
+
+    @property
+    def frames_reached(self) -> int:
+        """One past the furthest moment imaged anywhere in the run so far.
+
+        The time slider in the viewer works this same number out for itself
+        from what is on disk; this one is for the acquisition to read back
+        without looking.
+        """
+        return self._frames_reached
 
     def write(self, picture: np.ndarray, *, at: tuple[int, int, int],
               channel: int = 0, frame: int = 0) -> Path:
@@ -335,11 +355,65 @@ class Run:
             # Added once per place, not once per picture. A position imaged again
             # in a second colour or a later moment goes into the same image, and
             # telling the view about it twice would put the same tile in the list
-            # of pointers twice over.
+            # of pointers twice over — so the later pictures are handed to the
+            # view as what they are: the same place, imaged again. That writes
+            # the place's share of the zoomed-out copies for the new moment and
+            # moves the view's change counter, which is the one signal a change
+            # like this leaves — every watched file keeps its length and name.
             if where not in self._told_the_view:
-                self._view.add(PlacedTile(store=folder, lands_at=where))  # type: ignore[arg-type]
+                self._view.add(PlacedTile(store=folder, lands_at=where),  # type: ignore[arg-type]
+                               imaged=(int(frame), int(channel)))
                 self._told_the_view.add(where)
+            else:
+                self._view.imaged_again(
+                    PlacedTile(store=folder, lands_at=where),  # type: ignore[arg-type]
+                    frame=int(frame), channel=int(channel))
+            self._moments_at[where] = max(
+                self._moments_at.get(where, 0), int(frame) + 1)
+            self._frames_reached = max(self._frames_reached, int(frame) + 1)
         return folder
+
+    def image_again(self, picture: np.ndarray, *, at: tuple[int, int, int],
+                    channel: int = 0) -> tuple[Path, int]:
+        """Store a place that was imaged before, at its own next moment.
+
+        A targetscan revisits a place on purpose, and what it records there is a
+        **later observation**, not a correction: the earlier picture is data and
+        stays. So the new picture goes to the place's next unimaged moment, and
+        nothing is ever written over — which also spares the viewer the one kind
+        of change it cannot see, a file rewritten in place.
+
+        The caller does not keep count of moments; this does. The run must have
+        declared room in time for the moments a place may be revisited — see
+        ``frames`` in :func:`start_a_run` — and a place never imaged before is
+        simply imaged at its first moment.
+
+        Args:
+            picture: what the camera recorded, as ``(z, y, x)``.
+            at: the place, exactly as it was given to :meth:`write`.
+            channel: which colour this is.
+
+        Returns:
+            The position's own image folder, and the moment the picture was
+            stored at — worth keeping, because it is the run's own record of
+            when this observation happened.
+
+        Raises:
+            ValueError: if the moment would fall outside the room the run
+                declared in time, or for any reason :meth:`write` refuses.
+        """
+        where = tuple(int(n) for n in at)
+        with self._lock:
+            moment = self._moments_at.get(where, 0)
+        if moment >= self._frames:
+            raise ValueError(
+                f"this place has been imaged {moment} times and the run "
+                f"declared room for {self._frames} moments, so there is no "
+                "moment left to record this one at. Declare more room in time "
+                "when starting the run — declared moments that are never imaged "
+                "cost nothing on disk."
+            )
+        return self.write(picture, at=where, channel=channel, frame=moment), moment
 
     def finish(self) -> LinkedView:
         """Close the run and hand back the finished view.
