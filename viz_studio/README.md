@@ -236,15 +236,71 @@ set ZMART_CHROMIUM=C:\some\allowed\path\chrome.exe
 
 ## What is here
 
+The tool is three parts that meet over HTTP: a **writer** that puts images on
+disk, a **server** that answers for them, and a **page** — the GUI — that draws
+them. Each part runs without the others knowing its internals, which is why any
+of them can be worked on alone. Everything not listed here is a test, a
+measurement script, or a document.
+
+### The server — `backend/`, and `building/` for transfers
+
+What runs on your machine and answers the browser's requests.
+
 | Path | What it is |
 |---|---|
-| `frontend/` | The React + neuroglancer app (built into `frontend/dist`). |
-| `backend/demo_data.py` | Makes the demo OME-Zarr volume. |
-| `backend/server.py` | The small local web server (built page + image data + a JSON command endpoint). |
-| `backend/launcher.py` | Opens the studio in a native desktop window (pywebview). |
-| `backend/browsercheck.py` | Automated rendering check in a real headless browser. |
-| `run_demo.py` | One command: make the demo volume and open the window. |
+| `backend/server.py` | The heart: one local web server for the built page, the image data, and the small JSON commands. `make_server(...)` is the entry point. |
+| `backend/stores.py` | Reads what an image on disk *is* — axes, sizes, zoomed-out copies, which generation of zarr — so the page can be told before it asks for a single pixel. |
+| `backend/linking.py` | Answers for a **linked view**: a picture that was never written down. It looks a requested piece up in the view's map and hands over the position's own file, unchanged. |
+| `backend/library.py` | Knows which acquisitions live in the opened folder, so the panel can list them. |
+| `backend/contrast.py` | Measures how bright an image is, from its smallest copy, so it opens looking sensible rather than black. |
+| `backend/announcements.py` | Tells an open viewer that a live run has grown, so the picture fills in while the microscope is still going. |
+| `backend/live_config.py` | The settings for that live following. |
+| `backend/launcher.py` | Opens the studio in a native desktop window instead of a browser tab (optional; needs pywebview). |
+| `backend/browsercheck.py` | Checks the browser can really draw what the engine needs. |
+| `backend/demo_data.py` | Makes the demo specimen. Only the demo needs it. |
+| `run_demo.py` | One command: make the demo specimen and open the window. |
+| `building/` | The other way of serving: a **transfer** from another microscope — tiles at awkward positions, in awkward pieces — is shown as one picture by *assembling* each requested piece from the tiles' own chunks, nothing rewritten. `serve_a_transfer.py` is the entry point; `composer.py` assembles, `mosaic.py` places tiles where the micrometres say, `declare.py` describes the virtual picture, `served.py`/`server.py` answer for it, `check.py` and `check_the_pyramid.py` prove it against the tiles. |
+
+### The writer — `../zmart_storage/`
+
+What an acquisition imports to put images on disk. It never talks to the
+viewer; it writes files the viewer (and napari, and Fiji) can read.
+
+| Path | What it is |
+|---|---|
+| `../zmart_storage/canvas.py` | The foundation: declares and writes OME-Zarr images — the picture, its zoomed-out copies, its channels, where it sits on the stage. |
+| `../zmart_storage/positions.py` | A run's writer: each position lands as its own image and the one picture grows over them. `start_a_run(...)` is what an acquisition calls. |
+| `../zmart_storage/linked.py` | Builds **linked views** — one picture that is a list of pointers into the positions, with nothing copied at full size. `link_the_tiles(...)` after a run, `start_a_growing_view(...)` during one. |
+| `../zmart_storage/cropped.py` | The older arrangement that copies tiles into a trimmed canvas. Still the measured control the linked view is proven against. |
+| `../zmart_storage/coverage.py` | The record of which ground a run has imaged, kept beside the images. |
+
+### The GUI — `frontend/`
+
+The page the operator sees. The browser never runs these files directly:
+`npm --prefix frontend install && npm --prefix frontend run build` compiles
+them into `frontend/dist/`, and that folder is what the server serves. A fresh
+checkout without `dist/` has a working server and no page.
+
+| Path | What it is |
+|---|---|
+| `frontend/src/main.jsx`, `src/App.jsx` | The page itself and its layout. |
+| `frontend/src/NeuroglancerView.jsx` | Hosts the neuroglancer drawing engine inside the page. |
+| `frontend/src/engine.js`, `src/scene.js` | The glue to the engine: builds its layers from what the server describes, applies every setting, keeps the state. |
+| `frontend/src/LayerPanel.jsx` | The control bar: acquisitions, channels, brightness, contrast, opacity, colours. |
+| `frontend/src/AxisSlider.jsx` | The depth and time sliders. |
+| `frontend/src/ScaleBar.jsx` | The scale bar that follows the zoom. |
+| `frontend/src/TargetsPanel.jsx` | Marking places for the control application to read. |
+| `frontend/src/live-refresh.js` | Listens for the server's announcements and refreshes a live run. |
+| `frontend/src/engine-chrome.css` | How it all looks. |
+| `frontend/package.json` | Declares the JavaScript dependencies (`package-lock.json` pins them). |
+
+### The documents
+
+| Path | What it is |
+|---|---|
 | `DATA_LAYOUT.md` | How a run is written to disk and shown, and why. The design record. |
+| `LINKING_INSTEAD_OF_COPYING.md` | Showing a run without copying it: what is built, measured, and still open. |
+| `HANDOVER_overlapping_runs.md` | The map of the other documents, if you are picking this work up. |
 | `NEXT_STEPS.md` | What is known to be unfinished or wrong, and what to pick up next. |
 | `TESTING.md` | How to run the tests, and what each group of them is for. |
 | `INDEX.md` | The map, if you are new: which document answers which question. |
@@ -252,15 +308,22 @@ set ZMART_CHROMIUM=C:\some\allowed\path\chrome.exe
 ## How the pieces talk
 
 ```
-  Python (analysis, microscope control, writes OME-Zarr)
-      │  serves image chunks over HTTP  +  small JSON commands
+  the writer (zmart_storage — an acquisition, or your own script)
+      │  puts OME-Zarr images on disk; never talks to the viewer
       ▼
+  images on disk  ◄─────────────┐
+      │                         │ a linked view's pieces are the
+      ▼                         │ positions' own files, handed over
   backend/server.py  ──►  one local address (http://127.0.0.1:8848)
-      ▲
-      │  reads image chunks, sends commands
+      ▲       (backend/linking.py answers for linked views;
+      │        building/ assembles transfers piece by piece)
+      │  reads image pieces, sends commands
   frontend (React UI + neuroglancer engine)  ──►  shown in a native window
 ```
 
 Python stays the brain and the hands; the window is the eyes and the controls.
-The image data travels as OME-Zarr files (only the visible pieces are fetched);
-commands and results travel as small messages.
+The image data travels as OME-Zarr pieces (only the visible ones are fetched),
+and the browser never learns whether a piece was read from a written picture,
+handed over from a position's own file, or assembled on the spot — which is why
+ten thousand positions open exactly as fast as one. Commands and results travel
+as small messages.
