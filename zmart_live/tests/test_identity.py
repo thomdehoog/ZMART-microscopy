@@ -63,7 +63,6 @@ def a_placement(position_id: str, row: int, column: int) -> PositionPlacement:
         component_id="component-0",
         cell=GridCell(row, column),
         origin={"y": row * 8, "x": column * 8},
-        visual_source_roi=Box.of(y=(0, 8), x=(0, 8)),
         analysis_input_roi=Box.of(y=(0, 10), x=(0, 10)),
         analysis_core_roi=Box.of(y=(0, 8), x=(0, 8)),
     )

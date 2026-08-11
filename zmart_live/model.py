@@ -74,7 +74,6 @@ __all__ = [
     "ANALYSIS_OWNERSHIP_POLICIES",
     "EVENT_TYPES",
     "RESERVED_DEVICE_NAMES",
-    "SEAMLESS_OWNERSHIP_POLICIES",
     "TOPOLOGIES",
     "AcquisitionProfile",
     "Box",
@@ -569,16 +568,11 @@ class OverlapBand:
 #: purpose, which is what makes the seamless quick-look view possible.
 TOPOLOGIES = ("independent", "grid")
 
-#: Where the seam is placed when two tiles overlap and the quick-look view has to
-#: choose which one to show. ``"one_sided"`` gives the whole overlap to the tile
-#: below or to the right, so every source tile contributes from its own origin;
-#: ``"midpoint"`` cuts it down the middle. The reasoning for keeping both is in
-#: Decision 7 of the architecture record.
-SEAMLESS_OWNERSHIP_POLICIES = ("one_sided", "midpoint")
-
-#: Where the boundary sits for deciding which tile's *measurements* count. This
-#: is allowed to differ from the visual seam, because a model usually wants
-#: specimen on both sides of the boundary it is asked to judge.
+#: Where the boundary sits for deciding which tile's *measurements* count. The
+#: picture needs no such policy — positions are drawn whole and a later arrival
+#: simply lands on top — but a detected object must still be counted exactly
+#: once, and a model usually wants specimen on both sides of the boundary it is
+#: asked to judge.
 ANALYSIS_OWNERSHIP_POLICIES = ("one_sided", "midpoint")
 
 #: The kinds of thing that can be recorded as having become visible.
@@ -717,7 +711,6 @@ class AcquisitionProfile:
     overlap_pixels: FrozenMap = field(default_factory=FrozenMap)
     overlap_band: OverlapBand | None = None
     topology: str = "independent"
-    seamless_ownership: str = "one_sided"
     analysis_ownership: str = "midpoint"
     analysis_halo: FrozenMap = field(default_factory=FrozenMap)
     levels: tuple[LevelGeometry, ...] = ()
@@ -762,11 +755,6 @@ class AcquisitionProfile:
             raise ZmartLiveError(
                 f"'{self.topology}' is not a known arrangement of positions. "
                 f"Use one of {', '.join(TOPOLOGIES)}."
-            )
-        if self.seamless_ownership not in SEAMLESS_OWNERSHIP_POLICIES:
-            raise ZmartLiveError(
-                f"'{self.seamless_ownership}' is not a known way of placing the "
-                f"visual seam. Use one of {', '.join(SEAMLESS_OWNERSHIP_POLICIES)}."
             )
         if self.analysis_ownership not in ANALYSIS_OWNERSHIP_POLICIES:
             raise ZmartLiveError(
@@ -936,7 +924,6 @@ class AcquisitionProfile:
             "overlap_pixels": self.overlap_pixels.as_dict(),
             "overlap_band": None if self.overlap_band is None else self.overlap_band.to_json(),
             "topology": self.topology,
-            "seamless_ownership": self.seamless_ownership,
             "analysis_ownership": self.analysis_ownership,
             "analysis_halo": self.analysis_halo.as_dict(),
             "levels": [level.to_json() for level in self.levels],
@@ -960,7 +947,6 @@ class AcquisitionProfile:
             overlap_pixels=value.get("overlap_pixels", {}),
             overlap_band=None if band is None else OverlapBand.from_json(band),
             topology=value.get("topology", "independent"),
-            seamless_ownership=value.get("seamless_ownership", "one_sided"),
             analysis_ownership=value.get("analysis_ownership", "midpoint"),
             analysis_halo=value.get("analysis_halo", {}),
             levels=tuple(LevelGeometry.from_json(lvl) for lvl in value.get("levels", ())),
@@ -1018,17 +1004,14 @@ class GridCell:
 class PositionPlacement:
     """One tile: where it sits, and which parts of it are its own responsibility.
 
-    The three regions are the heart of the design, and they are written down for
-    every tile rather than worked out again by each piece of software that needs
-    them. All three are in the tile's *own* pixel coordinates at full resolution:
+    The regions are written down for every tile rather than worked out again by
+    each piece of software that needs them. Both are in the tile's *own* pixel
+    coordinates at full resolution:
     ``(0, 0)`` is that tile's top-left corner, not the run's.
 
-    ``visual_source_roi``
-        The part of this tile the seamless quick-look view actually shows. Where
-        a tile has a neighbour below or to the right, this excludes its far
-        shared strip, because that neighbour is showing it. The remaining strips
-        at the declared outside edge are routed from the same tile's complete
-        canonical frame.
+    The picture itself records no region at all: a tile is drawn whole, and
+    where two tiles cover the same ground the one committed later lands on top.
+    The regions kept here are the **analysis** boundaries.
 
     ``analysis_input_roi``
         What a model is given to look at — normally the whole tile, overlap
@@ -1049,7 +1032,6 @@ class PositionPlacement:
     component_id: str
     cell: GridCell
     origin: FrozenMap
-    visual_source_roi: Box
     analysis_input_roi: Box
     analysis_core_roi: Box
     neighbours: FrozenMap = field(default_factory=FrozenMap)
@@ -1067,9 +1049,15 @@ class PositionPlacement:
         check_the_name_is_safe(self.position_id, what="position")
         check_the_name_is_safe(self.component_id, what="mosaic component")
 
-    def visual_roi_in_run(self) -> Box:
-        """The shown part of this tile, expressed in the run's shared coordinates."""
-        return self.visual_source_roi.shifted(self.origin)
+    def frame_roi_in_run(self) -> Box:
+        """The whole recorded frame, expressed in the run's shared coordinates.
+
+        This is the ground the tile covers on the specimen — the region its
+        pixels are drawn over, and the region a later arrival would take back.
+        It is the analysis input region shifted into place, because what a
+        model is given to look at is exactly the whole recorded frame.
+        """
+        return self.analysis_input_roi.shifted(self.origin)
 
     def core_roi_in_run(self) -> Box:
         """The owned part of this tile, expressed in the run's shared coordinates."""
@@ -1091,7 +1079,6 @@ class PositionPlacement:
             "component_id": self.component_id,
             "cell": self.cell.to_json(),
             "origin": self.origin.as_dict(),
-            "visual_source_roi": self.visual_source_roi.to_json(),
             "analysis_input_roi": self.analysis_input_roi.to_json(),
             "analysis_core_roi": self.analysis_core_roi.to_json(),
             "neighbours": {
@@ -1110,7 +1097,6 @@ class PositionPlacement:
             component_id=value["component_id"],
             cell=GridCell.from_json(value["cell"]),
             origin=value["origin"],
-            visual_source_roi=Box.from_json(value["visual_source_roi"]),
             analysis_input_roi=Box.from_json(value["analysis_input_roi"]),
             analysis_core_roi=Box.from_json(value["analysis_core_roi"]),
             neighbours=FrozenMap(value.get("neighbours", {})),
@@ -1240,7 +1226,6 @@ class SceneLayoutRevision:
     profile_id: str
     positions: tuple[PositionPlacement, ...] = ()
     components: tuple[MosaicComponent, ...] = ()
-    seamless_ownership: str = "one_sided"
     analysis_ownership: str = "midpoint"
     analysis_halo: FrozenMap = field(default_factory=FrozenMap)
     rounding_convention: str = "extra_pixel_to_lower_index"
@@ -1332,7 +1317,6 @@ class SceneLayoutRevision:
             "profile_id": self.profile_id,
             "positions": [placement.to_json() for placement in self.positions],
             "components": [component.to_json() for component in self.components],
-            "seamless_ownership": self.seamless_ownership,
             "analysis_ownership": self.analysis_ownership,
             "analysis_halo": self.analysis_halo.as_dict(),
             "rounding_convention": self.rounding_convention,
@@ -1351,7 +1335,6 @@ class SceneLayoutRevision:
             profile_id=value["profile_id"],
             positions=tuple(PositionPlacement.from_json(p) for p in value.get("positions", ())),
             components=tuple(MosaicComponent.from_json(c) for c in value.get("components", ())),
-            seamless_ownership=value.get("seamless_ownership", "one_sided"),
             analysis_ownership=value.get("analysis_ownership", "midpoint"),
             analysis_halo=value.get("analysis_halo", {}),
             rounding_convention=value.get("rounding_convention", "extra_pixel_to_lower_index"),
@@ -1371,9 +1354,9 @@ class CommitEvent:
     position's pixels, however finished they look.
 
     A commit is written only once every prerequisite it names has been checked:
-    the pixels, the zoomed-out copies, the pointers the seamless view needs, the
-    parts of the shared zoomed-out picture the new data changes, and the layout
-    snapshot that says who owns what. Because it references all of them, a reader
+    the pixels, the zoomed-out copies, the pointers the linked view serves them
+    through, the view description those pointers answer for, and the layout
+    snapshot that says where every tile sits. Because it references all of them, a reader
     who trusts one commit is trusting a set of things that were verified
     together.
 
@@ -1394,12 +1377,11 @@ class CommitEvent:
     timepoint: int | None = None
     component_id: str | None = None
     cell: GridCell | None = None
-    owned_region: Box | None = None
     channels: tuple[str, ...] = ()
     levels: tuple[int, ...] = ()
     pyramids_ready: bool = False
     links_ready: bool = False
-    coarse_chunks_ready: bool = False
+    view_ready: bool = False
     validated: bool = False
     timestamp: str = ""
     notes: str = ""
@@ -1477,7 +1459,7 @@ class CommitEvent:
         assume that anything it can see is complete.
         """
         return (
-            self.pyramids_ready and self.links_ready and self.coarse_chunks_ready and self.validated
+            self.pyramids_ready and self.links_ready and self.view_ready and self.validated
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -1495,12 +1477,11 @@ class CommitEvent:
             "timepoint": self.timepoint,
             "component_id": self.component_id,
             "cell": None if self.cell is None else self.cell.to_json(),
-            "owned_region": None if self.owned_region is None else self.owned_region.to_json(),
             "channels": list(self.channels),
             "levels": list(self.levels),
             "pyramids_ready": self.pyramids_ready,
             "links_ready": self.links_ready,
-            "coarse_chunks_ready": self.coarse_chunks_ready,
+            "view_ready": self.view_ready,
             "validated": self.validated,
             "timestamp": self.timestamp,
             "notes": self.notes,
@@ -1510,7 +1491,6 @@ class CommitEvent:
     def from_json(cls, value: Mapping[str, Any]) -> CommitEvent:
         """Read back what :meth:`to_json` wrote."""
         cell = value.get("cell")
-        region = value.get("owned_region")
         return cls(
             revision=int(value["revision"]),
             event_type=value["event_type"],
@@ -1524,12 +1504,11 @@ class CommitEvent:
             timepoint=None if value.get("timepoint") is None else int(value["timepoint"]),
             component_id=value.get("component_id"),
             cell=None if cell is None else GridCell.from_json(cell),
-            owned_region=None if region is None else Box.from_json(region),
             channels=tuple(value.get("channels", ())),
             levels=tuple(int(lvl) for lvl in value.get("levels", ())),
             pyramids_ready=bool(value.get("pyramids_ready", False)),
             links_ready=bool(value.get("links_ready", False)),
-            coarse_chunks_ready=bool(value.get("coarse_chunks_ready", False)),
+            view_ready=bool(value.get("view_ready", False)),
             validated=bool(value.get("validated", False)),
             timestamp=value.get("timestamp", ""),
             notes=value.get("notes", ""),

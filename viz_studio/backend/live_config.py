@@ -220,8 +220,6 @@ def live_rows(
             else 0
         )
         local_position = [layer.channel_index]
-        if sources[0].local_dimension is not None:
-            local_position.insert(0, int(layer.local_position.get(sources[0].local_dimension, 0)))
         rows.append(
             {
                 "name": layer.name,

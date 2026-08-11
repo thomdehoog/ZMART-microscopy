@@ -1,10 +1,16 @@
-"""Deciding which tile owns which piece of specimen.
+"""Deciding which tile's measurements count, and whether the grid holds together.
 
 When a mosaic is imaged, neighbouring tiles deliberately share a strip of
 specimen. That overlap is not waste: a stitcher needs it later as evidence of
 where the stage really went, and a model looking at an object near a tile's edge
-needs it as context. But it does create a question that has to be answered
-exactly once, and answered the same way by everybody.
+needs it as context.
+
+The **picture** needs no ownership rule any more. Positions are routed whole
+into the one linked view, overlap intact, and where two of them cover the same
+ground the one committed later is simply drawn on top — the settled model of
+``docs/design/positions-in-a-container.md``. What still has to be answered
+exactly once, and answered the same way by everybody, is the **analysis**
+question:
 
 **If two tiles both photographed the same piece of specimen, which one counts?**
 
@@ -13,67 +19,14 @@ twice. Get it wrong in the other and a stripe of specimen belongs to nobody and
 quietly disappears from the results. Neither shows up as an error; both show up
 as a number that is simply wrong.
 
-This module answers that question, in advance, from the grid alone.
-
-Two different answers, on purpose
----------------------------------
-
-The question is asked twice, for two different reasons, and the right answers are
-not the same.
-
-**Which tile's pixels are shown** in the seamless overview. This wants to fall on
-a boundary the file can be cut along, so that the overview can point at the
-tile's own bytes instead of copying them.
-
-**Which tile's measurements count.** This wants to fall where both neighbours
-have specimen on either side of it, so that a model judging an object near the
-line has context in both directions. That is usually the middle of the overlap,
-which is a terrible place to cut a file and a fine place to divide
-responsibility.
-
-Keeping them apart costs nothing — they are two recorded numbers rather than one
-— and forcing them together would compromise both.
-
-Why the lower and right neighbour wins
---------------------------------------
-
-The obvious rule is that the first tile keeps its whole image and each later one
-gives up the strip on its left and top. It reads naturally, and it was the first
-thing written down.
-
-Measuring it against the real writer showed it to be the restrictive choice.
-Under that rule every interior tile is taken from an offset of one overlap into
-its own store, and that offset is the smallest number in the arrangement, so it
-constrains the chunk geometry at every pyramid level.
-
-Describing exactly the same seams from the other side — **every tile gives up its
-lower and right strip, so every tile contributes its first ``step`` pixels** —
-makes that offset zero for every tile alike. The strict acquisition optimizer
-then chooses the overlap and each level's chunk so all advertised levels route
-canonical encoded bytes; it refuses a profile that would require copied view
-pixels.
-
-It is also the simpler rule. Every tile is treated identically: taken from its
-own corner, trimmed to one step, landing at its place in the grid. There is no
-first-tile special case, no neighbour lookup, and no dependence on the order the
-tiles happen to arrive in.
-
-The two rules cover the mosaic identically. Every output pixel still has exactly
-one owner; the seams simply sit one overlap-width over.
-
-The outer edge
---------------
-
-Trimming every tile alike leaves the mosaic's far edge uncovered — the last
-column's right strip and the last row's bottom strip. Under a strict profile the
-complete frame is chunk-aligned, so the edge tiles retain those strips through
-the same canonical route. :func:`the_far_edges` names them so the coordinator
-and gateway apply exactly the same boundary rule.
+This module answers that question, in advance, from the grid alone. The
+boundary is placed in the middle of the overlap wherever a neighbour exists, so
+that a model judging an object near the line has specimen on both sides of it —
+and the model is still *given* the whole tile, overlap included, because the
+overlap is the context that lets it judge an object sitting near the edge.
 """
 
 from __future__ import annotations
-
-from dataclasses import dataclass
 
 from .model import (
     AcquisitionProfile,
@@ -88,7 +41,6 @@ from .model import (
 
 __all__ = [
     "TopologyRefused",
-    "the_far_edges",
     "place_the_tiles",
     "plan_one_tile",
     "check_the_grid_holds_together",
@@ -144,19 +96,15 @@ def plan_one_tile(
     component_id: str = "component-0",
     position_id: str | None = None,
     occupied: frozenset[GridCell] | None = None,
-    keep_the_far_edge: bool = False,
 ) -> PositionPlacement:
     """Work out where one tile sits and which parts of it are its responsibility.
 
     Everything is in the tile's own pixels at full resolution, so ``(0, 0)`` is
     that tile's own corner rather than the run's. ``origin`` says where the tile
     sits in the run's shared coordinates, which is what turns one into the other.
-
-    ``keep_the_far_edge`` applies to a tile with no neighbour beyond it. Left
-    alone, every placement records the same one-step visual ROI;
-    :func:`the_far_edges` separately reports the complete outer strips that the
-    strict virtual route adds back. Set it to include those strips in the ROI
-    itself when a caller wants one combined interval.
+    The picture shows the tile whole — there is no visual trimming to record —
+    so what is worked out here is where the tile lands and where the boundary
+    for *counting* its measurements sits.
     """
     _check_the_cell_is_a_forward_grid_index(cell)
     tiled = profile.tiled_axes
@@ -169,7 +117,6 @@ def plan_one_tile(
 
     occupied = occupied or frozenset({cell})
     origin: dict[str, int] = {}
-    shown: dict[str, Interval] = {}
     looked_at: dict[str, Interval] = {}
     counted: dict[str, Interval] = {}
     neighbours: dict[str, str] = {}
@@ -184,7 +131,7 @@ def plan_one_tile(
         origin[axis] = index * step
 
         # Is there a tile beyond this one on this axis? If not, this tile is on
-        # the mosaic's outer edge and there is nobody to hand the strip to.
+        # the mosaic's outer edge and there is nobody sharing that strip.
         beyond = (
             GridCell(cell.row + 1, cell.column)
             if axis == "y"
@@ -203,14 +150,6 @@ def plan_one_tile(
             neighbours[f"{axis}_high"] = f"{component_id}:{beyond.row},{beyond.column}"
         if has_one_before:
             neighbours[f"{axis}_low"] = f"{component_id}:{before.row},{before.column}"
-
-        # What the overview shows. Every tile gives up its far strip, uniformly,
-        # which is what keeps the numbers lined up. A tile with nothing beyond it
-        # may keep its whole frame if the caller asked for that.
-        if has_one_beyond or not keep_the_far_edge:
-            shown[axis] = Interval(0, step)
-        else:
-            shown[axis] = Interval(0, frame)
 
         # What a model is given: the whole tile, overlap included. The overlap is
         # the context that lets it judge an object sitting near the edge.
@@ -231,7 +170,6 @@ def plan_one_tile(
         if axis in tiled or axis not in profile.frame_shape:
             continue
         whole = Interval(0, profile.frame_shape[axis])
-        shown[axis] = whole
         looked_at[axis] = whole
         counted[axis] = whole
         origin[axis] = 0
@@ -241,7 +179,6 @@ def plan_one_tile(
         component_id=component_id,
         cell=cell,
         origin=origin,
-        visual_source_roi=Box.of(**shown),
         analysis_input_roi=Box.of(**looked_at),
         analysis_core_roi=Box.of(**counted),
         neighbours=neighbours,
@@ -254,7 +191,6 @@ def place_the_tiles(
     cells: dict[GridCell, str],
     *,
     component_id: str = "component-0",
-    keep_the_far_edge: bool = False,
 ) -> tuple[PositionPlacement, ...]:
     """Work out the placement of every tile in one mosaic component.
 
@@ -290,67 +226,9 @@ def place_the_tiles(
             component_id=component_id,
             position_id=cells[cell],
             occupied=occupied,
-            keep_the_far_edge=keep_the_far_edge,
         )
         for cell in sorted(cells)
     )
-
-
-# ---------------------------------------------------------------------------
-# What the uniform trim leaves behind
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class FarEdge:
-    """A canonical strip routed from a tile on the mosaic's outer edge.
-
-    The ordinary one-step ROI leaves the last row and column one overlap short.
-    Naming the extension explicitly keeps placement, route generation and route
-    validation on the same boundary rule without storing view-owned pixels.
-    """
-
-    axis: str
-    position_id: str
-    cell: GridCell
-    taken_from: Interval
-    lands_at: Interval
-
-    @property
-    def width(self) -> int:
-        """How many pixels wide the strip is."""
-        return self.taken_from.length
-
-
-def the_far_edges(
-    profile: AcquisitionProfile,
-    placements: tuple[PositionPlacement, ...],
-) -> tuple[FarEdge, ...]:
-    """The canonical strips added after trimming every tile the same way.
-
-    Returns nothing when the placements were made with ``keep_the_far_edge``,
-    because in that case their visual ROIs already include them.
-    """
-    edges: list[FarEdge] = []
-    for placement in placements:
-        for axis in profile.tiled_axes:
-            if not placement.on_outer_boundary.get(f"{axis}_high"):
-                continue
-            frame = profile.frame_shape[axis]
-            shown = placement.visual_source_roi[axis]
-            if shown.stop >= frame:
-                continue  # this tile already keeps its edge
-            start = placement.origin[axis] + shown.stop
-            edges.append(
-                FarEdge(
-                    axis=axis,
-                    position_id=placement.position_id,
-                    cell=placement.cell,
-                    taken_from=Interval(shown.stop, frame),
-                    lands_at=Interval(start, start + (frame - shown.stop)),
-                )
-            )
-    return tuple(edges)
 
 
 # ---------------------------------------------------------------------------

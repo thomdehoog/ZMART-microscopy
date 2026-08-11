@@ -32,9 +32,8 @@ def a_live_run(folder, *, timepoints=1):
 def prepare_without_publishing(run, position_id, value, *, moment=0):
     run.write_a_position(position_id, some_specimen(value), timepoint=moment)
     units = frozenset(run._committed_units()) | {(position_id, moment)}
-    run.write_the_seamless_view(units, only=frozenset({(position_id, moment)}))
-    run.write_the_raw_overlap_view(units, only=frozenset({(position_id, moment)}))
-    run.write_the_link_map(frozenset(position for position, _ in units))
+    run.write_the_link_map(units)
+    run.write_the_view()
     run.write_the_layout()
 
 
@@ -67,7 +66,7 @@ def test_a_missing_committed_marker_does_not_turn_a_known_run_into_static_data(t
     assert answer is not None and answer.allowed is False
 
 
-def test_the_seamless_route_is_virtual_and_gated_per_moment(tmp_path):
+def test_the_view_route_is_virtual_and_gated_per_moment(tmp_path):
     run = a_live_run(tmp_path, timepoints=2)
     run.write_and_publish("posA", some_specimen(700))
     prepare_without_publishing(run, "posA", 4242, moment=1)
@@ -75,7 +74,7 @@ def test_the_seamless_route_is_virtual_and_gated_per_moment(tmp_path):
     # This is the virtual view key for A's first spatial piece at moment one.
     # Its array description exists, but its bytes must come from the canonical
     # route and remain withheld until the moment is committed.
-    requested = run.seamless_level() / "c/1/0/0/0/0"
+    requested = run.view_level() / "c/1/0/0/0/0"
     withheld = answer_from_a_live_run(requested)
     assert withheld is not None and withheld.allowed is False
 
@@ -98,32 +97,37 @@ def test_the_outer_edge_is_routed_without_materializing_it(tmp_path):
 
     chunk = run.profile.level(0).inner_chunk["x"]
     _height, width = run._mosaic_extent()
-    requested = run.seamless_level() / f"c/0/0/0/0/{(width - 1) // chunk}"
+    requested = run.view_level() / f"c/0/0/0/0/{(width - 1) // chunk}"
     answer = answer_from_a_live_run(requested)
     assert answer is not None and answer.allowed is True
     assert answer.serving is not None
     assert answer.serving.position == run.position_store("posB") / "0"
-    assert not (run.seamless_level() / "c").exists()
+    assert not (run.view_level() / "c").exists()
 
 
-def test_the_raw_overlap_gate_attributes_both_tile_and_moment(tmp_path):
+def test_a_later_moment_falls_back_to_the_published_neighbour_in_the_overlap(tmp_path):
+    """While one tile's later moment is withheld, shared ground shows its
+    neighbour's published recording of that moment — never the withheld one,
+    and never a blank where a published measurement exists."""
     run = a_live_run(tmp_path, timepoints=2)
     run.write_and_publish("posA", some_specimen(700))
     run.write_and_publish("posB", some_specimen(1100))
+    run.write_and_publish("posA", some_specimen(750), timepoint=1)
     prepare_without_publishing(run, "posB", 1900, moment=1)
 
-    placement = run.layout.placement("posB")
-    chunk_x = placement.origin["x"] // run.profile.level(0).inner_chunk["x"]
-    coordinate = (run.tile_stop_of("posB"), 1, 0, 0, 0, chunk_x)
-    requested = run.raw_overlap_level() / "c" / Path(
-        *(str(index) for index in coordinate)
+    # posB was committed later, so it is drawn over the shared strip. Its
+    # moment 1 is written but withheld, and posA's moment 1 is published, so
+    # the strip at moment 1 falls back to posA until posB's commit lands.
+    overlap_chunk = (
+        run.layout.placement("posB").origin["x"]
+        // run.profile.level(0).inner_chunk["x"]
     )
-    assert where_one_chunk_lives(run.raw_overlap_level(), coordinate) is None, (
-        "a linked raw chunk must not also occupy space in the overview store"
-    )
+    requested = run.view_level() / f"c/1/0/0/0/{overlap_chunk}"
+    meanwhile = answer_from_a_live_run(requested)
+    assert meanwhile is not None and meanwhile.allowed is True
+    assert meanwhile.serving is not None
+    assert meanwhile.serving.position == run.position_store("posA") / "0"
 
-    before = answer_from_a_live_run(requested)
-    assert before is not None and before.allowed is False
     run.publish("posB", timepoint=1)
     after = answer_from_a_live_run(requested)
     assert after is not None and after.allowed is True
@@ -131,24 +135,16 @@ def test_the_raw_overlap_gate_attributes_both_tile_and_moment(tmp_path):
     assert after.serving.position == run.position_store("posB") / "0"
 
 
-@pytest.mark.parametrize("raw", [False, True], ids=["seamless", "raw"])
-def test_the_gateway_refuses_a_view_that_owns_pixel_payload(tmp_path, raw):
+def test_the_gateway_refuses_a_view_that_owns_pixel_payload(tmp_path):
     """A copied chunk must never become a second, potentially stale truth."""
     import zarr
 
     run = a_live_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    if raw:
-        level = run.raw_overlap_level()
-        view = zarr.open_array(str(level), mode="r+")
-        stop = run.tile_stop_of("posA")
-        view[stop, 0, 0, 0, :64, :64] = 700
-        requested = level / f"c/{stop}/0/0/0/0/0"
-    else:
-        level = run.seamless_level()
-        view = zarr.open_array(str(level), mode="r+")
-        view[0, 0, 0, :64, :64] = 700
-        requested = level / "c/0/0/0/0/0"
+    level = run.view_level()
+    view = zarr.open_array(str(level), mode="r+")
+    view[0, 0, 0, :64, :64] = 700
+    requested = level / "c/0/0/0/0/0"
 
     forget_live_run(run.folder)
     answer = answer_from_a_live_run(requested)
@@ -163,13 +159,13 @@ def test_replacing_one_moment_keeps_other_published_moments_visible(tmp_path):
     replacement = run.replace_a_position("posA", some_specimen(1900), timepoint=1)
     assert replacement.position_generation == 1
 
-    inherited = run.seamless_level() / "c/0/0/0/0/0"
+    inherited = run.view_level() / "c/0/0/0/0/0"
     answer = answer_from_a_live_run(inherited)
     assert answer is not None and answer.allowed is True
     assert answer.serving is not None
     assert answer.serving.position.parent.name == "posA.generation-1.ome.zarr"
 
-    never_published = run.seamless_level() / "c/2/0/0/0/0"
+    never_published = run.view_level() / "c/2/0/0/0/0"
     withheld = answer_from_a_live_run(never_published)
     assert withheld is not None and withheld.allowed is False
 
@@ -182,20 +178,20 @@ def test_replacement_pixels_are_withheld_while_shared_views_are_being_changed(
     run.write_and_publish("posB", some_specimen(700))
     chunk = run.profile.level(0).inner_chunk["x"]
     _height, width = run._mosaic_extent()
-    virtual_edge = run.seamless_level() / f"c/0/0/0/0/{(width - 1) // chunk}"
+    virtual_edge = run.view_level() / f"c/0/0/0/0/{(width - 1) // chunk}"
     before = answer_from_a_live_run(virtual_edge)
     assert before is not None and before.allowed is True
     assert before.serving is not None
 
     observed = []
-    really_write = run.write_the_seamless_view
+    really_write = run.write_the_view
 
-    def observe_after_the_view_changed(committed, *, only=None):
-        really_write(committed, only=only)
+    def observe_after_the_view_changed():
+        really_write()
         answer = answer_from_a_live_run(virtual_edge)
         observed.append(answer is not None and answer.allowed)
 
-    monkeypatch.setattr(run, "write_the_seamless_view", observe_after_the_view_changed)
+    monkeypatch.setattr(run, "write_the_view", observe_after_the_view_changed)
     run.replace_a_position("posB", some_specimen(1900))
 
     assert observed == [False], (
@@ -222,27 +218,19 @@ def test_a_failed_replacement_restores_old_shared_pixels_and_routing(
     assert run.generations == {}
     held = json.loads(run.link_map_file.read_text(encoding="utf-8"))
     assert held["position_generations"] == {"posA": 0}
-    assert not (run.seamless_level() / "c").exists()
+    assert not (run.view_level() / "c").exists()
 
-    linked_piece = run.seamless_level() / "c/0/0/0/0/0"
+    linked_piece = run.view_level() / "c/0/0/0/0/0"
     answer = answer_from_a_live_run(linked_piece)
     assert answer is not None and answer.allowed is True
     assert answer.serving is not None
     assert answer.serving.position.parent.name == "posA.ome.zarr"
 
-    raw_piece = run.raw_overlap_level() / (
-        f"c/{run.tile_stop_of('posA')}/0/0/0/0/0"
-    )
-    raw_answer = answer_from_a_live_run(raw_piece)
-    assert raw_answer is not None and raw_answer.allowed is True
-    assert raw_answer.serving is not None
-    assert raw_answer.serving.position.parent.name == "posA.ome.zarr"
-
 
 def test_a_link_map_from_another_run_fails_closed_after_publication(tmp_path):
     run = a_live_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    requested = run.seamless_level() / "c/0/0/0/0/0"
+    requested = run.view_level() / "c/0/0/0/0/0"
     sound = answer_from_a_live_run(requested)
     assert sound is not None and sound.allowed is True
 
@@ -259,7 +247,7 @@ def test_a_link_map_from_another_run_fails_closed_after_publication(tmp_path):
 def test_a_link_map_that_moves_a_tile_fails_closed(tmp_path):
     run = a_live_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    requested = run.seamless_level() / "c/0/0/0/0/0"
+    requested = run.view_level() / "c/0/0/0/0/0"
 
     link_map = run.link_map_file
     damaged = json.loads(link_map.read_text(encoding="utf-8"))

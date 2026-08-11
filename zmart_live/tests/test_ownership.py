@@ -32,7 +32,6 @@ from zmart_live.ownership import (
     check_the_grid_holds_together,
     place_the_tiles,
     plan_one_tile,
-    the_far_edges,
 )
 
 
@@ -158,64 +157,8 @@ class TestEveryPieceOfSpecimenHasExactlyOneOwner:
         ]
 
 
-class TestTheLowerRightRule:
-    """Every tile trimmed alike, which is what keeps the overview cheap."""
-
-    def test_every_tile_is_taken_from_its_own_corner(self):
-        """The whole point: no tile is taken from an offset, so the numbers line
-        up as far down the zoom levels as possible."""
-        profile = a_plan()
-        placements = place_the_tiles(profile, a_square_of(3, 3))
-        for placement in placements:
-            for axis in ("y", "x"):
-                assert placement.visual_source_roi[axis].start == 0
-
-    def test_every_interior_tile_hands_over_exactly_one_step(self):
-        profile = a_plan()
-        step = profile.grid_step("x")
-        placements = place_the_tiles(profile, a_square_of(3, 3))
-        interior = [p for p in placements if p.cell == GridCell(0, 0)]
-        for placement in interior:
-            for axis in ("y", "x"):
-                assert placement.visual_source_roi[axis].length == step
-
-    def test_keeping_the_far_edge_is_available_and_visibly_different(self):
-        """Both arms, so neither can pass by accident."""
-        profile = a_plan()
-        cells = a_square_of(2, 2)
-        trimmed = place_the_tiles(profile, cells)
-        kept = place_the_tiles(profile, cells, keep_the_far_edge=True)
-
-        corner_trimmed = next(p for p in trimmed if p.cell == GridCell(1, 1))
-        corner_kept = next(p for p in kept if p.cell == GridCell(1, 1))
-        assert corner_trimmed.visual_source_roi["x"].stop == profile.grid_step("x")
-        assert corner_kept.visual_source_roi["x"].stop == profile.frame_shape["x"]
-
-    def test_the_uncovered_far_strips_are_named_rather_than_left_to_be_discovered(self):
-        """Trimming alike leaves the mosaic's last row and column short, and
-        somebody has to be told which pixels those are."""
-        profile = a_plan()
-        placements = place_the_tiles(profile, a_square_of(2, 2))
-        edges = the_far_edges(profile, placements)
-
-        assert edges, "the trim leaves strips uncovered, so they must be reported"
-        for edge in edges:
-            assert edge.width == profile.overlap_pixels[edge.axis]
-
-        # And with the edge kept, there is nothing left over. Both arms again.
-        kept = place_the_tiles(profile, a_square_of(2, 2), keep_the_far_edge=True)
-        assert the_far_edges(profile, kept) == ()
-
-
-class TestShowingAndCountingAreAllowedToDiffer:
-    """Two questions, two answers, and forcing them together compromises both."""
-
-    def test_the_seam_shown_and_the_seam_counted_are_not_the_same_line(self):
-        profile = a_plan()
-        placement = one_tile(profile, GridCell(0, 0), occupied=frozenset(a_square_of(2, 2)))
-        shown = placement.visual_source_roi["x"]
-        counted = placement.analysis_core_roi["x"]
-        assert shown.stop != counted.stop
+class TestWhatIsLookedAtAndWhatCounts:
+    """The picture shows tiles whole; only the counting needs a boundary."""
 
     def test_a_model_is_given_the_whole_tile_including_the_overlap(self):
         """The overlap is the context that lets a model judge an object at the edge."""
