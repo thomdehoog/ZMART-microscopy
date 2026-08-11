@@ -22,7 +22,6 @@ import pytest
 from zmart_storage.canvas import Channel
 from zmart_storage.linked import the_map_inside
 from zmart_storage.positions import (
-    POSITIONS_FOLDER,
     how_many_copies_a_position_can_keep,
     start_a_run,
 )
@@ -40,13 +39,14 @@ ORIGIN_UM = (11.0, 5.5, 7.25)
 
 
 def _the_positions_in(view: Path) -> list[Path]:
-    """The position images inside a picture, without the group's own description.
+    """The position images inside a picture.
 
-    The positions live in a zarr *group* inside the picture, so the folder holds
-    a ``zarr.json`` of its own beside them — that file is what makes zarr treat
-    the folder as part of the hierarchy rather than warning about it.
+    The positions sit **directly inside** the picture, among its levels, with
+    nothing between — the layout `PLAN_live_smart_microscopy.md` settles. They
+    are told apart from everything else by their name: every child ending
+    ``.ome.zarr`` is a position, and only positions are named that way.
     """
-    return sorted(one for one in (view / POSITIONS_FOLDER).iterdir()
+    return sorted(one for one in view.iterdir()
                   if one.name.endswith(".ome.zarr"))
 
 
@@ -176,7 +176,7 @@ def test_zarr_itself_is_happy_with_everything_inside_the_picture(tmp_path):
     folder = tmp_path / "experiment"
     view, _ = _a_run(folder)
 
-    for image in [view, view / POSITIONS_FOLDER, *_the_positions_in(view)]:
+    for image in [view, *_the_positions_in(view)]:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             list(zarr.open_group(str(image), mode="r").members())
@@ -236,10 +236,18 @@ def test_the_picture_is_what_lets_the_viewer_open_the_run_at_all(tmp_path):
         "opening the run should offer exactly one image to draw"
     )
 
-    _, every_position = discover(view / POSITIONS_FOLDER)
-    assert len(every_position) == ACROSS * ACROSS, (
-        "without the picture the viewer would be handed one image per position, "
-        "which is the arrangement that does not scale"
+    # The positions sit directly inside that one image, and the viewer must
+    # *not* be handed them as images of their own — a real run holds thousands,
+    # and one drawing layer each is the arrangement that never opens. An image
+    # is an image because of its own description, so discovery stops at the
+    # picture and what is underneath stays underneath.
+    _, inside = discover(view)
+    assert inside == [view.name], (
+        "the picture should be one image to the viewer however many positions "
+        "it holds inside"
+    )
+    assert len(_the_positions_in(view)) == ACROSS * ACROSS, (
+        "the positions should really be there, directly inside the picture"
     )
 
 

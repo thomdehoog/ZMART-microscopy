@@ -229,6 +229,32 @@ def _refuse_overlapping_tiles(tile_shape, tile_step) -> None:
 # makes them the thing to look past when asking "has anything been imaged here?".
 _DESCRIPTION_FILES = {".zarray", ".zattrs", ".zgroup", ".zmetadata", "zarr.json"}
 
+# The special value of ``keeps_its_tiles_in`` that means the tiles are not in a
+# named subfolder but sit **directly among the image's own levels**: every child
+# whose name ends ``.ome.zarr`` is a position and is stepped around wherever the
+# writer empties or inspects the image. Spelled "." because that is how a path
+# says "right here". The gain over a subfolder is that the acquisition is then
+# exactly what it looks like — one zarr whose children are the picture's levels
+# and the positions themselves, with no structure between.
+TILES_LIVE_DIRECTLY_INSIDE = "."
+
+
+def _a_child_the_tiles_live_in(name: str, apart_from: str | None) -> bool:
+    """Whether this child of an image folder holds tiles that must survive.
+
+    Three answers, by what ``apart_from`` says: nothing must (``None``, the
+    ordinary image that owns its whole folder); one named subfolder must (a view
+    keeping its positions in, say, ``"positions"``); or every child that is
+    itself an image must (:data:`TILES_LIVE_DIRECTLY_INSIDE`, a view whose
+    positions sit directly among its levels). Used by everything that empties or
+    inspects an image folder, so the rule cannot drift between them.
+    """
+    if apart_from is None:
+        return False
+    if apart_from == TILES_LIVE_DIRECTLY_INSIDE:
+        return name.endswith(_IMAGE_SUFFIX)
+    return name == apart_from
+
 
 def _a_picture_already_written(store: Path,
                                apart_from: str | None = None) -> Path | None:
@@ -266,7 +292,8 @@ def _a_picture_already_written(store: Path,
             # go next, so the positions are never descended into at all. That
             # matters for more than tidiness: a finished plate holds millions of
             # files down there and walking them would take real time.
-            folders[:] = [one for one in folders if one != apart_from]
+            folders[:] = [one for one in folders
+                          if not _a_child_the_tiles_live_in(one, apart_from)]
         for name in files:
             if name not in _DESCRIPTION_FILES:
                 return Path(here) / name
@@ -394,7 +421,7 @@ def _throw_away_the_existing_run(folder: Path, name: str,
             shutil.rmtree(store)
             continue
         for child in store.iterdir():
-            if child.name == apart_from:
+            if _a_child_the_tiles_live_in(child.name, apart_from):
                 continue
             if child.is_dir():
                 shutil.rmtree(child)
@@ -1863,7 +1890,7 @@ def _declare_one(
         # its description and every zoomed-out copy an earlier attempt wrote are
         # gone before the new ones are declared.
         for child in store.iterdir() if store.is_dir() else ():
-            if child.name == keeps_its_tiles_in:
+            if _a_child_the_tiles_live_in(child.name, keeps_its_tiles_in):
                 continue
             if child.is_dir():
                 shutil.rmtree(child)
