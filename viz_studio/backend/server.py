@@ -37,6 +37,7 @@ import math
 import os
 import queue
 import re
+import socket
 import sys
 import tempfile
 import threading
@@ -1645,6 +1646,22 @@ def make_server(
         # anything beyond that is dropped and retried a second later.
         request_queue_size = 128
         daemon_threads = True
+
+        # On Windows the SO_REUSEADDR the standard library asks for means
+        # something else entirely: it lets this server bind a port another
+        # server is actively listening on, taking it over with no error on
+        # either side. The refusal below then never fires, and two viewers on
+        # one lab PC quietly steal each other's door. So there the address is
+        # claimed exclusively instead, which both refuses a taken port and
+        # keeps a later program from taking this one.
+        allow_reuse_address = sys.platform != "win32"
+
+        def server_bind(self):
+            if sys.platform == "win32":
+                self.socket.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1
+                )
+            super().server_bind()
 
         def serve_forever(self, *args, **kwargs):
             # The disk is watched only while the server is actually running, and

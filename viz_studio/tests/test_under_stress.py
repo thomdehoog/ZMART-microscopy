@@ -17,7 +17,6 @@ from __future__ import annotations
 import concurrent.futures
 import http.client
 import json
-import shutil
 import threading
 import time
 from pathlib import Path
@@ -29,6 +28,7 @@ import zarr
 from library import Library
 from server import make_server
 from stores import axis_names, channels, is_store, written_timepoints
+from zmart_storage import rmtree_despite_brief_holds
 
 # Nothing here may take longer than this. The point of these tests is to catch
 # something that stalls, so a generous ceiling is still a ceiling.
@@ -283,8 +283,11 @@ class TestHowFarTheDataReaches:
         )
         assert written_timepoints(path) == 5
 
-        # The same folder is cleared away and a second, shorter run writes into it.
-        shutil.rmtree(path)
+        # The same folder is cleared away and a second, shorter run writes into
+        # it. Cleared with patience, because on a lab PC the endpoint
+        # protection glances at freshly written files and a plain rmtree dies
+        # on the moment of that glance.
+        rmtree_despite_brief_holds(path)
         write_store(
             path,
             shape=(10, 1, 1, 64, 64),
@@ -593,9 +596,8 @@ class TestSparseAndMissing:
         )
         port = serving(store.name)
         assert request(port, "/api/config")[0] == 200
-        import shutil
 
-        shutil.rmtree(store)
+        rmtree_despite_brief_holds(store)
         status, body = request(port, "/api/config")
         assert status == 200, "the viewer must still answer once the data has gone"
         assert request(port, "/api/announce", method="POST", body=b"{}")[0] == 200
