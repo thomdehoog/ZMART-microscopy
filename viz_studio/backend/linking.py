@@ -225,28 +225,70 @@ class _WhereThePiecesReallyAre:
         # back than the widest tile is wide cannot still be reaching this far.
         self._widest = 1
         for tile in listed.get("tiles") or []:
-            store = str(tile["store"])
-            at = tuple(int(n) for n in tile["at"])
-            size = tuple(int(n) for n in tile["size"])
-            low = tuple(int(n) for n in tile["from"])
-            if len(at) != 3 or len(size) != 3 or len(low) != 3:
-                raise ValueError("a tile's place in the view needs three numbers")
-            if any(n < 0 for n in at + low) or any(n <= 0 for n in size):
-                raise ValueError("a tile cannot begin before the view or be empty")
-            held_as = str(tile.get("held_as") or HELD_AS_A_FILE)
-            if held_as != HELD_AS_A_FILE:
-                raise ValueError(
-                    f"{store} says its pieces are held as {held_as!r}, which this "
-                    "reader does not know how to find. Rather than guess at where "
-                    "in a file a piece begins — and hand the viewer somebody else's "
-                    "bytes to draw — the whole view is left unread."
-                )
-            held = (at, size, low, store, held_as)
-            self._widest = max(self._widest, size[2])
-            for row in range(at[1], at[1] + size[1]):
-                self._rows.setdefault(row, []).append(held)
+            self._take_in(tile)
         for crossing in self._rows.values():
             crossing.sort(key=lambda tile: tile[0][2])
+
+    def _take_in(self, tile: dict) -> None:
+        """Put one tile's pointers into the index. The caller sorts afterwards."""
+        store = str(tile["store"])
+        at = tuple(int(n) for n in tile["at"])
+        size = tuple(int(n) for n in tile["size"])
+        low = tuple(int(n) for n in tile["from"])
+        if len(at) != 3 or len(size) != 3 or len(low) != 3:
+            raise ValueError("a tile's place in the view needs three numbers")
+        if any(n < 0 for n in at + low) or any(n <= 0 for n in size):
+            raise ValueError("a tile cannot begin before the view or be empty")
+        held_as = str(tile.get("held_as") or HELD_AS_A_FILE)
+        if held_as != HELD_AS_A_FILE:
+            raise ValueError(
+                f"{store} says its pieces are held as {held_as!r}, which this "
+                "reader does not know how to find. Rather than guess at where "
+                "in a file a piece begins — and hand the viewer somebody else's "
+                "bytes to draw — the whole view is left unread."
+            )
+        held = (at, size, low, store, held_as)
+        self._widest = max(self._widest, size[2])
+        for row in range(at[1], at[1] + size[1]):
+            self._rows.setdefault(row, []).append(held)
+
+    def grown_by(self, tiles: list[dict]) -> _WhereThePiecesReallyAre:
+        """This index with a few more tiles in it, as a new object.
+
+        A run adds one position at a time, and rebuilding the whole index for
+        each one costs time in proportion to the run — measured at 124 ms per
+        landing once ten thousand tiles were in, which an operator feels as a
+        hiccup on every position and which only grows. Taking in just the new
+        tiles costs time in proportion to *them*, which is the property a live
+        run needs: what one more position costs must not depend on how many
+        came before.
+
+        A **new object** rather than mutation, deliberately. The server answers
+        several requests at once, and other threads may be walking this index
+        while the new tiles arrive; they keep this object, untouched, and the
+        next lookup swaps to the grown one. The two share the row lists that
+        did not change — only the rows the new tiles cross are copied — so the
+        cost stays with the change.
+        """
+        grown = _WhereThePiecesReallyAre.__new__(_WhereThePiecesReallyAre)
+        grown.level = self.level
+        grown.pointed_levels = self.pointed_levels
+        grown.separator = self.separator
+        grown.prefix = self.prefix
+        grown._widest = self._widest
+        grown._rows = dict(self._rows)
+        touched = set()
+        for tile in tiles:
+            at = tuple(int(n) for n in tile["at"])
+            size = tuple(int(n) for n in tile["size"])
+            for row in range(at[1], at[1] + size[1]):
+                if row not in touched:
+                    grown._rows[row] = list(grown._rows.get(row, []))
+                    touched.add(row)
+            grown._take_in(tile)
+        for row in touched:
+            grown._rows[row].sort(key=lambda tile: tile[0][2])
+        return grown
 
     def _tile_covering(
         self, at: tuple[int, int, int]
@@ -379,10 +421,12 @@ class _WhereThePiecesReallyAre:
         return level, frame, channel, z, y, x
 
 
-# What has been read from each view, against the moment its list of pointers was
-# last written. Keyed on when as well as where, so that a view rebuilt while the
-# viewer is open is noticed rather than answered from a list that no longer
-# describes it.
+# What has been read from each view: when its list of pointers was last
+# written, how far into the companion file the reading has got, and the index
+# built from both. Keyed on when as well as where, so that a view rebuilt while
+# the viewer is open is noticed rather than answered from a list that no longer
+# describes it — and keyed on *how far* rather than merely how long, so that a
+# tile landing costs parsing that one tile rather than re-reading the run.
 _known: dict[str, tuple[tuple[int, int], _WhereThePiecesReallyAre]] = {}
 _known_lock = threading.Lock()
 
@@ -485,45 +529,72 @@ def the_bytes_behind(store: Path, inside: str) -> Held | None:
     key = str(listing)
     with _known_lock:
         remembered = _known.get(key)
-    if remembered is None or remembered[0] != (written, grown):
-        spread = _read(listing, added)
-        if spread is None:
-            return None
-        with _known_lock:
-            _known[key] = ((written, grown), spread)
-    else:
-        spread = remembered[1]
+    if remembered is not None and remembered[0][0] == written:
+        (_, consumed), spread = remembered
+        if grown == consumed:
+            # Nothing changed; answer from what is already indexed.
+            return spread.the_bytes_behind(inside)
+        if grown > consumed >= 0:
+            # The companion only grew: parse just the new bytes and grow the
+            # index by those tiles. This is what keeps one more position
+            # costing one more position, however many came before.
+            try:
+                arriving, consumed = _the_tiles_added_since(added, consumed)
+                spread = spread.grown_by(arriving)
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                return None
+            with _known_lock:
+                _known[key] = ((written, consumed), spread)
+            return spread.the_bytes_behind(inside)
+        # The companion shrank or vanished while the list itself stayed put,
+        # which no ordinary run does — fall through and read everything afresh
+        # rather than guess.
+    read = _read(listing, added)
+    if read is None:
+        return None
+    spread, consumed = read
+    with _known_lock:
+        _known[key] = ((written, consumed), spread)
     return spread.the_bytes_behind(inside)
 
 
-def _the_tiles_added_since(added: Path) -> list[dict]:
-    """The tiles a run still being acquired has added, one to a line.
+def _the_tiles_added_since(added: Path, start: int = 0) -> tuple[list[dict], int]:
+    """The tiles the companion file holds beyond ``start``, and how far that got.
 
-    Returns an empty list when there is no such file, which is the ordinary case —
-    a view built from a finished run keeps every tile in the list itself.
+    Returns the tiles parsed and the byte just past the last **complete** line,
+    so the next look can begin exactly there and never read a line twice. The
+    offset is what makes a tile landing cost one tile: ten thousand positions
+    already read are ten thousand positions never read again.
 
-    **A half-written last line is expected and is not a fault.** This is read while
-    the writer is still adding to the file, so the final line can be caught partway
-    through being written. Such a line is left out, and it will be read on the next
-    look a moment later. Only the *last* line is forgiven this way: anything earlier
-    that will not read is a real fault, and the whole view is then left unread
-    rather than shown with tiles missing and nothing on screen to say so.
+    Returns ``([], -1)`` when there is no such file, which is the ordinary case
+    — a view built from a finished run keeps every tile in the list itself.
+
+    **A half-written last line is expected and is not a fault.** This is read
+    while the writer is still adding to the file, so the end can be caught
+    partway through being written. An incomplete final line is simply not yet
+    past the returned offset, and is read whole on the next look a moment
+    later. A *complete* line that will not parse is a real fault, and the whole
+    view is then left unread rather than shown with tiles missing and nothing
+    on screen to say so.
     """
     try:
-        lines = added.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return []
+        with added.open("rb") as held:
+            held.seek(start)
+            raw = held.read()
+    except OSError:
+        return [], -1
+    parts = raw.split(b"\n")
     tiles = []
-    for at, line in enumerate(lines):
+    consumed = start
+    # Everything before the final element ends in a newline and is complete;
+    # the final element is either empty (the file ended on a newline) or a
+    # line still being written, and either way it is left for next time.
+    for line in parts[:-1]:
+        consumed += len(line) + 1
         if not line.strip():
             continue
-        try:
-            tiles.append(json.loads(line))
-        except json.JSONDecodeError:
-            if at == len(lines) - 1:
-                break
-            raise
-    return tiles
+        tiles.append(json.loads(line.decode("utf-8")))
+    return tiles, consumed
 
 
 def _the_part_that_is_ours(held: dict) -> dict | None:
@@ -544,8 +615,13 @@ def _the_part_that_is_ours(held: dict) -> dict | None:
     return ours if isinstance(ours, dict) else None
 
 
-def _read(listing: Path, added: Path) -> _WhereThePiecesReallyAre | None:
-    """Read a view's list of pointers, or ``None`` if it cannot be trusted.
+def _read(listing: Path,
+          added: Path) -> tuple[_WhereThePiecesReallyAre, int] | None:
+    """Read a view's whole list of pointers, or ``None`` if it cannot be trusted.
+
+    Returns the index and how far into the companion file the reading got, so
+    the next look can take in only what lands after — see
+    :func:`_the_tiles_added_since`.
 
     A list that cannot be read, or that was written in a shape this reader does not
     know, is treated as no list at all. The view then answers "there is nothing
@@ -571,9 +647,9 @@ def _read(listing: Path, added: Path) -> _WhereThePiecesReallyAre | None:
     if held is None or held.get("version") not in LINKS_VERSIONS_UNDERSTOOD:
         return None
     try:
-        held = {**held, "tiles": [*(held.get("tiles") or []),
-                                  *_the_tiles_added_since(added)]}
-        return _WhereThePiecesReallyAre(held)
+        arriving, consumed = _the_tiles_added_since(added)
+        held = {**held, "tiles": [*(held.get("tiles") or []), *arriving]}
+        return _WhereThePiecesReallyAre(held), consumed
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
 

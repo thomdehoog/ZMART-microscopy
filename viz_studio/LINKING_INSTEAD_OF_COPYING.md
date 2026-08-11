@@ -237,8 +237,15 @@ pieces the tile crosses, and finds a piece by asking which tile in that row
 covers it — a handful of comparisons, and memory in proportion to the tiles.
 Measured over 9,231 positions (`measure_ten_thousand_linked.py`): the map is
 1 MB on disk, parsing and indexing it costs 8 MB of memory and about half a
-second once per change, one lookup takes about 30 microseconds, and every one
-of 1,846 sampled pointers resolved to the right tile.
+second **once per rebuild**, one lookup takes tens of microseconds, and every
+one of 1,846 sampled pointers resolved to the right tile.
+
+A tile *landing* no longer pays that rebuild. The companion file is
+append-only, so the reader remembers how far it has read and takes in only the
+bytes beyond — one more position costs parsing one more line, measured at
+0.14 ms with ten thousand already indexed, where re-reading the run cost
+124 ms and grew with it. That is the property a live run needs: what one more
+position costs does not depend on how many came before.
 
 **Answer for ground no tile covers.** *Written.* Most of a scattered run's bounding box is
 empty. The server already answers a plain "nothing here" — a 404 — and the pointing
