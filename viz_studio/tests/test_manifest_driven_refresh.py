@@ -206,7 +206,11 @@ def test_gapped_commits_have_ranges_but_no_misleading_frame_high_water(tmp_path)
             == [{"start": 0, "stop": 1}, {"start": 2, "stop": 3}]
             for row in rows
         )
-        assert all(row["frames"] is None for row in rows)
+        # Zero, not the high-water mark of 3: the legacy count is an honest
+        # contiguous prefix, and a gapped record has none. It is deliberately
+        # non-null so the frontend's first-image heuristic cannot mistake the
+        # gap being filled later for a first picture arriving (see live_config).
+        assert all(row["frames"] == 0 for row in rows)
     finally:
         server.shutdown()
         thread.join(timeout=5)
