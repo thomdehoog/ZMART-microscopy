@@ -1,13 +1,16 @@
-"""Serving one small piece of the seamless view straight out of a bundled position.
+"""Serving one small piece of the linked view straight out of a bundled position.
 
 Why this exists
 ---------------
 
-The seamless view is the picture an operator actually looks at: one continuous
+The linked view is the picture an operator actually looks at: one continuous
 image of the whole slide, made out of the positions the microscope has already
-written. Nothing of it at full resolution is stored a second time. When the
-viewer asks for a piece of it, something has to say which file already holds
-those exact bytes, where in that file they start, and how many of them there are.
+written. Positions are routed **whole**, overlap intact, and where two of them
+cover the same ground the one that arrived later is drawn — exactly as tiles
+laid on top of one another would look. Nothing of it at full resolution is
+stored a second time. When the viewer asks for a piece of it, something has to
+say which file already holds those exact bytes, where in that file they start,
+and how many of them there are.
 
 :mod:`zmart_live.shardlink` can answer that question for a single chunk of a
 single position, and it has been proven against real files. What was missing was
@@ -99,13 +102,14 @@ import json
 import operator
 from bisect import bisect_right
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .model import ZmartLiveError
 from .shardlink import Bundling, Held, StoredArray, how_the_array_is_stored
 
 __all__ = [
+    "Claim",
     "Placed",
     "Serving",
     "ViewRoute",
@@ -145,6 +149,50 @@ class Placed:
     lands_at: tuple[int, int, int]
     taken_from: tuple[int, int, int] = (0, 0, 0)
     size: tuple[int, int, int] | None = None
+
+
+@dataclass(frozen=True)
+class Claim:
+    """One position's claim on one piece of the view.
+
+    Where positions overlap, a piece of the picture has more than one claim on
+    it, and :meth:`ViewRoute.claims_on` hands them back **newest arrival
+    first**. The first claim is the one the picture draws. The rest exist for
+    callers that deliberately show an older recording — the publication gateway
+    does exactly that while a newer position is written but not yet committed,
+    so the ground it covers keeps showing the last published measurement
+    instead of blinking out.
+
+    ``position`` is the folder of the one pyramid level the claim points into,
+    and ``inside_the_position`` is the chunk coordinate it would supply.
+    :meth:`serving` resolves the claim to bytes on disk, or to ``None`` when
+    that chunk was never written — absence, not an error.
+    """
+
+    position: Path
+    inside_the_position: tuple[int, ...]
+    _stored: _HowAPositionIsStored = field(repr=False)
+
+    def serving(self) -> Serving | None:
+        """The bytes this claim would hand over, or ``None`` for absence."""
+        grid = self._stored.bundling.chunks_in_array
+        if any(
+            index >= extent
+            for index, extent in zip(self.inside_the_position, grid, strict=True)
+        ):
+            # The position does not reach that far — most often a moment it has
+            # not been asked to record yet.
+            return None
+        held = self._stored.where_one_chunk_lives(self.inside_the_position)
+        if held is None:
+            return None
+        return Serving(
+            path=held.path,
+            offset=held.offset,
+            length=held.length,
+            position=self.position,
+            inside_the_position=self.inside_the_position,
+        )
 
 
 @dataclass(frozen=True)
@@ -371,12 +419,17 @@ class _Block:
     Everything about placing a position becomes simple once it is counted this
     way: the position supplies a rectangular block of the view's chunk grid, and
     which of its own chunks each of them is comes out of a subtraction.
+
+    ``arrival`` is the position's place in the order the caller gave, and it is
+    load-bearing: where two blocks cover the same piece of the picture, the one
+    that arrived later is the one that is drawn.
     """
 
     stored: _HowAPositionIsStored
     begins: tuple[int, int, int]
     extent: tuple[int, int, int]
     low: tuple[int, int, int]
+    arrival: int
 
 
 def _refuse_a_placement_that_does_not_land_on_whole_chunks(
@@ -534,18 +587,21 @@ class ViewRoute:
         """The positions this view is made of, in the order they were given."""
         return tuple(block.stored.array for block in self._blocks)
 
-    def _position_covering(
+    def _positions_covering(
         self, at: tuple[int, int, int]
-    ) -> tuple[_Block, tuple[int, int, int]] | None:
-        """Which position supplies the chunk at this place, and which of its own it is.
+    ) -> list[tuple[_Block, tuple[int, int, int]]]:
+        """Every position covering the chunk at this place, newest arrival first.
 
         ``at`` is a place in the view's grid of chunks, given as ``(z, y, x)``.
-        Answering ``None`` is ordinary rather than a fault: most of a scattered
-        run's picture is ground nobody imaged.
+        An empty answer is ordinary rather than a fault: most of a scattered
+        run's picture is ground nobody imaged. Where positions overlap there is
+        more than one entry, and the order is the whole point — the first one
+        is the position the picture draws.
         """
         crossing = self._rows.get(at[1])
         if not crossing:
-            return None
+            return []
+        found: list[tuple[_Block, tuple[int, int, int]]] = []
         nearest = bisect_right(crossing, at[2], key=lambda block: block.begins[2])
         for index in range(nearest - 1, -1, -1):
             block = crossing[index]
@@ -553,38 +609,31 @@ class ViewRoute:
                 break
             within = tuple(at[axis] - block.begins[axis] for axis in range(3))
             if all(0 <= within[axis] < block.extent[axis] for axis in range(3)):
-                return block, tuple(
-                    block.low[axis] + within[axis] for axis in range(3)
-                )  # type: ignore[return-value]
-        return None
+                found.append(
+                    (
+                        block,
+                        tuple(
+                            block.low[axis] + within[axis] for axis in range(3)
+                        ),  # type: ignore[arg-type]
+                    )
+                )
+        found.sort(key=lambda entry: entry[0].arrival, reverse=True)
+        return found
 
-    def where_this_chunk_is(self, chunk_coordinate: Sequence[int]) -> Serving | None:
-        """Say where one piece of the view really lives: a file, a byte, a length.
+    def claims_on(self, chunk_coordinate: Sequence[int]) -> tuple[Claim, ...]:
+        """Every position's claim on one piece of the view, newest arrival first.
 
-        What goes in
-            ``chunk_coordinate`` counts **chunks**, not pixels, from the corner of
-            the view, with one number per axis in the picture's own order. For the
-            five axes this project writes that is ``(moment, colour, z, y, x)``.
-            The moment and the colour pass straight through to the position, which
-            keeps its own as they are.
+        ``chunk_coordinate`` counts **chunks**, not pixels, from the corner of
+        the view, with one number per axis in the picture's own order. For the
+        five axes this project writes that is ``(moment, colour, z, y, x)``.
+        The moment and the colour pass straight through to the position, which
+        keeps its own as they are.
 
-        What comes back
-            A :class:`Serving` naming the file, the first byte and the number of
-            bytes. Reading exactly those bytes gives one encoded chunk, ready to be
-            handed to the viewer without being decoded.
-
-            ``None`` means there is nothing to advertise there, and that is an
-            ordinary answer rather than a fault. It happens for ground no position
-            covers, for a moment a position has not reached yet, and — most often
-            of all — for a chunk inside a position that has simply not been written
-            yet, because the acquisition is still running or that part of the frame
-            holds no specimen.
-
-        What can go wrong
-            A :class:`~zmart_live.model.ZmartLiveError` is raised when the
-            coordinate names the wrong number of axes or is negative, and when a
-            bundle turns out to be damaged or cut short. A piece that is merely
-            absent never raises.
+        An empty answer means no position covers that ground, and it is
+        ordinary rather than a fault — as is asking beyond the edge of the
+        picture, which a viewer rounding a screenful up to whole chunks does
+        constantly. A :class:`~zmart_live.model.ZmartLiveError` is raised when
+        the coordinate names the wrong number of axes or is negative.
         """
         wanted = _whole_numbers(chunk_coordinate, "chunk coordinate")
         axes = len(self.storage.chunk)
@@ -604,38 +653,48 @@ class ViewRoute:
         if any(
             spatial[axis] >= self.chunks_in_view[axis] for axis in range(3)
         ):
-            # Beyond the edge of the picture the view declared. Nothing is there to
-            # point at, and saying so plainly is kinder than raising: a viewer
-            # rounding a screenful up to whole chunks asks for these routinely.
-            return None
-
-        found = self._position_covering(spatial)
-        if found is None:
-            return None
-        block, inside = found
-
-        grid = block.stored.bundling.chunks_in_array
-        coordinate = (*leading, *inside)
-        if any(
-            index >= extent for index, extent in zip(coordinate, grid, strict=True)
-        ):
-            # The position does not reach that far — most often a moment it has not
-            # been asked to record yet. There is nothing to hand over.
-            return None
-
-        held = block.stored.where_one_chunk_lives(coordinate)
-        if held is None:
-            # Nothing was ever written at that chunk. The view should advertise
-            # nothing there, so that the viewer draws the fill value rather than
-            # being handed bytes belonging to some other part of the specimen.
-            return None
-        return Serving(
-            path=held.path,
-            offset=held.offset,
-            length=held.length,
-            position=block.stored.array,
-            inside_the_position=coordinate,
+            return ()
+        return tuple(
+            Claim(
+                position=block.stored.array,
+                inside_the_position=(*leading, *inside),
+                _stored=block.stored,
+            )
+            for block, inside in self._positions_covering(spatial)
         )
+
+    def where_this_chunk_is(self, chunk_coordinate: Sequence[int]) -> Serving | None:
+        """Say where one piece of the view really lives: a file, a byte, a length.
+
+        This is the **drawn** answer: the newest arrival covering the piece is
+        the one the picture shows, and older claims on the same ground are
+        deliberately not consulted. A newer position that has not written the
+        chunk yet answers absence rather than quietly showing the recording it
+        is about to supersede; a caller that means to show an older claim walks
+        :meth:`claims_on` and says so.
+
+        What comes back
+            A :class:`Serving` naming the file, the first byte and the number of
+            bytes. Reading exactly those bytes gives one encoded chunk, ready to be
+            handed to the viewer without being decoded.
+
+            ``None`` means there is nothing to advertise there, and that is an
+            ordinary answer rather than a fault. It happens for ground no position
+            covers, for a moment a position has not reached yet, and — most often
+            of all — for a chunk inside a position that has simply not been written
+            yet, because the acquisition is still running or that part of the frame
+            holds no specimen.
+
+        What can go wrong
+            A :class:`~zmart_live.model.ZmartLiveError` is raised when the
+            coordinate names the wrong number of axes or is negative, and when a
+            bundle turns out to be damaged or cut short. A piece that is merely
+            absent never raises.
+        """
+        claims = self.claims_on(chunk_coordinate)
+        if not claims:
+            return None
+        return claims[0].serving()
 
     def advertises(self, chunk_coordinate: Sequence[int]) -> bool:
         """Whether the view has anything to offer at this piece.
@@ -668,7 +727,7 @@ class ViewRoute:
             spatial[axis] >= self.chunks_in_view[axis] for axis in range(3)
         ):
             return False
-        return self._position_covering(spatial) is not None
+        return bool(self._positions_covering(spatial))
 
 
 def route_the_view(
@@ -684,6 +743,14 @@ def route_the_view(
         :class:`Placed`. Every position must be one level of one image, and all of
         them must be the same level, since a route describes one chunk grid.
 
+        **The order of the list is part of the meaning.** Positions overlap on
+        purpose — they are routed whole, nothing is trimmed away — and where two
+        of them cover the same piece of the picture, the one listed **later is
+        drawn**. Callers therefore hand positions over in the order they
+        arrived, so that the picture shows each piece of ground as the latest
+        position to have imaged it, exactly as tiles drawn on top of one
+        another would.
+
         ``view_shape`` is how large the picture is, as ``(z, y, x)`` in pixels.
         Left out, it is exactly large enough for the positions given, which is
         usually what a finished run wants. Give it when the run means to declare
@@ -692,17 +759,14 @@ def route_the_view(
 
     What comes back
         A :class:`ViewRoute`. Ask it :meth:`~ViewRoute.where_this_chunk_is` for
-        each piece the viewer requests.
+        each piece the viewer requests, or :meth:`~ViewRoute.claims_on` when an
+        older recording of shared ground is deliberately wanted.
 
     What can go wrong
         A :class:`~zmart_live.model.ZmartLiveError` is raised when no positions
         are given, when they were not all written the same way, when one of them
-        does not land on whole chunks, when the view is asked for part of a
-        position that is not there, or when two positions claim the same piece of
-        the view. That last one matters more than it looks: two positions
-        overlapping means the seam between them has not been decided, and
-        whichever happened to be found first would be drawn, which is a picture
-        that changes depending on the order a list was built in.
+        does not land on whole chunks, or when the view is asked for part of a
+        position that is not there.
     """
     if not positions:
         raise ZmartLiveError(
@@ -713,7 +777,7 @@ def route_the_view(
 
     blocks: list[_Block] = []
     first: _HowAPositionIsStored | None = None
-    for placed in positions:
+    for arrival, placed in enumerate(positions):
         tidy = Placed(
             array=Path(placed.array),
             lands_at=_whole_numbers(placed.lands_at, "place a position lands at"),  # type: ignore[arg-type]
@@ -743,11 +807,11 @@ def route_the_view(
                 begins=tuple(tidy.lands_at[axis] // inner[axis] for axis in range(3)),  # type: ignore[arg-type]
                 extent=tuple(size[axis] // inner[axis] for axis in range(3)),  # type: ignore[arg-type]
                 low=tuple(tidy.taken_from[axis] // inner[axis] for axis in range(3)),  # type: ignore[arg-type]
+                arrival=arrival,
             )
         )
 
     assert first is not None  # a route over no positions was refused above
-    _refuse_two_positions_claiming_the_same_piece(blocks)
 
     inner = first.bundling.inner_chunk[-3:]
     reaches = tuple(
@@ -774,44 +838,6 @@ def route_the_view(
         positions_are_bundled=first.bundling.sharded,
     )
     return ViewRoute(blocks, storage, shape)  # type: ignore[arg-type]
-
-
-def _refuse_two_positions_claiming_the_same_piece(blocks: Sequence[_Block]) -> None:
-    """Stop a view in which two positions supply the same piece of the picture.
-
-    Where two positions overlap, somebody has to decide which of them the view
-    shows — that decision is what a seam is, and it is made by trimming one of
-    them before it gets here. Two positions still claiming the same piece means no
-    such decision was made, and the picture would then depend on which position
-    happened to be looked at first. That is the kind of fault that shows up as a
-    specimen that looks slightly different every time the run is opened.
-
-    Only positions sharing a row are compared, and within a row only those whose
-    columns actually meet, so a large mosaic does not pay for comparing every
-    position with every other.
-    """
-    rows: dict[int, list[_Block]] = {}
-    for block in blocks:
-        for row in range(block.begins[1], block.begins[1] + block.extent[1]):
-            rows.setdefault(row, []).append(block)
-    for crossing in rows.values():
-        ordered = sorted(crossing, key=lambda block: block.begins[2])
-        for at, block in enumerate(ordered):
-            for other in ordered[at + 1:]:
-                if other.begins[2] >= block.begins[2] + block.extent[2]:
-                    break
-                if (
-                    other.begins[0] < block.begins[0] + block.extent[0]
-                    and block.begins[0] < other.begins[0] + other.extent[0]
-                ):
-                    raise ZmartLiveError(
-                        f"'{block.stored.array}' and '{other.stored.array}' both "
-                        f"claim to supply the same piece of the view. Where two "
-                        f"positions overlap, one of them has to give up the shared "
-                        f"strip before the view is built — that is what placing a "
-                        f"seam means — otherwise the picture depends on which of "
-                        f"them happened to be found first."
-                    )
 
 
 # ---------------------------------------------------------------------------
