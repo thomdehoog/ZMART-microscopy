@@ -221,6 +221,26 @@ bundle — divides a position's picture files by pieces-per-position, which for
 a 30-plane, 2048-voxel position is hundreds into one. The division grows with
 exactly the thing that makes runs heavy.
 
+And measured again the same day at sixteen times the ratio, to see whether it
+stays flat: 300 positions of 2048 voxels — **64 pieces in one bundle** —
+identical spots, both arms (`--tile 2048`):
+
+| | plain | bundled |
+| --- | --- | --- |
+| writing and linking, per position | 210 ms | **158 ms** |
+| files on disk | 26,391 | 7,554 |
+| fully loaded from a cold page | 1.48 s | 1.32 s |
+| whole stage fitted | 2.18 s | 2.18 s |
+| zoom ladder | ~0.3–0.8 s a rung | ~0.3–1.0 s a rung |
+| pointers proven to cover their piece | 533 of 533 | 533 of 533 |
+
+Flat where it must be, and better where it may: reads and the ladder did not
+move, a position's picture files went 66 to 3 — twenty-two into one — and
+**writing got a quarter faster**, because one file created is cheaper than
+sixty-four. The engine's asks over bundles count a little higher at the
+busiest rung (each bundle answers through its own index), and the seconds do
+not care. Packing more pieces per bundle makes bundling better, not worse.
+
 ## What this plan deliberately does not do
 
 No stitching, no blending, no sub-voxel placement — those change pixels and
