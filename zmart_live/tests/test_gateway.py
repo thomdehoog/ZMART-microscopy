@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +14,7 @@ import pytest
 from zmart_live.gateway import _generation_named, answer_from_a_live_run, forget_live_run
 from zmart_live.model import GridCell
 from zmart_live.profiles import plan_the_writing
-from zmart_live.shardlink import where_one_chunk_lives
+from zmart_live.shardlink import forget_every_remembered_index, where_one_chunk_lives
 
 from .test_coordinator import FRAME, some_specimen
 
@@ -313,3 +316,207 @@ def test_a_non_live_zarr_is_not_claimed_by_the_gateway(tmp_path):
     ordinary.parent.mkdir(parents=True)
     ordinary.write_bytes(np.array([1], dtype="uint8").tobytes())
     assert answer_from_a_live_run(ordinary) is None
+
+
+# ---------------------------------------------------------------------------
+# The gateway under parallel fire
+# ---------------------------------------------------------------------------
+#
+# Every test above asks one question at a time and waits for the answer. A real
+# browser never does that: the moment a viewer opens, it asks for dozens of
+# pieces at once, each on its own thread. A server can be perfectly correct
+# when asked politely and wrong when asked in parallel — the building viewer in
+# ``viz_studio`` shipped exactly such a bug, serving one request's specimen to
+# another, and no single-request test could ever have seen it. These two tests
+# ask the way the browser asks.
+
+
+def _every_view_chunk(run):
+    """Every chunk coordinate path of the full-resolution view, moment zero."""
+    level = run.view_level()
+    described = json.loads((level / "zarr.json").read_text(encoding="utf-8"))
+    shape = described["shape"]
+    chunk = described["chunk_grid"]["configuration"]["chunk_shape"]
+    down = -(-shape[-2] // chunk[-2])
+    across = -(-shape[-1] // chunk[-1])
+    return [
+        level / "c" / "0" / "0" / "0" / str(y) / str(x)
+        for y in range(down)
+        for x in range(across)
+    ]
+
+
+def _handed_over(target):
+    """Ask the gateway for one piece the way the viewer's server would.
+
+    Returns the exact bytes handed over, or ``None`` where the gateway
+    withholds the piece — which the viewer shows as ordinary empty ground.
+    """
+    answer = answer_from_a_live_run(target)
+    if answer is None or not answer.allowed or answer.serving is None:
+        return None
+    with answer.serving.path.open("rb") as handle:
+        handle.seek(answer.serving.offset)
+        return handle.read(answer.serving.length)
+
+
+def _one_canonical_chunk_of(run, position_id):
+    """The encoded bytes of one chunk of a position's own store, read directly.
+
+    Every chunk of these constant-filled test positions encodes to the same
+    bytes, so this one chunk is a fingerprint: any answer equal to it came from
+    this position and no other.
+    """
+    source = where_one_chunk_lives(
+        run.position_store(position_id) / "0", (0, 0, 0, 0, 0)
+    )
+    assert source is not None
+    with source.path.open("rb") as handle:
+        handle.seek(source.offset)
+        return handle.read(source.length)
+
+
+def _forget_everything(run):
+    """Drop every remembered table and route, as a freshly started server has."""
+    forget_live_run(run.folder)
+    forget_every_remembered_index()
+
+
+def test_a_stampede_on_a_cold_gateway_matches_a_polite_reader(tmp_path):
+    """Many first requests at once must each get what a lone request gets.
+
+    The gateway builds its picture of a run — manifest, routes, shard tables —
+    the first time it is asked, and remembers it. A browser's opening burst is
+    therefore many threads racing to build that state together, which is the
+    classic place for one of them to read a half-built answer.
+    """
+    run = a_live_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    run.write_and_publish("posB", some_specimen(4242))
+    wanted = _every_view_chunk(run)
+
+    _forget_everything(run)
+    politely = {target: _handed_over(target) for target in wanted}
+    # The polite pass must already show both positions, or the storm below
+    # would be comparing against a broken baseline.
+    assert set(politely.values()) >= {
+        _one_canonical_chunk_of(run, "posA"),
+        _one_canonical_chunk_of(run, "posB"),
+    }
+
+    _forget_everything(run)
+    surprises: list[str] = []
+    troubles: list[BaseException] = []
+    ready = threading.Barrier(12)
+
+    def storm(which):
+        # Each thread starts somewhere else in the picture, so at any moment
+        # different threads are asking about different pieces — more
+        # interleavings than everyone marching in step would try.
+        try:
+            ready.wait()
+            rotated = wanted[which:] + wanted[:which]
+            for target in rotated:
+                if _handed_over(target) != politely[target]:
+                    surprises.append(str(target.relative_to(run.folder)))
+        except BaseException as trouble:  # noqa: BLE001 - reported by the test
+            troubles.append(trouble)
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        for which in range(12):
+            pool.submit(storm, which)
+
+    assert not troubles, f"a parallel reader crashed: {troubles[0]!r}"
+    assert not surprises, (
+        f"{len(surprises)} answers under parallel fire differed from what a "
+        f"lone polite reader gets, first at {surprises[0]}"
+    )
+
+
+def test_a_commit_landing_mid_storm_is_never_shown_early_and_never_torn(tmp_path):
+    """While a commit lands, every parallel answer is one truth or the other.
+
+    posA is published; posB is written, routed and withheld, overlapping posA.
+    Threads hammer the whole view while posB's commit lands in the middle of
+    the storm. Every single answer must be exactly what the view said before
+    the commit or exactly what it says after — never posB's pixels before its
+    commit began, and never a blank where published ground was showing.
+    """
+    run = a_live_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    prepare_without_publishing(run, "posB", 4242)
+    wanted = _every_view_chunk(run)
+    from_a = _one_canonical_chunk_of(run, "posA")
+    from_b = _one_canonical_chunk_of(run, "posB")
+
+    _forget_everything(run)
+    before = {target: _handed_over(target) for target in wanted}
+    # Before the commit: posA shows, posB is invisible, and the ground only
+    # posB covers is withheld. This is the single-threaded contract the storm
+    # is then held to.
+    assert set(before.values()) == {from_a, None}
+
+    # Every answer any thread records: (which piece, when it finished, what it
+    # got). Appending to a list is safe across threads; the judging happens
+    # afterwards, single-threaded.
+    seen: list[tuple[Path, float, bytes | None]] = []
+    troubles: list[BaseException] = []
+    settle_down = threading.Event()
+    ready = threading.Barrier(9)
+
+    def storm(which):
+        try:
+            ready.wait()
+            rotated = wanted[which:] + wanted[:which]
+            while not settle_down.is_set():
+                for target in rotated:
+                    got = _handed_over(target)
+                    seen.append((target, time.monotonic(), got))
+        except BaseException as trouble:  # noqa: BLE001 - reported by the test
+            troubles.append(trouble)
+
+    _forget_everything(run)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for which in range(8):
+            pool.submit(storm, which)
+        ready.wait()
+
+        # Let the storm genuinely rage first, then land the commit inside it.
+        time.sleep(0.2)
+        commit_began = time.monotonic()
+        run.publish("posB")
+
+        # Keep the storm going until it has visibly noticed the commit, so the
+        # transition itself — not just the states either side of it — is what
+        # was exercised. Ten seconds is a deadline, not an expectation.
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            if any(got == from_b for _, _, got in list(seen)):
+                break
+            time.sleep(0.01)
+        settle_down.set()
+
+    after = {target: _handed_over(target) for target in wanted}
+    # After the commit, the later commit is drawn on top of the shared ground
+    # and nothing anywhere is blank.
+    assert set(after.values()) == {from_a, from_b}
+
+    assert not troubles, f"a parallel reader crashed: {troubles[0]!r}"
+    assert any(got == from_b for _, _, got in seen), (
+        "the storm never observed the commit landing, so the transition was "
+        "not actually exercised"
+    )
+    for target, finished, got in seen:
+        where = target.relative_to(run.folder)
+        # Only the two truths ever existed; anything else is a torn answer.
+        assert got in (before[target], after[target]), (
+            f"{where} was answered with bytes that are neither the "
+            f"pre-commit nor the post-commit truth"
+        )
+        # posB's pixels may not be seen by a request that finished before the
+        # commit began. That is the live contract at its hardest moment.
+        if got is not None and got == after[target] and before[target] != after[target]:
+            assert finished >= commit_began, (
+                f"{where} showed the newly committed position before its "
+                f"commit began"
+            )
