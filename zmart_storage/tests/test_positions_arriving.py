@@ -585,6 +585,52 @@ def test_imaging_a_place_again_records_a_later_observation(tmp_path):
     )
 
 
+def test_a_run_may_place_positions_overlapping_when_it_points_shallower(tmp_path):
+    """Overlap is the whole crux, and the front door has to offer it.
+
+    A smart run images where the specimen is interesting, and fields of view
+    land overlapping wherever that takes them. The view's alignment rule then
+    bites: pointing at a position's zoomed-out copies demands tiles begin on
+    multiples of piece times shrink, which on a piece-sized lattice forbids
+    overlap outright — and the refusal's own advice, ``point_at=1``, was
+    impossible to follow through :func:`start_a_run`, which never passed it on.
+
+    So a run declaring ``point_at=1`` must accept tiles on the piece lattice,
+    overlapping freely — and a piece inside the overlap must still be owned by
+    exactly one tile that really covers it.
+    """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]
+                           / "viz_studio" / "backend"))
+    import linking
+
+    folder = tmp_path / "experiment"
+    with start_a_run(
+        folder, name="overview", room=(TILE[0], 8 * 64, 8 * 64),
+        tile_shape=TILE, voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+        channels=[Channel("488", window=(0, 4000))], piece=32,
+        point_at=1,
+    ) as run:
+        # Half a tile apart in both axes: the second overlaps the first over a
+        # quarter of its ground, which the tile-sized lattice could never say.
+        run.write(np.full(TILE, 100, dtype="uint16"), at=(0, 0, 0))
+        run.write(np.full(TILE, 200, dtype="uint16"), at=(0, 32, 32))
+        view = run.path
+
+    # A piece both tiles cover. Ownership is whole: the bytes served for it
+    # must be one tile's own file — the pointed path runs through the picture
+    # into a position's store — and only one tile can own the piece.
+    inside_overlap = linking.the_bytes_behind(view, "0/c/0/0/0/1/1")
+    assert inside_overlap is not None, (
+        "a piece inside the overlap answered as empty ground"
+    )
+    owner = inside_overlap.path.split("/")[1]
+    assert owner in {one.name for one in _the_positions_in(view)}, (
+        f"the overlap's bytes came from {owner!r}, not from a position"
+    )
+
+
 def test_a_run_can_bundle_its_positions_pieces(tmp_path):
     """A run asked to shard writes bundled positions, and the picture follows.
 

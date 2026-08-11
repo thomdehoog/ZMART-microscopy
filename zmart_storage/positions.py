@@ -220,7 +220,8 @@ class Run:
                  origin_um: tuple[float, float, float],
                  channels: list[Channel], frames: int, dtype: str, piece: int,
                  levels: int | None, ome_zarr_version: str,
-                 shard: int | None = None) -> None:
+                 shard: int | None = None,
+                 point_at: int | None = None) -> None:
         self.folder = Path(folder)
         self.name = name
         # The positions sit **directly inside** the picture itself, among its
@@ -243,6 +244,7 @@ class Run:
         self._piece = int(piece)
         self._shard = None if shard is None else int(shard)
         self._levels = levels
+        self._point_at = None if point_at is None else int(point_at)
         self._ome_zarr_version = ome_zarr_version
         # How many copies each position keeps of itself. This is what lets the
         # picture the viewer opens store nothing at all: it points at these instead
@@ -488,6 +490,7 @@ class Run:
             view_shape=self._room,  # type: ignore[arg-type]
             name=self.name,
             levels=self._levels,
+            point_at=self._point_at,
             origin_um=self._origin_um,  # type: ignore[arg-type]
             discard_existing_run=True,
             # The positions are already inside this folder, and declaring an image
@@ -513,6 +516,7 @@ def start_a_run(
     piece: int = 128,
     shard: int | None = None,
     levels: int | None = None,
+    point_at: int | None = None,
     ome_zarr_version: str = "0.5",
 ) -> Run:
     """Begin a run that writes each position as it arrives and shows it at once.
@@ -555,6 +559,17 @@ def start_a_run(
         levels: how many progressively smaller copies the picture keeps, counting
             the full-size one. Normally left out, so the size of the picture
             decides — which is what keeps a large run opening quickly.
+        point_at: how many of each position's own zoomed-out copies the picture
+            points at rather than writes, counting the full-size one. Normally
+            left out, so every copy a position keeps is pointed at — the
+            cheapest arrangement, and the one that demands each position begin
+            on a multiple of the piece times the deepest pointed shrink. A run
+            that must place finer than that — fields of view overlapping
+            wherever the specimen took them — says ``point_at=1``, which points
+            at full size only, writes the zoomed-out copies instead, and asks
+            only that a position begin on a whole piece. The refusal a
+            misplaced position meets names this parameter; this is where to
+            follow its advice.
         ome_zarr_version: which generation of OME-Zarr to write, ``"0.5"`` or
             ``"0.4"``. 0.5 is the default here because it is the current standard;
             choose 0.4 if something that will read the run cannot manage 0.5.
@@ -575,5 +590,6 @@ def start_a_run(
         piece=piece,
         shard=shard,
         levels=levels,
+        point_at=point_at,
         ome_zarr_version=ome_zarr_version,
     )
