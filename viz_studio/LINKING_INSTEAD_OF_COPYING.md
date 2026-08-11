@@ -247,6 +247,19 @@ bytes beyond — one more position costs parsing one more line, measured at
 124 ms and grew with it. That is the property a live run needs: what one more
 position costs does not depend on how many came before.
 
+Measured again on the NVIDIA T400 machine, 11 August 2026, real disk and the
+endpoint protection fully active: one add 1.18 ms median against the
+sandbox's 0.5–0.8 — the disk's price, paid on every one of the 77,000 small
+files — and **flat exactly as claimed**, the first hundred adds at 1.02 ms
+and the last hundred at 1.05 with ten thousand open. The map weighed 1,072 kB
+(118 bytes a position), the server's first ask parsed and indexed it in
+147 ms in 8.2 MB, a lookup averaged 84.5 µs over twenty thousand, and all
+1,846 sampled pointers decoded to the right voxels, 0 wrong. The same run's
+first attempt, made from the user profile's temp folder earlier that
+afternoon, was suspended by the endpoint protection 31,000 files in, hard
+enough to need a restart — the folder, not the arithmetic, decided whether
+the measurement was allowed to exist.
+
 **Answer for ground no tile covers.** *Written.* Most of a scattered run's bounding box is
 empty. The server already answers a plain "nothing here" — a 404 — and the pointing
 path must do exactly the same.
@@ -495,6 +508,28 @@ because the browser is never told they exist: it sees one image and asks by
 screen and piece size. The same ten thousand positions as separate sources
 would be about 48,000 requests on the measured 5.2-per-tile curve.
 
+(A reproduction note, 11 August 2026, NVIDIA T400 machine: the run above was
+placed on the fine 256-voxel lattice, and that placement can no longer be
+written as it stands. The view now refuses a tile that does not begin on a
+multiple of piece × shrink — 512 voxels here — because a tile out of step
+with the shrink keeps different voxels in the zoomed-out copies than the
+view would keep, and the specimen drawn zoomed out would not be the
+specimen; the refusal itself says so, and offers `point_at=1` for a run
+that must place finer. The comparison arms measured since (`--sharded` and
+`--coarse`) both place on the 512 lattice, which is why their cold-page
+piece counts read 58–61 against this row's 71: same window, coarser spread
+of the same screenful. The seconds are unaffected.
+
+The part that is not merely a piece count: on the tile-sized lattice tiles
+can only butt up, so those arms ran with **zero overlapping tiles**, and this
+row's 5,693-tile overlap — with pointers followed into the overlap and
+proven — is at present the only at-scale measurement of it, taken by a
+placement the code now refuses. The overlap rules themselves stay tested by
+`measure_the_overlapping_run.py` and the ownership tests, but whoever next
+touches the scatter script should give it a way to place overlapping tiles
+within the alignment rule — `point_at=1`, or a tile spanning several lattice
+steps — so this row can be measured again rather than only remembered.)
+
 ## Measured on real hardware, 11 August 2026
 
 Everything above was taken on a software renderer, and the handover said
@@ -546,3 +581,69 @@ speed is exactly the pattern a ransomware heuristic watches for. The 2,000
 rows above exist because that is the size that got through; the counts lose
 nothing (see the 71 above), but the 10,000-row seconds on this machine are
 still owed, and want an antivirus exclusion before they are attempted.
+
+## The owed rows, paid — NVIDIA T400 machine, 11 August 2026
+
+The same machine, later the same day, on the current branch. The 10,000-row
+seconds owed above: **fully loaded from a cold page in 1.19 s (61 pieces),
+the whole stage fitted in 1.86 s (72 pieces)**, every rung of the ladder
+0.30–0.40 s, all 1,171 sampled pointers proven — measured with the card
+drawing (the run announced the T400, not SwiftShader) and the endpoint
+protection fully active. What made it survive where the two killed builds
+above did not was pointing the run at a folder on the data disk instead of
+the user profile's temp; no exclusion was in place. The sharded-against-plain
+tables this run belongs to are in `PLAN_live_smart_microscopy.md`, "Benchmark
+last", beside their sandbox rows.
+
+The cold-page piece count reads 61 here against the 71 recorded above, and
+that is the lattice, not a contradiction: these arms place on the
+bundle-sized lattice so the two arms compare fairly, the run above placed on
+the fine one. The piece count belongs to the window and the placement, and
+the seconds moved by nothing.
+
+### Watched live while it wrote, same machine, same day
+
+The measurements above all write first and open a browser after, so none of
+them ever had a reader and the writer on the same files at once. Rebuilding
+the 10,000-position scatter with the viewer's window open on it the whole
+time — the arrangement a real acquisition is — surfaced two things no other
+run of the day could.
+
+**A reader could kill the writer.** Every landing tile rewrites the shared
+zoomed-out copies, and a viewer showing the whole picture reads exactly those
+files over and over. The writer replaces each file atomically, so no reader
+ever sees a torn one — but on Windows the reader's open handle makes the
+replacement itself fail, and the run died about twenty tiles in with
+``Access is denied`` on ground that was free a moment later. The writer now
+waits out such holds (``written_despite_brief_holds``, the write-side twin of
+the delete-side patience above, same bounded ten seconds), and the same build
+then ran to completion with the viewer reading throughout. A test holds a
+coarse chunk open mid-write and requires the tile to land.
+
+**A glimpse goes stale, and the pyramid makes it worse — the manifest's
+argument, observed.** This rebuild wrote a raw storage run, with no
+publication record. An operator who zoomed into a region early saw that
+region as an empty hole in the whole-stage view long after tiles had landed
+there — with crisp, chunk-shaped edges. The mechanism is the pyramid's own
+drawing rule: the engine renders every region from the *finest* chunks it
+holds for it, and zooming in had fetched that ground's fine levels while
+they were genuinely empty. Zoomed back out, those remembered fine chunks
+outrank the coarse chunk the region would otherwise refresh from, so one
+early glimpse casts a stale shadow over ground the run has since imaged —
+while the never-visited rest of the stage draws fresh. The data on disk was
+proven sound (the "hole" was denser than average when read back); only the
+engine's memory was stale. This is precisely the fault the manifest-driven
+refresh path exists to close: on a governed run every commit bumps the
+source's revision and the page tells the engine to let that source go,
+fine levels included. A raw run watched live has no such promise — reload
+by hand, or govern the run.
+
+The frame-rate table, measured again on this branch the same day
+(`--steps 100,400,1600 --headed`, 1,600-tile row, screen 0.9 lit): **114–116
+fps flat down the table, 1 ms middle frame, 19 ms worst** — against the 123
+fps / 2 ms recorded above from the earlier session on this same card. Same
+flatness, same conclusion, a few frames apart; the two sets are left standing
+together as the honest spread of the measurement across sessions on one
+machine. The first attempt at this table was killed by the endpoint
+protection 6,471 files into its write and passed whole on retry — the
+kill-and-retry pattern recorded above, now on the smallest write of the day.

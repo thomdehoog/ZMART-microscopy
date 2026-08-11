@@ -241,6 +241,83 @@ sixty-four. The engine's asks over bundles count a little higher at the
 busiest rung (each bundle answers through its own index), and the seconds do
 not care. Packing more pieces per bundle makes bundling better, not worse.
 
+### The graphics-card rows, NVIDIA T400 machine, 11 August 2026
+
+The rows the sandbox owed, measured on the machine the plan was waiting for:
+Windows 11, NVIDIA T400 4GB (every browser run announced ANGLE/Direct3D11 on
+the card, none fell back to SwiftShader), Kaspersky endpoint protection fully
+active, runs on a large data disk. Both pairs on identical spots, through the
+production run writer, `--headed`.
+
+At 10,000 positions of 512 voxels — five times the sandbox's 2,000, and the
+first time both arms of this size have survived this machine at all:
+
+| | plain | bundled |
+| --- | --- | --- |
+| writing and linking, per position | **29 ms** | 36 ms |
+| files on disk | 87,652 | 67,654 |
+| fully loaded from a cold page | 1.19 s, 61 pieces | 1.44 s, 58 pieces |
+| whole stage fitted | 1.86 s, 72 pieces | 2.10 s, 69 pieces |
+| zoom ladder | 0.30–0.40 s a rung | 0.30–0.64 s a rung |
+| pointers proven to cover their piece | 1,171 of 1,171 | 1,171 of 1,171 |
+
+And at 2048-voxel positions — 64 pieces in one bundle. **1,500 positions, not
+the 2,000 this section used to ask for**: the bundle-sized lattice over an
+81,920-voxel stage has 40 × 40 = 1,600 places, so 2,000 non-overlapping
+positions cannot exist on it; the script now refuses the impossible ask in
+words. At 1,500:
+
+| | plain | bundled |
+| --- | --- | --- |
+| writing and linking, per position | 104 ms | **91 ms** |
+| files on disk | 135,464 | 72,506 |
+| fully loaded from a cold page | 1.29 s, 61 pieces | **0.71 s**, 69 pieces |
+| whole stage fitted | 1.96 s, 72 pieces | 1.38 s, 80 pieces |
+| zoom ladder | 0.30–0.43 s a rung | 0.31–0.43 s a rung |
+| pointers proven to cover their piece | 2,805 of 2,805 | 2,805 of 2,805 |
+
+The sandbox's verdict survives the card and the real disk: writing flat to
+slightly better bundled at the ratio where bundling earns its keep, reads the
+same or better, correctness identical. The demo-tile pair leans the other way
+by 7 ms a position — sixty-odd extra sharding indexes to write and nothing
+saved bundling 2 × 2 pieces — which is the "worst case for bundling" the
+first sandbox table already named, now with a number on it.
+
+Two honest footnotes. The "holding N GB" line reads 0.01–0.05 GB here, not
+the 1 GB / 17 GB the setup section budgets: these synthetic tiles hold one
+constant value and compress to almost nothing, so the *file counts* are real
+and the *bytes* are not — budget disk by the setup section, not by this
+table. And the cold-page piece counts (58–61 against the sandbox's 71) moved
+with the placement lattice, not the machine: both arms here land on the
+bundle-sized lattice, the sandbox's fine-lattice run asked the same window for
+more, smaller-spread pieces. Piece counts belong to the window *and the
+lattice*; seconds belong to the disk.
+
+### What the endpoint protection did, same machine, same day
+
+Kaspersky Endpoint Security 12.9.0, fully active throughout, no exclusion in
+place. The score, run by run:
+
+- **All four scatter arms above got through unkilled** — including the
+  10,000-position pair whose earlier build this same machine's protection
+  killed twice (silently, exit code 5). What changed: the runs were pointed
+  at a folder on the data disk rather than the user profile's temp.
+- **The frame-rate measurement was killed on its first attempt** (exit 5,
+  6,471 files into the write, no traceback) and passed whole on the retry —
+  the pattern the run doc predicts, on the smallest write of the day.
+- **The step-4 arithmetic run was suspended mid-write** after ~31,000 files,
+  hard enough that the machine needed a restart, and afterwards the
+  protection **quarantined `python.exe` itself** out of both Python 3.14
+  environments and conda's package cache (PDM:Trojan.Win32.Generic on the
+  interpreter's hash). Restored by reinstalling the python package from
+  conda-forge; a false-positive notice with the hash is with IT, asking for
+  an exclusion on the measurement folder.
+
+So the honest reading for acquisitions on machines like this: the sharded
+arm's fewer files is not merely tidier, it is the difference between a run
+the protection tolerates and one it kills, and an exclusion for the
+acquisition folder should be part of commissioning a smart-microscopy PC.
+
 ## What this plan deliberately does not do
 
 No stitching, no blending, no sub-voxel placement — those change pixels and
