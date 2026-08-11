@@ -78,8 +78,7 @@ from measure_the_overlapping_run import (  # noqa: E402
     _the_middle_of,
 )
 
-from zmart_storage.canvas import Channel, _declare_one  # noqa: E402
-from zmart_storage.linked import PlacedTile, start_a_growing_view  # noqa: E402
+from zmart_storage.canvas import Channel  # noqa: E402
 
 # One position: 2 x 2 pieces of the size this project writes, so overlaps are
 # partial rather than all-or-nothing. The tiles keep no copies of their own —
@@ -147,33 +146,27 @@ def _how_many_overlap(spots: list[tuple[int, int]]) -> int:
 
 def build(work: Path, spots: list[tuple[int, int]],
           shard: int | None = None) -> float:
-    """Write every position and grow the view over them, as a run would."""
-    positions = work / "positions"
-    positions.mkdir(parents=True)
-    view = None
+    """Write every position through the run writer itself, as an acquisition does.
+
+    This goes through :func:`zmart_storage.positions.start_a_run` rather than
+    the lower-level pieces, so what is measured is the production path and what
+    lands on disk is the production layout: one zarr that is the whole
+    acquisition, positions directly inside it. Every voxel of a position holds
+    its own tile number, so a followed pointer can be made to prove it resolved
+    to a tile that covers the piece.
+    """
+    from zmart_storage.positions import start_a_run
+
     began = time.monotonic()
-    for number, (y, x) in enumerate(spots):
-        store = positions / f"pos{number:05d}.ome.zarr"
-        arrays = _declare_one(
-            store, canvas_shape=TILE, frames=1, channels=1, dtype="uint16",
-            chunk=PIECE, shard=shard, levels=1, voxel_size_um=VOXEL_UM,
-            origin_um=(0.0, y * VOXEL_UM[1], x * VOXEL_UM[2]),
-            channel_blocks=[
-                Channel("488", window=(0, len(spots))).described(65535)],
-            ome_zarr_version="0.5",
-        )
-        # Every voxel holds its own tile number, so a followed pointer can be
-        # made to prove it resolved to a tile that covers the piece.
-        arrays[0][0, 0] = np.full(TILE, np.uint16(number), dtype="uint16")
-        lands = (0, y, x)
-        if view is None:
-            view = start_a_growing_view(
-                work, like=PlacedTile(store=store, lands_at=lands),
-                view_shape=ROOM, name="scatter", levels=VIEW_LEVELS,
-                origin_um=(0.0, 0.0, 0.0))
-        view.add(PlacedTile(store=store, lands_at=lands))
-    assert view is not None
-    view.finish()
+    with start_a_run(
+        work, name="scatter", room=ROOM, tile_shape=TILE,
+        voxel_size_um=VOXEL_UM, origin_um=(0.0, 0.0, 0.0),
+        channels=[Channel("488", window=(0, len(spots)))],
+        piece=PIECE, shard=shard, levels=VIEW_LEVELS,
+    ) as run:
+        for number, (y, x) in enumerate(spots):
+            run.write(np.full(TILE, np.uint16(number), dtype="uint16"),
+                      at=(0, y, x))
     return time.monotonic() - began
 
 
