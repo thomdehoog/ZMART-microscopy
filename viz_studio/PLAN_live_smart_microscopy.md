@@ -323,3 +323,21 @@ acquisition folder should be part of commissioning a smart-microscopy PC.
 No stitching, no blending, no sub-voxel placement — those change pixels and
 belong to the build/assemble route and the stitcher. No new formats: one zarr,
 OME-Zarr 0.5 throughout, readable by anything that reads the standard.
+
+And **no hiding of overlap, and no second view** — settled 11 August 2026,
+recorded here because the publication coordinator still carries both retired
+ideas. Overlap is not trimmed away: the one view routes each piece whole to
+the latest tile that covers it, so overlapping tiles are simply drawn on top
+of one another, and this was proven at ten thousand overlapping positions
+with every sampled pointer resolving to the later tile ("The graphics-card
+rows" above). The raw evidence needs no view of its own either, because the
+positions are kept whole, overlap intact — anything that wants both
+recordings of shared ground opens the position stores, exactly as
+`docs/design/positions-in-a-container.md` settled it.
+
+`zmart_live/coordinator.py` predates this and writes two views on every
+commit — `overview-seamless` (trimming) and a six-axis raw-overlap view —
+woven through the gateway and its tests. **Open cleanup, its own session:**
+strip the coordinator back to positions plus the one later-wins linked view.
+Until then the two extra views cost routing metadata and per-commit work, not
+pixels, and everything measured in this plan stands either way.
