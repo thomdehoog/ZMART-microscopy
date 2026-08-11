@@ -307,6 +307,12 @@ def main() -> None:
         help="how many positions to scatter (default 10,000)",
     )
     parsing.add_argument(
+        "--tile", type=int, default=512,
+        help="how wide one position is, in voxels. Bigger positions pack more "
+             "pieces into each bundle — a 2048 position is 64 pieces in one "
+             "file — which is how a shard earns its keep",
+    )
+    parsing.add_argument(
         "--sharded", action="store_true",
         help="bundle each position's pieces into one file per position — the "
              "pieces inside stay the reading size, served as stretches of the "
@@ -326,7 +332,8 @@ def main() -> None:
     )
     asked = parsing.parse_args()
     count = asked.count
-    global LATTICE
+    global TILE, LATTICE
+    TILE = (1, int(asked.tile), int(asked.tile))
     shard = TILE[1] if asked.sharded else None
     if asked.sharded or asked.coarse:
         # The bundle is the unit a position must land on, so the lattice
