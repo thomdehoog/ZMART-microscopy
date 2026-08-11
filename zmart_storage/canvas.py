@@ -446,6 +446,39 @@ def rmtree_despite_brief_holds(tree: str | Path) -> None:
             pause = min(pause * 2, 1.0)
 
 
+def written_despite_brief_holds(write) -> None:
+    """Make one write on a machine where something else glances at files.
+
+    The live arrangement is a viewer reading the picture while the acquisition
+    writes it, and the shared zoomed-out copies are where the two meet: every
+    landing tile rewrites them, and a viewer showing the whole picture reads
+    them over and over. The writer replaces each file atomically, so a reader
+    never sees a torn one — but on Windows the reader's open handle makes the
+    replacement itself fail, as ``Access is denied`` on ground that is free a
+    moment later. A virus scanner's glance at a fresh file fails the same way.
+    Measured on a lab PC: a 10,000-position run, watched live, died about
+    twenty tiles in.
+
+    The reader lets go in milliseconds, so the write is retried through the
+    same short patience as :func:`rmtree_despite_brief_holds`: only the
+    Windows spellings of "briefly held" are waited out, and anything else —
+    or a hold still there after ten seconds — raises as it always did.
+    """
+    deadline = time.monotonic() + 10.0
+    pause = 0.05
+    while True:
+        try:
+            write()
+            return
+        except PermissionError as why:
+            if getattr(why, "winerror", None) not in (5, 32):
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(pause)
+            pause = min(pause * 2, 1.0)
+
+
 def _throw_away_the_existing_run(folder: Path, name: str,
                                  apart_from: str | None = None) -> None:
     """Remove this acquisition type's image, because the caller said to.
@@ -1583,7 +1616,9 @@ class TileCanvases:
                     slice(y0, y0 + height),
                     slice(x0, x0 + width),
                 )
-                picture.arrays[0][destination] = image
+                written_despite_brief_holds(
+                    lambda: picture.arrays[0].__setitem__(destination, image)
+                )
             self._write_smaller_copies(image, origin, channel, frame,
                                        from_level=from_level)
             picture.written.append(occupied)
@@ -1811,8 +1846,8 @@ class TileCanvases:
             at = (frame, channel)
             target = (*at, slice(z0, z0 + depth), slice(y0, y0 + height),
                       slice(x0, x0 + width))
-            array[target] = (
-                smaller[:, :height, :width]
+            written_despite_brief_holds(
+                lambda: array.__setitem__(target, smaller[:, :height, :width])
             )
 
 
