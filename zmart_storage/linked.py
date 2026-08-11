@@ -1905,7 +1905,7 @@ def _put_the_list_where_the_viewer_looks(view: Path, listed: list[dict],
     the old one, and never a piece of either. This is the ordinary way of replacing
     a file that something else may be reading, and it costs nothing.
     """
-    ours = {
+    ours: dict = {
         "version": LINKS_VERSION,
         "what": (
             "Which piece of this picture is which piece of which position. Nothing "
@@ -1930,6 +1930,15 @@ def _put_the_list_where_the_viewer_looks(view: Path, listed: list[dict],
     # of ours so it can never be taken for something the format defines.
     where = (described.setdefault("attributes", {})
              if held.name == "zarr.json" else described)
+    # A counter that moves on every rewrite, so that a watcher has one number
+    # that always changes — including across changes the file's length cannot
+    # show, such as the list being folded at the end of a run. Changes that
+    # rewrite nothing at all, such as pixels landing in a moment already
+    # declared, are announced through :func:`note_a_change`, which moves the
+    # same counter.
+    was = where.get(OURS_IN_THE_DESCRIPTION)
+    ours["generation"] = (
+        int(was.get("generation", 0)) if isinstance(was, dict) else 0) + 1
     where[OURS_IN_THE_DESCRIPTION] = ours
 
     # Written beside itself and then **renamed** over the old one. A run being
@@ -1942,6 +1951,39 @@ def _put_the_list_where_the_viewer_looks(view: Path, listed: list[dict],
     part_written.write_text(json.dumps(described, indent=1), encoding="utf-8")
     part_written.replace(held)
     return held
+
+
+def note_a_change(view: str | Path) -> int:
+    """Say out loud that something about this view changed, and return the count.
+
+    Most changes announce themselves: a position landing makes the companion
+    file longer, and rebuilding the list rewrites the description. What nothing
+    can see is a change that leaves every watched thing exactly as it was —
+    pixels landing in a moment the view had already declared room for, or a
+    position rewritten in place. The picture is different and no file's length
+    or list says so, which is the quiet staleness
+    ``OPEN_a_run_that_changes_while_you_watch.md`` warns about.
+
+    So whoever makes such a change calls this. The ``generation`` counter in the
+    view's own description goes up by one, the file is replaced in a single
+    step so a reader never catches it half-written, and anything watching the
+    description — the viewer's server does — sees a number that always moves.
+
+    Returns the new count, which a caller can pass along in an announcement.
+    Calling it for a change that would have been noticed anyway is harmless:
+    the counter simply moves twice.
+    """
+    held = _the_description_file_of(Path(view))
+    described = json.loads(held.read_text(encoding="utf-8"))
+    where = (described.setdefault("attributes", {})
+             if held.name == "zarr.json" else described)
+    ours = where.setdefault(OURS_IN_THE_DESCRIPTION, {})
+    generation = int(ours.get("generation", 0)) + 1
+    ours["generation"] = generation
+    part_written = held.with_name(f".{held.name}.being-written")
+    part_written.write_text(json.dumps(described, indent=1), encoding="utf-8")
+    part_written.replace(held)
+    return generation
 
 
 def _write_the_list_of_pointers(
