@@ -35,6 +35,49 @@ server stops, so the same work is paid again tomorrow. Second, the transfer a
 piece is built from never changes — it arrived finished — so anything built
 from it is true forever. Cheap to keep, safe to keep, and today kept nowhere.
 
+## Where it is actually felt: zooming out
+
+Reported from the microscope, 2026-08-11, and it relocates the problem: the
+gesture that is really slow is not panning or zooming in — it is **zooming
+out**. The benchmarks above measured pieces; the operator measured gestures,
+and the gesture measurement is the one that matters. The mechanism, once
+said, is obvious in hindsight.
+
+**Coarse pieces aggregate positions.** The scaling argument — a piece is
+covered by a handful of tiles however large the run — is true at full
+resolution and stops being true one level at a time above it. Each level up,
+a piece of the same 512-pixel size covers four times the ground, so it meets
+about four times the tiles. Three levels up, hundreds. The coarsest piece of
+all — the whole survey in one look — meets **every position in the
+transfer**. The cost of a piece follows the tiles that reach it, so zoom-out
+systematically requests the most expensive pieces in the pyramid.
+
+**Each position costs its full entry price for a sliver.** A coarse piece
+takes a thin sliver from each of those many positions, but the price per
+position is nearly constant however little is taken: open the file, read a
+block of its coarse copy, decompress the whole block, keep the sliver, throw
+the rest away. This is the same disease this folder has cured twice already —
+the unit asked for smaller than the unit stored — but multiplied across
+hundreds of sources at once, as hundreds of small scattered reads over
+hundreds of files. It is the read-side twin of the many-little-files problem
+that sharding solves on the write side, and it is at its worst exactly where
+transfers live: Windows machines and network shares, where per-file overhead
+dominates small reads.
+
+**And the deferred opening bill lands here.** Opening a tile is postponed
+until the first piece that touches it, which is right for zoomed-in work
+where a piece touches nine. The first zoom-out touches all of them, so the
+entire postponed opening cost of the transfer — seconds, at thousands of
+tiles — arrives on a single request. The laziness did not shrink the bill;
+it moved it to the one gesture that collects it whole.
+
+Every other gesture moves toward fewer tiles per piece and bigger slivers per
+tile, which is why nothing else is felt. The consequence for this plan is
+written into change 4 below: the answer to zoom-out is not predicting, it is
+**warming the coarse levels exhaustively**, because they are the one part of
+the pyramid small enough to build completely and expensive enough to build
+only once.
+
 ## The six changes, in building order
 
 ### 1. Finish the slab that is already decoded
@@ -113,25 +156,41 @@ timing side: the wall-clock for a cold screenful should fall roughly with the
 core count, and the bytes must not change at all. The shared-encoder mistake
 this folder once shipped is exactly what that comparison is there to catch.
 
-### 4. Build ahead of the operator
+### 4. Warm the coarse levels exhaustively — prediction only if ever needed
 
-**What.** A prefetcher that watches the request stream and fills idle time.
-Three rules make it help rather than hurt. It predicts from motion: the last
-few requests give a direction, and it builds two or three columns ahead of a
-pan, nothing behind it; after a pause on coarse ground it builds the finer
-pieces underneath, because a pause is where a zoom begins. It is a priority
-queue re-sorted by the current viewport, and work queued for ground the
-operator has left is dropped, not built. And it runs only when no real request
-is waiting — the operator's own click is always the fastest thing here.
+**What.** On opening a transfer whose cache is cold, build **every piece of
+the coarse levels** in the background, and keep them on disk. No prediction,
+no motion model: the coarse pyramid is the one part of the picture small
+enough to enumerate — all of level 2 and coarser is a few percent of the
+transfer — and, as the zoom-out section above says, the most expensive part
+per piece. Speculate on all of it, because all of it is affordable and every
+piece of it will eventually be wanted.
 
-**Why.** Together with the disk cache this is what makes fresh ground stop
-being felt: by the time the operator arrives, the ground is no longer fresh.
+Build it bottom-up and chain the pyramid: only the finest warmed level reads
+the positions themselves (paying the many-files scatter exactly once), and
+each coarser level is averaged from the four built pieces below it, never
+touching the positions again. The warmer runs at idle priority — a real
+request always preempts — and coarsest-first within a level ordering, so the
+whole-survey look becomes instant earliest.
 
-**Check.** Replay a recorded pan across cold ground with and without the
-prefetcher: the with-run should serve almost every piece from cache, and a
-deliberately mis-predicting prefetcher (build behind the pan) should measure
-no better than none — proving the predictions, not just the extra work, are
-what helps.
+**Why.** This is the fix for the one slowness an operator actually reported.
+After the warmer has run once, zoom-out reads a handful of contiguous cached
+pieces from one local folder instead of slivers from hundreds of files, and
+it stays that way forever, for everyone, because coarse ground built from an
+immutable transfer never goes stale.
+
+The motion-predicting prefetcher this change once was is demoted to a
+someday: after changes 1-3 and the warmer, the remaining cold case is a
+first-ever pan across fine fresh ground, and nobody has reported feeling it.
+Build a predictor when a person at the microscope says otherwise, not
+before.
+
+**Check.** Open a large transfer cold, zoom straight out: today that is the
+worst request in the system, collecting the whole deferred opening bill;
+after the warmer has finished it is file-read speed. Byte-compare warmed
+pieces against freshly built ones, including a chained coarse piece against
+the same piece built directly from the positions — the chaining must change
+where the bytes come from, not what they are.
 
 ### 5. Serve the coarse copy before the fine one
 
@@ -188,11 +247,15 @@ taste:
   entirely in the two rules above — everything else in this plan runs on
   ground that holds still.
 
-What order to build in, then, is unchanged by the live requirement: the slab
-finish and the disk cache first, because they are small and pay immediately;
-parallel building third; the prefetcher once there is a cache for it to fill;
-the priorities and the piece-size measurement last, on the lab machine, where
-the numbers mean something.
+What order to build in, then: the slab finish and the disk cache first,
+because they are small and pay immediately; the coarse warmer next, because
+it is the fix for the one slowness a person at the microscope has actually
+reported, and the coarse levels it pins are the cache's ideal tenants —
+smallest in bytes, dearest to build, wanted by every session, immutable
+forever, and therefore never evicted; parallel building after that, which
+also makes the warmer itself finish sooner; the priorities, the piece-size
+measurement and any predicting prefetcher last, on the lab machine, and only
+if a person there still feels a wait.
 
 ## Neuroglancer and the live view: what was looked up, for someday
 
