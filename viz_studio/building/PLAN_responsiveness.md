@@ -1,17 +1,29 @@
-# Making the built viewer feel instant, beside a live view it must not touch
+# Making the built viewer feel instant, for transfers and the live run alike
 
 > Planned 2026-08-11, from measurements taken on a 4-core Linux sandbox and the
 > lab figures already recorded in this folder's commits. Nothing below is built
 > yet. The changes are listed in the order worth building them, and each one
 > says how to check it did what it promised.
+>
+> **Updated 2026-08-12, the same night, for the superseding decision in
+> `docs/design/pointing-and-building.md` on the live branch.** Building is no
+> longer only the import path: the governed live view is served by building
+> too, behind the manifest gate, because dense arbitrary placement — the
+> point of smart microscopy — is exactly what pointing's alignment
+> conditions compound against. This promotes the plan from "make the import
+> viewer pleasant" to "make the main serving path pleasant", adds change
+> zero (the composer learns the gate), and rewrites the live-view rules:
+> live ground is now cacheable, with the view's change counter in the key.
 
-The built viewer shows a transfer from another microscope by building each
-piece of the picture on request — decoding the tiles that cover it, laying
-them in, encoding the result. It is correct (zero wrong voxels against the
-real Thy1 set, checked through the bytes on the wire) and it scales (a piece
-costs the same at four thousand tiles as at sixty-four). What it is not yet is
-*instant*, and the slowness is confined to one situation: the first look at
-fresh ground at fine resolution.
+The built viewer shows many positions as one picture by building each piece
+on request — decoding the positions that cover it, laying them in, encoding
+the result. It is correct (zero wrong voxels against the real Thy1 set,
+checked through the bytes on the wire), it scales (a piece costs the same at
+four thousand tiles as at sixty-four), and it is placement-blind: fractional
+offsets, dense clusters and overlap cost it nothing, which is why it now
+serves the live run as well as the transfers that arrive finished. What it
+is not yet is *instant*, and the slowness is confined to one situation: the
+first look at fresh ground at fine resolution.
 
 ## What is slow today, measured
 
@@ -31,9 +43,12 @@ path that serves our own governed runs answers in about 0.5 ms a chunk on the
 same machine — so building is the one place a wait can be felt at all.
 
 Two facts shape everything below. First, a built piece is thrown away when the
-server stops, so the same work is paid again tomorrow. Second, the transfer a
-piece is built from never changes — it arrived finished — so anything built
-from it is true forever. Cheap to keep, safe to keep, and today kept nowhere.
+server stops, so the same work is paid again tomorrow. Second, a built piece
+stays true for as long as its sources do not change — which for a finished
+transfer is forever, and for a live run is until a commit touches its ground.
+The view's change counter names that moment exactly, so "safe to keep" has a
+precise meaning in both cases: keep it under the counter value it was built
+at. Cheap to keep, safe to keep, and today kept nowhere.
 
 ## Where it is actually felt: zooming out
 
@@ -111,8 +126,14 @@ against freshly built ones.
 ### 2. Keep built pieces on disk
 
 **What.** A cache folder beside the viewer's own bookkeeping, holding every
-piece ever built, keyed by transfer identity, resolution and piece coordinate.
+piece ever built, keyed by picture identity, resolution, piece coordinate —
+and, for a live run, the view's change counter at the moment of building.
 A request checks the folder before building; a build writes what it made.
+For a finished transfer the counter never moves and the key is effectively
+the old three-part one; for a live run, a commit moves the counter for the
+ground it touched, which makes the stale entries unreachable by key — they
+are never *found* again, and the eviction sweep reclaims them at leisure.
+One rule, both kinds of picture, no special cases in the lookup.
 Bound it by bytes, oldest out, like the in-memory caches — but measured in
 gigabytes, because disk is cheap and the pieces compress well.
 
@@ -240,45 +261,69 @@ number here nobody has measured.
 **Check.** The measurement scripts in this folder, plus time-to-first-pixel on
 a cold screenful at each size, on the lab machine and named as such.
 
-## The same viewer must also show a live run — and must leave it alone
+## Change zero: the composer learns the gate
 
-The viewer's front door serves two kinds of picture through one ladder: a
-piece is either *pointed at* (a governed live run, answered by the gateway out
-of the positions' own bytes), *built* (a finished transfer, everything above),
-or *absent*. The operator never needs to know which answered. A live smart-
-microscopy run makes the built path's tricks look tempting in the one place
-they must not go, so the boundary is worth writing down as rules rather than
-taste:
+The superseding decision makes one piece of genuinely new work, and it comes
+before everything numbered above can touch a live run.
 
-- **Live ground is asked about fresh, every request.** The gateway's decision
-  — published or withheld — is the live contract, it changes on every commit,
-  and it costs about half a millisecond. There is nothing worth caching and
-  everything to lose: a remembered "allowed" can show a tile whose commit was
-  rolled back; a remembered "withheld" can hold blank what has just been
-  published. The piece cache (change 2) and the builder never see a live path.
+**What.** Today the gateway decides *what may be shown* and the composer
+assumes *everything on disk is showable*. Serving the live view by building
+means joining them: before laying tiles into a piece, the composer asks the
+manifest which positions and moments are published, lays **only those**, in
+**commit order** with the later commit on top — never arrival order, never
+layout order — and stamps the result with the view's change counter for the
+cache key. Withheld ground is left as fill, exactly as if it had never been
+written, so a position that is on disk but uncommitted neither appears early
+nor blanks the published ground beneath it.
 
-- **Prefetch may look ahead on a live view, but through the gate.** Reading
-  ahead of a pan is as useful live as it is on a transfer, and as cheap as any
-  other pointer answer — but the prefetcher asks the gateway at fire time like
-  any other request, and keeps nothing. If any read-ahead is ever held even
-  briefly, the view's own change counter is the key that says it is stale.
+**Why first.** Every numbered change below is an accelerator; this is the
+correctness on which they may accelerate. A disk cache over an ungated
+composer would happily preserve a leaked uncommitted tile forever.
 
-- **The slowness these changes attack does not exist on the live path.** That
-  is the quiet conclusion of the measurements above: pointing is already
-  faster than every optimisation here can make building. The live view needs
-  none of this, and the complication the live view brings is contained
-  entirely in the two rules above — everything else in this plan runs on
-  ground that holds still.
+**Check.** The full harness the gateway already has, aimed at the built
+path: the sabotage campaigns gain composer faults (lay in arrival order;
+ignore the manifest; keep serving a cached piece across a commit that
+touched it), each watched failing first; the parallel-fire tests run against
+built answers — a commit landing mid-storm must never surface withheld
+pixels, blank published ground, or hand back a torn mixture; and the browser
+production test photographs the same three promises through a genuine
+Neuroglancer, as it does today.
 
-What order to build in, then: the slab finish and the disk cache first,
-because they are small and pay immediately; the coarse warmer next, because
-it is the fix for the one slowness a person at the microscope has actually
-reported, and the coarse levels it pins are the cache's ideal tenants —
-smallest in bytes, dearest to build, wanted by every session, immutable
-forever, and therefore never evicted; parallel building after that, which
-also makes the warmer itself finish sooner; the priorities, the piece-size
-measurement and any predicting prefetcher last, on the lab machine, and only
-if a person there still feels a wait.
+## The live run, under the same roof
+
+With the gate inside the composer, the live rules simplify to three, and
+none of them says "the builder never sees a live path" any more:
+
+- **The manifest is consulted fresh at build time, and its answer travels in
+  the cache key.** A cached piece is not a cached *decision* — it is a
+  cached *result of a decision*, valid exactly as long as the change counter
+  that names it. A rolled-back commit moves the counter; the stale piece
+  becomes unreachable by key. Nothing anywhere remembers "allowed" or
+  "withheld" as such.
+
+- **The browser must stay forgetful on live ground.** Server-side caching is
+  safe because the server sees every commit; the operator's browser does
+  not. Live view pieces are served `no-store`; only finished transfers get
+  `immutable`. Nothing between the server and the operator's eyes may
+  remember a live answer.
+
+- **The warmer runs on live ground too, incrementally.** Coarse pieces of
+  published ground are warmed like any transfer's; when a commit lands, the
+  handful of coarse pieces above the touched ground are re-queued at idle
+  priority. A 12x12 half-second-commit run re-warms a few pieces per commit
+  — pennies — and the whole-survey look stays permanently current.
+
+What order to build in, then: **change zero when the live run is the
+target** — it is the correctness everything else accelerates — with the slab
+finish and the disk cache beside it, because they are small, pay immediately
+and serve both kinds of picture; the coarse warmer next, because it is the
+fix for the one slowness a person at the microscope has actually reported,
+and the coarse levels it pins are the cache's ideal tenants — smallest in
+bytes, dearest to build, wanted by every session, stable under the counter
+rule; parallel building after that, which also makes the warmer itself
+finish sooner; the priorities, the piece-size measurement and any
+predicting prefetcher last, on the lab machine, and only if a person there
+still feels a wait.
 
 ## Neuroglancer and the live view: what was looked up, for someday
 
@@ -297,9 +342,10 @@ wholesale call is a thin RPC over granular internals, and no upstream issue
 or pull request exposes the granular form. Three routes, in order:
 
 1. *Live with it, measured* — which is what this plan assumes. Only visible
-   chunks are refetched, a pointer answer costs about half a millisecond, so
-   a commit that flushes a viewport of a hundred chunks costs ~50 ms of
-   server work. The gateway's parallel-fire tests hammer exactly this storm.
+   chunks are refetched, and under the new architecture almost all of them
+   come straight from the piece cache at file-read speed — only the pieces
+   the commit actually touched rebuild. The parallel-fire tests hammer
+   exactly this storm.
 2. *Patch our own bundle* — the page already builds Neuroglancer from source
    and already reaches past the public API to find the sources it
    invalidates, so adding an `invalidateChunks(keys)` RPC to our bundled
