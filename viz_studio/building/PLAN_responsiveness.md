@@ -189,6 +189,19 @@ pieces from one local folder instead of slivers from hundreds of files, and
 it stays that way forever, for everyone, because coarse ground built from an
 immutable transfer never goes stale.
 
+**What it costs, so nobody is surprised.** The warmer's floor is one visit
+to every position — that is what building the finest pinned level means, and
+no cleverness lowers it. At today's 24-tile transfers that is a couple of
+seconds, and the operator's own first zoom-out was already paying most of it.
+At survey scale it is minutes: ten thousand positions cost about three
+seconds of opening (0.28 ms a tile, measured) plus one coarse block read and
+decode each at a few milliseconds — one to a few minutes for an 800 GB
+transfer, dominated by the per-file scatter and worse on a network share.
+The design absorbs those minutes rather than showing them to anybody: paid
+once ever, run in the background behind real requests, coarsest level first
+so the whole-survey look works within seconds of opening, and pieces the
+operator's own browsing has already built are skipped, not rebuilt.
+
 The motion-predicting prefetcher this change once was is demoted to a
 someday: after changes 1-3 and the warmer, the remaining cold case is a
 first-ever pan across fine fresh ground, and nobody has reported feeling it.
