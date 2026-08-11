@@ -88,9 +88,26 @@ from zmart_storage.linked import PlacedTile, start_a_growing_view  # noqa: E402
 TILE = (1, 512, 512)
 PIECE = 256
 VIEW_LEVELS = 9
-LATTICE = PIECE      # pointing one level deep asks only for whole pieces
+LATTICE = PIECE      # pointing one level deep asks only for whole pieces;
+                     # --sharded coarsens this to the bundle, which becomes
+                     # the unit a position must land on
 ROOM = (1, 81920, 81920)
 VOXEL_UM = (2.0, 0.35, 0.35)
+
+
+def _files_and_bytes_under(work: Path) -> tuple[int, int]:
+    """How many files the run left behind, and how much they weigh.
+
+    The count is the number that matters at scale: it is what filesystems,
+    backups and endpoint protection all punish, and it is the column sharding
+    exists to shrink. The bytes say what the same pixels cost either way.
+    """
+    files = bytes_held = 0
+    for one in work.rglob("*"):
+        if one.is_file():
+            files += 1
+            bytes_held += one.stat().st_size
+    return files, bytes_held
 
 
 def scatter(rng, count: int) -> list[tuple[int, int]]:
@@ -128,7 +145,8 @@ def _how_many_overlap(spots: list[tuple[int, int]]) -> int:
     return len(touched)
 
 
-def build(work: Path, spots: list[tuple[int, int]]) -> float:
+def build(work: Path, spots: list[tuple[int, int]],
+          shard: int | None = None) -> float:
     """Write every position and grow the view over them, as a run would."""
     positions = work / "positions"
     positions.mkdir(parents=True)
@@ -138,10 +156,11 @@ def build(work: Path, spots: list[tuple[int, int]]) -> float:
         store = positions / f"pos{number:05d}.ome.zarr"
         arrays = _declare_one(
             store, canvas_shape=TILE, frames=1, channels=1, dtype="uint16",
-            chunk=PIECE, levels=1, voxel_size_um=VOXEL_UM,
+            chunk=PIECE, shard=shard, levels=1, voxel_size_um=VOXEL_UM,
             origin_um=(0.0, y * VOXEL_UM[1], x * VOXEL_UM[2]),
             channel_blocks=[
                 Channel("488", window=(0, len(spots))).described(65535)],
+            ome_zarr_version="0.5",
         )
         # Every voxel holds its own tile number, so a followed pointer can be
         # made to prove it resolved to a tile that covers the piece.
@@ -158,16 +177,23 @@ def build(work: Path, spots: list[tuple[int, int]]) -> float:
     return time.monotonic() - began
 
 
-def check_pointers(work: Path, spots: list[tuple[int, int]]) -> tuple[int, int]:
-    """Follow random pointers; each answering tile must prove it covers the piece."""
+def check_pointers(work: Path, spots: list[tuple[int, int]],
+                   unit: int = PIECE) -> tuple[int, int]:
+    """Follow random pointers; each answering tile must prove it covers the piece.
+
+    ``unit`` is how much picture one **served file** holds across: the piece for
+    an ordinary run, the bundle for a sharded one — bundling makes the bundle
+    the thing that is named and handed over, and the pieces inside it are found
+    by the engine through the bundle's own index.
+    """
     view = work / "scatter.ome.zarr"
     rng = np.random.default_rng(23)
-    rows, columns = ROOM[1] // PIECE, ROOM[2] // PIECE
+    rows, columns = ROOM[1] // unit, ROOM[2] // unit
     followed = empty = 0
     for _ in range(3000):
         down = int(rng.integers(0, rows))
         across = int(rng.integers(0, columns))
-        found = linking.the_bytes_behind(view, f"0/0/0/0/{down}/{across}")
+        found = linking.the_bytes_behind(view, f"0/c/0/0/0/{down}/{across}")
         if found is None:
             empty += 1
             continue
@@ -175,7 +201,7 @@ def check_pointers(work: Path, spots: list[tuple[int, int]]) -> tuple[int, int]:
         tile = zarr.open_group(str(work / named[0] / named[1]), mode="r")
         number = int(np.asarray(tile[named[2]])[0, 0].flat[0])
         y, x = spots[number]
-        piece_y, piece_x = down * PIECE, across * PIECE
+        piece_y, piece_x = down * unit, across * unit
         assert (y <= piece_y < y + TILE[1] and x <= piece_x < x + TILE[2]), (
             f"piece {down},{across} was answered by tile {number} at ({y}, {x}), "
             "which does not cover it")
@@ -281,6 +307,18 @@ def main() -> None:
         help="how many positions to scatter (default 10,000)",
     )
     parsing.add_argument(
+        "--sharded", action="store_true",
+        help="bundle each position's pieces into one file per position — the "
+             "pieces inside stay the reading size, served as stretches of the "
+             "file, and the step coarsens to the bundle",
+    )
+    parsing.add_argument(
+        "--coarse", action="store_true",
+        help="place on the bundle-sized lattice without bundling, so a plain "
+             "run and a --sharded one land on identical spots and the "
+             "comparison between them is fair",
+    )
+    parsing.add_argument(
         "--headed", action="store_true",
         help="open a visible window, which on Windows is the only way the "
              "browser reaches the graphics card — headless Chromium draws in "
@@ -288,17 +326,28 @@ def main() -> None:
     )
     asked = parsing.parse_args()
     count = asked.count
+    global LATTICE
+    shard = TILE[1] if asked.sharded else None
+    if asked.sharded or asked.coarse:
+        # The bundle is the unit a position must land on, so the lattice
+        # coarsens to it — and --coarse uses the same lattice without bundles,
+        # so the two runs place identically and compare fairly.
+        LATTICE = TILE[1]
     work = Path(tempfile.mkdtemp(prefix="scatter-"))
     try:
         spots = scatter(np.random.default_rng(11), count)
         overlapping = _how_many_overlap(spots)
+        arranged = ("bundled, one file per position" if asked.sharded
+                    else "every piece its own file")
         print(f"placing {count} positions at random over "
               f"{ROOM[1]} x {ROOM[2]} voxels, {overlapping} of them "
-              "overlapping another ...")
-        building = build(work, spots)
+              f"overlapping another ({arranged}) ...")
+        building = build(work, spots, shard)
+        files, bytes_held = _files_and_bytes_under(work)
         print(f"  linked in {building:.1f} s, positions written included "
               f"({building * 1000 / count:.0f} ms each)")
-        followed, empty = check_pointers(work, spots)
+        print(f"  files on disk {files}  holding {bytes_held / 1e9:.2f} GB")
+        followed, empty = check_pointers(work, spots, shard or PIECE)
         print(f"  {followed} pointers followed and proven to cover their "
               f"piece; {empty} asks were empty ground")
         open_zoom_and_report(work, spots, asked.headed)
