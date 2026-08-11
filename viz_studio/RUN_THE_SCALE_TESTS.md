@@ -71,15 +71,19 @@ whatever it is told. Every run announces which renderer really drew.
 ```bash
 python viz_studio/measure_a_random_scatter.py 10000 --sharded --headed
 python viz_studio/measure_a_random_scatter.py 10000 --coarse  --headed
-python viz_studio/measure_a_random_scatter.py 2000 --tile 2048 --sharded --headed
-python viz_studio/measure_a_random_scatter.py 2000 --tile 2048 --coarse  --headed
+python viz_studio/measure_a_random_scatter.py 1500 --tile 2048 --sharded --headed
+python viz_studio/measure_a_random_scatter.py 1500 --tile 2048 --coarse  --headed
 ```
 
-The first pair is the position-count test at the demo tile size (about 1 GB a
-run, ~10 minutes each, most of it writing). The second pair is the
-pieces-per-bundle test — 64 pieces in one file against 64 files — at about
-17 GB a run; **do not** run `--tile 2048` at 10,000 unless the disk has 90 GB
-to spare. `--coarse` places the plain arm on the same lattice as the sharded
+The first pair is the position-count test at the demo tile size (about 10
+minutes each, most of it writing). The second pair is the pieces-per-bundle
+test — 64 pieces in one file against 64 files — at about 13 GB a run; **do
+not** run `--tile 2048` at anything like 10,000: a 2048 tile on its own
+lattice has only 1,600 distinct places over this stage, which is why this
+pair asks for 1,500 and the script refuses a larger ask in words. (This
+document first said 2,000 here; the machine with the card found that ask
+impossible to place, after five minutes of one busy core and an empty
+folder.) `--coarse` places the plain arm on the same lattice as the sharded
 one, so the two land on identical spots and compare fairly.
 
 What each line of the output means:

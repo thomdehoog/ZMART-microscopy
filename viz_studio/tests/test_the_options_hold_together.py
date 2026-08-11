@@ -1230,7 +1230,11 @@ def test_an_image_from_another_microscope_is_drawn(harness_page, option):
     )
     harness_page.settle(tries=20)
     showing = _share_of_the_window_showing_picture(harness_page.photograph())
-    assert showing > 0.2, (
+    # The harness fits the imaged ground to about a third of the window's
+    # smaller side (see fitTheImagedGround), so the solid block occupies about
+    # nine per cent of this window. The floor sits well under that and well
+    # over nothing — and nothing is the only other answer this store can give.
+    assert showing > 0.05, (
         "an image from another microscope drew nothing: only "
         f"{showing:.1%} of the window is picture. An option that asks a "
         "three-axis image for an axis it does not have is refused every piece "

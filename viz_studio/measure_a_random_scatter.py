@@ -119,6 +119,17 @@ def scatter(rng, count: int) -> list[tuple[int, int]]:
     spots: list[tuple[int, int]] = []
     slots_y = (ROOM[1] - TILE[1]) // LATTICE
     slots_x = (ROOM[2] - TILE[2]) // LATTICE
+    room_for = (slots_y + 1) * (slots_x + 1)
+    if count > room_for:
+        # Asked for more distinct places than the lattice holds, the loop below
+        # would draw random slots forever and say nothing — measured on a lab
+        # PC as five minutes of one busy core and an empty folder before
+        # anybody thought to look.
+        raise SystemExit(
+            f"{count} distinct positions cannot be scattered over this stage: "
+            f"a {TILE[1]}-voxel tile on its {LATTICE}-voxel lattice has only "
+            f"{room_for} places. Ask for at most {room_for}."
+        )
     while len(spots) < count:
         y = int(rng.integers(0, slots_y + 1)) * LATTICE
         x = int(rng.integers(0, slots_x + 1)) * LATTICE

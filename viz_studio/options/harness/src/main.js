@@ -440,12 +440,63 @@ function everythingImaged(coverages) {
   return storeNames.flatMap((name) => imagedRegions(coverages[name]));
 }
 
+/**
+ * The ground an image declares for itself, for a run that kept no record.
+ *
+ * A coverage record says where a run *imaged*; an image that arrived from
+ * another microscope carries no such record, only its own description. But that
+ * description does say how far the image reaches — its shape is in the store,
+ * and its voxel size and position come back with the (empty) coverage answer,
+ * composed there from the two places the format allows them to be written. On
+ * an unbounded page that declared reach is the only ground there is, so it is
+ * what the view is fitted around.
+ *
+ * Anything unreadable comes back as no ground at all, so a store that cannot
+ * even say its shape still lands on the refusal in `boot`.
+ */
+async function declaredGround(name, coverage) {
+  const um = coverage?.voxel_size_um;
+  const at = coverage?.origin_um || { x: 0, y: 0 };
+  if (!um?.x || !um?.y) return [];
+  const described = await fetch(`${dataBase}/${name}.ome.zarr/.zattrs`);
+  if (!described.ok) return [];
+  const multiscale = ((await described.json()).multiscales || [])[0];
+  const level = multiscale?.datasets?.[0];
+  if (!multiscale || !level) return [];
+  const array = await fetch(`${dataBase}/${name}.ome.zarr/${level.path}/.zarray`);
+  if (!array.ok) return [];
+  const { shape } = await array.json();
+  const reach = {};
+  multiscale.axes.forEach((axis, index) => {
+    reach[axis.name] = shape[index];
+  });
+  if (!reach.x || !reach.y) return [];
+  return [{
+    x0: at.x ?? 0,
+    y0: at.y ?? 0,
+    x1: (at.x ?? 0) + reach.x * um.x,
+    y1: (at.y ?? 0) + reach.y * um.y,
+  }];
+}
+
 async function boot() {
   const coverages = await readTheCoverageRecords();
   const coverage = coverages[storeName];
   harness.coverages = coverages;
   harness.coverage = coverage;
-  const regions = everythingImaged(coverages);
+  let regions = everythingImaged(coverages);
+  if (!regions.length && asked.get("bounded") === "0") {
+    // Unbounded, a run that kept no record is still an image with a declared
+    // reach, and the options take such an image as it comes — see the
+    // `coverage` entry in their contract. Only a *bounded* page has to refuse:
+    // there the record decides where the picture may show through, and without
+    // one the sheet would cover everything.
+    regions = (
+      await Promise.all(
+        storeNames.map((name) => declaredGround(name, coverages[name])),
+      )
+    ).flat();
+  }
   if (!regions.length) {
     throw new Error(
       `the run "${storeName}" has no coverage record, so there is nowhere the ` +
