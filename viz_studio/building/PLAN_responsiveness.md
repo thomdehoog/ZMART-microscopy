@@ -43,6 +43,16 @@ out**. The benchmarks above measured pieces; the operator measured gestures,
 and the gesture measurement is the one that matters. The mechanism, once
 said, is obvious in hindsight.
 
+Which levels count as "coarse" is decided by size, not by picking numbers:
+**pin every pyramid level smaller than one percent of the transfer.** With
+halving in y and x, each level is a quarter of the one above — level 3 is
+1.6 percent, level 4 is 0.4 — so the rule pins level 4 and coarser, about
+half a percent of the transfer all together (4 GB against 800). Halving z as
+well, it pins level 3 and coarser at a fifth of a percent. The rule scales
+itself to any transfer, and the geometric sum bounds what it can ever pin.
+Levels finer than the cut are still cached when visited; they are simply
+evictable, where the pinned levels never are.
+
 **Coarse pieces aggregate positions.** The scaling argument — a piece is
 covered by a handful of tiles however large the run — is true at full
 resolution and stops being true one level at a time above it. Each level up,
