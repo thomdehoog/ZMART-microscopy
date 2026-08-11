@@ -256,6 +256,54 @@ def test_an_earlier_run_is_thrown_away_even_while_something_is_reading_it(tmp_pa
     )
 
 
+def test_a_tile_lands_even_while_a_viewer_is_reading_the_picture(tmp_path):
+    """A live viewer reading the picture must not be able to kill the writer.
+
+    The whole point of a live run is a viewer watching while tiles land — and
+    every landing tile rewrites the coarsest zoomed-out copies, the very files
+    the watching viewer reads most, because they are the whole picture at a
+    glance. On Windows, replacing a file a reader holds open is denied, so the
+    honest atomic write dies mid-acquisition with 'Access is denied'. Measured
+    on a lab PC: a 10,000-position run, watched live, fell over about twenty
+    tiles in. The reader lets go in milliseconds, so the writer waits the
+    moment out.
+    """
+    # One chunk per level, so the coarsest copy is a single file every tile
+    # write must replace — exactly the file a viewer showing the whole picture
+    # reads over and over.
+    canvases = TileCanvases.create(
+        tmp_path,
+        name="overview",
+        canvas_shape=(2, 640, 640),
+        tile_shape=TILE,
+        tile_step=BUTTED_UP,
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488")],
+        levels=2,
+        chunk=640,
+    )
+    canvases.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                   tile_index=(0, 0, 0))
+
+    coarsest = tmp_path / "overview.ome.zarr" / "1"
+    held_file = next(
+        piece for piece in sorted(coarsest.rglob("*")) if piece.is_file()
+        and piece.name != "zarr.json" and not piece.name.startswith(".")
+    )
+    watcher = held_file.open("rb")
+    let_go = threading.Timer(0.3, watcher.close)
+    let_go.start()
+    try:
+        canvases.write(np.full(TILE, 7, dtype="uint16"), origin=(0, 0, TILE[2]),
+                       tile_index=(0, 0, 1))
+    finally:
+        let_go.join()
+        watcher.close()
+    assert _read_level0(canvases.paths[0])[0, 0, TILE[2]] == 7, (
+        "the tile written past the reader's hold did not reach the picture"
+    )
+
+
 def test_a_name_with_brackets_in_it_is_protected_like_any_other(tmp_path):
     """The name of an acquisition type is text, and must be treated as text.
 
