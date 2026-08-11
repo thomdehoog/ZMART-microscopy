@@ -85,6 +85,45 @@ Two different units doing two different jobs, decoupled by sharding:
   has in hand when a position finishes. No new buffering exists anywhere;
   writing a position writes each of its shards once.
 
+## The positions carry their own pyramids
+
+Each position is written with its own zoomed-out copies, always. The reason is
+the position's own life, not the view's: a complete OME-Zarr with a pyramid
+opens and zooms properly **on its own** — in napari, in Fiji, in this viewer —
+and people will open positions on their own. It costs about a third more disk
+per position, which is small at position scale.
+
+The view then uses them when it can and is not harmed when it cannot:
+
+- **Where the placement allows, the view points at them** instead of writing —
+  a run whose step is a multiple of chunk x 2 points one extra level deep, x 4
+  two levels, and a run aligned all the way down writes nothing at any zoom
+  (proven voxel for voxel in `test_a_view_that_writes_nothing.py`). The depth
+  is worked out from the run automatically; nothing is refused over it.
+- **Where it does not** — a position placed freely on the fine lattice keeps a
+  different set of every-second-voxels than the view would, so its copies are
+  right for itself but out of phase for the view — the view writes that level
+  itself, and the position's pyramid still serves standalone opening.
+- **The deepest levels are the view's alone either way.** A whole-stage zoom
+  summarises thousands of positions in a few kilobytes; no single position
+  file could ever hold it. Those cross-tile levels are what made the
+  whole-plate open cost 2 pieces instead of 10,000, and they stay written.
+
+The step rule is therefore the experiment's knob: fine placement and a little
+more written pyramid, or coarser placement and pointers nearly all the way
+down. Both are correct; the choice is freedom against disk.
+
+There is a third reason, and it is the deepest: **the positions are the system
+of record, and everything else is derived.** A position with its own pyramid
+is a complete, standard image that owes nothing to the view, the map, or this
+codebase — any OME-Zarr tool reads it whole, today or in ten years. The view
+can be deleted and rebuilt from the positions in seconds; the reverse is not
+true. So if the project ever has to move away from zarr, or from this viewer,
+or from this whole arrangement, the way out is "convert the position files
+with any standard tool" — and nothing of value lives anywhere else. That is
+what self-contained positions buy, and it is worth a third more disk many
+times over.
+
 ## Time: declare the room, then let frames simply begin to exist
 
 - Every position store, and the view, declare **the whole experiment's
