@@ -1,5 +1,51 @@
 # Two ways of showing a picture, and which one the microscope gets
 
+> **Superseded 2026-08-12, the same night, and the reversal is the record.**
+> Pressing on the padding trick until it bent showed that the division below
+> gives away the flexibility smart microscopy exists for. The requirement
+> that decides everything is **dense, arbitrary placement**: positions land
+> where biology puts them, at float micrometre coordinates, clustered and
+> overlapping. Against that requirement, pointing's conditions compound —
+> placement quantised to the chunk grid, the step doubling with every shared
+> pyramid level until the box snaps in near-frame-sized jumps, padding
+> widening to match, and the pads being opaque zeros that later-wins draws
+> whole over a neighbour's real specimen. Every one of those has a fix, and
+> the stack of fixes is itself the verdict: the mechanism was being fought
+> to deliver the one thing the system is for.
+>
+> So the division is redrawn, and less changes than it sounds:
+>
+> * **The storage and the governance stay exactly as this note describes.**
+>   Positions as complete, self-describing OME-Zarrs at their true
+>   coordinates — now *unpadded*, because padding existed only to serve
+>   pointing and takes its occlusion problem with it. The manifest, the
+>   commit gate, generations and rollback, readiness proved from the bytes
+>   on disk: unchanged. That layer is about truth, not serving, and it is
+>   the part worth keeping whatever draws the pixels.
+> * **The seamless view is served by building, behind the same gate.** The
+>   gateway keeps deciding *what may be shown* — published or withheld, per
+>   position and moment. The composer decides *how the pixels are made*:
+>   the published positions reaching a piece are laid in commit order, the
+>   later commit on top, at any fractional offset, dense clusters welcome.
+>   Gate first, build second; the two concerns compose.
+> * **The costs are measured, not guessed.** A fresh piece is 26 - 42 ms on
+>   the sandbox, flat with run size; the responsiveness plan on the building
+>   branch (disk cache, exhaustive coarse warmer, the one-percent pin rule)
+>   applies directly, with one live-specific addition: cached pieces are
+>   keyed by the view's change counter, so a commit invalidates exactly the
+>   pieces it touched. The consistency guarantees the gate carries must be
+>   re-proven through the composer — the sabotage campaigns and the
+>   parallel-fire gateway tests are the harness for exactly that.
+> * **Pointing retires to where it is free**: serving one position's own
+>   store, which needs no alignment with anything, and as an optimisation
+>   for runs that happen to be grid-regular. It stops being the thing the
+>   system's flexibility hangs on.
+>
+> The note below is kept as written, because the reasons in it were sound —
+> they were the reasons pointing was tried first — and because the analysis
+> of what each mechanism assumes is what made the reversal legible when the
+> flexibility requirement finally outweighed it.
+
 > Decided 2026-08-12, after measuring both ways on one machine on the same
 > afternoon and comparing what each was built to assume. This note records the
 > division of labour so it is a decision, not a habit.
