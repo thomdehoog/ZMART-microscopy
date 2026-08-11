@@ -809,7 +809,6 @@ def plan_the_writing(
         overlap_pixels={"y": overlap_y, "x": overlap_x},
         overlap_band=wanted.overlap_band,
         topology=wanted.topology,
-        seamless_ownership="one_sided",
         analysis_ownership=wanted.analysis_ownership,
         analysis_halo={"y": overlap_y // 2, "x": overlap_x // 2},
         levels=tuple(levels),

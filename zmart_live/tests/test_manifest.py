@@ -52,7 +52,7 @@ def a_finished_position(revision: int, position_id: str = "pos000", **changes):
         "levels": (0, 1, 2, 3),
         "pyramids_ready": True,
         "links_ready": True,
-        "coarse_chunks_ready": True,
+        "view_ready": True,
         "validated": True,
         "timestamp": now_in_words(),
     }
@@ -113,7 +113,7 @@ class TestNothingIsVisibleUntilItIsPublished:
 
     @pytest.mark.parametrize(
         "missing",
-        ["pyramids_ready", "links_ready", "coarse_chunks_ready", "validated"],
+        ["pyramids_ready", "links_ready", "view_ready", "validated"],
     )
     def test_every_single_prerequisite_is_load_bearing(self, run, missing):
         """Each of the four gates refuses on its own.

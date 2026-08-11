@@ -9,11 +9,12 @@ looks like a fault. It looks like a slow computer, and it gets slower for the
 whole time the viewer is open. So the central test here does not check a rule; it
 builds a scene of two thousand positions and counts what comes out.
 
-**Two different pictures quietly become one.** The seamless overview and the raw
-overlap overview are built from the same files, have the same voxel size, and
-carry the same channel names. Anything that decides what to draw from those alone
-folds them into one row with one contrast control, and the operator is told
-nothing. So the two are built side by side and asked to stay apart.
+**Two different pictures quietly become one.** The linked overview and a derived
+product that happens to share its name are built over the same files, have the
+same voxel size, and can carry the same channel names. Anything that decides what
+to draw from those alone folds them into one row with one contrast control, and
+the operator is told nothing. So a derived namesake is built beside the overview
+and asked to stay apart.
 
 Everything here is pure arithmetic over small records — no zarr is written and no
 files are touched — so the whole file runs in well under a second. A check nobody
@@ -163,26 +164,26 @@ class TestTheSceneSaysWhatTheRunContains:
             f"pos-{row}-{column}" for row in range(2) for column in range(3)
         }
 
-    def test_a_mosaic_gets_both_overviews(self):
-        """A run whose tiles overlap has a seam to place, so both pictures exist."""
+    def test_a_mosaic_gets_exactly_one_linked_overview(self):
+        """A run has one presentation: the linked view, every position drawn whole."""
         profile = a_plan()
         scene = build_the_scene(profile, a_layout(profile))
 
-        assert scene.roles == ("non_seamless", "position", "seamless")
-        assert len(scene.with_role("seamless")) == 1
-        assert len(scene.with_role("non_seamless")) == 1
+        assert scene.roles == ("linked", "position")
+        assert len(scene.with_role("linked")) == 1
+        assert scene.with_role("derived") == ()
 
-    def test_scattered_positions_get_no_seamless_view(self):
-        """The absence beside the presence: with no overlap there is nothing to resolve.
+    def test_scattered_positions_get_the_same_one_overview(self):
+        """A run of separate targets is presented the same way as a mosaic.
 
-        Building a seamless view here would invent seams between tiles that never
-        met, which is worse than not having the picture at all.
+        There is no overlap between tiles that never met, and the linked view
+        invents none: it simply draws each target where it sits.
         """
         profile = a_plan(topology="independent")
         scene = build_the_scene(profile, a_scattered_layout(profile))
 
-        assert scene.with_role("seamless") == ()
-        assert len(scene.with_role("non_seamless")) == 1
+        assert len(scene.with_role("linked")) == 1
+        assert scene.with_role("derived") == ()
         assert len(scene.positions) == 3
 
     def test_the_scene_carries_the_layout_revision_it_was_built_from(self):
@@ -247,7 +248,7 @@ class TestTheAxesAreKeptInTheOrderTheAcquisitionDeclared:
         scene = build_the_scene(profile, a_layout(profile))
         compiled = compile_for_neuroglancer(scene, nothing_published())
 
-        transform = compiled.source("seamless/overview").transform
+        transform = compiled.source("linked/overview").transform
         assert transform.axes == ("t", "c", "z", "y", "x")
         assert transform.scale_row() == (1.0, 1.0, 2.0, 0.5, 0.25)
 
@@ -349,14 +350,13 @@ class TestNeverOneSourcePerPosition:
     come out the same size as a run of four.
     """
 
-    def test_two_thousand_positions_compile_to_at_most_three_sources(self):
+    def test_two_thousand_positions_compile_to_a_single_source(self):
         profile = a_plan()
         scene = build_the_scene(profile, a_layout(profile, 40, 50))
         assert len(scene.positions) == 2000
 
         compiled = compile_for_neuroglancer(scene, nothing_published())
-        assert len(compiled.sources) <= 3
-        assert len(compiled.sources) == 2  # the two overviews, and no more
+        assert len(compiled.sources) == 1  # the one linked overview, and no more
 
     def test_the_number_of_sources_does_not_grow_with_the_run(self):
         profile = a_plan()
@@ -366,7 +366,7 @@ class TestNeverOneSourcePerPosition:
             compiled = compile_for_neuroglancer(scene, nothing_published())
             counts.append(len(compiled.sources))
 
-        assert counts == [2, 2, 2]
+        assert counts == [1, 1, 1]
 
     def test_the_number_of_layers_does_not_grow_with_the_run_either(self):
         """A layer costs almost as much as a source; both have to stay bounded."""
@@ -374,8 +374,8 @@ class TestNeverOneSourcePerPosition:
         small = build_the_scene(profile, a_layout(profile, 1, 2), channels=("dapi", "gfp"))
         large = build_the_scene(profile, a_layout(profile, 40, 50), channels=("dapi", "gfp"))
 
-        assert len(compile_for_neuroglancer(small, nothing_published()).layers) == 4
-        assert len(compile_for_neuroglancer(large, nothing_published()).layers) == 4
+        assert len(compile_for_neuroglancer(small, nothing_published()).layers) == 2
+        assert len(compile_for_neuroglancer(large, nothing_published()).layers) == 2
 
     def test_no_position_ever_becomes_a_source_of_its_own(self):
         """The absence beside the presence: positions are what views are made of."""
@@ -445,8 +445,8 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
         early = compile_for_neuroglancer(scene, published(1, **{"pos-0-0": 1}))
         later = compile_for_neuroglancer(scene, published(9, **{"pos-0-0": 1, "pos-1-0": 9}))
 
-        assert early.source("seamless/overview").revision == 1
-        assert later.source("seamless/overview").revision == 9
+        assert early.source("linked/overview").revision == 1
+        assert later.source("linked/overview").revision == 9
 
     def test_the_revision_appears_nowhere_in_any_address(self):
         profile = a_plan()
@@ -470,8 +470,7 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
         )
         compiled = compile_for_neuroglancer(scene, published(9, **{"pos-0-0": 3, "pos-0-1": 7}))
 
-        assert compiled.source("seamless/overview").revision == 7
-        assert compiled.source("non_seamless/overview").revision == 7
+        assert compiled.source("linked/overview").revision == 7
         # A derived product names no positions, so nothing tells us anything more
         # precise than the run-wide counter.
         assert compiled.source("derived/nuclei").revision == 9
@@ -482,7 +481,7 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
         scene = build_the_scene(profile, a_layout(profile, 2, 2))
         compiled = compile_for_neuroglancer(scene, published(5, **{"somebody-else": 5}))
 
-        assert compiled.source("seamless/overview").revision == 0
+        assert compiled.source("linked/overview").revision == 0
         assert compiled.revision == 5  # the run has moved on; this view has not
 
     def test_the_store_root_is_prefixed_without_doubling_the_slash(self):
@@ -490,51 +489,66 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
         scene = build_the_scene(profile, a_layout(profile))
         compiled = compile_for_neuroglancer(scene, nothing_published(), store_root="/runs/today/")
 
-        assert compiled.source("seamless/overview").url == (
-            "/runs/today/views/overview-seamless.ome.zarr"
-        )
+        assert compiled.source("linked/overview").url == ("/runs/today/views/overview.ome.zarr")
 
     def test_with_no_store_root_the_path_stands_alone(self):
         profile = a_plan()
         scene = build_the_scene(profile, a_layout(profile))
         compiled = compile_for_neuroglancer(scene, nothing_published())
 
-        assert compiled.source("seamless/overview").url == ("views/overview-seamless.ome.zarr")
+        assert compiled.source("linked/overview").url == ("views/overview.ome.zarr")
 
 
-class TestTheTwoOverviewsDoNotCollapseIntoOne:
-    """They are built from the same files and look identical to any naive comparison."""
+class TestADerivedNamesakeDoesNotCollapseIntoTheOverview:
+    """The role is part of identity, and this is where that earns its keep.
+
+    A derived product is free to share the overview's name, its voxel size and
+    its channel names, and still be a different picture. Anything that decides
+    what to draw from those alone folds the two into one row with one contrast
+    control, and the operator is told nothing.
+    """
+
+    def a_scene_with_a_namesake(self, channels: tuple[str, ...] = ("dapi", "gfp")) -> Scene:
+        """The linked overview, and a derived product that shares its name."""
+        profile = a_plan()
+        return build_the_scene(
+            profile,
+            a_layout(profile),
+            channels=channels,
+            derived=(
+                DerivedView(
+                    image_id="overview",
+                    path="analysis/overview.ome.zarr",
+                    channels=channels,
+                ),
+            ),
+        )
 
     def test_they_really_are_indistinguishable_by_voxel_size_and_channels(self):
         """The trap, demonstrated rather than asserted about.
 
-        If this test ever fails it means the two overviews became different in some
+        If this test ever fails it means the two images became different in some
         other way, and the rest of this class is testing something easier than it
         was written for.
         """
-        profile = a_plan()
-        scene = build_the_scene(profile, a_layout(profile), channels=("dapi", "gfp"))
-        seamless = scene.image("seamless/overview")
-        raw = scene.image("non_seamless/overview")
+        scene = self.a_scene_with_a_namesake()
+        linked = scene.image("linked/overview")
+        namesake = scene.image("derived/overview")
 
-        assert seamless.voxel_size == raw.voxel_size
-        assert seamless.channels == raw.channels
-        assert seamless.image_id == raw.image_id
+        assert linked.voxel_size == namesake.voxel_size
+        assert linked.channels == namesake.channels
+        assert linked.image_id == namesake.image_id
 
     def test_they_compile_to_two_separate_sources(self):
-        profile = a_plan()
-        scene = build_the_scene(profile, a_layout(profile))
-        compiled = compile_for_neuroglancer(scene, nothing_published())
+        compiled = compile_for_neuroglancer(self.a_scene_with_a_namesake(), nothing_published())
 
         ids = [source.source_id for source in compiled.sources]
         assert len(ids) == len(set(ids)) == 2
-        assert {source.role for source in compiled.sources} == {"seamless", "non_seamless"}
+        assert {source.role for source in compiled.sources} == {"linked", "derived"}
 
     def test_each_gets_its_own_row_of_controls_for_every_channel(self):
         """One merged row would mean one contrast control for two different pictures."""
-        profile = a_plan()
-        scene = build_the_scene(profile, a_layout(profile), channels=("dapi", "gfp"))
-        compiled = compile_for_neuroglancer(scene, nothing_published())
+        compiled = compile_for_neuroglancer(self.a_scene_with_a_namesake(), nothing_published())
 
         assert len(compiled.layers) == 4
         names = [layer.name for layer in compiled.layers]
@@ -542,13 +556,13 @@ class TestTheTwoOverviewsDoNotCollapseIntoOne:
         by_role = {}
         for layer in compiled.layers:
             by_role.setdefault(layer.role, []).append(layer.channel)
-        assert by_role["seamless"] == ["dapi", "gfp"]
-        assert by_role["non_seamless"] == ["dapi", "gfp"]
+        assert by_role["linked"] == ["dapi", "gfp"]
+        assert by_role["derived"] == ["dapi", "gfp"]
 
     def test_every_layer_reads_from_exactly_one_of_the_two(self):
-        profile = a_plan()
-        scene = build_the_scene(profile, a_layout(profile), channels=("dapi",))
-        compiled = compile_for_neuroglancer(scene, nothing_published())
+        compiled = compile_for_neuroglancer(
+            self.a_scene_with_a_namesake(channels=("dapi",)), nothing_published()
+        )
 
         for layer in compiled.layers:
             assert len(layer.source_ids) == 1
@@ -556,38 +570,23 @@ class TestTheTwoOverviewsDoNotCollapseIntoOne:
 
     def test_the_part_each_plays_is_readable_on_the_row(self):
         """An operator should be able to tell which picture a control belongs to."""
-        profile = a_plan()
-        scene = build_the_scene(profile, a_layout(profile), channels=("dapi",))
-        compiled = compile_for_neuroglancer(scene, nothing_published())
+        compiled = compile_for_neuroglancer(
+            self.a_scene_with_a_namesake(channels=("dapi",)), nothing_published()
+        )
 
         names = " ".join(layer.name for layer in compiled.layers)
-        assert "seamless" in names
-        assert "raw overlap" in names
-
-    def test_the_raw_view_can_be_stepped_through_and_the_seamless_one_cannot(self):
-        """Two tiles recorded different measurements of the same place.
-
-        One grey value cannot show both, so the raw view carries a dimension the
-        operator steps through. The seamless view has already chosen, so it has
-        nothing to step through — and that absence is what the choosing means.
-        """
-        profile = a_plan()
-        scene = build_the_scene(profile, a_layout(profile))
-        compiled = compile_for_neuroglancer(scene, nothing_published())
-
-        assert compiled.source("non_seamless/overview").local_dimension == "tile"
-        assert compiled.source("seamless/overview").local_dimension is None
+        assert "linked" in names
+        assert "derived" in names
 
     def test_a_channel_is_pinned_by_index_on_every_row(self):
-        profile = a_plan()
-        scene = build_the_scene(profile, a_layout(profile), channels=("dapi", "gfp"))
-        compiled = compile_for_neuroglancer(scene, nothing_published())
+        compiled = compile_for_neuroglancer(self.a_scene_with_a_namesake(), nothing_published())
 
-        gfp = compiled.layer("overview (seamless) gfp")
+        gfp = compiled.layer("overview (linked) gfp")
         assert gfp.channel_index == 1
         assert gfp.local_position["c"] == 1
-        dapi = compiled.layer("overview (seamless) dapi")
+        dapi = compiled.layer("overview (derived) dapi")
         assert dapi.channel_index == 0
+        assert dapi.local_position["c"] == 0
 
 
 class TestTheCompiledAnswerIsPlainData:
@@ -604,8 +603,8 @@ class TestTheCompiledAnswerIsPlainData:
         assert written["schema"] == "zmart-live-neuroglancer-scene/1"
         assert written["revision"] == 4
         assert written["layout_revision"] == 3
-        assert len(written["sources"]) == 2
-        assert len(written["layers"]) == 4
+        assert len(written["sources"]) == 1
+        assert len(written["layers"]) == 2
         assert written["coordinate_system"]["axes"] == ["t", "c", "z", "y", "x"]
 
     def test_each_written_source_carries_its_transform_and_its_revision(self):
@@ -626,7 +625,7 @@ class TestTheCompiledAnswerIsPlainData:
 
         written = json.loads(json.dumps(scene.to_json()))
         assert written["schema"] == "zmart-live-scene/1"
-        assert len(written["images"]) == 6  # four positions and two overviews
+        assert len(written["images"]) == 5  # four positions and the one overview
 
     def test_the_one_line_summary_says_what_was_handed_over(self):
         profile = a_plan()
@@ -634,7 +633,7 @@ class TestTheCompiledAnswerIsPlainData:
         compiled = compile_for_neuroglancer(scene, published(2, **{"pos-0-0": 2}))
 
         summary = compiled.describe()
-        assert "2 sources" in summary
+        assert "1 sources" in summary
         assert "revision 2" in summary
 
 
@@ -648,7 +647,7 @@ class TestWhatIsRefused:
     def test_the_same_image_cannot_be_described_twice(self):
         image = SceneImage(
             image_id="x",
-            role="seamless",
+            role="linked",
             path="x.zarr",
             axes=("y", "x"),
             channels=("green",),
@@ -664,7 +663,7 @@ class TestWhatIsRefused:
             )
 
     def test_the_same_name_in_two_different_parts_is_perfectly_fine(self):
-        """Which is the whole point: one overview, two presentations."""
+        """Which is the whole point: the overview and a derived namesake coexist."""
         scene = Scene(
             scene_id="s",
             run_id="r",
@@ -674,14 +673,14 @@ class TestWhatIsRefused:
             images=(
                 SceneImage(
                     image_id="overview",
-                    role="seamless",
+                    role="linked",
                     path="a.zarr",
                     axes=("y", "x"),
                     channels=("green",),
                 ),
                 SceneImage(
                     image_id="overview",
-                    role="non_seamless",
+                    role="derived",
                     path="b.zarr",
                     axes=("y", "x"),
                     channels=("green",),
@@ -701,7 +700,7 @@ class TestWhatIsRefused:
                 images=(
                     SceneImage(
                         image_id="overview",
-                        role="seamless",
+                        role="linked",
                         path="a.zarr",
                         axes=("y", "x"),
                         channels=("green",),
@@ -766,7 +765,7 @@ class TestWhatIsRefused:
         with pytest.raises(SceneRefused, match="safe store path"):
             SceneImage(
                 image_id="x",
-                role="seamless",
+                role="linked",
                 path=path,
                 axes=("y", "x"),
                 channels=("green",),
@@ -786,11 +785,11 @@ class TestWhatIsRefused:
         profile = a_plan()
         scene = build_the_scene(profile, a_layout(profile))
         with pytest.raises(SceneRefused, match="no image called"):
-            scene.image("seamless/nothing")
+            scene.image("linked/nothing")
 
     def test_asking_for_a_source_that_is_not_there_says_what_is(self):
         profile = a_plan()
         scene = build_the_scene(profile, a_layout(profile))
         compiled = compile_for_neuroglancer(scene, nothing_published())
         with pytest.raises(SceneRefused, match="Nothing here is called"):
-            compiled.source("seamless/nothing")
+            compiled.source("linked/nothing")

@@ -58,7 +58,7 @@ What the viewer is pointed at
 -----------------------------
 
 One image, and only one: the run-wide seamless overview at
-``views/overview-seamless.ome.zarr``. That is not a convenience for the test. It
+``views/overview.ome.zarr``. That is not a convenience for the test. It
 is the rule :mod:`zmart_live.scene` exists to protect — the drawing engine is
 given one source per view and never one per position, because every source it is
 handed becomes a layer that takes part in every frame for as long as the viewer
@@ -273,14 +273,7 @@ def cells_in_a_row(how_many: int) -> dict[GridCell, str]:
 #: The name of the run-wide picture the viewer opens, relative to the run folder.
 #: :class:`~zmart_live.coordinator.LivePublisher` decides this; it is repeated
 #: here only so the server can recognise addresses that fall inside it.
-SEAMLESS = "views/overview-seamless.ome.zarr"
-
-#: The other run-wide picture the publisher writes: the one that keeps every
-#: pixel every tile recorded, overlaps included. The viewer in this test never
-#: opens it, but its pieces are gated all the same, because a piece of image that
-#: nobody has published must not be readable by anybody, whichever picture it
-#: happens to sit in.
-RAW_OVERLAP = "views/overview-raw.zarr"
+SEAMLESS = "views/overview.ome.zarr"
 
 #: Where each position's own image lives, relative to the run folder.
 POSITIONS = "positions"
@@ -291,9 +284,8 @@ POSITIONS = "positions"
 #: see :func:`_this_file_still_mirrors_the_production_sequence`.
 THE_SEQUENCE_WITHOUT_THE_COMMIT = (
     "write_a_position",
-    "write_the_seamless_view",
-    "write_the_raw_overlap_view",
     "write_the_link_map",
+    "write_the_view",
     "write_the_layout",
 )
 
@@ -497,11 +489,8 @@ class ProductionRun:
                 name, _a_frame(self._seed(name)), timepoint=moment
             )
             units = frozenset(self.publisher._committed_units()) | {(name, moment)}
-            affected = frozenset({(name, moment)})
-            self.publisher.write_the_seamless_view(units, only=affected)
-            self.publisher.write_the_raw_overlap_view(units, only=affected)
-            positions = frozenset(position for position, _ in units)
-            self.publisher.write_the_link_map(positions)
+            self.publisher.write_the_link_map(units)
+            self.publisher.write_the_view()
             self.publisher.write_the_layout()
 
     def commit_only(self, name: str, moment: int = 0) -> int:

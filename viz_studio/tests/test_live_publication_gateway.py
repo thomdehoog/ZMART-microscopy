@@ -35,16 +35,14 @@ def test_the_real_backend_withholds_then_routes_the_same_virtual_chunk(tmp_path)
         cells={GridCell(0, 0): "posA"},
     )
     run.write_a_position("posA", some_specimen(2300))
-    units = frozenset({("posA", 0)})
-    run.write_the_seamless_view(units)
-    run.write_the_raw_overlap_view(units)
-    run.write_the_link_map(frozenset({"posA"}))
+    run.write_the_link_map(frozenset({("posA", 0)}))
+    run.write_the_view()
     run.write_the_layout()
 
     site = tmp_path / "site"
     site.mkdir()
     (site / "index.html").write_text("viewer", encoding="utf-8")
-    store = "views/overview-seamless.ome.zarr"
+    store = "views/overview.ome.zarr"
     server = make_server(
         port=0,
         data_dir=run.folder,
@@ -63,7 +61,7 @@ def test_the_real_backend_withholds_then_routes_the_same_virtual_chunk(tmp_path)
         run.publish("posA")
         status, body = ask(server.server_address[1], requested)
         assert status == 200
-        routed = answer_from_a_live_run(run.seamless_level() / "c/0/0/0/0/0")
+        routed = answer_from_a_live_run(run.view_level() / "c/0/0/0/0/0")
         assert routed is not None and routed.serving is not None
         with routed.serving.path.open("rb") as source:
             source.seek(routed.serving.offset)

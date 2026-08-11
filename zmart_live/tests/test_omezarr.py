@@ -105,7 +105,7 @@ def _a_profile() -> AcquisitionProfile:
                 downsampling={"z": 1, "y": 2**step, "x": 2**step},
                 inner_chunk={"z": 1, "y": CHUNK, "x": CHUNK},
                 # Only the full-size copy lines up with the grid step here, so it
-                # is the only one a seamless view could point straight at. That
+                # is the only one the linked view could point straight at. That
                 # has nothing to do with the description being tested, but a
                 # profile that claimed otherwise would be refused when it was
                 # made.
@@ -939,7 +939,7 @@ def test_a_position_a_live_run_actually_wrote_can_be_opened(tmp_path):
     assert stated["y"] == pytest.approx(placed["y"] * VOXEL_UM[1])
 
 
-def test_the_live_seamless_view_is_also_opened_by_the_outside_reader(
+def test_the_live_linked_view_is_also_opened_by_the_outside_reader(
     tmp_path, monkeypatch
 ):
     """The operator-facing multiscale image is not merely a folder of arrays."""
@@ -965,13 +965,13 @@ def test_the_live_seamless_view_is_also_opened_by_the_outside_reader(
     publisher.write_a_position(
         "pos00000", np.full((len(COLOURS), Z_PLANES, FRAME, FRAME), 900, "uint16")
     )
-    publisher.write_the_seamless_view(frozenset({("pos00000", 0)}))
+    publisher.write_the_view()
 
-    multiscales = ngff_zarr.from_ngff_zarr(publisher.seamless_store)
+    multiscales = ngff_zarr.from_ngff_zarr(publisher.view_store)
     assert len(multiscales.images) == len(profile.levels)
     assert tuple(multiscales.images[0].dims) == profile.axes
 
     attributes = json.loads(
-        (publisher.seamless_store / "zarr.json").read_text(encoding="utf-8")
+        (publisher.view_store / "zarr.json").read_text(encoding="utf-8")
     )["attributes"]
     ngff_zarr.validate(attributes, version=OME_ZARR_VERSION, model="image")

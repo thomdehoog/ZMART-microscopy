@@ -49,7 +49,7 @@ def _server_for(tmp_path, run):
         port=0,
         data_dir=run.folder,
         site_dir=site,
-        store="views/overview-seamless.ome.zarr",
+        store="views/overview.ome.zarr",
         window=(0, 4095),
         live=True,
     )
@@ -135,7 +135,7 @@ def test_live_state_and_config_advance_only_after_commit_with_stable_urls(tmp_pa
         published = json.loads(body)
         live_run = published["runs"][0]
         assert live_run["revision"] == 1
-        assert len(live_run["sources"]) == 2
+        assert len(live_run["sources"]) == 1
         assert {source["revision"] for source in live_run["sources"]} == {1}
         assert {
             tuple((item["start"], item["stop"]) for item in source["committed_time_ranges"])
@@ -145,8 +145,8 @@ def test_live_state_and_config_advance_only_after_commit_with_stable_urls(tmp_pa
         status, _, body = _request(port, "/api/config")
         assert status == 200
         config = json.loads(body)
-        assert len(config["layers"]) == 2
-        assert sum(len(row["sources"]) for row in config["layers"]) == 2
+        assert len(config["layers"]) == 1
+        assert sum(len(row["sources"]) for row in config["layers"]) == 1
         assert {revision for row in config["layers"] for revision in row["sourceRevisions"]} == {1}
         assert all("?" not in url for row in config["layers"] for url in row["sources"])
         assert all(row["committedTimeRanges"] == [{"start": 0, "stop": 1}]
@@ -262,7 +262,7 @@ def test_live_registry_follows_the_production_open_and_close_routes(tmp_path):
         status, config = _post(
             port,
             "/api/stores/open",
-            {"path": str(second.folder / "views" / "overview-seamless.ome.zarr")},
+            {"path": str(second.folder / "views" / "overview.ome.zarr")},
         )
         assert status == 200
         assert [run["dataset"] for run in config["liveState"]["runs"]] == [0, 1]

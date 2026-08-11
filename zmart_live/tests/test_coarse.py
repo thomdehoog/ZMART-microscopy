@@ -44,10 +44,12 @@ def a_plan(frame: int = 90, overlap: int = 10, chunk: int = 10, levels: int = 5)
     levels beyond what a tile keeps, and it is precisely at those levels that one
     stored piece starts covering several positions at once.
 
-    With four levels the pieces come out exactly one grid step wide and nothing
-    is ever shared, so a test built that way would quietly stop exercising the
-    situation it was written for. That happened while writing this, which is why
-    the class below opens by checking that a shared piece exists at all.
+    Tiles contribute their whole frames, overlap included, because the linked
+    view draws every tile whole and lets the later commit land on top. So some
+    sharing exists at every level — the pieces under the ten-pixel band two
+    frames both cover — and the class below opens by pinning down exactly where
+    it sits. The deep levels are still what the file is about: there a piece
+    stops merely straddling a seam and comes to cover whole positions together.
     """
     return AcquisitionProfile(
         profile_id="test",
@@ -94,15 +96,17 @@ def mosaic():
 class TestAPieceReallyDoesCoverSeveralPositions:
     """The difficulty is real, so show it before guarding against it."""
 
-    def test_zoomed_right_in_no_piece_is_shared(self, mosaic):
-        """At full resolution the tidiness of the rest of the design still holds."""
+    def test_zoomed_right_in_sharing_stays_inside_the_overlap_band(self, mosaic):
+        """At full resolution a whole frame reaches ten pixels into each
+        neighbour, so exactly the pieces under that band are shared — the last
+        row and column of the first tile's nine-by-nine — and no interior one."""
         profile, placements = mosaic
-        shared = [
-            piece
+        shared = {
+            piece.index
             for piece in chunks_touched_by(profile, placements[0], level=0)
             if len(contributors_to(profile, piece, placements)) > 1
-        ]
-        assert shared == []
+        }
+        assert shared == {(row, 8) for row in range(9)} | {(8, column) for column in range(9)}
 
     def test_zoomed_far_enough_out_one_piece_covers_them_all(self, mosaic):
         """And here is the problem this module exists for."""
@@ -196,12 +200,13 @@ class TestOnlyTheRightPiecesAreDisturbed:
     a gap that looks like specimen rather than like a fault."""
 
     def test_a_position_disturbs_the_pieces_covering_its_own_ground(self, mosaic):
+        """Its ground is its whole frame, because the tile is drawn whole."""
         profile, placements = mosaic
         arriving = placements[0]
         touched = chunks_touched_by(profile, arriving, level=0)
-        owned = arriving.visual_source_roi.shifted(arriving.origin)
+        frame = arriving.frame_roi_in_run()
         for piece in touched:
-            assert piece.covers(profile, {"y": 10, "x": 10}).overlaps(owned)
+            assert piece.covers(profile, {"y": 10, "x": 10}).overlaps(frame)
 
     def test_a_position_disturbs_nothing_belonging_only_to_a_distant_neighbour(self):
         """At full resolution a far-off tile shares no piece at all."""
@@ -217,9 +222,9 @@ class TestOnlyTheRightPiecesAreDisturbed:
         profile = a_plan(frame=90, overlap=10, chunk=10)
         placements = place_the_tiles(profile, a_square_of(1, 1))
         touched = chunks_touched_by(profile, placements[0], level=0)
-        # One tile keeps 80 pixels, which is exactly eight pieces of ten.
+        # The whole 90-pixel frame is exactly nine pieces of ten.
         across = sorted({piece.index[1] for piece in touched})
-        assert across == list(range(8))
+        assert across == list(range(9))
 
     def test_fewer_pieces_are_disturbed_the_further_out_you_zoom(self, mosaic):
         """Which is what keeps the work a commit brings with it bounded."""

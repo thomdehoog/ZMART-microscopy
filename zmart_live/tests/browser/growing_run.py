@@ -106,7 +106,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from zmart_live.manifest import RunManifest  # noqa: E402
-from zmart_live.model import Box, CommitEvent, GridCell  # noqa: E402
+from zmart_live.model import CommitEvent, GridCell  # noqa: E402
 from zmart_storage.canvas import Channel, TileCanvases  # noqa: E402
 
 #: What the image is called on disk, and therefore the first part of every
@@ -330,15 +330,11 @@ class GrowingRun:
                     link_revision=1,
                     component_id="one-strip",
                     cell=GridCell(*position.cell),
-                    owned_region=Box.of(
-                        y=(position.origin[1], position.origin[1] + TILE[1]),
-                        x=(position.origin[2], position.origin[2] + TILE[2]),
-                    ),
                     channels=("probe",),
                     levels=(0,),
                     pyramids_ready=True,
                     links_ready=True,
-                    coarse_chunks_ready=True,
+                    view_ready=True,
                     validated=True,
                 )
             )

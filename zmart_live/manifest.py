@@ -242,7 +242,17 @@ def _write_and_replace(destination: Path, text: str) -> None:
     operating system may hold the contents in memory while the rename has already
     happened, so a power cut could leave a record that points confidently at data
     which never reached the platter.
+
+    The rename itself is made with a short patience for a reader's hold. These
+    small files are replaced on every commit and read constantly by the live
+    viewer, and on Windows the reader's open handle makes the replacement fail
+    as ``Access is denied`` on ground that is free a moment later — a governed
+    run watched live died of exactly this. The pixel path was cured first, in
+    :func:`zmart_storage.canvas.written_despite_brief_holds`, and this is the
+    same cure in the same place for the metadata.
     """
+    from zmart_storage.canvas import written_despite_brief_holds
+
     destination.parent.mkdir(parents=True, exist_ok=True)
     handle = tempfile.NamedTemporaryFile(
         mode="w",
@@ -257,7 +267,7 @@ def _write_and_replace(destination: Path, text: str) -> None:
             writing.write(text)
             writing.flush()
             os.fsync(writing.fileno())
-        os.replace(handle.name, destination)
+        written_despite_brief_holds(lambda: os.replace(handle.name, destination))
         _push_directory_to_disk(destination.parent)
     except BaseException:
         Path(handle.name).unlink(missing_ok=True)
@@ -749,7 +759,7 @@ class RunManifest:
                 for name, done in (
                     ("the zoomed-out copies", event.pyramids_ready),
                     ("the overview's pointers", event.links_ready),
-                    ("the shared zoomed-out pieces", event.coarse_chunks_ready),
+                    ("the linked view's description", event.view_ready),
                     ("the final check over all of it", event.validated),
                 )
                 if not done

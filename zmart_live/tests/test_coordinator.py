@@ -73,10 +73,8 @@ def everything_but_the_commit(run, position_id, pixels=None):
     what it says it measures.
     """
     run.write_a_position(position_id, some_specimen() if pixels is None else pixels)
-    so_far = frozenset({position_id})
-    run.write_the_seamless_view(so_far)
-    run.write_the_raw_overlap_view(so_far)
-    run.write_the_link_map(so_far)
+    run.write_the_link_map(frozenset({position_id}))
+    run.write_the_view()
     run.write_the_layout()
 
 
@@ -177,9 +175,8 @@ class TestDamageThatWouldNotAnnounceItself:
     def test_a_missing_arrangement_is_caught(self, run):
         """A published measurement has to have something to point back at."""
         run.write_a_position("posA", some_specimen())
-        run.write_the_seamless_view(frozenset({"posA"}))
-        run.write_the_raw_overlap_view(frozenset({"posA"}))
         run.write_the_link_map(frozenset({"posA"}))
+        run.write_the_view()
         (run.folder / "zmart-live" / "layout.json").unlink()
         found = run.inspect("posA")
         assert not found.everything_checks_out
@@ -217,7 +214,7 @@ class TestReadinessCannotBeAsserted:
         found = run.inspect("posA")
         assert event.pyramids_ready == found.pyramids_ready
         assert event.links_ready == found.links_ready
-        assert event.coarse_chunks_ready == found.coarse_chunks_ready
+        assert event.view_ready == found.view_ready
 
     def test_looking_actually_reads_bytes_rather_than_listing_files(self, run):
         """A count of nothing would mean the check is decorative."""
@@ -225,8 +222,7 @@ class TestReadinessCannotBeAsserted:
         found = run.inspect("posA")
         assert found.pieces_read > 0
         assert found.ranges_checked > 0
-        assert found.coarse_pieces_rebuilt > 0
-        assert found.raw_pixels_compared > 0
+        assert found.view_levels_validated > 0
 
     def test_an_inspection_that_found_nothing_is_not_ready(self):
         """The record's default has to be the safe one."""
@@ -245,9 +241,9 @@ class TestTheZoomedOutPictureOnlyShowsPublishedWork:
 
         placement = run.layout.placement("posB")
         y0 = placement.origin["y"]
-        x0 = placement.origin["x"] + placement.visual_source_roi["x"].length - 4
+        x0 = placement.origin["x"] + FRAME - 4
         chunk = run.profile.level(0).inner_chunk
-        requested = run.seamless_level() / (
+        requested = run.view_level() / (
             f"c/0/0/0/{y0 // chunk['y']}/{x0 // chunk['x']}"
         )
         before = answer_from_a_live_run(requested)
@@ -262,6 +258,130 @@ class TestTheZoomedOutPictureOnlyShowsPublishedWork:
         assert after is not None and after.allowed is True
         assert after.serving is not None
         assert after.serving.position == run.position_store("posB") / "0"
+
+
+class TestOverlapIsKeptAndTheLaterArrivalIsDrawn:
+    """The settled model: positions whole, one view, later wins.
+
+    Nothing is trimmed away. Each position is routed whole into the one linked
+    view, overlap intact, and where two positions cover the same ground the one
+    that was **committed later** is the one drawn — exactly as tiles laid on top
+    of one another. The raw evidence needs no second view, because the position
+    stores keep both recordings of shared ground whole.
+    """
+
+    def test_the_overlap_is_drawn_from_the_later_committed_tile(self, run):
+        """Commit order, not grid geometry, decides who is on top.
+
+        posB sits to the right of posA, and under the retired trimming rule the
+        overlap always belonged to posB whatever the order. Committing posB
+        first and posA second must show posA's recording of the shared strip,
+        which no ownership-by-geometry rule can produce.
+        """
+        from zmart_live.gateway import answer_from_a_live_run
+
+        run.write_and_publish("posB", some_specimen(2000))
+        run.write_and_publish("posA", some_specimen(1000))
+
+        begins, ends = where_the_two_tiles_meet(run)
+        chunk_x = begins // run.profile.level(0).inner_chunk["x"]
+        assert ends - begins == run.profile.level(0).inner_chunk["x"]
+        drawn = answer_from_a_live_run(
+            run.view_level() / f"c/0/0/0/0/{chunk_x}"
+        )
+        assert drawn is not None and drawn.allowed and drawn.serving is not None
+        assert drawn.serving.position == run.position_store("posA") / "0", (
+            "the overlap must show the later arrival, and posA arrived later"
+        )
+
+    def test_the_run_writes_exactly_one_view(self, run):
+        """positions/, one linked view, and nothing else derived on disk."""
+        run.write_and_publish("posA", some_specimen(1000))
+        views = sorted(child.name for child in (run.folder / "views").iterdir())
+        assert views == ["overview.ome.zarr"], (
+            "the raw-overlap selector and the trimmed seamless picture are "
+            "retired; a run owns its positions and the one linked view"
+        )
+
+    def test_the_link_map_records_positions_in_commit_order(self, run):
+        """The order of the stored map is the draw order, so it is load-bearing."""
+        run.write_and_publish("posB", some_specimen(2000))
+        run.write_and_publish("posA", some_specimen(1000))
+        stored = json.loads(run.link_map_file.read_text(encoding="utf-8"))
+        for level in stored["levels"]:
+            named = [entry["position_id"] for entry in level["positions"]]
+            assert named == ["posB", "posA"], (
+                "the map must list positions in the order they were committed"
+            )
+
+    def test_every_level_draws_the_whole_frame_of_a_tile(self, run):
+        """No zoom level trims: the far corner of a frame routes at every level."""
+        from zmart_live.gateway import answer_from_a_live_run
+
+        run.write_and_publish("posA", some_specimen(1000))
+        placement = run.layout.placement("posA")
+        for level in run.profile.levels:
+            by = level.downsampling
+            chunk = level.inner_chunk
+            far_y = (placement.origin["y"] + FRAME - 1) // by["y"] // chunk["y"]
+            far_x = (placement.origin["x"] + FRAME - 1) // by["x"] // chunk["x"]
+            answer = answer_from_a_live_run(
+                run.view_level(level.level) / f"c/0/0/0/{far_y}/{far_x}"
+            )
+            assert answer is not None and answer.allowed, (
+                f"level {level.level} does not route the frame's far corner"
+            )
+            assert answer.serving is not None
+            assert (
+                answer.serving.position
+                == run.position_store("posA") / str(level.level)
+            )
+
+    def test_published_ground_stays_visible_while_its_successor_is_withheld(
+        self, run
+    ):
+        """The written-but-not-yet-committed arrival never blanks the picture.
+
+        While posA is written and routed but not yet committed, the shared
+        strip it will take over must keep showing posB's published recording —
+        not go blank, and not show posA early. The moment posA's commit lands,
+        the same request follows the newer claim.
+        """
+        from zmart_live.gateway import answer_from_a_live_run, forget_live_run
+
+        run.write_and_publish("posB", some_specimen(2000))
+        run.write_a_position("posA", some_specimen(1000))
+        units = frozenset(run._committed_units()) | {("posA", 0)}
+        run.write_the_link_map(units)
+        run.write_the_view()
+        run.write_the_layout()
+        forget_live_run(run.folder)
+
+        begins, _ends = where_the_two_tiles_meet(run)
+        chunk_x = begins // run.profile.level(0).inner_chunk["x"]
+        requested = run.view_level() / f"c/0/0/0/0/{chunk_x}"
+        meanwhile = answer_from_a_live_run(requested)
+        assert meanwhile is not None and meanwhile.allowed, (
+            "published ground went blank while its successor was withheld"
+        )
+        assert meanwhile.serving is not None
+        assert meanwhile.serving.position == run.position_store("posB") / "0", (
+            "the withheld arrival leaked onto the screen before its commit"
+        )
+
+        # And posA's own ground, which nothing published covers, stays withheld.
+        alone_x = (
+            run.layout.placement("posA").origin["x"]
+            // run.profile.level(0).inner_chunk["x"]
+        )
+        withheld = answer_from_a_live_run(run.view_level() / f"c/0/0/0/0/{alone_x}")
+        assert withheld is not None and withheld.allowed is False
+
+        run.publish("posA")
+        afterwards = answer_from_a_live_run(requested)
+        assert afterwards is not None and afterwards.allowed
+        assert afterwards.serving is not None
+        assert afterwards.serving.position == run.position_store("posA") / "0"
 
 
 def where_the_two_tiles_meet(run) -> tuple[int, int]:
@@ -279,226 +399,67 @@ def where_the_two_tiles_meet(run) -> tuple[int, int]:
     return begins, ends
 
 
-class TestTheRawViewKeepsBothMeasurementsOfAnOverlap:
-    """The claim this view exists to make.
+class TestTheOverlapEvidenceStaysWhole:
+    """The raw evidence needs no view of its own.
 
     Where two tiles meet, the microscope recorded the same piece of specimen
-    twice, and the two records need not agree — that disagreement is the whole
-    reason somebody opens this view. So the test that matters is not that the
-    picture appears, but that *both* measurements can still be read back out of
-    it afterwards.
+    twice, and the two records need not agree — that disagreement is exactly
+    what somebody investigating the stage goes looking for. The positions are
+    kept whole, overlap intact, so both recordings stay readable from the
+    stores themselves; the one linked view draws the later commit on top and
+    hides nothing from anybody who opens the positions.
     """
 
-    def test_both_measurements_in_the_overlap_are_recoverable(self, run):
+    def test_both_recordings_of_the_overlap_are_still_readable(self, run):
+        import zarr
+
         from zmart_live.gateway import answer_from_a_live_run
 
         run.write_and_publish("posA", some_specimen(1000))
         run.write_and_publish("posB", some_specimen(2000))
 
         begins, ends = where_the_two_tiles_meet(run)
+        left = zarr.open_array(str(run.position_store("posA") / "0"), mode="r")
+        right = zarr.open_array(str(run.position_store("posB") / "0"), mode="r")
+        left_recording = left[0, 0, 0, :, begins:ends]
+        right_offset = begins - run.layout.placement("posB").origin["x"]
+        right_recording = right[0, 0, 0, :, right_offset : right_offset + (ends - begins)]
+        assert int(left_recording.max()) == 1000
+        assert int(right_recording.max()) == 2000, (
+            "the shared strip must keep both measurements, one per position store"
+        )
+
+        # The drawn picture chooses exactly one of them: the later commit.
         chunk_x = begins // run.profile.level(0).inner_chunk["x"]
         assert ends - begins == run.profile.level(0).inner_chunk["x"]
-        left = answer_from_a_live_run(
-            run.raw_overlap_level()
-            / f"c/{run.tile_stop_of('posA')}/0/0/0/0/{chunk_x}"
-        )
-        right = answer_from_a_live_run(
-            run.raw_overlap_level()
-            / f"c/{run.tile_stop_of('posB')}/0/0/0/0/{chunk_x}"
-        )
+        drawn = answer_from_a_live_run(run.view_level() / f"c/0/0/0/0/{chunk_x}")
+        assert drawn is not None and drawn.allowed and drawn.serving is not None
+        assert drawn.serving.position == run.position_store("posB") / "0"
 
-        assert left is not None and left.allowed and left.serving is not None
-        assert left.serving.position == run.position_store("posA") / "0", (
-            "posA's own measurement of the shared strip is not in the raw view"
-        )
-        assert right is not None and right.allowed and right.serving is not None
-        assert right.serving.position == run.position_store("posB") / "0", (
-            "posB's own measurement of the shared strip is not in the raw view"
-        )
-
-        # And the comparison that makes this second view worth building at all:
-        # the seamless view holds one value per place, so over the same strip it
-        # can only be showing one of the two tiles. The rows are limited to the
-        # ground the seamless view covers — the strip along the mosaic's far edge
-        # is handed over by no tile, and this narrow path does not write it.
-        chosen = answer_from_a_live_run(
-            run.seamless_level() / f"c/0/0/0/0/{chunk_x}"
-        )
-        assert chosen is not None and chosen.allowed and chosen.serving is not None
-        assert chosen.serving.position in {
-            run.position_store("posA") / "0",
-            run.position_store("posB") / "0",
-        }, (
-            "in the overlap the seamless view shows one tile's measurement and "
-            "not the other's"
-        )
-
-    def test_two_tiles_that_meet_are_never_written_to_one_stop(self, run):
-        """The property the whole arrangement rests on."""
-        import zarr
-
-        run.write_and_publish("posA", some_specimen(1000))
-        assert run.tile_stop_of("posA") != run.tile_stop_of("posB")
-
-        view = zarr.open_array(str(run.raw_overlap_level()), mode="r")
-        assert view.shape[0] == run.tile_stop_count
-        assert run.tile_stop_count == 4, (
-            "an ordinary mosaic needs two stops along each of y and x, so four "
-            "in total, however many positions the run holds"
-        )
-
-    def test_a_wider_overlap_asks_for_more_stops(self, tmp_path):
-        """The rule is not the chessboard; the chessboard is what it gives here.
-
-        An acquisition whose tiles overlap by more than half a frame has three
-        tiles sharing specimen at once, and the number of stops grows to match
-        rather than the third measurement being lost.
-        """
-        from zmart_live.model import AcquisitionProfile, FrozenMap
-
-        crowded = AcquisitionProfile(
-            profile_id="crowded",
-            acquisition_type="overview",
-            axes=("t", "c", "z", "y", "x"),
-            frame_shape=FrozenMap({"z": 1, "y": 64, "x": 64}),
-            dtype="uint16",
-            overlap_pixels=FrozenMap({"y": 48, "x": 48}),
-            topology="grid",
-            channels=("channel 0",),
-        )
-        crowded = replace(
-            crowded,
-            profile_id=name_for_a_profile(crowded, readable_prefix="crowded"),
-        )
-        run = LivePublisher(
-            tmp_path,
-            crowded,
-            run_id="run-crowded",
-            cells={
-                GridCell(0, 0): "posA",
-                GridCell(0, 1): "posB",
-                GridCell(0, 2): "posC",
-            },
-        )
-        # The stage moves 16 pixels between tiles and a frame is 64 wide, so four
-        # tiles in a row can share specimen and four stops are needed on x.
-        assert run.tile_stops_per_axis == {"y": 4, "x": 4}
-        assert len({run.tile_stop_of(name) for name in ("posA", "posB", "posC")}) == 3
-
-    def test_an_unpublished_position_never_reaches_the_raw_view(self, run):
-        """The same rule as the seamless view, for the same reason."""
-        from zmart_live.gateway import answer_from_a_live_run
-
-        run.write_and_publish("posA", some_specimen(1000))
-        # posB's pixels are on disk, but nobody has said they are finished.
-        run.write_a_position("posB", some_specimen(2000))
-        run.write_the_raw_overlap_view(frozenset({"posA"}))
-
-        stop = run.tile_stop_of("posB")
-        placement = run.layout.placement("posB")
-        y0, x0 = placement.origin["y"], placement.origin["x"]
-        chunk = run.profile.level(0).inner_chunk
-        requested = run.raw_overlap_level() / (
-            f"c/{stop}/0/0/0/{y0 // chunk['y']}/{x0 // chunk['x']}"
-        )
-        before = answer_from_a_live_run(requested)
-        assert before is not None and before.allowed is False, (
-            "an unpublished position's pixels have reached the raw view"
-        )
-
-        # And they do arrive once it is published, so this cannot be passing
-        # merely because the raw view is empty everywhere.
-        run.write_and_publish("posB", some_specimen(2000))
-        after = answer_from_a_live_run(requested)
-        assert after is not None and after.allowed and after.serving is not None
-        assert after.serving.position == run.position_store("posB") / "0"
-
-    def test_publication_is_refused_while_the_raw_view_is_missing(self, run):
-        """Complete everywhere else is still not complete."""
-        run.write_a_position("posA", some_specimen())
-        run.write_the_seamless_view(frozenset({"posA"}))
-        run.write_the_link_map(frozenset({"posA"}))
-        run.write_the_layout()
-
-        found = run.inspect("posA")
-        assert found.raw_overlap_ready is False
-        assert not found.everything_checks_out
-        assert any("has not been described yet" in note for note in found.complaints), (
-            "an operator should be told the view is missing, which is a different "
-            "situation from one that is there and will not read"
-        )
-        with pytest.raises(NotReadyToPublish):
-            run.publish("posA")
-        assert run.manifest.revision() == 0
-
-    def test_a_raw_view_that_will_not_read_is_caught(self, run):
+    def test_a_view_that_will_not_read_is_caught(self, run):
         everything_but_the_commit(run, "posA")
         assert run.inspect("posA").everything_checks_out
 
-        description = run.raw_overlap_level(1) / "zarr.json"
+        description = run.view_level(1) / "zarr.json"
         description.write_text("not json", encoding="utf-8")
 
         found = run.inspect("posA")
-        assert found.raw_overlap_ready is False
+        assert found.view_ready is False
         with pytest.raises(NotReadyToPublish):
             run.publish("posA")
         assert run.manifest.revision() == 0
 
-    def test_a_raw_view_holding_somebody_elses_pixels_is_caught(self, run):
-        """Any physical raw-view chunk violates the one-source-of-truth rule."""
-        import zarr
-
-        everything_but_the_commit(run, "posA", some_specimen(1000))
-        assert run.inspect("posA").everything_checks_out
-
-        view = zarr.open_array(str(run.raw_overlap_level(0)), mode="r+")
-        view[run.tile_stop_of("posA"), 0, 0, 0, :64, :64] = 2000
-
-        found = run.inspect("posA")
-        assert found.raw_overlap_ready is False
-        assert found.pyramids_ready is True, (
-            "the position's own pixels are untouched, so they must not be blamed"
-        )
-        with pytest.raises(NotReadyToPublish):
-            run.publish("posA")
-        assert run.manifest.revision() == 0
-
-    @pytest.mark.parametrize(
-        "view_level,readiness",
-        [
-            (lambda run: run.seamless_level(0), "coarse_chunks_ready"),
-            (lambda run: run.raw_overlap_level(0), "raw_overlap_ready"),
-        ],
-    )
-    def test_a_view_with_the_wrong_encoding_is_caught(
-        self, run, view_level, readiness
-    ):
+    def test_a_view_with_the_wrong_encoding_is_caught(self, run):
         """Canonical bytes are useful only when the view decodes them identically."""
         everything_but_the_commit(run, "posA", some_specimen(1000))
-        description = view_level(run) / "zarr.json"
+        description = run.view_level(0) / "zarr.json"
         held = json.loads(description.read_text(encoding="utf-8"))
         held["data_type"] = "uint8"
         description.write_text(json.dumps(held), encoding="utf-8")
 
         found = run.inspect("posA")
-        assert getattr(found, readiness) is False
+        assert found.view_ready is False
         assert found.pyramids_ready is True
-
-    def test_writing_is_refused_rather_than_losing_a_measurement(
-        self, run, monkeypatch
-    ):
-        """The fail-closed guard, exercised by breaking the rule it protects.
-
-        If the way stops are chosen were ever changed so that two overlapping
-        tiles landed on the same one, the damage would be silent: one tile's
-        measurements simply replaced by its neighbour's. So the writer checks
-        instead of assuming, and refuses.
-        """
-        monkeypatch.setattr(LivePublisher, "tile_stop_of", lambda self, name: 0)
-        run.write_a_position("posA", some_specimen(1000))
-        with pytest.raises(ZmartLiveError) as refused:
-            run.write_the_raw_overlap_view(frozenset({"posA"}))
-        assert "erase" in str(refused.value)
 
     def test_the_viewer_is_told_where_this_store_actually_is(self, run):
         """The scene hands the viewer an address; it has to be this one.
@@ -510,51 +471,39 @@ class TestTheRawViewKeepsBothMeasurementsOfAnOverlap:
         from zmart_live.scene import build_the_scene
 
         scene = build_the_scene(run.profile, run.layout, channels=run.channels)
-        raw = next(image for image in scene.images if image.role == "non_seamless")
-        assert run.folder / raw.path == run.raw_overlap_store
-        assert raw.selector_axis == "tile", (
-            "the scene's tile selector is the dimension this store is written with"
-        )
+        linked = next(image for image in scene.images if image.role == "linked")
+        assert run.folder / linked.path == run.view_store
 
 
 class TestTheRunIsDescribedHonestly:
-    def test_both_views_really_have_the_pyramid_levels_the_profile_promises(self, run):
+    def test_the_view_really_has_the_pyramid_levels_the_profile_promises(self, run):
         import zarr
 
         run.write_and_publish("posA", some_specimen())
         expected = {str(level.level) for level in run.profile.levels}
 
-        seamless = zarr.open_group(str(run.seamless_store), mode="r")
-        raw = zarr.open_group(str(run.raw_overlap_store), mode="r")
-        assert set(seamless.array_keys()) == expected
-        assert set(raw.array_keys()) == expected
+        view = zarr.open_group(str(run.view_store), mode="r")
+        assert set(view.array_keys()) == expected
 
-        ome = seamless.attrs["ome"]
+        ome = view.attrs["ome"]
         assert ome["version"] == "0.5"
         assert {
             dataset["path"] for dataset in ome["multiscales"][0]["datasets"]
         } == expected
-        assert raw.attrs["zmart"]["selector_axis"] == "tile"
-        assert run.raw_overlap_store.name.endswith(".zarr")
-        assert not run.raw_overlap_store.name.endswith(".ome.zarr"), (
-            "the raw selector has a non-OME tile axis and must not claim to be "
-            "a standard OME-Zarr image"
+        assert run.view_store.name.endswith(".ome.zarr"), (
+            "the linked view is an ordinary OME-Zarr image and says so"
         )
 
-    def test_a_wrong_coarse_view_level_prevents_publication(self, run):
+    def test_a_copied_chunk_in_a_zoomed_out_level_prevents_publication(self, run):
         import zarr
 
         everything_but_the_commit(run, "posA", some_specimen(1800))
         level = run.profile.level(1)
-        edge = (
-            run.layout.placement("posA").visual_source_roi["x"].stop
-            // level.downsampling["x"]
-        )
-        coarse = zarr.open_array(str(run.seamless_level(level.level)), mode="r+")
-        coarse[0, 0, 0, :16, edge : edge + 16] = 4444
+        coarse = zarr.open_array(str(run.view_level(level.level)), mode="r+")
+        coarse[0, 0, 0, :16, :16] = 4444
 
         found = run.inspect("posA")
-        assert found.coarse_chunks_ready is False
+        assert found.view_ready is False
         assert any("Level 1" in complaint for complaint in found.complaints)
         with pytest.raises(NotReadyToPublish):
             run.publish("posA")
@@ -601,9 +550,6 @@ class TestEachCheckStandsOnItsOwn:
         assert found.layout_ready is True, (
             "damaged pixels must not be reported as a damaged arrangement"
         )
-        assert found.raw_overlap_ready is False, (
-            "the raw route points at the same damaged canonical level"
-        )
 
     def test_the_pieces_read_count_comes_from_actually_reading(self, run):
         """If it came from the description, the read could be deleted unnoticed."""
@@ -613,13 +559,6 @@ class TestEachCheckStandsOnItsOwn:
         # At least one full plane of values, which no amount of metadata
         # inspection would produce on its own.
         assert found.pieces_read >= level_zero.inner_chunk["y"] * level_zero.inner_chunk["x"]
-        # The same argument for the raw overlap view: the comparison covers this
-        # position's whole frame, overlap included, so anything smaller means
-        # part of it was never looked at.
-        whole_frame = (
-            run.profile.frame_shape["y"] * run.profile.frame_shape["x"]
-        )
-        assert found.raw_pixels_compared >= whole_frame
 
     def test_a_pointer_to_the_wrong_bytes_is_caught(self, run, monkeypatch):
         """The failure that produces a picture rather than an error.
@@ -772,10 +711,8 @@ class TestOneMomentAtATimeIsWhatGetsChecked:
 
         run.write_and_publish("posB", some_specimen(2000))
 
-        seamless = zarr.open_array(str(run.seamless_level()), mode="r")
-        assert int(seamless[1, 0, 0, 0, 0]) == 0
-        raw = zarr.open_array(str(run.raw_overlap_level()), mode="r")
-        assert int(raw[run.tile_stop_of("posA"), 1, 0, 0, 0, 0]) == 0
+        view = zarr.open_array(str(run.view_level()), mode="r")
+        assert int(view[1, 0, 0, 0, 0]) == 0
         assert run._committed_units() == {("posA", 0), ("posB", 0)}
 
 
@@ -796,10 +733,8 @@ class TestSharedViewsAdvanceIncrementally:
         for position, value in (("posA", 1000), ("posB", 2000), ("posC", 3000)):
             run.write_a_position(position, some_specimen(value))
 
-        visible = frozenset({("posA", 0), ("posB", 0), ("posC", 0)})
-        # Create both metadata-only stores once.
-        run.write_the_seamless_view(visible)
-        run.write_the_raw_overlap_view(visible)
+        # Create the metadata-only store once.
+        run.write_the_view()
 
         really_open = under_test.zarr.open_array
         opened_positions = []
@@ -810,16 +745,13 @@ class TestSharedViewsAdvanceIncrementally:
             return really_open(store, *args, **kwargs)
 
         monkeypatch.setattr(under_test.zarr, "open_array", record_position_opens)
-        affected = frozenset({("posC", 0)})
-        run.write_the_seamless_view(visible, only=affected)
-        run.write_the_raw_overlap_view(visible, only=affected)
+        run.write_the_view()
 
         assert opened_positions == [], (
-            "refreshing metadata-only views must not read or copy any position"
+            "refreshing the metadata-only view must not read or copy any position"
         )
         for level in run.profile.levels:
-            assert not (run.seamless_level(level.level) / "c").exists()
-            assert not (run.raw_overlap_level(level.level) / "c").exists()
+            assert not (run.view_level(level.level) / "c").exists()
 
 
 class TestReadinessIsMeasuredAgainstTheRealPixels:
@@ -856,11 +788,11 @@ class TestReadinessIsMeasuredAgainstTheRealPixels:
         run.write_and_publish("posA", some_specimen(1000))
         assert run.inspect("posA").everything_checks_out
 
-        view = zarr.open_array(str(run.seamless_level()), mode="r+")
+        view = zarr.open_array(str(run.view_level()), mode="r+")
         view[0, 0, 0, :64, :64] = 1000
 
         found = run.inspect("posA")
-        assert found.coarse_chunks_ready is False, (
+        assert found.view_ready is False, (
             "the seamless view may contain descriptions and routes, not pixels"
         )
         assert found.pyramids_ready is True, (
@@ -959,13 +891,13 @@ class TestTheOuterEdgeOfTheMosaicSurvives:
         run.write_and_publish("posA", some_specimen(1000))
 
         chunk = run.profile.level(0).inner_chunk
-        requested = run.seamless_level() / (
+        requested = run.view_level() / (
             f"c/0/0/0/{(FRAME - 1) // chunk['y']}/{(FRAME - 1) // chunk['x']}"
         )
         answer = answer_from_a_live_run(requested)
         assert answer is not None and answer.allowed and answer.serving is not None
         assert answer.serving.position == run.position_store("posA") / "0"
-        assert not (run.seamless_level() / "c").exists()
+        assert not (run.view_level() / "c").exists()
 
     def test_the_far_side_of_a_two_tile_mosaic_is_routed(self, run):
         """The same zero-copy claim where there is also a seam to get wrong."""
@@ -978,13 +910,13 @@ class TestTheOuterEdgeOfTheMosaicSurvives:
         chunk = run.profile.level(0).inner_chunk["x"]
         step = run.profile.grid_step("x")
         before = answer_from_a_live_run(
-            run.seamless_level() / f"c/0/0/0/0/{step // chunk - 1}"
+            run.view_level() / f"c/0/0/0/0/{step // chunk - 1}"
         )
         after = answer_from_a_live_run(
-            run.seamless_level() / f"c/0/0/0/0/{step // chunk}"
+            run.view_level() / f"c/0/0/0/0/{step // chunk}"
         )
         edge = answer_from_a_live_run(
-            run.seamless_level() / f"c/0/0/0/0/{(reach_x - 1) // chunk}"
+            run.view_level() / f"c/0/0/0/0/{(reach_x - 1) // chunk}"
         )
         assert before is not None and before.serving is not None
         assert before.serving.position == run.position_store("posA") / "0"
@@ -1016,7 +948,7 @@ class TestEveryPlaneAndEveryColourIsItsOwn:
 
         for plane in range(3):
             answer = answer_from_a_live_run(
-                run.seamless_level() / f"c/0/0/{plane}/0/0"
+                run.view_level() / f"c/0/0/{plane}/0/0"
             )
             assert answer is not None and answer.allowed
             assert answer.serving is not None
@@ -1066,7 +998,7 @@ class TestEveryPlaneAndEveryColourIsItsOwn:
         assert set(np.unique(source[0, 1])) == {2000}
         for colour in range(2):
             answer = answer_from_a_live_run(
-                run.seamless_level() / f"c/0/{colour}/0/0/0"
+                run.view_level() / f"c/0/{colour}/0/0/0"
             )
             assert answer is not None and answer.allowed
             assert answer.serving is not None
@@ -1239,7 +1171,7 @@ class TestPublishedPixelsStayAsTheyWerePublished:
 
         source = zarr.open_array(str(run.position_store("posA") / "0"), mode="r")
         assert int(source[0, 0, 0].max()) == 1000
-        answer = answer_from_a_live_run(run.seamless_level() / "c/0/0/0/0/0")
+        answer = answer_from_a_live_run(run.view_level() / "c/0/0/0/0/0")
         assert answer is not None and answer.serving is not None
         assert answer.serving.position == run.position_store("posA") / "0"
 
@@ -1272,7 +1204,7 @@ class TestPublishedPixelsStayAsTheyWerePublished:
         )
         now = zarr.open_array(str(run.position_store("posA") / "0"), mode="r")
         assert int(now[0, 0, 0].max()) == 2000
-        answer = answer_from_a_live_run(run.seamless_level() / "c/0/0/0/0/0")
+        answer = answer_from_a_live_run(run.view_level() / "c/0/0/0/0/0")
         assert answer is not None and answer.serving is not None
         assert answer.serving.position == run.position_store("posA") / "0"
 
@@ -1290,10 +1222,10 @@ class TestPublishedPixelsStayAsTheyWerePublished:
         assert restarted.generations == {"posA": 1}
         assert restarted.position_store("posA").name == "posA.generation-1.ome.zarr"
 
-        restarted.write_the_seamless_view(restarted._committed_units())
+        restarted.write_the_view()
         forget_live_run(tmp_path)
         answer = answer_from_a_live_run(
-            restarted.seamless_level() / "c/0/0/0/0/0"
+            restarted.view_level() / "c/0/0/0/0/0"
         )
         assert answer is not None and answer.serving is not None
         assert answer.serving.position == restarted.position_store("posA") / "0"
