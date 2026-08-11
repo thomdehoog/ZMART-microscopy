@@ -870,6 +870,61 @@ class TestReadinessIsMeasuredAgainstTheRealPixels:
         assert run.inspect("posA").links_ready is False
 
 
+class TestAPaddedEdgePieceIsComparedAgainstTheSpecimenOnly:
+    """The byte comparison must trim a padded edge piece before judging it.
+
+    Every level a strict profile publishes cuts into whole chunks, so nothing
+    on the ordinary path stores a padded edge piece any more — but the
+    comparison is also the general fallback for stores written by other tools,
+    where a level's width routinely is not a whole number of pieces. A piece
+    at such an edge is stored full-sized and padded while the image stops
+    where the specimen does; compared unpadded against padded, every edge
+    piece of every foreign store would read as damage.
+    """
+
+    def test_a_padded_edge_piece_still_compares_equal_to_its_own_pixels(
+        self, tmp_path
+    ):
+        import zarr
+
+        from zmart_live.coordinator import _the_same_picture
+        from zmart_live.shardlink import where_one_chunk_lives
+
+        store = tmp_path / "narrow.zarr"
+        array = zarr.create_array(
+            store=str(store),
+            shape=(1, 1, 1, 128, 192),
+            chunks=(1, 1, 1, 128, 128),
+            dtype="uint16",
+            zarr_format=3,
+            compressors="auto",
+            fill_value=0,
+        )
+        pixels = np.random.default_rng(7).integers(
+            0, 60000, size=(1, 1, 1, 128, 192), dtype=np.uint16
+        )
+        array[...] = pixels
+
+        edge = (0, 0, 0, 0, 1)
+        held = where_one_chunk_lives(store, edge)
+        assert held is not None, "the padded edge piece was expected on disk"
+        with held.path.open("rb") as reading:
+            reading.seek(held.offset)
+            lifted = reading.read(held.length)
+        assert _the_same_picture(lifted, array, edge) is True, (
+            "the piece's own bytes must compare equal over the specimen that "
+            "genuinely exists, with the padding left out of the comparison"
+        )
+        # And the same comparison still notices genuinely wrong bytes, so it
+        # cannot be passing by comparing nothing at all.
+        whole = where_one_chunk_lives(store, (0, 0, 0, 0, 0))
+        assert whole is not None
+        with whole.path.open("rb") as reading:
+            reading.seek(whole.offset)
+            neighbour = reading.read(whole.length)
+        assert _the_same_picture(neighbour, array, edge) is False
+
+
 class TestTheOuterEdgeOfTheMosaicSurvives:
     """Outer strips are routed from edge positions without being copied."""
 

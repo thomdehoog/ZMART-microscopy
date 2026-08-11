@@ -335,22 +335,46 @@ positions are kept whole, overlap intact — anything that wants both
 recordings of shared ground opens the position stores, exactly as
 `docs/design/positions-in-a-container.md` settled it.
 
-`zmart_live/coordinator.py` predates this and writes two views on every
+`zmart_live/coordinator.py` predated this and wrote two views on every
 commit — `overview-seamless` (trimming) and a six-axis raw-overlap view —
-woven through the gateway and its tests. **Open cleanup, its own session:**
-strip the coordinator back to positions plus the one later-wins linked view.
-Until then the two extra views cost routing metadata and per-commit work, not
-pixels, and everything measured in this plan stands either way.
+woven through the gateway and its tests. **Done, 11 August 2026, on the lab
+Windows machine (the T400/Kaspersky PC):** the coordinator is stripped back
+to positions plus the one later-wins linked view at
+`views/overview.ome.zarr`. The link map (schema `zmart-live-links/3`) lists
+positions in first-commit order and that order *is* the draw order; the
+gateway validates it against the manifest and walks a piece's claims newest
+first, serving the newest **published** one — so a written-but-withheld
+arrival neither appears early nor blanks the published ground it is about to
+take over, and a withheld later moment falls back to a neighbour's published
+recording of that moment. The trimming machinery went with the views
+(`visual_source_roi`, `the_far_edges`, `seamless_ownership`, the tile-stop
+arithmetic, the scene's `non_seamless` role and selector axis); analysis
+ownership — whose *measurements* count — stays, because counting a nucleus
+once was never about pixels on screen.
 
 Measured the same evening, and the sharpest argument for that cleanup: a
 governed run watched live on the Windows machine **died at revision 36 of
 144** — the same reader-holds-the-file race the tile writer had already been
 cured of, this time on the per-commit atomic rewrite of a view's
 `zarr.json`, and the file it died on was the raw-overlap view's. The
-patient-write fix lives in the storage layer's pixel path and does not reach
-the coordinator's metadata rewrites. The cleanup should remove the doomed
-view rather than teach it patience, and give whatever per-commit metadata
-rewriting survives the same brief-hold patience as the pixel writes.
+patient-write fix lived in the storage layer's pixel path and did not reach
+the coordinator's metadata rewrites. **Also done, same day, same machine:**
+the doomed view is deleted rather than taught patience, and every surviving
+per-commit metadata rewrite — `committed.json`, `links.json`, the layout
+pointer, the view and position `zarr.json` descriptions, including the one
+zarr itself replaces under a group-attributes write — retries through the
+same brief-hold patience as `written_despite_brief_holds` in the pixel path.
+Each was proven by genuinely holding the file open while a commit landed
+(`zmart_live/tests/test_metadata_survives_brief_holds.py`), and the removal
+of any one wrapper is a fault the sabotage campaign now introduces on
+purpose.
+
+One honest leftover, found while cleaning: the node production-gate harness
+(`zmart_live/tests/browser/production/production_run.py`) still attributes a
+view piece to a single owner and serves chunk files straight off disk, which
+predates both zero-copy serving and later-wins. Its sequence mirror and store
+names were updated so it cannot drift silently, but making its gate serve
+byte ranges through the production gateway is its own session.
 
 What the cleaned-up path must do, stated as the operator would: **a position
 loads the moment it is done — it pops up as soon as its commit lands, and

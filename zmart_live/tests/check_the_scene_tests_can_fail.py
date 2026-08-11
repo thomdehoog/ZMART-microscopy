@@ -101,14 +101,9 @@ SCENE_FAULTS: list[tuple[str, str, str]] = [
         "    return {axis: 1.0 for axis in profile.axes}",
     ),
     (
-        "build a seamless view for positions that never touched",
-        '    return profile.topology == "grid" and bool(profile.tiled_axes)',
-        "    return True",
-    ),
-    (
-        "leave the raw view with no way to step between overlapping tiles",
-        '    images.append(an_overview("non_seamless", "raw", "tile"))',
-        '    images.append(an_overview("non_seamless", "raw", None))',
+        "fold a derived namesake into the overview's own identity",
+        '        return f"{self.role}/{self.image_id}"',
+        '        return self.image_id',
     ),
     (
         "pin every row to the first channel",
