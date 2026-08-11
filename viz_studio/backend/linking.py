@@ -18,6 +18,8 @@ The list is written by :mod:`zmart_storage.linked` under the name
     {
       "version": 2,
       "level": "0",            which copy of the picture is pointed at
+      "generation": 7,         a counter that moves on every change, including
+                               the ones no file's length can show
       "separator": "/",        what goes between the numbers of a piece's name
       "prefix": "",            what goes in front of them ("c" for zarr version 3)
       "tiles": [
