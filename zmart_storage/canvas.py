@@ -350,6 +350,22 @@ def _refuse_a_name_that_is_not_a_plain_file_name(name: str) -> None:
             "Give the acquisition type a plain name and choose the folder with "
             "the folder argument, which is what it is for."
         )
+    if os.name == "nt":
+        # Windows refuses these characters in any file or folder name, with a
+        # message about name syntax that says nothing to somebody who was only
+        # naming their sample. Elsewhere they are allowed and stay allowed —
+        # 'scan*' is a perfectly good name on the filesystems that take it.
+        unwriteable = sorted(set('<>:"|?*') & set(name))
+        if unwriteable:
+            raise ValueError(
+                f"the name {name!r} contains "
+                f"{', '.join(repr(sign) for sign in unwriteable)}, which Windows "
+                "does not allow in a file or folder name — and the name becomes "
+                "exactly that, the folder this acquisition type's images are "
+                "written under. On this machine the run cannot be declared under "
+                "this name. Give the acquisition type a name without any of "
+                '< > : " | ? * and declare it again.'
+            )
 
 
 def _images_belonging_to(folder: Path, name: str) -> list[Path]:
@@ -391,6 +407,45 @@ def _images_belonging_to(folder: Path, name: str) -> list[Path]:
     return sorted(found)
 
 
+def rmtree_despite_brief_holds(tree: str | Path) -> None:
+    """Remove a folder tree on a machine where something else glances at files.
+
+    Machines that image for a living run software that opens files the moment
+    they change — a virus scanner reading what was just written, a search
+    indexer cataloguing it. On Windows a file being deleted only truly goes
+    when the last open handle on it closes, so a tree being removed under such
+    a glance refuses to come down: the hold makes one delete pend, the parent
+    is then "not empty", and ``shutil.rmtree`` raises over ground that will be
+    clear a moment later. The holds last milliseconds and the watcher always
+    lets go, so the answer is a short patience — certainly not weakening the
+    watcher, which is doing its own job.
+
+    Only the three Windows spellings of "something is briefly holding this" are
+    waited out; every other failure, and any of these still standing after ten
+    seconds, is a real one and raises as it always did. Elsewhere this is one
+    plain ``rmtree``, because nothing on a POSIX filesystem stops a delete for
+    having the file open.
+    """
+    deadline = time.monotonic() + 10.0
+    pause = 0.05
+    while True:
+        try:
+            shutil.rmtree(tree)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as why:
+            # ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_DIR_NOT_EMPTY:
+            # the shapes a transient hold arrives in, depending on which moment
+            # of the removal it interrupts.
+            if getattr(why, "winerror", None) not in (5, 32, 145):
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(pause)
+            pause = min(pause * 2, 1.0)
+
+
 def _throw_away_the_existing_run(folder: Path, name: str,
                                  apart_from: str | None = None) -> None:
     """Remove this acquisition type's image, because the caller said to.
@@ -418,13 +473,13 @@ def _throw_away_the_existing_run(folder: Path, name: str,
             store.unlink()
             continue
         if apart_from is None:
-            shutil.rmtree(store)
+            rmtree_despite_brief_holds(store)
             continue
         for child in store.iterdir():
             if _a_child_the_tiles_live_in(child.name, apart_from):
                 continue
             if child.is_dir():
-                shutil.rmtree(child)
+                rmtree_despite_brief_holds(child)
             else:
                 child.unlink()
 
@@ -698,11 +753,13 @@ def _claim_the_right_to_write(folder: Path, name: str) -> _WritingClaim | None:
             )
 
         # The note is rewritten rather than added to, so that what a later reader
-        # finds describes the writer that holds the images now. The note is always
-        # far longer than the single byte Windows marks as held, so shortening the
-        # file never disturbs the mark.
+        # finds describes the writer that holds the images now. Its first byte is
+        # a bare newline carrying no words, because that byte is the one the
+        # operating system marks as held and Windows forbids other programs to
+        # *read* a marked byte — so the words start after it, where the refusal
+        # can still quote them while the mark is held.
         handle.seek(0)
-        handle.write(_what_the_claim_says(name))
+        handle.write("\n" + _what_the_claim_says(name))
         handle.truncate()
         handle.flush()
         claim = _WritingClaim(path, handle)
@@ -738,7 +795,9 @@ def _read_the_claim(handle) -> str:
     point of the refusal does not depend on being able to name it.
     """
     try:
-        handle.seek(0)
+        # The first byte is the operating system's mark, which Windows forbids
+        # another program to read; the words start after it.
+        handle.seek(1)
         said = handle.read(4096).strip()
     except (OSError, UnicodeDecodeError):
         said = ""
