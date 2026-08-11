@@ -351,3 +351,14 @@ patient-write fix lives in the storage layer's pixel path and does not reach
 the coordinator's metadata rewrites. The cleanup should remove the doomed
 view rather than teach it patience, and give whatever per-commit metadata
 rewriting survives the same brief-hold patience as the pixel writes.
+
+What the cleaned-up path must do, stated as the operator would: **a position
+loads the moment it is done — it pops up as soon as its commit lands, and
+every pyramid level shows it at once.** Done means proven done (the commit,
+not the files appearing); as soon as means the page hears the revision and
+lets the changed source go without being asked; and every level at once
+means no zoom can disagree with another about what has been imaged — the
+stale-glimpse and level-mismatch artifacts measured on the raw run
+("Watched live while it wrote", in the linking notes) are exactly what this
+forbids. The governed demo showed all three through revision 36; the
+cleaned-up coordinator must show them through a whole run, with one view.
