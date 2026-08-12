@@ -407,6 +407,12 @@ def how_it_drew(browser, built_dist: Path, folder: Path, store, expect: int) -> 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     page = browser.new_page(viewport={"width": 900, "height": 700})
+    # Every request the page makes, counted as it is issued. All of them go to
+    # the one server started above, so the count is the traffic this picture
+    # costs -- first the requests opening took, then the ones made while the
+    # view was being watched, told apart by reading the counter at each stage.
+    asked = {"requests": 0}
+    page.on("request", lambda _: asked.update(requests=asked["requests"] + 1))
     try:
         opening = time.time()
         page.goto(
@@ -420,6 +426,7 @@ def how_it_drew(browser, built_dist: Path, folder: Path, store, expect: int) -> 
         )
         page.wait_for_function(EVERY_SOURCE_RESOLVED, timeout=600_000)
         opened = time.time() - opening
+        asked_opening = asked["requests"]
 
         page.wait_for_timeout(3000)
         page.evaluate(KEEP_MOVING)
@@ -449,6 +456,8 @@ def how_it_drew(browser, built_dist: Path, folder: Path, store, expect: int) -> 
             "per_second": drawn / SAMPLE_SECONDS,
             "usual_ms": middle,
             "worst_ms": worst,
+            "asked_opening": asked_opening,
+            "asked_watching": asked["requests"] - asked_opening,
         }
     finally:
         page.close()
