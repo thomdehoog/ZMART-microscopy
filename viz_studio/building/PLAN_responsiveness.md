@@ -123,53 +123,48 @@ round trips into the slab; afterwards the first plane pays and the remaining
 31 arrive at cache speed. Byte-compare a sample of the pre-built pieces
 against freshly built ones.
 
-### 2. Keep built pieces on disk
+### 2. The session cache, sized properly — the disk cache is dropped
 
-**What.** A cache folder beside the viewer's own bookkeeping, holding every
-piece ever built, keyed by picture identity, resolution, piece coordinate —
-and, for a live run, the view's change counter at the moment of building.
-A request checks the folder before building; a build writes what it made.
-For a finished transfer the counter never moves and the key is effectively
-the old three-part one; for a live run, a commit moves the counter for the
-ground it touched, which makes the stale entries unreachable by key — they
-are never *found* again, and the eviction sweep reclaims them at leisure.
-One rule, both kinds of picture, no special cases in the lookup.
-Bound it by bytes, oldest out, like the in-memory caches — but measured in
-gigabytes, because disk is cheap and the pieces compress well.
+> **Superseded 2026-08-12, by the operator's own call, after judging the
+> 12,800-position survey by hand:** loading takes a bit, then it works well —
+> and "the cache does not have to survive the server." The disk cache below
+> was designed to make the session's warmth permanent across restarts; the
+> operator weighed that against its machinery — a cache folder with checksums,
+> an eviction sweep, a per-transfer cleanup lifecycle — and chose the smaller
+> design. The section is rewritten for what remains; the original disk design
+> stays in this file's history should an archive server one day serve many
+> people from a machine that restarts often.
 
-**Why.** This turns the one-time cost into a genuinely one-time cost. It is
-lazy conversion: the transfer converts itself exactly in proportion to what
-people look at, with no up-front rewriting, and the cache survives restarts so
-tomorrow's first look at yesterday's ground is instant. The transfer is
-immutable, so a kept piece can never go stale — the only cache in this system
-with nothing to invalidate.
+**What.** Keep the caches the composer already has — decoded blocks, built
+slabs, byte-bounded, oldest out — and size them for the machine and the
+picture rather than the current fixed 1.25 GB. The budget must at least hold
+what the coarse warmer builds (change 4), or the warmer's own output evicts
+itself: a few gigabytes at the 12,800-position scale, one measured number
+per machine class before committing. The keys carry the view's change
+counter exactly as the gate work requires — a cache over an ungated composer
+would happily preserve a leaked uncommitted tile for the whole session.
 
-**Check.** Build a screenful, restart the server, ask again: file-read speed,
-byte-identical to the first answer. Corrupt one cached piece by hand and
-confirm the checksum check rebuilds it rather than serving it.
+**What is accepted, with open eyes.** Every restart — crash, code update,
+end of day — re-pays the opening (~11 s at 12,800 positions) and the first
+looks. With the warmer running that cost hides in the background again each
+time, so in practice a restart costs a few warm-up minutes, not felt
+slowness. If real use ever contradicts this — a machine short on memory, a
+long-lived archive service — the disk design in this file's history is the
+answer, unchanged.
 
-**Large transfers.** The worry that this cache grows without limit has an
-arithmetic answer. Its ceiling is the fully built picture — the transfer's own
-size plus a third for the pyramid — and reaching that ceiling just means the
-lazy conversion completed. For a transfer too large to ever hold whole, say
-800 GB, the pyramid does the work: each level is a quarter of the one above,
-so levels two and coarser for the *entire* picture come to well under a tenth
-of the transfer — pin those, and all navigation everywhere is permanently
-instant. The two finest levels are where operators visit only regions of
-interest, a few gigabytes each, and the byte-bounded oldest-out rule keeps
-exactly the regions that were visited. Ten to twenty percent of the
-transfer's size is a comfortable budget; an evicted piece is not an error but
-30 ms of rebuilding, so the budget is a dial, never a cliff. One cache folder
-per transfer with a last-touched date, so cleaning up after a finished
-project is one visible delete rather than a surprise found later.
+**The browser's own layers still stack on top.** Built pieces of a finished
+transfer are immutable, so the server says `Cache-Control: immutable` and
+lets the operator's own browser remember them across *its* restarts —
+persistence for free, no server disk involved. The live path is the opposite
+and must be marked `no-store`: a browser-remembered "withheld" would hold
+published ground blank, and a remembered chunk could outlive a rollback.
+Nothing between the gateway and the operator's eyes may remember a live
+answer.
 
-**The browser's own layers stack on top.** Built pieces are immutable, so the
-server should say `Cache-Control: immutable` on them and let the operator's
-own browser be the front line — revisits then never even reach the network.
-The live path is the opposite and must be marked `no-store`: a
-browser-remembered "withheld" would hold published ground blank, and a
-remembered chunk could outlive a rollback. Nothing between the gateway and
-the operator's eyes may remember a live answer.
+**Check.** Fill the cache past its budget on a survey-sized picture and
+confirm the warmer's pinned coarse levels are never the pieces evicted;
+revisit ground from an hour earlier at cache speed; and byte-compare a piece
+served from cache against the same piece built fresh.
 
 ### 3. Build the pieces of a screenful in parallel
 
@@ -190,7 +185,8 @@ this folder once shipped is exactly what that comparison is there to catch.
 ### 4. Warm the coarse levels exhaustively — prediction only if ever needed
 
 **What.** On opening a transfer whose cache is cold, build **every piece of
-the coarse levels** in the background, and keep them on disk. No prediction,
+the coarse levels** in the background, and pin them in the session cache
+for as long as the picture stays open. No prediction,
 no motion model: the coarse pyramid is the one part of the picture small
 enough to enumerate — all of level 2 and coarser is a few percent of the
 transfer — and, as the zoom-out section above says, the most expensive part
@@ -224,8 +220,8 @@ so the whole-survey look works within seconds of opening, and pieces the
 operator's own browsing has already built are skipped, not rebuilt.
 
 **What the operator's own zooming already does — the warmer in proportion.**
-Once the disk cache exists, ordinary zooming out *is* the builder: every
-piece a zoom-out touches is built and saved forever, and at the very top
+With the session cache sized properly, ordinary zooming out *is* the builder:
+every piece a zoom-out touches is built and kept for the session, and at the very top
 levels the viewport covers the whole survey, so a single complete zoom-out
 genuinely finishes them with no warmer involved. What zooming does not
 build is the middle-coarse ground the operator did not stand above — one
@@ -299,8 +295,9 @@ written, so a position that is on disk but uncommitted neither appears early
 nor blanks the published ground beneath it.
 
 **Why first.** Every numbered change below is an accelerator; this is the
-correctness on which they may accelerate. A disk cache over an ungated
-composer would happily preserve a leaked uncommitted tile forever.
+correctness on which they may accelerate. A cache over an ungated
+composer would happily preserve a leaked uncommitted tile for as long as
+it lives.
 
 **Check.** The full harness the gateway already has, aimed at the built
 path: the sabotage campaigns gain composer faults (lay in arrival order;
@@ -354,7 +351,7 @@ none of them says "the builder never sees a live path" any more:
 
 What order to build in, then: **change zero when the live run is the
 target** — it is the correctness everything else accelerates — with the slab
-finish and the disk cache beside it, because they are small, pay immediately
+finish and the cache sizing beside it, because they are small, pay immediately
 and serve both kinds of picture; the coarse warmer next, because it is the
 fix for the one slowness a person at the microscope has actually reported,
 and the coarse levels it pins are the cache's ideal tenants — smallest in
