@@ -84,8 +84,16 @@ ASKED_AT_ONCE = 12
 
 
 def write_a_transfer(folder: Path, tiles: int, tile: tuple[int, int, int] = TILE,
-                     step_um: float = STEP_UM) -> Path:
-    """Write a synthetic transfer of ``tiles`` positions on a fractional grid."""
+                     step_um: float = STEP_UM,
+                     values: tuple[int, int] = (24000, 56000)) -> Path:
+    """Write a synthetic transfer of ``tiles`` positions on a fractional grid.
+
+    ``values`` is the range the pixels are drawn from. The default spans the
+    upper half of sixteen bits and is what every figure recorded from this
+    ladder was measured with. A caller that needs several transfers whose bytes
+    genuinely differ -- ``measure_a_fresh_view_each_time.py`` does -- gives
+    each of them a band of its own.
+    """
     folder.mkdir(parents=True, exist_ok=True)
     across = max(1, int(np.ceil(np.sqrt(tiles))))
     seed = np.random.default_rng(0)
@@ -97,7 +105,7 @@ def write_a_transfer(folder: Path, tiles: int, tile: tuple[int, int, int] = TILE
     # reached the screen at a few per cent brightness and read as an empty
     # panel -- the exact trap measure_the_frame_rate_of_a_linked_view.py
     # documents at its MID and SWING constants.
-    picture = seed.integers(24000, 56000, tile, dtype="uint16")
+    picture = seed.integers(values[0], values[1], tile, dtype="uint16")
 
     for number in range(tiles):
         row, column = divmod(number, across)
