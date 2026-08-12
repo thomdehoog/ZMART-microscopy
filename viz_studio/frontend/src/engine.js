@@ -579,6 +579,62 @@ const replacing = new WeakMap();
 // under them.
 export const twinning = { asked: 0, adopted: 0, abandoned: 0 };
 
+// What the surgical invalidation did, for the browser tests and the terminal.
+export const chunkInvalidation = { announcements: 0, sources: 0, keys: 0 };
+
+/**
+ * Drop and refetch exactly the pieces a change touched, and nothing else.
+ *
+ * This is the honest end of the refresh story, and it needs the one patch
+ * this repository maintains against its pinned Neuroglancer: a filtered
+ * variant of the engine's own invalidation RPC ("ChunkSource.invalidateChunks",
+ * see patches/). The stock invalidation drops a whole source — the operator
+ * watches the picture empty and refill — because it is an unfiltered loop
+ * over a keyed map; the patch is the same loop, filtered. Each named chunk is
+ * dropped with the same per-chunk message ordinary eviction uses and quietly
+ * refetched; every other chunk on screen is never touched, so there is
+ * nothing to flicker.
+ *
+ * ``dirty`` maps a resolution level to the piece coordinates a commit
+ * reached, as ``(plane, row, column)`` — which is what the serving side
+ * already computes to evict its own caches. The volume sources are matched
+ * to levels by extent, largest first, which is how a pyramid orders them.
+ * Keys are sent in both axis spellings while one datasource keeps the
+ * question open; an unknown key is a harmless miss in the worker's map, and
+ * the browser tests pin the count that actually lands.
+ */
+export function invalidateTheDirtyPieces(viewer, dirty) {
+  const shared = viewer.chunkManager?.rpc?.objects;
+  if (!shared || !dirty) return 0;
+  const holders = [];
+  for (const [, held] of shared) {
+    if (held && typeof held.invalidateCache === "function"
+        && held.spec && held.spec.upperVoxelBound) {
+      holders.push(held);
+    }
+  }
+  const extent = (held) =>
+    held.spec.upperVoxelBound.reduce((all, one) => all * Math.max(1, one), 1);
+  holders.sort((a, b) => extent(b) - extent(a));
+  let sent = 0;
+  for (const [level, pieces] of Object.entries(dirty)) {
+    const holder = holders[Number(level)];
+    if (!holder || !Array.isArray(pieces) || pieces.length === 0) continue;
+    const keys = [];
+    for (const piece of pieces) {
+      keys.push(piece.join(","));
+      keys.push([...piece].reverse().join(","));
+    }
+    holder.rpc.invoke("ChunkSource.invalidateChunks",
+                      { id: holder.rpcId, keys });
+    chunkInvalidation.sources += 1;
+    chunkInvalidation.keys += keys.length;
+    sent += 1;
+  }
+  if (sent) chunkInvalidation.announcements += 1;
+  return sent;
+}
+
 /**
  * Refresh every single-source image layer without ever emptying the screen.
  *

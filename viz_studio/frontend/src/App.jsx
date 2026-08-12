@@ -6,6 +6,8 @@ import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/a
 import {
   showTheWholePicture,
   chooseScaleWhenTheImagesAreMeasured,
+  chunkInvalidation,
+  invalidateTheDirtyPieces,
   letGoOfDecodedPieces,
   lettingGo,
   refreshTheImagesWithoutBlanking,
@@ -521,14 +523,16 @@ export default function App() {
         said = null; // not readable, so treat it as a plain "something changed"
       }
       if (said?.imageWrittenInPlace && engine.current) {
-        // Said outright, so there is no need to wait and find out. The ground
-        // is refreshed behind the picture already on screen — a twin layer
-        // resolves the current truth while the old one keeps drawing, so the
-        // operator never watches the picture vanish and refill. Only when
-        // nothing could be twinned (no single-source image on screen) does
-        // the blunt path run, because a stale picture is still worse than a
-        // blink.
-        if (refreshTheImagesWithoutBlanking(engine.current) === 0) {
+        // Said outright, so there is no need to wait and find out. Three
+        // rungs, most surgical first. An announcement that names the dirty
+        // pieces refetches exactly those and touches nothing else — no
+        // flicker is possible, because nothing on screen is dropped. One
+        // that does not is refreshed behind the picture already on screen —
+        // a twin layer resolves the current truth while the old one keeps
+        // drawing. Only when nothing could be twinned either does the blunt
+        // path run, because a stale picture is still worse than a blink.
+        if (invalidateTheDirtyPieces(engine.current, said.dirty) === 0
+            && refreshTheImagesWithoutBlanking(engine.current) === 0) {
           letGoOfDecodedPieces(engine.current);
         }
         askAgain();
@@ -738,6 +742,9 @@ export default function App() {
     // browser tests read this to tell a refresh that never blanked from one
     // that never happened.
     window.zmartTwinning = twinning;
+    // What the surgical path did: announcements that named their dirty
+    // pieces, and the sources and keys actually asked to refetch.
+    window.zmartChunkInvalidation = chunkInvalidation;
 
     // Only a change in the shape of the scene can move the view: adding or
     // removing an image makes the engine work out the coordinate space afresh,
