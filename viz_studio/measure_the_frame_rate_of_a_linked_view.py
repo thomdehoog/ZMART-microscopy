@@ -546,6 +546,12 @@ def main() -> int:
         "--steps", type=str, default=None,
         help="tile counts to climb through, comma separated",
     )
+    parsing.add_argument(
+        "--headed", action="store_true",
+        help="open a visible window, which on Windows is the only way the "
+             "browser reaches the graphics card — headless Chromium draws in "
+             "SwiftShader whatever arguments it is given",
+    )
     asked = parsing.parse_args()
     steps = sorted(
         int(n) for n in (asked.steps.split(",") if asked.steps else
@@ -561,7 +567,8 @@ def main() -> int:
             "  npm --prefix viz_studio/frontend run build"
         )
 
-    started, browser = a_browser()
+    started, browser = a_browser(asked.headed)
+    say_what_is_drawing(browser)
     work = Path(tempfile.mkdtemp(prefix="frame-rate-"))
     began = time.time()
 
