@@ -325,6 +325,48 @@ finish sooner; the priorities, the piece-size measurement and any
 predicting prefetcher last, on the lab machine, and only if a person there
 still feels a wait.
 
+## Benchmark the crux itself: many sources against one picture
+
+The root requirement — many tiles must reach the viewer as one image —
+rests on a claim nobody has measured as a curve: that Neuroglancer
+collapses when handed one source per tile. The claim is surely true at ten
+thousand; where it *starts* being true is unknown, and the answer has
+consequences — if a few hundred sources are actually fine, small runs may
+not need the server at all, and the crossover count is a fact worth owning
+rather than assuming.
+
+**The measurement.** Two arms over identical synthetic runs, at rungs of
+1, 5, 10, 50, 100, 200, 400, 800 and 1600 positions:
+
+- *As sources*: every position handed to Neuroglancer directly, one layer
+  source per store, no server cleverness.
+- *As one picture*: the same positions behind the built seamless view.
+
+**Every metric, both arms, per rung** — following the house measuring
+rules (several sizes read as a shape, counts beside timings, the machine
+named):
+
+- time until the viewer is open and interactive;
+- time until the first complete picture (coarse everywhere, however soft);
+- a fresh full-resolution screenful, and the same screenful revisited;
+- one pan and one zoom-out, as the operator feels them (time until the
+  screen settles);
+- HTTP requests issued for each of the above;
+- browser memory and, where the arm has one, server memory and processor
+  time;
+- dropped frames or a stuttering interaction, noted honestly even if only
+  as an observation;
+- and whether the arm survives the rung at all — refusal to open, a tab
+  out of memory, or a minute-long hang are results, not failures of the
+  benchmark.
+
+**What the curve buys.** The rung where the as-sources arm bends is the
+measured crossover: below it, a small run may be shown the simple way;
+above it, the one-image requirement binds, now with a number attached.
+Plotted beside it, the one-picture arm's flat line is the crux made
+visible — the strongest single figure this project can show anyone who
+asks why the server exists.
+
 ## What the new architecture opens up, beyond speed
 
 Two consequences of serving by building, noted the night of the decision so
