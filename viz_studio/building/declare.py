@@ -23,8 +23,11 @@ from, so it can be opened again tomorrow without being told.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
+import numpy as np
+import zarr
 from composer import PIECE, Composer
 from mosaic import read_the_transfer, the_mosaic_written_down
 
@@ -35,7 +38,8 @@ OURS = "zmart"
 
 
 def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
-                            name: str = "built", piece: int = PIECE) -> Path:
+                            name: str = "built", piece: int = PIECE,
+                            bake: bool = False, workers: int = 0) -> Path:
     """Write the description of a picture built from a transfer.
 
     Args:
@@ -44,30 +48,33 @@ def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
         name: what to call the picture. The operator sees it as the heading in
             the viewer's panel.
         piece: how large a piece of the built picture is, across height and width.
+        bake: also build the coarse ground now, once, and keep it as real
+            files -- the pinned levels from the tiles, and the picture's own
+            levels above them, halving y and x until the whole picture fits
+            one piece. The cold start then reads files instead of touching
+            every tile in front of whoever looks first. A switch, so a baked
+            and an unbaked declaration can be compared side by side.
+        workers: build with this many worker processes while baking. Nought
+            builds in place.
 
     Returns:
         The picture's own folder, which is what the viewer opens.
     """
     where, transfer = Path(where), Path(transfer).resolve()
     mosaic = read_the_transfer(transfer)
-    composer = Composer(mosaic, piece=piece)
+    composer = Composer(mosaic, piece=piece, workers=workers)
 
     store = where / f"{name}.ome.zarr"
     store.mkdir(parents=True, exist_ok=True)
 
-    described = json.loads(composer.group_json())
-    described["attributes"][OURS] = {
-        "what": (
-            "A picture that holds no pixels. Every piece of it is built when it is "
-            "asked for, out of the tiles of the transfer named below, which are "
-            "read and never changed."
-        ),
-        "built_from": transfer.as_posix(),
-        "piece": composer.piece,
-        "tiles": len(mosaic.tiles),
-    }
-    (store / "zarr.json").write_text(json.dumps(described, indent=1),
-                                     encoding="utf-8")
+    # Declaring says everything the picture is, so anything baked by an earlier
+    # declaration goes first -- otherwise declaring without the bake would
+    # leave yesterday's baked ground quietly being served, and the switch
+    # would only ever turn on.
+    for kept in sorted(store.glob("[0-9]*")):
+        if kept.is_dir() and (int(kept.name) >= mosaic.levels
+                              or (kept / "c").exists()):
+            shutil.rmtree(kept)
 
     for level in range(mosaic.levels):
         inside = store / str(level)
@@ -75,6 +82,29 @@ def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
         (inside / "zarr.json").write_text(
             json.dumps(json.loads(composer.array_json(level)), indent=1),
             encoding="utf-8")
+
+    described = json.loads(composer.group_json())
+    baked: list[int] = []
+    if bake:
+        try:
+            baked = _bake_the_coarse_ground(store, composer, described)
+        finally:
+            composer.close()
+
+    described["attributes"][OURS] = {
+        "what": (
+            "A picture that holds no pixels beyond its baked coarse ground. "
+            "Every other piece of it is built when it is asked for, out of the "
+            "tiles of the transfer named below, which are read and never "
+            "changed."
+        ),
+        "built_from": transfer.as_posix(),
+        "piece": composer.piece,
+        "tiles": len(mosaic.tiles),
+        "baked": baked,
+    }
+    (store / "zarr.json").write_text(json.dumps(described, indent=1),
+                                     encoding="utf-8")
 
     # The tiles' whole geometry, written down so opening never walks the
     # transfer again. Declaring read every tile just above; keeping what was
@@ -85,6 +115,78 @@ def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
     return store
 
 
+def _bake_the_coarse_ground(store: Path, composer: Composer,
+                            described: dict) -> list[int]:
+    """Build the coarse ground once, into real files, and extend the pyramid.
+
+    Two kinds of level come out of this. The composer's pinned levels are
+    built from the tiles -- the one-visit-per-tile floor, paid here instead of
+    at every cold open. Above them, the picture's own levels are averaged from
+    the level below, two by two in y and x, until one piece holds the whole
+    picture: the tiles cannot provide those (a camera frame's coarsest copy is
+    already a few dozen pixels), but a survey is looked at from further back
+    the larger it grows, so the picture must keep halving where its tiles
+    stop. No tile is touched a second time for them.
+
+    The baked levels are ordinary zarr arrays -- same piece size, same
+    encoding the composer declares -- so serving them is serving files, immune
+    to everything that makes building slow. A piece holding only fill value is
+    left unwritten, which is the same absent-means-fill answer the composer
+    gives for such ground.
+    """
+    coarsest = composer.mosaic.levels - 1
+    pinned = sorted(composer.pinned_levels)
+    datasets = described["attributes"]["ome"]["multiscales"][0]["datasets"]
+
+    for level in pinned:
+        deep, down, across = composer.grid(level)
+        for plane in range(deep):
+            for row in range(down):
+                inside = store / str(level) / "c" / str(plane) / str(row)
+                for column in range(across):
+                    # The very bytes the composer would put on the wire, kept
+                    # as the chunk file the engine would ask for -- so a baked
+                    # answer and a built one cannot differ. Empty ground stays
+                    # unwritten: absent means fill, here as everywhere.
+                    body = composer.bytes_for(level, plane, row, column)
+                    if body is None:
+                        continue
+                    inside.mkdir(parents=True, exist_ok=True)
+                    (inside / str(column)).write_bytes(body)
+
+    # The picture's own levels, chained upward from what was just baked.
+    depth, height, width = composer.mosaic.shape(coarsest)
+    whole = np.asarray(zarr.open_array(str(store / str(coarsest)), mode="r"))
+    voxel = list(composer.mosaic.voxel_um(coarsest))
+    level = coarsest
+    while height > composer.piece or width > composer.piece:
+        level += 1
+        height, width = -(-height // 2), -(-width // 2)
+        voxel = [voxel[0], voxel[1] * 2, voxel[2] * 2]
+        evened = np.pad(whole, ((0, 0), (0, height * 2 - whole.shape[1]),
+                                (0, width * 2 - whole.shape[2])), mode="edge")
+        whole = (evened.reshape(depth, height, 2, width, 2)
+                 .mean(axis=(2, 4)).round()
+                 .astype(composer.mosaic.dtype))
+        made = zarr.create_array(
+            store=str(store / str(level)), shape=(depth, height, width),
+            chunks=(1, composer.piece, composer.piece),
+            dtype=composer.mosaic.dtype, zarr_format=3,
+            dimension_names=list(composer.mosaic.axes), overwrite=True,
+        )
+        made[:] = whole
+        datasets.append({
+            "path": str(level),
+            "coordinateTransformations": [
+                {"type": "scale", "scale": list(voxel)},
+                {"type": "translation",
+                 "translation": list(composer.mosaic.corner_um)},
+            ],
+        })
+
+    return pinned + list(range(coarsest + 1, level + 1))
+
+
 def main() -> None:
     import argparse
 
@@ -93,10 +195,18 @@ def main() -> None:
     parsed.add_argument("where", type=Path)
     parsed.add_argument("--name", default="built")
     parsed.add_argument("--piece", type=int, default=PIECE)
+    parsed.add_argument("--bake", action="store_true",
+                        help="also build the coarse ground now, once, into "
+                        "real files, so opening never builds it again. "
+                        "Declaring without this removes any earlier bake.")
+    parsed.add_argument("--workers", type=int, default=0,
+                        help="build with this many worker processes while "
+                        "baking; nought builds in place")
     given = parsed.parse_args()
 
     store = declare_a_built_picture(given.where, given.transfer,
-                                    name=given.name, piece=given.piece)
+                                    name=given.name, piece=given.piece,
+                                    bake=given.bake, workers=given.workers)
     print(f"\n  declared {store}")
     print("  it holds no pixels; open the folder above it in the viewer.\n")
 

@@ -453,6 +453,84 @@ def test_opening_a_served_picture_starts_the_warming(a_transfer: Path,
     served.forget(store)
 
 
+def test_a_baked_picture_shows_its_coarse_ground_without_the_tiles(
+        a_transfer: Path, tmp_path: Path):
+    """Baking writes the coarse ground as real files, served with no building.
+
+    The cold start was the first look paying to build the coarse levels from
+    every tile, at every opening, in front of whoever looked. Baking pays it
+    once at declare time. Proved the strong way: the whole transfer is renamed
+    off the map after declaring, and every piece of every baked level must
+    still answer, byte-identical to before -- files owe nothing to tiles.
+    """
+    store = declare_a_built_picture(tmp_path / "views", a_transfer, name="built",
+                                    piece=PIECE, bake=True)
+    served.forget(store)
+    described = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
+    baked = described["attributes"]["zmart"]["baked"]
+    assert baked, "a baked picture must say which levels it carries as files"
+
+    remembered = {}
+    for level in baked:
+        shape = json.loads((store / str(level) / "zarr.json")
+                           .read_text(encoding="utf-8"))["shape"]
+        for plane in range(shape[0]):
+            for row in range(-(-shape[1] // PIECE)):
+                for column in range(-(-shape[2] // PIECE)):
+                    asked = f"{level}/c/{plane}/{row}/{column}"
+                    remembered[asked] = served.the_bytes_behind(store, asked)
+    assert any(body is not None for body in remembered.values())
+
+    a_transfer.rename(a_transfer.with_name("transfer-walked-away"))
+    served.forget(store)
+    try:
+        for asked, before in remembered.items():
+            assert served.the_bytes_behind(store, asked) == before, (
+                f"{asked} changed once the tiles were gone, so it was built, "
+                "not read"
+            )
+    finally:
+        a_transfer.with_name("transfer-walked-away").rename(a_transfer)
+        served.forget(store)
+
+
+def test_baking_extends_the_pyramid_until_the_picture_is_one_piece(
+        tmp_path: Path):
+    """The picture's own levels keep halving y and x until one piece holds it.
+
+    The tiles' pyramids stop where a tile stops making sense; the picture's
+    must stop where the *survey* fits the screen, and the bigger the run the
+    further out an operator stands. Every extended level is averaged from the
+    picture level below it, so no tile is touched a second time. A 5-by-5 run
+    rather than the little fixture, because a picture that already fits one
+    piece at the tiles' coarsest level rightly earns no extension at all.
+    """
+    folder = tmp_path / "transfer"
+    folder.mkdir()
+    for number in range(25):
+        row, column = divmod(number, 5)
+        _write_a_tile(folder / f"Tile{number:02d}.ome.zarr", number,
+                      (row * STEP_UM, column * STEP_UM))
+    store = declare_a_built_picture(tmp_path / "views", folder, name="built",
+                                    piece=PIECE, bake=True)
+    described = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
+    levels = described["attributes"]["ome"]["multiscales"][0]["datasets"]
+    assert len(levels) > LEVELS, "baking added no levels beyond the tiles' own"
+
+    top = json.loads((store / str(len(levels) - 1) / "zarr.json")
+                     .read_text(encoding="utf-8"))
+    assert top["shape"][1] <= PIECE and top["shape"][2] <= PIECE, (
+        f"the top level is {top['shape']}, still more than one piece"
+    )
+    for one, two in zip(levels[LEVELS - 1:], levels[LEVELS:], strict=False):
+        finer = one["coordinateTransformations"][0]["scale"]
+        coarser = two["coordinateTransformations"][0]["scale"]
+        assert coarser[1] == finer[1] * 2 and coarser[2] == finer[2] * 2, (
+            "extended levels must halve y and x by exactly two"
+        )
+    served.forget(store)
+
+
 def test_worker_processes_build_the_same_bytes(a_transfer: Path):
     """Pieces built by worker processes are identical to ones built in place.
 

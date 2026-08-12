@@ -127,8 +127,11 @@ def _composer_for(store: Path) -> Composer | None:
             # whatever the operator asked for, stepping aside whenever a real
             # request is being answered. Started here rather than inside the
             # composer, because the measurement harnesses build composers too
-            # and must keep meeting the cold costs they exist to measure.
-            made.keep_the_coarse_levels_warm()
+            # and must keep meeting the cold costs they exist to measure. A
+            # baked picture already holds that ground as files, so warming it
+            # again would only burn the processor it was baked to spare.
+            if not ours.get("baked"):
+                made.keep_the_coarse_levels_warm()
         with _guard:
             _composers[store] = made
             return made
@@ -157,6 +160,15 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
         return None
     if not all(one.isdigit() for one in parts[2:]):
         return None
+    # Ground the declaration baked is a real file, answered as one: no
+    # building, no tiles, immune to everything that makes building slow. This
+    # is also the only door to the picture's own levels above the tiles' --
+    # those exist nowhere but as baked files, so past this point the composer's
+    # bounds rightly refuse them. The address is safe as a path because only
+    # digit-shaped five-part names reach here.
+    baked = Path(store).joinpath(parts[0], "c", *parts[2:])
+    if baked.is_file():
+        return baked.read_bytes()
     level = int(parts[0])
     if not 0 <= level < composer.mosaic.levels:
         return None
