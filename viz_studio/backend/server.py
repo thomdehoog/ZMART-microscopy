@@ -775,6 +775,23 @@ class _Handler(SimpleHTTPRequestHandler):
         in_place = bool(
             isinstance(payload, dict) and payload.get("wrote_image_in_place")
         )
+        # The optional second detail: which pieces the write reached, per
+        # resolution level, so a page can refetch exactly those. Held to a
+        # narrow shape — digit level names, lists of small integer triples —
+        # because it is copied into a message every open page parses.
+        dirty = None
+        if in_place and isinstance(payload, dict):
+            offered = payload.get("dirty")
+            if isinstance(offered, dict) and all(
+                isinstance(level, str) and level.isdecimal()
+                and isinstance(pieces, list)
+                and all(isinstance(piece, list) and len(piece) == 3
+                        and all(isinstance(one, int) and 0 <= one < 10**7
+                                for one in piece)
+                        for piece in pieces)
+                for level, pieces in offered.items()
+            ):
+                dirty = offered
         # What the disk looks like as this announcement is made. The folder watcher
         # compares it with what it sees a moment later, so that the write the
         # microscope has just told us about is not announced a second time when the
@@ -791,7 +808,8 @@ class _Handler(SimpleHTTPRequestHandler):
         self._send_json(
             {
                 "told": self._announcements.say_something_changed(
-                    image_written_in_place=in_place, covering=covering
+                    image_written_in_place=in_place, covering=covering,
+                    dirty=dirty,
                 )
             }
         )

@@ -29,6 +29,7 @@ work at all.
 
 from __future__ import annotations
 
+import json
 import queue
 import threading
 
@@ -105,7 +106,8 @@ class Announcements:
             self._listeners.discard(waiting)
 
     def say_something_changed(
-        self, *, image_written_in_place: bool = False, covering: object | None = None
+        self, *, image_written_in_place: bool = False, covering: object | None = None,
+        dirty: dict | None = None,
     ) -> int:
         """Tell every open page to ask again. Returns how many were told.
 
@@ -127,6 +129,14 @@ class Announcements:
         :meth:`already_told_about`.
         """
         message = IMAGE_WRITTEN_IN_PLACE if image_written_in_place else SOMETHING_CHANGED
+        if image_written_in_place and dirty:
+            # The announcement names the pieces the write reached, per
+            # resolution level, so the page can refetch exactly those and
+            # leave everything else it has decoded on screen. Whoever knows
+            # what changed says so; a page that hears no detail falls back to
+            # refreshing wholesale, so this is an offer, never a requirement.
+            told = json.dumps({"imageWrittenInPlace": True, "dirty": dirty})
+            message = f"event: changed\ndata: {told}\n\n".encode("utf-8")
         with self._lock:
             if covering is not None:
                 self._already_told = covering
