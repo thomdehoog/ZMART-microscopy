@@ -97,6 +97,12 @@ class Copy:
     dtype: str
     voxel_um: tuple[float, float, float]
     corner_um: tuple[float, float, float]
+    # The fixed indices in front of (z, y, x) for a store of more than three
+    # axes. A transfer's tile is three axes and this stays empty; a governed
+    # run's position is stored (t, c, z, y, x), and until the served picture
+    # itself grows those axes, a copy reads one moment of one channel --
+    # see :mod:`governed`.
+    outer: tuple[int, ...] = ()
     _opened: zarr.Array | None = field(default=None, repr=False)
 
     @property
@@ -385,13 +391,19 @@ def _read_one_tile(store: Path) -> Tile:
             )
         held_in = store / str(dataset["path"])
         shape, chunks, kind = _how_a_resolution_is_stored(held_in)
+        # The spatial axes are the LAST three whatever the store keeps in front
+        # of them -- a transfer's tile is plain (z, y, x), a governed run's
+        # position is (t, c, z, y, x). What sits in front is recorded so a read
+        # can hold it fixed; the scale and translation above already take the
+        # last three of themselves for the same reason.
         copies.append(Copy(
             held_in=held_in,
-            shape=(shape[0], shape[1], shape[2]),
-            chunks=(chunks[0], chunks[1], chunks[2]),
+            shape=tuple(shape[-3:]),  # type: ignore[arg-type]
+            chunks=tuple(chunks[-3:]),  # type: ignore[arg-type]
             dtype=kind,
             voxel_um=voxel,
             corner_um=(corner[0], corner[1], corner[2]),
+            outer=(0,) * (len(shape) - 3),
         ))
     ours = described.get(OURS_IN_THE_DESCRIPTION)
     turned = float((ours or {}).get("turned_radians") or 0.0)
