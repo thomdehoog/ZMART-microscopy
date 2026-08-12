@@ -223,6 +223,28 @@ once ever, run in the background behind real requests, coarsest level first
 so the whole-survey look works within seconds of opening, and pieces the
 operator's own browsing has already built are skipped, not rebuilt.
 
+**What the operator's own zooming already does — the warmer in proportion.**
+Once the disk cache exists, ordinary zooming out *is* the builder: every
+piece a zoom-out touches is built and saved forever, and at the very top
+levels the viewport covers the whole survey, so a single complete zoom-out
+genuinely finishes them with no warmer involved. What zooming does not
+build is the middle-coarse ground the operator did not stand above — one
+screenful of a large picture's L3 is a small fraction of the level, so
+*panning while zoomed out*, the survey gesture, keeps stepping onto
+unbuilt pieces. The honest accounting is therefore: cache alone makes
+coarse viewing fast *lazily* — each place slow once, instant forever;
+cache plus warmer reaches the same end state *before the operator
+arrives*, the warmer being nothing more than all the zoom-outs not yet
+performed, done in one background sweep. And on a live run the distinction
+nearly vanishes, because the per-commit upkeep builds coarse ground as it
+appears — a few chained pieces per commit, milliseconds beside the
+commit's own ~500 ms — so a live run's coarse levels are complete at every
+moment with neither zooming nor a sweep. The warmer's real constituency is
+one case: a freshly arrived large transfer surveyed cold. That keeps the
+build priority honest — the cache is the load-bearing change; the warmer
+is a one-coffee background job that converts "slow once per place" into
+"never slow" for that one case.
+
 The motion-predicting prefetcher this change once was is demoted to a
 someday: after changes 1-3 and the warmer, the remaining cold case is a
 first-ever pan across fine fresh ground, and nobody has reported feeling it.
