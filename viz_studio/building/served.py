@@ -33,6 +33,7 @@ than one they discover.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -113,8 +114,14 @@ def _composer_for(store: Path) -> Composer | None:
         ours = _what_it_was_built_from(store)
         made = None
         if ours is not None:
+            # ZMART_BUILD_WORKERS turns on building in worker processes, as a
+            # count, so one against four can be measured side by side from two
+            # launches of the same viewer. Unset or nought is the single-process
+            # path every recorded figure describes.
+            workers = int(os.environ.get("ZMART_BUILD_WORKERS") or 0)
             made = Composer(_the_mosaic_behind(store, ours),
-                            piece=int(ours.get("piece") or 512))
+                            piece=int(ours.get("piece") or 512),
+                            workers=workers)
             # The cold start, paid in the background from the first request on:
             # the coarse levels are built coarsest-first while the viewer shows
             # whatever the operator asked for, stepping aside whenever a real
@@ -172,4 +179,4 @@ def forget(store: Path) -> None:
         held = _composers.pop(where, None)
         _being_made.pop(where, None)
     if held is not None:
-        held.stop_warming()
+        held.close()
