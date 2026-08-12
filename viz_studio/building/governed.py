@@ -47,9 +47,40 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from zmart_live.gateway import _LiveRun
+from zmart_live.shardlink import how_the_array_is_stored
 
 from composer import PIECE, Composer
-from mosaic import IMAGE_SUFFIX, Mosaic, _read_one_tile
+from mosaic import IMAGE_SUFFIX, Copy, Mosaic, Tile, _read_one_tile
+
+
+def _promising_its_blocks(copy: Copy) -> Copy:
+    """The same copy, now promising that every block it is asked for exists.
+
+    A committed position's pixels were promised by a commit, so an absent
+    chunk is damage the composer must refuse to paper over (see
+    :class:`composer.MissingCommittedGround`). The check goes through the
+    run's own shard-aware resolver, so a chunk bundled into a shard file is
+    found where it really lives; its answer of ``None`` for a chunk never
+    written is exactly the absence being refused. The array's description is
+    read once, on the first ask, and kept.
+    """
+    stored = []
+
+    def is_on_disk(at: tuple[int, int, int]) -> bool:
+        if not stored:
+            stored.append(how_the_array_is_stored(copy.held_in))
+        return stored[0].where_one_chunk_lives(copy.outer + tuple(at)) is not None
+
+    copy.presence = is_on_disk
+    return copy
+
+
+def _a_committed_tile(store) -> Tile:
+    """One published position, read as a tile whose ground is promised."""
+    tile = _read_one_tile(store)
+    for copy in tile.copies:
+        _promising_its_blocks(copy)
+    return tile
 
 
 class TheWorldFrame(Mosaic):
@@ -142,6 +173,9 @@ class GovernedRun:
         self._piece = piece
         self._mark: tuple[int, int, int, int] | None = None
         self._held: Composer | None = None
+        # Which generation of which position the held composer draws, so the
+        # next snapshot can say exactly what a change touched.
+        self._drawing: dict[str, int] = {}
         self._guard = threading.Lock()
 
     def composer(self) -> Composer:
@@ -150,40 +184,78 @@ class GovernedRun:
         with self._guard:
             if mark == self._mark and self._held is not None:
                 return self._held
-        made = self._compose_the_snapshot(mark)
+            previous, before = self._held, dict(self._drawing)
+        made, drawing = self._compose_the_snapshot()
+        if previous is not None:
+            made.inherit_the_unchanged(
+                previous, self._what_changed_dirtied(previous, made,
+                                                     before, drawing))
         with self._guard:
             # Two threads may have derived the same snapshot; either is
             # correct, and the one that loses simply gets garbage-collected.
             if mark != self._mark or self._held is None:
-                self._mark, self._held = mark, made
+                self._mark, self._held, self._drawing = mark, made, drawing
             return self._held
 
-    def _compose_the_snapshot(self, mark) -> Composer:
+    def _compose_the_snapshot(self) -> tuple[Composer, dict[str, int]]:
         """Derive tiles, frame and composer from the manifest's current truth."""
         published = self._run._published_units()
         order = self._run._positions_in_commit_order()
         layout, profile = self._run._geometry()
 
-        current = {}
+        current: dict[str, int] = {}
         for position_id, _moment, generation in published:
             if generation > current.get(position_id, -1):
                 current[position_id] = generation
-        drawable = [
-            position_id for position_id in order
+        drawing = {
+            position_id: current[position_id] for position_id in order
             if (position_id, 0, current[position_id]) in published
-        ]
-        stores = [self._the_store_of(one, current[one]) for one in drawable]
+        }
+        stores = [self._the_store_of(one, generation)
+                  for one, generation in drawing.items()]
         # Several at once for the same reason read_the_transfer does: opening
         # a tile is a handful of small file reads, so this waits on the disk.
         if stores:
             with ThreadPoolExecutor(
                 max_workers=min(32, (len(stores) + 3) // 4)
             ) as pool:
-                tiles = list(pool.map(_read_one_tile, stores))
+                tiles = list(pool.map(_a_committed_tile, stores))
         else:
             tiles = []
-        return Composer(TheWorldFrame(tiles, layout, profile),
-                        piece=self._piece)
+        return (Composer(TheWorldFrame(tiles, layout, profile),
+                         piece=self._piece), drawing)
+
+    def _what_changed_dirtied(self, previous: Composer, fresh: Composer,
+                              before: dict[str, int], now: dict[str, int],
+                              ) -> dict[int, set[tuple[int, int]]]:
+        """Which pieces the manifest's movement reached, per level.
+
+        A position is a change if it appeared, vanished, or moved to another
+        generation. Its footprint is collected from **both** snapshots'
+        geometry — the ground a removal used to cover has to rebuild just as
+        surely as the ground an arrival now covers — and everything outside
+        those pieces is, by the manifest's own account, untouched.
+        """
+        changed = {one for one in before.keys() | now.keys()
+                   if before.get(one) != now.get(one)}
+        dirty: dict[int, set[tuple[int, int]]] = {}
+        for composer in (previous, fresh):
+            named = {
+                tile.name: tile for tile in composer.mosaic.tiles
+                if tile.name.split(".")[0] in changed
+            }
+            for tile in named.values():
+                for level in range(composer.mosaic.levels):
+                    at = composer.mosaic.lands_at(tile, level)
+                    held = tile.copies[level].shape
+                    reached = dirty.setdefault(level, set())
+                    for row in range(at[1] // self._piece,
+                                     (at[1] + held[1] - 1) // self._piece + 1):
+                        for column in range(
+                                at[2] // self._piece,
+                                (at[2] + held[2] - 1) // self._piece + 1):
+                            reached.add((row, column))
+        return dirty
 
     def _the_store_of(self, position_id: str, generation: int) -> Path:
         """Where one published position's current pixels live.

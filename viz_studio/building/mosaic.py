@@ -103,6 +103,13 @@ class Copy:
     # itself grows those axes, a copy reads one moment of one channel --
     # see :mod:`governed`.
     outer: tuple[int, ...] = ()
+    # Whether one stored block of this copy actually exists on disk, asked with
+    # the block's (z, y, x) coordinate. ``None`` -- every transfer's tile --
+    # means nobody promised anything: zarr's fill value is the honest answer
+    # for an absent chunk. A governed run's committed position sets this,
+    # because there the pixels were promised by a commit and an absent chunk
+    # is damage to fail closed on, never plausible fill.
+    presence: object | None = field(default=None, repr=False, compare=False)
     _opened: zarr.Array | None = field(default=None, repr=False)
 
     @property
