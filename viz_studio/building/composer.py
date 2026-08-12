@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from collections import OrderedDict
 
 import numpy as np
@@ -106,6 +107,16 @@ CODECS = [
     {"name": "zstd", "configuration": {"level": 0, "checksum": False}},
 ]
 
+# Which levels are warmed ahead of anyone asking, and never let go: every level
+# holding at most this share of the full-resolution voxels, and always the
+# coarsest. The share rule is the plan's -- with halving in y and x each level
+# is a quarter of the one above, so the geometric sum bounds what pinning can
+# ever hold near half a percent of the picture. The coarsest is pinned
+# unconditionally because it is the whole-survey look: the one view every
+# session wants, and on a survey the most expensive ground in the pyramid,
+# since its every piece meets every tile beneath it.
+PINNED_SHARE = 0.01
+
 
 class Composer:
     """Answers for a picture that is never stored, out of the tiles that are."""
@@ -131,6 +142,18 @@ class Composer:
         self._slabs: OrderedDict[tuple[int, int, int, int], np.ndarray] = OrderedDict()
         self._weighs = 0
         self._guard = threading.Lock()
+
+        # The slabs of the pinned levels, held apart from the byte bound above so
+        # nothing can ever evict them. Bounded by geometry instead: the pinned
+        # levels together are a fraction of a percent of the picture, and that is
+        # the whole of what this may hold.
+        self._pinned: dict[tuple[int, int, int, int], np.ndarray] = {}
+
+        # How many requests are being answered right now, so the warmer can step
+        # aside: it builds only while nobody is waiting on an answer.
+        self._answering = 0
+        self._warmer: threading.Thread | None = None
+        self._stop_warming = threading.Event()
         # Which tiles fall in each piece, per resolution, built on first use.
         self._indexed: dict[int, dict[tuple[int, int], list]] = {}
         self._indexing = threading.Lock()
@@ -335,16 +358,28 @@ class Composer:
         return slab
 
     def _slab_for(self, level: int, plane: int, row: int, column: int) -> np.ndarray:
-        """The slab holding this plane, built if it is not already to hand."""
+        """The slab holding this plane, built if it is not already to hand.
+
+        A slab of a pinned level is kept in the pinned store, outside the byte
+        bound, so the warmed coarse ground can never be evicted by a flood of
+        fine work -- see ``PINNED_SHARE`` for why that is safe to hold.
+        """
         depth = self.slab_depth(level)
         key = (level, (plane // depth) * depth, row, column)
+        pinned = level in self.pinned_levels
         with self._guard:
+            found = self._pinned.get(key)
+            if found is not None:
+                return found
             found = self._slabs.get(key)
             if found is not None:
                 self._slabs.move_to_end(key)
                 return found
         built = self._build_slab(level, plane, row, column)
         with self._guard:
+            if pinned:
+                self._pinned.setdefault(key, built)
+                return self._pinned[key]
             if key not in self._slabs:
                 self._weighs += built.nbytes
             self._slabs[key] = built
@@ -357,6 +392,82 @@ class Composer:
                 _, dropped = self._slabs.popitem(last=False)
                 self._weighs -= dropped.nbytes
         return built
+
+    @property
+    def pinned_levels(self) -> frozenset[int]:
+        """The levels warmed ahead of asking and never let go.
+
+        Every level holding at most ``PINNED_SHARE`` of the full-resolution
+        voxels, and the coarsest whatever its share -- the whole-survey look is
+        the one view every session wants and, on a survey, the dearest to build.
+        """
+        full = 1
+        for side in self.mosaic.shape(0):
+            full *= side
+        pinned = {self.mosaic.levels - 1}
+        for level in range(self.mosaic.levels):
+            voxels = 1
+            for side in self.mosaic.shape(level):
+                voxels *= side
+            if voxels <= PINNED_SHARE * full:
+                pinned.add(level)
+        return frozenset(pinned)
+
+    @property
+    def coarse_levels_are_warm(self) -> bool:
+        """Whether every slab of every pinned level has been built and kept."""
+        wanted = 0
+        for level in self.pinned_levels:
+            deep, down, across = self.grid(level)
+            slabs_deep = -(-self.mosaic.shape(level)[0] // self.slab_depth(level))
+            wanted += slabs_deep * down * across
+        with self._guard:
+            return len(self._pinned) >= wanted
+
+    def warm_the_coarse_levels(self, stop: threading.Event | None = None) -> None:
+        """Build every slab of every pinned level, coarsest first.
+
+        This is the cold start, paid deliberately and in the background instead
+        of accidentally and in front of the operator: the first look at a fresh
+        survey used to spend its opening seconds building exactly this ground,
+        piece by piece as the browser asked (12.7 seconds at 12,800 positions,
+        measured on the lab machine). Coarsest first, because the whole-survey
+        look is the view a fresh picture opens on.
+
+        Idempotent -- ground already warm is skipped, so running it again after
+        a commit warms only what the commit made new -- and it steps aside
+        whenever a real request is being answered, so warming never makes the
+        operator wait. Both properties are what the live role needs of it: a
+        snapshot swap stops the old composer's warmer and starts the new one's,
+        and the fresh pass re-uses everything still valid.
+        """
+        for level in sorted(self.pinned_levels, reverse=True):
+            depth = self.slab_depth(level)
+            deep, down, across = self.grid(level)
+            planes = self.mosaic.shape(level)[0]
+            for low_z in range(0, planes, depth):
+                for row in range(down):
+                    for column in range(across):
+                        if stop is not None and stop.is_set():
+                            return
+                        while self._answering:
+                            time.sleep(0.005)
+                        self._slab_for(level, low_z, row, column)
+
+    def keep_the_coarse_levels_warm(self) -> None:
+        """Run the warm pass in the background, once, letting requests through."""
+        if self._warmer is not None and self._warmer.is_alive():
+            return
+        self._stop_warming.clear()
+        self._warmer = threading.Thread(
+            target=self.warm_the_coarse_levels, args=(self._stop_warming,),
+            name="warm-the-coarse-levels", daemon=True,
+        )
+        self._warmer.start()
+
+    def stop_warming(self) -> None:
+        """Tell a running warm pass to stop after the slab it is on."""
+        self._stop_warming.set()
 
     def _my_encoder(self):
         """This thread's own little array to encode a piece through.
@@ -393,14 +504,20 @@ class Composer:
         the piece rather than at what the encoder left, because this thread's
         encoder still holds the previous piece it was asked for.
         """
-        slab = self._slab_for(level, plane, row, column)
-        depth = self.slab_depth(level)
-        piece = slab[plane - (plane // depth) * depth]
-        if not piece.any():
-            return None
-        encoder = self._my_encoder()
-        encoder[0] = piece
-        return bytes(encoder.store._store_dict["c/0/0/0"].to_bytes())
+        with self._guard:
+            self._answering += 1
+        try:
+            slab = self._slab_for(level, plane, row, column)
+            depth = self.slab_depth(level)
+            piece = slab[plane - (plane // depth) * depth]
+            if not piece.any():
+                return None
+            encoder = self._my_encoder()
+            encoder[0] = piece
+            return bytes(encoder.store._store_dict["c/0/0/0"].to_bytes())
+        finally:
+            with self._guard:
+                self._answering -= 1
 
     # -- what the picture says about itself ----------------------------------
 

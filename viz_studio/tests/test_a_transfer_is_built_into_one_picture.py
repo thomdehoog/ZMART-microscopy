@@ -354,6 +354,105 @@ def test_a_piece_between_scattered_tiles_is_answered_with_nothing(tmp_path: Path
     served.forget(store)
 
 
+def _counting_builds(composer):
+    """Wrap the composer's slab building so a test can see when it happens."""
+    built = []
+    original = composer._build_slab
+    composer._build_slab = lambda *asked: (built.append(asked),
+                                           original(*asked))[1]
+    return built
+
+
+def test_warming_builds_the_coarse_ground_before_anyone_asks(a_transfer: Path):
+    """After the warm pass, every coarse piece answers without building.
+
+    The cold start the operator feels is the first look paying to build the
+    coarse levels -- the ones whose every piece meets many tiles. The warmer
+    spends that cost up front, so asking afterwards finds every slab of every
+    pinned level already made.
+    """
+    mosaic = read_the_transfer(a_transfer)
+    composer = Composer(mosaic)
+    composer.warm_the_coarse_levels()
+
+    built = _counting_builds(composer)
+    coarsest = mosaic.levels - 1
+    deep, down, across = composer.grid(coarsest)
+    for plane in range(deep):
+        for row in range(down):
+            for column in range(across):
+                composer.bytes_for(coarsest, plane, row, column)
+    assert built == [], (
+        f"asking for warmed ground built {len(built)} slabs over again"
+    )
+
+
+def test_warmed_ground_survives_a_flood_of_fine_ground(a_transfer: Path):
+    """The pinned levels are never the ones let go when memory runs short.
+
+    The slab cache is byte-bounded and lets the least recently used go. If the
+    warmed coarse slabs lived under that rule, warming a large survey would
+    evict its own beginning before its end -- so the pinned levels are held
+    apart from the bound, and a flood of full-resolution work cannot push the
+    whole-survey look out.
+    """
+    mosaic = read_the_transfer(a_transfer)
+    composer = Composer(mosaic, weighing_at_most=1)
+    composer.warm_the_coarse_levels()
+
+    _, down, across = composer.grid(0)
+    for row in range(down):
+        for column in range(across):
+            composer.bytes_for(0, 0, row, column)
+
+    built = _counting_builds(composer)
+    coarsest = mosaic.levels - 1
+    deep, down, across = composer.grid(coarsest)
+    for row in range(down):
+        for column in range(across):
+            composer.bytes_for(coarsest, 0, row, column)
+    assert built == [], "the flood of fine ground evicted the warmed slabs"
+
+
+def test_warmed_pieces_are_byte_identical_to_fresh_ones(a_transfer: Path):
+    """Warming must change when the work happens, never what it makes."""
+    mosaic = read_the_transfer(a_transfer)
+    warmed = Composer(mosaic)
+    warmed.warm_the_coarse_levels()
+    fresh = Composer(mosaic)
+
+    coarsest = mosaic.levels - 1
+    _, down, across = warmed.grid(coarsest)
+    for row in range(down):
+        for column in range(across):
+            assert (warmed.bytes_for(coarsest, 0, row, column)
+                    == fresh.bytes_for(coarsest, 0, row, column))
+
+
+def test_opening_a_served_picture_starts_the_warming(a_transfer: Path,
+                                                     tmp_path: Path):
+    """The viewer's first request sets the warm pass going in the background.
+
+    Polled rather than waited on a fixed pause, and through the served
+    registry, because that is the composer the viewer actually talks to.
+    """
+    import time
+
+    store = declare_a_built_picture(tmp_path / "views", a_transfer, name="built",
+                                    piece=PIECE)
+    served.forget(store)
+    assert served.the_bytes_behind(store, "0/c/0/0/0") is not None
+    composer = served._composers[store.resolve()]
+    deadline = time.time() + 10
+    while time.time() < deadline and not composer.coarse_levels_are_warm:
+        time.sleep(0.05)
+    assert composer.coarse_levels_are_warm, (
+        "ten seconds after the first request, the coarse levels of a four-tile "
+        "picture are still cold, so no warmer can be running"
+    )
+    served.forget(store)
+
+
 def test_a_declared_picture_holds_no_pixels(a_transfer: Path, tmp_path: Path):
     """The folder is a description and nothing else; the tiles keep the picture."""
     store = declare_a_built_picture(tmp_path / "views", a_transfer, name="built",
