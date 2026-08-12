@@ -39,7 +39,7 @@ OURS = "zmart"
 
 def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
                             name: str = "built", piece: int = PIECE,
-                            bake: bool = False, workers: int = 0) -> Path:
+                            bake: bool = False, workers: int = 1) -> Path:
     """Write the description of a picture built from a transfer.
 
     Args:
@@ -54,8 +54,7 @@ def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
             one piece. The cold start then reads files instead of touching
             every tile in front of whoever looks first. A switch, so a baked
             and an unbaked declaration can be compared side by side.
-        workers: build with this many worker processes while baking. Nought
-            builds in place.
+        workers: how many processes build while baking. One builds in place.
 
     Returns:
         The picture's own folder, which is what the viewer opens.
@@ -199,9 +198,9 @@ def main() -> None:
                         help="also build the coarse ground now, once, into "
                         "real files, so opening never builds it again. "
                         "Declaring without this removes any earlier bake.")
-    parsed.add_argument("--workers", type=int, default=0,
-                        help="build with this many worker processes while "
-                        "baking; nought builds in place")
+    parsed.add_argument("--workers", type=int, default=1,
+                        help="how many processes build while baking; "
+                        "one builds in place")
     given = parsed.parse_args()
 
     store = declare_a_built_picture(given.where, given.transfer,

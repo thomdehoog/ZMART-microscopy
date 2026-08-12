@@ -114,11 +114,11 @@ def _composer_for(store: Path) -> Composer | None:
         ours = _what_it_was_built_from(store)
         made = None
         if ours is not None:
-            # ZMART_BUILD_WORKERS turns on building in worker processes, as a
-            # count, so one against four can be measured side by side from two
-            # launches of the same viewer. Unset or nought is the single-process
-            # path every recorded figure describes.
-            workers = int(os.environ.get("ZMART_BUILD_WORKERS") or 0)
+            # ZMART_BUILD_WORKERS is how many processes build this picture,
+            # so one against four is two launches of the same viewer. Unset
+            # means one: build in place, the path every recorded figure
+            # describes and the one the operator chose as the default.
+            workers = int(os.environ.get("ZMART_BUILD_WORKERS") or 1)
             made = Composer(_the_mosaic_behind(store, ours),
                             piece=int(ours.get("piece") or 512),
                             workers=workers)
