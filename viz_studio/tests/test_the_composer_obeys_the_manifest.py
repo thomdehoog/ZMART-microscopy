@@ -42,21 +42,30 @@ from governed import GovernedRun  # noqa: E402
 PIECE = 256
 
 
-def a_governed_run(folder: Path, *, timepoints: int = 1):
-    """A real manifest-governed run of two positions, side by side.
+def a_governed_run(folder: Path, *, timepoints: int = 1, third: bool = False):
+    """A real manifest-governed run of positions, side by side.
 
     The same shape the gateway tests use: ``posA`` at the origin, ``posB`` to
-    its right, overlapping by the profile's own band. Values are chosen per
-    test so that whose pixels ended up on screen is readable from the bytes.
+    its right, overlapping by the profile's own band — and, when a test needs
+    ground in a different piece row, ``posC`` below ``posA``. Values are
+    chosen per test so that whose pixels ended up on screen is readable from
+    the bytes.
     """
     from zmart_live.coordinator import LivePublisher
 
     profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1)
+    cells = {GridCell(0, 0): "posA", GridCell(0, 1): "posB"}
+    if third:
+        # The layout demands a complete rectangle -- a hole inside the
+        # footprint would make neighbours own the same specimen twice -- so
+        # the third position brings a fourth that no test ever commits.
+        cells[GridCell(1, 0)] = "posC"
+        cells[GridCell(1, 1)] = "posD"
     return LivePublisher(
         folder,
         profile,
         run_id="composer-gate-run",
-        cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+        cells=cells,
         timepoints=timepoints,
     )
 
@@ -184,6 +193,36 @@ def test_an_empty_run_is_a_valid_empty_picture(tmp_path):
     assert composer.bytes_for(0, 0, 0, 0) is None
 
 
+# -- finding 3: committed ground fails closed ------------------------------------
+
+
+def test_an_absent_chunk_of_committed_ground_is_refused_not_invented(tmp_path):
+    """Damage to published pixels must be an error, never plausible zeros.
+
+    Zarr silently answers the fill value for a chunk file that is missing, so
+    without a check a damaged committed position is laid in as a rectangle of
+    zeros — indistinguishable on screen from dark specimen, and laid *over*
+    any published neighbour beneath it. The gateway's rule is quoted in the
+    review: "a gap in it is damage to fail closed on."
+    """
+    from composer import MissingCommittedGround
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+
+    level_zero = run.position_store("posA") / "0"
+    chunks = [one for one in level_zero.rglob("*") if one.is_file()
+              and one.name != "zarr.json"]
+    assert chunks, "the fixture's position keeps its pixels somewhere"
+    for one in chunks:
+        one.unlink()
+
+    composer = GovernedRun(run.folder, piece=PIECE).composer()
+    a_only, _, _ = the_columns_of(run)
+    with pytest.raises(MissingCommittedGround):
+        composer.bytes_for(0, 0, 0, a_only)
+
+
 # -- finding 5: the frame comes from the layout ----------------------------------
 
 
@@ -200,6 +239,66 @@ def test_the_frame_is_the_layouts_whether_or_not_every_position_arrived(tmp_path
     assert partial == complete, (
         "the declared shape moved when a position arrived — the frame is "
         "being derived from the tiles present rather than from the layout"
+    )
+
+
+# -- findings 4 and 6: warmth survives a commit; touched ground does not ---------
+
+
+def test_a_commit_keeps_the_unchanged_ground_warm(tmp_path):
+    """A position landing must not throw away every other position's work.
+
+    This is the measured 2-changes-a-second ceiling stated as a contract: the
+    demonstration of 2026-08-12 forgot the whole composer per landing, so
+    every commit re-paid the entire visible screenful. Here posA's ground is
+    built once, its chunk files are then deleted outright, and a commit lands
+    elsewhere — if the fresh snapshot re-reads posA the read fails closed, so
+    the only way this passes is the inherited warmth answering instead.
+    """
+    run = a_governed_run(tmp_path, third=True)
+    run.write_and_publish("posA", some_specimen(700))
+    run.write_and_publish("posB", some_specimen(1100))
+
+    governed = GovernedRun(run.folder, piece=PIECE)
+    a_only, _, _ = the_columns_of(run)
+    before = governed.composer().bytes_for(0, 0, 0, a_only)
+    assert before is not None and 700 in pixels_of(
+        governed.composer(), 0, 0, 0, a_only)
+
+    for chunk in (run.position_store("posA") / "0").rglob("*"):
+        if chunk.is_file() and chunk.name != "zarr.json":
+            chunk.unlink()
+    run.write_and_publish("posC", some_specimen(1900))
+
+    after = governed.composer().bytes_for(0, 0, 0, a_only)
+    assert after == before, (
+        "posC landed in a different piece row, so posA's built ground must "
+        "come out of the inherited cache byte-for-byte — a fresh read would "
+        "have failed closed on the deleted chunks"
+    )
+
+
+def test_ground_a_commit_touched_is_rebuilt_not_remembered(tmp_path):
+    """The other half of inheritance: what changed must never be inherited.
+
+    posA is replaced by a brighter generation; a snapshot that carried its
+    old slab forward would keep showing the superseded pixels — the exact
+    sabotage fault the plan names ("keep serving a cached piece across a
+    commit that touched it").
+    """
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+
+    governed = GovernedRun(run.folder, piece=PIECE)
+    a_only, _, _ = the_columns_of(run)
+    assert 700 in pixels_of(governed.composer(), 0, 0, 0, a_only)
+
+    run.replace_a_position("posA", some_specimen(2200))
+
+    seen = set(np.unique(pixels_of(governed.composer(), 0, 0, 0, a_only)))
+    assert 2200 in seen and 700 not in seen, (
+        "ground the replacement touched answered from the old snapshot's "
+        "cache"
     )
 
 

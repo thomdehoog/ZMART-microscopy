@@ -119,6 +119,20 @@ CODECS = [
 PINNED_SHARE = 0.01
 
 
+class MissingCommittedGround(RuntimeError):
+    """A chunk the manifest promised is not on disk, and nothing may stand in.
+
+    Zarr answers the fill value for an absent chunk without a word, which is
+    the right behaviour for a transfer -- ground nobody imaged *is* fill. For
+    a governed run's committed position it is the wrong behaviour twice over:
+    the zeros are indistinguishable on screen from dark specimen, and they are
+    laid over whatever published neighbour sits beneath. The gateway's rule,
+    quoted in the review that ordered this: "a gap in it is damage to fail
+    closed on." Whoever serves the piece turns this into an absent answer with
+    a logged reason -- a 404, never invented pixels.
+    """
+
+
 # The composer a worker process builds for itself, held at module level because
 # a process pool initializer has nowhere else to put it. Each worker gets its
 # own, made once from the written-down mosaic, with small caches and no pinning
@@ -230,6 +244,64 @@ class Composer:
                 "nothing would report it — the window would simply be black."
             )
 
+    def inherit_the_unchanged(self, donor: Composer,
+                              dirty: dict[int, set[tuple[int, int]]]) -> None:
+        """Carry a predecessor's warmth forward, minus what a commit touched.
+
+        A governed run swaps in a whole fresh composer whenever its manifest
+        moves — that is what makes staleness unreachable — but a commit
+        touches a handful of pieces and a survey holds thousands, so paying
+        the whole picture's warmth for every landing is the measured
+        two-changes-a-second ceiling. This is the other half of the snapshot
+        rule: everything the commit did not touch moves house.
+
+        ``dirty`` names the pieces the change reached, per level, as
+        ``(row, column)`` — worked out by the caller from the changed
+        positions' own footprints, over both the old state and the new, so a
+        removal dirties the ground it used to cover. Slabs of dirty pieces
+        stay behind; blocks stay behind when their store is no longer among
+        the tiles, which is how a replaced generation's pixels die with its
+        path. Everything inherited is bytes-identical to what the donor held
+        — the donor built it, and ground neither side touched decodes the
+        same either way.
+
+        The donor may still be answering a straggler request; its locks are
+        held only long enough to read each cache out.
+        """
+        current = {copy.held_in
+                   for tile in self.mosaic.tiles for copy in tile.copies}
+        with donor._block_guard:
+            held_blocks = list(donor._blocks.items())
+        with self._block_guard:
+            for key, block in held_blocks:
+                if key[0] not in current or key in self._blocks:
+                    continue
+                self._blocks[key] = block
+                self._blocks_weigh += block.nbytes
+            while (len(self._blocks) > 1
+                   and self._blocks_weigh > self._blocks_weighing_at_most):
+                _, dropped = self._blocks.popitem(last=False)
+                self._blocks_weigh -= dropped.nbytes
+
+        with donor._guard:
+            held_slabs = list(donor._slabs.items())
+            held_pinned = list(donor._pinned.items())
+        with self._guard:
+            for key, slab in held_slabs:
+                level, _, row, column = key
+                if (row, column) in dirty.get(level, ()) or key in self._slabs:
+                    continue
+                self._slabs[key] = slab
+                self._weighs += slab.nbytes
+            while self._slabs and self._weighs > self._weighing_at_most:
+                _, dropped = self._slabs.popitem(last=False)
+                self._weighs -= dropped.nbytes
+            for key, slab in held_pinned:
+                level, _, row, column = key
+                if (row, column) in dirty.get(level, ()):
+                    continue
+                self._pinned.setdefault(key, slab)
+
     # -- what the picture is -------------------------------------------------
 
     def grid(self, level: int) -> tuple[int, int, int]:
@@ -317,6 +389,15 @@ class Composer:
                 return found
 
         size = copy.chunks
+        # A copy that promises its blocks exist -- a committed position of a
+        # governed run -- is checked before being read, because zarr would
+        # answer an absent chunk with silent fill and this ground was promised
+        # by a commit. A transfer's copies promise nothing and skip this.
+        if copy.presence is not None and not copy.presence(at):
+            raise MissingCommittedGround(
+                f"{copy.held_in} was published, but its block {at} is not on "
+                "disk. Refusing to invent fill for committed ground."
+            )
         # ``outer`` holds any axes the store keeps in front of (z, y, x) --
         # empty for a transfer's tile, one moment of one channel for a governed
         # run's position. Indexing with plain integers collapses those axes, so
