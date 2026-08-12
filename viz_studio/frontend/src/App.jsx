@@ -4,7 +4,7 @@ import LayerPanel from "./LayerPanel.jsx";
 import TargetsPanel from "./TargetsPanel.jsx";
 import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/annotations.js";
 import {
-  bringThePictureBack,
+  showTheWholePicture,
   chooseScaleWhenTheImagesAreMeasured,
   letGoOfDecodedPieces,
   lettingGo,
@@ -159,23 +159,25 @@ function ModeToggle({ mode, onChange }) {
 }
 
 /**
- * The way back when the specimen has been panned off the screen.
+ * The way back to the whole picture, from wherever the operator has wandered.
  *
- * It sits beside the 2-D/3-D toggle rather than in the panel because it is
- * needed at exactly the moment the panel is no use: the operator cannot see the
- * picture, and the control that would bring it back must be visible without
- * anything being opened first. It is deliberately not called Reset -- the panel
- * already has one of those and it puts back the brightness window.
+ * One press centres the picture and zooms so all of it fits the window --
+ * panned off the screen, lost deep in detail, or both. It sits beside the
+ * 2-D/3-D toggle rather than in the panel because it is needed at exactly the
+ * moment the panel is no use: the operator cannot see the picture, and the
+ * control that would bring it back must be visible without anything being
+ * opened first. It is deliberately not called Reset -- the panel already has
+ * one of those and it puts back the brightness window.
  */
 function BringItBack({ viewer }) {
   if (!viewer) return null;
   return (
     <button
-      onClick={() => bringThePictureBack(viewer)}
+      onClick={() => showTheWholePicture(viewer)}
       style={{ ...styles.button, ...styles.bringItBack }}
-      title="Centre the picture and fit it to the window; the plane and the moment stay where they are"
+      title="Zoom out to the whole picture, sized to the window; the plane and the moment stay where they are"
     >
-      Centre
+      Overview
     </button>
   );
 }

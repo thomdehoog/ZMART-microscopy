@@ -102,7 +102,7 @@ def test_the_viewer_opens_as_a_single_panel(viewer_page):
     assert viewer_page.evaluate("() => document.querySelectorAll('.neuroglancer-panel').length") == 1
 
 
-def test_the_centre_button_brings_a_lost_picture_back(viewer_page):
+def test_the_overview_button_brings_a_lost_picture_back(viewer_page):
     """Pan the specimen off the screen, and get it back in one click.
 
     This is the state the button exists for and it is worth saying why it cannot
@@ -115,18 +115,106 @@ def test_the_centre_button_brings_a_lost_picture_back(viewer_page):
         drag(viewer_page, point["x"], point["y"], 300, 220)
     lost = viewer_page.evaluate(_WHERE_THE_MIDDLE_IS)
     assert any(
-        abs(where - middle) > 1 for where, middle in zip(lost["at"], lost["middle"])
+        abs(where - middle) > 1
+        for where, middle in zip(lost["at"], lost["middle"], strict=True)
     ), "the drag did not move the view off the picture, so the test proves nothing"
 
-    viewer_page.get_by_role("button", name="Centre").click()
+    viewer_page.get_by_role("button", name="Overview").click()
     viewer_page.wait_for_timeout(800)
 
     found = viewer_page.evaluate(_WHERE_THE_MIDDLE_IS)
-    for where, middle in zip(found["at"], found["middle"]):
+    for where, middle in zip(found["at"], found["middle"], strict=True):
         assert abs(where - middle) < 1, f"the view sits at {where}, not at the middle {middle}"
 
 
-def test_centring_leaves_the_plane_where_the_operator_put_it(viewer_page):
+_HOW_THE_PICTURE_FITS = """() => {
+  const v = window.zmartViewer;
+  const space = v.navigationState.position.coordinateSpace.value;
+  const render = v.navigationState.pose.displayDimensionRenderInfo.value;
+  const zoom = v.navigationState.zoomFactor.value;
+  const panel = [...v.display.panels].find((p) => 'sliceView' in p);
+  const viewport = [panel.renderViewport.logicalWidth, panel.renderViewport.logicalHeight];
+  return Array.from(render.displayDimensionIndices).slice(0, 2).map((axis, slot) => {
+    const extent = space.bounds.upperBounds[axis] - space.bounds.lowerBounds[axis];
+    const pixels = (extent * render.canonicalVoxelFactors[slot]) / zoom;
+    return pixels / viewport[slot];
+  });
+}"""
+
+_HOW_THE_VOLUME_FITS = """() => {
+  const v = window.zmartViewer;
+  const space = v.navigationState.position.coordinateSpace.value;
+  const render = v.navigationState.pose.displayDimensionRenderInfo.value;
+  const panel = [...v.display.panels].find(
+    (p) => 'sliceViews' in p && !('sliceView' in p));
+  const width = panel.renderViewport.logicalWidth;
+  const height = panel.renderViewport.logicalHeight;
+  const perPixel = v.perspectiveNavigationState.zoomFactor.value / height;
+  const smaller = Math.min(width, height);
+  return Array.from(render.displayDimensionIndices).slice(0, 3).map((axis, slot) => {
+    const extent = space.bounds.upperBounds[axis] - space.bounds.lowerBounds[axis];
+    const pixels = (extent * render.canonicalVoxelFactors[slot]) / perPixel;
+    return pixels / smaller;
+  });
+}"""
+
+
+def test_overview_fits_the_whole_picture_to_the_window(viewer_page):
+    """Deep in detail, one press shows the whole picture, sized to the window.
+
+    The fractions read back are how much of the window each drawn axis of the
+    picture occupies. All must fit inside it, and the largest must genuinely
+    fill it -- a button that merely zoomed far out would pass the first half
+    and show the specimen as a speck, which is not an overview of anything.
+    """
+    point = centre(viewer_page)
+    viewer_page.mouse.move(point["x"], point["y"])
+    for _ in range(6):
+        viewer_page.mouse.wheel(0, -300)
+    viewer_page.wait_for_timeout(600)
+
+    viewer_page.get_by_role("button", name="Overview").click()
+    viewer_page.wait_for_timeout(800)
+
+    shares = viewer_page.evaluate(_HOW_THE_PICTURE_FITS)
+    assert all(share <= 1.01 for share in shares), (
+        f"the picture spills out of the window: {shares}"
+    )
+    assert max(shares) >= 0.85, (
+        f"the picture fills at most {max(shares):.0%} of the window, which is "
+        "zoomed out past an overview"
+    )
+
+
+def test_overview_fits_the_volume_too(viewer_page):
+    """The same press in 3-D sizes the whole box to the window.
+
+    The volume's zoom counts across the height of the panel rather than per
+    pixel, and a box can be turned, so the box is fitted against the window's
+    smaller side. The largest fraction must still genuinely fill it.
+    """
+    viewer_page.click("text=3D")
+    viewer_page.wait_for_timeout(2000)
+    point = centre(viewer_page)
+    viewer_page.mouse.move(point["x"], point["y"])
+    for _ in range(6):
+        viewer_page.mouse.wheel(0, -300)
+    viewer_page.wait_for_timeout(600)
+
+    viewer_page.get_by_role("button", name="Overview").click()
+    viewer_page.wait_for_timeout(800)
+
+    shares = viewer_page.evaluate(_HOW_THE_VOLUME_FITS)
+    assert all(share <= 1.02 for share in shares), (
+        f"the volume spills out of the window: {shares}"
+    )
+    assert max(shares) >= 0.85, (
+        f"the volume fills at most {max(shares):.0%} of the window, which is "
+        "zoomed out past an overview"
+    )
+
+
+def test_overview_leaves_the_plane_where_the_operator_put_it(viewer_page):
     """Going back to the whole field must not lose your place in the stack.
 
     Only the axes being drawn are moved. Depth and time are the operator's, and
@@ -144,12 +232,12 @@ def test_centring_leaves_the_plane_where_the_operator_put_it(viewer_page):
     before = viewer_page.evaluate(_STATE)
 
     drag(viewer_page, point["x"], point["y"], 320, 240)
-    viewer_page.get_by_role("button", name="Centre").click()
+    viewer_page.get_by_role("button", name="Overview").click()
     viewer_page.wait_for_timeout(800)
 
     after = viewer_page.evaluate(_STATE)
     assert after["zPosition"] == before["zPosition"], (
-        "centring the view moved the operator through the stack"
+        "the overview moved the operator through the stack"
     )
 
 
