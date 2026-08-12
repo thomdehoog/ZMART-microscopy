@@ -323,6 +323,37 @@ def test_ground_no_tile_covers_is_answered_with_nothing(a_transfer: Path,
     served.forget(store)
 
 
+def test_a_piece_between_scattered_tiles_is_answered_with_nothing(tmp_path: Path):
+    """Empty ground *inside* the picture, which a scattered run is mostly made of.
+
+    The picture's grid spans the bounding box of every tile, so tiles scattered
+    apart leave whole pieces that no tile reaches. Those are answered with
+    ``None`` — served as 404, read by the engine as the declared fill value —
+    exactly as never-written ground of a live run is. The first scattered
+    transfer opened for real crashed here instead: the encoder assumed every
+    piece leaves a chunk behind, and a chunk holding only fill value does not.
+    """
+    folder = tmp_path / "transfer"
+    folder.mkdir()
+    _write_a_tile(folder / "Tile0.ome.zarr", 0, (0.0, 0.0))
+    # Three pieces away on both axes, fractionally, so the pieces between the
+    # two tiles belong to the picture and hold nothing at all.
+    apart_um = 3 * PIECE * VOXEL_UM[1] + 0.15
+    _write_a_tile(folder / "Tile1.ome.zarr", 1, (apart_um, apart_um))
+
+    mosaic = read_the_transfer(folder)
+    composer = Composer(mosaic, piece=PIECE)
+    assert composer.bytes_for(0, 0, 2, 2) is None
+    assert composer.bytes_for(0, 0, 0, 0) is not None
+
+    store = declare_a_built_picture(tmp_path / "views", folder, name="built",
+                                    piece=PIECE)
+    served.forget(store)
+    assert served.the_bytes_behind(store, "0/c/0/2/2") is None
+    assert served.the_bytes_behind(store, "0/c/0/0/0") is not None
+    served.forget(store)
+
+
 def test_a_declared_picture_holds_no_pixels(a_transfer: Path, tmp_path: Path):
     """The folder is a description and nothing else; the tiles keep the picture."""
     store = declare_a_built_picture(tmp_path / "views", a_transfer, name="built",
