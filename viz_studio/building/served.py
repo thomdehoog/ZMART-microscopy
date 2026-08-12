@@ -115,6 +115,13 @@ def _composer_for(store: Path) -> Composer | None:
         if ours is not None:
             made = Composer(_the_mosaic_behind(store, ours),
                             piece=int(ours.get("piece") or 512))
+            # The cold start, paid in the background from the first request on:
+            # the coarse levels are built coarsest-first while the viewer shows
+            # whatever the operator asked for, stepping aside whenever a real
+            # request is being answered. Started here rather than inside the
+            # composer, because the measurement harnesses build composers too
+            # and must keep meeting the cold costs they exist to measure.
+            made.keep_the_coarse_levels_warm()
         with _guard:
             _composers[store] = made
             return made
@@ -154,8 +161,15 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
 
 
 def forget(store: Path) -> None:
-    """Let go of a built picture, closing the tiles it was holding open."""
+    """Let go of a built picture, closing the tiles it was holding open.
+
+    A running warm pass is told to stop first, so a picture being forgotten --
+    or, under the live role, swapped for a fresh snapshot -- does not keep a
+    thread building slabs nobody can reach any more.
+    """
     with _guard:
         where = Path(store).resolve()
-        _composers.pop(where, None)
+        held = _composers.pop(where, None)
         _being_made.pop(where, None)
+    if held is not None:
+        held.stop_warming()
