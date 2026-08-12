@@ -5,6 +5,21 @@
 > here has a longer form elsewhere; this page says where, and what to do
 > first.
 
+## Why any of this exists — the crux, first
+
+**Neuroglancer cannot take many tiles as many sources.** Hand the viewer
+one source per position and every cost grows with the count: the engine
+manages, fetches, prioritises and refines each source separately, and at
+hundreds of positions — let alone the ten thousand a survey produces — the
+viewer collapses under its own layer machinery long before the pixels are
+the problem. That is the root requirement behind everything in this
+folder and on the live branch alike: **many tiles must reach the viewer as
+one image.** The seamless view — virtual, whether pointed at or built — is
+that one image. Every argument that followed (pointing against building,
+the gate, the caches, the warmer) is about *how* to make one image out of
+many tiles; that it must be one image was never in question, and is the
+measure every future design change has to answer to first.
+
 ## The one-paragraph situation
 
 The repository grew two complete ways of showing many positions as one
