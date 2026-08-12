@@ -620,12 +620,11 @@ export function invalidateTheDirtyPieces(viewer, dirty) {
   for (const [level, pieces] of Object.entries(dirty)) {
     const holder = holders[Number(level)];
     if (!holder || !Array.isArray(pieces) || pieces.length === 0) continue;
-    const keys = [];
-    for (const piece of pieces) {
-      keys.push(piece.join(","));
-      keys.push([...piece].reverse().join(","));
-    }
-    holder.rpc.invoke("ChunkSource.invalidateChunks",
+    // The engine's chunk keys are grid positions joined x-fastest, z last —
+    // read straight out of a frontend source's own chunk map, not assumed —
+    // so a piece named (plane, row, column) becomes "column,row,plane".
+    const keys = pieces.map((piece) => [...piece].reverse().join(","));
+    holder.rpc.invoke("ChunkSource.refreshChunks",
                       { id: holder.rpcId, keys });
     chunkInvalidation.sources += 1;
     chunkInvalidation.keys += keys.length;
