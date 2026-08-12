@@ -588,12 +588,12 @@ export const chunkInvalidation = { announcements: 0, sources: 0, keys: 0 };
  * This is the honest end of the refresh story, and it needs the one patch
  * this repository maintains against its pinned Neuroglancer: a filtered
  * variant of the engine's own invalidation RPC ("ChunkSource.invalidateChunks",
- * see patches/). The stock invalidation drops a whole source — the operator
- * watches the picture empty and refill — because it is an unfiltered loop
- * over a keyed map; the patch is the same loop, filtered. Each named chunk is
- * dropped with the same per-chunk message ordinary eviction uses and quietly
- * refetched; every other chunk on screen is never touched, so there is
- * nothing to flicker.
+ * applied by frontend/scripts/patch_neuroglancer.mjs). The stock invalidation
+ * drops a whole source — the operator watches the picture empty and refill —
+ * because it is an unfiltered loop over a keyed map; the patch is the same
+ * loop, filtered, with replace-in-place delivery: the stale chunk keeps
+ * drawing until its fresh bytes arrive and swap in within one JS turn. Every
+ * other chunk on screen is never touched, so there is nothing to flicker.
  *
  * ``dirty`` maps a resolution level to the piece coordinates a commit
  * reached, as ``(plane, row, column)`` — which is what the serving side
