@@ -242,7 +242,15 @@ class Composer:
 
         This is what a slab is worth building: read one plane and the file's other
         planes have been decompressed already, so building them costs nothing extra.
+
+        A mosaic that knows its own depths — a governed run does, from its
+        profile — is believed first, because it has an answer even while it
+        holds no tiles at all: a run that has committed nothing yet is still a
+        picture, and its grid must not depend on anything having arrived.
         """
+        declared = getattr(self.mosaic, "slab_depths", None)
+        if declared is not None:
+            return int(declared[level])
         return int(self.mosaic.tiles[0].copies[level].chunks[0])
 
     # -- building ------------------------------------------------------------
@@ -309,11 +317,15 @@ class Composer:
                 return found
 
         size = copy.chunks
-        held = np.asarray(copy.array[
-            at[0] * size[0]:(at[0] + 1) * size[0],
-            at[1] * size[1]:(at[1] + 1) * size[1],
-            at[2] * size[2]:(at[2] + 1) * size[2],
-        ])
+        # ``outer`` holds any axes the store keeps in front of (z, y, x) --
+        # empty for a transfer's tile, one moment of one channel for a governed
+        # run's position. Indexing with plain integers collapses those axes, so
+        # what comes back is three-dimensional either way.
+        held = np.asarray(copy.array[copy.outer + (
+            slice(at[0] * size[0], (at[0] + 1) * size[0]),
+            slice(at[1] * size[1], (at[1] + 1) * size[1]),
+            slice(at[2] * size[2], (at[2] + 1) * size[2]),
+        )])
 
         with self._block_guard:
             if key not in self._blocks:
@@ -376,16 +388,22 @@ class Composer:
         slab = np.zeros((high_z - low_z, self.piece, self.piece),
                         self.mosaic.dtype)
         for tile, at in self._tiles_in_each_piece(level).get((row, column), ()):
-            held = tile.copies[level].array
+            # The copy's own declared spatial extent -- NOT the opened array's.
+            # The array of a governed position is five axes and its leading
+            # shape entries are the moment and channel singletons, which read
+            # here as a one-voxel tile; and opening a store to learn a shape
+            # the copy already wrote down is the exact waste the Copy class
+            # exists to avoid.
+            held = tile.copies[level].shape
             # The index answers by piece across the specimen, which is where tiles
             # differ. Depth it says nothing about, and a tile shallower than the
             # picture -- Thy1's are 256 planes against one of 291 -- reaches this
             # piece without reaching this slab. So depth is checked here.
-            if not (max(low_z, at[0]) < min(high_z, at[0] + held.shape[0])):
+            if not (max(low_z, at[0]) < min(high_z, at[0] + held[0])):
                 continue
-            from_z, to_z = max(low_z, at[0]), min(high_z, at[0] + held.shape[0])
-            from_y, to_y = max(top, at[1]), min(bottom, at[1] + held.shape[1])
-            from_x, to_x = max(left, at[2]), min(right, at[2] + held.shape[2])
+            from_z, to_z = max(low_z, at[0]), min(high_z, at[0] + held[0])
+            from_y, to_y = max(top, at[1]), min(bottom, at[1] + held[1])
+            from_x, to_x = max(left, at[2]), min(right, at[2] + held[2])
             slab[from_z - low_z:to_z - low_z,
                  from_y - top:to_y - top,
                  from_x - left:to_x - left] = self._read_from(
