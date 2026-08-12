@@ -325,6 +325,35 @@ finish sooner; the priorities, the piece-size measurement and any
 predicting prefetcher last, on the lab machine, and only if a person there
 still feels a wait.
 
+## What the new architecture opens up, beyond speed
+
+Two consequences of serving by building, noted the night of the decision so
+they are designed on purpose rather than discovered:
+
+**Views become cheap declarations.** The composer lays pixels at pixel
+granularity into whatever frame a view declares, so "what the view shows"
+stops being a storage question. A cropped region of interest around one
+target, a single slab of depth, a view that lays only the sharp centre of
+each position and drops the vignetted rim, a seam-resolved overlap instead
+of later-wins — each is just another hollow declared store, a few kilobytes
+naming a shape and an origin over the same positions. Many views can stand
+over one run at once; the positions stay the single system of record under
+all of them; every view of a live run passes the same gate and shows only
+published ground. The trimming idea the pointing design had to abandon
+(trims had to land on chunk boundaries) returns here for free, at pixel
+precision, per view, reversible.
+
+**The stored grid and the served grid are decoupled, on purpose.** Chunks
+keep every advantage on both sides — chunked position stores are what make
+building affordable (a piece reads only the blocks that cover it), and the
+built picture is itself served, cached and prefetched in chunk-shaped
+pieces. What is given up is only the *identity* between the two, which was
+pointing's zero-copy trick — and with it goes the entire alignment
+constraint stack, because that stack was exactly the price of forcing one
+grid to serve both the writer and the viewer. Now the storage chunk is
+tuned for the acquisition (frame shape, compression, commit latency) and
+the serving piece for the screen, independently.
+
 ## Neuroglancer and the live view: what was looked up, for someday
 
 The live page makes Neuroglancer notice a grown run by calling
