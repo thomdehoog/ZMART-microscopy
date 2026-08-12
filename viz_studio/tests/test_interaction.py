@@ -159,6 +159,25 @@ _HOW_THE_VOLUME_FITS = """() => {
 }"""
 
 
+def test_opening_lands_on_the_overview(viewer_page):
+    """A freshly opened picture looks exactly as if Overview had been pressed.
+
+    The engine's own default zoom knows nothing about the picture, so what an
+    operator met first was some arbitrary magnification and a press of
+    Overview to fix it. The first view is now the whole picture, sized to the
+    window with the overview's own margin -- asserted through the same
+    fractions the button's test uses, so the two can never drift apart.
+    """
+    shares = viewer_page.evaluate(_HOW_THE_PICTURE_FITS)
+    assert all(share <= 0.87 for share in shares), (
+        f"the picture opens spilling toward the window's edge: {shares}"
+    )
+    assert max(shares) >= 0.78, (
+        f"the picture opens at {max(shares):.0%} of the window, not at the "
+        "overview"
+    )
+
+
 def test_overview_fits_the_whole_picture_to_the_window(viewer_page):
     """Deep in detail, one press shows the whole picture, sized to the window.
 

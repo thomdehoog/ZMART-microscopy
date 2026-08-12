@@ -1220,12 +1220,14 @@ export function chooseScaleWhenTheImagesAreMeasured(viewer) {
     // And then where in time to start, which is the beginning rather than the
     // middle the engine would otherwise choose.
     startTimeAtTheFirstMoment(viewer);
-    // Clearing rather than setting a number of our own on purpose: the engine's
-    // own default is a sensible starting point, and it is the one an operator
-    // who has used neuroglancer elsewhere will expect. All that was ever wrong
-    // with it was when it got decided.
-    viewer.navigationState.zoomFactor.reset();
-    viewer.perspectiveNavigationState.zoomFactor.reset();
+    // Open on the overview: the whole picture, centred and sized to the window
+    // with the overview's own margin, exactly as if the button had been
+    // pressed. This used to clear the zoom to the engine's default instead, on
+    // the argument that an operator who knew neuroglancer would expect it; the
+    // operator at the actual microscope met a 12,800-position survey at an
+    // arbitrary magnification and asked for this. One function serves the
+    // button and the opening, so the two can never disagree.
+    showTheWholePicture(viewer);
     stop();
     stop = () => {};
   };
