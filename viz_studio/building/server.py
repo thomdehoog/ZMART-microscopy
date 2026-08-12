@@ -103,6 +103,8 @@ def serve(composer: Composer, port: int = 0):
                 with guard:
                     ledger["work_ms"][level].append(spent)
                     ledger["pieces"][level] += 1
+                if body is None:
+                    return self._missing(asked)
                 return self._send(body, "application/octet-stream")
 
             return self._missing(asked)

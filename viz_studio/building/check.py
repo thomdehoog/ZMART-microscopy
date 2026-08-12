@@ -41,7 +41,7 @@ from mosaic import read_the_transfer  # noqa: E402
 SHARE_OF_THE_DEPTH = 0.5
 
 
-def decode(body: bytes, piece: int, dtype: str, axes) -> np.ndarray:
+def decode(body: bytes | None, piece: int, dtype: str, axes) -> np.ndarray:
     """Read a served piece back the way the browser's engine reads it.
 
     The bytes are put into a store as the one chunk of an array declared exactly as
@@ -49,13 +49,18 @@ def decode(body: bytes, piece: int, dtype: str, axes) -> np.ndarray:
     server got wrong about the encoding — the compression, its settings, the kind
     of number, the order of the bytes — fails or comes out as noise here rather
     than as an unexplained black window later.
+
+    ``None`` — a piece no tile covers, served as absent — is read the same way:
+    the chunk is simply not there, and zarr hands back the declared fill value,
+    exactly as the engine paints such ground.
     """
     store = zarr.storage.MemoryStore()
     array = zarr.create_array(
         store=store, shape=(1, piece, piece), chunks=(1, piece, piece),
         dtype=dtype, zarr_format=3, dimension_names=list(axes), overwrite=True,
     )
-    store._store_dict["c/0/0/0"] = cpu.Buffer.from_bytes(body)
+    if body is not None:
+        store._store_dict["c/0/0/0"] = cpu.Buffer.from_bytes(body)
     return np.asarray(array[0])
 
 

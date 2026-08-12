@@ -383,12 +383,25 @@ class Composer:
             self._encoders.array = held
         return held
 
-    def bytes_for(self, level: int, plane: int, row: int, column: int) -> bytes:
-        """One piece of the picture, encoded exactly as its description promises."""
+    def bytes_for(self, level: int, plane: int, row: int, column: int) -> bytes | None:
+        """One piece of the picture, encoded exactly as its description promises.
+
+        ``None`` for a piece that holds only the fill value, which on a scattered
+        run is most of the picture: the grid spans the bounding box of every
+        tile, and the ground between them belongs to nobody. Such a piece is
+        served as absent — the engine paints it from the declared fill value —
+        which is also the one answer the encoder below can give, since zarr
+        leaves no chunk behind for it. The emptiness is decided by looking at
+        the piece rather than at what the encoder left, because this thread's
+        encoder still holds the previous piece it was asked for.
+        """
         slab = self._slab_for(level, plane, row, column)
         depth = self.slab_depth(level)
+        piece = slab[plane - (plane // depth) * depth]
+        if not piece.any():
+            return None
         encoder = self._my_encoder()
-        encoder[0] = slab[plane - (plane // depth) * depth]
+        encoder[0] = piece
         return bytes(encoder.store._store_dict["c/0/0/0"].to_bytes())
 
     # -- what the picture says about itself ----------------------------------

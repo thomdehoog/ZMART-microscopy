@@ -113,8 +113,10 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
 
     Returns:
         The encoded piece, or ``None`` when this is not a built picture, when the
-        address is not a piece, or when it falls outside the picture. All three
-        are ordinary answers rather than faults.
+        address is not a piece, when it falls outside the picture, or when it is
+        ground inside the picture that no tile covers — which on a scattered run
+        is most of it. All four are ordinary answers rather than faults, served
+        as absent and painted by the engine from the declared fill value.
     """
     composer = _composer_for(Path(store))
     if composer is None:
