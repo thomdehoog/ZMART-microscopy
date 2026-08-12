@@ -311,6 +311,23 @@ pixels, blank published ground, or hand back a torn mixture; and the browser
 production test photographs the same three promises through a genuine
 Neuroglancer, as it does today.
 
+**A decision that lands with this change: positions default to six pyramid
+levels, L0 to L5, halving y and x.** Decided 2026-08-12, after a two-level
+demonstration produced walls of zoom-out slowness that a real pyramid never
+would, and deliberately **not** applied to the writer yet. The current
+profile planner requires every level to stay zero-copy aligned — the overlap
+must halve exactly through all of them — so six levels have no solution at
+all for a 512 or 1024 pixel frame (measured: the overview band refuses both;
+2048 and 2304 solve). That alignment is pointing's requirement, and until
+the composer serves the live view, written runs must stay pointable. The
+moment change zero lands, the storage grid and the serving grid decouple —
+the section "what the new architecture opens up" records why — and the
+writer sheds the inter-level alignment rule; L0 to L5 becomes the default
+for every frame that halves five times, which is every camera format in
+use. Flipping the default before that day would refuse real formats at the
+profile door; flipping it after costs nothing. One decision, enforced at
+the moment it becomes enforceable, never shipped half-way.
+
 ## The live run, under the same roof
 
 With the gate inside the composer, the live rules simplify to three, and
