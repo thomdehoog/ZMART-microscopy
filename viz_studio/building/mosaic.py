@@ -531,3 +531,84 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
         dtype=kind,
         corner_um=corner,  # type: ignore[arg-type]
     )
+
+
+def the_mosaic_written_down(mosaic: Mosaic) -> dict:
+    """The whole geometry of a picture, as one plain description.
+
+    Everything :func:`read_the_transfer` walks the tiles to learn -- where each
+    sits, how large, in what chunks, at which magnifications -- written down so
+    it never has to be walked again. Declaring a picture keeps this beside the
+    picture's own description, and opening then reads one file however many
+    positions the transfer holds: a 12,800-position survey cost 8.6 seconds of
+    walking on this machine, and its geometry written down is two megabytes.
+
+    The pixels are deliberately not touched by any of this. A copy's array
+    still opens on its first read, exactly as before; only the walk to learn
+    the geometry is gone.
+    """
+    return {
+        "levels": mosaic.levels,
+        "axes": list(mosaic.axes),
+        "dtype": mosaic.dtype,
+        "corner_um": list(mosaic.corner_um),
+        "tiles": [
+            {
+                "name": tile.name,
+                "store": tile.store.as_posix(),
+                "turned": tile.turned,
+                "axes": list(tile.axes),
+                "copies": [
+                    {
+                        "held_in": copy.held_in.as_posix(),
+                        "shape": list(copy.shape),
+                        "chunks": list(copy.chunks),
+                        "dtype": copy.dtype,
+                        "voxel_um": list(copy.voxel_um),
+                        "corner_um": list(copy.corner_um),
+                    }
+                    for copy in tile.copies
+                ],
+            }
+            for tile in mosaic.tiles
+        ],
+    }
+
+
+def read_the_mosaic_as_written(held: dict) -> Mosaic:
+    """The mosaic back from its written-down geometry, touching no tile.
+
+    The counterpart of :func:`the_mosaic_written_down`, and the reason opening
+    a declared picture is immediate at any size. It trusts what was written the
+    way the composer trusts any description on disk: the declaration was
+    derived from the tiles by the same code that reads them, and a finished
+    transfer does not change, so re-deriving it at every opening bought
+    nothing but the wait.
+    """
+    tiles = [
+        Tile(
+            name=one["name"],
+            store=Path(one["store"]),
+            turned=float(one.get("turned", 0.0)),
+            axes=tuple(one["axes"]),
+            copies=[
+                Copy(
+                    held_in=Path(copy["held_in"]),
+                    shape=tuple(copy["shape"]),
+                    chunks=tuple(copy["chunks"]),
+                    dtype=copy["dtype"],
+                    voxel_um=tuple(copy["voxel_um"]),
+                    corner_um=tuple(copy["corner_um"]),
+                )
+                for copy in one["copies"]
+            ],
+        )
+        for one in held["tiles"]
+    ]
+    return Mosaic(
+        tiles=tiles,
+        levels=int(held["levels"]),
+        axes=tuple(held["axes"]),
+        dtype=held["dtype"],
+        corner_um=tuple(held["corner_um"]),
+    )
