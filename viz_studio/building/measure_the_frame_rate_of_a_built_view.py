@@ -94,6 +94,7 @@ def main() -> int:
               f"{'frames/s':>9} {'usual':>8} {'worst':>8} {'lit':>5}")
         print(f"  {'':>6} {'':>8} {'opening/watching':>16}")
         print("  " + "-" * 68)
+        rows = []
         for tiles in rungs:
             transfer = work / f"transfer{tiles:05d}"
             write_a_transfer(transfer, tiles)
@@ -101,6 +102,8 @@ def main() -> int:
             store = declare_a_built_picture(views, transfer, name="built")
             row = watching.how_it_drew(browser, dist, views, [store.name],
                                        expect=1)
+            row["tiles"] = tiles
+            rows.append(row)
             print(f"  {tiles:>6} {row['opened']:>6.2f} s "
                   f"{row['asked_opening']:>8}/{row['asked_watching']:<7} "
                   f"{row['per_second']:>9.1f} {row['usual_ms']:>5.1f} ms "
@@ -108,6 +111,23 @@ def main() -> int:
                   flush=True)
             shutil.rmtree(transfer)
             shutil.rmtree(views)
+
+        if len(rows) >= 2:
+            first, last = rows[0], rows[-1]
+            grew = last["tiles"] / first["tiles"]
+            print(f"\n  From {first['tiles']} tile(s) to {last['tiles']} "
+                  f"-- {grew:.0f}x more:")
+            for name, key in (("opening", "opened"),
+                              ("requests to open", "asked_opening"),
+                              ("frames a second", "per_second"),
+                              ("usual frame", "usual_ms"),
+                              ("worst pause", "worst_ms")):
+                print(f"    {name:<17} "
+                      f"{last[key] / max(1e-9, first[key]):>6.1f}x")
+            print("\n  The browser is handed one source however many tiles the"
+                  "\n  transfer holds, so every line here should read close to"
+                  "\n  1.0x -- growth in this table is the one-image promise"
+                  "\n  leaking.")
     finally:
         browser.close()
         started.stop()
