@@ -302,6 +302,123 @@ def test_ground_a_commit_touched_is_rebuilt_not_remembered(tmp_path):
     )
 
 
+# -- serving through the real door: served.py, gated per request -----------------
+
+
+def test_a_governed_picture_is_served_with_the_gate_on(tmp_path):
+    """The whole path a browser takes, with the manifest consulted per request.
+
+    Declared once, served many: the picture's description is ordinary files,
+    and every piece asked of :mod:`served` reflects the manifest as of that
+    request — uncommitted ground absent, then present the moment its commit
+    lands, with no forget call and no restart between the two answers.
+    """
+    import served
+    from declare import declare_a_governed_picture
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    written_but_not_published(run, "posB", 4242)
+
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE)
+    try:
+        a_only, _, b_only = the_columns_of(run)
+        held = served.the_bytes_behind(store, f"0/c/0/0/{a_only}")
+        assert held is not None and 700 in decode(held, PIECE, "uint16",
+                                                  ("z", "y", "x"))
+        assert served.the_bytes_behind(store, f"0/c/0/0/{b_only}") is None
+
+        run.publish("posB")
+        appeared = served.the_bytes_behind(store, f"0/c/0/0/{b_only}")
+        assert appeared is not None and 4242 in decode(
+            appeared, PIECE, "uint16", ("z", "y", "x"))
+    finally:
+        served.forget(store)
+
+
+def test_a_picture_declared_over_a_runs_positions_is_refused(tmp_path):
+    """The gate cannot be walked around by declaring a transfer inside a run.
+
+    A declared picture reads its tiles straight through zarr, invisible to
+    the gateway — so a declaration whose transfer is a governed run's own
+    positions folder would serve withheld pixels past every fail-closed rule
+    the run has. Such a picture is refused at serving time, not trusted at
+    declaration time: ``built_from`` is file content, not an operator's
+    decision, so the declaration here is written by hand exactly as an
+    adversary would write it — the honest declare tool refuses these stores
+    for its own reasons long before this rule is reached.
+    """
+    import json
+
+    import served
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    written_but_not_published(run, "posB", 4242)
+
+    store = tmp_path / "sneak" / "bypass.ome.zarr"
+    store.mkdir(parents=True)
+    (store / "zarr.json").write_text(json.dumps({
+        "zarr_format": 3, "node_type": "group",
+        "attributes": {"zmart": {
+            "built_from": (run.folder / "positions").as_posix(),
+            "piece": PIECE,
+        }},
+    }), encoding="utf-8")
+    try:
+        assert served.the_bytes_behind(store, "0/c/0/0/0") is None, (
+            "a picture built over a governed run's positions folder must not "
+            "serve a single piece — it reads past the manifest"
+        )
+    finally:
+        served.forget(store)
+
+
+def test_a_governed_picture_that_cannot_be_made_answers_absent(tmp_path):
+    """Damage to the run is a logged absence at the wire, never a hung socket.
+
+    One half-written arrival used to make every request repeat the whole
+    transfer read forever; here the run's bookkeeping is gone entirely, and
+    the answer is a plain None per request.
+    """
+    import served
+    from declare import declare_a_governed_picture
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE)
+    import shutil
+    shutil.rmtree(run.folder / "zmart-live")
+
+    try:
+        assert served.the_bytes_behind(store, "0/c/0/0/0") is None
+        assert served.the_bytes_behind(store, "0/c/0/0/0") is None
+    finally:
+        served.forget(store)
+
+
+def test_a_run_of_several_channels_is_refused_at_the_declare_door(tmp_path):
+    """Half a picture must not ship: folding colours silently would be wrong.
+
+    The governed picture serves one channel today; a run recording more is
+    refused loudly at declaration, with the growth path named, rather than
+    shown with its colours collapsed into whichever came first.
+    """
+    from zmart_live.coordinator import LivePublisher
+
+    from declare import declare_a_governed_picture
+
+    profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1,
+                                  channels=("488", "561"))
+    run = LivePublisher(tmp_path, profile, run_id="two-colours",
+                        cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+                        timepoints=1)
+    with pytest.raises(ValueError, match="channel"):
+        declare_a_governed_picture(tmp_path / "shown", run.folder, name="live")
+
+
 # -- the commit boundary: serving must not hold the writer's files hostage -------
 
 

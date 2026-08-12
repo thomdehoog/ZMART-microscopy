@@ -380,8 +380,13 @@ class Composer:
         so asking for a corner of it costs exactly as much as asking for all of it
         and throws the rest away. Keeping it means the next piece of the picture
         along, which wants the same block, gets it for nothing.
+
+        The key carries ``outer`` beside the path: two copies of one store that
+        read different moments or channels hold different pixels under the same
+        (z, y, x), and a key without it would hand one moment's specimen to
+        another's request the day the picture grows those axes.
         """
-        key = (copy.held_in, at)
+        key = (copy.held_in, copy.outer, at)
         with self._block_guard:
             found = self._blocks.get(key)
             if found is not None:

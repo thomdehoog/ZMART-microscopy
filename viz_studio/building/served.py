@@ -33,17 +33,47 @@ than one they discover.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
+import time
 from pathlib import Path
 
 from composer import Composer
 from declare import OURS
 from mosaic import Mosaic, read_the_mosaic_as_written, read_the_transfer
 
-# One composer per built picture, kept for as long as the viewer is open on it.
-_composers: dict[Path, Composer | None] = {}
+# The governed-run pieces come from zmart_live, and a checkout without that
+# package must still serve every ordinary built picture -- the same guard the
+# backend server keeps for this module itself.
+try:
+    from zmart_live.gateway import live_run_holding
+
+    from governed import GovernedRun
+except ImportError:  # pragma: no cover - a checkout without zmart_live
+    GovernedRun = None  # type: ignore[assignment, misc]
+
+    def live_run_holding(target):  # type: ignore[misc]
+        return None
+
+
+log = logging.getLogger("viz_studio.serving")
+
+# One composer per built picture, kept for as long as the viewer is open on
+# it. A governed picture keeps its GovernedRun here instead, because its
+# composer is not one object but one per manifest state, and the run is what
+# hands out the current one.
+_composers: dict[Path, Composer | GovernedRun | None] = {}
 _guard = threading.Lock()
+
+# Pictures whose composer could not be made, each with the moment it failed.
+# Remembered briefly rather than forever: one half-written arrival used to
+# make every request repeat the whole transfer read behind the making-lock --
+# a standing denial of service -- while remembering the failure for good
+# would hide a run that has recovered. Two seconds keeps the disk quiet and
+# notices recovery on the next ask after it.
+_REFUSED_FOR_SECONDS = 2.0
+_refused: dict[Path, float] = {}
 
 # One lock per picture, held while its composer is being made.
 #
@@ -70,7 +100,8 @@ def _what_it_was_built_from(store: Path) -> dict | None:
     except (OSError, ValueError):
         return None
     ours = (held.get("attributes") or {}).get(OURS)
-    if isinstance(ours, dict) and ours.get("built_from"):
+    if isinstance(ours, dict) and (ours.get("built_from")
+                                   or ours.get("governed_from")):
         return ours
     return None
 
@@ -92,17 +123,24 @@ def _the_mosaic_behind(store: Path, ours: dict) -> Mosaic:
     return read_the_transfer(Path(ours["built_from"]))
 
 
-def _composer_for(store: Path) -> Composer | None:
+def _composer_for(store: Path) -> Composer | GovernedRun | None:
     """The composer for this picture, opened once and kept.
 
     ``None`` — remembered as well as returned — for an ordinary image, so that a
     store which is not built costs one look at its description for the whole time
-    the viewer is open rather than one per piece asked for.
+    the viewer is open rather than one per piece asked for. A failure to make
+    one is remembered too, but briefly (see ``_refused``): permanent for a
+    plain image, timed for damage, so a run that recovers is noticed.
     """
     store = store.resolve()
     with _guard:
         if store in _composers:
             return _composers[store]
+        stumbled = _refused.get(store)
+        if stumbled is not None:
+            if time.monotonic() - stumbled < _REFUSED_FOR_SECONDS:
+                return None
+            del _refused[store]
         making = _being_made.setdefault(store, threading.Lock())
 
     # Held across the reading of the transfer, so the many requests the engine
@@ -113,28 +151,69 @@ def _composer_for(store: Path) -> Composer | None:
                 return _composers[store]
         ours = _what_it_was_built_from(store)
         made = None
-        if ours is not None:
-            # ZMART_BUILD_WORKERS is how many processes build this picture,
-            # so one against four is two launches of the same viewer. Unset
-            # means one: build in place, the path every recorded figure
-            # describes and the one the operator chose as the default.
-            workers = int(os.environ.get("ZMART_BUILD_WORKERS") or 1)
-            made = Composer(_the_mosaic_behind(store, ours),
-                            piece=int(ours.get("piece") or 512),
-                            workers=workers)
-            # The cold start, paid in the background from the first request on:
-            # the coarse levels are built coarsest-first while the viewer shows
-            # whatever the operator asked for, stepping aside whenever a real
-            # request is being answered. Started here rather than inside the
-            # composer, because the measurement harnesses build composers too
-            # and must keep meeting the cold costs they exist to measure. A
-            # baked picture already holds that ground as files, so warming it
-            # again would only burn the processor it was baked to spare.
-            if not ours.get("baked"):
-                made.keep_the_coarse_levels_warm()
+        try:
+            made = _the_serving_behind(store, ours)
+        except Exception:
+            log.exception("the picture at %s could not be opened; answering "
+                          "absent for the next %.0f seconds", store,
+                          _REFUSED_FOR_SECONDS)
+            with _guard:
+                _refused[store] = time.monotonic()
+            return None
         with _guard:
             _composers[store] = made
             return made
+
+
+def _the_serving_behind(store: Path, ours: dict | None
+                        ) -> Composer | GovernedRun | None:
+    """What answers for this store: a composer, a governed run, or nothing.
+
+    The one policy decision lives here: a picture whose transfer lies inside
+    a governed run is refused outright. A declared picture reads its tiles
+    straight through zarr, invisible to the gateway, so honouring it would be
+    a door past every fail-closed rule the run has — and ``built_from`` is
+    file content, not an operator's decision. The run's own ground is served
+    through ``governed_from``, where the manifest rules every request.
+    """
+    if ours is None:
+        return None
+    governs = ours.get("governed_from")
+    if governs:
+        if GovernedRun is None:
+            raise RuntimeError(
+                "this checkout has no zmart_live, so a governed picture "
+                "cannot consult any manifest and will not be served."
+            )
+        return GovernedRun(Path(governs), piece=int(ours.get("piece") or 512))
+    transfer = Path(ours["built_from"])
+    holding = live_run_holding(transfer)
+    if holding is not None:
+        log.warning(
+            "refusing the picture at %s: its transfer %s lies inside the "
+            "governed run at %s, which would serve the run's pixels past its "
+            "manifest. Declare the run itself instead.", store, transfer,
+            holding)
+        return None
+    # ZMART_BUILD_WORKERS is how many processes build this picture,
+    # so one against four is two launches of the same viewer. Unset
+    # means one: build in place, the path every recorded figure
+    # describes and the one the operator chose as the default.
+    workers = int(os.environ.get("ZMART_BUILD_WORKERS") or 1)
+    made = Composer(_the_mosaic_behind(store, ours),
+                    piece=int(ours.get("piece") or 512),
+                    workers=workers)
+    # The cold start, paid in the background from the first request on:
+    # the coarse levels are built coarsest-first while the viewer shows
+    # whatever the operator asked for, stepping aside whenever a real
+    # request is being answered. Started here rather than inside the
+    # composer, because the measurement harnesses build composers too
+    # and must keep meeting the cold costs they exist to measure. A
+    # baked picture already holds that ground as files, so warming it
+    # again would only burn the processor it was baked to spare.
+    if not ours.get("baked"):
+        made.keep_the_coarse_levels_warm()
+    return made
 
 
 def the_bytes_behind(store: Path, inside: str) -> bytes | None:
@@ -152,13 +231,13 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
         is most of it. All four are ordinary answers rather than faults, served
         as absent and painted by the engine from the declared fill value.
     """
-    composer = _composer_for(Path(store))
-    if composer is None:
+    held = _composer_for(Path(store))
+    if held is None:
         return None
     parts = inside.strip("/").split("/")
-    if len(parts) != 5 or parts[1] != "c" or not parts[0].isdigit():
+    if len(parts) != 5 or parts[1] != "c" or not parts[0].isdecimal():
         return None
-    if not all(one.isdigit() for one in parts[2:]):
+    if not all(one.isdecimal() for one in parts[2:]):
         return None
     # Ground the declaration baked is a real file, answered as one: no
     # building, no tiles, immune to everything that makes building slow. This
@@ -169,14 +248,30 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
     baked = Path(store).joinpath(parts[0], "c", *parts[2:])
     if baked.is_file():
         return baked.read_bytes()
-    level = int(parts[0])
-    if not 0 <= level < composer.mosaic.levels:
+    # Everything from here can genuinely fail -- a rollback deleting a store
+    # mid-read, damage under committed ground refusing to be papered over --
+    # and every failure is the same answer at the wire: absent, with the
+    # reason in the log rather than in a dying connection. The engine paints
+    # fill for absent ground, which for withheld and damaged ground alike is
+    # the fail-closed picture.
+    try:
+        # A governed picture's composer is one per manifest state, so it is
+        # asked for on every request; while nothing has been committed the
+        # same object comes straight back.
+        composer = held.composer() if GovernedRun is not None and isinstance(
+            held, GovernedRun) else held
+        level = int(parts[0])
+        if not 0 <= level < composer.mosaic.levels:
+            return None
+        plane, row, column = (int(one) for one in parts[2:])
+        deep, down, across = composer.grid(level)
+        if not (0 <= plane < deep and 0 <= row < down and 0 <= column < across):
+            return None
+        return composer.bytes_for(level, plane, row, column)
+    except Exception:
+        log.exception("the piece %s of %s could not be served; answering "
+                      "absent", inside, store)
         return None
-    plane, row, column = (int(one) for one in parts[2:])
-    deep, down, across = composer.grid(level)
-    if not (0 <= plane < deep and 0 <= row < down and 0 <= column < across):
-        return None
-    return composer.bytes_for(level, plane, row, column)
 
 
 def forget(store: Path) -> None:
@@ -190,5 +285,6 @@ def forget(store: Path) -> None:
         where = Path(store).resolve()
         held = _composers.pop(where, None)
         _being_made.pop(where, None)
+        _refused.pop(where, None)
     if held is not None:
         held.close()

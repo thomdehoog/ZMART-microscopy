@@ -143,6 +143,16 @@ class TheWorldFrame(Mosaic):
         return found  # type: ignore[return-value]
 
     @property
+    def channels_recorded(self) -> tuple[str, ...]:
+        """The colours the run records — the profile's, not any tile's.
+
+        Asked by the declare door: a picture that can serve one channel must
+        refuse a run recording several, and it must be able to refuse before
+        a single position has arrived.
+        """
+        return tuple(self._profile.channels)
+
+    @property
     def slab_depths(self) -> list[int]:
         """How many planes one file holds per level, from the profile.
 
@@ -256,6 +266,14 @@ class GovernedRun:
                                 (at[2] + held[2] - 1) // self._piece + 1):
                             reached.add((row, column))
         return dirty
+
+    def close(self) -> None:
+        """Let go of the held snapshot, closing whatever it holds open."""
+        with self._guard:
+            held, self._held, self._mark = self._held, None, None
+            self._drawing = {}
+        if held is not None:
+            held.close()
 
     def _the_store_of(self, position_id: str, generation: int) -> Path:
         """Where one published position's current pixels live.
