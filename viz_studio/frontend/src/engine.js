@@ -1246,8 +1246,33 @@ export function chooseScaleWhenTheImagesAreMeasured(viewer) {
  * the operator has actually switched between the flat view and the volume — never
  * as a side effect of some unrelated change.
  */
+/**
+ * Carry the visible field across a switch between the flat and volume views.
+ *
+ * The two views keep separate zooms and count them differently: the flat zoom
+ * is specimen per screen pixel, the volume zoom is specimen across the height
+ * of the panel. Left unconverted, a switch jumped the magnification to
+ * wherever the other view happened to last be, so the operator lost their
+ * place in scale even though the position held. The panel's height is the
+ * exchange rate, and both views draw in the same box, so the height of the
+ * panel being left is the height of the one arriving.
+ */
+function carryTheFieldAcross(viewer, from, to) {
+  const panels = [...(viewer.display?.panels ?? [])];
+  const height = panels[0]?.renderViewport?.logicalHeight;
+  if (!height) return;
+  const flat = viewer.navigationState.zoomFactor;
+  const volume = viewer.perspectiveNavigationState.zoomFactor;
+  if (from === "xy" && to === "3d") volume.value = flat.value * height;
+  else if (from === "3d" && to === "xy") flat.value = volume.value / height;
+}
+
 export function syncView(viewer, { layout, chrome }) {
-  if (viewer.layout.toJSON() !== layout) viewer.layout.restoreState(layout);
+  const leaving = viewer.layout.toJSON();
+  if (leaving !== layout) {
+    carryTheFieldAcross(viewer, leaving, layout);
+    viewer.layout.restoreState(layout);
+  }
   viewer.showDefaultAnnotations.value = chrome;
   viewer.showAxisLines.value = chrome;
   // Neuroglancer's own scale bars are off. It draws one per axis along the bottom

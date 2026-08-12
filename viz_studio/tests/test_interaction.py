@@ -320,6 +320,61 @@ def test_the_wheel_zooms_the_volume_too(viewer_page):
     )
 
 
+_FLAT_FIELD = "() => window.zmartViewer.navigationState.zoomFactor.value"
+
+_VOLUME_FIELD = """() => {
+  const v = window.zmartViewer;
+  const panel = [...v.display.panels].find(
+    (p) => 'sliceViews' in p && !('sliceView' in p));
+  return v.perspectiveNavigationState.zoomFactor.value
+       / panel.renderViewport.logicalHeight;
+}"""
+
+
+def test_switching_modes_keeps_the_field_and_the_place(viewer_page):
+    """2-D and 3-D show the same stretch of specimen, before and after a switch.
+
+    The two views keep separate zooms and count them differently -- the flat
+    zoom is specimen per screen pixel, the volume zoom is specimen across the
+    height of the panel -- so without conversion a switch jumps the
+    magnification to wherever the other view happened to last be. Both
+    directions are asserted, each after the operator has zoomed, and the
+    position must not move either way.
+    """
+    point = centre(viewer_page)
+    viewer_page.mouse.move(point["x"], point["y"])
+    for _ in range(3):
+        viewer_page.mouse.wheel(0, -300)
+    viewer_page.wait_for_timeout(600)
+    flat_before = viewer_page.evaluate(_FLAT_FIELD)
+    place_before = viewer_page.evaluate(_STATE)["position"]
+
+    viewer_page.click("text=3D")
+    viewer_page.wait_for_timeout(2000)
+    assert viewer_page.evaluate(_VOLUME_FIELD) == pytest.approx(flat_before, rel=0.01), (
+        "switching to 3-D changed how much specimen the window shows"
+    )
+    assert viewer_page.evaluate(_STATE)["position"] == place_before, (
+        "switching to 3-D moved the position"
+    )
+
+    viewer_page.mouse.move(point["x"], point["y"])
+    for _ in range(2):
+        viewer_page.mouse.wheel(0, -300)
+    viewer_page.wait_for_timeout(600)
+    volume_before = viewer_page.evaluate(_VOLUME_FIELD)
+    place_before = viewer_page.evaluate(_STATE)["position"]
+
+    viewer_page.click("text=2D")
+    viewer_page.wait_for_timeout(2000)
+    assert viewer_page.evaluate(_FLAT_FIELD) == pytest.approx(volume_before, rel=0.01), (
+        "switching back to 2-D changed how much specimen the window shows"
+    )
+    assert viewer_page.evaluate(_STATE)["position"] == place_before, (
+        "switching back to 2-D moved the position"
+    )
+
+
 def test_dragging_rotates_once_in_three_d(viewer_page):
     viewer_page.click("text=3D")
     viewer_page.wait_for_timeout(2000)
