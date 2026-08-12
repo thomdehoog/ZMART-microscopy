@@ -109,6 +109,11 @@ class TheWorldFrame(Mosaic):
             axes=("z", "y", "x"),
             dtype=str(profile.dtype),
             corner_um=origin_um,
+            # The run's writer halves by averaging 2x2 blocks (coordinator
+            # _halve), so the picture's levels need the half-voxel-per-halving
+            # registration — see Mosaic.averaged for what going without it
+            # looks like on screen.
+            averaged=True,
         )
         self._layout = layout
         self._profile = profile

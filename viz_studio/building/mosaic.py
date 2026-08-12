@@ -194,6 +194,17 @@ class Mosaic:
     axes: tuple[str, ...]
     dtype: str
     corner_um: tuple[float, float, float] = field(default=(0.0, 0.0, 0.0))
+    # Whether the tiles' coarser copies were made by AVERAGING blocks rather
+    # than by taking every second voxel. It decides the picture's per-level
+    # registration: an averaged coarse voxel's centre sits half a fine voxel
+    # along each halved axis, so each level's declared translation must step
+    # by (voxel_L - voxel_0) / 2 — where a decimated copy's centre IS a fine
+    # voxel's centre and must not be shifted. Declared wrong either way, the
+    # levels draw a fixed diagonal apart, and the operator sees any one-frame
+    # level substitution as a deterministic top-left twitch. False for
+    # transfers (mesoSPIM decimates); a governed run's writer averages and
+    # says so.
+    averaged: bool = False
 
     # Where every tile lands, and how large the picture is, worked out once per
     # resolution and kept.

@@ -704,19 +704,30 @@ class Composer:
         Thy1 set leaves depth alone for three levels, its voxels being 1 micrometre
         deep against 0.17 across.
 
-        The picture also says its smaller copies were made by taking every second
-        voxel rather than by averaging, because that is what the tiles' own copies
-        are: nothing here re-shrinks anything, it places what the tile already has.
+        How the copies were shrunk decides two things here, so the mosaic says
+        which it was (see :attr:`Mosaic.averaged`). A decimated copy — every
+        second voxel, what a mesoSPIM transfer keeps — has fine voxels' own
+        centres and every level shares one translation. An averaged copy's
+        centres sit half a fine voxel along each halved axis, so each level's
+        translation steps by (voxel_L - voxel_0) / 2 — declared any other way,
+        the levels draw a fixed diagonal apart, which the operator saw as a
+        deterministic top-left twitch whenever one level stood in for another
+        for a frame. The placement arithmetic is untouched either way: content
+        and grid shift together, so where a tile lands cancels the offset.
         """
+        base = self.mosaic.voxel_um(0)
         datasets = []
         for level in range(self.mosaic.levels):
             voxel = self.mosaic.voxel_um(level)
+            at = list(self.mosaic.corner_um)
+            if self.mosaic.averaged:
+                at = [at[axis] + (voxel[axis] - base[axis]) / 2
+                      for axis in range(3)]
             datasets.append({
                 "path": str(level),
                 "coordinateTransformations": [
                     {"type": "scale", "scale": list(voxel)},
-                    {"type": "translation",
-                     "translation": list(self.mosaic.corner_um)},
+                    {"type": "translation", "translation": at},
                 ],
             })
         return json.dumps({
@@ -725,7 +736,7 @@ class Composer:
                     "version": "0.5",
                     "multiscales": [{
                         "name": "built",
-                        "type": "nearest",
+                        "type": "mean" if self.mosaic.averaged else "nearest",
                         "axes": [
                             {"name": "z", "type": "space", "unit": "micrometer"},
                             {"name": "y", "type": "space", "unit": "micrometer"},

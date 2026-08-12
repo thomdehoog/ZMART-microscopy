@@ -302,6 +302,100 @@ def test_ground_a_commit_touched_is_rebuilt_not_remembered(tmp_path):
     )
 
 
+# -- the pyramid's levels agree where the specimen is -----------------------------
+
+
+def test_the_levels_of_a_governed_picture_are_registered_to_each_other(tmp_path):
+    """Averaged copies sit half a fine voxel along; the description must say so.
+
+    The run's writer halves by AVERAGING 2x2 blocks, so the centre of a
+    coarse voxel sits half a fine voxel down and right of the fine voxel it
+    starts from — and a description that declares every level at the same
+    translation draws each level a fixed diagonal apart. The operator saw
+    that as a deterministic top-left twitch whenever the viewer showed a
+    region at one level for a frame before another. Each level's declared
+    translation must therefore step by (voxel_L - voxel_0) / 2 per axis.
+    """
+    import json
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    composer = GovernedRun(run.folder, piece=PIECE).composer()
+
+    described = json.loads(composer.group_json())
+    datasets = described["attributes"]["ome"]["multiscales"][0]["datasets"]
+    base = datasets[0]["coordinateTransformations"]
+    base_voxel = next(one for one in base if one["type"] == "scale")["scale"]
+    base_at = next(one for one in base if one["type"] == "translation")["translation"]
+
+    for dataset in datasets[1:]:
+        transforms = dataset["coordinateTransformations"]
+        voxel = next(one for one in transforms if one["type"] == "scale")["scale"]
+        at = next(one for one in transforms
+                  if one["type"] == "translation")["translation"]
+        for axis in range(3):
+            expected = base_at[axis] + (voxel[axis] - base_voxel[axis]) / 2
+            assert at[axis] == pytest.approx(expected), (
+                f"level {dataset['path']} axis {axis}: declared {at[axis]}, "
+                f"but averaged content sits at {expected} — the levels are "
+                "drawn a fixed diagonal apart and swap-twitch on screen"
+            )
+
+
+def test_a_transfers_decimated_levels_keep_their_own_registration(tmp_path):
+    """The offset belongs to averaging; a decimated pyramid gets none.
+
+    A mesoSPIM tile's coarse copy takes every second voxel, whose centre IS
+    the fine voxel's centre — shifting those levels would misregister a
+    transfer that is correct today (Thy1 was proven to the voxel).
+    """
+    import json
+
+    import numpy as np
+    import zarr
+
+    from composer import Composer
+    from mosaic import read_the_transfer
+
+    transfer = tmp_path / "transfer"
+    store = transfer / "tile.ome.zarr"
+    datasets = []
+    for level in range(2):
+        shrink = 2 ** level
+        array = zarr.create_array(
+            store=str(store / str(level)), shape=(1, 64 // shrink, 64 // shrink),
+            chunks=(1, 64 // shrink, 64 // shrink), dtype="uint16",
+            zarr_format=3, dimension_names=["z", "y", "x"], overwrite=True)
+        array[:] = 700
+        datasets.append({
+            "path": str(level),
+            "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 0.5 * shrink, 0.5 * shrink]},
+                {"type": "translation", "translation": [0.0, 0.0, 0.0]},
+            ],
+        })
+    (store / "zarr.json").write_text(json.dumps({
+        "attributes": {"ome": {"version": "0.5", "multiscales": [{
+            "name": "tile", "type": "nearest",
+            "axes": [{"name": "z", "type": "space", "unit": "micrometer"},
+                     {"name": "y", "type": "space", "unit": "micrometer"},
+                     {"name": "x", "type": "space", "unit": "micrometer"}],
+            "datasets": datasets}]}},
+        "zarr_format": 3, "node_type": "group"}), encoding="utf-8")
+
+    composer = Composer(read_the_transfer(transfer), piece=32)
+    described = json.loads(composer.group_json())
+    held = described["attributes"]["ome"]["multiscales"][0]["datasets"]
+    for dataset in held:
+        at = next(one for one in dataset["coordinateTransformations"]
+                  if one["type"] == "translation")["translation"]
+        assert at == [0.0, 0.0, 0.0], (
+            "a decimated pyramid's levels were shifted — that misregisters "
+            "every transfer that is correct today"
+        )
+    assert np.array(composer.mosaic.corner_um).tolist() == [0.0, 0.0, 0.0]
+
+
 # -- serving through the real door: served.py, gated per request -----------------
 
 
