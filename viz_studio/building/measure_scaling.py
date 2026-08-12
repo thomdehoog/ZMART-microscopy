@@ -65,8 +65,13 @@ VOXEL_UM = (1.0, 0.5, 0.5)
 STEP_UM = 114.87
 
 # How many copies of its picture each tile keeps, and how they are chunked. The
-# chunk halves with the picture, which is what a mesoSPIM transfer does.
-LEVELS = 2
+# chunk halves with the picture, which is what a mesoSPIM transfer does. Six
+# copies, L0 to L5, each halving y and x: the depth a real transfer carries.
+# With only two, zooming out soon has nothing coarser to step to and the piece
+# count grows with the square of the zoom -- a fixture artefact that showed up
+# as two walls of slowness on a demonstration, not anything the architecture
+# does.
+LEVELS = 6
 
 # How many pieces to time at each rung. Enough to take a median rather than a
 # reading.
