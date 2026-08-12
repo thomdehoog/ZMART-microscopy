@@ -51,6 +51,7 @@ import json
 import threading
 import time
 from collections import OrderedDict
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 import zarr
@@ -118,15 +119,51 @@ CODECS = [
 PINNED_SHARE = 0.01
 
 
+# The composer a worker process builds for itself, held at module level because
+# a process pool initializer has nowhere else to put it. Each worker gets its
+# own, made once from the written-down mosaic, with small caches and no pinning
+# -- pinning is the parent's job, and twelve workers each pinning the coarse
+# levels would hold the same ground twelve times over.
+_WORKING_ON: Composer | None = None
+
+
+def _start_working(written: dict, piece: int, budget: int) -> None:
+    """Give this worker process its own composer, built from the ledger."""
+    global _WORKING_ON
+    from mosaic import read_the_mosaic_as_written
+    _WORKING_ON = Composer(read_the_mosaic_as_written(written), piece=piece,
+                           weighing_at_most=budget,
+                           blocks_weighing_at_most=budget, pinning=False)
+
+
+def _build_in_worker(level: int, plane: int, row: int, column: int):
+    return _WORKING_ON._slab_for(level, plane, row, column)
+
+
 class Composer:
-    """Answers for a picture that is never stored, out of the tiles that are."""
+    """Answers for a picture that is never stored, out of the tiles that are.
+
+    ``workers`` turns on building in separate processes, and it is a count so
+    one against four against twelve can be measured side by side. Off by
+    default, because the single-process path is the one every figure in this
+    folder describes -- and because processes are only worth their machinery
+    where the work is interpreter-bound, which the coarse ground measurably is:
+    twelve threads built the 12,800-position survey's coarsest level no faster
+    than one (12.7 s either way), since a coarse piece is thousands of tiny
+    reads whose bookkeeping all queues behind the interpreter's lock.
+    """
 
     def __init__(self, mosaic: Mosaic, piece: int = PIECE,
                  weighing_at_most: int = SLABS_WEIGH_AT_MOST,
-                 blocks_weighing_at_most: int = BLOCKS_WEIGH_AT_MOST) -> None:
+                 blocks_weighing_at_most: int = BLOCKS_WEIGH_AT_MOST,
+                 workers: int = 0, pinning: bool = True) -> None:
         self.mosaic = mosaic
         self.piece = piece
         self._weighing_at_most = weighing_at_most
+        self._workers = int(workers or 0)
+        self._pinning = pinning
+        self._pool: ProcessPoolExecutor | None = None
+        self._pool_guard = threading.Lock()
 
         # Decoded blocks of the tiles, most recently used last. Kept because a
         # piece of the picture is smaller than a block of a tile, so neighbouring
@@ -366,7 +403,7 @@ class Composer:
         """
         depth = self.slab_depth(level)
         key = (level, (plane // depth) * depth, row, column)
-        pinned = level in self.pinned_levels
+        pinned = self._pinning and level in self.pinned_levels
         with self._guard:
             found = self._pinned.get(key)
             if found is not None:
@@ -375,7 +412,7 @@ class Composer:
             if found is not None:
                 self._slabs.move_to_end(key)
                 return found
-        built = self._build_slab(level, plane, row, column)
+        built = self._built_wherever(level, plane, row, column)
         with self._guard:
             if pinned:
                 self._pinned.setdefault(key, built)
@@ -453,6 +490,40 @@ class Composer:
                         while self._answering:
                             time.sleep(0.005)
                         self._slab_for(level, low_z, row, column)
+
+    @property
+    def working_alone(self) -> bool:
+        """Whether every slab is built in this process, the measured default."""
+        return not self._workers
+
+    def _built_wherever(self, level: int, plane: int, row: int, column: int):
+        """Build a slab here, or hand it to a worker process when they exist."""
+        if not self._workers:
+            return self._build_slab(level, plane, row, column)
+        with self._pool_guard:
+            if self._pool is None:
+                # Each worker is handed the written-down mosaic once, so workers
+                # read the ledger rather than walking the transfer, exactly as
+                # opening does. Their cache budgets are the parent's divided
+                # between them, so turning workers on does not multiply memory.
+                from mosaic import the_mosaic_written_down
+                budget = SLABS_WEIGH_AT_MOST // self._workers
+                self._pool = ProcessPoolExecutor(
+                    max_workers=self._workers,
+                    initializer=_start_working,
+                    initargs=(the_mosaic_written_down(self.mosaic), self.piece,
+                              max(budget, 64 * 1024 * 1024)),
+                )
+            pool = self._pool
+        return pool.submit(_build_in_worker, level, plane, row, column).result()
+
+    def close(self) -> None:
+        """Stop the warmer and let the worker processes go."""
+        self.stop_warming()
+        with self._pool_guard:
+            pool, self._pool = self._pool, None
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     def keep_the_coarse_levels_warm(self) -> None:
         """Run the warm pass in the background, once, letting requests through."""

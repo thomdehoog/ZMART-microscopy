@@ -453,6 +453,56 @@ def test_opening_a_served_picture_starts_the_warming(a_transfer: Path,
     served.forget(store)
 
 
+def test_worker_processes_build_the_same_bytes(a_transfer: Path):
+    """Pieces built by worker processes are identical to ones built in place.
+
+    The workers exist because the coarse ground is interpreter-bound -- twelve
+    threads built the 12,800-position survey's coarsest level no faster than
+    one -- so real parallelism needs separate processes. They must change only
+    where the work happens, never the bytes: every piece of every level is
+    compared against the single-process build, asked for in a parallel storm
+    the way a browser asks, because that is how the shared-encoder bug once
+    slipped past every polite check.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    mosaic = read_the_transfer(a_transfer)
+    alone = Composer(mosaic)
+    together = Composer(mosaic, workers=2)
+    try:
+        for level in range(mosaic.levels):
+            deep, down, across = together.grid(level)
+            asked = [(level, plane, row, column)
+                     for plane in range(deep)
+                     for row in range(down)
+                     for column in range(across)]
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                answered = list(pool.map(lambda one: together.bytes_for(*one),
+                                         asked))
+            for one, answer in zip(asked, answered, strict=True):
+                assert answer == alone.bytes_for(*one), (
+                    f"piece {one} differs between the worker build and the "
+                    "in-place build"
+                )
+    finally:
+        together.close()
+
+
+def test_workers_stay_off_unless_asked_for(a_transfer: Path):
+    """The single-process path is the default, so the two can be compared.
+
+    Optional on purpose: the switch is what lets the same picture be served
+    both ways side by side, and it means every existing measurement keeps
+    describing the code it measured.
+    """
+    mosaic = read_the_transfer(a_transfer)
+    composer = Composer(mosaic)
+    composer.bytes_for(0, 0, 0, 0)
+    assert composer.working_alone, (
+        "a composer nobody asked for workers is using them"
+    )
+
+
 def test_a_declared_picture_holds_no_pixels(a_transfer: Path, tmp_path: Path):
     """The folder is a description and nothing else; the tiles keep the picture."""
     store = declare_a_built_picture(tmp_path / "views", a_transfer, name="built",
