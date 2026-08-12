@@ -1113,7 +1113,24 @@ function startTimeAtTheFirstMoment(viewer) {
  * Returns whether anything could be done, which is false only before the image
  * has said how big it is.
  */
-export function bringThePictureBack(viewer) {
+/**
+ * One press shows the whole picture: centred, and zoomed so it fits the window.
+ *
+ * The zoom is computed rather than reset, because the engine's default zoom
+ * knows nothing about this picture -- on a survey it left the operator centred
+ * but still deep in detail, filling a third of the window with specimen and
+ * the rest with ground beyond it. How many pixels an axis of the picture
+ * occupies is its voxel extent times the engine's own per-axis factor divided
+ * by the zoom (the scale bar reads its size from the same arithmetic), so the
+ * fitting zoom is whatever makes the largest axis just fill its side of the
+ * window, with a small margin so the edge is visibly an edge.
+ *
+ * The volume view counts its zoom across the height of the panel rather than
+ * per pixel, and its box can be turned, so the box is fitted against the
+ * window's smaller side. Where a viewport or a bound is missing, the engine's
+ * default zoom is kept -- a wrong guess dressed as a fit would be worse.
+ */
+export function showTheWholePicture(viewer) {
   const { position } = viewer.navigationState;
   const space = position.coordinateSpace.value;
   if (!space?.rank) return false;
@@ -1122,8 +1139,9 @@ export function bringThePictureBack(viewer) {
   // the depth the operator is looking through, and moving it would step them
   // somewhere else in the stack, which is what the test below caught: in a
   // cross-section the engine still counts the perpendicular axis as displayed.
-  const drawn = viewer.navigationState.pose.displayDimensions.value;
-  const onScreen = new Set((drawn?.displayDimensionIndices ?? []).slice(0, 2));
+  const render = viewer.navigationState.pose.displayDimensionRenderInfo.value;
+  const drawn = Array.from(render?.displayDimensionIndices ?? []);
+  const onScreen = new Set(drawn.slice(0, 2));
   const { lowerBounds, upperBounds } = space.bounds;
 
   const middle = Float32Array.from(position.value);
@@ -1135,8 +1153,41 @@ export function bringThePictureBack(viewer) {
   }
   position.value = middle;
 
-  viewer.navigationState.zoomFactor.reset();
-  viewer.perspectiveNavigationState.zoomFactor.reset();
+  const extent = (axis) => {
+    const low = lowerBounds[axis];
+    const high = upperBounds[axis];
+    return Number.isFinite(low) && Number.isFinite(high) ? high - low : null;
+  };
+
+  let flat = null;
+  let volume = null;
+  for (const panel of viewer.display?.panels ?? []) {
+    if ("sliceView" in panel) flat = panel.renderViewport;
+    else if ("sliceViews" in panel) volume = panel.renderViewport;
+  }
+
+  let fit = 0;
+  drawn.slice(0, 2).forEach((axis, slot) => {
+    const across = extent(axis);
+    const pixels = slot === 0 ? flat?.logicalWidth : flat?.logicalHeight;
+    if (across === null || !pixels) return;
+    fit = Math.max(fit, (across * render.canonicalVoxelFactors[slot]) / pixels);
+  });
+  if (fit > 0) viewer.navigationState.zoomFactor.value = fit * 1.02;
+  else viewer.navigationState.zoomFactor.reset();
+
+  let boxFit = 0;
+  const smaller = Math.min(volume?.logicalWidth ?? 0, volume?.logicalHeight ?? 0);
+  drawn.slice(0, 3).forEach((axis, slot) => {
+    const across = extent(axis);
+    if (across === null || !smaller) return;
+    boxFit = Math.max(
+      boxFit,
+      (across * render.canonicalVoxelFactors[slot] * volume.logicalHeight) / smaller,
+    );
+  });
+  if (boxFit > 0) viewer.perspectiveNavigationState.zoomFactor.value = boxFit * 1.05;
+  else viewer.perspectiveNavigationState.zoomFactor.reset();
   return true;
 }
 
