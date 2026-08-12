@@ -43,6 +43,7 @@ import shutil
 import statistics
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -71,13 +72,27 @@ LEVELS = 2
 # reading.
 SAMPLES = 9
 
+# How many requests arrive together when a browser draws a screenful. Twelve is
+# what check.py fires in its parallel test, and it is the size of gesture the
+# viewer actually produces -- pieces are never asked for one at a time.
+ASKED_AT_ONCE = 12
 
-def write_a_transfer(folder: Path, tiles: int) -> Path:
+
+def write_a_transfer(folder: Path, tiles: int, tile: tuple[int, int, int] = TILE,
+                     step_um: float = STEP_UM) -> Path:
     """Write a synthetic transfer of ``tiles`` positions on a fractional grid."""
     folder.mkdir(parents=True, exist_ok=True)
     across = max(1, int(np.ceil(np.sqrt(tiles))))
     seed = np.random.default_rng(0)
-    picture = seed.integers(200, 4000, TILE, dtype="uint16")
+    # Random pixels, so nothing compresses away and reads unrealistically fast.
+    # Bright ones, spanning the upper half of what sixteen bits can hold: a
+    # viewer that opens this without being told a display window shows it at
+    # full-range brightness, and the check asking "was anything actually drawn"
+    # can see the answer. Dim specimen-range noise, which this used to be,
+    # reached the screen at a few per cent brightness and read as an empty
+    # panel -- the exact trap measure_the_frame_rate_of_a_linked_view.py
+    # documents at its MID and SWING constants.
+    picture = seed.integers(24000, 56000, tile, dtype="uint16")
 
     for number in range(tiles):
         row, column = divmod(number, across)
@@ -85,7 +100,7 @@ def write_a_transfer(folder: Path, tiles: int) -> Path:
         datasets = []
         for level in range(LEVELS):
             shrink = 2 ** level
-            shape = (TILE[0], TILE[1] // shrink, TILE[2] // shrink)
+            shape = (tile[0], tile[1] // shrink, tile[2] // shrink)
             array = zarr.create_array(
                 store=str(store / str(level)), shape=shape, chunks=shape,
                 dtype="uint16", zarr_format=3, dimension_names=["z", "y", "x"],
@@ -99,7 +114,7 @@ def write_a_transfer(folder: Path, tiles: int) -> Path:
                      "scale": [VOXEL_UM[0], VOXEL_UM[1] * shrink,
                                VOXEL_UM[2] * shrink]},
                     {"type": "translation",
-                     "translation": [0.0, row * STEP_UM, column * STEP_UM]},
+                     "translation": [0.0, row * step_um, column * step_um]},
                 ],
             })
         (store / "zarr.json").write_text(json.dumps({
@@ -174,17 +189,76 @@ def measure(folder: Path, tiles: int) -> dict:
     }
 
 
+def _asked_together(composer: Composer, level: int,
+                    pieces: list[tuple[int, int]]) -> float:
+    """Ask for these pieces at once, the way a browser does, and time the lot."""
+    with ThreadPoolExecutor(max_workers=ASKED_AT_ONCE) as pool:
+        began = time.perf_counter()
+        list(pool.map(lambda rc: composer.bytes_for(level, 0, rc[0], rc[1]),
+                      pieces))
+        return (time.perf_counter() - began) * 1000
+
+
+def gestures(folder: Path) -> dict:
+    """Time the three movements an operator makes, rather than single pieces.
+
+    Each cold gesture starts from a freshly read transfer, because what is being
+    timed is the first one after opening the picture -- the one that pays for
+    opening whichever tiles it touches. A tile's pixels open on first read and
+    stay open on the mosaic, so reusing a mosaic would silently measure the warm
+    case twice.
+    """
+    coarsest = LEVELS - 1
+
+    # A screenful: the middle dozen pieces of full resolution, asked at once.
+    mosaic = read_the_transfer(folder)
+    composer = Composer(mosaic)
+    _, down, across = composer.grid(0)
+    middle = ((down - 1) / 2, (across - 1) / 2)
+    screenful = sorted(
+        ((row, column) for row in range(down) for column in range(across)),
+        key=lambda rc: (rc[0] - middle[0]) ** 2 + (rc[1] - middle[1]) ** 2,
+    )[:ASKED_AT_ONCE]
+    composer._tiles_in_each_piece(0)
+    cold = _asked_together(composer, 0, screenful)
+
+    # The same screenful again, on the same composer: what a revisit costs.
+    again = _asked_together(composer, 0, screenful)
+
+    # Zooming out: every piece of the coarsest copy, from a transfer nothing has
+    # opened yet. This is the gesture that meets the most tiles per piece and
+    # collects the whole deferred opening bill at once.
+    mosaic = read_the_transfer(folder)
+    composer = Composer(mosaic)
+    _, down, across = composer.grid(coarsest)
+    whole = [(row, column) for row in range(down) for column in range(across)]
+    composer._tiles_in_each_piece(coarsest)
+    zoomout = _asked_together(composer, coarsest, whole)
+
+    return {
+        "screenful_ms": cold, "screenful_pieces": len(screenful),
+        "again_ms": again,
+        "zoomout_ms": zoomout, "zoomout_pieces": len(whole),
+    }
+
+
 def main() -> None:
     parsed = argparse.ArgumentParser(description=__doc__)
     parsed.add_argument("--most", type=int, default=1024,
                         help="the largest number of tiles to write")
+    parsed.add_argument("--rungs",
+                        help="tile counts to measure instead of the default "
+                        "ladder, e.g. 1,5,10,50,100")
     parsed.add_argument("--where", type=Path,
                         default=Path(r"D:\zmart-scaling-test"),
                         help="where to write the throwaway transfers")
     given = parsed.parse_args()
 
-    rungs = [1, 4, 16, 64, 256, 1024, 4096, 16384]
-    rungs = [one for one in rungs if one <= given.most]
+    if given.rungs:
+        rungs = [int(one) for one in given.rungs.split(",")]
+    else:
+        rungs = [1, 4, 16, 64, 256, 1024, 4096, 16384]
+        rungs = [one for one in rungs if one <= given.most]
 
     print("\n  Building a picture from a transfer, as the transfer grows.")
     print(f"  Tiles {TILE[1]}x{TILE[2]}, stepping {STEP_UM} um "
@@ -201,12 +275,26 @@ def main() -> None:
             shutil.rmtree(folder)
         write_a_transfer(folder, tiles)
         row = measure(folder, tiles)
+        row.update(gestures(folder))
         rows.append(row)
         print(f"  {row['tiles']:>7} {row['picture']:>15} "
               f"{row['opening_ms']:>7.0f} ms {row['finding_ms']:>7.2f} ms "
               f"{row['building_ms']:>8.1f} ms {row['rebuilding_ms']:>6.1f} ms "
               f"{row['covering']:>14.0f}")
         shutil.rmtree(folder)
+
+    print("\n  The same transfers, timed as gestures rather than pieces: a")
+    print(f"  screenful is the middle {ASKED_AT_ONCE} full-resolution pieces "
+          "asked at once, and")
+    print("  zooming out asks for the whole coarsest copy of a picture nothing"
+          "\n  has opened yet.\n")
+    print(f"  {'tiles':>7} {'screenful':>12} {'revisited':>11} "
+          f"{'zoom-out':>11} {'(pieces)':>9}")
+    print("  " + "-" * 56)
+    for row in rows:
+        print(f"  {row['tiles']:>7} "
+              f"{row['screenful_ms']:>9.1f} ms {row['again_ms']:>8.1f} ms "
+              f"{row['zoomout_ms']:>8.1f} ms {row['zoomout_pieces']:>9}")
 
     if len(rows) >= 2:
         first, last = rows[0], rows[-1]
