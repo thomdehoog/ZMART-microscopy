@@ -242,7 +242,17 @@ def _write_and_replace(destination: Path, text: str) -> None:
     operating system may hold the contents in memory while the rename has already
     happened, so a power cut could leave a record that points confidently at data
     which never reached the platter.
+
+    The rename itself is made with a short patience for a reader's hold. These
+    small files are replaced on every commit and read constantly by the live
+    viewer, and on Windows the reader's open handle makes the replacement fail
+    as ``Access is denied`` on ground that is free a moment later — a governed
+    run watched live died of exactly this. The pixel path was cured first, in
+    :func:`zmart_storage.canvas.written_despite_brief_holds`, and this is the
+    same cure in the same place for the metadata.
     """
+    from zmart_storage.canvas import written_despite_brief_holds
+
     destination.parent.mkdir(parents=True, exist_ok=True)
     handle = tempfile.NamedTemporaryFile(
         mode="w",
@@ -257,7 +267,7 @@ def _write_and_replace(destination: Path, text: str) -> None:
             writing.write(text)
             writing.flush()
             os.fsync(writing.fileno())
-        os.replace(handle.name, destination)
+        written_despite_brief_holds(lambda: os.replace(handle.name, destination))
         _push_directory_to_disk(destination.parent)
     except BaseException:
         Path(handle.name).unlink(missing_ok=True)
@@ -749,7 +759,7 @@ class RunManifest:
                 for name, done in (
                     ("the zoomed-out copies", event.pyramids_ready),
                     ("the overview's pointers", event.links_ready),
-                    ("the shared zoomed-out pieces", event.coarse_chunks_ready),
+                    ("the linked view's description", event.view_ready),
                     ("the final check over all of it", event.validated),
                 )
                 if not done
@@ -819,16 +829,24 @@ class RunManifest:
                     f"{event.event_type!r} refers to {event.position_id!r}, but that "
                     "position has never been published. Publish the position first."
                 )
-            if event.event_type == "timepoint_committed" and any(
-                past.position_id == event.position_id
-                and past.event_type == "timepoint_committed"
-                and past.timepoint == event.timepoint
-                for past in recorded
-            ):
-                raise PublicationRefused(
-                    f"Timepoint {event.timepoint} of {event.position_id!r} already "
-                    "has a commit. Reusing it would give one moment two histories."
-                )
+            # Every event kind lands on a moment — a position commit without a
+            # timepoint lands on moment zero — so the duplicate check compares
+            # moments rather than spellings. Replacements are the one deliberate
+            # exception: superseding a moment is 'position_replaced', which is
+            # allowed onto a committed moment because that is its entire job.
+            if event.event_type == "timepoint_committed":
+                moment = event.timepoint
+                if any(
+                    past.position_id == event.position_id
+                    and (0 if past.timepoint is None else past.timepoint) == moment
+                    for past in recorded
+                ):
+                    raise PublicationRefused(
+                        f"Timepoint {moment} of {event.position_id!r} already "
+                        "has a commit. Reusing it would give one moment two "
+                        "histories; replacing its pixels uses the explicit "
+                        "'position_replaced' event."
+                    )
 
             line = json.dumps(event.to_json(), sort_keys=True)
 

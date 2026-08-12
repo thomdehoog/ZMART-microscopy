@@ -86,24 +86,20 @@ FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "forget which of its own chunks a trimmed position starts at",
-        "                return block, tuple(\n"
-        "                    block.low[axis] + within[axis] for axis in range(3)\n"
-        "                )",
-        "                return block, tuple(\n"
-        "                    within[axis] for axis in range(3)\n"
-        "                )",
+        "                            block.low[axis] + within[axis] for axis in range(3)",
+        "                            within[axis] for axis in range(3)",
     ),
     (
         "mistake a chunk's coordinate for its bundle's",
-        "        held = block.stored.where_one_chunk_lives(coordinate)",
-        "        held = block.stored.where_one_chunk_lives(\n"
+        "        held = self._stored.where_one_chunk_lives(self.inside_the_position)",
+        "        held = self._stored.where_one_chunk_lives(\n"
         "            (\n"
-        "                *coordinate[:-3],\n"
+        "                *self.inside_the_position[:-3],\n"
         "                *(\n"
         "                    index // per\n"
         "                    for index, per in zip(\n"
-        "                        coordinate[-3:],\n"
-        "                        (block.stored.bundling.chunks_per_shard or (1, 1, 1, 1, 1))[-3:],\n"
+        "                        self.inside_the_position[-3:],\n"
+        "                        (self._stored.bundling.chunks_per_shard or (1, 1, 1, 1, 1))[-3:],\n"
         "                        strict=True,\n"
         "                    )\n"
         "                ),\n"
@@ -111,35 +107,41 @@ FAULTS: list[tuple[str, str, str]] = [
         "        )",
     ),
     (
-        "ask the first position for every piece of the view",
-        "        held = block.stored.where_one_chunk_lives(coordinate)",
-        "        held = self._blocks[0].stored.where_one_chunk_lives(coordinate)",
+        "draw the earliest arrival on top instead of the latest",
+        "        found.sort(key=lambda entry: entry[0].arrival, reverse=True)",
+        "        found.sort(key=lambda entry: entry[0].arrival)",
     ),
     (
         "read the position's description again for every piece",
-        "        held = block.stored.where_one_chunk_lives(coordinate)",
-        "        held = how_the_array_is_stored(block.stored.array)"
-        ".where_one_chunk_lives(coordinate)",
+        "        held = self._stored.where_one_chunk_lives(self.inside_the_position)",
+        "        held = how_the_array_is_stored(self._stored.array)"
+        ".where_one_chunk_lives(self.inside_the_position)",
     ),
     (
         "remember the answer for each piece, so a run stops filling in",
-        "        held = block.stored.where_one_chunk_lives(coordinate)",
+        "        held = self._stored.where_one_chunk_lives(self.inside_the_position)",
         '        held = globals().setdefault("_answers_already_given", {}).setdefault(\n'
-        "            (block.stored.array, coordinate),\n"
-        "            block.stored.where_one_chunk_lives(coordinate),\n"
+        "            (self.position, self.inside_the_position),\n"
+        "            self._stored.where_one_chunk_lives(self.inside_the_position),\n"
         "        )",
     ),
     (
         "advertise ground a position covers but has not written",
         "        return self.where_this_chunk_is(chunk_coordinate) is not None",
-        "        return self._position_covering(tuple(chunk_coordinate)[-3:]) is not None",
+        "        return bool(self.claims_on(chunk_coordinate))",
     ),
     (
         "treat a chunk that was never written as though it held data",
+        "        held = self._stored.where_one_chunk_lives(self.inside_the_position)\n"
         "        if held is None:\n"
-        "            # Nothing was ever written at that chunk. The view should advertise",
-        "        if held is None and False:\n"
-        "            # Nothing was ever written at that chunk. The view should advertise",
+        "            return None",
+        "        held = self._stored.where_one_chunk_lives(self.inside_the_position)\n"
+        "        if held is None:\n"
+        "            held = self._stored.where_one_chunk_lives(\n"
+        "                tuple(0 for _ in self.inside_the_position)\n"
+        "            )\n"
+        "        if held is None:\n"
+        "            return None",
     ),
     (
         "hand over the whole bundle rather than the chunk inside it",
@@ -175,11 +177,6 @@ FAULTS: list[tuple[str, str, str]] = [
         "        size = tidy.size or tuple(shape[axis] for axis in range(3))",
     ),
     (
-        "let two positions claim the same piece of the view",
-        "    _refuse_two_positions_claiming_the_same_piece(blocks)",
-        "    pass",
-    ),
-    (
         "accept a position stored differently from the rest",
         "            _refuse_positions_stored_differently(first, stored)",
         "            pass",
@@ -197,7 +194,8 @@ FAULTS: list[tuple[str, str, str]] = [
     (
         "answer for a moment the position has never recorded",
         "        if any(\n"
-        "            index >= extent for index, extent in zip(coordinate, grid, strict=True)\n"
+        "            index >= extent\n"
+        "            for index, extent in zip(self.inside_the_position, grid, strict=True)\n"
         "        ):",
         "        if False:",
     ),

@@ -22,9 +22,7 @@ images written with no record at all.
 from __future__ import annotations
 
 import json
-import os
 import shutil
-import signal
 import subprocess
 import sys
 import threading
@@ -598,11 +596,14 @@ def test_a_run_killed_without_tidying_up_keeps_everything_it_wrote(tmp_path):
     try:
         said = running.stdout.readline()
         assert said.strip() == "written", said
-        os.kill(running.pid, signal.SIGKILL)
+        # Killed the way the platform kills: SIGKILL where there are signals,
+        # TerminateProcess on Windows. Both end the program mid-sleep with no
+        # chance to tidy up, which is the whole point of the test.
+        running.kill()
     finally:
         running.wait(timeout=60)
         running.stdout.close()
-    assert running.returncode == -signal.SIGKILL
+    assert running.returncode != 0, "the writer ended on its own instead of being killed"
 
     lines = _lines_on_disk(tmp_path / "run")
     assert len(lines) == 12
@@ -629,6 +630,13 @@ def test_the_summary_is_never_found_half_written(tmp_path):
                 text = (_record_folder(tmp_path) / REGIONS_FILE).read_text(
                     encoding="utf-8"
                 )
+            except PermissionError:
+                # Windows refuses to open the file for the instant the rename
+                # is moving the new summary into place. That is the platform's
+                # spelling of "come back in a moment", not a torn summary — and
+                # the readers that matter behave exactly that way, falling back
+                # to the line-by-line record (see _read_the_summary).
+                continue
             except OSError as why:
                 torn.append(f"could not be read: {why}")
                 continue

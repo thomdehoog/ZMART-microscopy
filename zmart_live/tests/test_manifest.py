@@ -52,7 +52,7 @@ def a_finished_position(revision: int, position_id: str = "pos000", **changes):
         "levels": (0, 1, 2, 3),
         "pyramids_ready": True,
         "links_ready": True,
-        "coarse_chunks_ready": True,
+        "view_ready": True,
         "validated": True,
         "timestamp": now_in_words(),
     }
@@ -113,7 +113,7 @@ class TestNothingIsVisibleUntilItIsPublished:
 
     @pytest.mark.parametrize(
         "missing",
-        ["pyramids_ready", "links_ready", "coarse_chunks_ready", "validated"],
+        ["pyramids_ready", "links_ready", "view_ready", "validated"],
     )
     def test_every_single_prerequisite_is_load_bearing(self, run, missing):
         """Each of the four gates refuses on its own.
@@ -190,6 +190,38 @@ class TestAMomentAddedToAPositionAlreadyInPlace:
         run.publish(a_finished_moment(2, timepoint=1, position_id="pos000"))
         with pytest.raises(PublicationRefused):
             run.publish(a_finished_moment(3, timepoint=1, position_id="pos000"))
+        assert run.revision() == 2
+
+    def test_the_moment_the_position_arrived_with_cannot_be_committed_again(self, run):
+        """Publishing a position without naming a moment publishes its moment zero.
+
+        A later ``timepoint_committed`` naming 0 is therefore the same moment
+        again, and letting it through would give that one moment two histories —
+        the exact thing the refusal above exists for, hidden behind a spelling
+        difference.
+        """
+        run.publish(a_finished_position(1, "pos000"))
+        with pytest.raises(PublicationRefused):
+            run.publish(a_finished_moment(2, timepoint=0, position_id="pos000"))
+        assert run.revision() == 1
+        # The refusal is about that one moment; the next one is welcome.
+        run.publish(a_finished_moment(2, timepoint=1, position_id="pos000"))
+        assert run.revision() == 2
+
+    def test_a_replaced_moment_still_counts_as_committed(self, run):
+        """Superseding a moment does not reopen it for an ordinary commit."""
+        run.publish(a_finished_position(1, "pos000"))
+        run.publish(
+            a_finished_position(
+                2,
+                "pos000",
+                event_type="position_replaced",
+                timepoint=0,
+                position_generation=1,
+            )
+        )
+        with pytest.raises(PublicationRefused):
+            run.publish(a_finished_moment(3, timepoint=0, position_id="pos000"))
         assert run.revision() == 2
 
 

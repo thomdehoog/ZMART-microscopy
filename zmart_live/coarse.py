@@ -140,7 +140,7 @@ def chunks_touched_by(
     scale = _scale_at(profile, level)
     axes = profile.tiled_axes
 
-    owned = placement.visual_source_roi.shifted(placement.origin)
+    owned = placement.frame_roi_in_run()
     ranges: list[range] = []
     for axis in axes:
         across = chunk[axis] * scale[axis]
@@ -181,7 +181,7 @@ def contributors_to(
     return tuple(
         placement
         for placement in placements
-        if placement.visual_source_roi.shifted(placement.origin).overlaps(shows)
+        if placement.frame_roi_in_run().overlaps(shows)
     )
 
 

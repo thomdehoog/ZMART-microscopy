@@ -32,11 +32,8 @@ def test_only_the_atomic_marker_advances_bounded_aggregate_sources(tmp_path):
     run.publish("posA")
     assert tracker.observe() is True
     assert tracker.state.revision == 1
-    assert {source.role for source in tracker.state.sources} == {
-        "non_seamless",
-        "seamless",
-    }
-    assert len(tracker.state.sources) == 2
+    assert {source.role for source in tracker.state.sources} == {"linked"}
+    assert len(tracker.state.sources) == 1
     assert _ranges(tracker) == {((0, 1),)}
 
 
@@ -111,7 +108,7 @@ def test_payload_size_depends_on_views_not_position_count(tmp_path):
     assert tracker.observe() is True
     two = len(json.dumps(tracker.to_json()))
 
-    assert len(tracker.state.sources) == 2
+    assert len(tracker.state.sources) == 1
     assert two - one < 25
 
 
@@ -156,7 +153,7 @@ def test_a_transient_failed_read_retries_without_another_marker_change(
     assert tracker.freshness == "current"
 
 
-def test_replacement_generation_advances_both_stable_views_together(tmp_path):
+def test_replacement_generation_advances_the_stable_view(tmp_path):
     run = a_live_run(tmp_path, timepoints=2)
     run.write_and_publish("posA", some_specimen(700))
     run.write_and_publish("posA", some_specimen(900), timepoint=1)

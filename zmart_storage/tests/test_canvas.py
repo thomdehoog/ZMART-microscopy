@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import sys
+import threading
 import warnings
 from pathlib import Path
 
@@ -223,6 +224,86 @@ def test_an_earlier_run_can_be_thrown_away_when_that_is_said_outright(tmp_path):
     )
 
 
+def test_an_earlier_run_is_thrown_away_even_while_something_is_reading_it(tmp_path):
+    """Discarding a run must not be defeated by a watcher glancing at its files.
+
+    Machines that image for a living run software that opens files the moment
+    they change — a virus scanner reading what was just written, an indexer
+    cataloguing it. On Windows a file being deleted only truly goes when the
+    last open handle closes, so a tree being cleared under such a glance
+    refuses to come down — 'directory is not empty', for ground that is clear a
+    moment later. Measured on a lab PC before this was fixed: the discard
+    raised WinError 145 whenever the endpoint protection was busy, which on
+    that machine was most of the time.
+    """
+    first = _canvases(tmp_path)
+    first.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                tile_index=(0, 0, 0))
+
+    held = next(
+        piece for piece in sorted((tmp_path / "overview.ome.zarr").rglob("*"))
+        if piece.is_file()
+    ).open("rb")
+    watcher = threading.Timer(0.3, held.close)
+    watcher.start()
+    try:
+        second = _canvases(tmp_path, discard_existing_run=True)
+    finally:
+        watcher.join()
+        held.close()
+    assert _read_level0(second.paths[0]).max() == 0, (
+        "asking to discard the earlier run left some of it behind"
+    )
+
+
+def test_a_tile_lands_even_while_a_viewer_is_reading_the_picture(tmp_path):
+    """A live viewer reading the picture must not be able to kill the writer.
+
+    The whole point of a live run is a viewer watching while tiles land — and
+    every landing tile rewrites the coarsest zoomed-out copies, the very files
+    the watching viewer reads most, because they are the whole picture at a
+    glance. On Windows, replacing a file a reader holds open is denied, so the
+    honest atomic write dies mid-acquisition with 'Access is denied'. Measured
+    on a lab PC: a 10,000-position run, watched live, fell over about twenty
+    tiles in. The reader lets go in milliseconds, so the writer waits the
+    moment out.
+    """
+    # One chunk per level, so the coarsest copy is a single file every tile
+    # write must replace — exactly the file a viewer showing the whole picture
+    # reads over and over.
+    canvases = TileCanvases.create(
+        tmp_path,
+        name="overview",
+        canvas_shape=(2, 640, 640),
+        tile_shape=TILE,
+        tile_step=BUTTED_UP,
+        voxel_size_um=(2.0, 0.35, 0.35),
+        channels=[Channel("488")],
+        levels=2,
+        chunk=640,
+    )
+    canvases.write(np.full(TILE, 4242, dtype="uint16"), origin=(0, 0, 0),
+                   tile_index=(0, 0, 0))
+
+    coarsest = tmp_path / "overview.ome.zarr" / "1"
+    held_file = next(
+        piece for piece in sorted(coarsest.rglob("*")) if piece.is_file()
+        and piece.name != "zarr.json" and not piece.name.startswith(".")
+    )
+    watcher = held_file.open("rb")
+    let_go = threading.Timer(0.3, watcher.close)
+    let_go.start()
+    try:
+        canvases.write(np.full(TILE, 7, dtype="uint16"), origin=(0, 0, TILE[2]),
+                       tile_index=(0, 0, 1))
+    finally:
+        let_go.join()
+        watcher.close()
+    assert _read_level0(canvases.paths[0])[0, 0, TILE[2]] == 7, (
+        "the tile written past the reader's hold did not reach the picture"
+    )
+
+
 def test_a_name_with_brackets_in_it_is_protected_like_any_other(tmp_path):
     """The name of an acquisition type is text, and must be treated as text.
 
@@ -249,6 +330,11 @@ def test_a_name_with_brackets_in_it_is_protected_like_any_other(tmp_path):
     )
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows itself refuses '*' in a folder name; the refusal in words "
+    "is checked in test_a_name_windows_cannot_hold_is_refused_in_words",
+)
 def test_a_name_with_a_star_in_it_can_be_declared_at_all(tmp_path):
     """A star in the name used to stop the very first declaration.
 
@@ -264,6 +350,27 @@ def test_a_name_with_a_star_in_it_can_be_declared_at_all(tmp_path):
     with pytest.raises(ValueError, match="already an imaged run in this folder"):
         _canvases(tmp_path, name="scan*")
     assert (_read_level0(first.paths[0])[:, :TILE[1], :TILE[2]] == 4242).all()
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="elsewhere 'scan*' is a perfectly good name, and the test above "
+    "proves it stays one",
+)
+def test_a_name_windows_cannot_hold_is_refused_in_words(tmp_path):
+    """Windows forbids ``*`` in a folder name, so the declaration cannot happen.
+
+    Left to the operating system the refusal is ``[WinError 123] The filename,
+    directory name, or volume label syntax is incorrect`` — which says nothing
+    to somebody who was only naming their sample, and lands only after part of
+    the run's folder has already been made. So the name is refused up front, in
+    words that say which character is the problem and what to do about it.
+    """
+    with pytest.raises(ValueError, match="Windows"):
+        _canvases(tmp_path, name="scan*")
+    assert list(tmp_path.iterdir()) == [], (
+        "the refusal left something behind in the run's folder"
+    )
 
 
 def test_a_name_that_begins_another_name_is_a_different_run(tmp_path):

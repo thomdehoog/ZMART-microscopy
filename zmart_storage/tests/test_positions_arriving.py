@@ -22,7 +22,6 @@ import pytest
 from zmart_storage.canvas import Channel
 from zmart_storage.linked import the_map_inside
 from zmart_storage.positions import (
-    POSITIONS_FOLDER,
     how_many_copies_a_position_can_keep,
     start_a_run,
 )
@@ -40,13 +39,14 @@ ORIGIN_UM = (11.0, 5.5, 7.25)
 
 
 def _the_positions_in(view: Path) -> list[Path]:
-    """The position images inside a picture, without the group's own description.
+    """The position images inside a picture.
 
-    The positions live in a zarr *group* inside the picture, so the folder holds
-    a ``zarr.json`` of its own beside them — that file is what makes zarr treat
-    the folder as part of the hierarchy rather than warning about it.
+    The positions sit **directly inside** the picture, among its levels, with
+    nothing between — the layout `PLAN_live_smart_microscopy.md` settles. They
+    are told apart from everything else by their name: every child ending
+    ``.ome.zarr`` is a position, and only positions are named that way.
     """
-    return sorted(one for one in (view / POSITIONS_FOLDER).iterdir()
+    return sorted(one for one in view.iterdir()
                   if one.name.endswith(".ome.zarr"))
 
 
@@ -176,7 +176,7 @@ def test_zarr_itself_is_happy_with_everything_inside_the_picture(tmp_path):
     folder = tmp_path / "experiment"
     view, _ = _a_run(folder)
 
-    for image in [view, view / POSITIONS_FOLDER, *_the_positions_in(view)]:
+    for image in [view, *_the_positions_in(view)]:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             list(zarr.open_group(str(image), mode="r").members())
@@ -236,10 +236,18 @@ def test_the_picture_is_what_lets_the_viewer_open_the_run_at_all(tmp_path):
         "opening the run should offer exactly one image to draw"
     )
 
-    _, every_position = discover(view / POSITIONS_FOLDER)
-    assert len(every_position) == ACROSS * ACROSS, (
-        "without the picture the viewer would be handed one image per position, "
-        "which is the arrangement that does not scale"
+    # The positions sit directly inside that one image, and the viewer must
+    # *not* be handed them as images of their own — a real run holds thousands,
+    # and one drawing layer each is the arrangement that never opens. An image
+    # is an image because of its own description, so discovery stops at the
+    # picture and what is underneath stays underneath.
+    _, inside = discover(view)
+    assert inside == [view.name], (
+        "the picture should be one image to the viewer however many positions "
+        "it holds inside"
+    )
+    assert len(_the_positions_in(view)) == ACROSS * ACROSS, (
+        "the positions should really be there, directly inside the picture"
     )
 
 
@@ -483,3 +491,182 @@ def test_a_position_of_the_wrong_size_is_refused(tmp_path):
         with pytest.raises(ValueError) as refused:
             run.write(np.zeros((1, 32, 32), "uint16"), at=(0, 0, 64))
     assert "declared" in str(refused.value)
+
+
+def test_a_later_moment_reaches_the_picture_and_is_counted(tmp_path):
+    """Time grows by frames simply beginning to exist, and the run says how far.
+
+    The map of pointers never changes for a later moment — pointers are
+    arithmetic over time — so three other things carry the change instead, and
+    each is checked here: the position's own image holds the new picture, the
+    view's *written* zoomed-out copies gain that moment's share, and the view's
+    change counter moves, because nothing else about the change is visible to a
+    watcher.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "viz_studio" / "backend"))
+    from stores import written_timepoints
+
+    folder = tmp_path / "experiment"
+    colours = [Channel("488", window=(0, 4000))]
+    with start_a_run(
+        folder, name="overview", room=(TILE[0], 8 * 64, 8 * 64),
+        tile_shape=TILE, voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+        channels=colours, frames=4, piece=PIECE,
+    ) as run:
+        first = _a_picture(1)
+        run.write(first, at=(0, 0, 0), frame=0)
+        counted_before = the_map_inside(run.path)["generation"]
+
+        later = _a_picture(2)
+        run.write(later, at=(0, 0, 0), frame=2)
+
+        assert run.frames_reached == 3, (
+            "one past the furthest moment imaged, which is moment 2"
+        )
+        assert the_map_inside(run.path)["generation"] > counted_before, (
+            "a later moment leaves every watched file its length and name, so "
+            "the change counter is the one thing that says it happened"
+        )
+        view = run.path
+
+    import zarr
+    stored = np.asarray(
+        zarr.open_group(str(_the_positions_in(view)[0]), mode="r")["0"])
+    assert np.array_equal(stored[2, 0], later), (
+        "the later moment should hold exactly what the camera recorded"
+    )
+    assert np.array_equal(stored[0, 0], first), (
+        "and the first moment should be untouched by it"
+    )
+    reaches = written_timepoints(view)
+    assert reaches == 3, (
+        f"the viewer counts how far time reaches from the written copies, and "
+        f"should find 3 rather than {reaches} — this is what stops the slider "
+        "at the moments that exist"
+    )
+
+
+def test_imaging_a_place_again_records_a_later_observation(tmp_path):
+    """Re-imaging never writes over data: it goes to the place's next moment.
+
+    A targetscan revisits a place on purpose, and what it records is a later
+    observation. The run keeps count per place, so the caller does not, and a
+    run that declared too little room in time is refused with the fix named
+    rather than quietly wrapped around.
+    """
+    folder = tmp_path / "experiment"
+    colours = [Channel("488", window=(0, 4000))]
+    with start_a_run(
+        folder, name="overview", room=(TILE[0], 8 * 64, 8 * 64),
+        tile_shape=TILE, voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+        channels=colours, frames=2, piece=PIECE,
+    ) as run:
+        first = _a_picture(3)
+        second = _a_picture(4)
+        _, at_moment = run.image_again(first, at=(0, 0, 0))
+        assert at_moment == 0, "a place never imaged starts at its first moment"
+        _, at_moment = run.image_again(second, at=(0, 0, 0))
+        assert at_moment == 1, "imaged again, the same place moves to its next"
+
+        with pytest.raises(ValueError) as refused:
+            run.image_again(_a_picture(5), at=(0, 0, 0))
+        assert "room" in str(refused.value), (
+            "a run out of declared time should say to declare more, not wrap "
+            "around and write over an observation"
+        )
+        view = run.path
+
+    import zarr
+    stored = np.asarray(
+        zarr.open_group(str(_the_positions_in(view)[0]), mode="r")["0"])
+    assert np.array_equal(stored[0, 0], first) and np.array_equal(stored[1, 0], second), (
+        "both observations should be on disk, each at its own moment"
+    )
+
+
+def test_a_run_may_place_positions_overlapping_when_it_points_shallower(tmp_path):
+    """Overlap is the whole crux, and the front door has to offer it.
+
+    A smart run images where the specimen is interesting, and fields of view
+    land overlapping wherever that takes them. The view's alignment rule then
+    bites: pointing at a position's zoomed-out copies demands tiles begin on
+    multiples of piece times shrink, which on a piece-sized lattice forbids
+    overlap outright — and the refusal's own advice, ``point_at=1``, was
+    impossible to follow through :func:`start_a_run`, which never passed it on.
+
+    So a run declaring ``point_at=1`` must accept tiles on the piece lattice,
+    overlapping freely — and a piece inside the overlap must still be owned by
+    exactly one tile that really covers it.
+    """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]
+                           / "viz_studio" / "backend"))
+    import linking
+
+    folder = tmp_path / "experiment"
+    with start_a_run(
+        folder, name="overview", room=(TILE[0], 8 * 64, 8 * 64),
+        tile_shape=TILE, voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+        channels=[Channel("488", window=(0, 4000))], piece=32,
+        point_at=1,
+    ) as run:
+        # Half a tile apart in both axes: the second overlaps the first over a
+        # quarter of its ground, which the tile-sized lattice could never say.
+        run.write(np.full(TILE, 100, dtype="uint16"), at=(0, 0, 0))
+        run.write(np.full(TILE, 200, dtype="uint16"), at=(0, 32, 32))
+        view = run.path
+
+    # A piece both tiles cover. Ownership is whole: the bytes served for it
+    # must be one tile's own file — the pointed path runs through the picture
+    # into a position's store — and only one tile can own the piece.
+    inside_overlap = linking.the_bytes_behind(view, "0/c/0/0/0/1/1")
+    assert inside_overlap is not None, (
+        "a piece inside the overlap answered as empty ground"
+    )
+    owner = inside_overlap.path.split("/")[1]
+    assert owner in {one.name for one in _the_positions_in(view)}, (
+        f"the overlap's bytes came from {owner!r}, not from a position"
+    )
+
+
+def test_a_run_can_bundle_its_positions_pieces(tmp_path):
+    """A run asked to shard writes bundled positions, and the picture follows.
+
+    Bundling packs the pieces of a position into fewer files — the file count is
+    what filesystems, backups and endpoint protection punish at scale — while
+    the pieces inside stay the size the viewer reads by. The view must then be
+    declared bundled exactly as its positions are, or its description and their
+    bytes would disagree, and the bundle becomes the unit a position lands on.
+    """
+    folder = tmp_path / "experiment"
+    colours = [Channel("488", window=(0, 4000))]
+    with start_a_run(
+        folder, name="overview", room=(TILE[0], 8 * 64, 8 * 64),
+        tile_shape=TILE, voxel_size_um=VOXEL_UM, origin_um=ORIGIN_UM,
+        channels=colours, piece=32, shard=64,
+    ) as run:
+        run.write(_a_picture(6), at=(0, 0, 0))
+        run.write(_a_picture(7), at=(0, 0, 64))
+        view = run.path
+
+    def bundling_of(level: Path) -> tuple[list, list]:
+        described = json.loads((level / "zarr.json").read_text(encoding="utf-8"))
+        inside = [codec["configuration"]["chunk_shape"]
+                  for codec in described.get("codecs", [])
+                  if codec["name"] == "sharding_indexed"]
+        return inside, described["chunk_grid"]["configuration"]["chunk_shape"]
+
+    position = _the_positions_in(view)[0]
+    inside, per_file = bundling_of(position / "0")
+    assert inside and inside[0][-2:] == [32, 32], (
+        "the pieces inside a position's bundle should stay the reading size"
+    )
+    assert per_file[-2:] == [64, 64], (
+        "one file of a position should hold a whole bundle"
+    )
+    assert bundling_of(view / "0") == (inside, per_file), (
+        "the picture must be declared bundled exactly as its positions are, or "
+        "its description and their bytes disagree"
+    )

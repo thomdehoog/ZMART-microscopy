@@ -28,7 +28,12 @@ than any run fills, and an unwritten piece of it reads back as zeros exactly lik
 a piece of genuinely dark specimen. :func:`imaged_regions` reads that note back.
 """
 
-from .canvas import Channel, TileCanvases, copies_for_a_canvas
+from .canvas import (
+    Channel,
+    TileCanvases,
+    copies_for_a_canvas,
+    rmtree_despite_brief_holds,
+)
 from .coverage import Coverage, Region, Tile, imaged_regions
 from .cropped import TilesAndCanvas, Trimming
 
@@ -42,4 +47,5 @@ __all__ = [
     "Trimming",
     "copies_for_a_canvas",
     "imaged_regions",
+    "rmtree_despite_brief_holds",
 ]

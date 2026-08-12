@@ -83,8 +83,8 @@ MANIFEST_FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "skip pushing to the disk before renaming",
-        "os.fsync(writing.fileno())\n        os.replace",
-        "os.replace",
+        "            os.fsync(writing.fileno())\n        written_despite_brief_holds",
+        "        written_despite_brief_holds",
     ),
     (
         "silently skip every complete history record",
@@ -140,16 +140,6 @@ OWNERSHIP_FAULTS: list[tuple[str, str, str]] = [
         "give the extra pixel of an odd overlap to both neighbours",
         "half_before = overlap // 2 if has_one_before else 0",
         "half_before = (overlap - overlap // 2) if has_one_before else 0",
-    ),
-    (
-        "let a tile keep its far strip even when a neighbour needs it",
-        "if has_one_beyond or not keep_the_far_edge:",
-        "if False:",
-    ),
-    (
-        "take an interior tile from an offset instead of its own corner",
-        "shown[axis] = Interval(0, step)",
-        "shown[axis] = Interval(overlap, step + overlap)",
     ),
     (
         "count right to the edge even where a neighbour exists",
@@ -283,51 +273,21 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
         "slice(place * size, min(place * size + size, reach))",
         "slice(place * size, place * size + size)",
     ),
-    # The raw selector has to keep measurements separate and remain metadata-only.
+    # The one linked view draws positions whole, later commit on top, and the
+    # stored order is that draw order.
     (
-        "stop checking that raw selector stops keep overlaps apart",
-        "        self._no_two_tiles_on_one_stop_overlap()",
-        "        pass",
+        "route positions in layout order instead of commit order",
+        "showing = [\n"
+        "            position_id\n"
+        "            for position_id in self._positions_in_commit_order()\n"
+        "            if position_id in showing_set\n"
+        "        ]",
+        "showing = []",
     ),
     (
-        "drop the dimension that keeps overlapping tiles apart",
-        "                self.tile_stop_count,\n"
-        "                self.timepoints,",
-        "                1,\n"
-        "                self.timepoints,",
-    ),
-    (
-        "accept copied chunks in the raw virtual view",
-        '                if (path / "c").exists():\n'
-        "                    complaints.append(\n"
-        "                        f\"Level {level.level} of the raw overlap view",
-        "                if False:\n"
-        "                    complaints.append(\n"
-        "                        f\"Level {level.level} of the raw overlap view",
-    ),
-    (
-        "call the raw overlap view ready without looking at it",
-        "raw_overlap_ready=compared > 0 and not about_the_overlaps,",
-        "raw_overlap_ready=True,",
-    ),
-    (
-        "say a missing raw selector is acceptable",
-        "if not self.raw_overlap_store.exists():\n"
-        "            complaints.append(\n"
-        '                "The raw-overlap virtual view has not been described yet,',
-        "if False:\n"
-        "            complaints.append(\n"
-        '                "The raw-overlap virtual view has not been described yet,',
-    ),
-    (
-        "ignore a raw-view dtype that cannot decode canonical chunks",
-        '                    or str(raw_description.get("data_type")) != route.storage.dtype',
-        "                    or False",
-    ),
-    (
-        "report raw route checking as done without measuring it",
-        "compared += int(np.prod(source.shape[1:], dtype=np.int64))",
-        "compared += 0",
+        "call the view ready without looking at it",
+        "view_ready=validated > 0 and not about_the_picture,",
+        "view_ready=True,",
     ),
     # One position at one moment is what gets published, so every check has to
     # be about that moment. Each fault below ends with a moment nobody wrote, or
@@ -344,14 +304,9 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     ),
     # Both virtual descriptions and the arrangement can be readable and wrong.
     (
-        "accept seamless metadata that cannot decode its routes",
+        "accept view metadata that cannot decode its routes",
         "                refuse_a_view_stored_differently(path, route)",
         "                pass",
-    ),
-    (
-        "leave the mosaic's outer edge to a neighbour that does not exist",
-        "fills[edge.axis] = Interval(fills[edge.axis].start, edge.taken_from.stop)",
-        "pass",
     ),
     (
         "make the zoomed-out picture one plane deep whatever was recorded",
@@ -366,7 +321,7 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     # The map saying which position answers for which piece of the overview.
     (
         "never write down where the overview's pieces come from",
-        "self.write_the_link_map(positions)",
+        "self.write_the_link_map(units)",
         "pass",
     ),
     (
@@ -602,19 +557,21 @@ GATEWAY_FAULTS: list[tuple[str, str, str]] = [
         "if False:",
     ),
     (
-        "accept copied chunks in the seamless view at the serving boundary",
-        'if (seamless_array / "c").exists():',
+        "accept copied chunks in the linked view at the serving boundary",
+        'if (view_array / "c").exists():',
         "if False:",
     ),
     (
-        "accept copied chunks in the raw view at the serving boundary",
-        '                if (self.folder / _RAW / str(level_number) / "c").exists():',
-        "                if False:",
+        "blank published ground while its successor is withheld",
+        "            if not self.published(position_id, moment, generation):\n"
+        "                continue",
+        "            if not self.published(position_id, moment, generation):\n"
+        "                return LiveResponse(False)",
     ),
     (
-        "gate a raw chunk by moment zero whichever moment was requested",
-        "return self._published_serving(route, piece[1:])",
-        "return self._published_serving(route, (0, *piece[2:]))",
+        "serve the overview in whatever order the map happens to say",
+        "                    ] != committed_order:",
+        "                    ] != committed_order and False:",
     ),
     (
         "hide inherited published moments after replacing one moment",
@@ -641,13 +598,10 @@ GATEWAY_FAULTS: list[tuple[str, str, str]] = [
 
 REPLACEMENT_GATE_FAULTS: list[tuple[str, str, str]] = [
     (
-        "change public shared chunks before withholding a replacement generation",
-        "self.write_the_link_map(positions)\n"
-        "        self.write_the_seamless_view(units, only=affected)\n"
-        "        self.write_the_raw_overlap_view(units, only=affected)",
-        "self.write_the_seamless_view(units, only=affected)\n"
-        "        self.write_the_raw_overlap_view(units, only=affected)\n"
-        "        self.write_the_link_map(positions)",
+        "leave the candidate generation's map behind after a failed replacement",
+        "self.write_the_view()\n"
+        "        self.write_the_link_map(frozenset(self._committed_units()))",
+        "self.write_the_view()",
     ),
     (
         "leave failed replacement pixels and routing in the shared views",
@@ -655,6 +609,30 @@ REPLACEMENT_GATE_FAULTS: list[tuple[str, str, str]] = [
         "                    position_id, timepoint\n"
         "                )",
         "pass",
+    ),
+]
+
+#: The per-commit metadata rewrites die under a reader's hold without their
+#: patience, and a tired person removes a wrapper like this believing it
+#: redundant. Only the hold tests notice, because only they hold the file.
+HOLD_PATIENCE_FAULTS: list[tuple[str, str, str]] = [
+    (
+        "replace the marker with no patience for a reader's hold",
+        "written_despite_brief_holds(lambda: os.replace(handle.name, destination))",
+        "os.replace(handle.name, destination)",
+    ),
+]
+
+HOLD_PATIENCE_OMEZARR_FAULTS: list[tuple[str, str, str]] = [
+    (
+        "replace an array description with no patience for a hold",
+        "written_despite_brief_holds(lambda: os.replace(beside, target))",
+        "os.replace(beside, target)",
+    ),
+    (
+        "write the group description with no patience for a hold",
+        'written_despite_brief_holds(lambda: group.attrs.__setitem__("ome", described))',
+        'group.attrs["ome"] = described',
     ),
 ]
 
@@ -689,6 +667,18 @@ SUBJECTS: list[tuple[str, str, str, list[tuple[str, str, str]]]] = [
         "coordinator.py",
         "test_gateway.py",
         REPLACEMENT_GATE_FAULTS,
+    ),
+    (
+        "patience for a reader's hold on the marker",
+        "manifest.py",
+        "test_metadata_survives_brief_holds.py",
+        HOLD_PATIENCE_FAULTS,
+    ),
+    (
+        "patience for a reader's hold on descriptions",
+        "omezarr.py",
+        "test_metadata_survives_brief_holds.py",
+        HOLD_PATIENCE_OMEZARR_FAULTS,
     ),
 ]
 

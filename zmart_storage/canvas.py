@@ -229,6 +229,32 @@ def _refuse_overlapping_tiles(tile_shape, tile_step) -> None:
 # makes them the thing to look past when asking "has anything been imaged here?".
 _DESCRIPTION_FILES = {".zarray", ".zattrs", ".zgroup", ".zmetadata", "zarr.json"}
 
+# The special value of ``keeps_its_tiles_in`` that means the tiles are not in a
+# named subfolder but sit **directly among the image's own levels**: every child
+# whose name ends ``.ome.zarr`` is a position and is stepped around wherever the
+# writer empties or inspects the image. Spelled "." because that is how a path
+# says "right here". The gain over a subfolder is that the acquisition is then
+# exactly what it looks like — one zarr whose children are the picture's levels
+# and the positions themselves, with no structure between.
+TILES_LIVE_DIRECTLY_INSIDE = "."
+
+
+def _a_child_the_tiles_live_in(name: str, apart_from: str | None) -> bool:
+    """Whether this child of an image folder holds tiles that must survive.
+
+    Three answers, by what ``apart_from`` says: nothing must (``None``, the
+    ordinary image that owns its whole folder); one named subfolder must (a view
+    keeping its positions in, say, ``"positions"``); or every child that is
+    itself an image must (:data:`TILES_LIVE_DIRECTLY_INSIDE`, a view whose
+    positions sit directly among its levels). Used by everything that empties or
+    inspects an image folder, so the rule cannot drift between them.
+    """
+    if apart_from is None:
+        return False
+    if apart_from == TILES_LIVE_DIRECTLY_INSIDE:
+        return name.endswith(_IMAGE_SUFFIX)
+    return name == apart_from
+
 
 def _a_picture_already_written(store: Path,
                                apart_from: str | None = None) -> Path | None:
@@ -266,7 +292,8 @@ def _a_picture_already_written(store: Path,
             # go next, so the positions are never descended into at all. That
             # matters for more than tidiness: a finished plate holds millions of
             # files down there and walking them would take real time.
-            folders[:] = [one for one in folders if one != apart_from]
+            folders[:] = [one for one in folders
+                          if not _a_child_the_tiles_live_in(one, apart_from)]
         for name in files:
             if name not in _DESCRIPTION_FILES:
                 return Path(here) / name
@@ -323,6 +350,22 @@ def _refuse_a_name_that_is_not_a_plain_file_name(name: str) -> None:
             "Give the acquisition type a plain name and choose the folder with "
             "the folder argument, which is what it is for."
         )
+    if os.name == "nt":
+        # Windows refuses these characters in any file or folder name, with a
+        # message about name syntax that says nothing to somebody who was only
+        # naming their sample. Elsewhere they are allowed and stay allowed —
+        # 'scan*' is a perfectly good name on the filesystems that take it.
+        unwriteable = sorted(set('<>:"|?*') & set(name))
+        if unwriteable:
+            raise ValueError(
+                f"the name {name!r} contains "
+                f"{', '.join(repr(sign) for sign in unwriteable)}, which Windows "
+                "does not allow in a file or folder name — and the name becomes "
+                "exactly that, the folder this acquisition type's images are "
+                "written under. On this machine the run cannot be declared under "
+                "this name. Give the acquisition type a name without any of "
+                '< > : " | ? * and declare it again.'
+            )
 
 
 def _images_belonging_to(folder: Path, name: str) -> list[Path]:
@@ -364,6 +407,78 @@ def _images_belonging_to(folder: Path, name: str) -> list[Path]:
     return sorted(found)
 
 
+def rmtree_despite_brief_holds(tree: str | Path) -> None:
+    """Remove a folder tree on a machine where something else glances at files.
+
+    Machines that image for a living run software that opens files the moment
+    they change — a virus scanner reading what was just written, a search
+    indexer cataloguing it. On Windows a file being deleted only truly goes
+    when the last open handle on it closes, so a tree being removed under such
+    a glance refuses to come down: the hold makes one delete pend, the parent
+    is then "not empty", and ``shutil.rmtree`` raises over ground that will be
+    clear a moment later. The holds last milliseconds and the watcher always
+    lets go, so the answer is a short patience — certainly not weakening the
+    watcher, which is doing its own job.
+
+    Only the three Windows spellings of "something is briefly holding this" are
+    waited out; every other failure, and any of these still standing after ten
+    seconds, is a real one and raises as it always did. Elsewhere this is one
+    plain ``rmtree``, because nothing on a POSIX filesystem stops a delete for
+    having the file open.
+    """
+    deadline = time.monotonic() + 10.0
+    pause = 0.05
+    while True:
+        try:
+            shutil.rmtree(tree)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as why:
+            # ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_DIR_NOT_EMPTY:
+            # the shapes a transient hold arrives in, depending on which moment
+            # of the removal it interrupts.
+            if getattr(why, "winerror", None) not in (5, 32, 145):
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(pause)
+            pause = min(pause * 2, 1.0)
+
+
+def written_despite_brief_holds(write) -> None:
+    """Make one write on a machine where something else glances at files.
+
+    The live arrangement is a viewer reading the picture while the acquisition
+    writes it, and the shared zoomed-out copies are where the two meet: every
+    landing tile rewrites them, and a viewer showing the whole picture reads
+    them over and over. The writer replaces each file atomically, so a reader
+    never sees a torn one — but on Windows the reader's open handle makes the
+    replacement itself fail, as ``Access is denied`` on ground that is free a
+    moment later. A virus scanner's glance at a fresh file fails the same way.
+    Measured on a lab PC: a 10,000-position run, watched live, died about
+    twenty tiles in.
+
+    The reader lets go in milliseconds, so the write is retried through the
+    same short patience as :func:`rmtree_despite_brief_holds`: only the
+    Windows spellings of "briefly held" are waited out, and anything else —
+    or a hold still there after ten seconds — raises as it always did.
+    """
+    deadline = time.monotonic() + 10.0
+    pause = 0.05
+    while True:
+        try:
+            write()
+            return
+        except PermissionError as why:
+            if getattr(why, "winerror", None) not in (5, 32):
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(pause)
+            pause = min(pause * 2, 1.0)
+
+
 def _throw_away_the_existing_run(folder: Path, name: str,
                                  apart_from: str | None = None) -> None:
     """Remove this acquisition type's image, because the caller said to.
@@ -391,13 +506,13 @@ def _throw_away_the_existing_run(folder: Path, name: str,
             store.unlink()
             continue
         if apart_from is None:
-            shutil.rmtree(store)
+            rmtree_despite_brief_holds(store)
             continue
         for child in store.iterdir():
-            if child.name == apart_from:
+            if _a_child_the_tiles_live_in(child.name, apart_from):
                 continue
             if child.is_dir():
-                shutil.rmtree(child)
+                rmtree_despite_brief_holds(child)
             else:
                 child.unlink()
 
@@ -671,11 +786,13 @@ def _claim_the_right_to_write(folder: Path, name: str) -> _WritingClaim | None:
             )
 
         # The note is rewritten rather than added to, so that what a later reader
-        # finds describes the writer that holds the images now. The note is always
-        # far longer than the single byte Windows marks as held, so shortening the
-        # file never disturbs the mark.
+        # finds describes the writer that holds the images now. Its first byte is
+        # a bare newline carrying no words, because that byte is the one the
+        # operating system marks as held and Windows forbids other programs to
+        # *read* a marked byte — so the words start after it, where the refusal
+        # can still quote them while the mark is held.
         handle.seek(0)
-        handle.write(_what_the_claim_says(name))
+        handle.write("\n" + _what_the_claim_says(name))
         handle.truncate()
         handle.flush()
         claim = _WritingClaim(path, handle)
@@ -711,7 +828,9 @@ def _read_the_claim(handle) -> str:
     point of the refusal does not depend on being able to name it.
     """
     try:
-        handle.seek(0)
+        # The first byte is the operating system's mark, which Windows forbids
+        # another program to read; the words start after it.
+        handle.seek(1)
         said = handle.read(4096).strip()
     except (OSError, UnicodeDecodeError):
         said = ""
@@ -1402,6 +1521,7 @@ class TileCanvases:
         frame: int = 0,
         tile_index: tuple[int, int, int] | None = None,
         from_level: int = 1,
+        ground_may_be_imaged_twice: bool = False,
     ) -> Path:
         """Fill in a tile's part of the zoomed-out copies, and nothing else.
 
@@ -1425,6 +1545,17 @@ class TileCanvases:
             channel: which colour of light this tile was recorded in.
             frame: which moment it belongs to.
             tile_index: the tile's place in the scan pattern, if it has one.
+            ground_may_be_imaged_twice: whether a tile landing on ground another
+                tile already covered is expected here rather than a fault. An
+                ordinary acquisition refuses that, because writing would silently
+                replace the earlier recording. A *view* is different: its tiles
+                overlap wherever the run's placements did — a run whose fields of
+                view meet, chosen targets that happen to touch — and the tiles
+                themselves keep every recorded voxel safely regardless. These
+                zoomed-out copies are derived from the tiles, not the record of
+                them, so the later tile standing for the shared ground loses
+                nothing. The view's list of pointers decides what full size
+                shows; this only decides the shrunken copies.
 
         Returns:
             The image folder the copies were written into.
@@ -1433,6 +1564,7 @@ class TileCanvases:
             image, origin=origin, channel=channel, frame=frame,
             tile_index=tile_index, at_full_size=False,
             from_level=from_level,
+            ground_may_be_imaged_twice=ground_may_be_imaged_twice,
         )
 
     def _put_a_tile_in(
@@ -1445,6 +1577,7 @@ class TileCanvases:
         tile_index: tuple[int, int, int] | None,
         at_full_size: bool,
         from_level: int = 1,
+        ground_may_be_imaged_twice: bool = False,
     ) -> Path:
         """The body of :meth:`write`, shared with :meth:`only_the_zoomed_out_copies`.
 
@@ -1466,7 +1599,7 @@ class TileCanvases:
         # A tile is only in the way of another if it is in the same moment and the
         # same colour as well as the same place.
         occupied = (frame, channel, *footprint)
-        if tile_index is None:
+        if tile_index is None and not ground_may_be_imaged_twice:
             self._check_nothing_is_already_here(occupied)
 
         with self._while_nothing_else_holds_these_pieces(
@@ -1483,7 +1616,9 @@ class TileCanvases:
                     slice(y0, y0 + height),
                     slice(x0, x0 + width),
                 )
-                picture.arrays[0][destination] = image
+                written_despite_brief_holds(
+                    lambda: picture.arrays[0].__setitem__(destination, image)
+                )
             self._write_smaller_copies(image, origin, channel, frame,
                                        from_level=from_level)
             picture.written.append(occupied)
@@ -1711,8 +1846,8 @@ class TileCanvases:
             at = (frame, channel)
             target = (*at, slice(z0, z0 + depth), slice(y0, y0 + height),
                       slice(x0, x0 + width))
-            array[target] = (
-                smaller[:, :height, :width]
+            written_despite_brief_holds(
+                lambda: array.__setitem__(target, smaller[:, :height, :width])
             )
 
 
@@ -1849,7 +1984,7 @@ def _declare_one(
         # its description and every zoomed-out copy an earlier attempt wrote are
         # gone before the new ones are declared.
         for child in store.iterdir() if store.is_dir() else ():
-            if child.name == keeps_its_tiles_in:
+            if _a_child_the_tiles_live_in(child.name, keeps_its_tiles_in):
                 continue
             if child.is_dir():
                 shutil.rmtree(child)
