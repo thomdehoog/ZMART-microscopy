@@ -367,6 +367,17 @@ Plotted beside it, the one-picture arm's flat line is the crux made
 visible — the strongest single figure this project can show anyone who
 asks why the server exists.
 
+And the crossover may be worth more than justification: if the inflection
+is clean, it can become a **decision rule the front door applies per run**
+— a handful of positions opens as plain sources, nothing built and nothing
+declared, while anything past the measured count gets the seamless view
+automatically. The operator would never choose; the count would. Whether
+that rule is worth its second code path is itself a question the curve
+answers: a crossover down at ten positions says the simple way is barely
+ever applicable and one path should serve everything, while a crossover up
+at several hundred says most quick looks could skip the server entirely.
+Do not decide this before the measurement; the number decides it.
+
 ## What the new architecture opens up, beyond speed
 
 Two consequences of serving by building, noted the night of the decision so
