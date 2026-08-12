@@ -8,11 +8,13 @@ import {
   chooseScaleWhenTheImagesAreMeasured,
   letGoOfDecodedPieces,
   lettingGo,
+  refreshTheImagesWithoutBlanking,
   sourceRefreshing,
   sourcesStillWaiting,
   syncLayers,
   syncView,
   stretchTheDisplay,
+  twinning,
 } from "./engine.js";
 import ScaleBar from "./ScaleBar.jsx";
 import AxisSlider from "./AxisSlider.jsx";
@@ -519,8 +521,16 @@ export default function App() {
         said = null; // not readable, so treat it as a plain "something changed"
       }
       if (said?.imageWrittenInPlace && engine.current) {
-        // Said outright, so there is no need to wait and find out.
-        letGoOfDecodedPieces(engine.current);
+        // Said outright, so there is no need to wait and find out. The ground
+        // is refreshed behind the picture already on screen — a twin layer
+        // resolves the current truth while the old one keeps drawing, so the
+        // operator never watches the picture vanish and refill. Only when
+        // nothing could be twinned (no single-source image on screen) does
+        // the blunt path run, because a stale picture is still worse than a
+        // blink.
+        if (refreshTheImagesWithoutBlanking(engine.current) === 0) {
+          letGoOfDecodedPieces(engine.current);
+        }
         askAgain();
         return;
       }
@@ -724,6 +734,10 @@ export default function App() {
     // announcement that did nothing from one that did something that did not help.
     window.zmartLetGo = lettingGo;
     window.zmartSourceRefreshing = sourceRefreshing;
+    // What the no-black refresh did: twins asked for, adopted, abandoned. The
+    // browser tests read this to tell a refresh that never blanked from one
+    // that never happened.
+    window.zmartTwinning = twinning;
 
     // Only a change in the shape of the scene can move the view: adding or
     // removing an image makes the engine work out the coordinate space afresh,

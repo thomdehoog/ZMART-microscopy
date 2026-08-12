@@ -63,6 +63,12 @@ import {
 // WeakMap is used so that a layer being thrown away takes its entry with it.
 const sourcesApplied = new WeakMap();
 
+// The last description each layer was given, kept so a refresh can rebuild the
+// same layer from outside a sync pass. Keyed by the managed layer, and weakly,
+// for the same reason as everything else here: a layer thrown away takes its
+// memory with it.
+const specApplied = new WeakMap();
+
 // For each layer, how many frames each of its stores was last known to hold: a map
 // from the store's address to its count. This is what decides which stores are worth
 // reading again, and it has to be per store rather than per layer -- see syncSources
@@ -529,6 +535,169 @@ function forgetOneStableSource(chunkManager, url) {
   return removed;
 }
 
+/**
+ * Disown one stable source's memoized objects without touching what they hold.
+ *
+ * The difference from `forgetOneStableSource` above is the whole trick of the
+ * no-black refresh. Invalidating a decoded holder empties the screen, because
+ * the layer drawing it shares that holder. *Deleting the memoize entries*
+ * empties nothing: whoever is using them keeps them — the comments on
+ * `forgetWhatWasReadAbout` record that these entries hold no cleanup of their
+ * own — and the next asker, finding nothing remembered, builds fresh ones and
+ * reads the disk again. So the layer already on screen keeps drawing its
+ * picture while a twin resolves the current truth beside it.
+ */
+function disownOneStableSource(chunkManager, url) {
+  const remembered = chunkManager?.memoize?.map;
+  const removed = { metadata: 0, decoded: 0 };
+  if (!remembered) return removed;
+  const matching = memoEntriesForStableSource(remembered.keys(), url);
+  for (const question of matching.metadata) {
+    if (remembered.delete(question)) removed.metadata += 1;
+  }
+  for (const question of matching.decoded) {
+    if (remembered.delete(question)) removed.decoded += 1;
+  }
+  return removed;
+}
+
+// Layers resolving the current truth behind the picture they will replace.
+// The deletion sweep in syncLayers leaves these alone: their names are
+// deliberately in no spec, because the spec's name still belongs to the elder
+// each will replace.
+const adopting = new Set();
+
+// The layers currently being replaced, each with a note saying whether another
+// refresh was asked for while its twin was still resolving. One twin per
+// elder at a time: a second announce during an adoption queues one follow-up
+// rather than stacking twins, and the follow-up reads the *current* truth, so
+// however many announcements a burst held, the picture ends on the latest.
+const replacing = new WeakMap();
+
+// What the refresh did, for the browser tests: how many twins were asked for,
+// how many took over, and how many were abandoned because the scene moved on
+// under them.
+export const twinning = { asked: 0, adopted: 0, abandoned: 0 };
+
+/**
+ * Refresh every single-source image layer without ever emptying the screen.
+ *
+ * The announcement path used to invalidate everything the engine had decoded,
+ * and the operator watched the whole picture disappear and refill on every
+ * landing — the browser's half of whole-picture granularity. Nothing smaller
+ * than a source can be invalidated, so this stops invalidating: for each
+ * layer, the store's memoized answers are *disowned* (see above), a twin
+ * layer is built from the same description, and the twin — finding nothing
+ * remembered — reads the description and the pixels afresh while the elder
+ * keeps drawing the old picture underneath. When the twin has resolved and
+ * had a moment to draw, the elder is retired and the twin takes its name,
+ * its place, and its future sync passes. The operator sees the new truth
+ * appear over the old; at no moment is there nothing.
+ *
+ * Only layers drawn from one source are twinned. A row of many stores — one
+ * per position — already refreshes surgically through the per-store revision
+ * path, and rebuilding such a row wholesale is the burst the feeding budget
+ * exists to prevent.
+ *
+ * Returns how many twins were started, so a caller can fall back to the
+ * blunt path when nothing here applied.
+ */
+export function refreshTheImagesWithoutBlanking(viewer) {
+  const manager = viewer.layerManager;
+  let started = 0;
+  for (const elder of [...manager.managedLayers]) {
+    if (adopting.has(elder)) continue;
+    if (!elder.layer || elder.layer.type !== "image") continue;
+    const spec = specApplied.get(elder);
+    const stores = spec ? sourceList(spec) : [];
+    if (stores.length !== 1) continue;
+    started += 1;
+    const busy = replacing.get(elder);
+    if (busy) {
+      // A twin is already resolving. One note is enough however many
+      // announcements arrive meanwhile: the follow-up twin reads the truth
+      // as of when it starts, which includes everything announced here.
+      busy.again = true;
+      continue;
+    }
+    _replaceBehindTheScenes(viewer, elder, spec, stores);
+  }
+  return started;
+}
+
+function _replaceBehindTheScenes(viewer, elder, spec, stores) {
+  const manager = viewer.layerManager;
+  twinning.asked += 1;
+  replacing.set(elder, { again: false });
+  disownOneStableSource(viewer.chunkManager, stores[0].split("|")[0]);
+  // The twin resolves at as good as no opacity. It must stay *visible* — an
+  // invisible layer's chunks are never requested — but image layers
+  // composite, so a twin drawn at full strength brightens every pixel both
+  // copies cover for as long as it resolves: the operator watched that as a
+  // pulse on every landing, worse the more tiles were on screen. Nought is
+  // avoided only out of caution against a renderer that skips zero-alpha
+  // layers entirely.
+  const twin = makeLayer(
+    viewer.layerSpecification,
+    manager.getUniqueLayerName(elder.name),
+    { ...spec, opacity: 0.001 },
+  );
+  sourcesApplied.set(twin.layer, new Set(stores));
+  specApplied.set(twin, spec);
+  adopting.add(twin);
+  const place = manager.managedLayers.indexOf(elder);
+  viewer.layerSpecification.add(twin, place + 1);
+
+  const deadline = performance.now() + 15000;
+  const settle = () => {
+    // The scene may have moved on — the acquisition closed, the twin or the
+    // elder deleted by a sync pass. Whoever is missing decides.
+    if (!manager.managedLayers.includes(twin)) {
+      adopting.delete(twin);
+      replacing.delete(elder);
+      twinning.abandoned += 1;
+      return;
+    }
+    if (!manager.managedLayers.includes(elder)) {
+      // The elder was closed, so its replacement is not wanted either.
+      adopting.delete(twin);
+      replacing.delete(elder);
+      deleteLayer(twin);
+      twinning.abandoned += 1;
+      return;
+    }
+    // `viewer.isReady` rather than the twin's own flag: the layer's says its
+    // sources resolved, the viewer's says every visible piece of every layer
+    // has actually been loaded — it is the condition screenshot tooling
+    // waits on. Retiring the elder any earlier leaves black tiles where the
+    // twin's screenful is still arriving, and the number of pieces a
+    // screenful holds grows with the survey, which is exactly the
+    // gets-worse-with-more-tiles flicker the operator reported.
+    if ((twin.isReady && viewer.isReady) || performance.now() > deadline) {
+      const name = elder.name;
+      const note = replacing.get(elder);
+      if (elder.layer) stopFeeding(elder.layer);
+      deleteLayer(elder);
+      adopting.delete(twin);
+      replacing.delete(elder);
+      twin.name = name;
+      // The true settings, now that showing them shows one copy: the twin
+      // resolved at as good as no opacity (see above).
+      applySettings(twin, spec);
+      manager.layersChanged.dispatch();
+      twinning.adopted += 1;
+      if (note && note.again) {
+        // Something landed while this twin was resolving; go once more, from
+        // the twin, against the truth as of now.
+        _replaceBehindTheScenes(viewer, twin, spec, stores);
+      }
+      return;
+    }
+    setTimeout(settle, 32);
+  };
+  setTimeout(settle, 32);
+}
+
 function revisionsFor(spec) {
   return sourceRevisionsFor(sourceList(spec), spec.sourceIds, spec.sourceRevisions);
 }
@@ -817,7 +986,10 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
 
   // Anything the panel no longer lists has genuinely been closed, so let it go.
   // Doing this first also frees the name, in case something new is taking it.
+  // A twin still being adopted is not closed — its name is in no spec on
+  // purpose, because the name it will take still belongs to its elder.
   for (const managed of [...manager.managedLayers]) {
+    if (adopting.has(managed)) continue;
     if (wanted.has(managed.name)) continue;
     if (managed.layer) stopFeeding(managed.layer);
     deleteLayer(managed);
@@ -854,6 +1026,7 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
         refreshed,
       );
       applySettings(managed, spec);
+      specApplied.set(managed, spec);
       return;
     }
     // A layer is built with at most one group of stores, and the rest are fed to it
@@ -873,6 +1046,7 @@ export function syncLayers(viewer, specs, { reread = false } = {}) {
     // Building from the description already applied everything in it, including
     // the images; record them so the next pass does not add them a second time.
     sourcesApplied.set(managed.layer, new Set(stores));
+    specApplied.set(managed, spec);
     if (rest.length) {
       const feed = feedFor(managed.layer);
       for (const url of rest) feed.waiting.push(url);
