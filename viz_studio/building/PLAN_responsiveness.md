@@ -423,6 +423,21 @@ published ground. The trimming idea the pointing design had to abandon
 (trims had to land on chunk boundaries) returns here for free, at pixel
 precision, per view, reversible.
 
+**One canvas per kind of scan, composed as layers in the viewer.** The
+operator-facing model that falls out: the overview scan is one virtual
+OME-Zarr; the target scans — a different magnification, a different voxel
+size, their own positions — are another; any further modality its own
+again. Neuroglancer opens each canvas as one layer and aligns them in
+physical space by their own micrometre metadata, which is the coordinate
+system the canvases share even when their pixels cannot. This is also the
+clean answer to mixed magnification: a detail scan never joins the
+overview's grid, it stands beside it as its own layer. The flatness
+argument survives exactly because the layer count equals the number of
+scan *kinds* — a small constant chosen by the experiment — never the
+number of positions: ten thousand overview tiles and three hundred target
+volumes reach the viewer as two sources. Each canvas keeps its own gate,
+its own change counter and its own caches.
+
 **The stored grid and the served grid are decoupled, on purpose.** Chunks
 keep every advantage on both sides — chunked position stores are what make
 building affordable (a piece reads only the blocks that cover it), and the
