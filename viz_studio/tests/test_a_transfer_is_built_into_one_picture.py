@@ -39,10 +39,10 @@ import zarr
 VIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(VIZ / "building"))
 
+import served  # noqa: E402
 from composer import Composer  # noqa: E402
 from declare import declare_a_built_picture  # noqa: E402
 from mosaic import read_the_transfer  # noqa: E402
-import served  # noqa: E402
 
 # One tile: shallow, small, and square, so a whole transfer of them is quick to
 # write and every test can afford to compare every voxel.

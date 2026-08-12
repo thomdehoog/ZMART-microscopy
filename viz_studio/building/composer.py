@@ -50,11 +50,9 @@ from __future__ import annotations
 import json
 import threading
 from collections import OrderedDict
-from pathlib import Path
 
 import numpy as np
 import zarr
-
 from mosaic import Mosaic
 
 # How large a piece of the built picture is, across height and width. A builder is
