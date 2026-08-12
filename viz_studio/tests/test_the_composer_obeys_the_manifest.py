@@ -302,6 +302,39 @@ def test_ground_a_commit_touched_is_rebuilt_not_remembered(tmp_path):
     )
 
 
+# -- the commit boundary: serving must not hold the writer's files hostage -------
+
+
+def test_serving_holds_no_lasting_handle_on_committed_pixels(tmp_path):
+    """The writer must be able to replace any chunk file at any moment.
+
+    Windows refuses to replace a file somebody holds open, and replacing
+    files is exactly what a commit does — reproduced 2026-08-12 as WinError 5
+    stopping a landing mid-demonstration. So the composer's reads open, read,
+    and let go: after a piece has been built, and while the composer that
+    built it is alive and its zarr arrays are still open, the writer's own
+    move — ``os.replace`` — must succeed against every chunk that was read.
+    """
+    import os
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+
+    governed = GovernedRun(run.folder, piece=PIECE)
+    composer = governed.composer()
+    a_only, _, _ = the_columns_of(run)
+    assert composer.bytes_for(0, 0, 0, a_only) is not None
+
+    level_zero = run.position_store("posA") / "0"
+    chunks = [one for one in level_zero.rglob("*") if one.is_file()
+              and one.name != "zarr.json"]
+    assert chunks, "the piece was built, so chunks were read"
+    for chunk in chunks:
+        newcomer = chunk.with_suffix(".arriving")
+        newcomer.write_bytes(chunk.read_bytes())
+        os.replace(newcomer, chunk)  # PermissionError here is the regression
+
+
 # -- finding 2: commit order, later on top ---------------------------------------
 
 
