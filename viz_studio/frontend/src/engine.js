@@ -1132,11 +1132,14 @@ function startTimeAtTheFirstMoment(viewer) {
  */
 
 // How much window the overview leaves around the picture. The picture's longest
-// side fills the window divided by this, so 1.1 leaves about a tenth of the
-// window as visible ground on that axis -- enough that the picture reads as an
-// object with an edge rather than as detail continuing past the window, which
-// an operator asked for after using the exact fit on a large survey.
-const OVERVIEW_MARGIN = 1.1;
+// side fills the window divided by this, so 1.2 leaves about a sixth of the
+// window as visible ground on that axis -- roughly eight percent a side, which
+// on a full-screen window of the lab monitor is the two centimetres the
+// operator judged right by eye. Proportional rather than a fixed distance, so
+// a small window is not mostly margin. Chosen twice by the same operator on
+// the 12,800-position survey: first that the exact fit needed an edge at all,
+// then that the first margin wanted doubling.
+const OVERVIEW_MARGIN = 1.2;
 
 export function showTheWholePicture(viewer) {
   const { position } = viewer.navigationState;

@@ -177,10 +177,10 @@ def test_overview_fits_the_whole_picture_to_the_window(viewer_page):
     viewer_page.wait_for_timeout(800)
 
     shares = viewer_page.evaluate(_HOW_THE_PICTURE_FITS)
-    assert all(share <= 0.93 for share in shares), (
-        f"the picture reaches the window's edge with no margin around it: {shares}"
+    assert all(share <= 0.87 for share in shares), (
+        f"the picture reaches the window's edge with too little margin: {shares}"
     )
-    assert max(shares) >= 0.80, (
+    assert max(shares) >= 0.78, (
         f"the picture fills at most {max(shares):.0%} of the window, which is "
         "zoomed out past an overview"
     )
@@ -205,10 +205,10 @@ def test_overview_fits_the_volume_too(viewer_page):
     viewer_page.wait_for_timeout(800)
 
     shares = viewer_page.evaluate(_HOW_THE_VOLUME_FITS)
-    assert all(share <= 0.93 for share in shares), (
-        f"the volume reaches the window's edge with no margin around it: {shares}"
+    assert all(share <= 0.87 for share in shares), (
+        f"the volume reaches the window's edge with too little margin: {shares}"
     )
-    assert max(shares) >= 0.80, (
+    assert max(shares) >= 0.78, (
         f"the volume fills at most {max(shares):.0%} of the window, which is "
         "zoomed out past an overview"
     )
