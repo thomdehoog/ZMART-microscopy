@@ -378,6 +378,33 @@ ever applicable and one path should serve everything, while a crossover up
 at several hundred says most quick looks could skip the server entirely.
 Do not decide this before the measurement; the number decides it.
 
+**What the rule means for smart microscopy and live runs: nothing — and
+that is a decision, not an omission.** The count rule is for *finished*
+data only; a live run opens as the seamless view from its first position,
+regardless of any threshold, for three reasons that do not depend on the
+curve:
+
+- *A live run grows through the threshold.* A smart run starts at one
+  position and may end at thousands, so choosing by count at open time
+  guarantees a mode switch in mid-acquisition — tearing down the sources
+  and swapping in the view as a visible reload, exactly during the runs an
+  operator is watching most closely.
+- *The viewer tolerates a changing picture far better than a changing
+  layer list.* A committed position in one-image mode is one cache
+  invalidation on one stable source; in many-sources mode it is a new
+  layer added live, with its setup and UI churn, on every commit.
+- *Commit-order overlap is a view guarantee.* Later-committed-drawn-on-top
+  is the composer's draw order; independent sources composite by the
+  engine's layer blending, which knows nothing of commits — dense
+  overlapping placements would blend arbitrarily.
+
+One reassurance worth stating: publication gating is *not* what the modes
+differ on. Plain-source requests travel the positions' own paths, and the
+gateway already gates those per position and moment — a small live run
+shown as sources leaks nothing. The gate is a property of the served
+paths; only stability and draw order belong to the view, and they are why
+live means one image, always.
+
 ## What the new architecture opens up, beyond speed
 
 Two consequences of serving by building, noted the night of the decision so
