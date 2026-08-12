@@ -254,10 +254,30 @@ def main() -> None:
     parsed.add_argument("--rungs",
                         help="tile counts to measure instead of the default "
                         "ladder, e.g. 1,5,10,50,100")
+    parsed.add_argument("--tile",
+                        help="the shape of one tile as planes,height,width -- "
+                        f"default {','.join(str(n) for n in TILE)}. A camera "
+                        "frame is 2,2048,2048.")
+    parsed.add_argument("--step-um", type=float, default=None,
+                        help="how far the stage moves between tiles, in "
+                        "micrometres. Defaults to about ninety per cent of "
+                        "the tile's width, kept deliberately fractional in "
+                        "voxels, as a real stage is.")
     parsed.add_argument("--where", type=Path,
                         default=Path(r"D:\zmart-scaling-test"),
                         help="where to write the throwaway transfers")
     given = parsed.parse_args()
+
+    tile = tuple(int(n) for n in given.tile.split(",")) if given.tile else TILE
+    if given.step_um is not None:
+        step_um = given.step_um
+    elif tile == TILE:
+        step_um = STEP_UM
+    else:
+        # Ninety per cent of the tile's width, nudged so the step is not a
+        # whole number of voxels -- the condition a real stage produces and
+        # the one that makes a picture impossible to point at.
+        step_um = round(tile[2] * VOXEL_UM[2] * 0.9, 2) - 0.26
 
     if given.rungs:
         rungs = [int(one) for one in given.rungs.split(",")]
@@ -266,8 +286,8 @@ def main() -> None:
         rungs = [one for one in rungs if one <= given.most]
 
     print("\n  Building a picture from a transfer, as the transfer grows.")
-    print(f"  Tiles {TILE[1]}x{TILE[2]}, stepping {STEP_UM} um "
-          f"({STEP_UM / VOXEL_UM[1]:.2f} voxels -- not a whole number),"
+    print(f"  Tiles {tile[1]}x{tile[2]}, stepping {step_um} um "
+          f"({step_um / VOXEL_UM[1]:.2f} voxels -- not a whole number),"
           f"\n  pieces of 512, one plane, nothing cached.\n")
     print(f"  {'tiles':>7} {'picture':>15} {'opening':>10} {'finding':>10} "
           f"{'1st build':>11} {'after':>9} {'tiles a piece':>14}")
@@ -278,7 +298,7 @@ def main() -> None:
         folder = given.where / f"tiles{tiles:05d}"
         if folder.exists():
             shutil.rmtree(folder)
-        write_a_transfer(folder, tiles)
+        write_a_transfer(folder, tiles, tile=tile, step_um=step_um)
         row = measure(folder, tiles)
         row.update(gestures(folder))
         rows.append(row)
