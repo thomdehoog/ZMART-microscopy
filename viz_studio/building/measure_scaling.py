@@ -135,9 +135,6 @@ def measure(folder: Path, tiles: int) -> dict:
 
     finding, building, rebuilding, covering = [], [], [], []
     for row, column in places:
-        low = (0, row * composer.piece, column * composer.piece)
-        high = (min(deep, 1), low[1] + composer.piece, low[2] + composer.piece)
-
         # Timed the way the composer actually does it -- a lookup in the index,
         # not a sweep of every tile. The index is built on first use, so it is
         # warmed here rather than being charged to the first piece measured.
@@ -189,7 +186,7 @@ def main() -> None:
     rungs = [1, 4, 16, 64, 256, 1024, 4096, 16384]
     rungs = [one for one in rungs if one <= given.most]
 
-    print(f"\n  Building a picture from a transfer, as the transfer grows.")
+    print("\n  Building a picture from a transfer, as the transfer grows.")
     print(f"  Tiles {TILE[1]}x{TILE[2]}, stepping {STEP_UM} um "
           f"({STEP_UM / VOXEL_UM[1]:.2f} voxels -- not a whole number),"
           f"\n  pieces of 512, one plane, nothing cached.\n")
