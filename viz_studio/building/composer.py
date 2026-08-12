@@ -143,24 +143,24 @@ def _build_in_worker(level: int, plane: int, row: int, column: int):
 class Composer:
     """Answers for a picture that is never stored, out of the tiles that are.
 
-    ``workers`` turns on building in separate processes, and it is a count so
-    one against four against twelve can be measured side by side. Off by
-    default, because the single-process path is the one every figure in this
-    folder describes -- and because processes are only worth their machinery
-    where the work is interpreter-bound, which the coarse ground measurably is:
-    twelve threads built the 12,800-position survey's coarsest level no faster
-    than one (12.7 s either way), since a coarse piece is thousands of tiny
-    reads whose bookkeeping all queues behind the interpreter's lock.
+    ``workers`` is how many processes build the picture. One -- the default,
+    and the operator's own choice after watching a baked survey open instantly
+    on a single pinned core -- builds in place, and is the path every figure
+    in this folder describes. More than one spreads slabs across a pool, so
+    one against four against twelve can be measured side by side. Processes
+    rather than threads, because the coarse ground is interpreter-bound where
+    it is not scanner-bound: twelve threads built the 12,800-position survey's
+    coarsest level no faster than one (12.7 s either way).
     """
 
     def __init__(self, mosaic: Mosaic, piece: int = PIECE,
                  weighing_at_most: int = SLABS_WEIGH_AT_MOST,
                  blocks_weighing_at_most: int = BLOCKS_WEIGH_AT_MOST,
-                 workers: int = 0, pinning: bool = True) -> None:
+                 workers: int = 1, pinning: bool = True) -> None:
         self.mosaic = mosaic
         self.piece = piece
         self._weighing_at_most = weighing_at_most
-        self._workers = int(workers or 0)
+        self._workers = max(1, int(workers or 1))
         self._pinning = pinning
         self._pool: ProcessPoolExecutor | None = None
         self._pool_guard = threading.Lock()
@@ -494,11 +494,11 @@ class Composer:
     @property
     def working_alone(self) -> bool:
         """Whether every slab is built in this process, the measured default."""
-        return not self._workers
+        return self._workers == 1
 
     def _built_wherever(self, level: int, plane: int, row: int, column: int):
         """Build a slab here, or hand it to a worker process when they exist."""
-        if not self._workers:
+        if self._workers == 1:
             return self._build_slab(level, plane, row, column)
         with self._pool_guard:
             if self._pool is None:
