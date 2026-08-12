@@ -3,32 +3,27 @@
 This is the smallest arrangement that gives an operator a live picture of a smart
 experiment, and it holds only what is strictly necessary to do that.
 
-What a run leaves on disk::
+What a run leaves on disk — one zarr, which is the whole acquisition::
 
     experiment/
-      overview.ome.zarr/      open this in the viewer. One image, and it holds
-        zarr.json             no picture of its own beyond the zoomed-out copies.
-        0/ 1/ 2/ 3/
-      positions/
-        overview_pos00000.ome.zarr      one position, exactly as the camera saw it
-        overview_pos00001.ome.zarr
-      zmart-links/            ours: which piece of the picture is which position
-      zmart-coverage/         ours: where the run has actually imaged so far
+      overview.ome.zarr/                open this; it is the acquisition
+        zarr.json                       the picture's description, and the map
+        0/ 1/ 2/ 3/                     the picture's levels: the pointed ones
+                                        hold nothing, the deep ones are written
+        overview_pos00000.ome.zarr/     one position, exactly as the camera saw
+        overview_pos00001.ome.zarr/     it, directly inside -- no folder between
 
-A smart experiment usually has more than one kind of scan — a wide survey and the
-detailed scans it led to — and each gets a run of its own, so ``overview.ome.zarr``
-and ``targetscan.ome.zarr`` sit side by side at the top with their positions
-together in one ``positions`` folder. They are told apart by the name each
-position carries, which it needs anyway to be worth anything on its own; a folder
-per kind was tried and only repeated the name one level up.
+The positions sit **directly inside** the picture, with nothing between: the
+container is itself the image, its numbered children are the levels, and its
+named children are the positions. Each position is an ordinary OME-Zarr image
+that opens on its own in napari or Fiji or anything else, and each carries the
+run's name so it is worth something wherever it ends up. A position is never
+named a bare number, so it can never be mistaken for a level.
 
-Three things sit at the top and each is one idea. **The image you open**, which is
-a view: it stores no full-size picture at all and instead says which piece of the
-picture is which piece of which position. **The positions**, which is where every
-voxel really lives, each an ordinary OME-Zarr image that opens on its own in
-napari or Fiji or anything else. And **our own two folders**, kept beside the
-images rather than inside them so that nothing we invented ever appears inside an
-image somebody else might open.
+A smart experiment usually has more than one kind of scan — a wide survey and
+the detailed scans it led to — and each gets a picture of its own, so
+``overview.ome.zarr`` and ``targetscan.ome.zarr`` sit side by side at the top,
+each holding its own positions.
 
 Why not simply give the viewer the positions
 --------------------------------------------
@@ -118,15 +113,18 @@ from pathlib import Path
 
 import numpy as np
 
-import zarr
-
-from .canvas import _IMAGE_SUFFIX, Channel, _declare_one
+from .canvas import (
+    _IMAGE_SUFFIX,
+    TILES_LIVE_DIRECTLY_INSIDE,
+    Channel,
+    _declare_one,
+)
 from .linked import GrowingLinkedView, LinkedView, PlacedTile, start_a_growing_view
 
-# The folder the positions go in, inside the run's own folder, with one folder per
-# acquisition type inside that. A smart experiment usually has more than one kind
-# of scan — a wide survey and the detailed scans it led to — and they are separate
-# pictures at different magnifications, so each keeps its positions apart.
+# The name of the subfolder positions used to live in, inside the picture. A run
+# written today puts them directly inside instead — see the layout at the top —
+# but runs already on disk keep the subfolder and keep opening, because the map
+# records where each position really is.
 POSITIONS_FOLDER = "positions"
 
 
@@ -221,22 +219,20 @@ class Run:
                  voxel_size_um: tuple[float, float, float],
                  origin_um: tuple[float, float, float],
                  channels: list[Channel], frames: int, dtype: str, piece: int,
-                 levels: int | None, ome_zarr_version: str) -> None:
+                 levels: int | None, ome_zarr_version: str,
+                 shard: int | None = None,
+                 point_at: int | None = None) -> None:
         self.folder = Path(folder)
         self.name = name
-        # The positions sit inside the picture itself, so the whole run is one
-        # zarr: one thing to open, to move and to copy, with nothing of ours loose
-        # beside it. The folder holding them is made a proper zarr **group**
-        # rather than a plain folder, and that is not decoration — an ordinary
-        # folder inside an image makes zarr warn whoever opens the run in other
-        # software ("Object at positions is not recognized as a component of a
-        # Zarr hierarchy"), while a group is simply part of the hierarchy and
-        # passes without comment.
-        self.positions_folder = (
-            self.folder / f"{name}{_IMAGE_SUFFIX}" / POSITIONS_FOLDER)
+        # The positions sit **directly inside** the picture itself, among its
+        # levels, so the whole run is one zarr with no structure between: one
+        # thing to open, to move and to copy. Nothing has to be declared for
+        # them here — each position is a zarr group of its own, which makes it
+        # part of the hierarchy the moment it exists, and the writer's emptying
+        # sweep steps around anything named ``.ome.zarr`` (which every position
+        # is, and is checked to be).
+        self.positions_folder = self.folder / f"{name}{_IMAGE_SUFFIX}"
         self.positions_folder.mkdir(parents=True, exist_ok=True)
-        zarr.open_group(str(self.positions_folder), mode="a",
-                        zarr_format=3 if ome_zarr_version == "0.5" else 2)
 
         self._room = tuple(int(n) for n in room)
         self._tile_shape = tuple(int(n) for n in tile_shape)
@@ -246,7 +242,9 @@ class Run:
         self._frames = int(frames)
         self._dtype = dtype
         self._piece = int(piece)
+        self._shard = None if shard is None else int(shard)
         self._levels = levels
+        self._point_at = None if point_at is None else int(point_at)
         self._ome_zarr_version = ome_zarr_version
         # How many copies each position keeps of itself. This is what lets the
         # picture the viewer opens store nothing at all: it points at these instead
@@ -263,6 +261,16 @@ class Run:
         # again — in another colour, or at a later moment — writes into the same
         # image and must not be added to the view a second time.
         self._told_the_view: set[tuple[int, int, int]] = set()
+        # One past the furthest moment each place has imaged, so that imaging a
+        # place *again* can go to its next moment without the caller keeping
+        # count — a re-imaged position is a later observation, not a
+        # replacement, and recording it as one is what keeps every recorded
+        # voxel and spares the viewer a change it cannot see.
+        self._moments_at: dict[tuple[int, int, int], int] = {}
+        # One past the furthest moment any place has imaged. The time slider
+        # stops here, and the viewer works the same number out from the written
+        # copies on disk; this one is for the acquisition to read back cheaply.
+        self._frames_reached = 0
         # The view is started by the *first* position rather than here, because it
         # has to be told what the positions look like and the honest way to know
         # that is to read one that exists.
@@ -287,6 +295,16 @@ class Run:
     def positions(self) -> int:
         """How many places on the stage have been imaged so far."""
         return len(self._written)
+
+    @property
+    def frames_reached(self) -> int:
+        """One past the furthest moment imaged anywhere in the run so far.
+
+        The time slider in the viewer works this same number out for itself
+        from what is on disk; this one is for the acquisition to read back
+        without looking.
+        """
+        return self._frames_reached
 
     def write(self, picture: np.ndarray, *, at: tuple[int, int, int],
               channel: int = 0, frame: int = 0) -> Path:
@@ -341,11 +359,65 @@ class Run:
             # Added once per place, not once per picture. A position imaged again
             # in a second colour or a later moment goes into the same image, and
             # telling the view about it twice would put the same tile in the list
-            # of pointers twice over.
+            # of pointers twice over — so the later pictures are handed to the
+            # view as what they are: the same place, imaged again. That writes
+            # the place's share of the zoomed-out copies for the new moment and
+            # moves the view's change counter, which is the one signal a change
+            # like this leaves — every watched file keeps its length and name.
             if where not in self._told_the_view:
-                self._view.add(PlacedTile(store=folder, lands_at=where))  # type: ignore[arg-type]
+                self._view.add(PlacedTile(store=folder, lands_at=where),  # type: ignore[arg-type]
+                               imaged=(int(frame), int(channel)))
                 self._told_the_view.add(where)
+            else:
+                self._view.imaged_again(
+                    PlacedTile(store=folder, lands_at=where),  # type: ignore[arg-type]
+                    frame=int(frame), channel=int(channel))
+            self._moments_at[where] = max(
+                self._moments_at.get(where, 0), int(frame) + 1)
+            self._frames_reached = max(self._frames_reached, int(frame) + 1)
         return folder
+
+    def image_again(self, picture: np.ndarray, *, at: tuple[int, int, int],
+                    channel: int = 0) -> tuple[Path, int]:
+        """Store a place that was imaged before, at its own next moment.
+
+        A targetscan revisits a place on purpose, and what it records there is a
+        **later observation**, not a correction: the earlier picture is data and
+        stays. So the new picture goes to the place's next unimaged moment, and
+        nothing is ever written over — which also spares the viewer the one kind
+        of change it cannot see, a file rewritten in place.
+
+        The caller does not keep count of moments; this does. The run must have
+        declared room in time for the moments a place may be revisited — see
+        ``frames`` in :func:`start_a_run` — and a place never imaged before is
+        simply imaged at its first moment.
+
+        Args:
+            picture: what the camera recorded, as ``(z, y, x)``.
+            at: the place, exactly as it was given to :meth:`write`.
+            channel: which colour this is.
+
+        Returns:
+            The position's own image folder, and the moment the picture was
+            stored at — worth keeping, because it is the run's own record of
+            when this observation happened.
+
+        Raises:
+            ValueError: if the moment would fall outside the room the run
+                declared in time, or for any reason :meth:`write` refuses.
+        """
+        where = tuple(int(n) for n in at)
+        with self._lock:
+            moment = self._moments_at.get(where, 0)
+        if moment >= self._frames:
+            raise ValueError(
+                f"this place has been imaged {moment} times and the run "
+                f"declared room for {self._frames} moments, so there is no "
+                "moment left to record this one at. Declare more room in time "
+                "when starting the run — declared moments that are never imaged "
+                "cost nothing on disk."
+            )
+        return self.write(picture, at=where, channel=channel, frame=moment), moment
 
     def finish(self) -> LinkedView:
         """Close the run and hand back the finished view.
@@ -395,6 +467,7 @@ class Run:
             channels=len(self._channels),
             dtype=self._dtype,
             chunk=self._piece,
+            shard=self._shard,
             levels=self._position_levels,
             voxel_size_um=self._voxel_size_um,  # type: ignore[arg-type]
             origin_um=corner_um,  # type: ignore[arg-type]
@@ -417,13 +490,14 @@ class Run:
             view_shape=self._room,  # type: ignore[arg-type]
             name=self.name,
             levels=self._levels,
+            point_at=self._point_at,
             origin_um=self._origin_um,  # type: ignore[arg-type]
             discard_existing_run=True,
             # The positions are already inside this folder, and declaring an image
             # normally empties the folder it is declared in. Naming them here is
             # what makes the writer step around them — without it, the first
             # position would be deleted by the picture that is meant to show it.
-            keeps_its_tiles_in=POSITIONS_FOLDER,
+            keeps_its_tiles_in=TILES_LIVE_DIRECTLY_INSIDE,
         )
         return view
 
@@ -440,7 +514,9 @@ def start_a_run(
     frames: int = 1,
     dtype: str = "uint16",
     piece: int = 128,
+    shard: int | None = None,
     levels: int | None = None,
+    point_at: int | None = None,
     ome_zarr_version: str = "0.5",
 ) -> Run:
     """Begin a run that writes each position as it arrives and shows it at once.
@@ -471,9 +547,29 @@ def start_a_run(
         piece: how large a piece of the picture is, in voxels across y and x. Every
             position has to begin on a multiple of this, because the view hands a
             position's own file to the browser untouched.
+        shard: how much picture to bundle into one **file**, in voxels across y
+            and x, or left out to keep every piece a file of its own. Bundling
+            keeps a long run from leaving hundreds of thousands of small files
+            behind — the pattern filesystems, backups and endpoint protection
+            all punish — while the pieces inside stay the size the viewer reads
+            by, served as stretches of the file. The bundle becomes the unit a
+            position must land on, so the step coarsens to a multiple of it;
+            and a position is written whole, so the writer already holds every
+            bundle it writes. See ``PLAN_live_smart_microscopy.md``.
         levels: how many progressively smaller copies the picture keeps, counting
             the full-size one. Normally left out, so the size of the picture
             decides — which is what keeps a large run opening quickly.
+        point_at: how many of each position's own zoomed-out copies the picture
+            points at rather than writes, counting the full-size one. Normally
+            left out, so every copy a position keeps is pointed at — the
+            cheapest arrangement, and the one that demands each position begin
+            on a multiple of the piece times the deepest pointed shrink. A run
+            that must place finer than that — fields of view overlapping
+            wherever the specimen took them — says ``point_at=1``, which points
+            at full size only, writes the zoomed-out copies instead, and asks
+            only that a position begin on a whole piece. The refusal a
+            misplaced position meets names this parameter; this is where to
+            follow its advice.
         ome_zarr_version: which generation of OME-Zarr to write, ``"0.5"`` or
             ``"0.4"``. 0.5 is the default here because it is the current standard;
             choose 0.4 if something that will read the run cannot manage 0.5.
@@ -492,6 +588,8 @@ def start_a_run(
         frames=frames,
         dtype=dtype,
         piece=piece,
+        shard=shard,
         levels=levels,
+        point_at=point_at,
         ome_zarr_version=ome_zarr_version,
     )

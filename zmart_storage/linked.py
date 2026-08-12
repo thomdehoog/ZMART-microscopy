@@ -62,20 +62,25 @@ lands on a piece boundary near the midline instead of exactly on it.
 What still has to be written, and why
 -------------------------------------
 
-**The zoomed-out copies.** A viewer that is zoomed out draws a smaller copy of the
-picture, and shrinking makes numbers that exist nowhere on disk — a voxel of the
-half-size copy stands for several voxels of the full-size one, and where a tile
-meets its neighbour those come from two different tiles. No existing file holds
-that answer, so it cannot be pointed at and is written out here, once, exactly the
-way :class:`zmart_storage.canvas.TileCanvases` writes it.
+**The zoomed-out copies.** A viewer that is zoomed out draws a smaller copy of
+the picture. Because shrinking picks every second voxel rather than averaging —
+see ``canvas.py`` — a voxel of a smaller copy comes from exactly one tile, so a
+tile that carries its own zoomed-out copies can be pointed at when zoomed out
+exactly as at full size, and a run that lines up all the way down writes nothing
+at all.
 
-Those copies come to **about a quarter** of the full-size picture, and that is the
-whole of the disk this arrangement uses. Each copy is half as wide and half as
-tall as the one above, so it holds a quarter as many voxels; adding a quarter and a
-sixteenth and a sixty-fourth and so on comes to a third, and a real run stops
-before the sum runs out, which measures at around 26%. Copying the run instead
-costs about eighty per cent more disk, so this is a large saving — but it is a
-quarter, not the tenth an earlier draft of this docstring claimed.
+How far down the pointers go is worked out from the run rather than demanded of
+it. Shrinking counts voxels from the picture's own corner, so pointing at a copy
+shrunk N times needs every tile to begin on a grid N times coarser than the
+pieces — and the deepest copies of a small tile are stored in pieces smaller
+than its full-size ones, which a large view cannot hand over either. The view
+points as deep as both conditions hold and **writes the copies below that**,
+which refuses nobody and costs at most about a quarter of the full-size picture
+in disk: each copy holds a quarter as many voxels as the one above, and a
+quarter plus a sixteenth and so on comes to a third, measured at around 26% on a
+real run. Copying the run instead costs about eighty per cent more disk. A run
+that lines up one level deep pays ~7%, two levels deep ~2%, and all the way
+down nothing.
 
 **The description.** The viewer asks what the image is before it asks for any of
 it: its axes, its size, how large a voxel is, where it sits on the stage, what
@@ -139,7 +144,13 @@ from pathlib import Path
 import numpy as np
 import zarr
 
-from .canvas import _IMAGE_SUFFIX, Channel, TileCanvases, copies_for_a_canvas
+from .canvas import (
+    _IMAGE_SUFFIX,
+    TILES_LIVE_DIRECTLY_INSIDE,
+    Channel,
+    TileCanvases,
+    copies_for_a_canvas,
+)
 
 # The folder, sitting beside the images rather than inside any of them, holding one
 # list of pointers per view: ``zmart-links/overview.ome.zarr.json`` says which piece
@@ -317,8 +328,12 @@ class LinkedView:
         frames: how many moments it holds.
         channels: how many colours of light it holds.
         levels: how many progressively smaller copies it keeps, counting the
-            full-size one — of which only the full-size one is pointed at rather
-            than written.
+            full-size one.
+        pointed_levels: how many of those copies, counting down from the
+            full-size one, are answered by pointers rather than written. The
+            full-size copy always is; how much deeper the pointers go depends on
+            how the run lines up with its own pieces once shrunk, and anything
+            below that depth was written out as real pixels.
         tiles: how many tiles the view points into.
         pointers: how many pieces of the view are answered by pointing at a tile.
             Nothing was written for any of them.
@@ -332,6 +347,7 @@ class LinkedView:
     levels: int
     tiles: int
     pointers: int
+    pointed_levels: int = 1
 
 
 # -- reading what the tiles are, and refusing a set that disagrees -------------
@@ -362,6 +378,18 @@ class _HowTheTilesAreStored:
     # this is how far down the zooms a view can be made of pointers rather than of
     # written pixels.
     keeps: int = 1
+    # How each of the first tile's copies is stored, one description per copy,
+    # largest first. Read once, from one tile, because reading every level of
+    # every tile was measured to dominate building a view — and the level-0
+    # comparison above already refuses a set of tiles that disagrees.
+    #
+    # Why the deeper levels matter at all: a copy smaller than one piece is
+    # stored as a single piece the size of the copy, so a small tile's deepest
+    # copies have *smaller pieces than its full-size picture*. A view can only
+    # hand those files over if its own pieces at that level are the same size,
+    # which for a large view they are not — so how deep a view can point is
+    # decided by looking here, level by level, rather than assumed.
+    level_described: tuple[dict, ...] = ()
 
 
 def _description_of(store: Path) -> tuple[dict, str]:
@@ -540,6 +568,19 @@ def _what_the_tiles_are(tiles: list[PlacedTile]) -> _HowTheTilesAreStored:
         keeps = len(datasets)
         level = placed.store / str(datasets[0]["path"])
         described = _storage_description_of(level)
+        # The deeper copies are read from the first tile only. Opening a store is
+        # not the small thing it sounds — it was measured at 86% of the time
+        # spent building a view — and the level-0 comparison below already
+        # refuses a set of tiles that was not all written the same way. What the
+        # deeper descriptions are needed for is deciding how far down the zooms
+        # the view can point, which _how_far_down_the_zooms_it_can_point does.
+        deeper = (
+            tuple(
+                _only_how_it_is_stored(
+                    _storage_description_of(placed.store / str(one["path"])))
+                for one in datasets
+            ) if agreed is None else agreed.level_described
+        )
         shape = _shape_of(described)
         chunk = _chunk_of(described)
         inside = _pieces_inside_a_bundle(described)
@@ -572,6 +613,7 @@ def _what_the_tiles_are(tiles: list[PlacedTile]) -> _HowTheTilesAreStored:
             prefix=prefix,
             axes=_axes_in(multiscale),
             keeps=keeps,
+            level_described=deeper,
         )
         if agreed is None:
             agreed = this_one
@@ -843,6 +885,23 @@ def _refuse_tiles_that_are_not_where_the_view_says_they_are(
     name at a time would mean running this once per tile to find that out.
     """
     wanted = (folder / f"{name}{_IMAGE_SUFFIX}" / inside).resolve()
+    # Tiles living directly among the view's levels are protected from the
+    # writer's emptying sweep by their name alone — every child ending
+    # ``.ome.zarr`` is stepped around, everything else is the view's own and is
+    # cleared. A tile named any other way would be deleted by the very
+    # declaration that means to point at it, so it is refused here, before
+    # anything is written.
+    if inside == TILES_LIVE_DIRECTLY_INSIDE:
+        misnamed = [Path(tile.store) for tile in tiles
+                    if not Path(tile.store).name.endswith(_IMAGE_SUFFIX)]
+        if misnamed:
+            raise ValueError(
+                f"{misnamed[0]} lives directly inside the view, and a position "
+                f"there must be named ending {_IMAGE_SUFFIX!r} — that ending is "
+                "what tells the writer it is a position to step around rather "
+                "than a leftover of the view to clear away. Named otherwise it "
+                "would be deleted the next time the view is declared."
+            )
     astray = []
     for tile in tiles:
         where = Path(tile.store).resolve()
@@ -908,19 +967,24 @@ def link_the_tiles(
             canvas uses decides it from the size of the picture.
         discard_existing_run: whether to throw away a view already built in this
             folder under this name. The tiles are never touched either way.
-        keeps_its_tiles_in: the name of a subfolder *inside* the view where the
-            tiles live, such as ``"positions"``. Left out — the usual arrangement
-            — the view is a folder beside the tiles and each is separate.
+        keeps_its_tiles_in: where *inside* the view the tiles live: the name of
+            a subfolder such as ``"positions"``, or ``"."`` to say the tiles sit
+            directly among the view's own levels with nothing between. Left out
+            — the usual arrangement — the view is a folder beside the tiles and
+            each is separate.
 
-            Giving it says the view and its tiles are one thing on disk::
+            Giving it says the view and its tiles are one thing on disk, here
+            in the direct arrangement::
 
                 plate.ome.zarr/          <- open this; it is one whole picture
-                  .zattrs .zgroup        <- what the picture is
-                  0/ 1/ 2/ 3/            <- descriptions only, no picture at all
-                  zmart-links.json       <- which piece is which piece of which tile
-                  positions/
-                    pos00000.ome.zarr/   <- a complete image in its own right
-                    pos00001.ome.zarr/
+                  zarr.json              <- what the picture is, and the map
+                  0/ 1/ 2/ 3/            <- the levels: pointed ones hold nothing
+                  pos00000.ome.zarr/     <- a complete image in its own right
+                  pos00001.ome.zarr/
+
+            A tile living directly inside must be named ending ``.ome.zarr`` —
+            that ending is what the writer's emptying sweep steps around — and
+            this is checked rather than trusted.
 
             The reason to want it is that there is then **one folder to open, to
             move and to copy**, and nothing of a run can be separated from the
@@ -973,9 +1037,13 @@ def link_the_tiles(
     _refuse_a_view_too_small_for_its_tiles(shape, reaches)  # type: ignore[arg-type]
 
     kept = levels if levels is not None else copies_for_a_canvas(shape)  # type: ignore[arg-type]
-    pointing_at = _how_far_down_the_zooms_it_can_point(stored.keeps, kept)
-    _refuse_a_placement_that_does_not_line_up_when_shrunk(
-        placed, shown, stored, pointing_at)  # type: ignore[arg-type]
+    # How deep the pointers go is worked out from the run rather than demanded
+    # of it. A run that lines up all the way down points at everything and
+    # writes nothing; one that lines up only at full size points there and has
+    # its smaller copies written, which costs about a quarter of the picture in
+    # disk and refuses nobody.
+    pointing_at = _how_far_down_the_zooms_it_can_point(
+        stored, placed, shown, shape, kept)  # type: ignore[arg-type]
 
     origin_um = _where_the_view_begins(placed, stored.voxel_size_um)
     biggest = tuple(max(size[axis] for size in shown) for axis in range(3))
@@ -1011,7 +1079,7 @@ def link_the_tiles(
     )
     view = canvas.paths[0]
     try:
-        _refuse_a_view_stored_differently_from_its_tiles(view, stored)
+        _refuse_a_view_stored_differently_from_its_tiles(view, stored, pointing_at)
         _say_where_each_resolution_sits(view, origin_um, stored.ome_zarr_version)
         pointers = _fill_in_the_zoomed_out_copies(
             canvas, placed, shown, stored, pointing_at)
@@ -1029,6 +1097,7 @@ def link_the_tiles(
         levels=levels if levels is not None else copies_for_a_canvas(shape),
         tiles=len(placed),
         pointers=pointers,
+        pointed_levels=pointing_at,
     )
 
 
@@ -1042,6 +1111,7 @@ def start_a_growing_view(
     origin_um: tuple[float, float, float] | None = None,
     discard_existing_run: bool = False,
     keeps_its_tiles_in: str | None = None,
+    point_at: int | None = None,
 ) -> GrowingLinkedView:
     """Open a view for a run that has not happened yet, and add tiles as they land.
 
@@ -1084,6 +1154,20 @@ def start_a_growing_view(
             position into that subfolder and hands it to :meth:`add` as it lands.
             Nothing has to be moved afterwards, and the operator can open the
             folder and watch the picture fill in.
+        point_at: how many copies of the picture to point at rather than write,
+            counting the full-size one. Normally left out, which points as deep
+            as the tiles' own copies go — the right choice for a run whose
+            positions land on the coarse grid that needs (a multiple of the
+            piece size times the largest shrink).
+
+            Give a smaller number when the run's step does not divide that
+            coarse grid. A growing view has to settle this before the first
+            tile, because the copies below the pointed ones are written as
+            tiles land and cannot be unwritten — so a tile arriving off the
+            coarse grid is refused rather than accommodated, and the refusal
+            says to start the view with this set lower. ``point_at=1`` always
+            works: it points at the full-size picture only, and every zoomed-out
+            copy is written, which any placement on whole pieces satisfies.
 
     Returns:
         A :class:`GrowingLinkedView`. Add tiles to it with
@@ -1103,6 +1187,20 @@ def start_a_growing_view(
     shape = tuple(int(n) for n in view_shape)
     corner = (tuple(float(n) for n in origin_um) if origin_um is not None
               else _where_the_view_begins([example], stored.voxel_size_um))
+    kept = levels if levels is not None else copies_for_a_canvas(shape)  # type: ignore[arg-type]
+    # The depth the pointers will go is settled now, before the first real tile,
+    # because the copies below it are written as tiles land and cannot be
+    # unwritten if a later tile turns out not to line up. The example tile sits
+    # at the view's corner, so what bounds the depth here is how far the tiles
+    # zoom out and where their pieces stop being full-size — a tile arriving
+    # later that does not line up at this depth is refused by :meth:`add`, with
+    # a message saying to start the view with ``point_at`` set lower.
+    deepest = _how_far_down_the_zooms_it_can_point(
+        stored, [example],
+        [tuple(int(n) for n in (example.size or stored.shape))],  # type: ignore[list-item]
+        shape, kept)  # type: ignore[arg-type]
+    pointing_at = (deepest if point_at is None
+                   else max(1, min(int(point_at), deepest)))
 
     canvas = TileCanvases.create(
         folder,
@@ -1127,20 +1225,21 @@ def start_a_growing_view(
     )
     view = canvas.paths[0]
     try:
-        _refuse_a_view_stored_differently_from_its_tiles(view, stored)
+        _refuse_a_view_stored_differently_from_its_tiles(view, stored, pointing_at)
         _say_where_each_resolution_sits(view, corner, stored.ome_zarr_version)  # type: ignore[arg-type]
     except Exception:
         canvas.close()
         raise
-    kept = levels if levels is not None else copies_for_a_canvas(shape)  # type: ignore[arg-type]
-    pointing_at = _how_far_down_the_zooms_it_can_point(stored.keeps, kept)
     growing = GrowingLinkedView(
         canvas, folder, stored, shape, corner, kept, example.store,
         pointing_at, keeps_its_tiles_in)  # type: ignore[arg-type]
     # An empty list, written straight away, so that a viewer opened before the
     # first tile lands finds a view that is complete and simply has nothing in it
-    # yet, rather than one whose list of pointers is missing.
-    _put_the_list_where_the_viewer_looks(view, [], stored)
+    # yet, rather than one whose list of pointers is missing. It carries the real
+    # pointing depth from the start: the copies down to that depth are answered by
+    # pointers as tiles land, so a map claiming a shallower depth would leave a
+    # viewer watching the run with blank ground at exactly those zooms.
+    _put_the_list_where_the_viewer_looks(view, [], stored, pointing_at)
     return growing
 
 
@@ -1228,11 +1327,20 @@ class GrowingLinkedView:
         """How many tiles have been added so far."""
         return len(self._listed)
 
-    def add(self, tile: PlacedTile) -> None:
+    def add(self, tile: PlacedTile,
+            imaged: tuple[int, int] | None = None) -> None:
         """Add one tile that has just landed, and make it visible.
 
         Args:
             tile: the tile and where it belongs in the view. See :class:`PlacedTile`.
+            imaged: which ``(moment, colour)`` of the tile actually holds a
+                picture so far, or ``None`` for all of them. A live run knows
+                exactly which one just came off the camera, and saying so keeps
+                the cost of adding a tile at what was measured: reading back
+                every declared moment of a long timelapse to fill the zoomed-out
+                copies would grow with the declared room rather than with what
+                was imaged. The moments that come later are handed to
+                :meth:`imaged_again` as they land.
 
         Raises:
             ValueError: if the tile was stored differently from the ones already in
@@ -1275,7 +1383,7 @@ class GrowingLinkedView:
         _refuse_a_placement_that_does_not_line_up_when_shrunk(
             [placed], [size], self._stored, self._pointing_at)  # type: ignore[arg-type]
         if self._levels > self._pointing_at:
-            self._fill_this_tile_in(placed, size)  # type: ignore[arg-type]
+            self._fill_this_tile_in(placed, size, imaged)  # type: ignore[arg-type]
         self._pointers += (
             self._stored.frames * self._stored.channels * size[0]
         )
@@ -1289,8 +1397,8 @@ class GrowingLinkedView:
         # show the newly written line to any other program reading the file.
         self._added.flush()
 
-    def _fill_this_tile_in(self, placed: PlacedTile,
-                           size: tuple[int, int, int]) -> None:
+    def _fill_this_tile_in(self, placed: PlacedTile, size: tuple[int, int, int],
+                           imaged: tuple[int, int] | None = None) -> None:
         """Write one tile's share of the zoomed-out copies.
 
         The full-size picture is pointed at and so nothing of it is written. The
@@ -1298,24 +1406,80 @@ class GrowingLinkedView:
         exist in no file, so this tile's part of them is written now — from its own
         pixels, which is the one place in adding a tile where pixels are read at
         all. It costs the same for the first tile of a run as for the last.
+
+        ``imaged`` narrows the work to one ``(moment, colour)``, for a run that
+        knows which one just landed; left out, every declared moment and colour
+        is read and written, which is right for a finished tile and wasteful
+        for a timelapse that has barely begun.
         """
         held = zarr.open_group(str(placed.store), mode="r")["0"]
         low = placed.taken_from
-        picture = np.asarray(held[
-            :, :,
-            low[0]:low[0] + size[0],
-            low[1]:low[1] + size[1],
-            low[2]:low[2] + size[2],
-        ])
-        for frame in range(self._stored.frames):
-            for channel in range(self._stored.channels):
-                self._canvas.only_the_zoomed_out_copies(
-                    picture[frame, channel],
-                    origin=placed.lands_at,
-                    channel=channel,
-                    frame=frame,
-                    from_level=self._pointing_at,
-                )
+        moments_and_colours = (
+            [imaged] if imaged is not None
+            else [(frame, channel)
+                  for frame in range(self._stored.frames)
+                  for channel in range(self._stored.channels)]
+        )
+        for frame, channel in moments_and_colours:
+            picture = np.asarray(held[
+                frame, channel,
+                low[0]:low[0] + size[0],
+                low[1]:low[1] + size[1],
+                low[2]:low[2] + size[2],
+            ])
+            self._canvas.only_the_zoomed_out_copies(
+                picture,
+                origin=placed.lands_at,
+                channel=channel,
+                frame=frame,
+                from_level=self._pointing_at,
+                # A view's tiles overlap wherever the run's placements did,
+                # and every recorded voxel is safe in the tiles themselves —
+                # so ground covered twice is expected here, not a fault, and
+                # the later tile stands for it in the shrunken copies.
+                ground_may_be_imaged_twice=True,
+            )
+
+    def imaged_again(self, tile: PlacedTile, *, frame: int,
+                     channel: int = 0) -> int:
+        """A place already in the picture holds new pixels; catch the view up.
+
+        This is how time grows. The pointers need nothing — they are arithmetic
+        over the moments, so the new pieces are simply found on the next request
+        — but two things do: the tile's share of the **written** zoomed-out
+        copies for that moment, which is written here from the new pixels, and
+        the view's change counter, which is moved because nothing else about
+        this change is visible to a watcher — the list of pointers keeps its
+        length and every pointed file keeps its name.
+
+        Args:
+            tile: the tile as it was added, at the same place.
+            frame: the moment that now holds a picture.
+            channel: the colour it was recorded in.
+
+        Returns:
+            The view's new change count, for passing along in an announcement.
+
+        Raises:
+            ValueError: if the view has been closed, or the tile does not land
+                on whole pieces — the same refusals adding it would have made.
+        """
+        if not self._open:
+            raise ValueError(
+                "this view has been closed, so nothing more can be imaged into "
+                "it. A view is held open for the length of a run and closed "
+                "once at the end."
+            )
+        placed = PlacedTile(
+            Path(tile.store), tuple(int(n) for n in tile.lands_at),  # type: ignore[arg-type]
+            tuple(int(n) for n in tile.taken_from), tile.size)  # type: ignore[arg-type]
+        size = tuple(int(n) for n in
+                     (placed.size if placed.size is not None else self._stored.shape))
+        _refuse_a_placement_that_does_not_land_on_whole_pieces(
+            [placed], self._stored, [size])  # type: ignore[arg-type]
+        if self._levels > self._pointing_at:
+            self._fill_this_tile_in(placed, size, (int(frame), int(channel)))  # type: ignore[arg-type]
+        return note_a_change(self._view)
 
     def finish(self) -> LinkedView:
         """Close the view and say what it ended up holding.
@@ -1344,6 +1508,7 @@ class GrowingLinkedView:
             levels=self._levels,
             tiles=len(self._listed),
             pointers=self._pointers,
+            pointed_levels=self._pointing_at,
         )
 
     def __enter__(self) -> GrowingLinkedView:
@@ -1412,16 +1577,71 @@ def _refuse_a_tile_that_disagrees_about_the_corner(
             )
 
 
-def _how_far_down_the_zooms_it_can_point(keeps: int, levels: int) -> int:
-    """How many copies of the picture a view can point at rather than write.
+def _how_far_down_the_zooms_it_can_point(
+    stored: _HowTheTilesAreStored,
+    tiles: list[PlacedTile],
+    shown: list[tuple[int, int, int]],
+    view_shape: tuple[int, int, int],
+    levels: int,
+) -> int:
+    """How many copies of the picture this view can point at rather than write.
 
     A view can point at a tile's smaller copies exactly as it points at the
     full-size one, because the shrinking picks every second voxel rather than
     averaging four -- so a voxel of a smaller copy comes from one tile and no
-    other. It can only do so as far down as the tiles themselves go: a view zoomed
-    out further than any tile was shrunk has to make those numbers itself.
+    other. How far down that goes is not a fixed rule but a property of the run,
+    and it is worked out here rather than demanded: the view points as deep as
+    the arithmetic genuinely allows and writes the copies below that, which
+    costs a few per cent of disk rather than a refusal.
+
+    Three things bound the depth, and the first tile that fails one of them at
+    some level sets the depth for the whole view — the pointed copies have to be
+    an unbroken run from the top, because the viewer is told one number.
+
+    - **How far the tiles themselves zoom out.** A view cannot point at a copy
+      no tile keeps.
+    - **Whether the pieces at that level are still the full-size piece.** A copy
+      smaller than one piece is stored as a single piece the size of the copy,
+      so a small tile's deepest copies have smaller pieces than its full-size
+      picture — and a large view's pieces at that level do not shrink to match.
+      A file of the wrong size handed over would be drawn wrongly or not at all,
+      which is exactly the quiet failure this module exists to refuse.
+    - **Whether every tile still lands on a whole piece once shrunk.** Shrinking
+      keeps every second voxel counted from the picture's own corner, so a tile
+      has to begin on a multiple of the piece size times the shrink — a tile
+      that lines up at full size can be half a piece out at the next zoom.
+
+    The full-size picture is always pointed at; misalignment there is refused
+    outright by :func:`_refuse_a_placement_that_does_not_land_on_whole_pieces`
+    before this is ever asked.
     """
-    return max(1, min(int(keeps), int(levels)))
+    deepest = max(1, min(int(stored.keeps), int(levels)))
+    depth = 1
+    for level in range(1, deepest):
+        factor = 2 ** level
+        # The pieces this level would be served in, on the tiles' side and on
+        # the view's. Both shrink a copy to a single piece once the copy is
+        # smaller than the piece, mirroring what the writer in canvas.py does.
+        tile_pieces = (_chunk_of(stored.level_described[level])
+                       if level < len(stored.level_described) else None)
+        view_pieces = tuple(
+            min(stored.chunk[axis], max(1, view_shape[axis + 1] // factor))
+            for axis in range(2)
+        )
+        if tile_pieces is None or tile_pieces[-2:] != stored.chunk:
+            break
+        if view_pieces != stored.chunk:
+            break
+        if not all(
+            value % (stored.chunk[axis - 1] * factor) == 0
+            for placed, size in zip(tiles, shown, strict=True)
+            for axis in (1, 2)
+            for value in (placed.lands_at[axis], placed.taken_from[axis],
+                          size[axis])
+        ):
+            break
+        depth = level + 1
+    return depth
 
 
 def _refuse_a_placement_that_does_not_line_up_when_shrunk(
@@ -1466,10 +1686,12 @@ def _refuse_a_placement_that_does_not_line_up_when_shrunk(
                         "so a tile that starts out of step keeps a different set of "
                         "voxels from the ones the view would have kept, and the "
                         "specimen drawn when zoomed out is not the specimen.\n\n"
-                        "Either acquire on that coarser grid -- padding each tile's "
-                        "low edge by however far the stage overshot -- or build the "
-                        f"view with levels={pointing_at - 1} or fewer, which points "
-                        "at less and writes the rest."
+                        "Either acquire on that coarser grid -- stepping the stage "
+                        "by a whole number of pieces times the shrink -- or start "
+                        f"the view with point_at={pointing_at - 1} or lower, which "
+                        "points at fewer of the zoomed-out copies and writes the "
+                        "rest. A view built after the run with link_the_tiles "
+                        "settles this on its own."
                     )
 
 
@@ -1543,30 +1765,38 @@ def _a_numpy_name_for(dtype: str) -> str:
 
 
 def _refuse_a_view_stored_differently_from_its_tiles(
-    view: Path, stored: _HowTheTilesAreStored
+    view: Path, stored: _HowTheTilesAreStored, pointing_at: int = 1,
 ) -> None:
-    """Stop a view whose full-size copy is not stored exactly as its tiles are.
+    """Stop a view whose pointed-at copies are not stored exactly as its tiles are.
 
     Everything about how the view stores its picture was taken from the tiles a
     moment ago, so this should never fail. It is asked anyway, because the cost of
-    asking is one small file read and the cost of being wrong is a picture of noise
-    that nothing reports. If it ever does fail, something in the canvas writer has
-    changed and this is the honest place to find out.
+    asking is a few small file reads and the cost of being wrong is a picture of
+    noise that nothing reports. If it ever does fail, something in the canvas
+    writer has changed and this is the honest place to find out.
+
+    Every copy the view points at is compared, not only the full-size one: the
+    deeper copies hand over the tiles' own files just the same, so a disagreement
+    at any of them is exactly as quiet and exactly as wrong.
     """
-    mine = _only_how_it_is_stored(_storage_description_of(view / "0"))
-    if mine == stored.described:
-        return
-    differing = sorted(
-        key for key in set(mine) | set(stored.described)
-        if mine.get(key) != stored.described.get(key)
-    )
-    raise ValueError(
-        "the view was declared with a different way of storing its picture than the "
-        f"tiles it points at — they differ in {', '.join(differing)}. The view hands "
-        "a tile's bytes over exactly as they are, so a difference here would be a "
-        "picture of noise rather than of the specimen.\n\n"
-        f"The view says {mine} and the tiles say {stored.described}."
-    )
+    for level in range(max(1, pointing_at)):
+        mine = _only_how_it_is_stored(_storage_description_of(view / str(level)))
+        theirs = (stored.level_described[level]
+                  if level < len(stored.level_described) else stored.described)
+        if mine == theirs:
+            continue
+        differing = sorted(
+            key for key in set(mine) | set(theirs)
+            if mine.get(key) != theirs.get(key)
+        )
+        raise ValueError(
+            f"copy {level} of the view was declared with a different way of "
+            "storing its picture than the tiles it points at — they differ in "
+            f"{', '.join(differing)}. The view hands a tile's bytes over exactly "
+            "as they are, so a difference here would be a picture of noise rather "
+            "than of the specimen.\n\n"
+            f"The view says {mine} and the tiles say {theirs}."
+        )
 
 
 def _say_where_each_resolution_sits(
@@ -1679,6 +1909,11 @@ def _fill_in_the_zoomed_out_copies(
                     channel=channel,
                     frame=frame,
                     from_level=pointing_at,
+                    # A view's tiles overlap wherever the run's placements did,
+                    # and every recorded voxel is safe in the tiles themselves —
+                    # so ground covered twice is expected here, not a fault, and
+                    # the later tile stands for it in the shrunken copies.
+                    ground_may_be_imaged_twice=True,
                 )
         pointed_at += frames * channels * size[0]
     return pointed_at
@@ -1730,7 +1965,7 @@ def _put_the_list_where_the_viewer_looks(view: Path, listed: list[dict],
     the old one, and never a piece of either. This is the ordinary way of replacing
     a file that something else may be reading, and it costs nothing.
     """
-    ours = {
+    ours: dict = {
         "version": LINKS_VERSION,
         "what": (
             "Which piece of this picture is which piece of which position. Nothing "
@@ -1755,6 +1990,15 @@ def _put_the_list_where_the_viewer_looks(view: Path, listed: list[dict],
     # of ours so it can never be taken for something the format defines.
     where = (described.setdefault("attributes", {})
              if held.name == "zarr.json" else described)
+    # A counter that moves on every rewrite, so that a watcher has one number
+    # that always changes — including across changes the file's length cannot
+    # show, such as the list being folded at the end of a run. Changes that
+    # rewrite nothing at all, such as pixels landing in a moment already
+    # declared, are announced through :func:`note_a_change`, which moves the
+    # same counter.
+    was = where.get(OURS_IN_THE_DESCRIPTION)
+    ours["generation"] = (
+        int(was.get("generation", 0)) if isinstance(was, dict) else 0) + 1
     where[OURS_IN_THE_DESCRIPTION] = ours
 
     # Written beside itself and then **renamed** over the old one. A run being
@@ -1767,6 +2011,39 @@ def _put_the_list_where_the_viewer_looks(view: Path, listed: list[dict],
     part_written.write_text(json.dumps(described, indent=1), encoding="utf-8")
     part_written.replace(held)
     return held
+
+
+def note_a_change(view: str | Path) -> int:
+    """Say out loud that something about this view changed, and return the count.
+
+    Most changes announce themselves: a position landing makes the companion
+    file longer, and rebuilding the list rewrites the description. What nothing
+    can see is a change that leaves every watched thing exactly as it was —
+    pixels landing in a moment the view had already declared room for, or a
+    position rewritten in place. The picture is different and no file's length
+    or list says so, which is the quiet staleness
+    ``OPEN_a_run_that_changes_while_you_watch.md`` warns about.
+
+    So whoever makes such a change calls this. The ``generation`` counter in the
+    view's own description goes up by one, the file is replaced in a single
+    step so a reader never catches it half-written, and anything watching the
+    description — the viewer's server does — sees a number that always moves.
+
+    Returns the new count, which a caller can pass along in an announcement.
+    Calling it for a change that would have been noticed anyway is harmless:
+    the counter simply moves twice.
+    """
+    held = _the_description_file_of(Path(view))
+    described = json.loads(held.read_text(encoding="utf-8"))
+    where = (described.setdefault("attributes", {})
+             if held.name == "zarr.json" else described)
+    ours = where.setdefault(OURS_IN_THE_DESCRIPTION, {})
+    generation = int(ours.get("generation", 0)) + 1
+    ours["generation"] = generation
+    part_written = held.with_name(f".{held.name}.being-written")
+    part_written.write_text(json.dumps(described, indent=1), encoding="utf-8")
+    part_written.replace(held)
+    return generation
 
 
 def _write_the_list_of_pointers(

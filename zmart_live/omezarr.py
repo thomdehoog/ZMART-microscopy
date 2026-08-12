@@ -100,7 +100,7 @@ from pathlib import Path
 import numpy as np
 import zarr
 
-from zmart_storage.canvas import Channel
+from zmart_storage.canvas import Channel, written_despite_brief_holds
 
 from .model import AcquisitionProfile, LevelGeometry, ZmartLiveError
 
@@ -484,7 +484,11 @@ def _write_over_carefully(target: Path, text: str) -> None:
     """
     beside = target.with_name(target.name + ".writing")
     beside.write_text(text, encoding="utf-8")
-    os.replace(beside, target)
+    # The rename is retried through a short patience, because on Windows a
+    # viewer's open handle on the old description makes it fail as ``Access is
+    # denied`` for a few milliseconds — and these descriptions are rewritten on
+    # every commit while a live viewer reads them over and over.
+    written_despite_brief_holds(lambda: os.replace(beside, target))
 
 
 def _name_the_dimensions_of(level_folder: Path, axes: Sequence[dict]) -> None:
@@ -628,7 +632,11 @@ def describe_the_position(
     # empty the folder first, and everything this run has imaged at this position
     # is inside it.
     group = zarr.open_group(str(store), mode="a", zarr_format=3)
-    group.attrs["ome"] = described
+    # Zarr replaces the group's own description atomically underneath this
+    # assignment, and that replacement meets the same reader's-hold refusal on
+    # Windows as every other per-commit metadata rewrite, so it gets the same
+    # short patience.
+    written_despite_brief_holds(lambda: group.attrs.__setitem__("ome", described))
     return described
 
 
