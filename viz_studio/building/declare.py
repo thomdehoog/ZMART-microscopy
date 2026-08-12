@@ -26,7 +26,7 @@ import json
 from pathlib import Path
 
 from composer import PIECE, Composer
-from mosaic import read_the_transfer
+from mosaic import read_the_transfer, the_mosaic_written_down
 
 # The key inside the picture's description under which we record what it was built
 # from. Namespaced under one word of ours, the same courtesy OME-Zarr 0.5 pays by
@@ -75,6 +75,12 @@ def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
         (inside / "zarr.json").write_text(
             json.dumps(json.loads(composer.array_json(level)), indent=1),
             encoding="utf-8")
+
+    # The tiles' whole geometry, written down so opening never walks the
+    # transfer again. Declaring read every tile just above; keeping what was
+    # learned is what makes opening immediate at any position count.
+    (store / "tiles.json").write_text(
+        json.dumps(the_mosaic_written_down(mosaic)), encoding="utf-8")
 
     return store
 

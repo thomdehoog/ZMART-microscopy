@@ -359,13 +359,47 @@ def test_a_declared_picture_holds_no_pixels(a_transfer: Path, tmp_path: Path):
     store = declare_a_built_picture(tmp_path / "views", a_transfer, name="built",
                                     piece=PIECE)
     written = sorted(one.name for one in store.rglob("*") if one.is_file())
-    assert written == ["zarr.json"] * (LEVELS + 1)
+    assert written == ["tiles.json"] + ["zarr.json"] * (LEVELS + 1)
 
     described = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
     assert described["attributes"]["zmart"]["tiles"] == 4
     assert (Path(described["attributes"]["zmart"]["built_from"]).resolve()
             == a_transfer.resolve())
     served.forget(store)
+
+
+def test_a_declared_picture_opens_from_its_own_ledger(a_transfer: Path,
+                                                      tmp_path: Path):
+    """Opening reads what was declared, never walking the tiles again.
+
+    Declaring a picture reads every tile once and knows the whole geometry;
+    throwing that away and re-deriving it at every opening is what made a
+    12,800-position survey sit dark for nine seconds before its first pixel.
+    The declaration now keeps the tiles' geometry as a ledger of its own, and
+    opening reads that one file however many positions there are.
+
+    Proved by making the walk impossible: every tile's own description is
+    renamed away, and the picture must still open and serve the same bytes,
+    because the pixels' arrays are untouched and everything else is in the
+    ledger. This is the same principle the live run obeys under the gate --
+    opening reads ledgers (there, the manifest and layout), never positions.
+    """
+    store = declare_a_built_picture(tmp_path / "views", a_transfer, name="built",
+                                    piece=PIECE)
+    served.forget(store)
+    before = served.the_bytes_behind(store, "0/c/0/0/0")
+    assert before is not None
+
+    for tile in sorted(a_transfer.glob("*.ome.zarr")):
+        (tile / "zarr.json").rename(tile / "zarr.json.walked-away")
+
+    served.forget(store)
+    try:
+        assert served.the_bytes_behind(store, "0/c/0/0/0") == before
+    finally:
+        for tile in sorted(a_transfer.glob("*.ome.zarr")):
+            (tile / "zarr.json.walked-away").rename(tile / "zarr.json")
+        served.forget(store)
 
 
 @pytest.mark.parametrize("what,changed", [

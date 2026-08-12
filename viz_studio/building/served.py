@@ -38,7 +38,7 @@ from pathlib import Path
 
 from composer import Composer
 from declare import OURS
-from mosaic import read_the_transfer
+from mosaic import Mosaic, read_the_mosaic_as_written, read_the_transfer
 
 # One composer per built picture, kept for as long as the viewer is open on it.
 _composers: dict[Path, Composer | None] = {}
@@ -74,6 +74,23 @@ def _what_it_was_built_from(store: Path) -> dict | None:
     return None
 
 
+def _the_mosaic_behind(store: Path, ours: dict) -> Mosaic:
+    """The picture's geometry, read from its own ledger when it keeps one.
+
+    Declaring a picture writes the tiles' geometry down (``tiles.json``), so
+    opening reads one file however many positions the transfer holds -- before
+    this, a 12,800-position survey sat dark for nine seconds while every
+    tile's description was walked again to learn what declaring had already
+    learned. A picture declared before the ledger existed still opens by
+    walking the transfer; declare it again and the wait is gone.
+    """
+    ledger = store / "tiles.json"
+    if ledger.is_file():
+        return read_the_mosaic_as_written(
+            json.loads(ledger.read_text(encoding="utf-8")))
+    return read_the_transfer(Path(ours["built_from"]))
+
+
 def _composer_for(store: Path) -> Composer | None:
     """The composer for this picture, opened once and kept.
 
@@ -96,7 +113,7 @@ def _composer_for(store: Path) -> Composer | None:
         ours = _what_it_was_built_from(store)
         made = None
         if ours is not None:
-            made = Composer(read_the_transfer(Path(ours["built_from"])),
+            made = Composer(_the_mosaic_behind(store, ours),
                             piece=int(ours.get("piece") or 512))
         with _guard:
             _composers[store] = made
