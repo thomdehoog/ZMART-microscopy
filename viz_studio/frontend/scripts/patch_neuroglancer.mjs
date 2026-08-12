@@ -2,22 +2,31 @@
  * The one patch this repository maintains against its pinned Neuroglancer.
  *
  * Neuroglancer can only invalidate a chunk source whole: the stock RPC is an
- * unfiltered loop over the source's keyed chunk map, and its companion
- * message tells the page to drop every chunk it holds — the operator watches
- * the picture empty and refill on every live-run commit. A live run changes
- * a handful of chunks per commit, so this adds the filtered variant of the
- * same loop: "ChunkSource.invalidateChunks" re-queues exactly the named
- * chunks, dropping each frontend copy with the same per-chunk message
- * ordinary eviction uses, and never touches anything else on screen.
- * `engine.js` (invalidateTheDirtyPieces) is the caller; the announcement's
- * `dirty` field is where the names come from.
+ * unfiltered loop over the source's keyed chunk map, plus a message telling
+ * the page to drop every chunk it holds — the operator watches the picture
+ * empty and refill on every live-run commit. A live run changes a handful of
+ * chunks per commit, so this adds the filtered variant of the same loop,
+ * with replace-in-place delivery:
  *
- * Applied to the built worker bundle rather than kept as a diff, because a
- * string patch against a pinned version is readable in review and idempotent
- * to apply, where a line-number diff against a 40,000-line bundle is neither.
- * Runs from `postinstall`, so a fresh `npm install` heals itself; fails loud
- * if the anchor has moved, which is the signal that the pinned version
- * changed and the patch needs re-verifying against its new source.
+ * - worker side (`lib/chunk_manager/backend.js`): "ChunkSource.invalidateChunks"
+ *   re-queues exactly the named chunks and tells the page NOTHING — the stale
+ *   pixels keep drawing while the fresh bytes download;
+ * - page side (`lib/chunk_manager/frontend.js`): the push that delivers the
+ *   fresh bytes arrives marked new, and the stale copy is dropped in the same
+ *   JS turn the new one lands, so no rendered frame ever shows a gap.
+ *
+ * `engine.js` (invalidateTheDirtyPieces) is the caller; the announcement's
+ * `dirty` field is where the chunk names come from.
+ *
+ * **The module files are the target, never the worker bundle**: the build's
+ * precompile step regenerates `chunk_worker.bundle.js` from these modules
+ * every time, so a patch applied to the bundle quietly evaporates on the
+ * next build — which happened once, and cost an evening's confusion.
+ *
+ * Applied as idempotent string patches against the pinned version (2.41.2).
+ * Runs from `postinstall` and before every build, so a fresh `npm install`
+ * heals itself; fails loud when an anchor has moved, which is the signal
+ * that the pinned version changed and the patch needs re-verifying.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -25,26 +34,29 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const bundle = join(
-  here, "..", "node_modules", "neuroglancer", "lib", "chunk_worker.bundle.js",
-);
+const lib = join(here, "..", "node_modules", "neuroglancer", "lib");
 
-const ANCHOR = `registerRPC(CHUNK_SOURCE_INVALIDATE_RPC_ID, function(x) {
+const PATCHES = [
+  {
+    file: join(lib, "chunk_manager", "backend.js"),
+    marker: 'registerRPC("ChunkSource.invalidateChunks"',
+    anchor: `registerRPC(CHUNK_SOURCE_INVALIDATE_RPC_ID, function(x) {
   const source = this.get(x.id);
   source.chunkManager.queueManager.invalidateSourceCache(source);
-});`;
-
-const ADDITION = `
-// ZMART patch: invalidate NAMED chunks of a source instead of all of them.
+});`,
+    addition: `
+// ZMART patch v2: invalidate NAMED chunks of a source instead of all of them.
 //
 // The stock RPC above re-queues every chunk and tells the frontend to drop
 // its whole copy of the source, which empties the screen for as long as the
 // refetch takes. A live microscopy run changes a handful of chunks per
-// commit, so this filtered variant re-queues exactly those: each named chunk
-// held by the frontend is dropped with the same per-chunk EXPIRED message
-// ordinary eviction uses, and every other chunk of the source is never
-// touched. Keys are chunk grid positions joined with commas, exactly as
-// getChunk builds them.
+// commit, so this filtered variant re-queues exactly those -- and it sends
+// the frontend nothing at all. The stale copy keeps drawing while the fresh
+// bytes download; the push that delivers them arrives marked new, and the
+// frontend's companion patch swaps old for new inside one JS turn, so no
+// rendered frame ever shows the gap. Keys are chunk grid positions joined
+// with commas, exactly as getChunk builds them; an unknown key is a
+// harmless miss.
 registerRPC("ChunkSource.invalidateChunks", function(x) {
   const source = this.get(x.id);
   const queueManager = source.chunkManager.queueManager;
@@ -58,31 +70,55 @@ registerRPC("ChunkSource.invalidateChunks", function(x) {
       case ChunkState.SYSTEM_MEMORY_WORKER:
         chunk.freeSystemMemory();
         break;
-      case ChunkState.SYSTEM_MEMORY:
-      case ChunkState.GPU_MEMORY:
-        queueManager.rpc.invoke("Chunk.update", {
-          id: chunk.key,
-          state: ChunkState.EXPIRED,
-          source: source.rpcId
-        });
-        break;
     }
     queueManager.updateChunkState(chunk, ChunkState.QUEUED);
   }
   queueManager.scheduleUpdate();
-});`;
+});`,
+  },
+  {
+    file: join(lib, "chunk_manager", "frontend.js"),
+    marker: "ZMART patch v2: replace in place",
+    anchor: `        if (update.new) {
+          chunk = source.getChunk(update);
+          source.addChunk(key, chunk);
+        } else {`,
+    addition: null, // replacement, not addition -- see apply below
+    replacement: `        if (update.new) {
+          // ZMART patch v2: replace in place. A re-download of a chunk this
+          // page already holds -- the surgical invalidation's delivery --
+          // arrives marked new while the stale copy is still drawing. The
+          // old copy is dropped in the same JS turn the fresh one is added,
+          // so no rendered frame ever shows the gap between them.
+          if (source.chunks.get(key) !== void 0) {
+            source.deleteChunk(key);
+          }
+          chunk = source.getChunk(update);
+          source.addChunk(key, chunk);
+        } else {`,
+  },
+];
 
-const held = readFileSync(bundle, "utf8");
-if (held.includes('registerRPC("ChunkSource.invalidateChunks"')) {
-  console.log("neuroglancer already carries the invalidateChunks patch");
-} else if (held.includes(ANCHOR)) {
-  writeFileSync(bundle, held.replace(ANCHOR, ANCHOR + ADDITION));
-  console.log("neuroglancer patched: ChunkSource.invalidateChunks added");
-} else {
-  console.error(
-    "the neuroglancer worker bundle no longer matches the patch anchor -- "
-    + "the pinned version has changed. Re-verify the patch against the new "
-    + "source of invalidateSourceCache before building.",
-  );
-  process.exit(1);
+let failed = false;
+for (const patch of PATCHES) {
+  const held = readFileSync(patch.file, "utf8");
+  if (held.includes(patch.marker)) {
+    console.log(`already patched: ${patch.file}`);
+    continue;
+  }
+  if (!held.includes(patch.anchor)) {
+    console.error(
+      `the anchor no longer matches in ${patch.file} -- the pinned `
+      + "neuroglancer version has changed. Re-verify the patch against the "
+      + "new source before building.",
+    );
+    failed = true;
+    continue;
+  }
+  const grafted = patch.replacement
+    ? held.replace(patch.anchor, patch.replacement)
+    : held.replace(patch.anchor, patch.anchor + patch.addition);
+  writeFileSync(patch.file, grafted);
+  console.log(`patched: ${patch.file}`);
 }
+if (failed) process.exit(1);
