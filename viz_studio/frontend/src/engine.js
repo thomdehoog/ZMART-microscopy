@@ -1130,6 +1130,14 @@ function startTimeAtTheFirstMoment(viewer) {
  * window's smaller side. Where a viewport or a bound is missing, the engine's
  * default zoom is kept -- a wrong guess dressed as a fit would be worse.
  */
+
+// How much window the overview leaves around the picture. The picture's longest
+// side fills the window divided by this, so 1.1 leaves about a tenth of the
+// window as visible ground on that axis -- enough that the picture reads as an
+// object with an edge rather than as detail continuing past the window, which
+// an operator asked for after using the exact fit on a large survey.
+const OVERVIEW_MARGIN = 1.1;
+
 export function showTheWholePicture(viewer) {
   const { position } = viewer.navigationState;
   const space = position.coordinateSpace.value;
@@ -1173,7 +1181,7 @@ export function showTheWholePicture(viewer) {
     if (across === null || !pixels) return;
     fit = Math.max(fit, (across * render.canonicalVoxelFactors[slot]) / pixels);
   });
-  if (fit > 0) viewer.navigationState.zoomFactor.value = fit * 1.02;
+  if (fit > 0) viewer.navigationState.zoomFactor.value = fit * OVERVIEW_MARGIN;
   else viewer.navigationState.zoomFactor.reset();
 
   let boxFit = 0;
@@ -1186,8 +1194,11 @@ export function showTheWholePicture(viewer) {
       (across * render.canonicalVoxelFactors[slot] * volume.logicalHeight) / smaller,
     );
   });
-  if (boxFit > 0) viewer.perspectiveNavigationState.zoomFactor.value = boxFit * 1.05;
-  else viewer.perspectiveNavigationState.zoomFactor.reset();
+  if (boxFit > 0) {
+    viewer.perspectiveNavigationState.zoomFactor.value = boxFit * OVERVIEW_MARGIN;
+  } else {
+    viewer.perspectiveNavigationState.zoomFactor.reset();
+  }
   return true;
 }
 
