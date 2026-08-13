@@ -28,10 +28,22 @@ a thousand positions costs minutes, measuring them must not. Landings are
 real manifest commits; nothing tells the server anything beyond the
 announcement a workflow would send.
 
+``burst``
+    the adding ceiling: how fast can new positions land when the writer is
+    taken out of the watched loop. The fixture wrote every position's pixels
+    at creation, so a landing needs only its commit; the burst commits and
+    announces boundary positions back to back with no pacing and reports the
+    rate the pipeline took them at, what the derive cost under fire, how long
+    the picture took to absorb them all, and the recorder's transient count —
+    the same gate as the churn, because speed that flickers is not speed.
+    The writer's own cadence (seconds per position — the microscope's role)
+    is measured by the churn, never here.
+
 Run it with::
 
     python measure_a_governed_run_at_scale.py --across 32 --churn 40
     python measure_a_governed_run_at_scale.py --across 32 --churn 40 --headed
+    python measure_a_governed_run_at_scale.py --across 32 --burst 40 --headed
 """
 
 from __future__ import annotations
@@ -154,6 +166,10 @@ def main() -> int:
     parsing.add_argument("--churn", type=int, default=40,
                          help="how many watched changes: half boundary "
                               "landings, half interior replacements")
+    parsing.add_argument("--burst", type=int, default=0,
+                         help="instead of the churn, land this many "
+                              "pre-written boundary positions back to back "
+                              "with no pacing — the adding ceiling")
     parsing.add_argument("--headed", action="store_true",
                          help="open a visible window")
     asked = parsing.parse_args()
@@ -268,63 +284,118 @@ def main() -> int:
                      {"format": "png", "everyNthFrame": 1})
         page.wait_for_timeout(500)
 
-        chooser = np.random.default_rng(11)
-        seed = np.random.default_rng(23)
-        half = asked.churn // 2
-        landings = [one for one in boundary
-                    if (one, 0) not in set(run._committed_units())][:half]
-        victims = list(chooser.choice(sorted(interior), size=half,
-                                      replace=False))
-        plan = [("land", one) for one in landings]
-        plan += [("replace", one) for one in victims]
-        chooser.shuffle(plan)
-
-        print(f"\nThe watched churn: {len(plan)} changes "
-              f"({half} boundary landings, {half} interior replacements)\n")
-        print(f"  {'change':>22} {'writer':>8} {'derive':>8} {'read':>6} "
-              f"{'visible':>9}")
         rows = []
-        for kind, position_id in plan:
-            wrote = time.perf_counter()
-            if kind == "land":
-                # A NEW position needs the shared records extended before its
-                # commit -- the link map and view must already cover its
-                # ground or publish rightly refuses. This is the writer's own
-                # landing sequence, so its cost belongs in the writer column.
-                units = frozenset(run._committed_units()) | {(position_id, 0)}
-                run.write_the_link_map(units)
-                run.write_the_view()
-                run.publish(position_id)
-            else:
-                brighter = seed.integers(*BRIGHT, (1, FRAME, FRAME)
-                                         ).astype("uint16")
-                brighter[:, ::8, :] = 65535  # striped, so the eye can tell
-                run.replace_a_position(position_id, brighter)
-            writer_ms = (time.perf_counter() - wrote) * 1000
-            landed = time.time()
-            announce(position_id)
-            # The first frame PAINTED after the announce is the visible
-            # moment -- matched by the frame's own timestamp, not by list
-            # position, because the screencast delivers with a lag.
-            visible_ms = float("nan")
-            deadline = time.time() + 5
-            while time.time() < deadline:
-                later = [when for when, _ in frames if when > landed]
-                if later:
-                    visible_ms = (later[0] - landed) * 1000
+        burst_took = burst_landed = 0.0
+        derives_before = 0
+        if asked.burst:
+            dark = [one for one in boundary
+                    if (one, 0) not in set(run._committed_units())]
+            landing = dark[:asked.burst]
+            derives_before = int(dict(getattr(governed, "accounting", {})
+                                      ).get("derives", 0))
+            print(f"\nThe burst: {len(landing)} pre-written boundary "
+                  "positions, committed back to back with no pacing")
+            burst_landed = len(landing)
+            # Brought to front, because a backgrounded window is throttled to
+            # no painting at all -- the refreshes flow, the screen never
+            # changes, and the recorder counts one frame. The screenshots
+            # bracket the burst so "did the picture change" has an answer on
+            # disk even when nobody was watching the window.
+            page.bring_to_front()
+            # A burst against a BLACK canvas measures nothing anyone can see:
+            # at survey scale the unbaked first screenful takes many seconds
+            # to build, and a run of 96 landings was watched happening on a
+            # picture that had not arrived yet -- screenshots 0 px apart, an
+            # operator seeing no tiles. So wait for ground on the canvas
+            # first, and report the wait: it is the unbaked cold look at this
+            # rung, a number this campaign wants anyway.
+            from PIL import Image
+            settling = time.time()
+            while True:
+                shot = np.asarray(Image.open(io.BytesIO(page.screenshot()))
+                                  .convert("L"), dtype=np.int16)
+                if int((shot[:, :640] > 100).sum()) > 2000:
+                    print(f"  ground on screen {time.time() - settling:.1f} s "
+                          "after the derive -- the unbaked cold look, paid "
+                          "before the burst begins")
                     break
-                page.wait_for_timeout(20)
-            accounting = dict(getattr(governed, "accounting", {}))
-            rows.append({"kind": kind, "writer_ms": writer_ms,
-                         "derive_ms": accounting.get("last_derive_ms", 0),
-                         "read": accounting.get("last_tiles_read", 0),
-                         "visible_ms": visible_ms})
-            print(f"  {kind:>7} {position_id:>13} {writer_ms:>6.0f}ms "
-                  f"{rows[-1]['derive_ms']:>6.0f}ms {rows[-1]['read']:>6} "
-                  f"{visible_ms:>7.0f}ms", flush=True)
+                if time.time() - settling > 180:
+                    print("  no ground on screen after 180 s -- bursting "
+                          "against a dark canvas, which the screenshots "
+                          "will say")
+                    break
+                page.wait_for_timeout(1000)
+            page.screenshot(path=str(FIXTURES / f"gov{across}x{across}"
+                                     / "burst_before.png"))
+            first = time.time()
+            for position_id in landing:
+                fast_publish(run, position_id)
+                announce(position_id)
+            burst_took = time.time() - first
+            burst_first_commit = first
+            page.wait_for_timeout(4000)
+            page.screenshot(path=str(FIXTURES / f"gov{across}x{across}"
+                                     / "burst_after.png"))
+            session.send("Page.stopScreencast")
+        else:
+            chooser = np.random.default_rng(11)
+            seed = np.random.default_rng(23)
+            half = asked.churn // 2
+            landings = [one for one in boundary
+                        if (one, 0) not in set(run._committed_units())][:half]
+            victims = list(chooser.choice(sorted(interior), size=half,
+                                          replace=False))
+            plan = [("land", one) for one in landings]
+            plan += [("replace", one) for one in victims]
+            chooser.shuffle(plan)
 
-        page.wait_for_timeout(2000)
-        session.send("Page.stopScreencast")
+            print(f"\nThe watched churn: {len(plan)} changes "
+                  f"({half} boundary landings, {half} interior replacements)\n")
+            print(f"  {'change':>22} {'writer':>8} {'derive':>8} {'read':>6} "
+                  f"{'visible':>9}")
+            for kind, position_id in plan:
+                wrote = time.perf_counter()
+                if kind == "land":
+                    # A NEW position needs the shared records extended before
+                    # its commit -- the link map and view must already cover
+                    # its ground or publish rightly refuses. This is the
+                    # writer's own landing sequence, so its cost belongs in
+                    # the writer column.
+                    units = frozenset(run._committed_units()) | {(position_id,
+                                                                  0)}
+                    run.write_the_link_map(units)
+                    run.write_the_view()
+                    run.publish(position_id)
+                else:
+                    brighter = seed.integers(*BRIGHT, (1, FRAME, FRAME)
+                                             ).astype("uint16")
+                    brighter[:, ::8, :] = 65535  # striped, for the eye
+                    run.replace_a_position(position_id, brighter)
+                writer_ms = (time.perf_counter() - wrote) * 1000
+                landed = time.time()
+                announce(position_id)
+                # The first frame PAINTED after the announce is the visible
+                # moment -- matched by the frame's own timestamp, not by list
+                # position, because the screencast delivers with a lag.
+                visible_ms = float("nan")
+                deadline = time.time() + 5
+                while time.time() < deadline:
+                    later = [when for when, _ in frames if when > landed]
+                    if later:
+                        visible_ms = (later[0] - landed) * 1000
+                        break
+                    page.wait_for_timeout(20)
+                accounting = dict(getattr(governed, "accounting", {}))
+                rows.append({"kind": kind, "writer_ms": writer_ms,
+                             "derive_ms": accounting.get("last_derive_ms", 0),
+                             "read": accounting.get("last_tiles_read", 0),
+                             "visible_ms": visible_ms})
+                print(f"  {kind:>7} {position_id:>13} {writer_ms:>6.0f}ms "
+                      f"{rows[-1]['derive_ms']:>6.0f}ms {rows[-1]['read']:>6} "
+                      f"{visible_ms:>7.0f}ms", flush=True)
+
+            page.wait_for_timeout(2000)
+            session.send("Page.stopScreencast")
 
         print(f"\n{len(frames)} frames recorded. Looking for transients...")
         from PIL import Image
@@ -345,23 +416,58 @@ def main() -> int:
         if events == 0:
             print("  none — zero transients at this scale")
 
-        middle = lambda values: sorted(values)[len(values) // 2]
-        derives = [one["derive_ms"] for one in rows]
-        visibles = [one["visible_ms"] for one in rows
-                    if one["visible_ms"] == one["visible_ms"]]
-        writers = [one["writer_ms"] for one in rows]
         print(f"\nAt {across * across} planned / "
               f"~{len(to_publish) + len(committed)} committed positions:")
-        print(f"  derive per commit: middling {middle(derives):.0f} ms "
-              f"(reading {rows[-1]['read']} tiles each time — the linear "
-              "term this measures)")
-        if visibles:
-            print(f"  landing to visible: middling {middle(visibles):.0f} ms")
-        print(f"  writer per change: middling {middle(writers):.0f} ms "
-              "(excluded from the viewer's verdict)")
+        if asked.burst:
+            accounting = dict(getattr(governed, "accounting", {}))
+            changing = [index for index in range(1, len(grey))
+                        if grey[index][1].shape == grey[index - 1][1].shape
+                        and int((np.abs(grey[index][1] - grey[index - 1][1])
+                                 > 20).sum()) >= 50]
+            if burst_landed and burst_took > 0:
+                print(f"  committed: {burst_landed:.0f} landings in "
+                      f"{burst_took:.2f} s — "
+                      f"{burst_landed / burst_took:.1f} adds a second "
+                      "into the manifest")
+                if changing:
+                    absorbed = grey[changing[-1]][0] - burst_first_commit
+                    print(f"  absorbed: the picture stopped changing "
+                          f"{absorbed:.2f} s after the first commit")
+                derives = accounting.get("derives", 0) - derives_before
+                print(f"  derives under fire: {derives} "
+                      f"(last {accounting.get('last_derive_ms', 0):.0f} ms, "
+                      f"{accounting.get('last_tiles_read', 0)} tiles read)")
+                from PIL import Image
+                folder = FIXTURES / f"gov{across}x{across}"
+                shots = [np.asarray(Image.open(folder / name).convert("L"),
+                                    dtype=np.int16)
+                         for name in ("burst_before.png", "burst_after.png")]
+                if shots[0].shape == shots[1].shape:
+                    moved = int((np.abs(shots[1] - shots[0]) > 20).sum())
+                    print(f"  the screenshots disagree by {moved} px "
+                          f"(saved beside the fixture) — "
+                          f"{'the picture DID change' if moved >= 50 else 'the picture DID NOT change'}")
+            else:
+                print("  no dark boundary positions were left to land — "
+                      "recreate the fixture or use a larger --across")
+        else:
+            middle = lambda values: sorted(values)[len(values) // 2]
+            derives = [one["derive_ms"] for one in rows]
+            visibles = [one["visible_ms"] for one in rows
+                        if one["visible_ms"] == one["visible_ms"]]
+            writers = [one["writer_ms"] for one in rows]
+            print(f"  derive per commit: middling {middle(derives):.0f} ms "
+                  f"(reading {rows[-1]['read']} tiles each time — the linear "
+                  "term this measures)")
+            if visibles:
+                print(f"  landing to visible: middling "
+                      f"{middle(visibles):.0f} ms")
+            print(f"  writer per change: middling {middle(writers):.0f} ms "
+                  "(excluded from the viewer's verdict)")
         print(f"  transients: {events}")
     finally:
         page.close()
+        served.forget(store)  # stops the warmer before the server dies
         server.shutdown()
         thread.join(timeout=5)
         browser.close()
