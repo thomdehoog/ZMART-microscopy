@@ -370,25 +370,33 @@ class GovernedRun:
         made, drawing, tiles = self._compose_the_snapshot(before, kept)
         dirtied: dict[int, set[tuple[int, int]]] | None = None
         if previous is not None and not moved_frame:
-            # The paths the change retired: a replaced or vanished position's
-            # old copies. Their cached blocks go no further -- and naming
-            # them is O(change), where checking every current tile's path
-            # was a fifth of the whole derive at six thousand positions.
-            stale = frozenset(
-                copy.held_in
-                for position_id, tile in kept.items()
-                if drawing.get(position_id) != before.get(position_id)
-                for copy in tile.copies
-            )
-            dirtied = self._what_changed_dirtied(previous, made,
-                                                 before, drawing)
-            made.inherit_the_unchanged(previous, dirtied, stale=stale)
-            # The piece index moves house with the slabs, patched only where
-            # the change reached -- see Composer.inherit_the_index.
+            # Which positions appeared, vanished, or moved to another
+            # generation -- worked out once, in one pass, and every
+            # consumer below works from this set in O(change). Sweeping
+            # the survey again inside each consumer was most of what
+            # remained of the derive's growth at sixteen thousand
+            # positions: several sweeps per commit, each identifying the
+            # same handful of changes.
             changed_names = frozenset(
                 one for one in before.keys() | drawing.keys()
                 if before.get(one) != drawing.get(one)
             )
+            # The paths the change retired: a replaced or vanished
+            # position's old copies. Their cached blocks go no further.
+            stale = frozenset(
+                copy.held_in
+                for one in changed_names
+                if one in kept
+                for copy in kept[one].copies
+            )
+            dirtied = self._what_changed_dirtied(
+                previous, made,
+                {one: kept[one] for one in changed_names if one in kept},
+                {one: tiles[one] for one in changed_names if one in drawing},
+            )
+            made.inherit_the_unchanged(previous, dirtied, stale=stale)
+            # The piece index moves house with the slabs, patched only where
+            # the change reached -- see Composer.inherit_the_index.
             made.inherit_the_index(
                 previous, dirtied, changed_names,
                 [(one, tiles[one]) for one in drawing
@@ -804,7 +812,8 @@ class GovernedRun:
         return self._corners
 
     def _what_changed_dirtied(self, previous: Composer, fresh: Composer,
-                              before: dict[str, int], now: dict[str, int],
+                              was_tiles: dict[str, Tile],
+                              now_tiles: dict[str, Tile],
                               ) -> dict[int, set[tuple[int, int]]]:
         """Which pieces the manifest's movement reached, per level.
 
@@ -813,15 +822,15 @@ class GovernedRun:
         geometry — the ground a removal used to cover has to rebuild just as
         surely as the ground an arrival now covers — and everything outside
         those pieces is, by the manifest's own account, untouched.
+
+        The changed positions' tiles arrive by name — ``was_tiles`` as the
+        previous snapshot drew them, ``now_tiles`` as this one will — rather
+        than being found by sweeping every tile of both snapshots. The sweep
+        was O(survey) per commit spent identifying a handful of changes the
+        caller already knew by name.
         """
-        changed = {one for one in before.keys() | now.keys()
-                   if before.get(one) != now.get(one)}
         dirty: dict[int, set[tuple[int, int]]] = {}
-        for composer in (previous, fresh):
-            named = {
-                tile.name: tile for tile in composer.mosaic.tiles
-                if tile.name.split(".")[0] in changed
-            }
+        for composer, named in ((previous, was_tiles), (fresh, now_tiles)):
             for tile in named.values():
                 for level in range(composer.mosaic.levels):
                     at = composer.mosaic.lands_at(tile, level)
