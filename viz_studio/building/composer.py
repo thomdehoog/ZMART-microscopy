@@ -245,7 +245,8 @@ class Composer:
             )
 
     def inherit_the_unchanged(self, donor: Composer,
-                              dirty: dict[int, set[tuple[int, int]]]) -> None:
+                              dirty: dict[int, set[tuple[int, int]]],
+                              stale: frozenset = frozenset()) -> None:
         """Carry a predecessor's warmth forward, minus what a commit touched.
 
         A governed run swaps in a whole fresh composer whenever its manifest
@@ -259,22 +260,28 @@ class Composer:
         ``(row, column)`` — worked out by the caller from the changed
         positions' own footprints, over both the old state and the new, so a
         removal dirties the ground it used to cover. Slabs of dirty pieces
-        stay behind; blocks stay behind when their store is no longer among
-        the tiles, which is how a replaced generation's pixels die with its
-        path. Everything inherited is bytes-identical to what the donor held
-        — the donor built it, and ground neither side touched decodes the
-        same either way.
+        stay behind. ``stale`` names the store folders a change retired — a
+        replaced generation's old path, a rolled-back position's — and their
+        decoded blocks stay behind with them. Named by the caller as the
+        CHANGE's paths rather than checked against every current tile's,
+        deliberately: an earlier version built the everything-current set
+        here, and hashing twenty-four thousand paths per commit was a fifth
+        of the whole derive — O(survey) housekeeping for an O(change)
+        question. Correctness never depended on it: a retired path's blocks
+        are unreachable anyway, since every reader keys by the paths it now
+        holds; this is memory hygiene, priced accordingly. Everything
+        inherited is bytes-identical to what the donor held — the donor
+        built it, and ground neither side touched decodes the same either
+        way.
 
         The donor may still be answering a straggler request; its locks are
         held only long enough to read each cache out.
         """
-        current = {copy.held_in
-                   for tile in self.mosaic.tiles for copy in tile.copies}
         with donor._block_guard:
             held_blocks = list(donor._blocks.items())
         with self._block_guard:
             for key, block in held_blocks:
-                if key[0] not in current or key in self._blocks:
+                if key[0] in stale or key in self._blocks:
                     continue
                 self._blocks[key] = block
                 self._blocks_weigh += block.nbytes

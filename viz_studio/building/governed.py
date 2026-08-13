@@ -96,14 +96,26 @@ class TheWorldFrame(Mosaic):
     moment and never moves.
     """
 
+    # The layout-derived origin per (run, layout revision), worked out once.
+    # A layout is immutable per revision and a snapshot is derived per
+    # commit, so sweeping every planned placement again each time was
+    # measurable waste at thousands of positions -- and the answer cannot
+    # have changed.
+    _origins: dict[tuple, tuple[float, float, float]] = {}
+
     def __init__(self, tiles, layout, profile):
-        origin_um = tuple(
-            min((float(placement.origin.get(axis, 0))
-                 * float(profile.voxel_size.get(axis, 1.0))
-                 for placement in layout.positions),
-                default=0.0)
-            for axis in ("z", "y", "x")
-        )
+        named = (layout.run_id, layout.revision, profile.profile_id)
+        remembered = TheWorldFrame._origins.get(named)
+        if remembered is None:
+            remembered = tuple(
+                min((float(placement.origin.get(axis, 0))
+                     * float(profile.voxel_size.get(axis, 1.0))
+                     for placement in layout.positions),
+                    default=0.0)
+                for axis in ("z", "y", "x")
+            )
+            TheWorldFrame._origins[named] = remembered
+        origin_um = remembered
         super().__init__(
             tiles=tiles,
             levels=len(profile.levels),
@@ -218,9 +230,20 @@ class GovernedRun:
         began = time.perf_counter()
         made, drawing, tiles = self._compose_the_snapshot(before, kept)
         if previous is not None:
+            # The paths the change retired: a replaced or vanished position's
+            # old copies. Their cached blocks go no further -- and naming
+            # them is O(change), where checking every current tile's path
+            # was a fifth of the whole derive at six thousand positions.
+            stale = frozenset(
+                copy.held_in
+                for position_id, tile in kept.items()
+                if drawing.get(position_id) != before.get(position_id)
+                for copy in tile.copies
+            )
             made.inherit_the_unchanged(
                 previous, self._what_changed_dirtied(previous, made,
-                                                     before, drawing))
+                                                     before, drawing),
+                stale=stale)
         self.accounting["derives"] += 1
         self.accounting["last_derive_ms"] = (time.perf_counter() - began) * 1000
         self.accounting["last_positions"] = len(drawing)
