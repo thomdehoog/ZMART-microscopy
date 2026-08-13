@@ -42,9 +42,14 @@ the copies carry that difference as a fixed outer index — see
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 import time
 from pathlib import Path
+
+import numpy as np
+import zarr
 
 from zmart_live.gateway import _LiveRun
 from zmart_live.shardlink import how_the_array_is_stored
@@ -231,10 +236,19 @@ class GovernedRun:
     for the state it was built from.
     """
 
-    def __init__(self, folder: str | Path, piece: int = PIECE):
+    def __init__(self, folder: str | Path, piece: int = PIECE,
+                 store: str | Path | None = None):
         self.folder = Path(folder).resolve()
         self._run = _LiveRun(self.folder)
         self._piece = piece
+        # The declared picture's own folder, when serving one that keeps a
+        # baked coarse ground. The bake is real files and the run's ground
+        # changes, so every derive patches the touched pieces before the
+        # fresh snapshot answers anyone -- see _keep_the_bake_true. Without
+        # a store (or without baked levels in it) nothing here changes.
+        self._shown = Path(store).resolve() if store is not None else None
+        self._baked: tuple[int, ...] | None = None
+        self._bake_guard = threading.Lock()
         self._mark: tuple[int, int, int, int] | None = None
         self._held: Composer | None = None
         # Which generation of which position the held composer draws, so the
@@ -279,6 +293,7 @@ class GovernedRun:
             kept = dict(self._tiles)
         began = time.perf_counter()
         made, drawing, tiles = self._compose_the_snapshot(before, kept)
+        dirtied: dict[int, set[tuple[int, int]]] | None = None
         if previous is not None:
             # The paths the change retired: a replaced or vanished position's
             # old copies. Their cached blocks go no further -- and naming
@@ -290,10 +305,11 @@ class GovernedRun:
                 if drawing.get(position_id) != before.get(position_id)
                 for copy in tile.copies
             )
-            made.inherit_the_unchanged(
-                previous, self._what_changed_dirtied(previous, made,
-                                                     before, drawing),
-                stale=stale)
+            dirtied = self._what_changed_dirtied(previous, made,
+                                                 before, drawing)
+            made.inherit_the_unchanged(previous, dirtied, stale=stale)
+        if self._shown is not None and self._the_baked_levels():
+            self._keep_the_bake_true(made, dirtied)
         self.accounting["derives"] += 1
         self.accounting["last_derive_ms"] = (time.perf_counter() - began) * 1000
         self.accounting["last_positions"] = len(drawing)
@@ -314,9 +330,170 @@ class GovernedRun:
         # governed picture -- the whole overview arriving piece by expensive
         # piece under their eyes. Warmed pieces inherit across commits minus
         # each change's own footprint, so this is paid once per session and
-        # then topped up by the change, never repeated.
-        self._held.keep_the_coarse_levels_warm()
+        # then topped up by the change, never repeated. A BAKED picture
+        # already holds this ground as files kept true per commit, so
+        # warming it again would only burn the processor the bake spared.
+        if not (self._shown is not None and self._the_baked_levels()):
+            self._held.keep_the_coarse_levels_warm()
         return self._held
+
+    def _the_baked_levels(self) -> tuple[int, ...]:
+        """Which levels the declared picture keeps as baked files, if any.
+
+        Read once from the picture's own description: a declaration is what
+        says whether this picture is baked, and re-declaring writes a new
+        description and is served by a fresh GovernedRun.
+        """
+        if self._baked is None:
+            held: tuple[int, ...] = ()
+            described = self._shown / "zarr.json" if self._shown else None
+            if described is not None and described.is_file():
+                ours = (json.loads(described.read_text(encoding="utf-8"))
+                        .get("attributes") or {}).get("zmart") or {}
+                held = tuple(int(one) for one in ours.get("baked") or ())
+            self._baked = held
+        return self._baked
+
+    def stamp_the_bake(self, store: str | Path | None = None) -> None:
+        """Write down how much manifest the baked files have absorbed.
+
+        The stamp is the count of manifest events folded into the bake. A
+        session that reopens the picture compares it against the manifest:
+        events beyond the stamp name exactly the positions whose ground the
+        bake missed -- a crash between a commit and its patch included --
+        and their footprints are patched before anything is answered from
+        files. Honest recovery costs the missed changes, not the survey.
+        """
+        where = Path(store).resolve() if store is not None else self._shown
+        (where / "baked.json").write_text(
+            json.dumps({"events": len(self._run.manifest.events())}),
+            encoding="utf-8")
+
+    def _keep_the_bake_true(self, made: Composer,
+                            dirtied: dict[int, set[tuple[int, int]]] | None,
+                            ) -> None:
+        """Patch the baked files the manifest's movement reached, then stamp.
+
+        Runs inside the derive, BEFORE the fresh snapshot is handed to
+        anyone: once a reader can know about the new state, the files are
+        already true for it, so the file door can never serve a withdrawn
+        or superseded piece. ``dirtied`` is the derive's own footprint; on
+        the first derive of a session it is unknown, and the stamp says
+        which events the bake has not absorbed -- their positions' current
+        footprints are the catch-up. A missing stamp means nothing can be
+        trusted, and every baked piece is repatched, logged as such.
+        """
+        with self._bake_guard:
+            if dirtied is None:
+                dirtied = self._the_ground_the_bake_missed(made)
+                if dirtied is None:
+                    return
+            baked = self._the_baked_levels()
+            for level in sorted(one for one in baked
+                                if one < made.mosaic.levels):
+                for row, column in sorted(dirtied.get(level, ())):
+                    deep = made.grid(level)[0]
+                    for plane in range(deep):
+                        self._replace_one_piece(made, level, plane, row,
+                                                column)
+            coarsest = made.mosaic.levels - 1
+            reached = dirtied.get(coarsest, set())
+            for level in sorted(one for one in baked
+                                if one >= made.mosaic.levels):
+                reached = {(row // 2, column // 2)
+                           for row, column in reached}
+                if reached:
+                    self._rehalve_one_level(level, sorted(reached))
+            self.stamp_the_bake()
+
+    def _the_ground_the_bake_missed(self,
+                                    made: Composer,
+                                    ) -> dict[int, set[tuple[int,
+                                                             int]]] | None:
+        """The footprints of every event the stamp says the bake never saw.
+
+        ``None`` when the bake is current. A missing or unreadable stamp
+        dirties everything, because a bake whose coverage cannot be known
+        must not answer anyone.
+        """
+        events = self._run.manifest.events()
+        stamp = self._shown / "baked.json"
+        absorbed = -1
+        if stamp.is_file():
+            try:
+                absorbed = int(json.loads(
+                    stamp.read_text(encoding="utf-8"))["events"])
+            except (ValueError, KeyError):
+                absorbed = -1
+        if absorbed == len(events):
+            return None
+        if absorbed < 0:
+            return {level: {(row, column)
+                            for row in range(made.grid(level)[1])
+                            for column in range(made.grid(level)[2])}
+                    for level in range(made.mosaic.levels)}
+        missed = {event.position_id for event in events[absorbed:]}
+        dirty: dict[int, set[tuple[int, int]]] = {}
+        named = {tile.name.split(".")[0]: tile
+                 for tile in made.mosaic.tiles
+                 if tile.name.split(".")[0] in missed}
+        for tile in named.values():
+            for level in range(made.mosaic.levels):
+                at = made.mosaic.lands_at(tile, level)
+                held = tile.copies[level].shape
+                reached = dirty.setdefault(level, set())
+                for row in range(at[1] // self._piece,
+                                 (at[1] + held[1] - 1) // self._piece + 1):
+                    for column in range(
+                            at[2] // self._piece,
+                            (at[2] + held[2] - 1) // self._piece + 1):
+                        reached.add((row, column))
+        return dirty
+
+    def _replace_one_piece(self, made: Composer, level: int, plane: int,
+                           row: int, column: int) -> None:
+        """One baked chunk file made true, atomically, or removed if empty."""
+        inside = (self._shown / str(level) / "c" / str(plane) / str(row))
+        baked = inside / str(column)
+        body = made.bytes_for(level, plane, row, column)
+        if body is None:
+            if baked.is_file():
+                baked.unlink()
+            return
+        inside.mkdir(parents=True, exist_ok=True)
+        arriving = baked.with_name(f"{baked.name}.baking")
+        arriving.write_bytes(body)
+        os.replace(arriving, baked)
+
+    def _rehalve_one_level(self, level: int,
+                           pieces: list[tuple[int, int]]) -> None:
+        """Recompute touched pieces of one extended level from the one below.
+
+        The extended levels exist only as baked files, averaged 2x2 in y and
+        x from the level beneath -- the same arithmetic the from-scratch
+        bake uses, applied to the touched region instead of the whole, and
+        written through the level's own zarr array so the chunk encoding
+        cannot drift from a fresh bake's. Reads past the lower level's edge
+        clamp to its last row or column, which is what padding the whole
+        array with its own edge produced.
+        """
+        below = zarr.open_array(str(self._shown / str(level - 1)), mode="r")
+        above = zarr.open_array(str(self._shown / str(level)), mode="r+")
+        deep, height, width = above.shape
+        for row, column in pieces:
+            top, left = row * self._piece, column * self._piece
+            bottom = min(top + self._piece, height)
+            right = min(left + self._piece, width)
+            wanted = (bottom - top, right - left)
+            source = below[:, 2 * top:min(2 * bottom, below.shape[1]),
+                           2 * left:min(2 * right, below.shape[2])]
+            evened = np.pad(source,
+                            ((0, 0), (0, 2 * wanted[0] - source.shape[1]),
+                             (0, 2 * wanted[1] - source.shape[2])),
+                            mode="edge")
+            above[:, top:bottom, left:right] = (
+                evened.reshape(deep, wanted[0], 2, wanted[1], 2)
+                .mean(axis=(2, 4)).round().astype(above.dtype))
 
     def _compose_the_snapshot(self, before: dict[str, int],
                               kept: dict[str, Tile],
