@@ -65,6 +65,9 @@ sys.path.insert(0, str(_BUILDING))
 sys.path.insert(0, str(_VIZ))
 sys.path.insert(0, str(_VIZ / "backend"))
 sys.path.insert(0, str(_VIZ / "tests"))
+# The repository root as well, so zmart_live imports on a machine where the
+# package was never installed -- the harness should run from a fresh clone.
+sys.path.insert(0, str(_VIZ.parent))
 
 import numpy as np
 
