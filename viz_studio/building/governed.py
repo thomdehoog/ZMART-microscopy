@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -499,14 +500,28 @@ class GovernedRun:
 
         The extended levels exist only as baked files, averaged 2x2 in y and
         x from the level beneath -- the same arithmetic the from-scratch
-        bake uses, applied to the touched region instead of the whole, and
-        written through the level's own zarr array so the chunk encoding
-        cannot drift from a fresh bake's. Reads past the lower level's edge
-        clamp to its last row or column, which is what padding the whole
-        array with its own edge produced.
+        bake uses, applied to the touched region instead of the whole.
+        Reads past the lower level's edge clamp to its last row or column,
+        which is what padding the whole array with its own edge produced.
+
+        Written into a STAGING array and moved into place, never in place:
+        zarr writes a chunk by truncating the file, and the engine refetches
+        exactly these pieces the moment the change is announced -- a read
+        catching the truncation decoded garbage and left the region black
+        on screen until something touched it again, growing with every
+        patch, watched happening at 6,400 positions. The staging array is
+        the level's own metadata copied whole, so the encoding cannot drift
+        from a fresh bake's; each staged chunk file then replaces the real
+        one atomically, and a piece the halving left all-fill has its file
+        removed, absence meaning fill here as everywhere.
         """
         below = zarr.open_array(str(self._shown / str(level - 1)), mode="r")
-        above = zarr.open_array(str(self._shown / str(level)), mode="r+")
+        staging = self._shown / f".patching-{level}"
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir()
+        shutil.copy2(self._shown / str(level) / "zarr.json",
+                     staging / "zarr.json")
+        above = zarr.open_array(str(staging), mode="r+")
         deep, height, width = above.shape
         for row, column in pieces:
             top, left = row * self._piece, column * self._piece
@@ -522,6 +537,18 @@ class GovernedRun:
             above[:, top:bottom, left:right] = (
                 evened.reshape(deep, wanted[0], 2, wanted[1], 2)
                 .mean(axis=(2, 4)).round().astype(above.dtype))
+        planes = -(-deep // int(above.chunks[0]))
+        for row, column in pieces:
+            for plane in range(planes):
+                staged = staging / "c" / str(plane) / str(row) / str(column)
+                real = (self._shown / str(level) / "c" / str(plane)
+                        / str(row) / str(column))
+                if staged.is_file():
+                    real.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(staged, real)
+                elif real.is_file():
+                    real.unlink()
+        shutil.rmtree(staging, ignore_errors=True)
 
     def _compose_the_snapshot(self, before: dict[str, int],
                               kept: dict[str, Tile],
