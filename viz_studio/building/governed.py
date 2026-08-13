@@ -343,7 +343,13 @@ class GovernedRun:
                 current[position_id] = generation
         drawing = {
             position_id: current[position_id] for position_id in order
-            if (position_id, 0, current[position_id]) in published
+            # The two manifest reads above can straddle a commit, and then the
+            # order names a position the published set does not know yet. Not
+            # drawn HERE, deliberately: that commit moved the fingerprint, so
+            # the very next ask derives again and draws it -- found by the
+            # burst harness at ~26 adds a second as a KeyError and one piece
+            # blinking absent, never at the writer's own cadence.
+            if (position_id, 0, current.get(position_id)) in published
         }
         changed = [one for one, generation in drawing.items()
                    if before.get(one) != generation or one not in kept]

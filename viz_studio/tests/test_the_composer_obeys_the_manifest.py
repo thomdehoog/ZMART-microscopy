@@ -601,6 +601,45 @@ def test_a_stamped_tile_says_exactly_what_the_walked_tile_would(tmp_path):
             )
 
 
+def test_a_commit_arriving_between_the_snapshots_two_reads_is_left_to_the_next(
+        tmp_path):
+    """A commit landing mid-derive must not crash the snapshot being made.
+
+    The derive reads the manifest twice — the published units, then the draw
+    order — and a commit can land between the two reads: the order then names
+    a position the published set does not know. Found by the burst harness at
+    25.9 adds a second (KeyError p3125, one coarse piece answered absent, one
+    transient on the recorder); invisible at the writer's own cadence, where
+    the window between the reads is never hit. The snapshot must simply not
+    draw that position: its commit moved the fingerprint, so the very next
+    ask derives again and draws it then.
+    """
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+
+    governed = GovernedRun(run.folder, piece=PIECE)
+    real = governed._run
+
+    class TornBetweenTheReads:
+        """The gateway as the race sees it: order ahead of published."""
+
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        def _positions_in_commit_order(self):
+            return tuple(real._positions_in_commit_order()) + ("posB",)
+
+    governed._run = TornBetweenTheReads()
+    composer = governed.composer()
+    a_only, _, b_only = the_columns_of(run)
+    assert 700 in pixels_of(composer, 0, 0, 0, a_only), (
+        "the settled ground must keep serving through the race"
+    )
+    assert composer.bytes_for(0, 0, 0, b_only) is None, (
+        "the half-arrived commit belongs to the next snapshot, not this one"
+    )
+
+
 def test_a_pattern_whose_corner_disagrees_with_the_layout_is_refused(tmp_path):
     """The one store that is read must agree with the layout it stands in for.
 
