@@ -194,7 +194,15 @@ def main() -> int:
                               "cold-region composes on camera.")
     parsing.add_argument("--headed", action="store_true",
                          help="open a visible window")
+    parsing.add_argument("--fixtures", default=None,
+                         help="where the durable fixtures live; defaults to "
+                              "the microscope machine's folder above, so on "
+                              "any other machine pass a folder with room "
+                              "for the survey being measured")
     asked = parsing.parse_args()
+    if asked.fixtures:
+        global FIXTURES
+        FIXTURES = Path(asked.fixtures)
     across = asked.across
 
     run, order = the_run(across)
