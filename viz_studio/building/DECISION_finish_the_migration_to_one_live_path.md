@@ -86,3 +86,39 @@ of this decision.
 - `test_manifest_refresh_browser.py` still exercises seamless-era names
   and should be ported or retired WITH the registry change, since it
   pins the very wiring this decision replaces.
+
+## Landed: the second slice (2026-08-13, later the same day)
+
+The link map now moves to end-of-run, exactly as decided above, and the
+route gate at publish time checks only the position being published.
+What changed, and where:
+
+- A run can be opened with ``linked_view="at_run_end"``
+  (`zmart_live.coordinator.LivePublisher`). Mid-run, a publish then owes
+  the shared records nothing beyond the arrangement — no link map, no
+  view description — and the commit records the deferral honestly in a
+  new ``linked_view_deferred`` field, so ``ready`` never claims a check
+  that did not run. Every check about the position's OWN bytes runs
+  exactly as before; the mutation campaign that proves the tests notice
+  a softened gate still passes.
+- ``finish_the_run()`` writes the linked plain-file view once, when the
+  run finishes: the map over every committed position, the view
+  description, the arrangement. Each write carries the same gates it
+  always had, so the map is validated at the moment it is written — the
+  after-the-run consumers lose nothing.
+- The arrangement read-back inside every publish now remembers the file
+  it just verified, by the same identity rule the shard tables use, so
+  an unchanged layout costs a stat instead of a survey-sized parse. A
+  swapped or tampered file still drops back to the full read, and a test
+  pins that.
+- The bake lock beside the served picture speaks ``fcntl`` as well as
+  ``msvcrt`` now (the same split the manifest's writer lock already
+  made), so the serving path and its measurements run on any machine.
+
+First numbers, one landing at 688 committed positions (headless Linux,
+software drawing — ratios are the evidence, not the milliseconds): the
+publish-time gate fell from 415 ms to 227 ms, the landing sequence shed
+its 470–690 ms map rewrite entirely, and a replacement fell from 885 ms
+to 257 ms. The watched-churn before/after table across survey sizes
+follows in its own commit, measured by the same harness as the baseline.
+
