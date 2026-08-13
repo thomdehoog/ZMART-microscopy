@@ -95,8 +95,9 @@ def _holding_the_bake_lock(store: Path):
     """The whole-machine lock on one picture's baked files.
 
     A lock FILE beside the bake, locked through the operating system
-    (``msvcrt`` here -- this serving path runs on the microscope's Windows
-    machine), so two processes patching one picture -- a second server, or
+    (``msvcrt`` on the microscope's Windows machine, ``fcntl`` everywhere
+    else -- the same split the manifest's writer lock already makes), so
+    two processes patching one picture -- a second server, or
     ``declare --bake`` beside a running one -- take turns instead of
     replacing files and tearing down staging directories under each other.
     The OS releases the lock when its holder dies, so a crashed patcher
@@ -104,22 +105,34 @@ def _holding_the_bake_lock(store: Path):
     because deleting it would hand a third process a different file to
     lock than the one a second is already holding.
     """
-    import msvcrt
-
     store.mkdir(parents=True, exist_ok=True)
     holding = open(store / ".bake.lock", "a+b")
     try:
-        holding.seek(0)
-        # LK_LOCK waits about ten seconds and then raises. A patcher held
-        # out longer than that -- the other process is mid-catch-up -- has
-        # its derive fail, which the serving path answers as absence and
-        # retries: the fail-closed direction, never a stale file.
-        msvcrt.locking(holding.fileno(), msvcrt.LK_LOCK, 1)
-        try:
-            yield
-        finally:
+        if os.name == "nt":  # pragma: no cover - exercised on the Windows target
+            import msvcrt
+
             holding.seek(0)
-            msvcrt.locking(holding.fileno(), msvcrt.LK_UNLCK, 1)
+            # LK_LOCK waits about ten seconds and then raises. A patcher held
+            # out longer than that -- the other process is mid-catch-up -- has
+            # its derive fail, which the serving path answers as absence and
+            # retries: the fail-closed direction, never a stale file.
+            msvcrt.locking(holding.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                holding.seek(0)
+                msvcrt.locking(holding.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            # flock waits as long as it takes rather than ten seconds; on
+            # the machines this branch serves (development and CI, not the
+            # microscope) a patient wait beats a raced failure.
+            fcntl.flock(holding.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(holding.fileno(), fcntl.LOCK_UN)
     finally:
         holding.close()
 
