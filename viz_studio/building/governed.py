@@ -251,9 +251,22 @@ class GovernedRun:
             # Two threads may have derived the same snapshot; either is
             # correct, and the one that loses simply gets garbage-collected.
             if mark != self._mark or self._held is None:
+                stood_down = self._held
                 self._mark, self._held = mark, made
                 self._drawing, self._tiles = drawing, tiles
-            return self._held
+            else:
+                stood_down = made
+        if stood_down is not None and stood_down is not self._held:
+            stood_down.stop_warming()
+        # The coarse ground, warmed in the background and pinned. At survey
+        # scale a coarse piece covers a hundred-odd positions, and building
+        # them on demand is the one slowness an operator feels on a cold
+        # governed picture -- the whole overview arriving piece by expensive
+        # piece under their eyes. Warmed pieces inherit across commits minus
+        # each change's own footprint, so this is paid once per session and
+        # then topped up by the change, never repeated.
+        self._held.keep_the_coarse_levels_warm()
+        return self._held
 
     def _compose_the_snapshot(self, before: dict[str, int],
                               kept: dict[str, Tile],
