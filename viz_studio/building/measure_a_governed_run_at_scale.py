@@ -181,6 +181,13 @@ def main() -> int:
                               "demonstrations, where re-baking a big survey "
                               "costs minutes to restate what is already "
                               "there")
+    parsing.add_argument("--warm-first", action="store_true",
+                         help="let the composer finish warming its coarse "
+                              "slabs before the churn or burst begins — the "
+                              "rhythm a real run has, where the picture is "
+                              "open long before ground arrives. Without it "
+                              "the first changes race the warmer and pay "
+                              "cold-region composes on camera.")
     parsing.add_argument("--headed", action="store_true",
                          help="open a visible window")
     asked = parsing.parse_args()
@@ -312,6 +319,13 @@ def main() -> int:
               f"(derive {accounting.get('last_derive_ms', 0):.0f} ms, "
               f"{accounting.get('last_tiles_read', 0)} tiles read; "
               f"held composers {len(served._composers)})")
+        if asked.warm_first and governed is not None:
+            warming = time.time()
+            while (time.time() - warming < 300
+                   and not governed.composer().coarse_levels_are_warm):
+                page.wait_for_timeout(500)
+            print(f"coarse slabs warm {time.time() - warming:.1f} s after "
+                  "the open — the head start a real run's rhythm gives")
         page.wait_for_timeout(3000)
         session.send("Page.startScreencast",
                      {"format": "png", "everyNthFrame": 1})
