@@ -6,7 +6,10 @@ import http.client
 import json
 import threading
 
+import live_config
 from announcements import Announcements, ManifestWatcher
+from library import Library
+from live_config import LIVE_PICTURE, LiveRegistry, live_rows
 from server import make_server
 
 from zmart_live.live_state import LiveStateTracker
@@ -136,6 +139,7 @@ def test_live_state_and_config_advance_only_after_commit_with_stable_urls(tmp_pa
         live_run = published["runs"][0]
         assert live_run["revision"] == 1
         assert len(live_run["sources"]) == 1
+        assert [source["url"] for source in live_run["sources"]] == [LIVE_PICTURE]
         assert {source["revision"] for source in live_run["sources"]} == {1}
         assert {
             tuple((item["start"], item["stop"]) for item in source["committed_time_ranges"])
@@ -147,6 +151,9 @@ def test_live_state_and_config_advance_only_after_commit_with_stable_urls(tmp_pa
         config = json.loads(body)
         assert len(config["layers"]) == 1
         assert sum(len(row["sources"]) for row in config["layers"]) == 1
+        assert [row["sources"] for row in config["layers"]] == [
+            [f"/data/0/{LIVE_PICTURE}/|zarr3:"]
+        ]
         assert {revision for row in config["layers"] for revision in row["sourceRevisions"]} == {1}
         assert all("?" not in url for row in config["layers"] for url in row["sources"])
         assert all(row["committedTimeRanges"] == [{"start": 0, "stop": 1}]
@@ -288,6 +295,80 @@ def test_live_registry_follows_the_production_open_and_close_routes(tmp_path):
     finally:
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_binding_a_live_run_declares_the_baked_picture_exactly_once(tmp_path, monkeypatch):
+    run = a_live_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    declared = []
+    really = live_config.declare_a_governed_picture
+
+    def counting(*args, **kwargs):
+        declared.append(args)
+        return really(*args, **kwargs)
+
+    monkeypatch.setattr(live_config, "declare_a_governed_picture", counting)
+    library = Library()
+    library.open(run.folder, names=["views/overview.ome.zarr"], watch=False)
+    registry = LiveRegistry(library)
+
+    bindings, governed = registry.refresh()
+    assert len(bindings) == 1 and governed == {0}
+    assert len(declared) == 1
+    store = run.folder / "views" / "picture.ome.zarr"
+    assert (store / "zarr.json").is_file()
+    assert (store / "baked.json").is_file()
+
+    bindings, _ = registry.refresh()
+    assert len(bindings) == 1
+    assert len(declared) == 1, "a second refresh must not re-declare"
+
+    restarted = LiveRegistry(library)
+    bindings, _ = restarted.refresh()
+    assert len(bindings) == 1
+    assert len(declared) == 1, "a fresh registry must recognise the store on disk"
+
+    rows = live_rows(bindings[0])
+    assert [row["sources"] for row in rows] == [[f"/data/0/{LIVE_PICTURE}/|zarr3:"]]
+
+
+def test_the_served_picture_answers_behind_the_manifest_gate(tmp_path):
+    run = a_live_run(tmp_path)
+    server, thread = _server_for(tmp_path, run)
+    port = server.server_address[1]
+    piece = f"/data/0/{LIVE_PICTURE}/0/c/0/0/0"
+    try:
+        status, _, body = _request(port, f"/data/0/{LIVE_PICTURE}/zarr.json")
+        assert status == 200 and b"governed_from" in body
+
+        prepare_without_publishing(run, "posA", 1700)
+        status, _, body = _request(port, piece)
+        assert status == 404 and body == b"", "written but unpublished stays absent"
+
+        run.publish("posA")
+        status, _, body = _request(port, piece)
+        assert status == 200 and len(body) > 0
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_a_run_whose_picture_cannot_be_declared_is_withheld_not_linked(tmp_path, monkeypatch):
+    run = a_live_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+
+    def refusing(*args, **kwargs):
+        raise ValueError("the bake refused")
+
+    monkeypatch.setattr(live_config, "declare_a_governed_picture", refusing)
+    library = Library()
+    library.open(run.folder, names=["views/overview.ome.zarr"], watch=False)
+    registry = LiveRegistry(library)
+
+    bindings, governed = registry.refresh()
+    assert bindings == ()
+    assert governed == {0}, "the run still governs its dataset while refused"
+    assert any("the bake refused" in why for why in registry.errors.values())
 
 
 def test_initially_damaged_manifest_never_falls_back_to_folder_inference(tmp_path):

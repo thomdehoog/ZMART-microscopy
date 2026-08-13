@@ -492,14 +492,18 @@ class _Handler(SimpleHTTPRequestHandler):
     def _built(self, rel: str) -> bytes | None:
         """This piece, built now, when the picture it belongs to holds no pixels.
 
-        ``rel`` is what came after ``/data/``: the opened folder's number, then the
-        image, then the piece inside it. A picture declared by
-        ``viz_studio/building/declare.py`` records which transfer it was built from,
-        and the tiles of that transfer are read to make the piece.
+        ``rel`` is what came after ``/data/``: the opened folder's number, then
+        the store's path inside it, then the piece. A picture declared by
+        ``viz_studio/building/declare.py`` records what it was built from — a
+        transfer's tiles, or a governed run's manifest — and the piece is made
+        from that. The store is found by peeling the piece address off the end
+        (a piece is always ``level/c/`` and one number per axis), rather than
+        assumed to sit directly under the opened folder: a live run's served
+        picture lives at ``views/picture.ome.zarr``, one folder down.
 
-        ``None`` means this is not a built picture — the answer for every ordinary
-        image, and for a pointed-at one — which costs one look at the store's own
-        description the first time and nothing afterwards.
+        ``None`` means this is not a piece of a built picture — the answer for
+        every ordinary image, and for a pointed-at one — which costs one look
+        at the store's own description the first time and nothing afterwards.
 
         Note that the tiles read here are **not** resolved by the library, unlike a
         pointed-at piece, because a transfer normally sits on a different disk from
@@ -508,14 +512,16 @@ class _Handler(SimpleHTTPRequestHandler):
         """
         if building is None:
             return None
-        number, _, rest = rel.partition("/")
-        image, _, inside = rest.partition("/")
-        if not inside:
+        parts = rel.split("/")
+        if len(parts) < 7 or parts[-4] != "c":
             return None
-        store = self._library.resolve(f"{number}/{image}")
+        if not (parts[-5].isdecimal()
+                and all(one.isdecimal() for one in parts[-3:])):
+            return None
+        store = self._library.resolve("/".join(parts[:-5]))
         if store is None:
             return None
-        return building.the_bytes_behind(store, inside)
+        return building.the_bytes_behind(store, "/".join(parts[-5:]))
 
     def _send_bytes(self, body: bytes) -> None:
         """Answer with bytes that are not a file and never were.
