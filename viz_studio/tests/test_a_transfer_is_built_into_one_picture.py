@@ -442,7 +442,7 @@ def test_opening_a_served_picture_starts_the_warming(a_transfer: Path,
                                     piece=PIECE)
     served.forget(store)
     assert served.the_bytes_behind(store, "0/c/0/0/0") is not None
-    composer = served._composers[store.resolve()]
+    _, composer = served._composers[store.resolve()]
     deadline = time.time() + 10
     while time.time() < deadline and not composer.coarse_levels_are_warm:
         time.sleep(0.05)

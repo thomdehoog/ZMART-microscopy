@@ -139,6 +139,12 @@ class _LiveRun:
         # fold and starts over, which is the one case where re-asking from
         # the top is the honest answer.
         self._folded = 0
+        # The revision of the last event folded, kept beside the count so a
+        # consumer can name the exact PREFIX it saw -- (count, tail) -- and
+        # later tell a history that merely grew from one that was rewritten
+        # or rolled back under it. The baked picture's stamp is that
+        # consumer; a bare count proved rollback-unsafe in review.
+        self._last_folded_revision = 0
         self._published_mut: set[tuple[str, int, int]] = set()
         self._arrived: list[str] = []
         self._arrived_set: set[str] = set()
@@ -152,6 +158,7 @@ class _LiveRun:
                 events = self.manifest.events()
                 if len(events) < self._folded:
                     self._folded = 0
+                    self._last_folded_revision = 0
                     self._published_mut = set()
                     self._arrived = []
                     self._arrived_set = set()
@@ -185,6 +192,8 @@ class _LiveRun:
                     already_visible.add(moment)
                     published.add((position_id, moment, generation))
                 self._folded = len(events)
+                if events:
+                    self._last_folded_revision = events[-1].revision
                 self._published = frozenset(published)
                 self._commit_order = tuple(self._arrived)
                 self._publication_mark = mark

@@ -416,8 +416,9 @@ class _Handler(SimpleHTTPRequestHandler):
         # consults the manifest -- which patches the baked files -- and then
         # answers, usually from this very file. Every other file, transfers'
         # baked ground included, keeps the fast door it always had.
-        if self._a_piece_of_a_governed_picture(rel):
-            made = self._built(rel)
+        governed = self._a_governed_piece_behind(target)
+        if governed is not None:
+            made = building.the_bytes_behind(*governed)
             if made is not None:
                 self._send_bytes(made)
             else:
@@ -425,23 +426,36 @@ class _Handler(SimpleHTTPRequestHandler):
             return
         self._send_file(target)
 
-    def _a_piece_of_a_governed_picture(self, rel: str) -> bool:
-        """Whether this address is a chunk of a manifest-governed picture.
+    def _a_governed_piece_behind(self, target: Path
+                                 ) -> tuple[Path, str] | None:
+        """The (store, piece address) when this FILE is a governed chunk.
 
-        Only piece-shaped addresses are anybody's to govern — a store's
+        Judged from the RESOLVED target, never from the request string: the
+        raw address admits spellings -- doubled slashes, dots, internal
+        parent-steps -- that resolve to the very same chunk file while
+        failing a string-shaped check, and each was a door past the gate
+        (review finding D4). A chunk file sits exactly five levels inside
+        its store (level/c/plane/row/column), so the store is the fifth
+        parent, and the address is rebuilt from what is actually on disk.
+        Only piece-shaped paths are anybody's to govern — a store's
         descriptions stay ordinary files however the pixels are ruled.
         """
         if building is None:
-            return False
-        number, _, rest = rel.partition("/")
-        image, _, inside = rest.partition("/")
-        parts = inside.strip("/").split("/")
+            return None
+        parents = target.parents
+        if len(parents) < 5:
+            return None
+        store = parents[4]
+        parts = target.relative_to(store).parts
         if len(parts) != 5 or parts[1] != "c":
-            return False
+            return None
         if not all(one.isdecimal() for one in (parts[0], *parts[2:])):
-            return False
-        store = self._library.resolve(f"{number}/{image}")
-        return store is not None and building.a_manifest_governs(store)
+            return None
+        if not (store / "zarr.json").is_file():
+            return None
+        if not building.a_manifest_governs(store):
+            return None
+        return store, "/".join(parts)
 
     def _pointed_at(self, rel: str) -> tuple[Path, int, int | None] | None:
         """The file that really holds this piece, when the picture was never written.

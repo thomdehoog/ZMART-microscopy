@@ -248,6 +248,220 @@ def test_the_http_route_consults_the_manifest_before_any_baked_file(tmp_path):
         thread.join(timeout=5)
 
 
+def test_a_rollback_withdraws_ground_from_the_baked_files_too(tmp_path):
+    """Review finding D1: the missing leg of the central contract.
+
+    A whole-history rollback shrinks the manifest — committed.json names an
+    earlier revision, and events beyond it stop existing. A stamp compared
+    as a bare count then reads AHEAD of the history and concludes the bake
+    is current, so the withdrawn position's baked files survive and the
+    file door keeps serving ground the manifest has withdrawn — fail-closed
+    violated in exactly the operation the requirements name. The stamp must
+    treat a history that came back shorter (or rewritten under it) as
+    coverage unknown, and repatch everything.
+    """
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    truth = run.folder / "zmart-live" / "committed.json"
+    remembered = truth.read_text(encoding="utf-8")
+    run.write_and_publish("posB", some_specimen(4242))
+
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    try:
+        _, _, b_only = the_columns_of(run)
+        assert served.the_bytes_behind(store, f"0/c/0/0/{b_only}") is not None
+
+        truth.write_text(remembered, encoding="utf-8")
+        assert served.the_bytes_behind(store, f"0/c/0/0/{b_only}") is None, (
+            "the gate itself must withdraw the rolled-back ground"
+        )
+        after = every_baked_file(store)
+    finally:
+        served.forget(store)
+    reference = a_fresh_bake_of(run.folder, tmp_path / "reference")
+    assert after == reference, (
+        "the rolled-back position's ground survived in the baked files — "
+        "the stamp read ahead of the shrunken history and skipped the patch"
+    )
+
+
+def test_a_commit_landing_during_the_initial_bake_is_not_lost(tmp_path,
+                                                              monkeypatch):
+    """Review finding D2: the declare-time stamp race.
+
+    The initial bake writes the state of the snapshot taken BEFORE it ran,
+    which at survey scale is minutes wide — but the stamp was written from
+    the manifest as of stamp time, claiming every commit that landed in the
+    window. Those commits were never baked and, with the stamp past them,
+    never patched: a replacement missed this way serves its superseded
+    generation from files forever. The stamp must say what the bake actually
+    absorbed — the fold count of the snapshot it baked.
+    """
+    import declare as declaring
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+
+    the_real_bake = declaring._bake_the_coarse_ground
+    landing = {"left": 1}
+
+    def a_commit_lands_mid_bake(store, composer, described):
+        baked = the_real_bake(store, composer, described)
+        if landing["left"]:
+            landing["left"] -= 1
+            run.write_and_publish("posB", some_specimen(4242))
+        return baked
+
+    monkeypatch.setattr(declaring, "_bake_the_coarse_ground",
+                        a_commit_lands_mid_bake)
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    try:
+        _, _, b_only = the_columns_of(run)
+        appeared = served.the_bytes_behind(store, f"0/c/0/0/{b_only}")
+        assert appeared is not None, (
+            "the commit that landed mid-bake must be served"
+        )
+        after = every_baked_file(store)
+    finally:
+        served.forget(store)
+    reference = a_fresh_bake_of(run.folder, tmp_path / "reference")
+    assert after == reference, (
+        "the mid-bake commit was stamped as absorbed but never baked, and "
+        "the catch-up never patched it"
+    )
+
+
+def test_redeclaring_under_a_running_server_is_noticed(tmp_path):
+    """Review finding D5: the served picture follows its declaration.
+
+    A picture opened unbaked is remembered by the serving registry; turning
+    the bake on by re-declaring wrote new files and a new description, but
+    the remembered GovernedRun kept its empty baked-level list — it never
+    patched, while the file door happily served the declare-time files, one
+    commit staler with every change. The registry must notice the picture's
+    own description changing.
+    """
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE)
+    try:
+        a_only, _, _ = the_columns_of(run)
+        assert served.the_bytes_behind(store, f"0/c/0/0/{a_only}") is not None
+
+        again = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                           name="live", piece=PIECE,
+                                           bake=True)
+        assert again == store
+        run.replace_a_position("posA", some_specimen(2200))
+        assert served.the_bytes_behind(store, f"0/c/0/0/{a_only}") is not None
+        after = every_baked_file(store)
+    finally:
+        served.forget(store)
+    reference = a_fresh_bake_of(run.folder, tmp_path / "reference")
+    assert after == reference, (
+        "the running server kept the pre-bake classification and never "
+        "patched the newly baked files"
+    )
+
+
+def test_an_unreadable_picture_description_fails_closed(tmp_path,
+                                                        monkeypatch):
+    """Review finding D3: classification failure must not open the file door.
+
+    A store whose description cannot be read — damage, or this machine's
+    endpoint protection briefly holding a fresh file — used to classify as
+    "ordinary image", permanently, and the backend then served its baked
+    files statically past the manifest. While a picture cannot be
+    classified, it must be treated as governed (answer absent), and the
+    failure must be retried, never remembered as ordinary.
+    """
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    served.forget(store)
+
+    the_real_read = served._what_it_was_built_from
+    stumbling = {"left": 1}
+
+    def a_read_that_stumbles_once(path):
+        if stumbling["left"]:
+            stumbling["left"] -= 1
+            raise OSError("endpoint protection holds the file")
+        return the_real_read(path)
+
+    monkeypatch.setattr(served, "_what_it_was_built_from",
+                        a_read_that_stumbles_once)
+    try:
+        assert served.a_manifest_governs(store), (
+            "a picture that cannot be classified must be treated as "
+            "governed — failing open serves baked files past the manifest"
+        )
+        monkeypatch.setattr(served, "_REFUSED_FOR_SECONDS", 0.0)
+        a_only, _, _ = the_columns_of(run)
+        assert served.the_bytes_behind(store, f"0/c/0/0/{a_only}") is not None, (
+            "one transient stumble must not be remembered as 'ordinary "
+            "image' forever"
+        )
+    finally:
+        served.forget(store)
+
+
+def test_an_aliased_piece_path_cannot_walk_past_the_gate(tmp_path):
+    """Review finding D4: the backend's check must see what resolve saw.
+
+    The route check parsed the raw address while the file lookup resolved
+    it, so `0/c//0/0/0` reached the real baked chunk file and was served
+    statically — no derive, no patch, stale-past-manifest bytes for any
+    client that asks crookedly. The check now derives the piece address
+    from the resolved target itself, so every spelling of a governed piece
+    goes through the gate.
+    """
+    import threading
+    import urllib.request
+
+    backend = str(Path(__file__).resolve().parent.parent / "backend")
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
+    from server import make_server
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    server = make_server(port=0, data_dir=tmp_path / "shown",
+                         store=[store.name])
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        inside = sorted(every_baked_file(store))[0]
+        level, _, plane, row, column = Path(inside).parts
+        crooked = f"{level}/c//{plane}/{row}/{column}"
+        straight = f"{level}/c/{plane}/{row}/{column}"
+
+        def over_http(path: str) -> bytes:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/data/0/{store.name}/{path}",
+                    timeout=30) as answer:
+                return answer.read()
+
+        run.replace_a_position("posA", some_specimen(2200))
+        askew = over_http(crooked)
+        canonical = over_http(straight)
+        assert askew == canonical, (
+            "the aliased spelling was served from the stale file while the "
+            "canonical one went through the gate"
+        )
+    finally:
+        served.forget(store)
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def test_an_empty_run_bakes_nothing_because_absence_means_fill(tmp_path):
     """A young run's bake costs nothing: fill is expressed by absent files."""
     run = a_governed_run(tmp_path)

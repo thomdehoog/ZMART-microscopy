@@ -250,6 +250,13 @@ class GovernedRun:
         self._shown = Path(store).resolve() if store is not None else None
         self._baked: tuple[int, ...] | None = None
         self._bake_guard = threading.Lock()
+        # What the installed snapshot folded and framed, and what the stamp
+        # said when this instance last patched -- the anchors that make
+        # installation forward-only, frame moves total invalidations, and
+        # the per-state patch skippable without re-reading anything.
+        self._folded_installed = -1
+        self._frame_installed: tuple[int, str] | None = None
+        self._stamp_installed: dict | None = None
         self._mark: tuple[int, int, int, int] | None = None
         self._held: Composer | None = None
         # Which generation of which position the held composer draws, so the
@@ -295,9 +302,16 @@ class GovernedRun:
         baked_picture = self._shown is not None and bool(
             self._the_baked_levels())
         began = time.perf_counter()
+        layout, profile = self._run._geometry()
+        # A frame that MOVED -- a new layout revision or another profile --
+        # invalidates every piece and every inherited slab at once: one
+        # more-negative placement shifts where every tile lands, with no
+        # generation changing to say so. Review finding D6.
+        framed = (layout.revision, profile.profile_id)
+        moved_frame = previous is not None and framed != self._frame_installed
         made, drawing, tiles = self._compose_the_snapshot(before, kept)
         dirtied: dict[int, set[tuple[int, int]]] | None = None
-        if previous is not None:
+        if previous is not None and not moved_frame:
             # The paths the change retired: a replaced or vanished position's
             # old copies. Their cached blocks go no further -- and naming
             # them is O(change), where checking every current tile's path
@@ -311,24 +325,38 @@ class GovernedRun:
             dirtied = self._what_changed_dirtied(previous, made,
                                                  before, drawing)
             made.inherit_the_unchanged(previous, dirtied, stale=stale)
+        # The fold's own bookkeeping, NOT a fresh read of the events file:
+        # the compose above already folded the manifest, and a second reader
+        # racing the writer's appends was measured (twice) spamming
+        # refused-history errors. The identity is (count, tail revision,
+        # layout): a bare count read AHEAD of a rolled-back history and
+        # left withdrawn ground served from files -- review finding D1.
+        folded = self._run._folded
         if baked_picture:
-            # The fold's own event count, NOT a fresh read of the events
-            # file: the compose above already folded the manifest, and a
-            # second reader racing the writer's appends was measured (twice)
-            # spamming refused-history errors and answering absent -- once
-            # per request, then once per derive. The bake stamps what the
-            # snapshot actually folded, from the one reader that counts.
-            self._keep_the_bake_true(made, dirtied, self._run._folded)
+            current = {"events": folded,
+                       "tail": self._run._last_folded_revision,
+                       "layout": layout.revision}
+            self._keep_the_bake_true(
+                made, None if moved_frame else dirtied, current)
         self.accounting["derives"] += 1
         self.accounting["last_derive_ms"] = (time.perf_counter() - began) * 1000
         self.accounting["last_positions"] = len(drawing)
         with self._guard:
-            # Two threads may have derived the same snapshot; either is
-            # correct, and the one that loses simply gets garbage-collected.
-            if mark != self._mark or self._held is None:
+            # Two threads may have derived DIFFERENT states -- a commit can
+            # land between their fingerprint reads -- so installation is
+            # forward-only by the fold's count: the thread holding the older
+            # state stands down rather than replacing a newer one (review
+            # finding D10). A ROLLBACK legitimately folds less than what is
+            # installed, and is told apart from a stale racer by its
+            # fingerprint still being the manifest's current one.
+            if ((mark != self._mark or self._held is None)
+                    and (folded >= self._folded_installed
+                         or mark == self._run.manifest.fingerprint())):
                 stood_down = self._held
                 self._mark, self._held = mark, made
                 self._drawing, self._tiles = drawing, tiles
+                self._folded_installed = folded
+                self._frame_installed = framed
             else:
                 stood_down = made
         if stood_down is not None and stood_down is not self._held:
@@ -363,66 +391,80 @@ class GovernedRun:
             self._baked = held
         return self._baked
 
-    def stamp_the_bake(self, store: str | Path | None = None,
-                       events: int | None = None) -> None:
-        """Write down how much manifest the baked files have absorbed.
+    def stamp_the_bake(self, store: str | Path | None = None, *,
+                       events: int, tail: int, layout: int) -> None:
+        """Write down exactly which manifest prefix the baked files absorbed.
 
-        The stamp is the count of manifest events folded into the bake. A
-        session that reopens the picture compares it against the manifest:
-        events beyond the stamp name exactly the positions whose ground the
-        bake missed -- a crash between a commit and its patch included --
-        and their footprints are patched before anything is answered from
-        files. Honest recovery costs the missed changes, not the survey.
+        The stamp is an identity, never a bare count: the count of events
+        folded, the revision of the LAST of them, and the layout revision
+        the geometry was true under. A reopening session verifies the
+        prefix -- the event at that count must carry that tail revision --
+        so a history that was rolled back or rewritten under the bake reads
+        as coverage unknown and everything is repatched, where a bare count
+        read AHEAD of a shrunken history and left withdrawn ground served
+        (review finding D1). Every caller states what it actually absorbed;
+        a default that read the manifest at stamp time claimed commits the
+        bake had never seen (finding D2). Written by sidecar and replace,
+        because a torn stamp manufactures a full re-bake (finding D9).
         """
         where = Path(store).resolve() if store is not None else self._shown
-        absorbed = (len(self._run.manifest.events())
-                    if events is None else events)
-        (where / "baked.json").write_text(
-            json.dumps({"events": absorbed}), encoding="utf-8")
+        stamp = where / "baked.json"
+        arriving = stamp.with_name("baked.json.stamping")
+        arriving.write_text(
+            json.dumps({"events": events, "tail": tail, "layout": layout}),
+            encoding="utf-8")
+        os.replace(arriving, stamp)
 
-    def _the_stamped_events(self) -> int:
-        """How many manifest events the stamp says the bake has absorbed.
+    def _the_stamp(self) -> dict | None:
+        """The stamp's identity, or ``None`` when nothing can be trusted.
 
-        ``-1`` for a missing or unreadable stamp: a bake whose coverage
-        cannot be known must not answer anyone, so everything is dirty.
+        Missing, unreadable, or missing a field -- including a stamp from
+        before the identity had its tail and layout -- all mean the same
+        thing: the bake's coverage cannot be known, so everything is dirty.
         """
         stamp = self._shown / "baked.json"
         if not stamp.is_file():
-            return -1
+            return None
         try:
-            return int(json.loads(stamp.read_text(encoding="utf-8"))["events"])
-        except (ValueError, KeyError):
-            return -1
+            held = json.loads(stamp.read_text(encoding="utf-8"))
+            return {"events": int(held["events"]), "tail": int(held["tail"]),
+                    "layout": int(held["layout"])}
+        except (ValueError, KeyError, TypeError):
+            return None
 
     def _keep_the_bake_true(self, made: Composer,
                             dirtied: dict[int, set[tuple[int, int]]] | None,
-                            folded: int) -> None:
+                            current: dict) -> None:
         """Patch the baked files the manifest's movement reached, then stamp.
 
         Runs inside the derive, BEFORE the fresh snapshot is handed to
         anyone: once a reader can know about the new state, the files are
         already true for it, so the file door can never serve a withdrawn
-        or superseded piece. ``dirtied`` is the derive's own footprint; on
-        the first derive of a session it is unknown, and the stamp says
-        which events the bake has not absorbed -- their positions' current
-        footprints are the catch-up. A missing stamp means nothing can be
-        trusted, and every baked piece is repatched, logged as such.
+        or superseded piece. ``current`` is the identity this snapshot
+        folded -- event count, tail revision, layout revision. ``dirtied``
+        is the derive's own footprint, trusted only while the files hold
+        the state the previous snapshot stamped; a stamp that says anything
+        else -- another state, a rolled-back history, coverage unknown --
+        dirties everything, because footprints of ground the current
+        records cannot name (finding D1) can only be covered by covering
+        all of it.
 
         Patched once per manifest STATE, never once per racing thread: the
         engine fires many requests at a fresh commit, every one of them may
         derive the same snapshot (either is correct, one wins), and each
         patching again serialized twelve seconds of redundant work behind
         the guard and starved serving -- measured in the first baked churn.
-        The stamp is the idempotence: a patch is skipped when the files
-        have already absorbed at least the events this snapshot folded, so
-        the bake also never regresses to an older racer's state.
+        The stamp equality is the idempotence.
         """
         with self._bake_guard:
-            if self._the_stamped_events() >= folded:
+            stamped = self._the_stamp()
+            if stamped == current:
+                self._stamp_installed = current
                 return
-            if dirtied is None:
-                dirtied = self._the_ground_the_bake_missed(made)
+            if dirtied is None or stamped != self._stamp_installed:
+                dirtied = self._the_ground_the_bake_missed(made, current)
                 if dirtied is None:
+                    self._stamp_installed = current
                     return
             baked = self._the_baked_levels()
             for level in sorted(one for one in baked
@@ -440,27 +482,42 @@ class GovernedRun:
                            for row, column in reached}
                 if reached:
                     self._rehalve_one_level(level, sorted(reached))
-            self.stamp_the_bake(events=folded)
+            self.stamp_the_bake(events=current["events"],
+                                tail=current["tail"],
+                                layout=current["layout"])
+            self._stamp_installed = current
 
-    def _the_ground_the_bake_missed(self,
-                                    made: Composer,
+    def _the_ground_the_bake_missed(self, made: Composer, current: dict,
                                     ) -> dict[int, set[tuple[int,
                                                              int]]] | None:
-        """The footprints of every event the stamp says the bake never saw.
+        """The footprints of every event the stamp cannot prove it absorbed.
 
-        ``None`` when the bake is current. A missing or unreadable stamp
-        dirties everything, because a bake whose coverage cannot be known
-        must not answer anyone.
+        ``None`` when the bake is provably current. The stamp's claim is a
+        PREFIX -- so many events, ending at such a revision, under such a
+        layout -- and it is believed only when the history still carries
+        exactly that prefix and the layout has not moved. Anything else --
+        no stamp, a shorter history, a different tail, another layout --
+        dirties everything, because ground that older records covered
+        cannot be named from the current ones. This reads the events file
+        (the one deliberate second reader, bounded to the first derive of
+        a session and to recoveries); a torn read here refuses the derive,
+        which is the fail-closed direction.
         """
         events = self._run.manifest.events()
-        absorbed = self._the_stamped_events()
-        if absorbed >= len(events):
+        stamped = self._the_stamp()
+        everything = {level: {(row, column)
+                              for row in range(made.grid(level)[1])
+                              for column in range(made.grid(level)[2])}
+                      for level in range(made.mosaic.levels)}
+        if stamped is None or stamped["layout"] != current["layout"]:
+            return everything
+        absorbed = stamped["events"]
+        if absorbed > len(events) or absorbed < 0:
+            return everything
+        if absorbed and events[absorbed - 1].revision != stamped["tail"]:
+            return everything
+        if absorbed == len(events):
             return None
-        if absorbed < 0:
-            return {level: {(row, column)
-                            for row in range(made.grid(level)[1])
-                            for column in range(made.grid(level)[2])}
-                    for level in range(made.mosaic.levels)}
         missed = {event.position_id for event in events[absorbed:]}
         dirty: dict[int, set[tuple[int, int]]] = {}
         named = {tile.name.split(".")[0]: tile
