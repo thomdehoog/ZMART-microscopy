@@ -175,6 +175,12 @@ def main() -> int:
                               "so cold opens read files and every commit "
                               "patches its footprint — the mode the unbaked "
                               "columns are compared against")
+    parsing.add_argument("--as-declared", action="store_true",
+                         help="serve the picture exactly as it stands, "
+                              "skipping the declare — for repeat runs and "
+                              "demonstrations, where re-baking a big survey "
+                              "costs minutes to restate what is already "
+                              "there")
     parsing.add_argument("--headed", action="store_true",
                          help="open a visible window")
     asked = parsing.parse_args()
@@ -205,14 +211,18 @@ def main() -> int:
         print(f"  published in {time.time() - began:.0f} s")
 
     shown = FIXTURES / f"gov{across}x{across}" / "shown"
-    if asked.bake:
-        print("Declaring with the per-commit bake (initial bake is "
-              "O(survey), once)...")
-    began_declaring = time.time()
-    store = declare_a_governed_picture(shown, run.folder, name="live",
-                                       bake=asked.bake)
-    print(f"declared {'baked' if asked.bake else 'unbaked'} in "
-          f"{time.time() - began_declaring:.1f} s")
+    if asked.as_declared:
+        store = shown / "live.ome.zarr"
+        print(f"serving {store} as it stands (--as-declared)")
+    else:
+        if asked.bake:
+            print("Declaring with the per-commit bake (initial bake is "
+                  "O(survey), once)...")
+        began_declaring = time.time()
+        store = declare_a_governed_picture(shown, run.folder, name="live",
+                                           bake=asked.bake)
+        print(f"declared {'baked' if asked.bake else 'unbaked'} in "
+              f"{time.time() - began_declaring:.1f} s")
 
     started, browser = watching.a_browser(asked.headed)
     watching.say_what_is_drawing(browser)
@@ -356,7 +366,32 @@ def main() -> int:
                 announce(position_id)
             burst_took = time.time() - first
             burst_first_commit = first
-            page.wait_for_timeout(4000)
+            # Wait for the SCREEN to change, not for a fixed pause: at the
+            # top rung the patch of a burst's coarse regions takes ~5 s, and
+            # a four-second wait photographed the picture right before the
+            # tiles painted -- "0 px, DID NOT change" on a burst that had
+            # landed perfectly. The waiting watches the screencast frames
+            # already streaming, never page.screenshot in a loop: looped
+            # screenshots FLASH a headed window -- the 2026-08-12 rule,
+            # re-learned here as five phantom transients on a clean burst.
+            from PIL import Image as _Image
+            settled_before = np.asarray(
+                _Image.open(FIXTURES / f"gov{across}x{across}"
+                            / "burst_before.png").convert("L"),
+                dtype=np.int16)
+            absorbing = time.time()
+            while time.time() - absorbing < 60:
+                page.wait_for_timeout(1000)
+                later = [body for when, body in frames if when > first]
+                if not later:
+                    continue
+                shot = np.asarray(_Image.open(io.BytesIO(later[-1]))
+                                  .convert("L"), dtype=np.int16)
+                if (shot.shape == settled_before.shape
+                        and int((np.abs(shot - settled_before) > 20).sum())
+                        >= 50):
+                    page.wait_for_timeout(1500)
+                    break
             page.screenshot(path=str(FIXTURES / f"gov{across}x{across}"
                                      / "burst_after.png"))
             session.send("Page.stopScreencast")
