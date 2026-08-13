@@ -450,6 +450,14 @@ class Remembering:
     answered_from_memory: int
     bundles_held: int
     places_held: int
+    # The same accounting for whole-array DESCRIPTIONS: a zarr.json is read
+    # once per store and remembered against its file's identity. Publishing
+    # one position at 12,769 committed used to re-read every position's
+    # description -- 152,300 opens, thirty-three of a replacement's
+    # forty-eight seconds -- to relearn what had not changed.
+    descriptions_read_from_disk: int = 0
+    descriptions_answered_from_memory: int = 0
+    descriptions_held: int = 0
 
 
 @dataclass(frozen=True)
@@ -489,6 +497,16 @@ _PLACES_HELD = 0
 _READ_FROM_DISK = 0
 _ANSWERED_FROM_MEMORY = 0
 
+#: Whole-array descriptions already read, by the array's path, each held with
+#: the identity of the zarr.json it came from -- device, inode, size and both
+#: timestamps, the shard tables' own rule -- so a description rewritten by the
+#: writer is always read afresh. A description is a kilobyte or two, so even a
+#: hundred-thousand-position survey fits comfortably under the limit.
+DESCRIPTIONS_REMEMBERED_AT_MOST = 200_000
+_DESCRIPTIONS: OrderedDict[str, tuple[tuple, "StoredArray"]] = OrderedDict()
+_DESCRIPTIONS_READ = 0
+_DESCRIPTIONS_FROM_MEMORY = 0
+
 #: The viewer's own server answers several requests at the same time, on separate
 #: threads, and they all share the memory above. Only the few lines that look
 #: things up or put them away are held under this; the reading and checking of a
@@ -512,6 +530,9 @@ def how_the_remembering_is_going() -> Remembering:
         answered_from_memory=_ANSWERED_FROM_MEMORY,
         bundles_held=len(_REMEMBERED),
         places_held=_PLACES_HELD,
+        descriptions_read_from_disk=_DESCRIPTIONS_READ,
+        descriptions_answered_from_memory=_DESCRIPTIONS_FROM_MEMORY,
+        descriptions_held=len(_DESCRIPTIONS),
     )
 
 
@@ -524,11 +545,15 @@ def forget_every_remembered_index() -> None:
     measure the cost of reading a table cold.
     """
     global _PLACES_HELD, _READ_FROM_DISK, _ANSWERED_FROM_MEMORY
+    global _DESCRIPTIONS_READ, _DESCRIPTIONS_FROM_MEMORY
     with _ONE_AT_A_TIME:
         _REMEMBERED.clear()
         _PLACES_HELD = 0
         _READ_FROM_DISK = 0
         _ANSWERED_FROM_MEMORY = 0
+        _DESCRIPTIONS.clear()
+        _DESCRIPTIONS_READ = 0
+        _DESCRIPTIONS_FROM_MEMORY = 0
 
 
 def _which_file_this_was(path: Path, settings: tuple) -> _WhichFileThisWas | None:
@@ -1165,8 +1190,40 @@ def how_the_array_is_stored(array_path: str | Path) -> StoredArray:
         The same things that can go wrong in :func:`describe_the_bundling`: the
         path may hold no array description, or one written in a format whose
         chunks cannot be resolved to byte ranges.
+
+    The answer is remembered against the identity of the ``zarr.json`` it came
+    from -- device, inode, size and both timestamps, the shard tables' own rule
+    -- so asking about the same unchanged array again costs a ``stat``, and a
+    description the writer rewrote is always read afresh. Two threads racing a
+    new array both read it, exactly as they do a new shard table, which wastes
+    a little work and is entirely safe.
     """
-    return StoredArray(*_read_the_array_description(array_path))
+    global _DESCRIPTIONS_READ, _DESCRIPTIONS_FROM_MEMORY
+    path = Path(array_path)
+    mark = None
+    try:
+        stamp = (path / "zarr.json").stat()
+        mark = (stamp.st_dev, getattr(stamp, "st_ino", 0), stamp.st_size,
+                stamp.st_mtime_ns, stamp.st_ctime_ns)
+    except OSError:
+        pass  # unreadable is _read_the_array_description's error to explain
+    key = str(path)
+    if mark is not None:
+        with _ONE_AT_A_TIME:
+            held = _DESCRIPTIONS.get(key)
+            if held is not None and held[0] == mark:
+                _DESCRIPTIONS.move_to_end(key)
+                _DESCRIPTIONS_FROM_MEMORY += 1
+                return held[1]
+    made = StoredArray(*_read_the_array_description(path))
+    if mark is not None:
+        with _ONE_AT_A_TIME:
+            _DESCRIPTIONS_READ += 1
+            _DESCRIPTIONS[key] = (mark, made)
+            _DESCRIPTIONS.move_to_end(key)
+            while len(_DESCRIPTIONS) > DESCRIPTIONS_REMEMBERED_AT_MOST:
+                _DESCRIPTIONS.popitem(last=False)
+    return made
 
 
 def where_one_chunk_lives(array_path: str | Path, chunk_coordinate: Sequence[int]) -> Held | None:

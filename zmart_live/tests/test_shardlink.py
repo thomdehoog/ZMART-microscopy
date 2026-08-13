@@ -1102,6 +1102,59 @@ class TestTheMemoryHasALimit:
             for which in range(3)
         ]
 
+    def test_one_description_is_read_once_however_often_it_is_asked(
+            self, tmp_path):
+        """Asking about the same array twice reads its zarr.json once.
+
+        The number this pins was measured, not imagined: publishing one
+        position at 12,769 committed re-read every position's description —
+        152,300 zarr.json opens, thirty-three of the forty-eight seconds a
+        single replacement cost. The description is written once with the
+        store and rewritten only by the writer's own describe step, so it
+        earns the same remembering the shard tables already have.
+        """
+        image, _ = an_image(
+            tmp_path / "one.zarr", (256, 256), (128, 128), (256, 256),
+            compressed=False)
+        first = how_the_array_is_stored(image)
+        second = how_the_array_is_stored(image)
+        assert second.description == first.description
+        going = how_the_remembering_is_going()
+        assert going.descriptions_read_from_disk == 1, (
+            "the second ask re-read a description that cannot have changed"
+        )
+        assert going.descriptions_answered_from_memory == 1
+
+    def test_a_description_written_again_is_never_answered_from_memory(
+            self, tmp_path):
+        """The remembering must not outlive the file — the shard tables' rule.
+
+        The writer rewrites a store's description whenever it writes the
+        position again; an answer from memory after that would describe the
+        store as it used to be, and every number downstream — chunk shapes,
+        bundle layout — would be quietly wrong about real bytes.
+        """
+        import os
+        import time
+
+        image, _ = an_image(
+            tmp_path / "rewritten.zarr", (256, 256), (128, 128), (256, 256),
+            compressed=False)
+        how_the_array_is_stored(image)
+
+        described = Path(image) / "zarr.json"
+        held = json.loads(described.read_text(encoding="utf-8"))
+        held["attributes"] = {"rewritten": "yes"}
+        described.write_text(json.dumps(held), encoding="utf-8")
+        later = time.time_ns() + 2_000_000_000
+        os.utime(described, ns=(later, later))
+
+        second = how_the_array_is_stored(image)
+        assert second.description.get("attributes") == {"rewritten": "yes"}, (
+            "the rewritten description was answered from memory"
+        )
+        assert how_the_remembering_is_going().descriptions_read_from_disk == 2
+
     def test_only_so_many_bundles_are_kept(self, tmp_path, monkeypatch):
         monkeypatch.setattr(shardlink, "BUNDLES_REMEMBERED_AT_MOST", 2)
         monkeypatch.setattr(shardlink, "PLACES_REMEMBERED_AT_MOST", 10**9)

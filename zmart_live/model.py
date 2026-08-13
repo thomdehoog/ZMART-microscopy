@@ -1241,15 +1241,15 @@ class SceneLayoutRevision:
         check_the_name_is_safe(self.run_id, what="run")
         check_the_name_is_safe(self.acquisition_type, what="acquisition type")
         check_the_name_is_safe(self.profile_id, what="acquisition profile")
-        seen: set[str] = set()
+        placed: dict[str, PositionPlacement] = {}
         seen_layout_names: dict[str, str] = {}
         for placement in self.positions:
-            if placement.position_id in seen:
+            if placement.position_id in placed:
                 raise ZmartLiveError(
                     f"Position '{placement.position_id}' appears twice in layout "
                     f"revision {self.revision}. Each tile is described exactly once."
                 )
-            seen.add(placement.position_id)
+            placed[placement.position_id] = placement
             layout_disk_name = placement.position_id.casefold()
             if layout_disk_name in seen_layout_names:
                 raise ZmartLiveError(
@@ -1259,12 +1259,17 @@ class SceneLayoutRevision:
                     "a Windows microscope computer."
                 )
             seen_layout_names[layout_disk_name] = placement.position_id
+        # The by-name index the uniqueness sweep above has already built.
+        # Asking by name is how every publication finds its placement, and a
+        # linear scan cost six of a replacement's forty-eight seconds at
+        # 12,769 positions -- fifty thousand scans of the whole layout.
+        object.__setattr__(self, "_placed", placed)
 
     def placement(self, position_id: str) -> PositionPlacement:
         """The record for one tile, by its name."""
-        for candidate in self.positions:
-            if candidate.position_id == position_id:
-                return candidate
+        found = self._placed.get(position_id)
+        if found is not None:
+            return found
         raise ZmartLiveError(
             f"Layout revision {self.revision} does not describe a position called "
             f"'{position_id}'. It holds "
