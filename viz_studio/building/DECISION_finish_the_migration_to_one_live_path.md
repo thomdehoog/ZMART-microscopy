@@ -149,3 +149,24 @@ second; the derive's honest fix (reuse the unchanged tiles' objects) is
 already written down in the prove-it plan, and it is a server-side
 change that never holds up the microscope.
 
+## Landed: the derive sheds its survey sweeps (2026-08-13, evening)
+
+Three per-commit answers that the immutable layout had already fixed
+were being re-computed inside every derive: the frame's per-level
+extent (a sweep over every placement), the pinned-level choice (asked
+again per slab), and the piece index (rebuilt from every position at
+every level). All three now inherit — the extent and pinning are
+remembered per layout revision, and the piece index moves house between
+snapshots, rebuilt only inside the change's footprint, with a test
+holding it to the index a fresh composer builds from scratch.
+
+Profiled in isolation at 6,400 positions the warmed per-commit derive
+fell from ~470 ms to ~215 ms, and what remains is the change's own
+work: the coarse re-halve and the dirty pieces' rebuild. On the watched
+churn the derive column fell 239 → 179 ms and landing-to-visible
+328 → 282 ms at 6,400; the remaining slope (~18 ms per thousand
+positions, from ~30) is the O(survey) bookkeeping still inside a
+snapshot swap — the per-derive drawing and tile walks, each a few
+milliseconds of plain Python at this size. Worth knowing, not worth
+chasing ahead of numbers from the lab machine.
+
