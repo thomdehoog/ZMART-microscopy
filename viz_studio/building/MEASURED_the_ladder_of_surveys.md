@@ -47,8 +47,27 @@ column (a 10-second worst derive is a change landing on stone-cold
 coarse ground). The honest reading of the top rung is therefore "what a
 survey this size feels like when the warm has not finished", and even
 there: a tile is visible in three quarters of a second and the recorder
-counted zero transients. The parallel bake and warm measured next exist
-to make this row ordinary.
+counted zero transients.
+
+## Tried and reverted: thread-parallel bake and warm
+
+The obvious fix for the one-time costs — fan the bake's independent
+pieces and the warm's slabs over a few threads — was built, tested
+(byte-identical output), and measured, and it made things WORSE: at
+1,024 positions the bake went 16 s serial, 17 s through a one-thread
+pool, 20 s with two threads and 27 s with four. Every zarr read and
+every piece encode funnels through zarr's one internal event loop, so
+the threads had nothing real to parallelize and paid lock churn for
+trying; the warm, which only reads and steps aside constantly, was
+merely flat. Both were reverted the same evening — the O(change) derive
+bookkeeping from the same change survived, because it measured well.
+
+The route that would genuinely work is process-level: workers that each
+open the governed run themselves, so the full fail-closed gate rides
+along, splitting the bake by rows within each level. That touches the
+bake's stamp-consistency reasoning (a commit landing mid-bake must
+still be provably re-patched), so it is a careful slice of its own —
+best attempted on a machine with the cores to make it worth the care.
 
 ## What the ladder says so far
 

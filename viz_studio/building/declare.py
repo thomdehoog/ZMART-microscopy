@@ -23,10 +23,7 @@ from, so it can be opened again tomorrow without being told.
 from __future__ import annotations
 
 import json
-import os
 import shutil
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -247,45 +244,21 @@ def _bake_the_coarse_ground(store: Path, composer: Composer,
     pinned = sorted(composer.pinned_levels)
     datasets = described["attributes"]["ome"]["multiscales"][0]["datasets"]
 
-    def one_piece_kept(level: int, plane: int, row: int, column: int) -> None:
-        # The very bytes the composer would put on the wire, kept as the
-        # chunk file the engine would ask for -- so a baked answer and a
-        # built one cannot differ. Empty ground stays unwritten: absent
-        # means fill, here as everywhere.
-        body = composer.bytes_for(level, plane, row, column)
-        if body is None:
-            return
-        inside = store / str(level) / "c" / str(plane) / str(row)
-        inside.mkdir(parents=True, exist_ok=True)
-        (inside / str(column)).write_bytes(body)
-
-    # Every piece is its own compose-and-write, touching nobody else's file,
-    # and the composer already answers many requests at once for the server
-    # -- so the bake, the largest one-time cost a survey pays (measured at
-    # two and a half minutes for 8,281 positions built one piece at a time),
-    # is handed to a few threads. The pieces are submitted in reading order,
-    # so neighbouring pieces still find each other's decoded blocks in the
-    # cache; the halving chain below starts only after every piece is on
-    # disk, which the pool's closing guarantees.
-    building = ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1))
-    try:
-        waiting = deque()
-        for level in pinned:
-            deep, down, across = composer.grid(level)
-            for plane in range(deep):
-                for row in range(down):
-                    for column in range(across):
-                        waiting.append(building.submit(
-                            one_piece_kept, level, plane, row, column))
-                        # Consumed as they finish, so a piece that cannot be
-                        # built stops the bake instead of being discovered
-                        # after thousands more were written.
-                        while len(waiting) > 64:
-                            waiting.popleft().result()
-        while waiting:
-            waiting.popleft().result()
-    finally:
-        building.shutdown(wait=True, cancel_futures=True)
+    for level in pinned:
+        deep, down, across = composer.grid(level)
+        for plane in range(deep):
+            for row in range(down):
+                inside = store / str(level) / "c" / str(plane) / str(row)
+                for column in range(across):
+                    # The very bytes the composer would put on the wire, kept
+                    # as the chunk file the engine would ask for -- so a baked
+                    # answer and a built one cannot differ. Empty ground stays
+                    # unwritten: absent means fill, here as everywhere.
+                    body = composer.bytes_for(level, plane, row, column)
+                    if body is None:
+                        continue
+                    inside.mkdir(parents=True, exist_ok=True)
+                    (inside / str(column)).write_bytes(body)
 
     # The picture's own levels, chained upward from what was just baked.
     depth, height, width = composer.mosaic.shape(coarsest)
