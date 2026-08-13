@@ -127,6 +127,38 @@ class TestAPublishRoutesEachStateOnce:
         )
 
 
+class TestAnUnchangedLayoutIsRecordedOnce:
+    """The immutable arrangement is not re-recorded on every publish.
+
+    record_the_layout re-fingerprints the whole arrangement, re-reads the
+    newest snapshot and rewrites the pointer — ~2.2 s of every publish at
+    12,769 positions, spent re-stating a document that positions-never-move
+    makes immutable in practice and the coordinator's own frozen layout
+    object makes immutable in fact. The recorded object's identity is the
+    skip: only a genuinely new arrangement object reaches the recorder.
+    """
+
+    def test_two_publishes_record_the_layout_once(self, run, monkeypatch):
+        from zmart_live import coordinator
+
+        counted = {"recorded": 0}
+        the_real_recorder = coordinator.record_the_layout
+
+        def a_counted_recorder(folder, layout):
+            counted["recorded"] += 1
+            return the_real_recorder(folder, layout)
+
+        monkeypatch.setattr(coordinator, "record_the_layout",
+                            a_counted_recorder)
+        run.write_and_publish("posA", some_specimen(700))
+        run.write_and_publish("posB", some_specimen(1100))
+        assert counted["recorded"] == 1, (
+            f"two publishes recorded the unchanged arrangement "
+            f"{counted['recorded']} times — the immutable layout is being "
+            "re-stated per publish"
+        )
+
+
 class TestTheOrderedSequenceWorks:
     """The positive arm that every refusal below is measured against."""
 
