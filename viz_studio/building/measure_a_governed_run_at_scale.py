@@ -135,8 +135,12 @@ def the_run(across: int, seed_value: int = 7) -> tuple[LivePublisher, list[str]]
     width = len(str(across - 1))
     cells = {GridCell(row, column): f"p{row:0{width}d}{column:0{width}d}"
              for row in range(across) for column in range(across)}
+    # The run defers its linked view to the end of the run -- the one live
+    # path: mid-run the picture is served from the positions' own stores,
+    # and the plain-file view for outside tools is written once, when the
+    # run finishes. The churn's writer column measures exactly this writer.
     run = LivePublisher(folder / "run", profile, run_id=f"scale{across}",
-                        cells=cells, timepoints=1)
+                        cells=cells, timepoints=1, linked_view="at_run_end")
     order = [f"p{row:0{width}d}{column:0{width}d}"
              for row in range(across) for column in range(across)]
 
@@ -441,15 +445,10 @@ def main() -> int:
             for kind, position_id in plan:
                 wrote = time.perf_counter()
                 if kind == "land":
-                    # A NEW position needs the shared records extended before
-                    # its commit -- the link map and view must already cover
-                    # its ground or publish rightly refuses. This is the
-                    # writer's own landing sequence, so its cost belongs in
-                    # the writer column.
-                    units = frozenset(run._committed_units()) | {(position_id,
-                                                                  0)}
-                    run.write_the_link_map(units)
-                    run.write_the_view()
+                    # The whole landing sequence is one publish: the run
+                    # defers its linked view to the end of the run, so a new
+                    # position owes the shared records nothing mid-run beyond
+                    # the arrangement (recorded once, unchanged thereafter).
                     run.publish(position_id)
                 else:
                     brighter = seed.integers(*BRIGHT, (1, FRAME, FRAME)
@@ -487,6 +486,13 @@ def main() -> int:
                    and frames and time.time() - frames[-1][0] < 1.0):
                 page.wait_for_timeout(250)
             session.send("Page.stopScreencast")
+
+            # The deferred cost, paid once where nobody is waiting: the
+            # linked plain-file view for outside tools, written at run end.
+            finishing = time.perf_counter()
+            run.finish_the_run()
+            print(f"\nfinish_the_run (the linked view, written once): "
+                  f"{time.perf_counter() - finishing:.1f} s")
 
         print(f"\n{len(frames)} frames recorded. Looking for transients...")
         from PIL import Image

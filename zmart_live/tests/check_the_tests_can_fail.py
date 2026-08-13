@@ -305,7 +305,7 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     # Both virtual descriptions and the arrangement can be readable and wrong.
     (
         "accept view metadata that cannot decode its routes",
-        "                refuse_a_view_stored_differently(path, route)",
+        "                refuse_a_view_stored_differently(path, routed[level.level])",
         "                pass",
     ),
     (
@@ -326,7 +326,9 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "check two corner pointers instead of every piece served",
-        "ranges += self._follow_the_stored_pointers(position_id, moment, about_pointers)",
+        "ranges += self._follow_the_stored_pointers(\n"
+        "                position_id, moment, about_pointers\n"
+        "            )",
         "ranges += 0",
     ),
     (

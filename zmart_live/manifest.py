@@ -759,7 +759,10 @@ class RunManifest:
                 for name, done in (
                     ("the zoomed-out copies", event.pyramids_ready),
                     ("the overview's pointers", event.links_ready),
-                    ("the linked view's description", event.view_ready),
+                    # A run that writes its linked view once at the end owes
+                    # no view mid-run, so a deferred view is not a missing one.
+                    ("the linked view's description",
+                     event.view_ready or event.linked_view_deferred),
                     ("the final check over all of it", event.validated),
                 )
                 if not done
