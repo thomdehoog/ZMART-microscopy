@@ -513,6 +513,43 @@ def test_a_run_of_several_channels_is_refused_at_the_declare_door(tmp_path):
         declare_a_governed_picture(tmp_path / "shown", run.folder, name="live")
 
 
+# -- a commit reads its change, not the survey -----------------------------------
+
+
+def test_a_commit_reads_only_the_changed_positions_from_disk(tmp_path):
+    """Deriving a fresh snapshot must cost the change, not the survey.
+
+    Measured at ~900 committed positions before this held: every commit
+    re-read every tile's description — ~527 ms per landing, all of it in
+    the operator's landing-to-visible latency, and linear in the survey. A
+    tile is immutable per generation, so everything unchanged is reused
+    from the previous snapshot and only the changed stores are read.
+    """
+    run = a_governed_run(tmp_path, third=True)
+    run.write_and_publish("posA", some_specimen(700))
+    run.write_and_publish("posB", some_specimen(1100))
+
+    governed = GovernedRun(run.folder, piece=PIECE)
+    governed.composer()
+    assert governed.accounting["last_tiles_read"] == 2
+
+    run.write_and_publish("posC", some_specimen(1900))
+    composer = governed.composer()
+    assert governed.accounting["last_tiles_read"] == 1, (
+        "a landing re-read the whole survey instead of the one store that "
+        "changed"
+    )
+    a_only, _, _ = the_columns_of(run)
+    assert 700 in pixels_of(composer, 0, 0, 0, a_only), (
+        "the reused tiles must still serve their ground"
+    )
+
+    run.replace_a_position("posA", some_specimen(2200))
+    composer = governed.composer()
+    assert governed.accounting["last_tiles_read"] == 1
+    assert 2200 in pixels_of(composer, 0, 0, 0, a_only)
+
+
 # -- the commit boundary: serving must not hold the writer's files hostage -------
 
 

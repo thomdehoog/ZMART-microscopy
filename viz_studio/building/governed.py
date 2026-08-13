@@ -190,8 +190,15 @@ class GovernedRun:
         self._mark: tuple[int, int, int, int] | None = None
         self._held: Composer | None = None
         # Which generation of which position the held composer draws, so the
-        # next snapshot can say exactly what a change touched.
+        # next snapshot can say exactly what a change touched -- and the tile
+        # each was read into, so the next snapshot can reuse it. A tile is
+        # immutable per generation, which is what makes the reuse safe; it is
+        # also what makes it necessary, because reading every tile again per
+        # commit was measured at ~527 ms across ~900 positions, all of it
+        # inside the operator's landing-to-visible latency, and linear in
+        # the survey.
         self._drawing: dict[str, int] = {}
+        self._tiles: dict[str, Tile] = {}
         self._guard = threading.Lock()
         # What deriving snapshots has cost, for the scale harnesses: how many
         # times, how long the last one took, and how many tiles it read from
@@ -207,8 +214,9 @@ class GovernedRun:
             if mark == self._mark and self._held is not None:
                 return self._held
             previous, before = self._held, dict(self._drawing)
+            kept = dict(self._tiles)
         began = time.perf_counter()
-        made, drawing = self._compose_the_snapshot()
+        made, drawing, tiles = self._compose_the_snapshot(before, kept)
         if previous is not None:
             made.inherit_the_unchanged(
                 previous, self._what_changed_dirtied(previous, made,
@@ -220,11 +228,23 @@ class GovernedRun:
             # Two threads may have derived the same snapshot; either is
             # correct, and the one that loses simply gets garbage-collected.
             if mark != self._mark or self._held is None:
-                self._mark, self._held, self._drawing = mark, made, drawing
+                self._mark, self._held = mark, made
+                self._drawing, self._tiles = drawing, tiles
             return self._held
 
-    def _compose_the_snapshot(self) -> tuple[Composer, dict[str, int]]:
-        """Derive tiles, frame and composer from the manifest's current truth."""
+    def _compose_the_snapshot(self, before: dict[str, int],
+                              kept: dict[str, Tile],
+                              ) -> tuple[Composer, dict[str, int],
+                                         dict[str, Tile]]:
+        """Derive tiles, frame and composer from the manifest's current truth.
+
+        Only the CHANGED positions are read from disk: a tile is immutable
+        per generation, so a position whose generation the previous snapshot
+        already drew is carried over as the very object already in hand --
+        open arrays, presence promise and all. The cost of a commit is
+        thereby its change, not the survey; the whole-survey read happens
+        exactly once, on the first snapshot of a session.
+        """
         published = self._run._published_units()
         order = self._run._positions_in_commit_order()
         layout, profile = self._run._geometry()
@@ -237,8 +257,9 @@ class GovernedRun:
             position_id: current[position_id] for position_id in order
             if (position_id, 0, current[position_id]) in published
         }
-        stores = [self._the_store_of(one, generation)
-                  for one, generation in drawing.items()]
+        changed = [one for one, generation in drawing.items()
+                   if before.get(one) != generation or one not in kept]
+        stores = [self._the_store_of(one, drawing[one]) for one in changed]
         self.accounting["last_tiles_read"] = len(stores)
         # Several at once for the same reason read_the_transfer does: opening
         # a tile is a handful of small file reads, so this waits on the disk.
@@ -246,11 +267,16 @@ class GovernedRun:
             with ThreadPoolExecutor(
                 max_workers=min(32, (len(stores) + 3) // 4)
             ) as pool:
-                tiles = list(pool.map(_a_committed_tile, stores))
+                fresh = dict(zip(changed, pool.map(_a_committed_tile, stores)))
         else:
-            tiles = []
-        return (Composer(TheWorldFrame(tiles, layout, profile),
-                         piece=self._piece), drawing)
+            fresh = {}
+        tiles = {
+            position_id: fresh.get(position_id) or kept[position_id]
+            for position_id in drawing
+        }
+        ordered = [tiles[position_id] for position_id in drawing]
+        return (Composer(TheWorldFrame(ordered, layout, profile),
+                         piece=self._piece), drawing, tiles)
 
     def _what_changed_dirtied(self, previous: Composer, fresh: Composer,
                               before: dict[str, int], now: dict[str, int],
