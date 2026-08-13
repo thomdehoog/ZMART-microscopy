@@ -129,18 +129,41 @@ class _LiveRun:
         self._routes: dict[int, ViewRoute] = {}
         self._commit_order: tuple[str, ...] = ()
         self._lock = threading.RLock()
+        # The fold's running state, kept between commits. The history is
+        # append-only, so interpreting it is a running fold rather than a
+        # question to re-ask from the top: folding every event again on every
+        # commit was measured at ninety milliseconds per commit across six
+        # thousand events -- inside every landing's latency, and growing with
+        # the run. Only the new events since the last look are folded; a
+        # history that came back SHORTER (a recovery truncated it) resets the
+        # fold and starts over, which is the one case where re-asking from
+        # the top is the honest answer.
+        self._folded = 0
+        self._published_mut: set[tuple[str, int, int]] = set()
+        self._arrived: list[str] = []
+        self._arrived_set: set[str] = set()
+        self._moments_by_position: dict[str, set[int]] = {}
+        self._replacements_seen: dict[str, int] = {}
 
     def _published_units(self) -> frozenset[tuple[str, int, int]]:
         mark = self.manifest.fingerprint()
         with self._lock:
             if mark != self._publication_mark:
-                published: set[tuple[str, int, int]] = set()
-                arrival_order: list[str] = []
-                moments_by_position: dict[str, set[int]] = {}
-                replacements_seen: dict[str, int] = {}
-                for event in self.manifest.events():
-                    if event.position_id not in arrival_order:
-                        arrival_order.append(event.position_id)
+                events = self.manifest.events()
+                if len(events) < self._folded:
+                    self._folded = 0
+                    self._published_mut = set()
+                    self._arrived = []
+                    self._arrived_set = set()
+                    self._moments_by_position = {}
+                    self._replacements_seen = {}
+                published = self._published_mut
+                moments_by_position = self._moments_by_position
+                replacements_seen = self._replacements_seen
+                for event in events[self._folded:]:
+                    if event.position_id not in self._arrived_set:
+                        self._arrived.append(event.position_id)
+                        self._arrived_set.add(event.position_id)
                     position_id = event.position_id
                     inferred = replacements_seen.get(position_id, 0)
                     if event.event_type == "position_replaced":
@@ -161,8 +184,9 @@ class _LiveRun:
                         )
                     already_visible.add(moment)
                     published.add((position_id, moment, generation))
+                self._folded = len(events)
                 self._published = frozenset(published)
-                self._commit_order = tuple(arrival_order)
+                self._commit_order = tuple(self._arrived)
                 self._publication_mark = mark
             return self._published
 
