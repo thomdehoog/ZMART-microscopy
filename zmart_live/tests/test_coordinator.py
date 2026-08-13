@@ -127,6 +127,35 @@ class TestAPublishRoutesEachStateOnce:
         )
 
 
+class TestTheLevelsHoldTheHalvingChain:
+    """Every stored level is exactly the halving chain of the pixels given.
+
+    Pinned with real values on varied pixels — not shapes, not non-crash —
+    because the level writes are handed to threads while the halving
+    continues, and the one way that can go wrong silently is a level
+    holding the wrong rung of the chain.
+    """
+
+    def test_every_level_is_the_halving_of_the_one_above(self, run):
+        import zarr as reading
+
+        from zmart_live.coordinator import _halve
+
+        seed = np.random.default_rng(17)
+        pixels = seed.integers(0, 60000, (1, FRAME, FRAME)).astype("uint16")
+        run.write_a_position("posA", pixels)
+        expected = pixels[np.newaxis]
+        for level in run.profile.levels:
+            stored = reading.open_array(
+                str(run.position_store("posA") / str(level.level)), mode="r")
+            held = np.asarray(stored[0])
+            assert np.array_equal(held, expected), (
+                f"level {level.level} does not hold its rung of the "
+                "halving chain"
+            )
+            expected = _halve(expected)
+
+
 class TestAnUnchangedLayoutIsRecordedOnce:
     """The immutable arrangement is not re-recorded on every publish.
 
