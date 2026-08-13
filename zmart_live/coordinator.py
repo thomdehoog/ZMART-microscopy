@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -472,9 +473,23 @@ class LivePublisher:
             )
         store = self.position_store(position_id)
         shrinking = self._one_moment_of_every_colour(pixels)
-        for level in self.profile.levels:
-            self._write_one_level(store, level, shrinking, timepoint)
-            shrinking = _halve(shrinking)
+        # Each level's write is handed to a thread the moment its pixels
+        # exist, while the halving chain continues on this one: the writes
+        # are independent arrays whose cost is compression and file I/O,
+        # which release the interpreter's lock, and writing them one after
+        # another serialized most of a publish's pixel time behind waits
+        # the disk could have overlapped. The chain itself stays ordered --
+        # each level's pixels are halved from the previous BEFORE the next
+        # submit -- so what any thread writes is exactly what the serial
+        # writer wrote, pinned level by level against the halving chain.
+        with ThreadPoolExecutor(max_workers=len(self.profile.levels)) as pool:
+            writes = []
+            for level in self.profile.levels:
+                writes.append(pool.submit(self._write_one_level, store,
+                                          level, shrinking, timepoint))
+                shrinking = _halve(shrinking)
+            for write in writes:
+                write.result()
 
         placement = self.layout.placement(position_id)
         describe_the_position(
