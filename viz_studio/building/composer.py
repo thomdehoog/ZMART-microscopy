@@ -49,10 +49,9 @@ from __future__ import annotations
 
 import json
 import threading
-import os
 import time
-from collections import OrderedDict, deque
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from collections import OrderedDict
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 import zarr
@@ -662,38 +661,19 @@ class Composer:
         operator wait. Both properties are what the live role needs of it: a
         snapshot swap stops the old composer's warmer and starts the new one's,
         and the fresh pass re-uses everything still valid.
-
-        A few slabs are built at a time rather than one: their reads and
-        decodes overlap in the operating system, which at survey scale is
-        the difference between minutes of cold coarse ground and tens of
-        seconds -- and a warm that finishes sooner is what keeps a change
-        from landing on a still-cold region and paying its compose on
-        camera. The step-aside rule survives: no new slab is handed out
-        while a request is being answered, and a stop lets the few builds
-        in flight finish while everything queued behind them is dropped.
         """
-        warming = ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 1))
-        waiting: deque = deque()
-        try:
-            for level in sorted(self.pinned_levels, reverse=True):
-                depth = self.slab_depth(level)
-                deep, down, across = self.grid(level)
-                planes = self.mosaic.shape(level)[0]
-                for low_z in range(0, planes, depth):
-                    for row in range(down):
-                        for column in range(across):
-                            if stop is not None and stop.is_set():
-                                return
-                            while self._answering:
-                                time.sleep(0.005)
-                            while len(waiting) >= 8:
-                                waiting.popleft().result()
-                            waiting.append(warming.submit(
-                                self._slab_for, level, low_z, row, column))
-            while waiting:
-                waiting.popleft().result()
-        finally:
-            warming.shutdown(wait=True, cancel_futures=True)
+        for level in sorted(self.pinned_levels, reverse=True):
+            depth = self.slab_depth(level)
+            deep, down, across = self.grid(level)
+            planes = self.mosaic.shape(level)[0]
+            for low_z in range(0, planes, depth):
+                for row in range(down):
+                    for column in range(across):
+                        if stop is not None and stop.is_set():
+                            return
+                        while self._answering:
+                            time.sleep(0.005)
+                        self._slab_for(level, low_z, row, column)
 
     @property
     def working_alone(self) -> bool:
