@@ -127,14 +127,25 @@ day on the same fixtures:
 | 196       | 412 → 218 ms             | 142 ms   | 240 ms       | 45 ms  | 105 ms          | 0.1 s          | 0          |
 | 400       | 474 → 245 ms             | 161 ms   | 261 ms       | 58 ms  | 122 ms          | 0.2 s          | 0          |
 | 784       | 747 → 230 ms             | 158 ms   | 255 ms       | 83 ms  | 149 ms          | 0.5 s          | 0          |
+| 1600      | — → 247 ms               | 154 ms   | 261 ms       | 96 ms  | 170 ms          | 1.3 s          | 0          |
+| 3249      | — → 253 ms               | 167 ms   | 256 ms       | 159 ms | 240 ms          | 3.0 s          | 0          |
+| 6400      | — → 264 ms               | 179 ms   | 290 ms       | 239 ms | 328 ms          | 6.7 s          | 0          |
 
 The baseline's writer grew with the survey — ~0.55 ms per already-
 committed position, which extrapolates to the 6.9–7.7 s publishes
 measured at 12,769. The writer is now **flat with scale**: a landing is
-~150–170 ms and a replacement ~240–260 ms whether the survey holds one
-hundred positions or nearly eight hundred, because nothing on the
-publish path walks the survey any more. What an operator waits for —
-landing to visible — stays around a tenth of a second, and the linked
-view for outside tools costs half a second once, at run end, at the
-largest size measured here.
+~150–180 ms and a replacement ~240–290 ms whether the survey holds one
+hundred positions or six thousand four hundred, because nothing on the
+publish path walks the survey any more. The linked view for outside
+tools costs seconds once, at run end (6.7 s at 6,400), instead of that
+much bookkeeping spread through every landing.
+
+What still grows, and is now the whole of what grows, is the SERVER's
+per-commit snapshot derive — the known linear term the harness's derive
+column exists to measure (96 → 159 → 239 ms from 1,600 to 6,400) — and
+with it the landing-to-visible latency (170 → 240 → 328 ms). At 6,400
+positions an operator still sees a new tile in about a third of a
+second; the derive's honest fix (reuse the unchanged tiles' objects) is
+already written down in the prove-it plan, and it is a server-side
+change that never holds up the microscope.
 
