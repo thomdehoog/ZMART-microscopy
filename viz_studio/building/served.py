@@ -217,6 +217,20 @@ def _the_serving_behind(store: Path, ours: dict | None
     return made
 
 
+def a_manifest_governs(store: Path) -> bool:
+    """Whether this picture's pieces may only be answered through its run.
+
+    Asked by the backend before it serves a piece file that exists on disk:
+    a transfer's baked file is frozen truth and the fast door is right, but
+    a governed picture's baked file is only true as of the last patch, and
+    handing it over without consulting the run is how a withdrawn
+    generation outlives its withdrawal. Costs one opening of the picture
+    the first time and a dictionary look afterwards.
+    """
+    held = _composer_for(Path(store))
+    return GovernedRun is not None and isinstance(held, GovernedRun)
+
+
 def the_bytes_behind(store: Path, inside: str) -> bytes | None:
     """The piece of a built picture the browser asked for, made now.
 

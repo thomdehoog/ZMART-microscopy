@@ -182,6 +182,72 @@ def test_the_writer_can_replace_a_baked_piece_while_it_is_served(tmp_path):
         served.forget(store)
 
 
+def test_the_http_route_consults_the_manifest_before_any_baked_file(tmp_path):
+    """The backend's own file door must not outrun the gate either.
+
+    served.py's ordering was fixed first, and the scale harness then showed
+    the same hole one layer up: the backend serves any file that exists
+    without asking anyone, so a baked governed piece answered statically —
+    no derive, no patch, and a replacement never reached the screen
+    (visible: nan on every churn row, held composers 0). A piece-shaped
+    address inside a governed picture goes through the building door, file
+    or no file.
+    """
+    import threading
+    import urllib.request
+
+    backend = str(Path(__file__).resolve().parent.parent / "backend")
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
+    import numpy as np
+
+    from check import decode
+    from server import make_server
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    server = make_server(port=0, data_dir=tmp_path / "shown",
+                         store=[store.name])
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        addresses = ["/".join(Path(one).parts).replace("/c/", "/c/", 1)
+                     for one in every_baked_file(store)]
+        assert addresses, "the hole only exists where baked files do"
+
+        def over_http(inside: str) -> bytes:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/data/0/{store.name}/{inside}",
+                    timeout=30) as answer:
+                return answer.read()
+
+        showing = {
+            inside: decode(over_http(inside), PIECE, "uint16",
+                           ("z", "y", "x"))
+            for inside in addresses
+        }
+        marked = [inside for inside, piece in showing.items()
+                  if 700 in piece]
+        assert marked, "some baked piece must show the published ground"
+
+        run.replace_a_position("posA", some_specimen(2200))
+        for inside in marked:
+            seen = set(np.unique(decode(over_http(inside), PIECE, "uint16",
+                                        ("z", "y", "x"))))
+            assert 2200 in seen and 700 not in seen, (
+                f"piece {inside}: the backend served the baked file from "
+                "before the replacement — its file door ran ahead of the "
+                "manifest"
+            )
+    finally:
+        served.forget(store)
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def test_an_empty_run_bakes_nothing_because_absence_means_fill(tmp_path):
     """A young run's bake costs nothing: fill is expressed by absent files."""
     run = a_governed_run(tmp_path)

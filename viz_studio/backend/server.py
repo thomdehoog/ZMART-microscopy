@@ -409,7 +409,39 @@ class _Handler(SimpleHTTPRequestHandler):
             # which, on a sparse acquisition, is most of them.
             self._send_empty(HTTPStatus.NOT_FOUND)
             return
+        # A file that exists is not permission to serve it when a MANIFEST
+        # governs the picture it belongs to: a baked piece is only true as of
+        # its last patch, and handing it over without consulting the run is
+        # how ground a commit withdrew keeps being shown. The building door
+        # consults the manifest -- which patches the baked files -- and then
+        # answers, usually from this very file. Every other file, transfers'
+        # baked ground included, keeps the fast door it always had.
+        if self._a_piece_of_a_governed_picture(rel):
+            made = self._built(rel)
+            if made is not None:
+                self._send_bytes(made)
+            else:
+                self._send_empty(HTTPStatus.NOT_FOUND)
+            return
         self._send_file(target)
+
+    def _a_piece_of_a_governed_picture(self, rel: str) -> bool:
+        """Whether this address is a chunk of a manifest-governed picture.
+
+        Only piece-shaped addresses are anybody's to govern — a store's
+        descriptions stay ordinary files however the pixels are ruled.
+        """
+        if building is None:
+            return False
+        number, _, rest = rel.partition("/")
+        image, _, inside = rest.partition("/")
+        parts = inside.strip("/").split("/")
+        if len(parts) != 5 or parts[1] != "c":
+            return False
+        if not all(one.isdecimal() for one in (parts[0], *parts[2:])):
+            return False
+        store = self._library.resolve(f"{number}/{image}")
+        return store is not None and building.a_manifest_governs(store)
 
     def _pointed_at(self, rel: str) -> tuple[Path, int, int | None] | None:
         """The file that really holds this piece, when the picture was never written.
