@@ -43,6 +43,7 @@ the copies carry that difference as a fixed outer index — see
 from __future__ import annotations
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -192,6 +193,12 @@ class GovernedRun:
         # next snapshot can say exactly what a change touched.
         self._drawing: dict[str, int] = {}
         self._guard = threading.Lock()
+        # What deriving snapshots has cost, for the scale harnesses: how many
+        # times, how long the last one took, and how many tiles it read from
+        # disk. Read in-process by whoever started the server; never consulted
+        # by the serving path itself.
+        self.accounting = {"derives": 0, "last_derive_ms": 0.0,
+                           "last_tiles_read": 0, "last_positions": 0}
 
     def composer(self) -> Composer:
         """The composer for the manifest's state as of now."""
@@ -200,11 +207,15 @@ class GovernedRun:
             if mark == self._mark and self._held is not None:
                 return self._held
             previous, before = self._held, dict(self._drawing)
+        began = time.perf_counter()
         made, drawing = self._compose_the_snapshot()
         if previous is not None:
             made.inherit_the_unchanged(
                 previous, self._what_changed_dirtied(previous, made,
                                                      before, drawing))
+        self.accounting["derives"] += 1
+        self.accounting["last_derive_ms"] = (time.perf_counter() - began) * 1000
+        self.accounting["last_positions"] = len(drawing)
         with self._guard:
             # Two threads may have derived the same snapshot; either is
             # correct, and the one that loses simply gets garbage-collected.
@@ -228,6 +239,7 @@ class GovernedRun:
         }
         stores = [self._the_store_of(one, generation)
                   for one, generation in drawing.items()]
+        self.accounting["last_tiles_read"] = len(stores)
         # Several at once for the same reason read_the_transfer does: opening
         # a tile is a handful of small file reads, so this waits on the disk.
         if stores:
