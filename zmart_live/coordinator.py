@@ -291,6 +291,11 @@ class LivePublisher:
         # passes profiled at 12,769 positions. See _the_stored_routes.
         self._stored_routes: tuple[tuple, dict, dict[int, object]] | None = \
             None
+        # The layout object as last recorded and the pointer file's identity
+        # after that write, so an unchanged arrangement is never re-recorded
+        # while a tampered pointer is still repaired -- see write_the_layout.
+        self._layout_recorded: SceneLayoutRevision | None = None
+        self._layout_mark: tuple | None = None
 
     def _check_existing_position_shapes_match_the_plan(self) -> None:
         """Refuse to reinterpret arrays left by an earlier writer process.
@@ -668,8 +673,25 @@ class LivePublisher:
         The convenience ``layout.json`` pointer is updated atomically, while the
         numbered snapshot it names is write-once.  Repeating an unchanged layout
         reuses its revision; a genuine spatial change receives a new one.
+
+        The arrangement already recorded is not recorded again: the layout is
+        a frozen object replaced only by the recorder's own return, so object
+        identity says exactly whether anything can have changed in memory —
+        and re-recording anyway meant re-fingerprinting, re-reading and
+        rewriting a 12,769-placement document on every publish, ~2.2 s spent
+        re-stating the immutable. The pointer FILE is watched too, at the
+        cost of one stat: this call is also how a tampered or replaced
+        pointer is repaired, and a skip blind to the disk would leave
+        somebody else's arrangement lying where this run's should be.
         """
+        pointer = self.folder / "zmart-live" / _LAYOUT
+        mark = _the_files_identity(pointer)
+        if (self.layout is self._layout_recorded and mark is not None
+                and mark == self._layout_mark):
+            return
         self.layout = record_the_layout(self.folder, self.layout)
+        self._layout_recorded = self.layout
+        self._layout_mark = _the_files_identity(pointer)
 
     # -- the pointers the overview is served from ----------------------------
 
