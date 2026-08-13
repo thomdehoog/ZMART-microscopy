@@ -48,8 +48,8 @@ def test_regressing_foreign_damaged_and_revision_url_state_is_rejected():
         """
         (() => {
           const source = {
-            source_id: "overview:seamless", role: "seamless",
-            url: "views/overview-seamless.ome.zarr", revision: 4,
+            source_id: "linked/overview", role: "linked",
+            url: "views/overview.ome.zarr", revision: 4,
             layout_revision: 1,
             committed_time_ranges: [{start: 0, stop: 2}],
           };
@@ -119,9 +119,17 @@ def test_cache_selection_is_exact_and_separates_metadata_from_decoded_absence():
 
 
 def test_manifest_refresh_invalidates_only_matching_decoded_holders():
+    """The forgetting is scoped to one store's memoized entries, never a sweep.
+
+    The window is the function's own body, ending at its closing brace at
+    column zero. Neighbours are deliberately outside it: the surgical
+    per-chunk refresh below this function reaches the engine's shared holder
+    map legitimately, and this contract is about `forgetOneStableSource`
+    alone not doing that.
+    """
     source = ENGINE.read_text(encoding="utf-8")
     start = source.index("function forgetOneStableSource")
-    stop = source.index("function revisionsFor", start)
+    stop = source.index("\n}", start)
     narrowed = source[start:stop]
     assert "memoEntriesForStableSource" in narrowed
     assert "for (const question of matching.decoded)" in narrowed

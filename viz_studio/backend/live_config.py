@@ -219,16 +219,13 @@ def live_rows(
             if len(available) == 1 and available[0]["start"] == 0
             else 0
         )
-        local_position = [layer.channel_index]
-        if sources[0].local_dimension is not None:
-            local_position.insert(0, int(layer.local_position.get(sources[0].local_dimension, 0)))
         rows.append(
             {
                 "name": layer.name,
                 "group": binding.group if group is None else group,
                 "kind": layer.kind,
                 "channelIndex": layer.channel_index,
-                "localPosition": local_position,
+                "localPosition": [layer.channel_index],
                 "sources": urls,
                 "sourceIds": [
                     f"{binding.dataset_number}/{snapshot.state.run_id}/{source.source_id}"
