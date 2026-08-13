@@ -1400,3 +1400,121 @@ class TestPublishedPixelsStayAsTheyWerePublished:
         with pytest.raises(ZmartLiveError) as refused:
             run.replace_a_position("posA", some_specimen(2000))
         assert "never been published" in str(refused.value)
+
+
+class TestALinkedViewDeferredToRunEnd:
+    """A run may write its linked plain-file view once, when the run finishes.
+
+    Mid-run the live picture is served straight out of the positions' own
+    stores, so the map of pointers and the view description are not really
+    prerequisites of a commit any more — maintaining them per publish was
+    the largest single cost of landing a position at survey scale. Deferring
+    them must change exactly two things and nothing else: no map or view is
+    owed mid-run, and :meth:`finish_the_run` writes both at the end. Every
+    check about a position's OWN bytes has to hold exactly as before —
+    a deferral that quietly softened the pixel checks would be the rubber
+    stamp this whole module exists to prevent.
+    """
+
+    @pytest.fixture
+    def deferred(self, tmp_path, profile):
+        return LivePublisher(
+            tmp_path,
+            profile,
+            run_id="run-1",
+            cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+            linked_view="at_run_end",
+        )
+
+    def test_a_commit_owes_no_map_and_no_view_mid_run(self, deferred):
+        """The same publish that a per-publish run refuses, honestly recorded."""
+        event = deferred.write_and_publish("posA", some_specimen(700))
+        assert not deferred.link_map_file.exists(), (
+            "a deferred run wrote the survey-wide map inside a publish anyway"
+        )
+        assert event.ready is True
+        assert event.linked_view_deferred is True
+        assert event.view_ready is False, (
+            "view_ready claims a check that never ran — ready must mean "
+            "somebody went and looked"
+        )
+        assert event.pyramids_ready and event.links_ready and event.validated
+
+    def test_deferral_does_not_soften_the_pixel_checks(self, deferred):
+        """The same damage a per-publish run refuses is still refused."""
+        import shutil as _shutil
+
+        deferred.write_and_publish("posA", some_specimen(700))
+        deferred.write_a_position("posB", some_specimen(900))
+        deferred.write_the_layout()
+        level = deferred.position_store("posB") / str(
+            deferred.profile.levels[-1].level
+        )
+        _shutil.rmtree(level)
+        with pytest.raises(NotReadyToPublish) as refused:
+            deferred.publish("posB")
+        assert "zoomed-out copy" in str(refused.value)
+
+    def test_finish_the_run_writes_what_a_strict_gate_then_accepts(
+        self, tmp_path, profile
+    ):
+        """The end-of-run products pass the full per-publish inspection.
+
+        The strongest available statement that nothing was lost by waiting:
+        after finish_the_run, a per-publish publisher over the same folder —
+        whose inspect follows the stored map piece by piece and validates the
+        view description — finds every published position complete.
+        """
+        cells = {GridCell(0, 0): "posA", GridCell(0, 1): "posB"}
+        deferred = LivePublisher(
+            tmp_path, profile, run_id="run-1", cells=cells,
+            linked_view="at_run_end",
+        )
+        deferred.write_and_publish("posA", some_specimen(700))
+        deferred.write_and_publish("posB", some_specimen(900))
+        deferred.finish_the_run()
+
+        strict = LivePublisher(tmp_path, profile, run_id="run-1", cells=cells)
+        for position_id in ("posA", "posB"):
+            found = strict.inspect(position_id)
+            assert found.everything_checks_out, found.describe()
+            assert found.view_ready is True
+
+    def test_the_record_reads_back_what_was_deferred(self, deferred):
+        """The flag survives the trip to disk, and old records read as strict."""
+        from zmart_live.model import CommitEvent
+
+        event = deferred.write_and_publish("posA", some_specimen(700))
+        returned = CommitEvent.from_json(event.to_json())
+        assert returned.linked_view_deferred is True
+        assert returned.ready is True
+
+        undeclared = dict(event.to_json())
+        del undeclared["linked_view_deferred"]
+        old_style = CommitEvent.from_json(undeclared)
+        assert old_style.linked_view_deferred is False
+        assert old_style.ready is False, (
+            "an old-style record without the flag must stay held to the "
+            "strict per-publish contract"
+        )
+
+    def test_a_swapped_arrangement_is_still_refused(self, deferred):
+        """The layout fast path must not blind the gate to a replaced file.
+
+        Re-parsing an arrangement the writer itself just recorded is skipped
+        by a file-identity check, so the one way that skip could go wrong is
+        a different file lying at the same path. Damage exactly that and the
+        full read-and-compare has to come back and refuse it.
+        """
+        deferred.write_and_publish("posA", some_specimen(700))
+        assert deferred.inspect("posA").everything_checks_out
+
+        target = deferred.folder / "zmart-live" / "layout.json"
+        swapped = json.loads(target.read_text(encoding="utf-8"))
+        swapped["run_id"] = "somebody-elses-run"
+        target.write_text(json.dumps(swapped), encoding="utf-8")
+        found = deferred.inspect("posA")
+        assert not found.everything_checks_out, (
+            "another run's arrangement was swapped in on disk and inspection "
+            "still passed — the fast path outlived the file it vouched for"
+        )

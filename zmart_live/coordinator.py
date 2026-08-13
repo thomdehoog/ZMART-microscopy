@@ -104,6 +104,11 @@ class Inspection:
     pyramids_ready: bool = False
     links_ready: bool = False
     view_ready: bool = False
+    #: True when this run writes its linked view once at the end of the run,
+    #: so there was genuinely no view to look at mid-run. Recorded instead of
+    #: faking ``view_ready``, because every flag here must mean "somebody
+    #: went and looked".
+    linked_view_deferred: bool = False
     layout_ready: bool = False
     pieces_read: int = 0
     ranges_checked: int = 0
@@ -116,7 +121,7 @@ class Inspection:
         return (
             self.pyramids_ready
             and self.links_ready
-            and self.view_ready
+            and (self.view_ready or self.linked_view_deferred)
             and self.layout_ready
             and not self.complaints
         )
@@ -130,12 +135,17 @@ class Inspection:
         """One paragraph an operator can read when something is being withheld."""
         which = f"'{self.position_id}' at moment {self.moment}"
         if self.everything_checks_out:
+            about_the_view = (
+                "the linked view is written once at the end of the run, so no "
+                "mid-run view was owed"
+                if self.linked_view_deferred
+                else f"{self.view_levels_validated} virtual view levels validated "
+                     f"without copied payload"
+            )
             return (
                 f"{which} is complete: {self.pieces_read} pixels read back out of "
                 f"the pieces the store really holds, {self.ranges_checked} pointers "
-                f"resolved through the stored map and decoded, and "
-                f"{self.view_levels_validated} virtual view levels validated "
-                f"without copied payload."
+                f"resolved and decoded, and {about_the_view}."
             )
         return f"{which} is not ready to be shown. " + " ".join(self.complaints)
 
@@ -171,6 +181,14 @@ class LivePublisher:
     cells: dict[GridCell, str]
     channels: tuple[str, ...] | None = None
     timepoints: int = 1
+    #: When the linked plain-file view is written. ``"per_publish"`` refreshes
+    #: it after every commit, so outside tools can open the run mid-experiment;
+    #: ``"at_run_end"`` writes it once, in :meth:`finish_the_run`, which takes
+    #: a whole survey's worth of bookkeeping out of every publish. Mid-run the
+    #: live picture is served from the positions' own stores either way, so
+    #: deferring changes what outside tools see during a run — never what the
+    #: operator sees on screen.
+    linked_view: str = "per_publish"
     manifest: RunManifest = field(init=False)
     layout: SceneLayoutRevision = field(init=False)
     #: Which generation of each position's store is the current one. A position
@@ -218,6 +236,13 @@ class LivePublisher:
             raise ZmartLiveError(
                 f"A live position store needs room for at least one timepoint; got "
                 f"{self.timepoints!r}."
+            )
+        if self.linked_view not in ("per_publish", "at_run_end"):
+            raise ZmartLiveError(
+                f"A run's linked view is written either 'per_publish' or "
+                f"'at_run_end'; {self.linked_view!r} is neither. Anything in "
+                "between would leave nobody able to say whether the view on "
+                "disk is current."
             )
 
         component = check_the_grid_holds_together(
@@ -949,8 +974,19 @@ class LivePublisher:
         moment = 0 if timepoint is None else timepoint
         pieces_read = self._read_every_piece(position_id, moment, about_pixels)
         ranges = self._resolve_every_pointer(position_id, about_pointers)
-        ranges += self._follow_the_stored_pointers(position_id, moment, about_pointers)
-        validated = self._check_the_view_description(about_the_picture)
+        # A run that writes its linked view once, at the end, has no stored
+        # map and no view description to hold this commit to — those two
+        # checks belong to :meth:`finish_the_run`, where the products are
+        # actually written. Every check about the position's OWN bytes ran
+        # above regardless: deferring the view never softens those.
+        deferring = self.linked_view == "at_run_end"
+        if deferring:
+            validated = 0
+        else:
+            ranges += self._follow_the_stored_pointers(
+                position_id, moment, about_pointers
+            )
+            validated = self._check_the_view_description(about_the_picture)
         layout_ok = self._layout_reads_back(about_the_layout)
 
         return Inspection(
@@ -959,6 +995,7 @@ class LivePublisher:
             pyramids_ready=pieces_read > 0 and not about_pixels,
             links_ready=ranges > 0 and not about_pointers,
             view_ready=validated > 0 and not about_the_picture,
+            linked_view_deferred=deferring,
             layout_ready=layout_ok and not about_the_layout,
             pieces_read=pieces_read,
             ranges_checked=ranges,
@@ -1358,8 +1395,20 @@ class LivePublisher:
         tiles, so every measurement published against it would be pointing at
         somebody else's account of who owns what — and nothing about that shows up
         as an error.
+
+        When the file on disk is the very one this writer's own recorder wrote
+        a moment ago — same device, inode, size and timestamps, the rule the
+        shard tables already remember files by — parsing it again would restate
+        the immutable: a layout revision never changes, and at survey scale the
+        parse alone is tens of milliseconds inside every publish. The stat
+        still happens on every call, so a replaced or tampered pointer drops
+        straight back to the full read-and-compare below.
         """
         target = self.folder / "zmart-live" / _LAYOUT
+        if (self.layout is self._layout_recorded
+                and self._layout_mark is not None
+                and _the_files_identity(target) == self._layout_mark):
+            return True
         if not target.exists():
             complaints.append(
                 "The arrangement saying who owns what has not been written, so a "
@@ -1391,6 +1440,12 @@ class LivePublisher:
                 f"{list(self.layout.position_ids)}."
             )
             return False
+        # The file just proved, by full read, to state this very arrangement.
+        # Remember its identity the same way the recorder does, so the next
+        # publish pays a stat instead of re-parsing a document that cannot
+        # have changed while its identity has not.
+        self._layout_recorded = self.layout
+        self._layout_mark = _the_files_identity(target)
         return True
 
     # -- publishing ----------------------------------------------------------
@@ -1448,6 +1503,7 @@ class LivePublisher:
             pyramids_ready=found.pyramids_ready,
             links_ready=found.links_ready,
             view_ready=found.view_ready,
+            linked_view_deferred=found.linked_view_deferred,
             validated=found.everything_checks_out,
             timestamp=now_in_words(),
             notes=found.describe(),
@@ -1564,6 +1620,15 @@ class LivePublisher:
         superseding: bool = False,
     ) -> CommitEvent:
         """Refresh the virtual view from committed units, then commit once."""
+        if self.linked_view == "at_run_end":
+            # The linked view is written once, when the run finishes. What a
+            # publish still owes the shared records mid-run is only the
+            # arrangement — and an unchanged arrangement is recorded once,
+            # so this is a stat, not a rewrite.
+            self.write_the_layout()
+            return self.publish(
+                position_id, timepoint=timepoint, superseding=superseding
+            )
         moment = 0 if timepoint is None else timepoint
         units = frozenset(self._committed_units()) | {(position_id, moment)}
         # Write the candidate route map first. For a replacement, this makes
@@ -1573,6 +1638,30 @@ class LivePublisher:
         self.write_the_view()
         self.write_the_layout()
         return self.publish(position_id, timepoint=timepoint, superseding=superseding)
+
+    def finish_the_run(self) -> None:
+        """Write the linked plain-file view for everything the run published.
+
+        A run that defers its linked view (``linked_view="at_run_end"``) calls
+        this once, after the last position has been published. It writes the
+        map of pointers covering every committed position, the view
+        description those pointers answer for, and the arrangement — the same
+        products a per-publish run maintains after every commit, written here
+        exactly once instead. Afterwards any outside tool can open
+        ``views/overview.ome.zarr`` as plain files, just as it always could.
+
+        Each write carries its own checks: building the map is the moment the
+        arrangement is validated (see :meth:`write_the_link_map`), and the map
+        on disk is proven byte-identical to what was validated before anything
+        trusts it. Nothing is published here — the manifest already told the
+        whole story, one commit at a time.
+
+        Harmless on a per-publish run, whose products are already current;
+        calling it twice simply restates what is there.
+        """
+        self.write_the_layout()
+        self.write_the_link_map(frozenset(self._committed_units()))
+        self.write_the_view()
 
 
 def _unpacked_on_its_own(handed_over: bytes, storage) -> np.ndarray | None:

@@ -1387,6 +1387,13 @@ class CommitEvent:
     pyramids_ready: bool = False
     links_ready: bool = False
     view_ready: bool = False
+    #: True when this run writes its linked plain-file view once, at the end of
+    #: the run, instead of after every commit. Mid-run the live picture is
+    #: served straight out of the positions' own stores, so the linked view is
+    #: genuinely not one of this commit's prerequisites — this flag records
+    #: that honestly, rather than letting ``view_ready`` claim a check that
+    #: never ran.
+    linked_view_deferred: bool = False
     validated: bool = False
     timestamp: str = ""
     notes: str = ""
@@ -1462,9 +1469,17 @@ class CommitEvent:
         Strict publication means all of these together or none of them. A commit
         that is not ready must never be written, because a reader is entitled to
         assume that anything it can see is complete.
+
+        The one prerequisite that can be genuinely absent rather than unmet is
+        the linked view's description: a run that writes its linked view once,
+        at the end of the run, has no view to check mid-run — and says so with
+        ``linked_view_deferred`` instead of pretending the check passed.
         """
         return (
-            self.pyramids_ready and self.links_ready and self.view_ready and self.validated
+            self.pyramids_ready
+            and self.links_ready
+            and (self.view_ready or self.linked_view_deferred)
+            and self.validated
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -1487,6 +1502,7 @@ class CommitEvent:
             "pyramids_ready": self.pyramids_ready,
             "links_ready": self.links_ready,
             "view_ready": self.view_ready,
+            "linked_view_deferred": self.linked_view_deferred,
             "validated": self.validated,
             "timestamp": self.timestamp,
             "notes": self.notes,
@@ -1514,6 +1530,7 @@ class CommitEvent:
             pyramids_ready=bool(value.get("pyramids_ready", False)),
             links_ready=bool(value.get("links_ready", False)),
             view_ready=bool(value.get("view_ready", False)),
+            linked_view_deferred=bool(value.get("linked_view_deferred", False)),
             validated=bool(value.get("validated", False)),
             timestamp=value.get("timestamp", ""),
             notes=value.get("notes", ""),
