@@ -60,10 +60,13 @@ except ImportError:  # pragma: no cover - a checkout without zmart_live
 log = logging.getLogger("viz_studio.serving")
 
 # One composer per built picture, kept for as long as the viewer is open on
-# it. A governed picture keeps its GovernedRun here instead, because its
-# composer is not one object but one per manifest state, and the run is what
-# hands out the current one.
-_composers: dict[Path, Composer | GovernedRun | None] = {}
+# it, each remembered WITH the identity of the description it was opened
+# from, so a re-declaration is noticed and rebuilt rather than served stale.
+# A governed picture keeps its GovernedRun here instead, because its composer
+# is not one object but one per manifest state, and the run is what hands out
+# the current one.
+_composers: dict[Path, tuple[tuple | None,
+                             Composer | GovernedRun | None]] = {}
 _guard = threading.Lock()
 
 # Pictures whose composer could not be made, each with the moment it failed.
@@ -91,19 +94,41 @@ _being_made: dict[Path, threading.Lock] = {}
 
 
 def _what_it_was_built_from(store: Path) -> dict | None:
-    """What a store records about being built, or ``None`` for an ordinary image."""
+    """What a store records about being built, or ``None`` for an ordinary image.
+
+    ``None`` is only ever the answer of a SUCCESSFUL look -- no description
+    at all, or one that carries no building record. A description that exists
+    but cannot be read right now raises instead: swallowing that classified
+    a briefly-held file as "ordinary image", permanently, and the backend
+    then served its baked pieces statically past the manifest (review
+    finding D3). The caller turns the raise into a timed refusal, which
+    fails closed and retries.
+    """
     described = store / "zarr.json"
     if not described.is_file():
         return None
-    try:
-        held = json.loads(described.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    held = json.loads(described.read_text(encoding="utf-8"))
     ours = (held.get("attributes") or {}).get(OURS)
     if isinstance(ours, dict) and (ours.get("built_from")
                                    or ours.get("governed_from")):
         return ours
     return None
+
+
+def _the_pictures_mark(store: Path) -> tuple | None:
+    """The identity of the picture's own description, for cache honesty.
+
+    A declaration is what says what a picture IS -- baked or not, governed
+    or not -- and re-declaring rewrites it. A served picture remembered past
+    that rewrite kept serving yesterday's answer (review finding D5), so
+    every remembered entry carries this mark and is rebuilt when it moves.
+    """
+    try:
+        stamp = (store / "zarr.json").stat()
+    except OSError:
+        return None
+    return (stamp.st_dev, getattr(stamp, "st_ino", 0), stamp.st_size,
+            stamp.st_mtime_ns, stamp.st_ctime_ns)
 
 
 def _the_mosaic_behind(store: Path, ours: dict) -> Mosaic:
@@ -133,25 +158,41 @@ def _composer_for(store: Path) -> Composer | GovernedRun | None:
     plain image, timed for damage, so a run that recovers is noticed.
     """
     store = store.resolve()
+    mark = _the_pictures_mark(store)
+    stale = None
     with _guard:
         if store in _composers:
-            return _composers[store]
+            kept_mark, kept = _composers[store]
+            if kept_mark == mark:
+                return kept
+            # The picture was re-declared under us: what it IS has changed,
+            # so the remembered serving -- baked levels included -- is
+            # yesterday's answer. Rebuild from the new description.
+            del _composers[store]
+            stale = kept
         stumbled = _refused.get(store)
         if stumbled is not None:
             if time.monotonic() - stumbled < _REFUSED_FOR_SECONDS:
                 return None
             del _refused[store]
         making = _being_made.setdefault(store, threading.Lock())
+    if stale is not None:
+        try:
+            stale.close()
+        except Exception:
+            log.exception("the re-declared picture at %s would not close "
+                          "cleanly; serving continues from the fresh one",
+                          store)
 
     # Held across the reading of the transfer, so the many requests the engine
     # makes at once produce one composer between them rather than one each.
     with making:
         with _guard:
-            if store in _composers:
-                return _composers[store]
-        ours = _what_it_was_built_from(store)
+            if store in _composers and _composers[store][0] == mark:
+                return _composers[store][1]
         made = None
         try:
+            ours = _what_it_was_built_from(store)
             made = _the_serving_behind(store, ours)
         except Exception:
             log.exception("the picture at %s could not be opened; answering "
@@ -161,7 +202,7 @@ def _composer_for(store: Path) -> Composer | GovernedRun | None:
                 _refused[store] = time.monotonic()
             return None
         with _guard:
-            _composers[store] = made
+            _composers[store] = (mark, made)
             return made
 
 
@@ -226,9 +267,21 @@ def a_manifest_governs(store: Path) -> bool:
     handing it over without consulting the run is how a withdrawn
     generation outlives its withdrawal. Costs one opening of the picture
     the first time and a dictionary look afterwards.
+
+    A picture that cannot be CLASSIFIED right now answers True: while its
+    description is unreadable or its run refuses to open, nothing may be
+    served from its files -- treating the failure as "ordinary image"
+    opened the static door past the manifest (review finding D3). The
+    refusal is timed, so a recovered picture reclassifies itself.
     """
-    held = _composer_for(Path(store))
-    return GovernedRun is not None and isinstance(held, GovernedRun)
+    where = Path(store).resolve()
+    held = _composer_for(where)
+    if GovernedRun is not None and isinstance(held, GovernedRun):
+        return True
+    if held is None:
+        with _guard:
+            return where in _refused
+    return False
 
 
 def the_bytes_behind(store: Path, inside: str) -> bytes | None:
@@ -310,8 +363,9 @@ def forget(store: Path) -> None:
     """
     with _guard:
         where = Path(store).resolve()
-        held = _composers.pop(where, None)
+        remembered = _composers.pop(where, None)
         _being_made.pop(where, None)
         _refused.pop(where, None)
+    held = remembered[1] if remembered is not None else None
     if held is not None:
         held.close()

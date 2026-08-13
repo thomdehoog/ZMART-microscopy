@@ -157,6 +157,14 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
     governed = GovernedRun(run, piece=piece)
     try:
         composer = governed.composer()
+        # The identity of the manifest prefix this snapshot folded, captured
+        # NOW: the bake below writes this snapshot's ground and may take
+        # minutes at scale, and a stamp read from the manifest afterwards
+        # claimed every commit that landed in the window as absorbed --
+        # never baked, never patched (review finding D2).
+        folded = governed._run._folded
+        tail = governed._run._last_folded_revision
+        revision = governed._run._geometry()[0].revision
         channels = composer.mosaic.channels_recorded
         if len(channels) > 1:
             raise ValueError(
@@ -203,7 +211,8 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
         (store / "zarr.json").write_text(json.dumps(described, indent=1),
                                          encoding="utf-8")
         if bake:
-            governed.stamp_the_bake(store)
+            governed.stamp_the_bake(store, events=folded, tail=tail,
+                                    layout=revision)
         return store
     finally:
         governed.close()

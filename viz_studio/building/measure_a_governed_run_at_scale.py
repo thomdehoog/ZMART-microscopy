@@ -294,7 +294,8 @@ def main() -> int:
                 answer.read()
         except urllib.error.HTTPError:
             pass  # absent is an ordinary answer; the derive still happened
-        governed = served._composers.get(store.resolve())
+        remembered = served._composers.get(store.resolve())
+        governed = remembered[1] if remembered is not None else None
         accounting = getattr(governed, "accounting", {})
         print(f"\nCold open at {len(to_publish) + len(committed)} committed "
               f"positions: {opened:.1f} s "
