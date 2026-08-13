@@ -31,8 +31,16 @@ one-time costs are seconds.
 | 2,025     | 160 [182/201] | 235 [278/567] | 79 [92/102]   | 122 [139/160] | 35.9  | 26.4  | 0.8 | 0 |
 | 4,096     | 156 [171/190] | 242 [260/744] | 110 [125/138] | 170 [188/226] | 76.2  | 53.3  | 1.6 | 0 |
 | 8,281     | 176 [190/200] | 270 [304/310] | 138 [151/184] | 183 [205/247] | 149.2 | 107.3 | 4.3 | 0 |
-| 16,384    | *being measured* | | | | | | | |
-| 32,761    | *waiting* | | | | | | | |
+| 16,384    | 208 [222/226] | 314 [335/348] | 238 [280/2238] | 326 [352/394] | 312.0 | 214.2 | 8.8 | 0 |
+| 32,761    | *being measured* | | | | | | | |
+
+The 16,384 rung's worst derive (2.2 s against a 280 ms 90th percentile)
+is the first cold-region patch caught on camera: the coarse warm took
+214 s while the harness waits at most 300 s before churning, so changes
+begin to land on ground the warmer has not reached. Expect more of the
+same in the 32,768 rung's worst-case columns — it is a warm-race
+artifact of the harness's cap, not the steady state, and the parallel
+warm work targets exactly this window.
 
 ## What the ladder says so far
 
