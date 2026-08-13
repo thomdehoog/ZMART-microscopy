@@ -115,7 +115,8 @@ def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
 
 
 def declare_a_governed_picture(where: str | Path, run: str | Path, *,
-                               name: str = "live", piece: int = PIECE) -> Path:
+                               name: str = "live", piece: int = PIECE,
+                               bake: bool = False) -> Path:
     """Write the description of a picture built from a manifest-governed run.
 
     The counterpart of :func:`declare_a_built_picture` for a live run: the
@@ -125,10 +126,15 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
     the manifest per request. Nothing here is ever rewritten as the run grows:
     the frame was never derived from what has arrived.
 
-    No bake, deliberately: baked ground is real files, and a live run's ground
-    changes under them. Patching the bake per commit is planned work
-    (PLAN_responsiveness.md); until it exists a governed picture is served
-    warm from the composer's inherited caches instead.
+    ``bake`` is the live counterpart of the transfer's switch, and the live
+    run keeps BOTH modes deliberately. Baked ground is real files and a live
+    run's ground changes under them, so a baked governed picture is only
+    honest because :class:`governed.GovernedRun` patches the touched pieces
+    inside every derive, before the fresh snapshot answers anyone — per
+    commit, never rebuilt. What is baked here is the ground as of THIS
+    moment (for a young run: nothing, since fill is expressed by absence);
+    every later commit keeps it true. Declaring again without ``bake``
+    removes the baked ground, exactly as it does for a transfer.
 
     The picture serves the run's first channel and first moment. A run that
     records several channels is refused here, loudly, rather than shown with
@@ -149,41 +155,58 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
 
     where, run = Path(where), Path(run).resolve()
     governed = GovernedRun(run, piece=piece)
-    composer = governed.composer()
-    channels = composer.mosaic.channels_recorded
-    if len(channels) > 1:
-        raise ValueError(
-            f"the run at {run} records {len(channels)} channels "
-            f"({', '.join(channels)}), and this picture can serve exactly one "
-            "— declaring it would silently collapse the colours into "
-            "whichever came first. Growing the served channel axis is the "
-            "gate work's next step; until then, a multi-colour run is shown "
-            "by pointing."
-        )
+    try:
+        composer = governed.composer()
+        channels = composer.mosaic.channels_recorded
+        if len(channels) > 1:
+            raise ValueError(
+                f"the run at {run} records {len(channels)} channels "
+                f"({', '.join(channels)}), and this picture can serve exactly "
+                "one — declaring it would silently collapse the colours into "
+                "whichever came first. Growing the served channel axis is the "
+                "gate work's next step; until then, a multi-colour run is "
+                "shown by pointing."
+            )
 
-    store = where / f"{name}.ome.zarr"
-    store.mkdir(parents=True, exist_ok=True)
-    for level in range(composer.mosaic.levels):
-        inside = store / str(level)
-        inside.mkdir(exist_ok=True)
-        (inside / "zarr.json").write_text(
-            json.dumps(json.loads(composer.array_json(level)), indent=1),
-            encoding="utf-8")
+        store = where / f"{name}.ome.zarr"
+        store.mkdir(parents=True, exist_ok=True)
+        for kept in sorted(store.glob("[0-9]*")):
+            # An earlier declaration's baked ground goes first, or declaring
+            # without the bake would leave yesterday's files quietly being
+            # served -- the transfer's rule, for the same reason.
+            if kept.is_dir() and (int(kept.name) >= composer.mosaic.levels
+                                  or (kept / "c").exists()):
+                shutil.rmtree(kept)
+        for level in range(composer.mosaic.levels):
+            inside = store / str(level)
+            inside.mkdir(exist_ok=True)
+            (inside / "zarr.json").write_text(
+                json.dumps(json.loads(composer.array_json(level)), indent=1),
+                encoding="utf-8")
 
-    described = json.loads(composer.group_json())
-    described["attributes"][OURS] = {
-        "what": (
-            "A picture of a live, manifest-governed run. It holds no pixels; "
-            "every piece is built when asked for, from the positions the "
-            "run's manifest has published as of that request, and nothing "
-            "else."
-        ),
-        "governed_from": run.as_posix(),
-        "piece": composer.piece,
-    }
-    (store / "zarr.json").write_text(json.dumps(described, indent=1),
-                                     encoding="utf-8")
-    return store
+        described = json.loads(composer.group_json())
+        baked: list[int] = []
+        if bake:
+            baked = _bake_the_coarse_ground(store, composer, described)
+        described["attributes"][OURS] = {
+            "what": (
+                "A picture of a live, manifest-governed run. It holds no "
+                "pixels beyond its baked coarse ground, kept true per "
+                "commit; every other piece is built when asked for, from "
+                "the positions the run's manifest has published as of that "
+                "request, and nothing else."
+            ),
+            "governed_from": run.as_posix(),
+            "piece": composer.piece,
+            "baked": baked,
+        }
+        (store / "zarr.json").write_text(json.dumps(described, indent=1),
+                                         encoding="utf-8")
+        if bake:
+            governed.stamp_the_bake(store)
+        return store
+    finally:
+        governed.close()
 
 
 def _bake_the_coarse_ground(store: Path, composer: Composer,

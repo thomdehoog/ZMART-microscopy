@@ -170,6 +170,11 @@ def main() -> int:
                          help="instead of the churn, land this many "
                               "pre-written boundary positions back to back "
                               "with no pacing — the adding ceiling")
+    parsing.add_argument("--bake", action="store_true",
+                         help="declare the picture with the per-commit bake, "
+                              "so cold opens read files and every commit "
+                              "patches its footprint — the mode the unbaked "
+                              "columns are compared against")
     parsing.add_argument("--headed", action="store_true",
                          help="open a visible window")
     asked = parsing.parse_args()
@@ -200,7 +205,14 @@ def main() -> int:
         print(f"  published in {time.time() - began:.0f} s")
 
     shown = FIXTURES / f"gov{across}x{across}" / "shown"
-    store = declare_a_governed_picture(shown, run.folder, name="live")
+    if asked.bake:
+        print("Declaring with the per-commit bake (initial bake is "
+              "O(survey), once)...")
+    began_declaring = time.time()
+    store = declare_a_governed_picture(shown, run.folder, name="live",
+                                       bake=asked.bake)
+    print(f"declared {'baked' if asked.bake else 'unbaked'} in "
+          f"{time.time() - began_declaring:.1f} s")
 
     started, browser = watching.a_browser(asked.headed)
     watching.say_what_is_drawing(browser)

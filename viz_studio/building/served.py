@@ -185,7 +185,8 @@ def _the_serving_behind(store: Path, ours: dict | None
                 "this checkout has no zmart_live, so a governed picture "
                 "cannot consult any manifest and will not be served."
             )
-        return GovernedRun(Path(governs), piece=int(ours.get("piece") or 512))
+        return GovernedRun(Path(governs), piece=int(ours.get("piece") or 512),
+                           store=store)
     transfer = Path(ours["built_from"])
     holding = live_run_holding(transfer)
     if holding is not None:
@@ -239,6 +240,21 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
         return None
     if not all(one.isdecimal() for one in parts[2:]):
         return None
+    # A governed picture consults its run BEFORE any file may answer: asking
+    # for the composer checks the manifest's fingerprint, and a moved
+    # fingerprint derives the fresh snapshot -- which patches the baked
+    # files inside the derive. Only then is a file a safe answer; a file
+    # read first would outrun the manifest and serve ground a commit has
+    # already withdrawn. While nothing has been committed the same composer
+    # comes straight back and this costs a fingerprint read.
+    composer = None
+    if GovernedRun is not None and isinstance(held, GovernedRun):
+        try:
+            composer = held.composer()
+        except Exception:
+            log.exception("the governed run behind %s could not derive; "
+                          "answering absent", store)
+            return None
     # Ground the declaration baked is a real file, answered as one: no
     # building, no tiles, immune to everything that makes building slow. This
     # is also the only door to the picture's own levels above the tiles' --
@@ -255,11 +271,8 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
     # fill for absent ground, which for withheld and damaged ground alike is
     # the fail-closed picture.
     try:
-        # A governed picture's composer is one per manifest state, so it is
-        # asked for on every request; while nothing has been committed the
-        # same object comes straight back.
-        composer = held.composer() if GovernedRun is not None and isinstance(
-            held, GovernedRun) else held
+        if composer is None:
+            composer = held
         level = int(parts[0])
         if not 0 <= level < composer.mosaic.levels:
             return None
