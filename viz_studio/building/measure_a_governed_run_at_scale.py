@@ -235,16 +235,26 @@ def main() -> int:
 
     session.on("Page.screencastFrame", one_frame)
 
+    # The picture may declare MORE levels than the profile: a baked picture
+    # extends the pyramid above the tiles, the engine shows those levels at
+    # overview zoom, and an announce that stops at the profile's levels names
+    # nothing the engine holds -- the browser then refetches nothing and the
+    # screen never changes, measured as nan on every baked churn row.
+    pictured_levels = len(json.loads((store / "zarr.json").read_text(
+        encoding="utf-8"))["attributes"]["ome"]["multiscales"][0]["datasets"])
+
     def the_dirty_pieces_of(position_id: str) -> dict:
         piece = 512
         origin = run.layout.placement(position_id).origin
         y, x = int(origin.get("y", 0)), int(origin.get("x", 0))
         profile = run.profile
         dirty = {}
-        for number in range(len(profile.levels)):
-            rung = profile.level(number)
-            down_y = int(rung.downsampling.get("y", 1))
-            down_x = int(rung.downsampling.get("x", 1))
+        for number in range(pictured_levels):
+            deepest = min(number, len(profile.levels) - 1)
+            rung = profile.level(deepest)
+            extended = 2 ** (number - deepest)
+            down_y = int(rung.downsampling.get("y", 1)) * extended
+            down_x = int(rung.downsampling.get("x", 1)) * extended
             top, left = y // down_y, x // down_x
             bottom = (y + FRAME - 1) // down_y
             right = (x + FRAME - 1) // down_x

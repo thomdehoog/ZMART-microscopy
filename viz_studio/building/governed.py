@@ -291,6 +291,8 @@ class GovernedRun:
                 return self._held
             previous, before = self._held, dict(self._drawing)
             kept = dict(self._tiles)
+        baked_picture = self._shown is not None and bool(
+            self._the_baked_levels())
         began = time.perf_counter()
         made, drawing, tiles = self._compose_the_snapshot(before, kept)
         dirtied: dict[int, set[tuple[int, int]]] | None = None
@@ -308,8 +310,14 @@ class GovernedRun:
             dirtied = self._what_changed_dirtied(previous, made,
                                                  before, drawing)
             made.inherit_the_unchanged(previous, dirtied, stale=stale)
-        if self._shown is not None and self._the_baked_levels():
-            self._keep_the_bake_true(made, dirtied)
+        if baked_picture:
+            # The fold's own event count, NOT a fresh read of the events
+            # file: the compose above already folded the manifest, and a
+            # second reader racing the writer's appends was measured (twice)
+            # spamming refused-history errors and answering absent -- once
+            # per request, then once per derive. The bake stamps what the
+            # snapshot actually folded, from the one reader that counts.
+            self._keep_the_bake_true(made, dirtied, self._run._folded)
         self.accounting["derives"] += 1
         self.accounting["last_derive_ms"] = (time.perf_counter() - began) * 1000
         self.accounting["last_positions"] = len(drawing)
@@ -354,7 +362,8 @@ class GovernedRun:
             self._baked = held
         return self._baked
 
-    def stamp_the_bake(self, store: str | Path | None = None) -> None:
+    def stamp_the_bake(self, store: str | Path | None = None,
+                       events: int | None = None) -> None:
         """Write down how much manifest the baked files have absorbed.
 
         The stamp is the count of manifest events folded into the bake. A
@@ -365,13 +374,28 @@ class GovernedRun:
         files. Honest recovery costs the missed changes, not the survey.
         """
         where = Path(store).resolve() if store is not None else self._shown
+        absorbed = (len(self._run.manifest.events())
+                    if events is None else events)
         (where / "baked.json").write_text(
-            json.dumps({"events": len(self._run.manifest.events())}),
-            encoding="utf-8")
+            json.dumps({"events": absorbed}), encoding="utf-8")
+
+    def _the_stamped_events(self) -> int:
+        """How many manifest events the stamp says the bake has absorbed.
+
+        ``-1`` for a missing or unreadable stamp: a bake whose coverage
+        cannot be known must not answer anyone, so everything is dirty.
+        """
+        stamp = self._shown / "baked.json"
+        if not stamp.is_file():
+            return -1
+        try:
+            return int(json.loads(stamp.read_text(encoding="utf-8"))["events"])
+        except (ValueError, KeyError):
+            return -1
 
     def _keep_the_bake_true(self, made: Composer,
                             dirtied: dict[int, set[tuple[int, int]]] | None,
-                            ) -> None:
+                            folded: int) -> None:
         """Patch the baked files the manifest's movement reached, then stamp.
 
         Runs inside the derive, BEFORE the fresh snapshot is handed to
@@ -382,8 +406,19 @@ class GovernedRun:
         which events the bake has not absorbed -- their positions' current
         footprints are the catch-up. A missing stamp means nothing can be
         trusted, and every baked piece is repatched, logged as such.
+
+        Patched once per manifest STATE, never once per racing thread: the
+        engine fires many requests at a fresh commit, every one of them may
+        derive the same snapshot (either is correct, one wins), and each
+        patching again serialized twelve seconds of redundant work behind
+        the guard and starved serving -- measured in the first baked churn.
+        The stamp is the idempotence: a patch is skipped when the files
+        have already absorbed at least the events this snapshot folded, so
+        the bake also never regresses to an older racer's state.
         """
         with self._bake_guard:
+            if self._the_stamped_events() >= folded:
+                return
             if dirtied is None:
                 dirtied = self._the_ground_the_bake_missed(made)
                 if dirtied is None:
@@ -404,7 +439,7 @@ class GovernedRun:
                            for row, column in reached}
                 if reached:
                     self._rehalve_one_level(level, sorted(reached))
-            self.stamp_the_bake()
+            self.stamp_the_bake(events=folded)
 
     def _the_ground_the_bake_missed(self,
                                     made: Composer,
@@ -417,15 +452,8 @@ class GovernedRun:
         must not answer anyone.
         """
         events = self._run.manifest.events()
-        stamp = self._shown / "baked.json"
-        absorbed = -1
-        if stamp.is_file():
-            try:
-                absorbed = int(json.loads(
-                    stamp.read_text(encoding="utf-8"))["events"])
-            except (ValueError, KeyError):
-                absorbed = -1
-        if absorbed == len(events):
+        absorbed = self._the_stamped_events()
+        if absorbed >= len(events):
             return None
         if absorbed < 0:
             return {level: {(row, column)
