@@ -47,6 +47,7 @@ import os
 import shutil
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -87,6 +88,40 @@ def _a_committed_tile(store) -> Tile:
     for copy in tile.copies:
         _promising_its_blocks(copy)
     return tile
+
+
+@contextmanager
+def _holding_the_bake_lock(store: Path):
+    """The whole-machine lock on one picture's baked files.
+
+    A lock FILE beside the bake, locked through the operating system
+    (``msvcrt`` here -- this serving path runs on the microscope's Windows
+    machine), so two processes patching one picture -- a second server, or
+    ``declare --bake`` beside a running one -- take turns instead of
+    replacing files and tearing down staging directories under each other.
+    The OS releases the lock when its holder dies, so a crashed patcher
+    cannot wedge the picture; the lock file itself is left in place,
+    because deleting it would hand a third process a different file to
+    lock than the one a second is already holding.
+    """
+    import msvcrt
+
+    store.mkdir(parents=True, exist_ok=True)
+    holding = open(store / ".bake.lock", "a+b")
+    try:
+        holding.seek(0)
+        # LK_LOCK waits about ten seconds and then raises. A patcher held
+        # out longer than that -- the other process is mid-catch-up -- has
+        # its derive fail, which the serving path answers as absence and
+        # retries: the fail-closed direction, never a stale file.
+        msvcrt.locking(holding.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            holding.seek(0)
+            msvcrt.locking(holding.fileno(), msvcrt.LK_UNLCK, 1)
+    finally:
+        holding.close()
 
 
 def _a_tile_stamped(pattern: Tile, store: Path,
@@ -455,8 +490,14 @@ class GovernedRun:
         patching again serialized twelve seconds of redundant work behind
         the guard and starved serving -- measured in the first baked churn.
         The stamp equality is the idempotence.
+
+        Guarded across PROCESSES as well as threads: the thread guard means
+        nothing to a second server on the same store, or to declare --bake
+        running beside a server, and their sidecars and staging directories
+        collide (review finding D7). The file lock is held by the operating
+        system, so a patcher that dies releases it.
         """
-        with self._bake_guard:
+        with self._bake_guard, _holding_the_bake_lock(self._shown):
             stamped = self._the_stamp()
             if stamped == current:
                 self._stamp_installed = current
