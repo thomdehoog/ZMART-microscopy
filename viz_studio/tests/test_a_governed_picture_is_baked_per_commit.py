@@ -462,6 +462,39 @@ def test_an_aliased_piece_path_cannot_walk_past_the_gate(tmp_path):
         thread.join(timeout=5)
 
 
+def test_a_baked_picture_still_warms_the_composer_for_its_patcher(tmp_path):
+    """Baked files serve the cold open; the PATCHER still needs warm slabs.
+
+    Warming was deliberately skipped for baked pictures — "burning the
+    processor the bake spared" — which was right about serving and wrong
+    about patching: a change touching a cold coarse region composes its
+    slab inside the derive, 0.5–3 s the operator watched as tiles updating
+    "with inconsistent timing", against the 60–90 ms every warm-region
+    change costs. The warmer runs for baked pictures too, so the first
+    change in any region finds its slab ready.
+    """
+    import time
+
+    from governed import GovernedRun
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    governed = GovernedRun(run.folder, piece=PIECE, store=store)
+    try:
+        composer = governed.composer()
+        deadline = time.time() + 10
+        while time.time() < deadline and not composer.coarse_levels_are_warm:
+            time.sleep(0.05)
+        assert composer.coarse_levels_are_warm, (
+            "the baked picture never warmed its composer — the patcher's "
+            "first touch of every region stays a multi-second toll"
+        )
+    finally:
+        governed.close()
+
+
 def test_an_empty_run_bakes_nothing_because_absence_means_fill(tmp_path):
     """A young run's bake costs nothing: fill is expressed by absent files."""
     run = a_governed_run(tmp_path)
