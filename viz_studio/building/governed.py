@@ -403,10 +403,12 @@ class GovernedRun:
         # piece under their eyes. Warmed pieces inherit across commits minus
         # each change's own footprint, so this is paid once per session and
         # then topped up by the change, never repeated. A BAKED picture
-        # already holds this ground as files kept true per commit, so
-        # warming it again would only burn the processor the bake spared.
-        if not (self._shown is not None and self._the_baked_levels()):
-            self._held.keep_the_coarse_levels_warm()
+        # warms too, for a different debtor: its files already serve the
+        # cold open, but its PATCHER composes every dirty piece, and a
+        # change touching a cold region paid 0.5-3 s inside
+        # landing-to-visible -- watched as tiles updating with inconsistent
+        # timing -- against 60-90 ms wherever the slabs were warm.
+        self._held.keep_the_coarse_levels_warm()
         return self._held
 
     def _the_baked_levels(self) -> tuple[int, ...]:
