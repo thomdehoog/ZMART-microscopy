@@ -326,10 +326,20 @@ def main() -> int:
                 page.wait_for_timeout(500)
             print(f"coarse slabs warm {time.time() - warming:.1f} s after "
                   "the open — the head start a real run's rhythm gives")
-        page.wait_for_timeout(3000)
         session.send("Page.startScreencast",
                      {"format": "png", "everyNthFrame": 1})
-        page.wait_for_timeout(500)
+        # Measurement begins only once the canvas has been QUIET for a
+        # second -- a check, not a guessed pause. A change's visible moment
+        # is "the first frame painted after its commit", so churning while
+        # the opening screenful still paints would credit loading frames to
+        # the first changes and fake impossibly FAST numbers; the quiet
+        # requirement is what keeps the clock honest, and it costs exactly
+        # as long as the picture actually needs.
+        settling = time.time()
+        while time.time() - settling < 30:
+            page.wait_for_timeout(250)
+            if not frames or time.time() - frames[-1][0] >= 1.0:
+                break
 
         rows = []
         burst_took = burst_landed = 0.0
@@ -404,7 +414,10 @@ def main() -> int:
                 if (shot.shape == settled_before.shape
                         and int((np.abs(shot - settled_before) > 20).sum())
                         >= 50):
-                    page.wait_for_timeout(1500)
+                    while (frames
+                           and time.time() - frames[-1][0] < 1.0
+                           and time.time() - absorbing < 60):
+                        page.wait_for_timeout(250)
                     break
             page.screenshot(path=str(FIXTURES / f"gov{across}x{across}"
                                      / "burst_after.png"))
@@ -466,7 +479,13 @@ def main() -> int:
                       f"{rows[-1]['derive_ms']:>6.0f}ms {rows[-1]['read']:>6} "
                       f"{visible_ms:>7.0f}ms", flush=True)
 
-            page.wait_for_timeout(2000)
+            # The recorder stops once the canvas has been quiet for a
+            # second, so the last change's frames are in -- a check, like
+            # every other wait here, never a guessed pause.
+            trailing = time.time()
+            while (time.time() - trailing < 30
+                   and frames and time.time() - frames[-1][0] < 1.0):
+                page.wait_for_timeout(250)
             session.send("Page.stopScreencast")
 
         print(f"\n{len(frames)} frames recorded. Looking for transients...")
