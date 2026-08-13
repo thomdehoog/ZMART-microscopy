@@ -208,6 +208,10 @@ class Composer:
         # Which tiles fall in each piece, per resolution, built on first use.
         self._indexed: dict[int, dict[tuple[int, int], list]] = {}
         self._indexing = threading.Lock()
+        # Which levels are pinned, worked out once: the answer sweeps the
+        # picture's shape at every level, and asking again per slab was
+        # measurable per-commit waste at survey scale.
+        self._pinned_levels: frozenset[int] | None = None
 
         # One encoder per thread, made when that thread first needs one.
         #
@@ -308,6 +312,72 @@ class Composer:
                 if (row, column) in dirty.get(level, ()):
                     continue
                 self._pinned.setdefault(key, slab)
+
+    def inherit_the_index(self, donor: Composer,
+                          dirty: dict[int, set[tuple[int, int]]],
+                          changed: frozenset[str],
+                          now_drawn: list[tuple[str, object]]) -> None:
+        """Carry the piece index forward, rebuilding only the dirtied pieces.
+
+        The index of which tiles fall in each piece was rebuilt from scratch
+        by every fresh snapshot — a sweep over every position at every level,
+        90 ms of every commit at 6,400 positions, restating an answer a
+        commit changes only inside its own footprint. So the index moves
+        house like the slabs do: pieces the change never reached keep the
+        donor's entry (the same tile objects — ground neither side touched
+        indexes the same either way), and each dirtied piece's entry is
+        rebuilt from what changed.
+
+        The rebuild keeps the draw order the index promises: a replaced
+        position keeps its slot (its commit-order place does not move), a
+        vanished position's entry is dropped, and a new arrival is appended
+        at the tail — behind everything published, where the newest commit
+        draws. ``changed`` names every position whose drawn generation moved;
+        ``now_drawn`` carries the changed positions still drawn, with their
+        fresh tiles, in the new snapshot's own draw order.
+
+        Levels the donor never indexed stay lazy here too, and are built the
+        ordinary way on first ask.
+        """
+        with donor._indexing:
+            copied = {level: dict(index)
+                      for level, index in donor._indexed.items()}
+        for level, index in copied.items():
+            fresh = []
+            for name, tile in now_drawn:
+                at = self.mosaic.lands_at(tile, level)
+                held = tile.copies[level].shape
+                covered = {
+                    (row, column)
+                    for row in range(at[1] // self.piece,
+                                     (at[1] + held[1] - 1) // self.piece + 1)
+                    for column in range(at[2] // self.piece,
+                                        (at[2] + held[2] - 1) // self.piece + 1)
+                }
+                fresh.append((name, tile, at, covered))
+            for target in dirty.get(level, ()):
+                rebuilt = []
+                swapped: set[str] = set()
+                for tile, at in index.get(target, ()):
+                    name = tile.name.split(".")[0]
+                    if name not in changed:
+                        rebuilt.append((tile, at))
+                        continue
+                    for fresh_name, fresh_tile, fresh_at, covered in fresh:
+                        if fresh_name == name and target in covered:
+                            rebuilt.append((fresh_tile, fresh_at))
+                            swapped.add(name)
+                            break
+                for fresh_name, fresh_tile, fresh_at, covered in fresh:
+                    if fresh_name not in swapped and target in covered:
+                        rebuilt.append((fresh_tile, fresh_at))
+                if rebuilt:
+                    index[target] = rebuilt
+                else:
+                    index.pop(target, None)
+        with self._indexing:
+            for level, index in copied.items():
+                self._indexed.setdefault(level, index)
 
     # -- what the picture is -------------------------------------------------
 
@@ -549,6 +619,8 @@ class Composer:
         voxels, and the coarsest whatever its share -- the whole-survey look is
         the one view every session wants and, on a survey, the dearest to build.
         """
+        if self._pinned_levels is not None:
+            return self._pinned_levels
         full = 1
         for side in self.mosaic.shape(0):
             full *= side
@@ -559,7 +631,8 @@ class Composer:
                 voxels *= side
             if voxels <= PINNED_SHARE * full:
                 pinned.add(level)
-        return frozenset(pinned)
+        self._pinned_levels = frozenset(pinned)
+        return self._pinned_levels
 
     @property
     def coarse_levels_are_warm(self) -> bool:

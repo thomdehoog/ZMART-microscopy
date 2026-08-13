@@ -192,6 +192,11 @@ class TheWorldFrame(Mosaic):
     # measurable waste at thousands of positions -- and the answer cannot
     # have changed.
     _origins: dict[tuple, tuple[float, float, float]] = {}
+    # The per-level extent, remembered the same way and for the same reason:
+    # a fresh frame is built per derive, and its shape() sweep over every
+    # planned placement was 130 ms of every commit at 6,400 positions --
+    # recomputing, per commit, a number the immutable layout fixed at declare.
+    _shapes: dict[tuple, tuple[int, int, int]] = {}
 
     def __init__(self, tiles, layout, profile):
         named = (layout.run_id, layout.revision, profile.profile_id)
@@ -234,19 +239,24 @@ class TheWorldFrame(Mosaic):
         """The layout's extent: every planned position, arrived or not."""
         found = self._shape.get(level)
         if found is None:
-            rung = self._profile.level(level)
-            frame = self._profile.frame_shape
-            reach = []
-            for axis in ("z", "y", "x"):
-                down = float(rung.downsampling.get(axis, 1))
-                edge = max(
-                    (float(placement.origin.get(axis, 0))
-                     + float(frame.get(axis, 1))
-                     for placement in self._layout.positions),
-                    default=float(frame.get(axis, 1)),
-                )
-                reach.append(-(-int(edge) // int(down)))
-            found = tuple(reach)
+            named = (self._layout.run_id, self._layout.revision,
+                     self._profile.profile_id, level)
+            found = TheWorldFrame._shapes.get(named)
+            if found is None:
+                rung = self._profile.level(level)
+                frame = self._profile.frame_shape
+                reach = []
+                for axis in ("z", "y", "x"):
+                    down = float(rung.downsampling.get(axis, 1))
+                    edge = max(
+                        (float(placement.origin.get(axis, 0))
+                         + float(frame.get(axis, 1))
+                         for placement in self._layout.positions),
+                        default=float(frame.get(axis, 1)),
+                    )
+                    reach.append(-(-int(edge) // int(down)))
+                found = tuple(reach)
+                TheWorldFrame._shapes[named] = found
             self._shape[level] = found  # type: ignore[assignment]
         return found  # type: ignore[return-value]
 
@@ -373,6 +383,17 @@ class GovernedRun:
             dirtied = self._what_changed_dirtied(previous, made,
                                                  before, drawing)
             made.inherit_the_unchanged(previous, dirtied, stale=stale)
+            # The piece index moves house with the slabs, patched only where
+            # the change reached -- see Composer.inherit_the_index.
+            changed_names = frozenset(
+                one for one in before.keys() | drawing.keys()
+                if before.get(one) != drawing.get(one)
+            )
+            made.inherit_the_index(
+                previous, dirtied, changed_names,
+                [(one, tiles[one]) for one in drawing
+                 if one in changed_names],
+            )
         # The fold's own bookkeeping, NOT a fresh read of the events file:
         # the compose above already folded the manifest, and a second reader
         # racing the writer's appends was measured (twice) spamming

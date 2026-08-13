@@ -722,3 +722,61 @@ def test_shared_ground_shows_the_later_commit_whatever_the_names_say(tmp_path):
     assert piece[..., inside_the_overlap].max() == 700, (
         "ground both positions imaged must show the later commit's pixels"
     )
+
+
+def the_index_as_names(composer) -> dict:
+    """Every level's piece index, as comparable names instead of objects.
+
+    Two composers over the same state hold different tile objects, so the
+    comparison is by what the index MEANS: which store answers for which
+    piece, in which draw order.
+    """
+    told = {}
+    for level in range(composer.mosaic.levels):
+        index = composer._tiles_in_each_piece(level)
+        told[level] = {
+            piece: [(tile.name, tuple(at)) for tile, at in entries]
+            for piece, entries in index.items()
+        }
+    return told
+
+
+def test_the_inherited_piece_index_matches_one_built_fresh(tmp_path):
+    """After a landing and a replacement, the carried index equals a rebuilt one.
+
+    The index moves house between snapshots, patched only inside the change's
+    footprint — see ``Composer.inherit_the_index``. Whether the surgery kept
+    it true is checked the only way that means anything: against the index a
+    fresh composer builds from scratch off the same manifest state, piece by
+    piece and in the same draw order, since a piece whose entry lists the
+    wrong store or the wrong order draws the wrong specimen without any
+    error.
+    """
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    governed = GovernedRun(tmp_path, piece=PIECE)
+    held = governed.composer()
+    for level in range(held.mosaic.levels):
+        held._tiles_in_each_piece(level)
+
+    run.write_and_publish("posB", some_specimen(900))  # an arrival
+    landed = governed.composer()
+    fresh = GovernedRun(tmp_path, piece=PIECE).composer()
+    assert the_index_as_names(landed) == the_index_as_names(fresh), (
+        "after a landing, the inherited index disagrees with one built "
+        "from scratch"
+    )
+
+    run.replace_a_position("posA", some_specimen(2200))  # a new generation
+    replaced = governed.composer()
+    fresh = GovernedRun(tmp_path, piece=PIECE).composer()
+    assert the_index_as_names(replaced) == the_index_as_names(fresh), (
+        "after a replacement, the inherited index disagrees with one built "
+        "from scratch"
+    )
+    for entries in the_index_as_names(replaced).values():
+        for named in entries.values():
+            for name, _ in named:
+                assert "posA.ome" not in name, (
+                    "a piece still names the replaced generation's store"
+                )
