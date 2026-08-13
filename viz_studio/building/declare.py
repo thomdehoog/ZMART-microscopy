@@ -195,7 +195,10 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
         described = json.loads(composer.group_json())
         baked: list[int] = []
         if bake:
-            baked = _bake_the_coarse_ground(store, composer, described)
+            from governed import _holding_the_bake_lock
+
+            with _holding_the_bake_lock(store):
+                baked = _bake_the_coarse_ground(store, composer, described)
         described["attributes"][OURS] = {
             "what": (
                 "A picture of a live, manifest-governed run. It holds no "

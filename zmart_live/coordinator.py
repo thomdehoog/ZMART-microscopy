@@ -139,6 +139,22 @@ class Inspection:
         return f"{which} is not ready to be shown. " + " ".join(self.complaints)
 
 
+def _the_files_identity(target: Path) -> tuple | None:
+    """Enough about a file to know it is still the very same file.
+
+    Device, inode, size and both timestamps -- the rule the shard tables
+    and the served pictures already remember by. ``None`` for a file that
+    cannot be looked at, which never equals any real identity, so a
+    consumer holding ``None`` always re-reads.
+    """
+    try:
+        stamp = target.stat()
+    except OSError:
+        return None
+    return (stamp.st_dev, getattr(stamp, "st_ino", 0), stamp.st_size,
+            stamp.st_mtime_ns, stamp.st_ctime_ns)
+
+
 @dataclass
 class LivePublisher:
     """Publish complete positions through one metadata-only run-wide view.
@@ -268,6 +284,13 @@ class LivePublisher:
                     restored.get(event.position_id, 0), generation
                 )
         self.generations = restored
+        # The stored link map's routes, remembered against the file's own
+        # identity: every consumer of the map on disk shares one read and
+        # one routing of it per file state, where re-reading and re-routing
+        # the whole survey twice per publish was two of the twelve routing
+        # passes profiled at 12,769 positions. See _the_stored_routes.
+        self._stored_routes: tuple[tuple, dict, dict[int, object]] | None = \
+            None
 
     def _check_existing_position_shapes_match_the_plan(self) -> None:
         """Refuse to reinterpret arrays left by an earlier writer process.
@@ -727,6 +750,7 @@ class LivePublisher:
             and placement.position_id not in showing
         ]
         levels: list[dict] = []
+        routed: dict[int, object] = {}
         for level_number in self.profile.linkable_levels:
             if not showing:
                 continue
@@ -735,10 +759,12 @@ class LivePublisher:
                 for position_id in showing
             }
             reach = self._how_big_the_overview_is(level_number)
-            # The route is built here and then thrown away. What is wanted is the
-            # refusal it makes when the positions do not fit together, before
-            # anything is written down as though they did.
-            route_the_view(list(pointed.values()), view_shape=reach)
+            # This route is the pre-write gate: the refusal it makes when the
+            # positions do not fit together comes before anything is written
+            # down as though they did. It is then KEPT rather than thrown
+            # away -- see the read-back below.
+            routed[level_number] = route_the_view(
+                list(pointed.values()), view_shape=reach)
             levels.append(
                 {
                     "level": level_number,
@@ -757,24 +783,72 @@ class LivePublisher:
             )
         target = self.link_map_file
         target.parent.mkdir(parents=True, exist_ok=True)
-        _write_and_replace(
-            target,
-            json.dumps(
-                {
-                    "schema": _LINKS_SCHEMA,
-                    "run_id": self.run_id,
-                    "profile_id": self.profile.profile_id,
-                    "scene_layout_revision": self.layout.revision,
-                    "position_generations": {
-                        position_id: self.generations.get(position_id, 0)
-                        for position_id in showing
-                    },
-                    "created_at": now_in_words(),
-                    "levels": levels,
-                },
-                indent=2,
-            ),
-        )
+        described = {
+            "schema": _LINKS_SCHEMA,
+            "run_id": self.run_id,
+            "profile_id": self.profile.profile_id,
+            "scene_layout_revision": self.layout.revision,
+            "position_generations": {
+                position_id: self.generations.get(position_id, 0)
+                for position_id in showing
+            },
+            "created_at": now_in_words(),
+            "levels": levels,
+        }
+        payload = json.dumps(described, indent=2)
+        _write_and_replace(target, payload)
+        # The stored-map consumers -- the pointer follow and the view check --
+        # used to re-read this file and re-route the whole survey, twice each
+        # per publish, to rebuild value-identical routes: two of a publish's
+        # twelve routing passes at 12,769 positions, profiled as the largest
+        # avoidable cost in the writer. The routes above are reused instead,
+        # but only after proving the file holds EXACTLY what was validated --
+        # the map on disk is what the server follows, and a byte of drift
+        # between written and remembered is the fault the followers exist to
+        # catch, so anything but equality forgets the routes and re-reads.
+        try:
+            written_back = target.read_text(encoding="utf-8")
+        except OSError:
+            written_back = None
+        if written_back == payload:
+            self._stored_routes = (_the_files_identity(target), described,
+                                   routed)
+        else:
+            self._stored_routes = None
+
+    def _the_stored_routes(self) -> tuple[dict, dict[int, object]]:
+        """The stored map and one route per level, read and routed once.
+
+        Shared by every consumer of the map ON DISK. The remembered routes
+        are keyed to the file's identity, so a map rewritten by anything --
+        this writer, another process, a hand -- is re-read and re-routed;
+        while the file has not changed, asking again costs a ``stat``. A
+        failure here fails every consumer closed, which is why the callers
+        wrap it in their own complaint handling rather than sharing one.
+        """
+        target = self.link_map_file
+        mark = _the_files_identity(target)
+        held = self._stored_routes
+        if held is not None and held[0] == mark:
+            return held[1], held[2]
+        stored = self._read_the_link_map()
+        routed = {
+            int(level["level"]): route_the_view(
+                [
+                    Placed(
+                        array=self.folder / entry["array"],
+                        lands_at=tuple(entry["lands_at"]),
+                        taken_from=tuple(entry["taken_from"]),
+                        size=tuple(entry["size"]),
+                    )
+                    for entry in level.get("positions", ())
+                ],
+                view_shape=tuple(level["view_shape"]),
+            )
+            for level in stored.get("levels", ())
+        }
+        self._stored_routes = (mark, stored, routed)
+        return stored, routed
 
     def _read_the_link_map(self) -> dict:
         """Read the stored map back, refusing one that belongs somewhere else.
@@ -1038,7 +1112,7 @@ class LivePublisher:
         to the same pixels the position's own array returns for that piece.
         """
         try:
-            stored = self._read_the_link_map()
+            stored, routed = self._the_stored_routes()
         except Exception as trouble:
             complaints.append(str(trouble))
             return 0
@@ -1059,20 +1133,9 @@ class LivePublisher:
                 )
                 continue
             try:
-                route = route_the_view(
-                    [
-                        Placed(
-                            array=self.folder / entry["array"],
-                            lands_at=tuple(entry["lands_at"]),
-                            taken_from=tuple(entry["taken_from"]),
-                            size=tuple(entry["size"]),
-                        )
-                        for entry in level.get("positions", ())
-                    ],
-                    view_shape=tuple(level["view_shape"]),
-                )
                 served += self._every_piece_of_mine_is_served(
-                    position_id, level_number, mine[0], route, timepoint, complaints
+                    position_id, level_number, mine[0],
+                    routed[int(level_number)], timepoint, complaints
                 )
             except Exception as trouble:
                 complaints.append(
@@ -1222,7 +1285,7 @@ class LivePublisher:
             return 0
         checked = 0
         try:
-            stored = self._read_the_link_map()
+            stored, routed = self._the_stored_routes()
             described = {
                 int(item["level"]): item for item in stored.get("levels", ())
             }
@@ -1242,19 +1305,7 @@ class LivePublisher:
                         "only."
                     )
                     continue
-                route = route_the_view(
-                    [
-                        Placed(
-                            array=self.folder / item["array"],
-                            lands_at=tuple(item["lands_at"]),
-                            taken_from=tuple(item["taken_from"]),
-                            size=tuple(item["size"]),
-                        )
-                        for item in entry.get("positions", ())
-                    ],
-                    view_shape=tuple(entry["view_shape"]),
-                )
-                refuse_a_view_stored_differently(path, route)
+                refuse_a_view_stored_differently(path, routed[level.level])
                 checked += 1
         except Exception as trouble:
             complaints.append(f"The linked virtual view could not be checked: {trouble}")

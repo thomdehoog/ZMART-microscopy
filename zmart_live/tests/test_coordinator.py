@@ -78,6 +78,55 @@ def everything_but_the_commit(run, position_id, pixels=None):
     run.write_the_layout()
 
 
+class TestAPublishRoutesEachStateOnce:
+    """The same state is never routed twice from value-identical inputs.
+
+    A publish used to route the whole survey twelve times: once per level
+    as the pre-write gate, then twice more per level as the pointer follow
+    and the view check each re-read the map it had just written and rebuilt
+    the very same routes. Profiled at 12,769 committed positions this was
+    twenty-six of a publish's thirty-seven seconds. The gate's routes are
+    now kept and reused -- but only after the written file reads back
+    byte-identical to what was validated, because the map on disk is what
+    the server follows, and a byte of drift between written and remembered
+    is exactly the fault the followers exist to catch.
+    """
+
+    def test_one_publish_routes_each_level_once(self, run, monkeypatch):
+        from zmart_live import coordinator
+
+        counted = {"routes": 0}
+        the_real_route = coordinator.route_the_view
+
+        def a_counted_route(*args, **kwargs):
+            counted["routes"] += 1
+            return the_real_route(*args, **kwargs)
+
+        monkeypatch.setattr(coordinator, "route_the_view", a_counted_route)
+        run.write_and_publish("posA", some_specimen(700))
+        levels = len(run.profile.linkable_levels)
+        assert counted["routes"] <= levels, (
+            f"one publish routed {counted['routes']} times over "
+            f"{levels} linkable levels — the stored-map consumers are "
+            "rebuilding routes the gate already built"
+        )
+
+    def test_a_map_edited_behind_the_writer_is_still_read_afresh(self, run):
+        """The remembering must not blind the followers to drift on disk."""
+        run.write_and_publish("posA", some_specimen(700))
+        target = run.link_map_file
+        held = json.loads(target.read_text(encoding="utf-8"))
+        for level in held["levels"]:
+            level["positions"] = [entry for entry in level["positions"]
+                                  if entry["position_id"] != "posA"]
+        target.write_text(json.dumps(held), encoding="utf-8")
+        report = run.inspect("posA")
+        assert not report.everything_checks_out, (
+            "posA was edited out of the map on disk and inspection still "
+            "passed — the remembered routes outlived the file they came from"
+        )
+
+
 class TestTheOrderedSequenceWorks:
     """The positive arm that every refusal below is measured against."""
 
