@@ -43,6 +43,7 @@ import json
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -62,8 +63,39 @@ import served  # noqa: E402
 from declare import declare_a_governed_picture  # noqa: E402
 
 from zmart_live.coordinator import LivePublisher  # noqa: E402
-from zmart_live.model import GridCell  # noqa: E402
+from zmart_live.model import CommitEvent, GridCell  # noqa: E402
 from zmart_live.profiles import plan_the_writing  # noqa: E402
+
+
+def fast_publish(run: LivePublisher, position_id: str) -> None:
+    """Append one position's commit straight to the manifest, for fixtures.
+
+    The real writer spends ~2.2 s per publish at nine hundred committed
+    positions — its own super-linearity, measured and owned separately —
+    which prices a 6,400-position fixture at hours of wall clock for work
+    the serving measurements do not need. This appends the commit event
+    directly, the pattern the browser fixture `growing_run.py` sanctions:
+    the readiness flags are claimed rather than earned, which is honest
+    exactly here, because the fixture wrote every pixel and record itself a
+    moment ago and there is nothing else to check. The WATCHED churn never
+    uses this — its writer column measures the real thing.
+    """
+    run.manifest.publish(CommitEvent(
+        revision=run.manifest.next_revision(),
+        event_type="position_committed",
+        position_id=position_id,
+        run_id=run.run_id,
+        acquisition_type=run.profile.acquisition_type,
+        acquisition_profile_id=run.profile.profile_id,
+        scene_layout_revision=run.layout.revision,
+        link_revision=1,
+        channels=tuple(run.channels),
+        levels=tuple(range(len(run.profile.levels))),
+        pyramids_ready=True,
+        links_ready=True,
+        view_ready=True,
+        validated=True,
+    ))
 
 FRAME = 384
 BRIGHT = (46000, 62000)
@@ -85,11 +117,15 @@ def the_run(across: int, seed_value: int = 7) -> tuple[LivePublisher, list[str]]
     """
     folder = FIXTURES / f"gov{across}x{across}"
     profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1)
-    cells = {GridCell(row, column): f"p{row:02d}{column:02d}"
+    # Name fields sized to the grid, or a three-digit row bleeds into the
+    # column: at 113 across, "p10100" reads as row 10 column 100 AND row 101
+    # column 0, which the topology check rightly refuses.
+    width = len(str(across - 1))
+    cells = {GridCell(row, column): f"p{row:0{width}d}{column:0{width}d}"
              for row in range(across) for column in range(across)}
     run = LivePublisher(folder / "run", profile, run_id=f"scale{across}",
                         cells=cells, timepoints=1)
-    order = [f"p{row:02d}{column:02d}"
+    order = [f"p{row:0{width}d}{column:0{width}d}"
              for row in range(across) for column in range(across)]
 
     wanted = run.position_store(order[-1])
@@ -128,24 +164,24 @@ def main() -> int:
     # The interior is pre-published in bulk -- the survey the operator has
     # already imaged. The outermost ring stays dark: it is the boundary the
     # run will grow into while being watched.
+    width = len(str(across - 1))
     boundary = [one for one in order
-                if 0 in (int(one[1:3]), int(one[3:5]))
-                or across - 1 in (int(one[1:3]), int(one[3:5]))]
+                if 0 in (int(one[1:1 + width]), int(one[1 + width:]))
+                or across - 1 in (int(one[1:1 + width]), int(one[1 + width:]))]
     interior = [one for one in order if one not in set(boundary)]
     committed = set(run._committed_units())
     to_publish = [one for one in interior if (one, 0) not in committed]
     if to_publish:
         print(f"Bulk-publishing {len(to_publish)} interior positions "
-              "(no viewer yet)...")
+              "(fixture fast path — see fast_publish; the churn's writer "
+              "column measures the real writer)...")
         began = time.time()
         for number, position_id in enumerate(to_publish):
-            run.publish(position_id)
-            if (number + 1) % 100 == 0:
+            fast_publish(run, position_id)
+            if (number + 1) % 500 == 0:
                 print(f"  {number + 1} published "
                       f"({(time.time() - began):.0f} s)", flush=True)
-        print(f"  published in {time.time() - began:.0f} s "
-              f"({(time.time() - began) / max(1, len(to_publish)) * 1000:.0f}"
-              " ms each — the writer's own cost)")
+        print(f"  published in {time.time() - began:.0f} s")
 
     shown = FIXTURES / f"gov{across}x{across}" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live")
@@ -210,12 +246,23 @@ def main() -> int:
                                timeout=600_000)
         page.wait_for_function(watching.EVERY_SOURCE_RESOLVED, timeout=600_000)
         opened = time.time() - opening
+        # One piece asked for outright, so the governed composer has
+        # certainly derived before its accounting is read -- the engine's own
+        # first requests race this moment.
+        try:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/data/0/{store.name}/3/c/0/0/0",
+                    timeout=120) as answer:
+                answer.read()
+        except urllib.error.HTTPError:
+            pass  # absent is an ordinary answer; the derive still happened
         governed = served._composers.get(store.resolve())
         accounting = getattr(governed, "accounting", {})
         print(f"\nCold open at {len(to_publish) + len(committed)} committed "
               f"positions: {opened:.1f} s "
-              f"(first derive {accounting.get('last_derive_ms', 0):.0f} ms, "
-              f"{accounting.get('last_tiles_read', 0)} tiles read)")
+              f"(derive {accounting.get('last_derive_ms', 0):.0f} ms, "
+              f"{accounting.get('last_tiles_read', 0)} tiles read; "
+              f"held composers {len(served._composers)})")
         page.wait_for_timeout(3000)
         session.send("Page.startScreencast",
                      {"format": "png", "everyNthFrame": 1})
@@ -240,6 +287,13 @@ def main() -> int:
         for kind, position_id in plan:
             wrote = time.perf_counter()
             if kind == "land":
+                # A NEW position needs the shared records extended before its
+                # commit -- the link map and view must already cover its
+                # ground or publish rightly refuses. This is the writer's own
+                # landing sequence, so its cost belongs in the writer column.
+                units = frozenset(run._committed_units()) | {(position_id, 0)}
+                run.write_the_link_map(units)
+                run.write_the_view()
                 run.publish(position_id)
             else:
                 brighter = seed.integers(*BRIGHT, (1, FRAME, FRAME)
@@ -247,16 +301,19 @@ def main() -> int:
                 brighter[:, ::8, :] = 65535  # striped, so the eye can tell
                 run.replace_a_position(position_id, brighter)
             writer_ms = (time.perf_counter() - wrote) * 1000
-            frames_before = len(frames)
             landed = time.time()
             announce(position_id)
-            # The next painted frame after the announce is the visible moment;
-            # wait for one, briefly.
+            # The first frame PAINTED after the announce is the visible
+            # moment -- matched by the frame's own timestamp, not by list
+            # position, because the screencast delivers with a lag.
+            visible_ms = float("nan")
             deadline = time.time() + 5
-            while len(frames) == frames_before and time.time() < deadline:
+            while time.time() < deadline:
+                later = [when for when, _ in frames if when > landed]
+                if later:
+                    visible_ms = (later[0] - landed) * 1000
+                    break
                 page.wait_for_timeout(20)
-            visible_ms = ((frames[frames_before][0] - landed) * 1000
-                          if len(frames) > frames_before else float("nan"))
             accounting = dict(getattr(governed, "accounting", {}))
             rows.append({"kind": kind, "writer_ms": writer_ms,
                          "derive_ms": accounting.get("last_derive_ms", 0),
