@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from zmart_live.gateway import _LiveRun
@@ -82,6 +81,43 @@ def _a_committed_tile(store) -> Tile:
     for copy in tile.copies:
         _promising_its_blocks(copy)
     return tile
+
+
+def _a_tile_stamped(pattern: Tile, store: Path,
+                    corner_um: tuple[float, float, float]) -> Tile:
+    """One published position's tile, stamped from the pattern instead of read.
+
+    Every position of a governed run is written by the same writer from the
+    same sealed profile, so the whole of a tile's geometry — how many copies
+    it keeps, each copy's shape, chunking, kind of number and voxel size — is
+    the run's, not the position's. Only two things are the position's own:
+    which folder holds its pixels and where the layout puts it, and the layout
+    already states the second in the very numbers the writer wrote into the
+    store (``origin_pixels`` times the voxel size — see
+    ``zmart_live.omezarr._where_the_corner_sits``, which gives every level the
+    same corner). Re-learning the run's geometry once per position — seven
+    small file reads each — was the whole of the one-time cold derive: 44
+    seconds at 12,769 positions against cold filesystem caches, 7.3 warm.
+
+    The stamped tile still promises its blocks the way a read one does, and
+    the promise resolves against the store's own description on the first
+    pixel ask — so a store whose files disagree with its stamp fails closed
+    at the read, exactly where a damaged committed position always has.
+    """
+    copies = [
+        _promising_its_blocks(Copy(
+            held_in=store / one.held_in.name,
+            shape=one.shape,
+            chunks=one.chunks,
+            dtype=one.dtype,
+            voxel_um=one.voxel_um,
+            corner_um=corner_um,
+            outer=one.outer,
+        ))
+        for one in pattern.copies
+    ]
+    return Tile(name=store.name, store=store, copies=copies,
+                axes=pattern.axes, turned=pattern.turned)
 
 
 class TheWorldFrame(Mosaic):
@@ -211,6 +247,20 @@ class GovernedRun:
         # the survey.
         self._drawing: dict[str, int] = {}
         self._tiles: dict[str, Tile] = {}
+        # The one tile read from disk, standing in for the run's whole
+        # geometry: every position is written by the same writer from the
+        # same sealed profile, so every other tile is stamped from this one
+        # rather than read -- see _a_tile_stamped. Remembered per profile,
+        # because a layout revision naming a different profile would make the
+        # stamp describe the wrong kind of store.
+        self._pattern: Tile | None = None
+        self._pattern_of: str | None = None
+        # Where each planned position's first voxel sits, in micrometres,
+        # worked out once per layout revision -- a revision is immutable, and
+        # sweeping thousands of placements again per commit is the kind of
+        # O(survey) term the derive has already shed twice.
+        self._corners: dict[str, tuple[float, float, float]] = {}
+        self._corners_mark: tuple[int, str] | None = None
         self._guard = threading.Lock()
         # What deriving snapshots has cost, for the scale harnesses: how many
         # times, how long the last one took, and how many tiles it read from
@@ -274,12 +324,14 @@ class GovernedRun:
                                          dict[str, Tile]]:
         """Derive tiles, frame and composer from the manifest's current truth.
 
-        Only the CHANGED positions are read from disk: a tile is immutable
-        per generation, so a position whose generation the previous snapshot
-        already drew is carried over as the very object already in hand --
-        open arrays, presence promise and all. The cost of a commit is
-        thereby its change, not the survey; the whole-survey read happens
-        exactly once, on the first snapshot of a session.
+        Nothing is read from disk here beyond the one pattern store, once per
+        session: a position whose generation the previous snapshot already
+        drew is carried over as the very object already in hand — open
+        arrays, presence promise and all — and a CHANGED position is stamped
+        from the pattern and the layout (see :func:`_a_tile_stamped`), which
+        together already say everything the position's own files would. The
+        cost of a derive is thereby its change, not the survey, cold opens
+        included.
         """
         published = self._run._published_units()
         order = self._run._positions_in_commit_order()
@@ -295,17 +347,32 @@ class GovernedRun:
         }
         changed = [one for one, generation in drawing.items()
                    if before.get(one) != generation or one not in kept]
-        stores = [self._the_store_of(one, drawing[one]) for one in changed]
-        self.accounting["last_tiles_read"] = len(stores)
-        # Several at once for the same reason read_the_transfer does: opening
-        # a tile is a handful of small file reads, so this waits on the disk.
-        if stores:
-            with ThreadPoolExecutor(
-                max_workers=min(32, (len(stores) + 3) // 4)
-            ) as pool:
-                fresh = dict(zip(changed, pool.map(_a_committed_tile, stores)))
-        else:
-            fresh = {}
+        read = 0
+        fresh: dict[str, Tile] = {}
+        if changed:
+            corners = self._corners_of(layout, profile)
+            for one in changed:
+                if one not in corners:
+                    raise ValueError(
+                        f"the manifest publishes position {one!r}, but layout "
+                        f"revision {layout.revision} does not place it. A "
+                        "committed position the layout cannot place has no "
+                        "corner to draw it at, so this is drift between the "
+                        "run's records, refused rather than guessed around."
+                    )
+            if self._pattern is None or self._pattern_of != profile.profile_id:
+                first = changed[0]
+                self._pattern = self._the_pattern_read_and_checked(
+                    first, drawing[first], corners[first])
+                self._pattern_of = profile.profile_id
+                read = 1
+            fresh = {
+                one: _a_tile_stamped(
+                    self._pattern, self._the_store_of(one, drawing[one]),
+                    corners[one])
+                for one in changed
+            }
+        self.accounting["last_tiles_read"] = read
         tiles = {
             position_id: fresh.get(position_id) or kept[position_id]
             for position_id in drawing
@@ -313,6 +380,56 @@ class GovernedRun:
         ordered = [tiles[position_id] for position_id in drawing]
         return (Composer(TheWorldFrame(ordered, layout, profile),
                          piece=self._piece), drawing, tiles)
+
+    def _the_pattern_read_and_checked(self, position_id: str, generation: int,
+                                      corner_um: tuple[float, float, float],
+                                      ) -> Tile:
+        """Read the one store that stands in for every other, and check it.
+
+        Stamping trusts the layout for every corner, so the one store that IS
+        read is where that trust gets checked: its written translation must
+        be the layout's placement to the last bit — the writer computed it
+        from the very same numbers (``origin_pixels`` times the voxel size),
+        so any difference at all means the writer and the layout have drifted
+        apart, and every stamped corner would be quietly wrong on screen.
+        """
+        pattern = _read_one_tile(self._the_store_of(position_id, generation))
+        for copy in pattern.copies:
+            if copy.corner_um != corner_um:
+                raise ValueError(
+                    f"position {position_id!r} says its corner sits at "
+                    f"{copy.corner_um} micrometres, but the layout places it "
+                    f"at {corner_um}. The writer stamps a store's corner from "
+                    "the layout's own placement, so a disagreement means the "
+                    "run's records have drifted apart — and every other "
+                    "position's corner is taken from the layout on that "
+                    "store's word, so this is refused rather than drawn "
+                    "somewhere quietly wrong."
+                )
+        return pattern
+
+    def _corners_of(self, layout, profile) -> dict[str, tuple[float, float,
+                                                              float]]:
+        """Where each planned position's first voxel sits, in micrometres.
+
+        The same arithmetic the writer uses for a store's translation
+        (``zmart_live.omezarr._where_the_corner_sits``), applied to the
+        layout every position came from — float by float, so the stamped
+        corners and the written ones are bit-identical. Worked out once per
+        layout revision, which is immutable.
+        """
+        named = (layout.revision, profile.profile_id)
+        if self._corners_mark != named:
+            voxel = tuple(float(profile.voxel_size.get(axis, 1.0))
+                          for axis in ("z", "y", "x"))
+            self._corners = {
+                placement.position_id: tuple(
+                    float(placement.origin.get(axis, 0.0)) * size
+                    for axis, size in zip(("z", "y", "x"), voxel))
+                for placement in layout.positions
+            }
+            self._corners_mark = named
+        return self._corners
 
     def _what_changed_dirtied(self, previous: Composer, fresh: Composer,
                               before: dict[str, int], now: dict[str, int],

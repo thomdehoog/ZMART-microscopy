@@ -513,17 +513,22 @@ def test_a_run_of_several_channels_is_refused_at_the_declare_door(tmp_path):
         declare_a_governed_picture(tmp_path / "shown", run.folder, name="live")
 
 
-# -- a commit reads its change, not the survey -----------------------------------
+# -- a derive reads the pattern, not the survey -----------------------------------
 
 
-def test_a_commit_reads_only_the_changed_positions_from_disk(tmp_path):
-    """Deriving a fresh snapshot must cost the change, not the survey.
+def test_a_derive_reads_one_pattern_store_however_many_are_committed(tmp_path):
+    """Deriving a snapshot must read one store from disk, ever, per session.
 
-    Measured at ~900 committed positions before this held: every commit
-    re-read every tile's description — ~527 ms per landing, all of it in
-    the operator's landing-to-visible latency, and linear in the survey. A
-    tile is immutable per generation, so everything unchanged is reused
-    from the previous snapshot and only the changed stores are read.
+    Every position of a governed run is written by the same writer from the
+    same sealed profile, so a tile's whole geometry — copies, shapes, chunks,
+    voxel sizes — is the run's, and only its folder and its place on the
+    stage are its own. Re-learning the run's geometry once per position was
+    the whole of the one-time cold derive: 44 s at 12,769 positions against
+    cold filesystem caches, 7.3 s warm, seven small file reads per position
+    either way. The layout and one read store already say everything those
+    reads would, so the cold derive reads the pattern and stamps the rest —
+    and a landing or a replacement, whose geometry the pattern already gave,
+    reads nothing at all.
     """
     run = a_governed_run(tmp_path, third=True)
     run.write_and_publish("posA", some_specimen(700))
@@ -531,13 +536,16 @@ def test_a_commit_reads_only_the_changed_positions_from_disk(tmp_path):
 
     governed = GovernedRun(run.folder, piece=PIECE)
     governed.composer()
-    assert governed.accounting["last_tiles_read"] == 2
+    assert governed.accounting["last_tiles_read"] == 1, (
+        "a cold derive read the survey instead of stamping it from one "
+        "pattern store and the layout"
+    )
 
     run.write_and_publish("posC", some_specimen(1900))
     composer = governed.composer()
-    assert governed.accounting["last_tiles_read"] == 1, (
-        "a landing re-read the whole survey instead of the one store that "
-        "changed"
+    assert governed.accounting["last_tiles_read"] == 0, (
+        "a landing has the pattern in hand already, so it must read no "
+        "store at all"
     )
     a_only, _, _ = the_columns_of(run)
     assert 700 in pixels_of(composer, 0, 0, 0, a_only), (
@@ -546,8 +554,78 @@ def test_a_commit_reads_only_the_changed_positions_from_disk(tmp_path):
 
     run.replace_a_position("posA", some_specimen(2200))
     composer = governed.composer()
-    assert governed.accounting["last_tiles_read"] == 1
+    assert governed.accounting["last_tiles_read"] == 0
     assert 2200 in pixels_of(composer, 0, 0, 0, a_only)
+
+
+def test_a_stamped_tile_says_exactly_what_the_walked_tile_would(tmp_path):
+    """Stamping is only honest if it is indistinguishable from reading.
+
+    Every field the old walk learned from a position's own files — where each
+    copy lives, its shape, its chunking, its kind of number, its voxel size,
+    its corner on the stage, its fixed outer indices — must come out of the
+    stamp identical, including for a store that a replacement moved to a
+    later generation. A single voxel of disagreement here is a tile drawn in
+    the wrong place with nothing on screen to say so.
+    """
+    from governed import _a_committed_tile
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    run.write_and_publish("posB", some_specimen(1100))
+    run.replace_a_position("posB", some_specimen(2200))
+
+    governed = GovernedRun(run.folder, piece=PIECE)
+    governed.composer()
+
+    for position_id, generation in (("posA", 0), ("posB", 1)):
+        stamped = governed._tiles[position_id]
+        walked = _a_committed_tile(governed._the_store_of(position_id,
+                                                          generation))
+        assert stamped.name == walked.name
+        assert stamped.store == walked.store
+        assert stamped.axes == walked.axes
+        assert stamped.turned == walked.turned
+        assert len(stamped.copies) == len(walked.copies)
+        for ours, theirs in zip(stamped.copies, walked.copies):
+            assert ours.held_in == theirs.held_in
+            assert ours.shape == theirs.shape
+            assert ours.chunks == theirs.chunks
+            assert ours.dtype == theirs.dtype
+            assert ours.voxel_um == theirs.voxel_um
+            assert ours.corner_um == theirs.corner_um
+            assert ours.outer == theirs.outer
+            assert ours.presence is not None, (
+                "a stamped committed tile must still promise its blocks — "
+                "absent chunks are damage to fail closed on, not fill"
+            )
+
+
+def test_a_pattern_whose_corner_disagrees_with_the_layout_is_refused(tmp_path):
+    """The one store that is read must agree with the layout it stands in for.
+
+    Stamping trusts the layout for every corner, so the read pattern is where
+    that trust is checked: a store whose written translation is not the
+    layout's placement means the writer and the layout have drifted apart,
+    and every stamped corner would be quietly wrong. Refused loudly instead.
+    """
+    import json
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+
+    described = run.position_store("posA") / "zarr.json"
+    held = json.loads(described.read_text(encoding="utf-8"))
+    for dataset in held["attributes"]["ome"]["multiscales"][0]["datasets"]:
+        for transform in dataset["coordinateTransformations"]:
+            if transform["type"] == "translation":
+                transform["translation"] = [
+                    number + 5.0 for number in transform["translation"]
+                ]
+    described.write_text(json.dumps(held), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="layout"):
+        GovernedRun(run.folder, piece=PIECE).composer()
 
 
 # -- the commit boundary: serving must not hold the writer's files hostage -------
