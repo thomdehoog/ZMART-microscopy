@@ -15,7 +15,9 @@ quietly than a wrong pixel.
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import sys
 import threading
 import time
@@ -31,6 +33,17 @@ import measure_a_governed_run_at_scale as harness  # noqa: E402
 from declare import declare_a_governed_picture  # noqa: E402
 from pixels import fraction_lit  # noqa: E402
 from server import make_server  # noqa: E402
+
+
+def _fraction_lit_across_canvas(page, floor: int = 40) -> float:
+    """Measure growth at the outer survey edge, not only its filled centre."""
+    import numpy as np
+    from PIL import Image
+
+    canvas = page.locator("canvas").first.bounding_box()
+    shot = page.screenshot(clip=canvas)
+    pixels = np.array(Image.open(io.BytesIO(shot)).convert("RGB"))
+    return float((pixels.max(axis=2) > floor).mean())
 
 
 def _dirty_for(run, pictured: int, position_id: str) -> dict:
@@ -66,6 +79,97 @@ def _announce(port: int, dirty: dict) -> None:
         pass
 
 
+def test_tiles_advance_before_a_commit_storm_quiets(
+    browser, built_dist, tmp_path
+):
+    """The live picture advances in batches; it must not appear only at EOF."""
+    harness.FIXTURES = tmp_path
+    run, order = harness.the_run(12)
+    width = len(str(12 - 1))
+    middle = (12 - 1) / 2
+    committed_first = [one for one in order
+                       if abs(int(one[1:1 + width]) - middle) <= 3.5
+                       and abs(int(one[1 + width:]) - middle) <= 3.5]
+    landing_later = [one for one in order if one not in set(committed_first)]
+    for position_id in committed_first:
+        harness.fast_publish(run, position_id)
+    shown = tmp_path / "live-progress" / "shown"
+    store = declare_a_governed_picture(shown, run.folder, name="live",
+                                       bake=True)
+    pictured = len(json.loads((store / "zarr.json").read_text(
+        encoding="utf-8"))["attributes"]["ome"]["multiscales"][0]["datasets"])
+    site = Path(os.environ.get("ZMART_STORM_BUILT_DIST", built_dist))
+    server = make_server(port=0, data_dir=shown, site_dir=site,
+                         store=[store.name], window=harness.BRIGHT, live=True)
+    serving = threading.Thread(target=server.serve_forever, daemon=True)
+    serving.start()
+    page = browser.new_page(viewport={"width": 1000, "height": 780})
+    failures: list[BaseException] = []
+    finished = threading.Event()
+    landed = {"count": 0}
+    samples: list[tuple[int, int, float]] = []
+    try:
+        port = server.server_address[1]
+        page.add_init_script("globalThis.zmartLiveCheckMs = 150")
+        page.goto(f"http://127.0.0.1:{port}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartViewer !== undefined",
+                               timeout=60_000)
+        page.wait_for_function("() => window.zmartSourcesWaiting() === 0",
+                               timeout=90_000)
+        page.wait_for_timeout(2_000)
+        opening = _fraction_lit_across_canvas(page)
+
+        def publish() -> None:
+            try:
+                for number, position_id in enumerate(landing_later, 1):
+                    harness.fast_publish(run, position_id)
+                    _announce(port, _dirty_for(run, pictured, position_id))
+                    landed["count"] = number
+                    time.sleep(0.05)
+            except BaseException as problem:
+                failures.append(problem)
+            finally:
+                finished.set()
+
+        publishing = threading.Thread(target=publish, daemon=True)
+        publishing.start()
+        stamp_path = store / "baked.json"
+        while not finished.is_set():
+            stamp = json.loads(stamp_path.read_text(encoding="utf-8"))
+            samples.append((landed["count"], int(stamp["events"]),
+                            _fraction_lit_across_canvas(page)))
+            page.wait_for_timeout(200)
+        publishing.join(timeout=30)
+        assert not publishing.is_alive(), "the live-progress storm did not finish"
+        assert not failures, f"the live-progress publisher failed: {failures!r}"
+
+        high = opening
+        visible_steps = 0
+        for published, _stamped, lit in samples:
+            if published >= len(landing_later):
+                continue
+            if lit >= high + 0.01:
+                visible_steps += 1
+                high = lit
+        print("LIVE PROGRESS:", json.dumps({
+            "opening": opening,
+            "positions": len(landing_later),
+            "samples": [(n, stamp, round(lit, 4))
+                        for n, stamp, lit in samples],
+            "visible_steps": visible_steps,
+        }), flush=True)
+        assert visible_steps >= 2, (
+            "the acquisition made no visible progress before it went quiet; "
+            "published/stamped/lit timeline: "
+            + ", ".join(f"{n}/{stamp}/{lit:.1%}"
+                        for n, stamp, lit in samples)
+        )
+    finally:
+        page.close()
+        server.shutdown()
+        serving.join(timeout=5)
+
+
 def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
     browser, built_dist, tmp_path
 ):
@@ -89,7 +193,8 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
     pictured = len(json.loads((store / "zarr.json").read_text(
         encoding="utf-8"))["attributes"]["ome"]["multiscales"][0]["datasets"])
 
-    server = make_server(port=0, data_dir=shown, site_dir=built_dist,
+    site = Path(os.environ.get("ZMART_STORM_BUILT_DIST", built_dist))
+    server = make_server(port=0, data_dir=shown, site_dir=site,
                          store=[store.name], window=harness.BRIGHT, live=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -115,6 +220,22 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
         page.wait_for_function("() => window.zmartSourcesWaiting() === 0",
                               timeout=90_000)
         page.wait_for_timeout(2_000)
+        if os_module.environ.get("ZMART_STORM_HIGH_MEMORY"):
+            raised = page.evaluate(
+                """() => {
+                  const capacities = window.zmartViewer.chunkQueueManager
+                    .capacities;
+                  capacities.gpuMemory.sizeLimit.value = 8e9;
+                  capacities.systemMemory.sizeLimit.value = 8e9;
+                  capacities.download.itemLimit.value = 400;
+                  return {
+                    gpu: capacities.gpuMemory.sizeLimit.value,
+                    system: capacities.systemMemory.sizeLimit.value,
+                    download: capacities.download.itemLimit.value,
+                  };
+                }"""
+            )
+            print("RAISED MEMORY:", json.dumps(raised), flush=True)
         opening_zoom = page.evaluate(
             "() => window.zmartViewer.navigationState.zoomFactor.value")
 
@@ -123,6 +244,7 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
         # Both run flat out on purpose — this is the regime the demos hit and
         # every earlier gate avoided.
         stop_zooming = threading.Event()
+        storm_failures: list[BaseException] = []
 
         def zoom_to(multiple: float) -> None:
             # Centre as well as zoom: the storm's driver PANS, and a
@@ -155,41 +277,47 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
             # wheel-zoom at a cursor pans too, and panning is what drags new
             # chunks into view and evicts others mid-storm. The walk is a
             # fixed sequence, so the storm is the same storm every run.
-            drift = (0.35, -0.2, 0.15, -0.4, 0.25, -0.1, 0.3, -0.35)
+            canvas = page.locator("canvas").first.bounding_box()
+            centre_x = canvas["x"] + canvas["width"] * 0.48
+            centre_y = canvas["y"] + canvas["height"] * 0.52
+            drifts = ((45, -25), (-35, 30), (25, 20), (-40, -20))
             step = 0
             while not stop_zooming.is_set():
-                factor = 0.12 * (1.28 ** (step % 26))
                 try:
-                    page.evaluate(
-                        "([wanted, sideways]) => {"
-                        "  const state = window.zmartViewer.navigationState;"
-                        "  state.zoomFactor.value = wanted;"
-                        "  const position = state.position;"
-                        "  const space = position.coordinateSpace.value;"
-                        "  if (!space?.rank) return;"
-                        "  const moved = Float32Array.from(position.value);"
-                        "  const wide = space.bounds.upperBounds[space.rank - 1];"
-                        "  moved[space.rank - 1] = wide * (0.5 + sideways);"
-                        "  moved[space.rank - 2] = wide * (0.5 - sideways);"
-                        "  position.value = moved;"
-                        "}",
-                        [opening_zoom * factor, drift[step % len(drift)]],
-                    )
-                except Exception:
+                    page.mouse.move(centre_x, centre_y)
+                    direction = -1 if (step // 18) % 2 == 0 else 1
+                    page.mouse.wheel(0, direction * 180)
+                    if step % 9 == 8:
+                        dx, dy = drifts[(step // 9) % len(drifts)]
+                        page.mouse.down()
+                        page.mouse.move(centre_x + dx, centre_y + dy,
+                                        steps=4)
+                        page.mouse.up()
+                except Exception as problem:
+                    storm_failures.append(problem)
                     return
                 step += 1
                 time.sleep(0.08)
 
-        zooming = threading.Thread(target=keep_zooming, daemon=True)
-        zooming.start()
-        try:
-            for position_id in landing_later:
-                harness.fast_publish(run, position_id)
-                _announce(port, _dirty_for(run, pictured, position_id))
-                time.sleep(0.05)
-        finally:
+        def land_the_storm() -> None:
+            try:
+                for position_id in landing_later:
+                    harness.fast_publish(run, position_id)
+                    _announce(port, _dirty_for(run, pictured, position_id))
+                    time.sleep(0.05)
+            except BaseException as problem:
+                storm_failures.append(problem)
+            finally:
+                stop_zooming.set()
+
+        landing = threading.Thread(target=land_the_storm, daemon=True)
+        landing.start()
+        keep_zooming()
+        landing.join(timeout=60)
+        if landing.is_alive():
             stop_zooming.set()
-            zooming.join(timeout=5)
+        assert not landing.is_alive(), "the landing storm did not finish"
+        assert not storm_failures, f"the wheel-and-landing storm failed: {storm_failures!r}"
 
         def scale_census() -> dict:
             return page.evaluate(
@@ -220,8 +348,7 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
 
         stormed_census = scale_census()
 
-        import os
-        if os.environ.get("ZMART_STORM_HEAL"):
+        if os_module.environ.get("ZMART_STORM_HEAL"):
             # The splitting experiment: name EVERY piece of EVERY level dirty
             # in one announcement. If the picture heals without a reload, the
             # delivery machinery is sound and the per-landing dirty naming is
@@ -318,15 +445,41 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
         # band must show it essentially complete; a band markedly darker than
         # its neighbours is holding pieces the server no longer agrees with.
         seen = {}
+        debug_folder = (Path(os_module.environ["ZMART_STORM_DEBUG"])
+                        if os_module.environ.get("ZMART_STORM_DEBUG") else None)
         for multiple in (0.15, 0.4, 1.0, 2.5):
             zoom_to(multiple)
             page.wait_for_timeout(2_500)
             seen[multiple] = fraction_lit(page)
-        import os
-        if os.environ.get("ZMART_STORM_DEBUG"):
+            if debug_folder is not None:
+                page.screenshot(path=str(
+                    debug_folder / f"storm_band_{multiple:.2f}x.png"))
+        if os_module.environ.get("ZMART_STORM_DEBUG"):
+            print("CLIENT INVALIDATION:", json.dumps(page.evaluate(
+                "() => window.zmartChunkInvalidation")), flush=True)
+            worker_probes = page.evaluate(
+                """async () => {
+                  const out = [];
+                  for (const [id, held] of
+                       window.zmartViewer.chunkManager.rpc.objects) {
+                    if (!held || typeof held.invalidateCache !== 'function'
+                        || !held.spec?.upperVoxelBound) continue;
+                    const answer = await Promise.race([
+                      held.rpc.promiseInvoke(
+                        'ChunkSource.zmartProbe', { source: held.rpcId }),
+                      new Promise((resolve) => setTimeout(
+                        () => resolve({probeTimeout: true}), 2_000)),
+                    ]);
+                    out.push({ id, bound: Array.from(held.spec.upperVoxelBound),
+                               probe: answer?.value ?? answer });
+                  }
+                  return out;
+                }"""
+            )
+            print("WORKER PROBES:", json.dumps(worker_probes), flush=True)
             zoom_to(1.0)
             page.wait_for_timeout(2_500)
-            page.screenshot(path=str(Path(os.environ["ZMART_STORM_DEBUG"])
+            page.screenshot(path=str(Path(os_module.environ["ZMART_STORM_DEBUG"])
                                      / "storm_band_1x.png"))
             wanting = page.evaluate(
                 """() => {
@@ -422,7 +575,7 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
             )
             print("PENDING UPDATES:", json.dumps(backlog))
 
-        if os.environ.get("ZMART_STORM_HEAL"):
+        if os_module.environ.get("ZMART_STORM_HEAL"):
             probe_piece = f"http://127.0.0.1:{port}/data/0/{store.name}/0/c/0/0/8"
             def _bytes_now() -> bytes:
                 request = urllib.request.Request(probe_piece)
@@ -462,10 +615,13 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
             zoom_to(multiple)
             page.wait_for_timeout(2_500)
             fresh[multiple] = fraction_lit(page)
+            if debug_folder is not None:
+                page.screenshot(path=str(
+                    debug_folder / f"fresh_band_{multiple:.2f}x.png"))
         fresh_census = scale_census()
         print("SCALES stormed:", json.dumps(stormed_census),
               " fresh:", json.dumps(fresh_census), flush=True)
-        if os.environ.get("ZMART_STORM_HEAL"):
+        if os_module.environ.get("ZMART_STORM_HEAL"):
             after_reload = _bytes_now()
             print(f"PIECE AFTER RELOAD'S DERIVE: {len(after_reload)}B, "
                   f"{'CHANGED — the reload derive caught the composer up' if after_reload != second_look else 'STILL the same bytes'}",
