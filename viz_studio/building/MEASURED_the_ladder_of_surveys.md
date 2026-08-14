@@ -470,3 +470,25 @@ second untouched is clean — a second edge, far beyond any microscope,
 now measured. The recipe in final form: updates in flight, navigation
 during them, survey size setting the collision window, rate rolling
 the dice. One mechanism carries every observation of the evening.
+
+Corrections from the deep end of the night, in the order the evidence
+forced them. The gate's own reproduction was a mirage: its driver pans,
+its photographs never re-centred, and an off-centre frame counts honest
+out-of-canvas ground as missing picture — an evening of delivery-path
+probes chased that offset. What those probes proved stays proven: the
+server correct at every level including the baked files on disk, the
+HTTP cache and its validators innocent, every byte on the client's CPU
+fresh after a full-dirty heal. Three real defects were found and fixed
+on the way — the invalidation routing, the delivery push racing the
+state machine, and the replace-in-place orphaning every retained
+reference by swapping chunk objects instead of pouring fresh data into
+the held one. The corrected gate is green, slow-and-untouched soaked
+clean for an hour by machine, fast-and-untouched clean by the
+operator's eyes — and the operator's storm-with-real-zooming STILL
+breaks within the first ten tiles. The one difference left standing is
+the input itself: a real wheel zooms toward the cursor through the
+engine's own handlers, dozens of fused zoom-pans a second, where the
+driver teleports a zoom factor. The next session's first move is a
+gate that drives the real events — mouse wheel and drags over the
+canvas, mid-storm — and it inherits tonight's ledgers, probes and
+eliminations ready-made.

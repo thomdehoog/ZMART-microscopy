@@ -271,6 +271,153 @@ registerPromiseRPC("ChunkSource.zmartProbe", function(x) {
           source.addChunk(key, chunk);
         } else {`,
   },
+  {
+    // Upgrade: the swap keeps a ledger. The delivery chain was measured
+    // sound to the worker's doorstep — fresh bytes downloaded, every answer
+    // a 200 — while the screen kept the past, so the open question is
+    // whether the frontend swap runs at all, and this answers it as counts
+    // a test can read: globalThis.zmartSwapLedger.{added,replaced}.
+    file: join(lib, "chunk_manager", "frontend.js"),
+    marker: "globalThis.zmartSwapLedger",
+    anchor: `          if (source.chunks.get(key) !== void 0) {
+            source.deleteChunk(key);
+          }
+          chunk = source.getChunk(update);
+          source.addChunk(key, chunk);
+        } else {`,
+    addition: null,
+    replacement: `          if (!globalThis.zmartSwapLedger) {
+            globalThis.zmartSwapLedger = { added: 0, replaced: 0 };
+          }
+          if (source.chunks.get(key) !== void 0) {
+            source.deleteChunk(key);
+            globalThis.zmartSwapLedger.replaced += 1;
+          } else {
+            globalThis.zmartSwapLedger.added += 1;
+          }
+          chunk = source.getChunk(update);
+          source.addChunk(key, chunk);
+        } else {`,
+  },
+  {
+    // Upgrade: the ledger keeps a trail — which SOURCE each push landed in
+    // and under which KEY — because counts alone said "everything was
+    // added, nothing replaced" while five chunks sat on screen, which
+    // means the drawn population and the updated population live in
+    // different maps, and only their identities can say which two.
+    file: join(lib, "chunk_manager", "frontend.js"),
+    marker: "zmartSwapLedger.trail",
+    anchor: `          if (source.chunks.get(key) !== void 0) {
+            source.deleteChunk(key);
+            globalThis.zmartSwapLedger.replaced += 1;
+          } else {
+            globalThis.zmartSwapLedger.added += 1;
+          }`,
+    addition: null,
+    replacement: `          if (!globalThis.zmartSwapLedger.trail) {
+            globalThis.zmartSwapLedger.trail = [];
+          }
+          const zmartHad = source.chunks.get(key) !== void 0;
+          globalThis.zmartSwapLedger.trail.push(
+            { source: update.source, key, had: zmartHad });
+          while (globalThis.zmartSwapLedger.trail.length > 64) {
+            globalThis.zmartSwapLedger.trail.shift();
+          }
+          if (zmartHad) {
+            source.deleteChunk(key);
+            globalThis.zmartSwapLedger.replaced += 1;
+          } else {
+            globalThis.zmartSwapLedger.added += 1;
+          }`,
+  },
+  {
+    // Upgrade: the replacement's bytes must BOARD the GPU. The fresh chunk
+    // built from a replace-in-place push is born already claiming the state
+    // the old chunk held, so the shared transition below sees newState equal
+    // to oldState and SKIPS copyToGPU -- the fresh bytes stay on the CPU and
+    // the screen keeps drawing whatever texture the old chunk left, for the
+    // rest of the session. That skip is the whole of the storm wedge: an
+    // operator navigating during commits keeps chunks hot in GPU memory, so
+    // their refreshes all take this path, while an untouched run's chunks
+    // arrive through genuine transitions and upload normally -- which is why
+    // the wedge needed the operator's hands to appear, and a reload to cure.
+    // The upload is driven here, once, exactly for the case the shared block
+    // will skip.
+    file: join(lib, "chunk_manager", "frontend.js"),
+    marker: "zmartHad && chunk.state === newState",
+    anchor: `          chunk = source.getChunk(update);
+          source.addChunk(key, chunk);
+        } else {`,
+    addition: null,
+    replacement: `          chunk = source.getChunk(update);
+          source.addChunk(key, chunk);
+          if (zmartHad && chunk.state === newState
+              && newState === ChunkState.GPU_MEMORY) {
+            chunk.copyToGPU(this.gl);
+            visibleChunksChanged = true;
+          }
+        } else {`,
+  },
+  {
+    // Diagnostics for the upload branch: which states the replacement chunk
+    // actually carries, and whether the driven upload ever fires.
+    file: join(lib, "chunk_manager", "frontend.js"),
+    marker: "uploadsDriven",
+    anchor: `          if (zmartHad && chunk.state === newState
+              && newState === ChunkState.GPU_MEMORY) {
+            chunk.copyToGPU(this.gl);
+            visibleChunksChanged = true;
+          }`,
+    addition: null,
+    replacement: `          globalThis.zmartSwapLedger.lastStates = {
+            chunkState: chunk.state, newState,
+            gpuIs: ChunkState.GPU_MEMORY,
+          };
+          if (zmartHad && chunk.state === newState
+              && newState === ChunkState.GPU_MEMORY) {
+            chunk.copyToGPU(this.gl);
+            globalThis.zmartSwapLedger.uploadsDriven =
+              (globalThis.zmartSwapLedger.uploadsDriven || 0) + 1;
+            visibleChunksChanged = true;
+          }`,
+  },
+  {
+    // Upgrade: replace the DATA, keep the OBJECT. Swapping chunk objects
+    // orphans every retained reference the render side holds -- the old
+    // object keeps drawing its old texture while the new object uploads
+    // fresh bytes nobody looks at, measured as a picture stuck in the past
+    // with every byte on the CPU provably fresh. So a re-download of a held
+    // chunk now pours its decoded fields into the EXISTING object and
+    // re-uploads that object's own GPU copy: every reference stays valid,
+    // and what the screen draws is what arrived.
+    file: join(lib, "chunk_manager", "frontend.js"),
+    marker: "zmartPourInto",
+    anchor: `          if (zmartHad) {
+            source.deleteChunk(key);
+            globalThis.zmartSwapLedger.replaced += 1;
+          } else {
+            globalThis.zmartSwapLedger.added += 1;
+          }
+          chunk = source.getChunk(update);
+          source.addChunk(key, chunk);`,
+    addition: null,
+    replacement: `          if (zmartHad) {
+            globalThis.zmartSwapLedger.replaced += 1;
+            const zmartPourInto = source.chunks.get(key);
+            const zmartFresh = source.getChunk(update);
+            if (zmartPourInto.state === ChunkState.GPU_MEMORY) {
+              zmartPourInto.freeGPUMemory(this.gl);
+            }
+            zmartPourInto.data = zmartFresh.data;
+            zmartPourInto.copyToGPU(this.gl);
+            visibleChunksChanged = true;
+            chunk = zmartPourInto;
+          } else {
+            globalThis.zmartSwapLedger.added += 1;
+            chunk = source.getChunk(update);
+            source.addChunk(key, chunk);
+          }`,
+  },
 ];
 
 let failed = false;
