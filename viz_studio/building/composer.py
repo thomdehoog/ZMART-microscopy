@@ -692,6 +692,34 @@ class Composer:
                         else:
                             self._a_slab_read_back(baked, level, low_z,
                                                    row, column)
+        # The composing warm filled the tile-block cache on its way, and the
+        # patcher leans on exactly those blocks: the first commit after a
+        # file-fed warm was measured paying every coarse block's decode at
+        # once, on camera. So after the pins are ready -- the picture is
+        # already servable by here -- the warmer keeps going quietly and
+        # decodes the tiles' coarse blocks too, coarsest first, the same
+        # step-aside, stop-any-time background work the slab warm has
+        # always been. A block that will not decode is skipped: prefilling
+        # is cache hygiene, and the serving path keeps its own gate.
+        if self._warm_store is not None:
+            for level in sorted(self.pinned_levels, reverse=True):
+                for tile, _ in self.mosaic.placements(level):
+                    copy = tile.copies[level]
+                    blocks = [
+                        -(-size // chunk) for size, chunk
+                        in zip(copy.shape[-3:], copy.chunks, strict=True)
+                    ]
+                    for z in range(blocks[0]):
+                        for y in range(blocks[1]):
+                            for x in range(blocks[2]):
+                                if stop is not None and stop.is_set():
+                                    return
+                                while self._answering:
+                                    time.sleep(0.005)
+                                try:
+                                    self._a_block_of(copy, (z, y, x))
+                                except Exception:
+                                    continue
 
     def warm_from_the_baked(self, store: Path, levels: frozenset[int]) -> None:
         """Let the warm read these levels' slabs out of this baked folder.
