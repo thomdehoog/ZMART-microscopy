@@ -84,6 +84,7 @@ describe("readiness belongs to the step, not the frame", () => {
     focus: { strategy: "plane", points: [] },
     detect: { tested: false },
     gated: new Set(),
+    targetType: { state: "40x · 0.95 NA · 2 channels" },
     ...over,
   });
 
@@ -111,10 +112,16 @@ describe("readiness belongs to the step, not the frame", () => {
     expect(blockedBecause(byId("detect"), run({ detect: { tested: true } }))).toBeNull();
   });
 
-  it("selection and acquisition want something gated", () => {
+  it("refinement and acquisition want something gated", () => {
     expect(blockedBecause(byId("select"), run())).toMatch(/nothing gated/);
     expect(blockedBecause(byId("acquire"), run())).toMatch(/nothing gated/);
     expect(blockedBecause(byId("acquire"), run({ gated: new Set([1]) }))).toBeNull();
+  });
+
+  it("acquisition also wants the acquisition type recorded", () => {
+    expect(blockedBecause(byId("acquire"),
+      run({ gated: new Set([1]), targetType: { name: "", state: null } })))
+      .toMatch(/acquisition type/);
   });
 
   it("a step with no rule is always ready", () => {

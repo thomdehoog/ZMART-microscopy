@@ -42,7 +42,7 @@ const setUpTheRun = [
 export const WORKFLOWS = {
   target_acquisition: workflow(
     "Target acquisition",
-    "overview, detect, select, acquire",
+    "overview, discover, refine, acquire",
     [
       ...setUpTheRun,
       focusStrategy,
