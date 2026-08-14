@@ -348,6 +348,42 @@ class GovernedRun:
         # by the serving path itself.
         self.accounting = {"derives": 0, "last_derive_ms": 0.0,
                            "last_tiles_read": 0, "last_positions": 0}
+        # A baked picture keeps its own bake true. Every patch runs inside
+        # a derive, and a derive used to run only when a client asked for a
+        # piece -- so a storm whose watcher wedged or closed froze the bake
+        # mid-run, and the picture sat behind its manifest for as long as
+        # nobody asked (the spiral15 evidence: 7.5% of the survey unpatched
+        # from the moment the requests stopped). The keeper derives whenever
+        # the manifest has moved past the installed snapshot, client or no
+        # client, so the files converge within a beat of the run quieting
+        # and a cold open finds them already true.
+        self._keeper_stop = threading.Event()
+        self._keeper: threading.Thread | None = None
+        if self._shown is not None and self._the_baked_levels():
+            self._keeper = threading.Thread(
+                target=self._keep_the_bake_watched,
+                name=f"bake-keeper {self._shown.name}", daemon=True)
+            self._keeper.start()
+
+    def _keep_the_bake_watched(self) -> None:
+        """Derive on the manifest's movement, so patching needs no client.
+
+        Runs from construction, because construction is the moment a
+        serving instance takes responsibility for the picture: a cold
+        server over a behind bake heals it before or alongside the first
+        request instead of leaving the whole catch-up on that request's
+        clock. A derive that fails -- the run mid-write, the bake lock held
+        by another process -- is retried on a slower beat; the serving path
+        keeps answering fail-closed either way.
+        """
+        beat = 0.5
+        while not self._keeper_stop.wait(beat):
+            try:
+                if self._run.manifest.fingerprint() != self._mark:
+                    self.composer()
+                beat = 0.5
+            except Exception:
+                beat = 5.0
 
     def composer(self) -> Composer:
         """The composer for the manifest's state as of now."""
@@ -519,6 +555,41 @@ class GovernedRun:
         except (ValueError, KeyError, TypeError):
             return None
 
+    def _the_files_have_outgrown(self, stamped: dict | None,
+                                 current: dict) -> bool:
+        """Whether the baked files verifiably hold a NEWER state than this.
+
+        True only when the stamp claims a longer prefix of the very same
+        history under the very same layout: the stamp's tail must sit in
+        the still-published events where it claims to, and so must
+        ``current``'s own tail. That one rule tells the two ways a stamp
+        can exceed a derive apart: a stale RACER's stamp verifies against
+        the history (the manifest really did move past this derive's
+        state, the files are ahead, nothing to do), while a ROLLBACK
+        truncates the published history under the stamp, the verification
+        fails, and the caller falls through to the full recompute that
+        withdraws the rolled-back ground. The events read is paid only on
+        this rare path -- the everyday derive returns on stamp equality
+        before ever reaching here. A stamp this instance wrote itself is
+        NOT shortcut past the verification, deliberately: it was true when
+        written, and a rollback since then is exactly the case the
+        verification exists to catch.
+        """
+        if stamped is None or stamped.get("layout") != current["layout"]:
+            return False
+        if stamped["events"] <= current["events"]:
+            return False
+        events = self._run.manifest.events()
+        if stamped["events"] > len(events):
+            return False
+        if events[stamped["events"] - 1].revision != stamped["tail"]:
+            return False
+        if current["events"] and (
+                current["events"] > len(events)
+                or events[current["events"] - 1].revision != current["tail"]):
+            return False
+        return True
+
     def _keep_the_bake_true(self, made: Composer,
                             dirtied: dict[int, set[tuple[int, int]]] | None,
                             current: dict) -> None:
@@ -549,10 +620,32 @@ class GovernedRun:
         collide (review finding D7). The file lock is held by the operating
         system, so a patcher that dies releases it.
         """
+        # The lock-free fast path: the stamp is written by atomic replace,
+        # so reading it needs no lock -- and a derive whose state the files
+        # already hold (or verifiably outgrew) has nothing to do. Taking
+        # the whole-machine lock just to discover that starved a second
+        # process for ten seconds and then failed its derive, which the
+        # serving path answered as a fully absent picture: the operator's
+        # cold client measuring 0.0% lit over perfectly servable files.
+        stamped = self._the_stamp()
+        if stamped == current:
+            self._stamp_installed = current
+            return
+        if self._the_files_have_outgrown(stamped, current):
+            self._stamp_installed = stamped
+            return
         with self._bake_guard, _holding_the_bake_lock(self._shown):
             stamped = self._the_stamp()
             if stamped == current:
                 self._stamp_installed = current
+                return
+            if self._the_files_have_outgrown(stamped, current):
+                # A racer stamped a newer state while this thread waited on
+                # the lock. Patching now would regress the newer ground to
+                # this snapshot's older bytes and write the older identity
+                # over the newer stamp -- the backward direction, which no
+                # later derive would know to repair. Forward-only, always.
+                self._stamp_installed = stamped
                 return
             if dirtied is None or stamped != self._stamp_installed:
                 dirtied = self._the_ground_the_bake_missed(made, current)
@@ -854,6 +947,10 @@ class GovernedRun:
 
     def close(self) -> None:
         """Let go of the held snapshot, closing whatever it holds open."""
+        self._keeper_stop.set()
+        if self._keeper is not None:
+            self._keeper.join(timeout=10)
+            self._keeper = None
         with self._guard:
             held, self._held, self._mark = self._held, None, None
             self._drawing = {}

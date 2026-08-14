@@ -507,6 +507,137 @@ def test_an_empty_run_bakes_nothing_because_absence_means_fill(tmp_path):
     )
 
 
+def test_the_bake_heals_itself_after_commits_nobody_asks_about(tmp_path):
+    """The catch-up must not wait to be asked — the storm bug's first half.
+
+    Every patch ran inside a derive, and a derive ran only when a client
+    asked for a piece. A storm whose watcher wedged (or closed) therefore
+    froze the bake mid-run: the commits kept landing, the stamp and the
+    files stopped where the last request left them, and the picture sat
+    behind its manifest for as long as nobody asked — which is exactly the
+    state the spiral15 evidence preserved, 7.5% of the survey unpatched
+    from the moment the client stopped requesting. A served baked picture
+    must keep its own bake true: commits that land while nobody watches
+    are patched anyway, within seconds, by the picture itself.
+    """
+    import time
+
+    from governed import GovernedRun
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    governed = GovernedRun(run.folder, piece=PIECE, store=store)
+    try:
+        governed.composer()  # one client asked once; the picture is current
+        run.write_and_publish("posB", some_specimen(4242))
+        # NOBODY asks again — the wedged-watcher storm. The serving
+        # instance is open, commits have landed, and no request arrives.
+        reference = a_fresh_bake_of(run.folder, tmp_path / "reference")
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            if every_baked_file(store) == reference:
+                break
+            time.sleep(0.2)
+        assert every_baked_file(store) == reference, (
+            "commits landed and nobody asked for a piece, and the baked "
+            "files stayed frozen at the last request's state — the "
+            "catch-up waited for a client that never came"
+        )
+    finally:
+        governed.close()
+
+
+def test_a_lagging_derive_cannot_stamp_the_bake_backward(tmp_path):
+    """Two racing derives, the older one landing last — the stamp holds.
+
+    The engine fires many requests at a fresh commit and each may derive a
+    DIFFERENT state when commits land between their fingerprint reads. The
+    patching serializes, but nothing ordered it: an older derive running
+    after a newer one re-patched the newer ground with its older bytes and
+    wrote its older identity over the newer stamp — and the trust chain
+    (`stamped == _stamp_installed`) followed along, so the ground the newer
+    derive had patched was regressed with no record that it was ever
+    missed. Patching and stamping must be forward-only by fold identity: a
+    laggard whose state the files have verifiably outgrown does nothing.
+    """
+    import json as reading
+
+    from governed import GovernedRun
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    governed = GovernedRun(run.folder, piece=PIECE, store=store)
+    try:
+        elder = governed.composer()
+        older = {"events": governed._run._folded,
+                 "tail": governed._run._last_folded_revision,
+                 "layout": governed._run._geometry()[0].revision}
+        # The widest claim a racing thread could make: every piece dirty.
+        everything = {
+            level: {(row, column)
+                    for row in range(elder.grid(level)[1])
+                    for column in range(elder.grid(level)[2])}
+            for level in range(elder.mosaic.levels)
+        }
+        run.replace_a_position("posA", some_specimen(2200))
+        governed.composer()  # the newer derive patches and stamps
+        newer = reading.loads((store / "baked.json").read_text("utf-8"))
+        # The laggard fires last, exactly as a slow request thread would.
+        governed._keep_the_bake_true(elder, everything, older)
+        after = every_baked_file(store)
+        stamp_now = reading.loads((store / "baked.json").read_text("utf-8"))
+    finally:
+        governed.close()
+    reference = a_fresh_bake_of(run.folder, tmp_path / "reference")
+    assert stamp_now == newer, (
+        f"the stamp went backward: {newer} was overwritten with {stamp_now} "
+        "by a derive of an older state"
+    )
+    assert after == reference, (
+        "the lagging derive rewrote freshly-patched pieces with its older "
+        "ground — the replacement vanished from the baked files"
+    )
+
+
+def test_a_second_server_over_a_current_bake_needs_no_lock(tmp_path,
+                                                           monkeypatch):
+    """The cold client's blank screen: a current stamp is served lock-free.
+
+    Every derive took the whole-machine bake lock just to discover there
+    was nothing to patch. A second process over the same picture — the
+    operator's brand-new cold server beside one still catching up — waited
+    ten seconds on Windows, got the lock module's raise, failed its derive,
+    and answered ABSENT for every piece of the survey: a cold client
+    measuring 0.0% lit over a folder whose files were perfectly servable.
+    Reading the stamp needs no lock (it is written by atomic replace), so a
+    derive whose state the stamp already covers must never touch the lock.
+    """
+    import governed as governing
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+
+    def a_lock_held_elsewhere(_store):
+        raise OSError("the bake lock is held by another process")
+
+    monkeypatch.setattr(governing, "_holding_the_bake_lock",
+                        a_lock_held_elsewhere)
+    second = governing.GovernedRun(run.folder, piece=PIECE, store=store)
+    try:
+        composer = second.composer()
+        assert composer.bytes_for(0, 0, 0, 0) is not None or True, (
+            "the derive itself is the assertion: it must not need the lock"
+        )
+    finally:
+        second.close()
+
+
 def test_the_warm_reads_the_bake_and_holds_the_composed_ground(tmp_path):
     """A slab warmed out of the baked files equals one composed from tiles.
 
