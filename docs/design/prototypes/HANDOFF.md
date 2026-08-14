@@ -90,8 +90,8 @@ scan, the focus map and the tile detection is tuned on all read the same list.
 
 ## Where it is
 
-- Clone: `C:\ProgramData\MinicondaZMB\home\t.de\ZMART-microscopy_main`
-- Branch: `design/operator-page-prototype` on
+- Clone: `C:\ProgramData\MinicondaZMB\home\t.de\ZMART-microscopy_merge`
+- Branch: `agent/server-builds-the-picture-opus-5` on
   `github.com/thomdehoog/ZMART-microscopy` — **public repo**. The branch may
   run ahead of the remote — check `git log @{u}..HEAD` rather than assuming,
   and do not push without asking.
