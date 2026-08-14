@@ -369,3 +369,20 @@ def forget(store: Path) -> None:
     held = remembered[1] if remembered is not None else None
     if held is not None:
         held.close()
+
+
+def catch_up_governed_runs() -> None:
+    """Nudge every opened governed picture after an acquisition announcement.
+
+    The announcement does not name a store, deliberately: it only says that
+    disk truth moved. Asking each remembered run to compare its cheap manifest
+    fingerprint preserves that contract, and each run coalesces repeated nudges
+    behind at most one background derive.
+    """
+    if GovernedRun is None:
+        return
+    with _guard:
+        governed = [held for _mark, held in _composers.values()
+                    if isinstance(held, GovernedRun)]
+    for held in governed:
+        held.request_catch_up()

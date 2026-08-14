@@ -30,8 +30,13 @@ work at all.
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import threading
+from collections.abc import Callable
+
+
+log = logging.getLogger("viz_studio.announcements")
 
 # How long a listener waits for something to be said before sending a small sign
 # of life instead. Its purpose is not the message but the writing: a page that
@@ -80,10 +85,13 @@ class Announcements:
     that goes away takes its listener with it the next time anything is written.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, when_changed: Callable[[], None] | None = None) -> None:
         self._listeners: set[queue.SimpleQueue] = set()
         self._lock = threading.Lock()
         self._closed = False
+        # Server-owned work that must happen even when no page is listening.
+        # It is a nudge, not the work itself: the callback must return quickly.
+        self._when_changed = when_changed
         # What the disk looked like when the microscope last announced something
         # itself. The folder watcher reads this so that it does not repeat an
         # announcement that has already been made; see :meth:`already_told_about`.
@@ -141,6 +149,14 @@ class Announcements:
             if covering is not None:
                 self._already_told = covering
             listeners = list(self._listeners)
+        if self._when_changed is not None:
+            try:
+                self._when_changed()
+            except Exception:
+                # An auxiliary catch-up must never prevent the announcement
+                # from reaching pages; serving remains fail-closed and a later
+                # announcement can try the catch-up again.
+                log.exception("server-side announcement work failed")
         for waiting in listeners:
             waiting.put(message)
         return len(listeners)
