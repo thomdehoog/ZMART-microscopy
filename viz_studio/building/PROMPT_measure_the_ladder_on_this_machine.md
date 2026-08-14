@@ -26,7 +26,10 @@ establish the real numbers, then push on the recorded open threads.
 
 1. Set up: `pip install -r requirements.txt playwright pillow pytest`,
    `python -m playwright install chromium`, then
-   `cd viz_studio/frontend && npm install && npm run build`.
+   `cd viz_studio/frontend && npm install && npm run build`, and the
+   options harness too: `npm --prefix viz_studio/options/harness
+   install && npm --prefix viz_studio/options/harness run build` —
+   without it the suite's pixel-reading tests skip quietly.
 2. Run the guard tests:
    `python -m pytest zmart_live/tests viz_studio/tests -q`
    (browser-based picture tests need the Chromium just installed; set

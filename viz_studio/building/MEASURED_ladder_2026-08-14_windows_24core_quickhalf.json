@@ -1,0 +1,317 @@
+[
+  {
+    "power": 6,
+    "positions": 64,
+    "across": 8,
+    "wall_s": 21.6,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 161.0,
+      "median": 173.5,
+      "mean": 177.9,
+      "p90": 194.0,
+      "max": 204.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 225.0,
+      "median": 238.5,
+      "mean": 240.5,
+      "p90": 251.0,
+      "max": 277.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 16.0,
+      "median": 19.0,
+      "mean": 20.1,
+      "p90": 24.0,
+      "max": 44.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 40.0,
+      "median": 47.0,
+      "mean": 50.9,
+      "p90": 63.0,
+      "max": 74.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 4.0,
+    "baked_s": 1.2,
+    "cold_open_s": 0.3,
+    "warm_s": 1.0,
+    "finish_s": 0.0,
+    "transients": 0.0
+  },
+  {
+    "power": 7,
+    "positions": 121,
+    "across": 11,
+    "wall_s": 25.4,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 157.0,
+      "median": 166.5,
+      "mean": 170.3,
+      "p90": 183.0,
+      "max": 205.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 224.0,
+      "median": 234.0,
+      "mean": 239.6,
+      "p90": 256.0,
+      "max": 272.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 16.0,
+      "median": 17.5,
+      "mean": 18.0,
+      "p90": 19.0,
+      "max": 37.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 36.0,
+      "median": 41.0,
+      "mean": 43.7,
+      "p90": 50.0,
+      "max": 80.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 8.0,
+    "baked_s": 1.8,
+    "cold_open_s": 0.3,
+    "warm_s": 1.0,
+    "finish_s": 0.1,
+    "transients": 0.0
+  },
+  {
+    "power": 8,
+    "positions": 256,
+    "across": 16,
+    "wall_s": 40.5,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 159.0,
+      "median": 193.0,
+      "mean": 192.3,
+      "p90": 212.0,
+      "max": 233.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 234.0,
+      "median": 262.5,
+      "mean": 269.9,
+      "p90": 301.0,
+      "max": 358.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 34.0,
+      "median": 40.0,
+      "mean": 40.5,
+      "p90": 44.0,
+      "max": 62.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 56.0,
+      "median": 68.0,
+      "mean": 70.7,
+      "p90": 87.0,
+      "max": 98.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 17.0,
+    "baked_s": 3.1,
+    "cold_open_s": 0.3,
+    "warm_s": 2.0,
+    "finish_s": 0.2,
+    "transients": 0.0
+  },
+  {
+    "power": 9,
+    "positions": 529,
+    "across": 23,
+    "wall_s": 70.9,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 196.0,
+      "median": 204.0,
+      "mean": 208.5,
+      "p90": 231.0,
+      "max": 236.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 268.0,
+      "median": 294.0,
+      "mean": 299.9,
+      "p90": 342.0,
+      "max": 374.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 41.0,
+      "median": 47.0,
+      "mean": 46.9,
+      "p90": 50.0,
+      "max": 57.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 66.0,
+      "median": 75.0,
+      "mean": 75.5,
+      "p90": 83.0,
+      "max": 88.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 41.0,
+    "baked_s": 4.1,
+    "cold_open_s": 0.3,
+    "warm_s": 5.6,
+    "finish_s": 0.3,
+    "transients": 0.0
+  },
+  {
+    "power": 10,
+    "positions": 1024,
+    "across": 32,
+    "wall_s": 113.9,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 166.0,
+      "median": 176.0,
+      "mean": 185.3,
+      "p90": 190.0,
+      "max": 300.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 235.0,
+      "median": 252.0,
+      "mean": 257.4,
+      "p90": 264.0,
+      "max": 379.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 51.0,
+      "median": 62.5,
+      "mean": 64.0,
+      "p90": 72.0,
+      "max": 84.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 74.0,
+      "median": 86.0,
+      "mean": 88.6,
+      "p90": 104.0,
+      "max": 109.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 77.0,
+    "baked_s": 4.5,
+    "cold_open_s": 0.3,
+    "warm_s": 9.2,
+    "finish_s": 0.7,
+    "transients": 0.0
+  },
+  {
+    "power": 11,
+    "positions": 2025,
+    "across": 45,
+    "wall_s": 193.0,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 165.0,
+      "median": 172.0,
+      "mean": 175.8,
+      "p90": 189.0,
+      "max": 192.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 221.0,
+      "median": 241.0,
+      "mean": 265.9,
+      "p90": 271.0,
+      "max": 513.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 50.0,
+      "median": 60.0,
+      "mean": 60.6,
+      "p90": 66.0,
+      "max": 79.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 71.0,
+      "median": 85.5,
+      "mean": 87.8,
+      "p90": 100.0,
+      "max": 113.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 137.0,
+    "baked_s": 9.3,
+    "cold_open_s": 0.3,
+    "warm_s": 17.4,
+    "finish_s": 1.3,
+    "transients": 0.0
+  },
+  {
+    "power": 12,
+    "positions": 4096,
+    "across": 64,
+    "wall_s": 410.1,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 179.0,
+      "median": 197.0,
+      "mean": 199.8,
+      "p90": 218.0,
+      "max": 227.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 258.0,
+      "median": 275.0,
+      "mean": 307.6,
+      "p90": 302.0,
+      "max": 932.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 83.0,
+      "median": 110.0,
+      "mean": 111.2,
+      "p90": 129.0,
+      "max": 144.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 108.0,
+      "median": 123.0,
+      "mean": 123.8,
+      "p90": 135.0,
+      "max": 138.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 294.0,
+    "baked_s": 18.2,
+    "cold_open_s": 0.3,
+    "warm_s": 39.1,
+    "finish_s": 2.7,
+    "transients": 0.0
+  }
+]
