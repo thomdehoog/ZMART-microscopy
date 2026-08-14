@@ -52,6 +52,7 @@ import threading
 import time
 from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
 
 import numpy as np
 import zarr
@@ -212,6 +213,11 @@ class Composer:
         # picture's shape at every level, and asking again per slab was
         # measurable per-commit waste at survey scale.
         self._pinned_levels: frozenset[int] | None = None
+        # Where the warm may READ its slabs instead of composing them: a
+        # baked picture's folder and which levels it keeps as files. Set by
+        # whoever serves a baked picture (see GovernedRun); None means every
+        # slab is composed from the tiles, as always.
+        self._warm_store: tuple[Path, frozenset[int]] | None = None
 
         # One encoder per thread, made when that thread first needs one.
         #
@@ -661,8 +667,16 @@ class Composer:
         operator wait. Both properties are what the live role needs of it: a
         snapshot swap stops the old composer's warmer and starts the new one's,
         and the fresh pass re-uses everything still valid.
+
+        A BAKED picture's pinned levels already exist as files (see
+        :meth:`warm_from_the_baked`), and reading a ready-made piece back is
+        tens of times cheaper than composing it from every tile that touches
+        it -- at survey scale the difference between minutes of cold coarse
+        ground and seconds. Levels the bake does not keep are composed the
+        ordinary way.
         """
         for level in sorted(self.pinned_levels, reverse=True):
+            baked = self._the_baked_level(level)
             depth = self.slab_depth(level)
             deep, down, across = self.grid(level)
             planes = self.mosaic.shape(level)[0]
@@ -673,7 +687,68 @@ class Composer:
                             return
                         while self._answering:
                             time.sleep(0.005)
-                        self._slab_for(level, low_z, row, column)
+                        if baked is None:
+                            self._slab_for(level, low_z, row, column)
+                        else:
+                            self._a_slab_read_back(baked, level, low_z,
+                                                   row, column)
+
+    def warm_from_the_baked(self, store: Path, levels: frozenset[int]) -> None:
+        """Let the warm read these levels' slabs out of this baked folder.
+
+        The files are patched to the current manifest state before any fresh
+        snapshot answers anyone, so what the warm reads back is what
+        composing would have produced -- pinned by a test, byte for byte. A
+        commit landing while the warm is mid-read can leave a slab one state
+        newer than this snapshot; those are exactly the pieces the next
+        snapshot's inheritance drops as dirty, and the file door was already
+        serving those newer bytes, so nothing new becomes visible through
+        this path.
+        """
+        self._warm_store = (Path(store), frozenset(levels))
+
+    def _the_baked_level(self, level: int):
+        """The baked array for one level, opened once per warm, or ``None``."""
+        if self._warm_store is None or level not in self._warm_store[1]:
+            return None
+        try:
+            return zarr.open_array(str(self._warm_store[0] / str(level)),
+                                   mode="r")
+        except Exception:
+            # A bake that is missing or unreadable is not an error here --
+            # the warm simply composes, exactly as an unbaked picture does.
+            return None
+
+    def _a_slab_read_back(self, baked, level: int, low_z: int, row: int,
+                          column: int) -> None:
+        """One slab lifted from the baked files, installed as if built.
+
+        The composed slab is always a full ``piece``-sized square, padded
+        with the fill value where the picture's edge falls inside it; the
+        baked array answers edge reads trimmed. Padding the read back out
+        restores the exact array the builder would have produced, so
+        everything downstream sees one kind of slab whichever way it came.
+        """
+        depth = self.slab_depth(level)
+        key = (level, low_z, row, column)
+        with self._guard:
+            if key in self._pinned or key in self._slabs:
+                return
+        deep, height, width = self.mosaic.shape(level)
+        high_z = min(low_z + depth, deep)
+        top, left = row * self.piece, column * self.piece
+        lifted = np.asarray(baked[low_z:high_z,
+                                  top:min(top + self.piece, height),
+                                  left:min(left + self.piece, width)])
+        slab = np.zeros((high_z - low_z, self.piece, self.piece),
+                        self.mosaic.dtype)
+        slab[:, :lifted.shape[1], :lifted.shape[2]] = lifted
+        with self._guard:
+            if self._pinning and level in self.pinned_levels:
+                self._pinned.setdefault(key, slab)
+            elif key not in self._slabs:
+                self._slabs[key] = slab
+                self._weighs += slab.nbytes
 
     @property
     def working_alone(self) -> bool:

@@ -449,7 +449,15 @@ class GovernedRun:
         # cold open, but its PATCHER composes every dirty piece, and a
         # change touching a cold region paid 0.5-3 s inside
         # landing-to-visible -- watched as tiles updating with inconsistent
-        # timing -- against 60-90 ms wherever the slabs were warm.
+        # timing -- against 60-90 ms wherever the slabs were warm. And a
+        # baked picture's warm READS its slabs from those very files
+        # instead of composing them -- the pieces already exist, patched to
+        # this snapshot's state before anyone was answered.
+        if baked_picture:
+            self._held.warm_from_the_baked(
+                self._shown,
+                frozenset(one for one in self._the_baked_levels()
+                          if one < self._held.mosaic.levels))
         self._held.keep_the_coarse_levels_warm()
         return self._held
 

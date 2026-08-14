@@ -78,11 +78,13 @@ mid-bake stays safe by the stamp's prefix rule — workers can only bake
 NEWER ground than the stamp claims, and the first derive re-patches
 those commits' footprints (the same catch-up finding D2 pinned).
 
-The coarse warm is still serial: it lives inside the serving process by
-design (its slabs must land in the serving composer's own memory), so
-the process trick does not transfer directly. Feeding the warm from
-already-baked FILES instead of composing — the bake now finishes fast
-enough to come first — is the recorded idea for it.
+The coarse warm no longer composes at all on a baked picture: its
+slabs are read back from the baked files (``warm_from_the_baked``),
+which already hold, patched to the current state, exactly what
+composing would produce — pinned byte-for-byte by a test. Measured at
+4,096 positions: the composing warm took 131 s from cold; the file-fed
+warm took 0.1 s. The warm-race that governed the 32,761 rung should
+collapse with it; the single-rung re-measurement below is the check.
 
 ## The ladder again, with the surviving fixes
 
