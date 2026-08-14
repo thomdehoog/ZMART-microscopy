@@ -19,9 +19,15 @@ not be correct about physics.
    reading against what is actually on screen.
 
 **The focus map is on the canvas, not in a tab.** Step 5 draws its heatmap over
-the plan with the canvas's own projection, and its controls — the SURS point
+the plan with the canvas's own projection, and its controls — the pattern
 picker, the point list, the sweep and its preview — sit in the channel beside
-it, named `Focus strategy` at the right end of the tab row. The markup for them
+it, named `Focus strategy` at the right end of the tab row. Points are laid as
+a **pattern per compartment** — `First` (top-left position), `Interval` (every
+nth), `Center`, `Random` (n distinct) — with a number box only where a pattern
+asks for one, and always land **on scan positions**, never beside them.
+Clicking the canvas is the other lane, not a mode: a press takes the position
+under it, a press on a placed point removes it, and a press over no position
+pans. SURS and the whole-canvas scope are gone. The markup for them
 is parked in `index.html` under `#focus-controls` and moved into the channel
 while the step is standing, so it is built and wired once; anything that writes
 into it asks `focusMounted()` first, because the channel hands it back when the

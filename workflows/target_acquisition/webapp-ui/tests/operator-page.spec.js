@@ -8,8 +8,6 @@ import { WORKFLOWS } from "../src/workflows/index.js";
    ladder, the metric legend, the drag override — are worth unit tests once
    the maths stops moving; they cost a full run each through the UI. */
 
-const FOCUS_POINTS = [[0.3, 0.3], [0.68, 0.28], [0.5, 0.5], [0.32, 0.7], [0.7, 0.68]];
-
 const gotoStep = (page, name) => page.locator(`.step:has-text("${name}")`).first().click();
 
 /* A step's button sits at the end of whichever panel is showing, so this does
@@ -61,12 +59,9 @@ async function throughFields(page) {
 
 async function placeFocusPoints(page) {
   await gotoStep(page, "Focus strategy");
-  // the focus map is the canvas now, not a map of its own
-  const box = await page.locator("#stage-canvas").boundingBox();
-  for (const [fx, fy] of FOCUS_POINTS) {
-    await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
-    await page.waitForTimeout(50);
-  }
+  // the default pattern: the top-left position of every compartment
+  await page.locator("#fp-place").click();
+  await page.waitForTimeout(300);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -710,7 +705,7 @@ test("the plan stays editable until the overview has been scanned",
     await runStep(page, 1600);
     // the toolbar that used to say so is gone; the rail row carries it now
     await expect(page.locator(".step", { hasText: "Focus strategy" }))
-      .toContainText("from 5 points");
+      .toContainText("from 96 points");
 
     /* Back past the focus map, the plan is still the operator's to change: a
        fitted surface is a statement about the plate, measured at points that
@@ -818,13 +813,13 @@ test("a pasted position is hand-made, so the next Apply leaves it alone",
     await expect(page.locator(".sf-readout")).toContainText("1728 positions");
   });
 
-test("focus points are laid out on a random lattice, not scattered",
+test("focus points follow the chosen pattern, laid per compartment",
   async ({ page }) => {
     await throughFields(page);
     await gotoStep(page, "Focus strategy");
 
     /* Where the points are, read off the list rather than off the canvas. The
-       rows carry millimetres, which is what the claim is about. */
+       rows carry millimetres, which is what the claims are about. */
     const placed = async () => {
       const rows = await page.locator(".point-row").allInnerTexts();
       return rows.map((t) => {
@@ -832,36 +827,40 @@ test("focus points are laid out on a random lattice, not scattered",
         return { x: Number(m[1]), y: Number(m[2]) };
       });
     };
-    const closestPair = (pts) => {
-      let min = Infinity;
-      for (let i = 0; i < pts.length; i++) {
-        for (let j = i + 1; j < pts.length; j++) {
-          min = Math.min(min, Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y));
-        }
-      }
-      return min;
-    };
 
-    await page.locator("#fp-count").fill("12");
-    await expect(page.locator("#fp-hint")).toHaveText("12 points");
+    /* First is the default: the top-left position of every well, and no
+       number to type because the pattern already says it all. */
+    await expect(page.locator("#fp-count-row")).toBeHidden();
+    await expect(page.locator("#fp-hint")).toHaveText("96 points");
     await page.locator("#fp-place").click();
     await page.waitForTimeout(300);
+    expect(await placed()).toHaveLength(96);
 
-    const pts = await placed();
-    expect(pts).toHaveLength(12);
-    /* Twelve points over a 105 × 70 mm plate sit on a 4 × 3 lattice, so the
-       pitch is over 20 mm and nothing can be near anything. Independent random
-       points would put some pair inside 10 mm most of the time — that clumping
-       is the whole reason for sampling this way. */
-    expect(closestPair(pts), "no two points crowd each other").toBeGreaterThan(10);
+    // every 3rd of the 9 positions in a well is 3 per well
+    await page.locator("#fp-mode button[data-mode='interval']").click();
+    await expect(page.locator("#fp-count-row")).toBeVisible();
+    await page.locator("#fp-count").fill("3");
+    await expect(page.locator("#fp-hint")).toHaveText("288 points");
+    await page.locator("#fp-place").click();
+    await page.waitForTimeout(300);
+    expect(await placed()).toHaveLength(288);
 
-    // and one lattice per compartment, so every well is measured
-    await page.locator("#fp-scope button[data-scope='area']").click();
+    // the centre asks for nothing either: one middle position per well
+    await page.locator("#fp-mode button[data-mode='center']").click();
+    await expect(page.locator("#fp-count-row")).toBeHidden();
+    await expect(page.locator("#fp-hint")).toHaveText("96 points");
+
+    /* Random draws without replacement, so two per well is two different
+       positions in every one of the 96 — never the same spot measured twice. */
+    await page.locator("#fp-mode button[data-mode='random']").click();
     await page.locator("#fp-count").fill("2");
     await expect(page.locator("#fp-hint")).toHaveText("192 points");
     await page.locator("#fp-place").click();
     await page.waitForTimeout(600);
-    expect(await page.locator(".point-row").count()).toBe(192);
+    const pts = await placed();
+    expect(pts).toHaveLength(192);
+    expect(new Set(pts.map((p) => `${p.x},${p.y}`)).size,
+      "no position measured twice").toBe(192);
 
     // Clear empties it, and says so by refusing to be pressed again
     await page.locator("#fp-clear").click();
@@ -876,7 +875,7 @@ test("one walk of the whole run", async ({ page }) => {
   await placeFocusPoints(page);
   await runStep(page, 1600);
   await expect(page.locator(".step", { hasText: "Focus strategy" }))
-    .toContainText("spline from 5 points");
+    .toContainText("spline from 96 points");
 
   /* Everything after the plan is measured against the plan. The grid put 864
      positions down, so that is what the scan drives through and what the tile

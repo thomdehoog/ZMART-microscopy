@@ -177,18 +177,20 @@
           <div class="focus-side">
             <div class="side-head">Select focus points</div>
             <div class="fp-bar">
-              <div class="seg" id="fp-scope" role="radiogroup" aria-label="Where the points go">
-                <button type="button" role="radio" data-scope="canvas" aria-checked="true">Whole canvas</button>
-                <button type="button" role="radio" data-scope="area" aria-checked="false">Per compartment</button>
+              <div class="seg" id="fp-mode" role="radiogroup" aria-label="The pattern laid in every compartment">
+                <button type="button" role="radio" data-mode="first" aria-checked="true">First</button>
+                <button type="button" role="radio" data-mode="interval" aria-checked="false">Interval</button>
+                <button type="button" role="radio" data-mode="center" aria-checked="false">Center</button>
+                <button type="button" role="radio" data-mode="random" aria-checked="false">Random</button>
               </div>
-              <div class="fp-row">
-                <label class="fp-label" for="fp-count">How many</label>
+              <div class="fp-row" id="fp-count-row">
+                <label class="fp-label" for="fp-count" id="fp-count-label">Every nth</label>
                 <input type="number" id="fp-count" min="1" max="99" step="1">
-                <span class="fp-hint" id="fp-hint"></span>
               </div>
               <div class="fp-row">
                 <button type="button" class="ghost" id="fp-place">Place</button>
                 <button type="button" class="ghost" id="fp-clear">Clear</button>
+                <span class="fp-hint" id="fp-hint"></span>
               </div>
             </div>
             <div class="side-head">Focus points</div>

@@ -437,6 +437,9 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .fp-bar .seg { width: 100%; }
 .fp-bar .seg button { flex: 1; min-width: 0; }
 .fp-row { display: flex; align-items: center; gap: 8px; }
+/* display:flex outweighs the [hidden] attribute's browser rule, so the row a
+   pattern is not asking for has to be put away explicitly */
+.fp-row[hidden] { display: none; }
 .fp-row button.ghost { flex: 1; }
 .fp-label {
   font-size: 11px; font-family: var(--mono); font-weight: 600;
@@ -447,7 +450,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 6px;
   background: var(--screen); color: var(--ink);
 }
-/* what the two answers actually come to, since one of them multiplies */
+/* what the pattern comes to across every compartment, before Place is pressed */
 .fp-hint {
   margin-left: auto; font-size: 11.5px; font-family: var(--mono); color: var(--ink-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
