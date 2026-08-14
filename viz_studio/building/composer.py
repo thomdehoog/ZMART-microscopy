@@ -48,6 +48,7 @@ flat — 9.3 ms at 64 tiles, 9.9 ms at 4096.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from collections import OrderedDict
@@ -715,25 +716,123 @@ class Composer:
         # always been. A block that will not decode is skipped: prefilling
         # is cache hygiene, and the serving path keeps its own gate.
         if self._warm_store is not None:
+            if not self._every_coarse_block_decoded(stop):
+                return
+        self._blocks_prefilled = True
+
+    def _every_coarse_block_decoded(self, stop) -> bool:
+        """Fill the block cache for the pinned levels, several blocks at a time.
+
+        The decodes bypass zarr on purpose: every zarr read funnels through
+        one per-process event loop, where threads were measured queuing
+        instead of overlapping — but a chunk's bytes can be found through
+        the run's own shard-aware resolver and undone directly, the same
+        two steps the coordinator's fast comparison uses (a settled byte
+        order, then zstd), and zstd releases the interpreter's lock, so a
+        few threads genuinely decode at once. A block stored some way this
+        shortcut does not recognise is read through zarr instead; a block
+        that will not decode at all is skipped, because prefilling is cache
+        hygiene and the serving path keeps its own gate.
+
+        Returns False when stopped early — an interrupted prefill is not
+        warmth.
+        """
+        try:
+            from zmart_live.shardlink import how_the_array_is_stored
+        except ImportError:
+            how_the_array_is_stored = None
+        from numcodecs.zstd import Zstd
+
+        unpacking = Zstd()
+
+        def one_block(copy, storage, at: tuple[int, int, int]) -> None:
+            key = (copy.held_in, copy.outer, at)
+            with self._block_guard:
+                if key in self._blocks:
+                    return
+            if storage is None:
+                self._a_block_of(copy, at)
+                return
+            held = storage.where_one_chunk_lives(copy.outer + at)
+            if held is None:
+                return
+            with held.path.open("rb") as reading:
+                reading.seek(held.offset)
+                packed = reading.read(held.length)
+            codecs = storage.description.get("codecs") or []
+            if (codecs and isinstance(codecs[0], dict)
+                    and codecs[0].get("name") == "sharding_indexed"):
+                codecs = (codecs[0].get("configuration") or {}).get(
+                    "codecs") or []
+            named = [step.get("name") if isinstance(step, dict) else None
+                     for step in codecs]
+            if named[:1] != ["bytes"] or named[1:] not in ([], ["zstd"]):
+                self._a_block_of(copy, at)
+                return
+            if named[1:] == ["zstd"]:
+                packed = unpacking.decode(packed)
+            order = (codecs[0].get("configuration") or {}).get(
+                "endian", "little")
+            kind = np.dtype(storage.description["data_type"]).newbyteorder(
+                "<" if order == "little" else ">")
+            block = np.frombuffer(packed, dtype=kind).reshape(
+                storage.bundling.inner_chunk)[copy.outer]
+            keep = tuple(
+                min(size, whole - place * size) for size, whole, place
+                in zip(copy.chunks, copy.shape[-3:], at, strict=True)
+            )
+            block = block[:keep[0], :keep[1], :keep[2]]
+            with self._block_guard:
+                if key not in self._blocks:
+                    self._blocks[key] = block
+                    self._blocks_weigh += block.nbytes
+                    while (len(self._blocks) > 1
+                           and self._blocks_weigh
+                           > self._blocks_weighing_at_most):
+                        _, dropped = self._blocks.popitem(last=False)
+                        self._blocks_weigh -= dropped.nbytes
+
+        from collections import deque
+        from concurrent.futures import ThreadPoolExecutor
+
+        decoding = ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 1))
+        waiting: deque = deque()
+        try:
             for level in sorted(self.pinned_levels, reverse=True):
                 for tile, _ in self.mosaic.placements(level):
+                    if stop is not None and stop.is_set():
+                        return False
+                    while self._answering:
+                        time.sleep(0.005)
                     copy = tile.copies[level]
+                    storage = None
+                    if how_the_array_is_stored is not None:
+                        try:
+                            storage = how_the_array_is_stored(copy.held_in)
+                        except Exception:
+                            storage = None
                     blocks = [
-                        -(-size // chunk) for size, chunk
+                        -(-whole // size) for whole, size
                         in zip(copy.shape[-3:], copy.chunks, strict=True)
                     ]
                     for z in range(blocks[0]):
                         for y in range(blocks[1]):
                             for x in range(blocks[2]):
-                                if stop is not None and stop.is_set():
-                                    return
-                                while self._answering:
-                                    time.sleep(0.005)
-                                try:
-                                    self._a_block_of(copy, (z, y, x))
-                                except Exception:
-                                    continue
-        self._blocks_prefilled = True
+                                while len(waiting) >= 16:
+                                    try:
+                                        waiting.popleft().result()
+                                    except Exception:
+                                        pass
+                                waiting.append(decoding.submit(
+                                    one_block, copy, storage, (z, y, x)))
+            while waiting:
+                try:
+                    waiting.popleft().result()
+                except Exception:
+                    pass
+            return True
+        finally:
+            decoding.shutdown(wait=True, cancel_futures=True)
 
     def warm_from_the_baked(self, store: Path, levels: frozenset[int]) -> None:
         """Let the warm read these levels' slabs out of this baked folder.
