@@ -182,6 +182,9 @@ def main() -> int:
                          help="serve a copy of the page that checks every "
                               f"{QUICK_CHECK_MS} ms, for single-tile steps "
                               "at fast paces")
+    parsing.add_argument("--no-pop", action="store_true",
+                         help="do not open a browser; something else — a "
+                              "pywebview window, say — is the watcher")
     asked = parsing.parse_args()
 
     harness.FIXTURES = Path(asked.fixtures)
@@ -272,8 +275,11 @@ def main() -> int:
         with urllib.request.urlopen(request, timeout=30):
             pass
 
-    print(f"\n=== http://127.0.0.1:{port} — popping your browser ===")
-    pop_the_browser(port)
+    if asked.no_pop:
+        print(f"\n=== http://127.0.0.1:{port} — waiting for its watcher ===")
+    else:
+        print(f"\n=== http://127.0.0.1:{port} — popping your browser ===")
+        pop_the_browser(port)
     time.sleep(asked.grace)
 
     if asked.replace:
