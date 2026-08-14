@@ -137,11 +137,11 @@ describe("panels follow the step", () => {
       optics: ["optics"],
       carrier: ["canvas"],
       scanfields: ["canvas"],
-      /* The focus step brings no panel of its own. Its map is drawn over the
-         plan on the canvas, and its controls sit in the channel beside it. */
+      /* Focus and detection bring no panel of their own. Their results are
+         drawn on the canvas, and their controls sit in the channel beside it. */
       focus: ["canvas"],
       scan: ["canvas"],
-      detect: ["canvas", "detect"],
+      detect: ["canvas"],
       select: ["canvas", "analysis"],
       acquire: ["canvas", "gallery"],
       save: ["canvas"],

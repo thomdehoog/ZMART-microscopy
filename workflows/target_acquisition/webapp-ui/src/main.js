@@ -474,7 +474,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      They are three different things — a session, a list of presets, a carrier —
      and a tab beside the canvas should say which of them it opens. They draw
      into the same element because only one is ever shown. */
-  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer-canvas", "foot-detect", "foot-analysis", "foot-gallery"];
+  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer-canvas", "foot-analysis", "foot-gallery"];
 
   /* Every panel a step may ask for, by the name a step uses for it. `whenShown`
      is how a panel that has to build something of its own — a picture drawn by a
@@ -492,7 +492,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       label: "Canvas", panel: "panel-viewer-canvas",
       whenShown: () => theCanvas.whenShown(),
     },
-    detect: { label: "Detection", panel: "panel-detect" },
     analysis: { label: "Analysis", panel: "panel-analysis" },
     gallery: { label: "Gallery", panel: "panel-gallery" },
   };
@@ -936,8 +935,23 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     },
   };
 
+  /* Detection is the same shape as focus: the step happens on the canvas —
+     the cells it finds land there — and its controls sit in the channel,
+     where the settings are tried on one position before the sample runs. */
+  const detectWidget = {
+    id: "detect",
+    label: "Detect cells",
+    mount(host) {
+      detectControls.hidden = false;
+      host.append(detectControls);
+      renderDetectToolbar();
+      drawTilePreview();
+    },
+  };
+
   const SIDE_WIDGETS = {
-    carrier: carrierWidget, scanfields: scanfieldsWidget, focus: focusWidget,
+    carrier: carrierWidget, scanfields: scanfieldsWidget,
+    focus: focusWidget, detect: detectWidget,
   };
 
   const sideWidget = () => SIDE_WIDGETS[step(state.activeIdx).id] ?? null;
@@ -963,6 +977,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   /* Held rather than looked up: emptying the channel takes these out of the
      document, and getElementById cannot find what is not in it. */
   const focusControls = el("focus-controls");
+  const detectControls = el("detect-controls");
 
   function renderSide(show) {
     const host = el("canvas-side");
@@ -977,7 +992,8 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     host.textContent = "";
     if (!widget) return;
 
-    if (widget.id === "focus") { widget.mount(host); return; }
+    // a widget with a mount owns parked markup that moves into the channel
+    if (widget.mount) { widget.mount(host); return; }
 
     if (widget.id === "carrier") {
       widget.render(host, {
@@ -1124,7 +1140,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     // looked at, so which of the two is on screen follows the step.
     liveOverview.showFor(step(state.activeIdx), show);
     if (show === "canvas") { sizeCanvas(stageCv); drawStage(); }
-    if (show === "detect") { renderDetectToolbar(); drawTilePreview(); }
     if (show === "analysis") { sizeCanvas(scatterCv); drawScatter(); }
   }
 
@@ -1632,6 +1647,18 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       });
     }
 
+    /* The test position, while detection is being tuned on it: the channel's
+       preview is this one tile, and the canvas says which one that is. Only
+       while standing on the step, the same rule the focus map follows. */
+    if (step(state.activeIdx).mode === "detect" && state.plan[state.detect.tile]) {
+      const t = state.plan[state.detect.tile];
+      const half = t.frameUm / 2;
+      const [x, y] = place(t.x - half, t.y - half);
+      ctx.strokeStyle = css("--accent");
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, t.frameUm * view.scale, t.frameUm * view.scale);
+    }
+
     // and the editing itself only while somebody is standing in it
     if (editing) {
       editing.drawChrome(ctx, { toScreen: place, scale: view.scale });
@@ -1771,7 +1798,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     if (dragging) {
       const still = !panMoved;
       endDrag(e);
-      if (still) focusPressed(e.offsetX, e.offsetY);
+      if (still) focusPressed(e.offsetX, e.offsetY) || detectPressed(e.offsetX, e.offsetY);
       return;
     }
     if (editorTook("up", e)) {
@@ -2299,6 +2326,24 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     else f.points.push({ x: hit.t.x, y: hit.t.y, z: null });
     f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
     drawStage(); renderPointList(); renderActionBar();
+    return true;
+  }
+
+  /* The same press during detection picks the test position: the channel's
+     preview is one tile, and pointing at a position on the canvas is how it
+     is chosen — the pager beside the preview is the other way. */
+  function detectPressed(px, py) {
+    if (step(state.activeIdx).mode !== "detect" || state.running) return false;
+    const [wx, wy] = toWorld(px, py);
+    const [ox, oy] = carrierOriginUm();
+    const hit = nearestPosition(wx - ox, wy - oy);
+    if (!hit) return false;
+    const d = state.detect;
+    if (d.tile !== hit.i) {
+      d.tile = hit.i;
+      d.tested = false;
+    }
+    renderDetectToolbar(); drawTilePreview(); drawStage(); renderActionBar();
     return true;
   }
 
@@ -2966,7 +3011,12 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     drawScaleBar(ctx, w, h, s);
   }
 
+  /* Like the focus controls, these are in the document only while their step
+     is standing — the channel takes them in and gives them back. */
+  const detectMounted = () => detectControls.isConnected;
+
   function renderDetectToolbar() {
+    if (!detectMounted()) return;
     const d = state.detect;
     for (const b of el("detect-algo").querySelectorAll("button")) {
       b.setAttribute("aria-checked", String(b.dataset.algo === d.algo));
@@ -3288,12 +3338,12 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      ============================================================ */
   const ro = new ResizeObserver(() => {
     if (el("panel-canvas").classList.contains("on")) { sizeCanvas(stageCv); drawStage(); }
-    if (el("panel-detect").classList.contains("on")) drawTilePreview();
+    if (detectMounted()) drawTilePreview();
     drawTrace();
     if (el("panel-analysis").classList.contains("on")) { sizeCanvas(scatterCv); drawScatter(); }
   });
   ro.observe(el("panel-canvas"));
-  ro.observe(el("panel-detect"));
+  ro.observe(detectControls);
   ro.observe(el("panel-analysis"));
 
   const mo = new MutationObserver(() => { drawStage(); drawTilePreview(); drawTrace(); drawScatter(); });
