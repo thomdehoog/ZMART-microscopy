@@ -505,3 +505,48 @@ def test_an_empty_run_bakes_nothing_because_absence_means_fill(tmp_path):
     assert not every_baked_file(store), (
         "an empty picture's bake must write no pixel files at all"
     )
+
+
+def test_the_warm_reads_the_bake_and_holds_the_composed_ground(tmp_path):
+    """A slab warmed out of the baked files equals one composed from tiles.
+
+    The warm of a baked picture reads its pinned slabs back from the files
+    the bake wrote (Composer.warm_from_the_baked) instead of composing them
+    from every tile — minutes against seconds at survey scale. Whether the
+    shortcut kept the ground true is checked the only way that counts:
+    every slab it holds afterwards, byte for byte against the slab a
+    composer with no baked files builds from the tiles, edges and their
+    padding included.
+    """
+    import numpy as np
+
+    from governed import GovernedRun
+
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    run.write_and_publish("posB", some_specimen(4242))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    try:
+        baked = GovernedRun(run.folder, piece=PIECE, store=store)
+        read_back = baked.composer()
+        read_back.stop_warming()
+        read_back.warm_the_coarse_levels()
+        assert read_back.coarse_levels_are_warm, (
+            "the file-fed warm must fill every pinned slab"
+        )
+
+        composing = GovernedRun(run.folder, piece=PIECE).composer()
+        composing.stop_warming()
+        held = dict(read_back._pinned)
+        assert held, "a baked picture's warm must have pinned something"
+        for (level, low_z, row, column), slab in held.items():
+            built = composing._slab_for(level, low_z, row, column)
+            assert np.array_equal(slab, built), (
+                f"the slab read back for level {level} piece "
+                f"({row}, {column}) differs from the composed one — the "
+                "warm's shortcut changed what the operator would be shown"
+            )
+    finally:
+        import served
+        served.forget(store)
