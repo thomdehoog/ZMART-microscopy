@@ -448,3 +448,14 @@ the production glass, WebView2 underneath — driven by the same hands
 through the same storm, broke the same way. The map is complete: every
 surface the viewer ships on shares the one engine and the one wedge,
 and the one fix.
+
+The recipe closed the same evening, by the operator running the
+quadrants: a full-rate storm WATCHED BUT UNTOUCHED is clean, twice
+over; the same storm under zooming wedges every time. Interaction
+during updates is a NECESSARY ingredient — the wedge is a race between
+navigation's scale changes and in-flight refreshes, not an
+accumulation — and the position count only ever mattered as chances
+for the collision. Which also bounds the exposure honestly: an
+operator who is not actively navigating during heavy commits never
+meets it, and a reload cures it when they do. The mechanism hunt
+starts inside the scale-selection path with that collision in hand.
