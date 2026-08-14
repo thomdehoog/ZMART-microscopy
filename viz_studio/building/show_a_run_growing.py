@@ -123,13 +123,25 @@ def spiral_order(across: int, width: int) -> list[str]:
 
 
 def pop_the_browser(port: int) -> None:
-    """Open the watcher's own browser on the page, once the server answers.
+    """Open the watcher's browser on the page, once the server answers.
 
-    Windows-shaped on purpose: the machines this shows on are the lab's. On
-    anything else the print of the address still stands.
+    Chrome by name first, the system default second. Not a preference about
+    browsers in general but about EVIDENCE: the suites and the storm gate run
+    in Chromium, so a show watched in Chrome is watched in the engine the
+    tests vouch for — a difference seen there is ours, and a difference seen
+    only elsewhere belongs to that browser. Windows-shaped on purpose: the
+    machines this shows on are the lab's. Where neither launch lands, the
+    printed address still stands.
     """
     address = f"http://127.0.0.1:{port}"
     try:
+        named = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"Start-Process chrome '{address}'"],
+            check=False, timeout=30, capture_output=True,
+        )
+        if named.returncode == 0:
+            return
         subprocess.run(
             ["powershell", "-NoProfile", "-Command",
              f"Start-Process '{address}'"],
