@@ -178,21 +178,23 @@ Two other workflows exist to prove the frame is not built around one:
   step, and **Restart** is how you begin again. Nothing says "not connected"
   before it is; the fields and the button already do.
 - **Optical Configuration** is a recorder, not a picker. Nothing is
-  preconfigured. Pick a kind, name it, press Record; the controller reads the
-  state back. The bar then *becomes* the record in place and a fresh open bar
-  appears. Recording is the work, so a preset existing completes the step, and
-  forgetting the last one undoes it.
-  - Presets group by kind: `RECORDED ACQUISITION PRESETS`, `RECORDED AUTOFOCUS
-    PRESETS`. The kind names the group, not every row.
+  preconfigured. One section per kind — `RECORD ACQUISITION PRESET`, `RECORD
+  AUTOFOCUS PRESET`, bold headings — each holding a name box, a **Record
+  Microscope State** button, and beneath them the presets recorded of that
+  kind. There is no kind dropdown: the section is the kind. Press the button
+  and the controller reads the state back; the bar *becomes* the record in
+  place and a fresh one opens under the heading. Recording is the work, so a
+  preset existing completes the step, and forgetting the last one undoes it.
   - A preset **unfolds** (triangle, leading the row) to show everything the
     controller returned.
-  - Names are capitalised on the way in and clash case-insensitively.
+  - Names are capitalised on the way in and clash case-insensitively across
+    the whole run, not per kind.
   - Adding a kind is one entry in `SETTING_TYPES` — nothing else to touch.
 - The panel's alignment is asserted by a test, not eyeballed: one width, one
   left and right edge, labels flush, every row opening and closing in the same
   column. The open bar carries the same fields a session does — one rule in
   the stylesheet serves both — so it stands taller than the line of text a
-  recorded preset is, and its kind, name and Record are all one height.
+  recorded preset is, and its name and Record are one height.
 
 - **Carrier configuration** is a full designer, not a dropdown: type, preset,
   rows/columns, area size, pitch and corner, each pair tieable. It has **no tab
