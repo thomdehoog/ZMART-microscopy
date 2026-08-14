@@ -135,6 +135,53 @@ by the warm outrunning the five-minute cap, not by anything the day's
 fixes touched, and it will stay that way until the warm is made
 process-parallel or the cap learns to wait for warmth at scale.
 
+## The definitive ladder: process bake and file-fed warm included
+
+The state the branch ships: flat writer, O(change) derive, the
+process-worker bake, the warm reading its pins from the baked files
+(with the serial block prefill — the parallel one is reverted above).
+Full spread in `MEASURED_ladder_final_2026-08-13_linux_container.json`;
+the 32,761 rung was still measuring when this table was written and is
+appended to the JSON when it lands.
+
+| positions | land | replace | derive | visible | bake | warm | finish | transients |
+|-----------|------|---------|--------|---------|------|------|--------|------------|
+| 64        | 156 [174/201] | 258 [279/299] | 30 [36/56]    | 97 [108/116]  | 1.7  | 1.5   | 0.0  | 0 |
+| 121       | 176 [186/189] | 274 [332/344] | 30 [35/81]    | 81 [90/127]   | 3.0  | 1.5   | 0.0  | 0 |
+| 256       | 156 [168/173] | 256 [320/334] | 50 [57/104]   | 110 [124/168] | 5.3  | 3.0   | 0.1  | 0 |
+| 529       | 158 [177/279] | 264 [280/362] | 59 [66/85]    | 108 [117/132] | 6.3  | 15.3  | 0.2  | 0 |
+| 1,024     | 167 [180/379] | 262 [289/435] | 82 [94/100]   | 145 [158/174] | 7.5  | 15.2  | 0.5  | 0 |
+| 2,025     | 172 [185/438] | 274 [300/571] | 90 [96/122]   | 141 [154/192] | 11.0 | 30.1  | 0.6  | 0 |
+| 4,096     | 182 [194/204] | 274 [294/300] | 120 [147/651] | 202 [230/752] | 26.7 | 60.1  | 2.0  | 0 |
+| 8,281     | 192 [208/216] | 298 [316/1502]| 149 [161/214] | 208 [224/341] | 45.7 | 133.0 | 3.9  | 0 |
+| 16,384    | 294 [339/380] | 412 [462/493] | 290 [339/2492]| 383 [416/525] | 89.9 | 269.9 | 10.6 | 0 |
+
+The bake is the transformed column — 26.7 / 45.7 / 89.9 s where the
+baseline paid 76 / 149 / 312, a factor that GROWS with scale (2.4× to
+3.5× on four cores) and grows again with more cores. The warm is the
+honest laggard: the picture is SERVABLE in about a second at any scale,
+but ready-to-patch warmth still costs composing-order time, and at
+16,384 it grazes the harness's five-minute head start — which is what
+nudged that rung's churn medians up. The churn medians throughout this
+table also carry a long measuring session's machine drift; trust the
+shapes, and re-measure on a fresh machine for absolutes.
+
+## Picking this up on another machine
+
+Everything needed is on this branch. Setup:
+``pip install -r requirements.txt playwright pillow pytest``, then
+``python -m playwright install chromium``, then build the viewer once
+(``cd viz_studio/frontend && npm install && npm run build``). Run
+``python viz_studio/building/measure_a_ladder_of_surveys.py --fixtures
+<somewhere with ~33 GB>`` (add ``--tidy`` for ~17 GB peak; use
+``--powers 6-12`` for the quick half first — it resumes from its own
+JSON). On a machine with more cores, raise ``_BAKE_PROCESSES`` in
+``declare.py`` and compare. The open threads, in order of value: the
+reverted parallel-decode prefill (find its commit and revert-of-revert
+in the history; its flicker mechanism must be run to ground first),
+the warm-race at the top rung that it would close, and the derive's
+small remaining slope.
+
 ## What the ladder says so far
 
 - **The writer does not know the survey's size.** A landing is
