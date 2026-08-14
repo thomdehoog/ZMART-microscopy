@@ -128,6 +128,11 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     };
   }
 
+  /* The acquisition type the targets are imaged with: one reading taken off
+     the instrument in the Acquire Targets channel, the way an optics preset
+     is. A plain open bar until it is recorded. */
+  const newTargetType = () => ({ type: "acquisition", name: "" });
+
   // detection settings live next to the focus strategy: chosen, tried on one
   // tile, then applied to the rest
   function newDetect() {
@@ -180,6 +185,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     carrier: { ...DEFAULT_CARRIER },
     fields: [],
     plan: [],
+    targetType: newTargetType(),
     editor: null,
     checks: [],
     wf: WORKFLOWS[WORKFLOW_ASKED_FOR] ? WORKFLOW_ASKED_FOR : DEFAULT_WORKFLOW,
@@ -242,6 +248,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       recordings: [],
       bars: startingBars(),
       carrier: { ...DEFAULT_CARRIER }, fields: [], plan: [], checks: [],
+      targetType: newTargetType(),
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
       detect: newDetect(), detected: new Set(),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], verdicts: {},
@@ -447,9 +454,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         // the settings proven on one tile, now applied to every tile
         state.detected = new Set(sample.cells.filter(detects).map((c) => c.id));
         state.cellsShown = true;
-        state.notes[s.id] = `${state.detected.size} cells · ${ALGOS[state.detect.algo].label}`;
+        state.notes[s.id] = `${state.detected.size} targets · ${ALGOS[state.detect.algo].label}`;
       }
-      if (s.mode === "select") { state.notes[s.id] = `${state.gated.size} cells selected`; }
+      if (s.mode === "select") { state.notes[s.id] = `${state.gated.size} targets selected`; }
       if (s.mode === "targets") {
         const picked = [...state.gated].slice(0, 12);
         state.acquired = picked;
@@ -766,8 +773,21 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   /* The summary is the headline; the detail is what the controller actually
      read. Folded away by default, because a list of presets should stay a
      list — but one click from view, because "trust me" is not a good answer
-     when the run depends on it. */
-  function renderRecordedBar(bar) {
+     when the run depends on it.
+
+     The bar draws whatever recording it is handed; `opts` says whose list it
+     belongs to — dropping and redrawing default to the optics presets, and
+     the acquisition type passes its own. */
+  function renderRecordedBar(bar, opts = {}) {
+    const rerender = opts.rerender ?? renderSetup;
+    const dropped = opts.dropped ?? (() => {
+      state.bars = state.bars.filter((b) => b !== bar);
+      ensureOpenBar();
+      settingsChanged();
+      scanfieldsSettled();
+      renderSetup();
+      renderAll();
+    });
     const wrap = document.createDocumentFragment();
 
     const row = document.createElement("div");
@@ -786,20 +806,13 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     fold.classList.toggle("open", !!bar.expanded);
     fold.addEventListener("click", () => {
       bar.expanded = !bar.expanded;
-      renderSetup();
+      rerender();
     });
 
     const drop = row.querySelector(".rec-drop");
     drop.title = "forget this preset";
     drop.disabled = !!state.running;
-    drop.addEventListener("click", () => {
-      state.bars = state.bars.filter((b) => b !== bar);
-      ensureOpenBar();
-      settingsChanged();
-      scanfieldsSettled();
-      renderSetup();
-      renderAll();
-    });
+    drop.addEventListener("click", dropped);
 
     wrap.append(row);
 
@@ -818,7 +831,10 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     return wrap;
   }
 
-  function renderOpenBar(bar) {
+  /* Like the recorded bar, this draws whichever recording-to-be it is handed:
+     `opts.taken` is the name space it clashes in, `opts.recorded` what to do
+     once the instrument has been read. Both default to the optics presets. */
+  function renderOpenBar(bar, opts = {}) {
     const row = document.createElement("div");
     row.className = "rec-new";
 
@@ -837,9 +853,16 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     why.className = "session-hint";
 
     const capitalised = (v) => (v ? v[0].toUpperCase() + v.slice(1) : v);
-    const taken = (value) =>
+    const taken = opts.taken ?? ((value) =>
       state.bars.some((b) => b !== bar
-        && b.name.trim().toLowerCase() === value.toLowerCase());
+        && b.name.trim().toLowerCase() === value.toLowerCase()));
+    const recorded = opts.recorded ?? (() => {
+      ensureOpenBar();
+      settingsChanged();
+      scanfieldsSettled();
+      renderSetup();
+      renderAll();
+    });
 
     // typing must not rebuild the row, or the field loses focus every keystroke
     const check = () => {
@@ -864,11 +887,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         bar.state = reading.summary;
         bar.detail = reading.detail;
         bar.frameUm = reading.frameUm;
-        ensureOpenBar();
-        settingsChanged();
-        scanfieldsSettled();
-        renderSetup();
-        renderAll();
+        recorded();
       }, 480);
     });
 
@@ -965,13 +984,15 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   };
 
   /* The gallery too: the acquired targets ring on the canvas, and the channel
-     holds the pairs and the verdicts being collected on them. */
+     holds the acquisition type being recorded, the pairs, and the verdicts
+     being collected on them. */
   const galleryWidget = {
     id: "acquire",
-    label: "Acquire and curate",
+    label: "Acquire Targets",
     mount(host) {
       galleryControls.hidden = false;
       host.append(galleryControls);
+      renderTargetType();
       buildGallery();
     },
   };
@@ -3361,6 +3382,43 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   /* In the document only while the step is standing, like every channel;
      mounting rebuilds from the run's state, so nothing stale survives. */
   const galleryMounted = () => galleryControls.isConnected;
+
+  /* The acquisition type: one reading taken off the instrument in this
+     channel, the way an optics preset is — set the target image up, name it,
+     press Record. One at a time, because the step acquires with one
+     configuration, and forgetting it opens the bar again. */
+  function renderTargetType() {
+    if (!galleryMounted()) return;
+    const host = el("target-type");
+    host.textContent = "";
+
+    const group = document.createElement("div");
+    group.className = "setting-group";
+    const label = document.createElement("div");
+    label.className = "group-label";
+    label.textContent = "Record acquisition type";
+    group.append(label);
+
+    const t = state.targetType;
+    const box = document.createElement("div");
+    box.className = `setting-box ${t.state ? "done" : "open"}`;
+    box.append(t.state
+      ? renderRecordedBar(t, {
+        rerender: renderTargetType,
+        dropped: () => {
+          state.targetType = newTargetType();
+          renderTargetType();
+          renderActionBar();
+        },
+      })
+      : renderOpenBar(t, {
+        // its own name space: one recording, nothing to clash with
+        taken: () => false,
+        recorded: () => { renderTargetType(); renderActionBar(); },
+      }));
+    group.append(box);
+    host.append(group);
+  }
 
   function buildGallery() {
     if (!galleryMounted()) return;

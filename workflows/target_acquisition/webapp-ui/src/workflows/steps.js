@@ -133,13 +133,14 @@ export const scanOverview = {
   mode: "scan",
 };
 
-/* Detection brings no panel of its own: the cells it finds land on the canvas,
-   and its controls sit in the channel beside it, the same shape as focus. */
+/* Discovery brings no panel of its own: the targets it finds land on the
+   canvas, and its controls sit in the channel beside it, the same shape as
+   focus. */
 export const detectCells = {
   id: "detect",
-  title: "Detect cells",
-  why: "Segments every overview tile. Each cell found becomes one point.",
-  btn: "Detect cells",
+  title: "Discover Targets",
+  why: "Segments every overview tile. Each cell found becomes one target candidate.",
+  btn: "Discover Targets",
   panels: [],
   ms: 1600,
   mode: "detect",
@@ -148,12 +149,12 @@ export const detectCells = {
   ready: ({ detect }) => (detect.tested ? null : "try it on one tile first"),
 };
 
-/* Selection is the same shape: the gated cells light up on the canvas, and
-   the channel holds the scatter they are gated on. */
+/* Refinement is the same shape: the refined targets light up on the canvas,
+   and the channel holds the scatter they are gated on. */
 export const selectCells = {
   id: "select",
-  title: "Select cells",
-  why: "Gate the cells worth imaging — drag a box on the plot, or pick them on the canvas.",
+  title: "Refine Targets",
+  why: "Gate the targets worth imaging — drag a box on the plot, or pick them on the canvas.",
   btn: "Confirm selection",
   panels: [],
   ms: 600,
@@ -162,16 +163,21 @@ export const selectCells = {
 };
 
 /* And the gallery joins the channels: the acquired targets ring on the
-   canvas, and the channel holds the pairs and the verdicts collected on them. */
+   canvas, and the channel holds the acquisition type being recorded, the
+   pairs, and the verdicts collected on them. */
 export const acquireAndCurate = {
   id: "acquire",
-  title: "Acquire and curate",
-  why: "Images the selected cells at target magnification and collects your verdicts.",
-  btn: "Acquire selection",
+  title: "Acquire Targets",
+  why: "Record the acquisition type, then image every refined target with it and collect your verdicts.",
+  btn: "Acquire Targets",
   panels: [],
   ms: 2200,
   mode: "targets",
-  ready: ({ gated }) => (gated.size ? null : "nothing gated yet"),
+  /* Acquiring needs to know what with: the type is a reading taken off the
+     instrument in this step's own channel, the way an optics preset is. */
+  ready: ({ gated, targetType }) =>
+    (gated.size === 0 ? "nothing gated yet"
+      : targetType?.state ? null : "record the acquisition type first"),
 };
 
 export const saveRun = {

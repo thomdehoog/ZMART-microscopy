@@ -882,16 +882,16 @@ test("one walk of the whole run", async ({ page }) => {
   await expect(page.locator('.step:has-text("Scan the overview") .step-note'))
     .toContainText("864 / 864 tiles");
 
-  await gotoStep(page, "Detect cells");
+  await gotoStep(page, "Discover Targets");
   await expect(page.locator("#tile-label")).toHaveText("1 / 864");
   await expect(page.locator(".panel.on button.step-run"),
-    "detection may not run on settings nobody has seen work").toBeDisabled();
+    "discovery may not run on settings nobody has seen work").toBeDisabled();
   await page.getByRole("button", { name: "Test on this tile" }).click();
   await page.waitForTimeout(250);
   await runStep(page, 2200);
-  await expect(page.locator('.step:has-text("Detect cells") .step-note')).toContainText("cells");
+  await expect(page.locator('.step:has-text("Discover Targets") .step-note')).toContainText("targets");
 
-  await gotoStep(page, "Select cells");
+  await gotoStep(page, "Refine Targets");
   const sc = await page.locator("#scatter-canvas").boundingBox();
   await page.mouse.move(sc.x + sc.width * 0.42, sc.y + sc.height * 0.18);
   await page.mouse.down();
@@ -903,14 +903,23 @@ test("one walk of the whole run", async ({ page }) => {
   // the gate belongs to the run, not to the panel that drew it
   await page.locator('.tab:has-text("Canvas")').click();
   await page.waitForTimeout(250);
-  await gotoStep(page, "Select cells");
+  await gotoStep(page, "Refine Targets");
   await expect(page.locator("#gate-readout")).toContainText("detected gated");
 
   await runStep(page, 1000);
-  await gotoStep(page, "Acquire and curate");
+  await gotoStep(page, "Acquire Targets");
+  /* Nothing is imaged until the run knows what with: the acquisition type is
+     recorded off the instrument in this step's own channel, and the button
+     waits for it. */
+  await expect(page.locator(".panel.on button.step-run")).toBeDisabled();
+  const tt = page.locator("#target-type .setting-box.open");
+  await tt.locator("input").fill("hires");
+  await tt.locator("button.run").click();
+  await page.waitForTimeout(650);
+  await expect(page.locator("#target-type .rec-name")).toHaveText("Hires");
   await runStep(page, 3000);
   await page.locator(".pair").first().locator("button.pick-good").click();
   await expect(page.locator("#gallery-readout")).toContainText("1 marked");
   await expect(page.locator(".side-tab"),
-    "curation continues after the run finishes").toContainText("Acquire and curate");
+    "curation continues after the run finishes").toContainText("Acquire Targets");
 });
