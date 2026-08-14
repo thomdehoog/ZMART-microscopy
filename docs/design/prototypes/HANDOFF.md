@@ -27,7 +27,15 @@ nth), `Center`, `Random` (n distinct) — with a number box only where a pattern
 asks for one, and always land **on scan positions**, never beside them.
 Clicking the canvas is the other lane, not a mode: a press takes the position
 under it, a press on a placed point removes it, and a press over no position
-pans. SURS and the whole-canvas scope are gone. The markup for them
+pans. SURS and the whole-canvas scope are gone.
+
+**Detection is the same shape as focus.** Step 7 has no tab of its own: the
+canvas keeps the picture — the cells it finds land there — and the channel
+holds the settings (algorithm, its parameters, `Test on this tile`) with the
+one **test position** beneath them: a pager, the tile preview, and what the
+settings found on it. Picking the test position is either the pager or a
+press on the canvas — the press takes the position under it, marks it on the
+canvas, and resets `tested`, so the step's gate stays honest. The markup for them
 is parked in `index.html` under `#focus-controls` and moved into the channel
 while the step is standing, so it is built and wired once; anything that writes
 into it asks `focusMounted()` first, because the channel hands it back when the

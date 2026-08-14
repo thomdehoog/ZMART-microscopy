@@ -145,28 +145,33 @@
         <div class="panel-foot" id="foot-viewer-canvas"></div>
       </div>
 
-      <!-- detection panel: tune on one tile, then run them all -->
-      <div class="panel" id="panel-detect" role="tabpanel">
-        <div class="toolbar focus-toolbar">
-          <div class="tb-row">
-            <span class="tb-label">Algorithm</span>
-            <div class="seg" id="detect-algo" role="radiogroup" aria-label="Detection algorithm">
-              <button type="button" role="radio" data-algo="cellpose" aria-checked="true">Cellpose</button>
-              <button type="button" role="radio" data-algo="threshold" aria-checked="false">Threshold</button>
+      <!-- Detection has no panel of its own either: the cells it finds land on
+           the canvas, and these are its controls — the settings, and the one
+           position they are tried on before the sample runs. Parked here and
+           moved into the channel while the step is standing, like focus. -->
+      <div id="detect-controls" hidden>
+          <div class="detect-side">
+            <div class="side-head">Detection</div>
+            <div class="detect-bar">
+              <div class="seg" id="detect-algo" role="radiogroup" aria-label="Detection algorithm">
+                <button type="button" role="radio" data-algo="cellpose" aria-checked="true">Cellpose</button>
+                <button type="button" role="radio" data-algo="threshold" aria-checked="false">Threshold</button>
+              </div>
+              <div class="detect-params" id="detect-params"></div>
             </div>
-            <div class="group" id="detect-params"></div>
-            <span class="tb-label tile-pick">
-              <button type="button" class="ghost tiny" id="tile-prev" aria-label="previous tile">◀</button>
-              <span id="tile-label">tile</span>
-              <button type="button" class="ghost tiny" id="tile-next" aria-label="next tile">▶</button>
-            </span>
-            <div class="readout" id="detect-readout">—</div>
+            <div class="side-head">
+              Test position
+              <span class="tile-pick">
+                <button type="button" class="ghost tiny" id="tile-prev" aria-label="previous position">◀</button>
+                <span id="tile-label">tile</span>
+                <button type="button" class="ghost tiny" id="tile-next" aria-label="next position">▶</button>
+              </span>
+            </div>
+            <div class="tile-host">
+              <canvas id="tile-canvas"></canvas>
+            </div>
+            <div class="detect-note" id="detect-readout">—</div>
           </div>
-        </div>
-        <div class="plot-host">
-          <canvas class="plot" id="tile-canvas"></canvas>
-        </div>
-        <div class="panel-foot" id="foot-detect"></div>
       </div>
 
       <!-- Focus strategy has no panel of its own: it happens on the canvas, and

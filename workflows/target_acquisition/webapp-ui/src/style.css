@@ -332,14 +332,6 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 }
 .param .hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46ch; }
 
-/* Two rows of fixed height. Content inside a row may change freely; the
-   toolbar's height cannot, so the canvas never moves under the cursor. */
-.focus-toolbar { display: grid; grid-template-rows: 28px; align-content: center; }
-.focus-toolbar .tb-row {
-  display: flex; align-items: center; gap: 10px;
-  min-width: 0; overflow-x: auto; overflow-y: hidden; white-space: nowrap;
-  scrollbar-width: thin;
-}
 /* The canvas demonstration needs two rows: which engine is drawing, and which
    of the three layers are on. */
 .viewer-toolbar { grid-template-rows: 28px auto; row-gap: 6px; }
@@ -358,8 +350,9 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 .layer-why {
   flex: 1 1 240px; min-width: 0; min-height: 3.2em; white-space: normal; line-height: 1.35;
 }
-.tb-label { font-weight: 600; color: var(--ink-3); flex: none; }
 .tile-pick { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; }
+/* the pager sits at the far end of the heading it belongs to */
+.side-head .tile-pick { margin-left: auto; letter-spacing: normal; text-transform: none; }
 .tile-pick #tile-label { min-width: 62px; text-align: center; color: var(--ink-2); }
 button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 #tile-canvas { cursor: default; }
@@ -518,6 +511,26 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   background: var(--surface-2); z-index: 2;
 }
 .trace-empty.hidden { display: none; }
+
+/* ---- the detection channel ----------------------------------------------
+   The same shape as focus: the step happens on the canvas — the cells it
+   finds land there — and the channel holds the settings, with the one
+   position they are tried on beneath them. */
+.detect-side { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.detect-bar {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px 12px; border-bottom: 1px solid var(--line);
+}
+.detect-bar .seg { width: 100%; }
+.detect-bar .seg button { flex: 1; min-width: 0; }
+/* the params read as label — value pairs down the column */
+.detect-params { display: flex; flex-direction: column; gap: 6px; }
+.detect-params .param label { flex: 1; }
+.detect-params button.ghost { margin-top: 2px; }
+.tile-host { padding: 12px 14px 0; }
+.tile-host canvas { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: 6px; }
+/* what the settings found on this position, or what the algorithm listens to */
+.detect-note { padding: 8px 14px 12px; font-size: 12px; color: var(--ink-3); line-height: 1.4; }
 
 .plot-host { position: relative; min-height: 0; }
 canvas.plot { display: block; width: 100%; height: 100%; touch-action: none; }
