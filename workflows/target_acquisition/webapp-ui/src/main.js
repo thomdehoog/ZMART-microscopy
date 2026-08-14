@@ -146,13 +146,14 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     run_0709_c: { label: "2026-07-09 · slide C", plane: { a: 71, b: 88, c: -389 }, residual: 3.1, ageDays: 19 },
   };
 
-  /* The bars a run starts with: nothing recorded and one open bar waiting,
-     because a preset is a reading taken off this instrument today and a run
-     that begins with three of them begins by telling the operator something
-     untrue. Built fresh each time, because a bar is edited in place and a
-     shared one would carry the last run's typing into the next. */
+  /* The bars a run starts with: nothing recorded and one open bar waiting
+     under each kind's heading, because a preset is a reading taken off this
+     instrument today and a run that begins with three of them begins by
+     telling the operator something untrue. Built fresh each time, because a
+     bar is edited in place and a shared one would carry the last run's typing
+     into the next. */
   function startingBars() {
-    return [{ type: SETTING_TYPES[0].key, name: "" }];
+    return SETTING_TYPES.map((t) => ({ type: t.key, name: "" }));
   }
 
   /* Which workflow to open on — `?workflow=canvas_layers`.
@@ -702,14 +703,16 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   const indexOfStep = (id) => steps().findIndex((s) => s.id === id);
   /* One bar per setting, and a bar is the setting.
    *
-   * It starts as a kind, a name and a Record button. Recording reads the state
-   * off the instrument and the bar becomes that record — the fields give way
+   * It starts as a name and a Record button. Recording reads the state off
+   * the instrument and the bar becomes that record — the fields give way
    * to what was captured, in place. Nothing jumps to a list somewhere else,
    * and nothing is typed in twice, so nothing can disagree with the
    * instrument.
    *
-   * Choosing a kind in the last open bar opens a fresh one beneath, and there
-   * is always exactly one open bar waiting at the bottom.
+   * Each kind is a section of its own, so a bar never says its kind: the
+   * heading it stands under does. Recording turns the bar into the record
+   * and a fresh one opens in its place, so every section always has exactly
+   * one bar waiting.
    */
   const recordedBars = () => state.bars.filter((b) => b.state);
 
@@ -729,8 +732,10 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   }
 
   const ensureOpenBar = () => {
-    if (!state.bars.some((b) => !b.state)) {
-      state.bars.push({ type: SETTING_TYPES[0].key, name: "" });
+    for (const t of SETTING_TYPES) {
+      if (!state.bars.some((b) => !b.state && b.type === t.key)) {
+        state.bars.push({ type: t.key, name: "" });
+      }
     }
   };
 
@@ -743,49 +748,29 @@ import scanfieldsWidget from "./widgets/scanfields.js";
        the settings, and counting things the operator can see is the panel
        talking about itself instead of showing the run. */
 
-    /* The open bar sits above what has been recorded: it is the thing you are
-       doing, and it should not walk further down the panel each time a setting
-       is taken. */
-    /* The open bar is a group of one, so its label sits the same distance off
-       its box as every other label does. */
-    const open = state.bars.find((b) => !b.state);
-    if (open) {
-      const group = document.createElement("div");
-      group.className = "setting-group";
-
-      const label = document.createElement("div");
-      label.className = "group-label";
-      label.textContent = "Record optical configuration";
-      group.append(label);
-
-      const box = document.createElement("div");
-      box.className = "setting-box open";
-      box.append(renderOpenBar(open));
-      group.append(box);
-      host.append(group);
-    }
-
-    /* Recorded settings are grouped by kind, in the order the kinds are
-       declared: every acquisition together, every autofocus together. A run
-       is read as "what can it image with" and "how does it focus", not as the
-       order somebody happened to press record in. */
+    /* One section per kind, in the order the kinds are declared: a run is
+       read as "what can it image with" and "how does it focus", not as the
+       order somebody happened to press record in. The heading names the kind
+       and the act — bold, because it is the panel's work — and the recorder
+       leads its section so it does not walk further down each time a preset
+       is taken; what has been recorded of the kind collects beneath it. */
     for (const type of SETTING_TYPES) {
-      const mine = state.bars.filter((b) => b.state && b.type === type.key);
-      if (!mine.length) continue;
-
       const group = document.createElement("div");
       group.className = "setting-group";
+      group.dataset.kind = type.key;
 
-      /* The kind names the group, once, instead of being repeated on every row
-         inside it. The column it used to occupy stays empty so a recorded
-         setting still lines up with the open bar's selector. */
       const label = document.createElement("div");
       label.className = "group-label";
-      // the selector says the kind; the heading says what kind of thing it is
-      label.textContent = `Recorded ${type.label} presets`;
+      label.textContent = `Record ${type.label} preset`;
       group.append(label);
 
-      for (const bar of mine) {
+      const open = state.bars.find((b) => !b.state && b.type === type.key);
+      const openBox = document.createElement("div");
+      openBox.className = "setting-box open";
+      openBox.append(renderOpenBar(open));
+      group.append(openBox);
+
+      for (const bar of state.bars.filter((b) => b.state && b.type === type.key)) {
         const box = document.createElement("div");
         box.className = "setting-box done";
         box.append(renderRecordedBar(bar));
@@ -854,23 +839,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     const row = document.createElement("div");
     row.className = "rec-new";
 
-    const kind = document.createElement("select");
-    for (const t of SETTING_TYPES) {
-      const o = document.createElement("option");
-      o.value = t.key;
-      /* The kind names a kind; what is being taken is a preset of it. Composed
-         here rather than stored that way, because the group heading below says
-         "Recorded acquisition presets" off the same label. */
-      o.textContent = `${t.label} preset`;
-      kind.append(o);
-    }
-    kind.value = bar.type;
-    kind.addEventListener("change", () => {
-      bar.type = kind.value;
-      ensureOpenBar();
-      renderSetup();
-    });
-
     const name = document.createElement("input");
     name.type = "text";
     name.placeholder = "Name of this preset";
@@ -880,7 +848,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     const go = document.createElement("button");
     go.className = "run";
     go.type = "button";
-    go.textContent = "Record";
+    go.textContent = "Record Microscope State";
 
     const why = document.createElement("div");
     why.className = "session-hint";
@@ -921,9 +889,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       }, 480);
     });
 
-    /* The name leads, the way it leads a recorded row. It is the thing being
-       filled in; the kind is a choice standing beside it. */
-    row.append(name, kind, go, why);
+    /* The name leads, the way it leads a recorded row: it is the thing being
+       filled in. The kind is said once by the heading above, not by the bar. */
+    row.append(name, go, why);
     return row;
   }
 

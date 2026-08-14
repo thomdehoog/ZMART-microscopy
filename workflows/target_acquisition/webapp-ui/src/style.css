@@ -730,7 +730,7 @@ canvas.livecv[hidden] { display: none; }
    Configuration asks for the same two things a session does — a choice and a
    name — so it is the same control, not one that resembles it. */
 .field select, .field input,
-.rec-new select, .rec-new input {
+.rec-new input {
   font: inherit; font-size: 13px; color: var(--ink);
   background: var(--screen); border: 1px solid var(--line-strong);
   border-radius: 7px; padding: 7px 9px; width: 100%;
@@ -738,7 +738,7 @@ canvas.livecv[hidden] { display: none; }
 /* No ring while a field holds the caret — the caret says so. Said once here,
    so a session and the open bar behave the same way as well as look it. */
 .field select:focus, .field input:focus,
-.rec-new select:focus, .rec-new input:focus { outline: none; }
+.rec-new input:focus { outline: none; }
 
 .field input { font-family: var(--mono); letter-spacing: 0.08em; }
 .field select:disabled, .field input:disabled { opacity: 0.55; }
@@ -844,18 +844,16 @@ canvas.livecv[hidden] { display: none; }
 /* The open bar carries no empty fold column. It opens with the name it is
    there to take, where a recorded row opens with its triangle, so the two
    begin on the same edge instead of the bar sitting indented behind a column
-   reserved for something it has not got. The kind is as wide as the kind and
-   sits after the name, so it stands beside the field it describes rather than
-   in front of it.
+   reserved for something it has not got.
 
    The name field is as wide as a preset name needs and no wider: a box drawn
    to the panel's edge offers room for a sentence when what goes in it is a
-   word. Everything after it follows on directly and the slack collects at the
-   end, where it says nothing rather than holding the bar apart. */
-.rec-new { grid-template-columns: 240px max-content max-content 1fr; }
+   word. The button follows on directly and the slack collects at the end,
+   where it says nothing rather than holding the bar apart. */
+.rec-new { grid-template-columns: 240px max-content 1fr; }
 
 .rec-fold, .rec-new input { grid-column: 1; }
-.rec-name, .rec-new select { grid-column: 2; }
+.rec-name { grid-column: 2; }
 .rec-state { grid-column: 3; }
 .rec-drop { grid-column: 4; }
 /* The base rule starts a button at the top of its row, which left this one
@@ -863,10 +861,8 @@ canvas.livecv[hidden] { display: none; }
    as tall as the name box beside it — taken from the row rather than set to a
    height of its own that would have to be kept in step by hand. */
 .rec-new button.run {
-  grid-column: 3; justify-self: start; align-self: stretch; padding: 0 14px;
+  grid-column: 2; justify-self: start; align-self: stretch; padding: 0 14px;
 }
-/* a native select renders a pixel short of a text field; same treatment */
-.rec-new select { align-self: stretch; }
 .rec-new .session-hint { grid-column: 1 / -1; margin-top: -2px; }
 
 .rec-name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-weight: 600; }
@@ -879,11 +875,6 @@ canvas.livecv[hidden] { display: none; }
    the same thing, and it made the one thing being filled in the hardest part
    to see. Without them the open bar is the line of text it is about to
    become, and it needs no height of its own to hold them. */
-/* Wide enough for its own text and no wider, so the arrow stays next to the
-   kind it belongs to instead of drifting to the end of the column — plus room
-   at the end for the arrow itself, which the browser draws inside the box and
-   which otherwise sits pressed against the edge. */
-.rec-new select { width: auto; justify-self: start; padding-right: 30px; }
 .rec-new input { font-family: var(--mono); }
 .rec-new input::placeholder { color: var(--ink-3); }
 
@@ -923,13 +914,14 @@ canvas.livecv[hidden] { display: none; }
    looked and its contents rode high in the box. */
 .session-hint:empty { display: none; }
 
-/* Settings of one kind sit close; one kind and the next stand apart. Named
-   once above the group, quietly: enough to see two groups, not to shout. */
+/* Settings of one kind sit close; one kind and the next stand apart. */
 .setting-group { display: flex; flex-direction: column; gap: 6px; }
 .setting-group + .setting-group { margin-top: 16px; }
+/* Bold and in full ink: the heading is the panel's work — record a preset of
+   this kind — not a caption on a list. */
 .group-label {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
-  color: var(--ink-3); margin: 0 0 2px; padding: 0;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--ink); margin: 0 0 2px; padding: 0;
 }
 
 /* ---- the carrier configuration panel ------------------------------------
