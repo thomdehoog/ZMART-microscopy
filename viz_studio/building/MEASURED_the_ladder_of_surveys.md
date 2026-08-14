@@ -442,3 +442,9 @@ the run it is fine), invisible to every needed-vs-available check, and
 undone only by rebuilding the page's world. The next session starts by
 diffing the render layers' scale selection between a stormed session
 and a fresh one at the same view.
+
+One more surface, checked rather than assumed: the pywebview window —
+the production glass, WebView2 underneath — driven by the same hands
+through the same storm, broke the same way. The map is complete: every
+surface the viewer ships on shares the one engine and the one wedge,
+and the one fix.
