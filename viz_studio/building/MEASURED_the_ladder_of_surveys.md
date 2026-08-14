@@ -166,12 +166,149 @@ nudged that rung's churn medians up. The churn medians throughout this
 table also carry a long measuring session's machine drift; trust the
 shapes, and re-measure on a fresh machine for absolutes.
 
+## The first real machine: 24 cores and a real disk
+
+> Measured 2026-08-14 on the lab's Windows 11 workstation: 24 cores,
+> fixtures on a large dedicated data disk (``D:\zmart-ladders``), Python
+> 3.12, Chromium 151. Note before any number is read: **the drawing is
+> still in software** -- headless Chromium chose SwiftShader here exactly
+> as it did in the container, and the harness prints as much -- so the
+> visible column speaks for the cores and the disk, not for a GPU. Full
+> spread in ``MEASURED_ladder_2026-08-14_windows_24core_quickhalf.json``.
+
+The quick half (``--powers 6-12``), run against the branch exactly as
+handed over, before any of this day's changes:
+
+| positions | land | replace | derive | visible | bake | warm | finish | transients |
+|-----------|------|---------|--------|---------|------|------|--------|------------|
+| 64        | 174 [194/204] | 238 [251/277] | 19 [24/44]    | 47 [63/74]    | 1.2  | 1.0  | 0.0 | 0 |
+| 121       | 166 [183/205] | 234 [256/272] | 18 [19/37]    | 41 [50/80]    | 1.8  | 1.0  | 0.1 | 0 |
+| 256       | 193 [212/233] | 262 [301/358] | 40 [44/62]    | 68 [87/98]    | 3.1  | 2.0  | 0.2 | 0 |
+| 529       | 204 [231/236] | 294 [342/374] | 47 [50/57]    | 75 [83/88]    | 4.1  | 5.6  | 0.3 | 0 |
+| 1,024     | 176 [190/300] | 252 [264/379] | 62 [72/84]    | 86 [104/109]  | 4.5  | 9.2  | 0.7 | 0 |
+| 2,025     | 172 [189/192] | 241 [271/513] | 60 [66/79]    | 86 [100/113]  | 9.3  | 17.4 | 1.3 | 0 |
+| 4,096     | 197 [218/227] | 275 [302/932] | 110 [129/144] | 123 [135/138] | 18.2 | 39.1 | 2.7 | 0 |
+
+Read against the container's definitive ladder: every shape holds. The
+writer is flat across a 64-fold spread, the derive grows its documented
+gentle slope, and zero transients at all seven rungs. The absolutes are
+where the machine speaks: landing-to-visible is 40 percent down at
+every rung (86 ms at 2,025 against the container's 141), the process
+bake pays 4.5 / 9.3 / 18.2 s at 1,024 / 2,025 / 4,096 where the
+container's four workers paid 7.5 / 11.0 / 26.7 -- still on the
+four-worker cap, so this is the same code merely fed by real cores and
+a real disk -- and the warm roughly halves through 2,025. The one
+carried-over signature is the cold open's worst derive at 4,096
+(2.2 s), the first cold-region patch, exactly where the container first
+showed it at 16,384: a faster machine moved the symptom down the
+ladder rather than away, which is its own small finding -- the warm
+race is a ratio of speeds, not a fixed size.
+
+### What the machine's speed flushed out
+
+The guard suites on this machine opened with 1,229 green and 16 red,
+and every red taught something. In value order:
+
+- **The opening fit raced the folder's stores, and always had.** The
+  viewer fits the view once, the moment the coordinate space first has
+  axes -- and a folder of several stores gives it axes when the FIRST
+  description resolves, so the fit framed one tile of many. On the
+  container this machine race was hidden: the fit's fallback path (a
+  panel not yet laid out reports no size, and the engine's default zoom
+  is kept) is what the browser tests actually exercised, which is why
+  they passed while the operator's pywebview window fitted correctly.
+  The fast machine made the fit real in headless for the first time and
+  ten tests failed at once. The fit now waits until every store the
+  page asked for has been answered -- the same "answered, whichever
+  answer" rule ``whenTheseHaveBeenRead`` uses, heard on each source's
+  own changed signal so the fit still lands before the first full
+  drawing. Four geometry tests were then measuring in screen pixels
+  what the fit deliberately re-frames per scene; they measure in
+  on-screen tile widths now, which their own docstrings' "a ratio
+  survives any zoom" argument always wanted.
+- **A second viewer could silently take a taken port -- Windows only.**
+  The standard library server asks to reuse its address, and on Windows
+  ``SO_REUSEADDR`` means a second socket may bind a port another
+  process is actively listening on, so the friendly "that port is
+  taken" message could never fire and two viewers would fight over
+  connections. The server now binds exclusively
+  (``SO_EXCLUSIVEADDRUSE``) on Windows and keeps the harmless reuse
+  meaning elsewhere.
+- **Two caches could serve stale answers for good -- the same clock-tick
+  race twice.** Windows stamps files and folders from a clock cached for
+  up to ~16 ms, and its ``st_ctime`` is creation time, so it never
+  helps notice a change. ``written_timepoints`` remembers its count
+  against the moments folder's modification time, so a frame landing in
+  the same tick as a count left the remembered answer stale for the
+  session. Worse, ``shardlink``'s remembered tables key on the bundle
+  file's identity (size, inode, both stamps) -- and in-place
+  replacement, this project's everyday operation, rewrites a bundle at
+  the same size, so a same-tick rewrite kept the old table and would
+  serve real, decodable, WRONG pixels; the guard test caught it by
+  refusing its own claim on this filesystem. Both now follow the rule
+  build tools settled on long ago: an answer measured against a stamp
+  still within the clock's reach of "now" is used but not remembered
+  (``_MTIME_STILL_MOVING_NS`` in ``stores.py``,
+  ``STAMPS_STILL_MOVING_NS`` in ``shardlink.py``), and the guard test
+  now exercises both protections -- the hot path where nothing was
+  remembered, and the cooled path where the moved stamp is what
+  retires the old table.
+- **The card was always reachable headless -- the build was the trap.**
+  The 6 August 2026 finding said a headless Chromium reports
+  SwiftShader whatever arguments it is given and only a window reaches
+  the card. What was really measured is Playwright's *headless shell*,
+  a build that cannot use a GPU at all; the full Chromium build asked
+  for by name (``channel="chromium"``) reports `NVIDIA T400 4GB ...
+  D3D11` headless, exactly as the window does. The measuring launcher
+  now asks for the full build first, and the per-run renderer
+  announcement says which one drew. Every table above this line was
+  drawn in software; the full record below is the first on the card.
+- **Forty-two pixel tests were quietly skipped.** The suite's
+  strictest tests -- the ones that read the drawn pixels -- need the
+  options harness built (``npm --prefix viz_studio/options/harness run
+  build``), which the setup instructions did not mention; the suite
+  said so in its summary and nothing failed. It is built here and the
+  setup list corrected.
+- **The manifest-refresh file still spoke the retired view names.**
+  ``seamless``/``non_seamless`` no longer exist; a run publishes
+  positions and its one linked view, served from the baked picture
+  (``VIEW_ROLES`` in ``zmart_live/scene.py``). Three tests carried the
+  old names -- in panel labels, in expected source identities, in
+  which store paths a commit should refetch -- and the behaviour under
+  every one of them was correct on screen once asked for by its
+  current name. (An earlier reading of these as order-dependent was an
+  artifact of a truncated failure list, and is withdrawn: the pristine
+  tree fails them identically, alone or in the suite.) One genuine gap
+  remains inside ``test_uncommitted_time...``: its second half wants
+  the second moment ON SCREEN, and the served governed picture is
+  built z-y-x only however far the run's own overview reaches in time.
+  That is the recorded migration work -- "the t axis through the
+  served picture", ``DECISION_finish_the_migration_to_one_live_path.md``
+  -- so that half is an explicit xfail naming it, and what can be
+  promised today (uncommitted time is never offered; the committed
+  reach is reported) is asserted before it.
+- **The never-run pixel tests held real findings once they ran.** With
+  the options harness finally built, the foreign-image tests -- an
+  OME-Zarr written by somebody else's instrument, three axes, far from
+  stage zero -- failed for two honest reasons: the harness page
+  refused to frame a store with no coverage record even when opened
+  unbounded (it now falls back to the ground the store itself
+  declares, translation included), and the drew-anything threshold was
+  set above what the page's own framing can produce (the fit puts the
+  imaged ground at about a tenth of the window; the bar said a fifth
+  -- unattainable since the test was written, which no one could see
+  while it only ever skipped). All three options draw the foreign
+  image.
+
 ## Picking this up on another machine
 
 Everything needed is on this branch. Setup:
 ``pip install -r requirements.txt playwright pillow pytest``, then
 ``python -m playwright install chromium``, then build the viewer once
-(``cd viz_studio/frontend && npm install && npm run build``). Run
+(``cd viz_studio/frontend && npm install && npm run build``) and the
+options harness once (``npm --prefix viz_studio/options/harness install``
+then ``... run build``) -- without it the suite's pixel-reading tests
+skip, and say so only in the summary. Run
 ``python viz_studio/building/measure_a_ladder_of_surveys.py --fixtures
 <somewhere with ~33 GB>`` (add ``--tidy`` for ~17 GB peak; use
 ``--powers 6-12`` for the quick half first — it resumes from its own
