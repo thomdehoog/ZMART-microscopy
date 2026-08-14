@@ -155,16 +155,22 @@ appended to the JSON when it lands.
 | 4,096     | 182 [194/204] | 274 [294/300] | 120 [147/651] | 202 [230/752] | 26.7 | 60.1  | 2.0  | 0 |
 | 8,281     | 192 [208/216] | 298 [316/1502]| 149 [161/214] | 208 [224/341] | 45.7 | 133.0 | 3.9  | 0 |
 | 16,384    | 294 [339/380] | 412 [462/493] | 290 [339/2492]| 383 [416/525] | 89.9 | 269.9 | 10.6 | 0 |
+| 32,761    | 1266 [1614/1975] | 1556 [2169/2368] | 618 [712/9819] | 688 [760/1750] | 172.1 | 300.3* | 33.3 | 0 |
 
-The bake is the transformed column — 26.7 / 45.7 / 89.9 s where the
-baseline paid 76 / 149 / 312, a factor that GROWS with scale (2.4× to
-3.5× on four cores) and grows again with more cores. The warm is the
-honest laggard: the picture is SERVABLE in about a second at any scale,
-but ready-to-patch warmth still costs composing-order time, and at
-16,384 it grazes the harness's five-minute head start — which is what
-nudged that rung's churn medians up. The churn medians throughout this
-table also carry a long measuring session's machine drift; trust the
-shapes, and re-measure on a fresh machine for absolutes.
+The bake is the transformed column — 26.7 / 45.7 / 89.9 / 172 s where
+the baseline paid 76 / 149 / 312 / 519, a factor that GROWS with scale
+(2.4× to 3.5× on four cores) and grows again with more cores. The warm
+is the honest laggard: the picture is SERVABLE in about a second at any
+scale, but ready-to-patch warmth still costs composing-order time; at
+16,384 it grazes the harness's five-minute head start, and at 32,761
+the starred cap expires again — the churn columns there are softened
+relative to the baseline's same row (visible 688 against 758–867 ms,
+replacements 1.6 against 1.8–2.1 s) but still governed by the race,
+exactly as predicted while the parallel prefill sits reverted. The
+churn medians throughout this table also carry a long measuring
+session's machine drift; trust the shapes, and re-measure on a fresh
+machine for absolutes. Zero transients at every rung, in every ladder
+of the campaign.
 
 ## Picking this up on another machine
 

@@ -403,5 +403,50 @@
     "warm_s": 269.9,
     "finish_s": 10.6,
     "transients": 0.0
+  },
+  {
+    "power": 15,
+    "positions": 32761,
+    "across": 181,
+    "wall_s": 7525.8,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 1025.0,
+      "median": 1265.5,
+      "mean": 1325.2,
+      "p90": 1614.0,
+      "max": 1975.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 1208.0,
+      "median": 1555.5,
+      "mean": 1646.8,
+      "p90": 2169.0,
+      "max": 2368.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 562.0,
+      "median": 618.0,
+      "mean": 1012.9,
+      "p90": 712.0,
+      "max": 9819.0
+    },
+    "visible_ms": {
+      "n": 26,
+      "min": 637.0,
+      "median": 688.5,
+      "mean": 737.5,
+      "p90": 760.0,
+      "max": 1750.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 3499.0,
+    "baked_s": 172.1,
+    "cold_open_s": 0.6,
+    "warm_s": 300.3,
+    "finish_s": 33.3,
+    "transients": 0.0
   }
 ]
