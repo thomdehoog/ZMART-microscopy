@@ -23,7 +23,11 @@ from, so it can be opened again tomorrow without being told.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import sys
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import get_context
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +39,69 @@ from mosaic import read_the_transfer, the_mosaic_written_down
 # from. Namespaced under one word of ours, the same courtesy OME-Zarr 0.5 pays by
 # keeping its own fields under ``ome``.
 OURS = "zmart"
+
+# How many worker processes a governed bake fans out over. Processes rather
+# than threads, after measurement: every zarr read and piece encode funnels
+# through zarr's one per-process event loop, so threads queued there and a
+# four-thread bake was measured SLOWER than the serial loop (16 s to 27 s at
+# 1,024 positions). Separate processes each bring their own interpreter and
+# their own loop. One means the plain serial loop.
+_BAKE_PROCESSES = min(4, os.cpu_count() or 1)
+
+# The governed run a bake worker process serves, built once when the worker
+# starts -- the same shape composer.py gives its transfer workers. Module
+# level, because a process pool initializer has nowhere else to put it.
+_BAKING: tuple | None = None
+
+
+def _start_baking(run: Path, piece: int) -> None:
+    """Give this bake worker its own reading of the governed run.
+
+    The worker opens the run exactly the way a server would — through
+    :class:`governed.GovernedRun`, so the full fail-closed gate rides along:
+    committed ground whose chunks are missing is refused, never invented,
+    in the worker just as in the parent. Its background warmer is stopped
+    at once; a bake worker builds exactly the pieces it is told to.
+    """
+    global _BAKING
+    here = Path(__file__).resolve().parent
+    for one in (here, here.parent, here.parent.parent):
+        if str(one) not in sys.path:
+            sys.path.insert(0, str(one))
+    from governed import GovernedRun
+
+    governed = GovernedRun(run, piece=piece)
+    composer = governed.composer()
+    composer.stop_warming()
+    _BAKING = (governed, composer)
+
+
+def _bake_one_stripe(store: Path, level: int, rows: tuple[int, ...]) -> int:
+    """One worker's share of a bake: whole rows of one level, written as files.
+
+    Returns how many pieces it wrote. A commit that lands while workers are
+    baking may leave some pieces holding slightly newer ground than the
+    stamp the parent captured before the bake began — the benign direction:
+    the stamp claims only the older prefix, so the first derive re-patches
+    those commits' footprints and the files converge (the same catch-up
+    that review finding D2 pinned for the serial bake).
+    """
+    assert _BAKING is not None, "a bake worker must be started before use"
+    _, composer = _BAKING
+    deep = composer.grid(level)[0]
+    across = composer.grid(level)[2]
+    written = 0
+    for row in rows:
+        for plane in range(deep):
+            inside = store / str(level) / "c" / str(plane) / str(row)
+            for column in range(across):
+                body = composer.bytes_for(level, plane, row, column)
+                if body is None:
+                    continue
+                inside.mkdir(parents=True, exist_ok=True)
+                (inside / str(column)).write_bytes(body)
+                written += 1
+    return written
 
 
 def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
@@ -198,7 +265,8 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
             from governed import _holding_the_bake_lock
 
             with _holding_the_bake_lock(store):
-                baked = _bake_the_coarse_ground(store, composer, described)
+                baked = _bake_the_coarse_ground(store, composer, described,
+                                                governed_run=run)
         described["attributes"][OURS] = {
             "what": (
                 "A picture of a live, manifest-governed run. It holds no "
@@ -222,7 +290,8 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
 
 
 def _bake_the_coarse_ground(store: Path, composer: Composer,
-                            described: dict) -> list[int]:
+                            described: dict, *,
+                            governed_run: Path | None = None) -> list[int]:
     """Build the coarse ground once, into real files, and extend the pyramid.
 
     Two kinds of level come out of this. The composer's pinned levels are
@@ -244,21 +313,52 @@ def _bake_the_coarse_ground(store: Path, composer: Composer,
     pinned = sorted(composer.pinned_levels)
     datasets = described["attributes"]["ome"]["multiscales"][0]["datasets"]
 
-    for level in pinned:
-        deep, down, across = composer.grid(level)
-        for plane in range(deep):
-            for row in range(down):
-                inside = store / str(level) / "c" / str(plane) / str(row)
-                for column in range(across):
-                    # The very bytes the composer would put on the wire, kept
-                    # as the chunk file the engine would ask for -- so a baked
-                    # answer and a built one cannot differ. Empty ground stays
-                    # unwritten: absent means fill, here as everywhere.
-                    body = composer.bytes_for(level, plane, row, column)
-                    if body is None:
-                        continue
-                    inside.mkdir(parents=True, exist_ok=True)
-                    (inside / str(column)).write_bytes(body)
+    if governed_run is not None and _BAKE_PROCESSES > 1:
+        # A governed bake fans its rows out over worker processes, each with
+        # its own reading of the run (see _start_baking). Started by spawn
+        # rather than fork, deliberately: the parent's zarr has a live event
+        # loop and held locks, which a forked child would inherit mid-state,
+        # and spawn is also what the microscope's Windows machine does -- so
+        # the one behaviour is the tested behaviour. The parent's own warmer
+        # is stopped first; four processes building the picture do not need
+        # a fifth building it again in the background.
+        composer.stop_warming()
+        working = ProcessPoolExecutor(
+            max_workers=_BAKE_PROCESSES, mp_context=get_context("spawn"),
+            initializer=_start_baking, initargs=(governed_run, composer.piece),
+        )
+        try:
+            stripes = []
+            for level in pinned:
+                down = composer.grid(level)[1]
+                for worker in range(min(_BAKE_PROCESSES, down)):
+                    rows = tuple(range(worker, down, _BAKE_PROCESSES))
+                    if rows:
+                        stripes.append(working.submit(
+                            _bake_one_stripe, store, level, rows))
+            # Consumed in order; a stripe that cannot be built stops the
+            # bake, exactly as the serial loop's first failure would.
+            for stripe in stripes:
+                stripe.result()
+        finally:
+            working.shutdown(wait=True, cancel_futures=True)
+    else:
+        for level in pinned:
+            deep, down, across = composer.grid(level)
+            for plane in range(deep):
+                for row in range(down):
+                    inside = store / str(level) / "c" / str(plane) / str(row)
+                    for column in range(across):
+                        # The very bytes the composer would put on the wire,
+                        # kept as the chunk file the engine would ask for --
+                        # so a baked answer and a built one cannot differ.
+                        # Empty ground stays unwritten: absent means fill,
+                        # here as everywhere.
+                        body = composer.bytes_for(level, plane, row, column)
+                        if body is None:
+                            continue
+                        inside.mkdir(parents=True, exist_ok=True)
+                        (inside / str(column)).write_bytes(body)
 
     # The picture's own levels, chained upward from what was just baked.
     depth, height, width = composer.mosaic.shape(coarsest)
