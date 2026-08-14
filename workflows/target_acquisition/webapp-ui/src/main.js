@@ -115,8 +115,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       strategy: "plane",
       metric: "brenner",   // which sharpness score the sweep is scored with
       points: [],          // picked positions, plane strategy only
-      pickScope: "canvas", // random points over the plan, or inside every area
-      pickCount: 5,
+      mode: "first",       // the pattern Place lays: first | interval | center | random
+      every: 3,            // interval mode: every nth position within a compartment
+      pickCount: 2,        // random mode: positions per compartment
       selected: 0,         // which point's trace is charted
       zFixed: -412,
       reuse: "run_0714_a",
@@ -2029,123 +2030,76 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       Math.abs(t.x - cx) <= w / 2 && Math.abs(t.y - cy) <= h / 2);
   }
 
-  /** A compartment's own rectangle, in the frame the plan is written in. */
-  function areaBox(area) {
-    const [w, h] = [state.carrier.w * 1000, state.carrier.h * 1000];
-    const cx = area.x * 1000, cy = area.y * 1000;
-    return { xMin: cx - w / 2, yMin: cy - h / 2, xMax: cx + w / 2, yMax: cy + h / 2 };
-  }
 
   /**
-   * A lattice point that landed between compartments, moved the shortest way
-   * onto the position it was nearest to.
+   * Where to measure the focus: a pattern per compartment, or by hand.
    *
-   * A focus height measured on the plastic between two wells is a real number
-   * and a worthless one to fit a sample's surface through. Dropping such points
-   * instead would be the textbook answer, but it makes the count a lottery —
-   * and the count is what the operator asked for.
+   * Every compartment that holds scan positions is measured on its own,
+   * whatever the others do — a plate is not flat well by well, and a pattern
+   * that spanned wells would put its confidence in the plastic between them.
+   * A point sits on a scan position, never beside one: focus is measured
+   * where the run will image, and a height read off the gap between wells is
+   * a real number and a worthless one.
+   *
+   * Within one compartment the positions are read in scan order, top-left
+   * first. `first` takes the first, `center` the one nearest the middle,
+   * `interval` every nth, and `random` draws n distinct positions.
    */
-  function ontoTile(x, y, tiles, used) {
-    let pick = -1, pickD = Infinity, any = -1, anyD = Infinity;
-    for (let i = 0; i < tiles.length; i++) {
-      const t = tiles[i];
-      const half = t.frameUm / 2;
-      const dx = Math.max(Math.abs(x - t.x) - half, 0);
-      const dy = Math.max(Math.abs(y - t.y) - half, 0);
-      const d = dx * dx + dy * dy;
-      if (d < anyD) { anyD = d; any = i; }
-      /* Nearest position that has not already taken a point. Two cells either
-         side of a gap both snap inwards, and without this they can land on the
-         one position between them — two measurements of the same spot, which
-         is the clumping the lattice was there to prevent. */
-      if (!used.has(i) && d < pickD) { pickD = d; pick = i; }
+  const inScanOrder = (tiles) => [...tiles].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+
+  const everyNth = (f) => Math.max(1, Math.round(f.every) || 1);
+  const perCompartment = (f) => Math.max(1, Math.round(f.pickCount) || 1);
+
+  function patternInCompartment(tiles) {
+    const f = state.focus;
+    const ordered = inScanOrder(tiles);
+    if (f.mode === "first") return [ordered[0]];
+    if (f.mode === "center") {
+      const xs = ordered.map((t) => t.x), ys = ordered.map((t) => t.y);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      return [ordered.reduce((a, b) =>
+        (Math.hypot(b.x - cx, b.y - cy) < Math.hypot(a.x - cx, a.y - cy) ? b : a))];
     }
-    const idx = pick >= 0 ? pick : any;
-    if (idx < 0) return { x, y, z: null };
-    used.add(idx);
-    const t = tiles[idx], half = t.frameUm / 2;
-    return {
-      x: Math.min(Math.max(x, t.x - half), t.x + half),
-      y: Math.min(Math.max(y, t.y - half), t.y + half),
-      z: null,
-    };
+    if (f.mode === "interval") {
+      const n = everyNth(f);
+      return ordered.filter((_, i) => i % n === 0);
+    }
+    // random: n distinct positions, drawn without replacement
+    const pool = [...ordered];
+    const k = Math.min(perCompartment(f), pool.length);
+    for (let i = 0; i < k; i++) {
+      const j = i + Math.floor(Math.random() * (pool.length - i));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, k);
   }
 
-  /**
-   * Systematic uniform random sampling, as metrology does it.
-   *
-   * A regular lattice over the region, one uniform random position drawn inside
-   * the first cell, and a point at that same relative position in every cell.
-   * One random number decides the whole set. That is the point of it: the set
-   * still covers the region evenly, where independent random points clump and
-   * leave gaps — and a surface fitted through a clumped sample is confident
-   * where the points were and guessing everywhere else.
-   *
-   * The lattice is chosen by trying every width and keeping the one that trades
-   * best between square cells and a full last row: sixteen points want four by
-   * four, not five by five with a row of one left over. Squareness alone picks
-   * the ragged one, and a full grid alone will lay five points in a line.
-   */
-  function latticeFor(n, w, h) {
-    let best = { cols: 1, rows: n, cost: Infinity };
-    for (let cols = 1; cols <= n; cols++) {
-      const rows = Math.ceil(n / cols);
-      const squareness = Math.abs(Math.log((w / cols) / (h / rows)));
-      const ragged = (cols * rows - n) / n;
-      const cost = squareness + 2 * ragged;
-      if (cost < best.cost) best = { cols, rows, cost };
-    }
-    return best;
-  }
-
-  function surs(box, n, tiles) {
-    const w = Math.max(box.xMax - box.xMin, 1), h = Math.max(box.yMax - box.yMin, 1);
-    const { cols, rows } = latticeFor(n, w, h);
-    const cw = w / cols, ch = h / rows;
-    const ox = Math.random() * cw, oy = Math.random() * ch;
-    const used = new Set();
+  function patternFocusPoints() {
+    if (!state.plan.length) return [];
     const out = [];
-    for (let r = 0; r < rows && out.length < n; r++) {
-      for (let c = 0; c < cols && out.length < n; c++) {
-        out.push(ontoTile(box.xMin + c * cw + ox, box.yMin + r * ch + oy, tiles, used));
+    for (const area of centres(state.carrier)) {
+      const tiles = tilesInArea(area);
+      if (tiles.length) {
+        out.push(...patternInCompartment(tiles).map((t) => ({ x: t.x, y: t.y, z: null })));
       }
     }
     return out;
   }
 
-  /**
-   * Where to measure the focus, laid out rather than scattered.
-   *
-   * Over the whole canvas the count is the total. Per compartment it is the
-   * count inside every area, so each one is measured whatever the others do —
-   * which is what a plate that is not flat well by well needs.
-   *
-   * Each compartment draws its own random start. One start shared across the
-   * plate would be more systematic and wrong: the compartments are themselves a
-   * regular lattice, so a single offset would sample every well at the identical
-   * spot within it, and any variation that follows position inside a well would
-   * come back as a constant instead of as noise.
-   */
-  function randomFocusPoints() {
-    const f = state.focus;
-    const n = Math.max(1, Math.round(f.pickCount) || 1);
-    if (!state.plan.length) return [];
-    if (f.pickScope === "canvas") return surs(planBox(), n, state.plan);
-    const out = [];
-    for (const area of centres(state.carrier)) {
-      const tiles = tilesInArea(area);
-      if (tiles.length) out.push(...surs(areaBox(area), n, tiles));
-    }
-    return out;
-  }
-
-  /** How many the two answers actually come to — one of them multiplies. */
+  /** How many the pattern comes to, said before Place is pressed. */
   function focusPickTotal() {
     const f = state.focus;
-    const n = Math.max(1, Math.round(f.pickCount) || 1);
     if (!state.plan.length) return 0;
-    if (f.pickScope === "canvas") return n;
-    return centres(state.carrier).filter((a) => tilesInArea(a).length).length * n;
+    let total = 0;
+    for (const area of centres(state.carrier)) {
+      const n = tilesInArea(area).length;
+      if (!n) continue;
+      total += f.mode === "interval" ? Math.ceil(n / everyNth(f))
+        : f.mode === "random" ? Math.min(perCompartment(f), n)
+          : 1;
+    }
+    return total;
   }
 
   /* The position under the pointer, if it is over one. A list of positions has
@@ -2328,20 +2282,22 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
   /* Placing a point is a press on the canvas that did not become a drag: the
      left button already pans, and asking the operator to remember a modifier
-     for the one thing this step is for would be the wrong way round. A press
-     on a point that is already there takes it away again. */
+     for the one thing this step is for would be the wrong way round. The
+     press takes the scan position under it — focus is measured where the run
+     will image — a press on a position already holding a point takes the
+     point away again, and a press over no position falls through to the pan. */
   function focusPressed(px, py) {
     const f = state.focus;
     if (step(state.activeIdx).mode !== "focus") return false;
     if (f.strategy !== "plane" || f.applied || state.running) return false;
     const [wx, wy] = toWorld(px, py);
     const [ox, oy] = carrierOriginUm();
-    const x = wx - ox, y = wy - oy;
-    const b = carrierBox();
-    if (x < b.xMin || y < b.yMin || x > b.xMax || y > b.yMax) return false;
-    const near = f.points.findIndex((p) => Math.hypot(p.x - x, p.y - y) < 9 / view.scale);
-    if (near >= 0) f.points.splice(near, 1);
-    else f.points.push({ x, y, z: null });
+    const hit = nearestPosition(wx - ox, wy - oy);
+    if (!hit) return false;
+    const at = f.points.findIndex((p) => p.x === hit.t.x && p.y === hit.t.y);
+    if (at >= 0) f.points.splice(at, 1);
+    else f.points.push({ x: hit.t.x, y: hit.t.y, z: null });
+    f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
     drawStage(); renderPointList(); renderActionBar();
     return true;
   }
@@ -2441,14 +2397,24 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     if (!focusMounted()) return;
     const f = state.focus;
     const frozen = f.applied || !!state.running || f.strategy !== "plane";
-    for (const b of el("fp-scope").querySelectorAll("button")) {
-      b.setAttribute("aria-checked", String(b.dataset.scope === f.pickScope));
+    for (const b of el("fp-mode").querySelectorAll("button")) {
+      b.setAttribute("aria-checked", String(b.dataset.mode === f.mode));
       b.disabled = frozen;
     }
-    const count = el("fp-count");
-    // never while it is being typed into, or a 1 on its way to 12 is corrected
-    if (document.activeElement !== count) count.value = String(f.pickCount);
-    count.disabled = frozen;
+
+    /* Only the patterns that need a number get one: an interval is asked how
+       often, random how many — first and center already say it all. */
+    const needsCount = f.mode === "interval" || f.mode === "random";
+    el("fp-count-row").hidden = !needsCount;
+    if (needsCount) {
+      el("fp-count-label").textContent = f.mode === "interval" ? "Every nth" : "Per compartment";
+      const count = el("fp-count");
+      // never while it is being typed into, or a 1 on its way to 12 is corrected
+      if (document.activeElement !== count) {
+        count.value = String(f.mode === "interval" ? everyNth(f) : perCompartment(f));
+      }
+      count.disabled = frozen;
+    }
 
     const total = focusPickTotal();
     el("fp-hint").textContent = !state.plan.length
@@ -2851,25 +2817,28 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     drawTrace(); renderPointList(); drawStage();
   });
 
-  // ---- placing the points, rather than clicking them one at a time
-  el("fp-scope").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-scope]");
+  // ---- laying the pattern, rather than clicking positions one at a time
+  el("fp-mode").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-mode]");
     if (!b || b.disabled) return;
-    state.focus.pickScope = b.dataset.scope;
+    state.focus.mode = b.dataset.mode;
     renderFocusBar();
   });
   el("fp-count").addEventListener("input", () => {
     const v = parseInt(el("fp-count").value, 10);
     if (Number.isNaN(v)) return;
-    state.focus.pickCount = Math.min(99, Math.max(1, v));
+    const f = state.focus;
+    // the one number box serves whichever pattern is asking
+    if (f.mode === "interval") f.every = Math.min(99, Math.max(1, v));
+    else f.pickCount = Math.min(99, Math.max(1, v));
     renderFocusBar();
   });
   el("fp-count").addEventListener("blur", () => { renderFocusBar(); });
   el("fp-place").addEventListener("click", () => {
     const f = state.focus;
     // a fresh set, not more on top: the layout is the point, and adding to it
-    // would leave a lattice with somebody else's lattice through it
-    f.points = randomFocusPoints();
+    // would leave a pattern with somebody else's pattern through it
+    f.points = patternFocusPoints();
     f.selected = 0;
     drawStage(); renderPointList(); drawTrace(); renderActionBar();
   });
