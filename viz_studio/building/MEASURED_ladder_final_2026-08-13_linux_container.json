@@ -183,38 +183,45 @@
     "power": 10,
     "positions": 1024,
     "across": 32,
-    "wall_s": 46.4,
-    "writer_land_ms": {},
+    "wall_s": 148.3,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 130.0,
+      "median": 146.0,
+      "mean": 149.0,
+      "p90": 162.0,
+      "max": 174.0
+    },
     "writer_replace_ms": {
       "n": 20,
-      "min": 201.0,
-      "median": 233.5,
-      "mean": 245.3,
-      "p90": 319.0,
-      "max": 389.0
+      "min": 204.0,
+      "median": 225.0,
+      "mean": 241.6,
+      "p90": 267.0,
+      "max": 364.0
     },
     "derive_ms": {
-      "n": 20,
-      "min": 51.0,
-      "median": 63.0,
-      "mean": 63.4,
-      "p90": 70.0,
-      "max": 79.0
+      "n": 40,
+      "min": 54.0,
+      "median": 70.0,
+      "mean": 70.8,
+      "p90": 78.0,
+      "max": 110.0
     },
     "visible_ms": {
-      "n": 20,
-      "min": 99.0,
-      "median": 115.0,
-      "mean": 114.0,
-      "p90": 124.0,
-      "max": 132.0
+      "n": 40,
+      "min": 103.0,
+      "median": 122.5,
+      "mean": 124.1,
+      "p90": 137.0,
+      "max": 167.0
     },
     "tiles_read_total": 0,
-    "wrote_fixture_s": null,
-    "baked_s": 17.0,
+    "wrote_fixture_s": 86.0,
+    "baked_s": 16.4,
     "cold_open_s": 0.5,
-    "warm_s": 14.1,
-    "finish_s": 0.7,
+    "warm_s": 23.8,
+    "finish_s": 0.4,
     "transients": 0.0
   },
   {
@@ -395,6 +402,51 @@
     "cold_open_s": 0.5,
     "warm_s": 216.9,
     "finish_s": 9.0,
+    "transients": 0.0
+  },
+  {
+    "power": 15,
+    "positions": 32761,
+    "across": 181,
+    "wall_s": 5754.1,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 971.0,
+      "median": 1492.0,
+      "mean": 1543.8,
+      "p90": 1957.0,
+      "max": 2290.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 1226.0,
+      "median": 1844.0,
+      "mean": 2301.8,
+      "p90": 3009.0,
+      "max": 6667.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 432.0,
+      "median": 742.5,
+      "mean": 1877.7,
+      "p90": 6666.0,
+      "max": 12458.0
+    },
+    "visible_ms": {
+      "n": 21,
+      "min": 532.0,
+      "median": 867.0,
+      "mean": 941.0,
+      "p90": 1600.0,
+      "max": 1907.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 2923.0,
+    "baked_s": 519.2,
+    "cold_open_s": 0.4,
+    "warm_s": 300.3,
+    "finish_s": 29.2,
     "transients": 0.0
   }
 ]
