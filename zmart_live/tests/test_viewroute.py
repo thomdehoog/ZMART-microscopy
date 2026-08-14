@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from pathlib import Path
 
 import numpy as np
@@ -995,10 +996,12 @@ def test_a_position_written_again_is_never_served_from_its_old_table(tmp_path):
     assert (now.st_size, now.st_ino) == (was.st_size, was.st_ino), (
         "the point of this test is a file that changed without being replaced"
     )
-    assert now.st_mtime_ns != was.st_mtime_ns, (
-        "this file system does not record when a file changed finely enough for the "
-        "change to be noticed, so this test cannot make its claim here"
-    )
+    # The stamps may or may not have moved: a repack this soon after the write
+    # can land in the same tick of the filesystem's clock, where the file's
+    # whole identity is unchanged. That is not a lost claim any more — a table
+    # read while its file is that fresh is deliberately never remembered (see
+    # shardlink.STAMPS_STILL_MOVING_NS, and the shardlink tests for both
+    # halves of the rule) — so the behavioural check below holds either way.
 
     # The pixels being compared against are the ones handed to the acquisition,
     # not what Zarr reads back now. Reading them back would go through the very
@@ -1049,6 +1052,10 @@ def test_one_screenful_reads_one_bundles_table(tmp_path):
     table is read once.
     """
     position, _ = a_position(tmp_path / "pos")
+    # A table read while its bundle is still within the clock's reach of "now"
+    # is used but not remembered (see shardlink.STAMPS_STILL_MOVING_NS), and
+    # this test is about the remembering — so the fresh fixture ages first.
+    time.sleep(shardlink.STAMPS_STILL_MOVING_NS / 1e9 + 0.02)
     route = route_the_view([Placed(position, lands_at=(0, 0, 0))])
 
     asked = 0
