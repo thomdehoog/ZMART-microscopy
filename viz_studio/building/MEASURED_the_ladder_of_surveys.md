@@ -78,13 +78,30 @@ mid-bake stays safe by the stamp's prefix rule — workers can only bake
 NEWER ground than the stamp claims, and the first derive re-patches
 those commits' footprints (the same catch-up finding D2 pinned).
 
-The coarse warm no longer composes at all on a baked picture: its
-slabs are read back from the baked files (``warm_from_the_baked``),
-which already hold, patched to the current state, exactly what
-composing would produce — pinned byte-for-byte by a test. Measured at
-4,096 positions: the composing warm took 131 s from cold; the file-fed
-warm took 0.1 s. The warm-race that governed the 32,761 rung should
-collapse with it; the single-rung re-measurement below is the check.
+The coarse warm no longer composes its pinned slabs on a baked
+picture: they are read back from the baked files
+(``warm_from_the_baked``), which already hold, patched to the current
+state, exactly what composing would produce — pinned byte-for-byte by
+a test. The picture is thereby SERVABLE in a second at any scale. Full
+warmth still includes decoding the tiles' coarse blocks (the patcher
+composes from them), which the warm does afterwards in the background,
+and the warm flag waits for — so end-to-end warm sits near the
+composing warm's time for now, and readiness-to-show collapsed.
+
+## Tried and reverted: the parallel-decode block prefill
+
+Decoding those blocks outside zarr with a few threads (resolver, byte
+order, zstd) measured well in isolation and passed byte-for-byte
+tests — and then the watched churn caught it doing the one forbidden
+thing: transients. Thirty-two flicker events in one rung, all in the
+landing row, reproducible on demand, gone the moment the commit is
+reverted; the bisect is one commit wide. The mechanism was not run to
+ground the same evening, so the commit is reverted on the gate's own
+rule — zero transients, or it does not ship — and this note plus the
+reverted commit in history are the starting point for whoever
+investigates: suspicion falls on the per-commit re-warm's decode
+threads racing the patcher, not on the decoded bytes, which two tests
+held identical.
 
 ## The ladder again, with the surviving fixes
 
