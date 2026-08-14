@@ -69,6 +69,38 @@ bake's stamp-consistency reasoning (a commit landing mid-bake must
 still be provably re-patched), so it is a careful slice of its own —
 best attempted on a machine with the cores to make it worth the care.
 
+## The ladder again, with the surviving fixes
+
+The same ten rungs, re-measured after the day's work settled: the
+deferred linked view and narrowed gate, the derive's inheritance and
+O(change) bookkeeping — and the serial bake and warm, kept after the
+thread experiment above measured against them. Full spread in
+`MEASURED_ladder_final_2026-08-13_linux_container.json`.
+
+| positions | land | replace | derive | visible | bake | warm | finish | transients |
+|-----------|------|---------|--------|---------|------|------|--------|------------|
+| 64        | 141 [154/163] | 214 [241/244] | 24 [30/57]    | 77 [85/114]   | 1.0   | 1.0    | 0.0  | 0 |
+| 121       | 128 [138/174] | 224 [249/276] | 22 [26/59]    | 61 [69/97]    | 2.1   | 1.0    | 0.0  | 0 |
+| 256       | 145 [168/179] | 230 [260/290] | 44 [52/61]    | 95 [103/116]  | 4.1   | 2.5    | 0.1  | 0 |
+| 529       | 132 [143/148] | 214 [271/291] | 48 [52/59]    | 86 [92/99]    | 7.5   | 6.0    | 0.1  | 0 |
+| 1,024     | 146 [162/174] | 225 [267/364] | 70 [78/110]   | 122 [137/167] | 16.4  | 23.8   | 0.4  | 0 |
+| 2,025     | 132 [143/147] | 203 [218/418] | 69 [74/87]    | 105 [113/127] | 27.9  | 24.3   | 0.8  | 0 |
+| 4,096     | 143 [149/152] | 220 [232/677] | 94 [110/114]  | 155 [165/179] | 62.8  | 49.9   | 1.7  | 0 |
+| 8,281     | 172 [179/199] | 266 [287/1265]| 128 [143/160] | 170 [187/203] | 113.7 | 104.5  | 2.4  | 0 |
+| 16,384    | 220 [262/270] | 308 [345/394] | 224 [262/2252]| 304 [328/356] | 258.0 | 216.9  | 9.0  | 0 |
+| 32,761    | 1492 [1957/2290] | 1844 [3009/6667] | 742 [6666/12458] | 867 [1600/1907] | 519.2 | 300.3* | 29.2 | 0 |
+
+Read against the baseline above: the middle rungs improved across every
+churn column (at 2,025: land 160→132, derive 79→69, visible 122→105,
+bake 35.9→27.9; at 8,281: derive 138→128, bake 149→114), the writer
+stayed flat through 16,384, and zero transients held at every rung of
+both ladders — twenty runs of forty watched changes without one
+flicker. The starred 32,761 row reproduces the baseline's warm-race
+regime almost exactly, which is its own finding: that row is governed
+by the warm outrunning the five-minute cap, not by anything the day's
+fixes touched, and it will stay that way until the warm is made
+process-parallel or the cap learns to wait for warmth at scale.
+
 ## What the ladder says so far
 
 - **The writer does not know the survey's size.** A landing is
