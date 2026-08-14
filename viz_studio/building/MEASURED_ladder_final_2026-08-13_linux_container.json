@@ -1,0 +1,310 @@
+[
+  {
+    "power": 6,
+    "positions": 64,
+    "across": 8,
+    "wall_s": 23.5,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 128.0,
+      "median": 141.0,
+      "mean": 140.2,
+      "p90": 154.0,
+      "max": 163.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 190.0,
+      "median": 213.5,
+      "mean": 217.7,
+      "p90": 241.0,
+      "max": 244.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 18.0,
+      "median": 24.0,
+      "mean": 25.1,
+      "p90": 30.0,
+      "max": 57.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 67.0,
+      "median": 77.0,
+      "mean": 78.9,
+      "p90": 85.0,
+      "max": 114.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 5.0,
+    "baked_s": 1.0,
+    "cold_open_s": 0.5,
+    "warm_s": 1.0,
+    "finish_s": 0.0,
+    "transients": 0.0
+  },
+  {
+    "power": 7,
+    "positions": 121,
+    "across": 11,
+    "wall_s": 27.4,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 119.0,
+      "median": 127.5,
+      "mean": 131.1,
+      "p90": 138.0,
+      "max": 174.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 190.0,
+      "median": 223.5,
+      "mean": 223.3,
+      "p90": 249.0,
+      "max": 276.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 20.0,
+      "median": 22.5,
+      "mean": 24.4,
+      "p90": 26.0,
+      "max": 59.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 55.0,
+      "median": 61.0,
+      "mean": 63.0,
+      "p90": 69.0,
+      "max": 97.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 10.0,
+    "baked_s": 2.1,
+    "cold_open_s": 0.4,
+    "warm_s": 1.0,
+    "finish_s": 0.0,
+    "transients": 0.0
+  },
+  {
+    "power": 8,
+    "positions": 256,
+    "across": 16,
+    "wall_s": 44.0,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 130.0,
+      "median": 145.0,
+      "mean": 147.9,
+      "p90": 168.0,
+      "max": 179.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 200.0,
+      "median": 230.0,
+      "mean": 233.8,
+      "p90": 260.0,
+      "max": 290.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 37.0,
+      "median": 43.5,
+      "mean": 44.5,
+      "p90": 52.0,
+      "max": 61.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 82.0,
+      "median": 95.0,
+      "mean": 95.8,
+      "p90": 103.0,
+      "max": 116.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 20.0,
+    "baked_s": 4.1,
+    "cold_open_s": 0.4,
+    "warm_s": 2.5,
+    "finish_s": 0.1,
+    "transients": 0.0
+  },
+  {
+    "power": 9,
+    "positions": 529,
+    "across": 23,
+    "wall_s": 72.9,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 122.0,
+      "median": 132.5,
+      "mean": 133.1,
+      "p90": 143.0,
+      "max": 148.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 191.0,
+      "median": 213.5,
+      "mean": 222.4,
+      "p90": 271.0,
+      "max": 291.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 44.0,
+      "median": 48.5,
+      "mean": 48.4,
+      "p90": 52.0,
+      "max": 59.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 79.0,
+      "median": 85.5,
+      "mean": 86.7,
+      "p90": 92.0,
+      "max": 99.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 42.0,
+    "baked_s": 7.5,
+    "cold_open_s": 0.5,
+    "warm_s": 6.0,
+    "finish_s": 0.1,
+    "transients": 0.0
+  },
+  {
+    "power": 10,
+    "positions": 1024,
+    "across": 32,
+    "wall_s": 46.4,
+    "writer_land_ms": {},
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 201.0,
+      "median": 233.5,
+      "mean": 245.3,
+      "p90": 319.0,
+      "max": 389.0
+    },
+    "derive_ms": {
+      "n": 20,
+      "min": 51.0,
+      "median": 63.0,
+      "mean": 63.4,
+      "p90": 70.0,
+      "max": 79.0
+    },
+    "visible_ms": {
+      "n": 20,
+      "min": 99.0,
+      "median": 115.0,
+      "mean": 114.0,
+      "p90": 124.0,
+      "max": 132.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": null,
+    "baked_s": 17.0,
+    "cold_open_s": 0.5,
+    "warm_s": 14.1,
+    "finish_s": 0.7,
+    "transients": 0.0
+  },
+  {
+    "power": 11,
+    "positions": 2025,
+    "across": 45,
+    "wall_s": 233.5,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 125.0,
+      "median": 132.5,
+      "mean": 134.0,
+      "p90": 143.0,
+      "max": 147.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 191.0,
+      "median": 203.0,
+      "mean": 215.1,
+      "p90": 218.0,
+      "max": 418.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 62.0,
+      "median": 69.0,
+      "mean": 69.0,
+      "p90": 74.0,
+      "max": 87.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 97.0,
+      "median": 105.0,
+      "mean": 106.2,
+      "p90": 113.0,
+      "max": 127.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 157.0,
+    "baked_s": 27.9,
+    "cold_open_s": 0.4,
+    "warm_s": 24.3,
+    "finish_s": 0.8,
+    "transients": 0.0
+  },
+  {
+    "power": 12,
+    "positions": 4096,
+    "across": 64,
+    "wall_s": 490.9,
+    "writer_land_ms": {
+      "n": 20,
+      "min": 135.0,
+      "median": 143.0,
+      "mean": 144.2,
+      "p90": 149.0,
+      "max": 152.0
+    },
+    "writer_replace_ms": {
+      "n": 20,
+      "min": 205.0,
+      "median": 220.5,
+      "mean": 243.9,
+      "p90": 232.0,
+      "max": 677.0
+    },
+    "derive_ms": {
+      "n": 40,
+      "min": 73.0,
+      "median": 94.0,
+      "mean": 94.8,
+      "p90": 110.0,
+      "max": 114.0
+    },
+    "visible_ms": {
+      "n": 40,
+      "min": 128.0,
+      "median": 155.0,
+      "mean": 154.3,
+      "p90": 165.0,
+      "max": 179.0
+    },
+    "tiles_read_total": 0,
+    "wrote_fixture_s": 330.0,
+    "baked_s": 62.8,
+    "cold_open_s": 0.5,
+    "warm_s": 49.9,
+    "finish_s": 1.7,
+    "transients": 0.0
+  }
+]
