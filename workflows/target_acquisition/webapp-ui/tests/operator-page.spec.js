@@ -417,11 +417,6 @@ test("the canvas belongs to the steps that happen inside it, and to no others",
     // they change, and the canvas is the only picture of it
     await expect(page.locator("#canvas-side")).toBeVisible();
     await expect(page.locator(".carrier-card")).toHaveCount(1);
-    // Only what the run has established, plus what is being done now. Nothing
-    // up to here owns a row: the session has its own card, the carrier its own
-    // channel, and the focus surface is neither measured nor being stood on.
-    await expect(page.locator(".setup-row")).toHaveCount(0);
-
     // Walking back to a step that is not about the stage leaves the canvas
     // behind. The session and the instrument are not in the frame, so parking
     // a tab for it on those steps offers something they have nothing to do

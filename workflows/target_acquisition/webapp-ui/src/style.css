@@ -683,31 +683,12 @@ canvas.livecv[hidden] { display: none; }
 
 /* ---- setup panel -------------------------------------------------------
    What the run is configured with, shown while there is no acquired data to
-   put on the canvas. Each row fills in as its step completes, so the operator
-   can see the run taking shape instead of an empty stage. */
+   put on the canvas. */
 .setup-wrap { overflow-y: auto; padding: 22px 26px; }
 .setup-list {
   display: grid; gap: 18px; max-width: 720px;
   grid-template-columns: minmax(0, 1fr);
 }
-.setup-row {
-  display: grid; grid-template-columns: 22px minmax(130px, auto) 1fr; align-items: baseline;
-  gap: 12px; padding: 12px 14px;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
-}
-.setup-row.pending { border-style: dashed; background: transparent; }
-.setup-mark {
-  font-family: var(--mono); font-size: 12px; font-weight: 700;
-  color: var(--good); justify-self: center;
-}
-.setup-row.pending .setup-mark { color: var(--ink-3); font-weight: 400; }
-.setup-name { font-size: 13.5px; font-weight: 600; color: var(--ink); }
-.setup-row.pending .setup-name { color: var(--ink-3); font-weight: 550; }
-.setup-value {
-  font-family: var(--mono); font-size: 12.5px; color: var(--ink-2);
-  font-variant-numeric: tabular-nums; text-align: right;
-}
-.setup-row.pending .setup-value { color: var(--ink-3); }
 
 /* ---- session card ------------------------------------------------------
    The whole card reads top to bottom: what it is for, what it was opened

@@ -525,13 +525,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   /* ============================================================
      the setup panel — the run's configuration, before it has data
      ============================================================ */
-  /* Rows come from the steps themselves: anything a setup step recorded shows
-     its result, anything not yet run shows what it is waiting for. A workflow
-     that skips a step simply has no row for it. */
-  const SETUP_ROWS = [
-    { step: "focus", name: "Focus surface", waiting: "not measured" },
-  ];
-
   /* Connecting is a card that reads downward — the form, the checks, what they
      came to, and the button that acts on all of it. Its button is its own
      rather than the frame's, because it is disabled until there is a password
@@ -1057,30 +1050,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   function renderSetup(which = step(state.activeIdx).id) {
     const host = el("setup-list");
     host.textContent = "";
-    const present = new Set(steps().map((s) => s.id));
-
-    const activeId = step(state.activeIdx).id;
     if (SETUP_CARDS[which]) SETUP_CARDS[which](host);
-
-    /* Only what the run has established, plus whatever is being done now. The
-       rail already lists what is still ahead; repeating it here as a column of
-       "not set" would make the panel a second, worse copy of it. */
-    for (const row of SETUP_ROWS) {
-      if (!present.has(row.step)) continue;
-      if (!state.done.has(row.step) && row.step !== activeId) continue;
-      const done = state.done.has(row.step);
-      const value = state.notes[row.step];
-
-      const el_ = document.createElement("div");
-      el_.className = "setup-row" + (done ? "" : " pending");
-      el_.innerHTML =
-        `<span class="setup-mark">${done ? "✓" : "·"}</span>` +
-        '<span class="setup-name"></span><span class="setup-value"></span>';
-      el_.querySelector(".setup-name").textContent = row.name;
-      el_.querySelector(".setup-value").textContent = done && value ? value : row.waiting;
-      host.append(el_);
-    }
-
   }
 
   /* Always drawn, even for one. A tab used to say "Setup" for every step and
