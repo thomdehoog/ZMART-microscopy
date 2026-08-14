@@ -394,3 +394,22 @@ names them), and the derive's small remaining slope.
   first warm scale with the survey and are paid once per declare and
   once per cold open; the end-of-run linked view costs seconds at the
   top of the ladder, where it used to be inside every landing.
+
+## Found after the record, by watching: stale middle levels under a commit storm
+
+The first evening of *watching* runs grow (``show_a_run_growing.py``)
+surfaced what the recorder never could. Driving commits at ten a second
+— thirty times a real microscope's rhythm — while zooming, the page was
+left holding stale pieces at the middle composed levels (L1/L2): black
+stripes tracing the last-landed ground, stuck at those zooms until a
+reload. The server was proven innocent piece by piece — every L1/L2
+piece over the stripes answered fresh and complete to a cold client —
+so the loss is client-side: invalidations for the middle levels dropped
+somewhere in the refresh path under a rate it was never gated at. The
+recorder shares the blind spot honestly: every transient gate so far
+watched the opening zoom, so a middle level gone quietly stale was
+invisible to the whole campaign. Reproduction: a spiral at
+``--every 0.1`` with ``--quick-page``, zoom during the run, then
+compare zoom levels. The thread this opens: gate the churn's recorder
+at more than one zoom, and run the lost invalidation to ground the way
+the prefill's flicker is queued to be — mechanism first.
