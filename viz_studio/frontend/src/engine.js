@@ -580,7 +580,14 @@ const replacing = new WeakMap();
 export const twinning = { asked: 0, adopted: 0, abandoned: 0 };
 
 // What the surgical invalidation did, for the browser tests and the terminal.
-export const chunkInvalidation = { announcements: 0, sources: 0, keys: 0 };
+// ``delivered`` records where each level's keys actually went — the holder's
+// own voxel bound beside the level named in the announcement — because a
+// delivery that lands on the WRONG source looks exactly like one that landed
+// right from every counter above it. The browser tests read it; it keeps only
+// the recent past so a long session cannot grow it without bound.
+export const chunkInvalidation = {
+  announcements: 0, sources: 0, keys: 0, delivered: [],
+};
 
 /**
  * Drop and refetch exactly the pieces a change touched, and nothing else.
@@ -597,37 +604,71 @@ export const chunkInvalidation = { announcements: 0, sources: 0, keys: 0 };
  *
  * ``dirty`` maps a resolution level to the piece coordinates a commit
  * reached, as ``(plane, row, column)`` — which is what the serving side
- * already computes to evict its own caches. The volume sources are matched
- * to levels by extent, largest first, which is how a pyramid orders them.
- * Keys are sent in both axis spellings while one datasource keeps the
- * question open; an unknown key is a harmless miss in the worker's map, and
- * the browser tests pin the count that actually lands.
+ * already computes to evict its own caches. Sources sharing one voxel bound
+ * are one level, however many of them the table holds, and the unique
+ * bounds ordered largest-first are the pyramid; every source of the named
+ * level receives the keys. Returns 0 — telling the caller to fall back to
+ * the twin refresh — unless EVERY named level was delivered, because a
+ * partial delivery that reports success leaves the skipped level drawing
+ * its past for the rest of the session. An unknown key is a harmless miss
+ * in the worker's map, and the browser tests pin where deliveries land.
  */
 export function invalidateTheDirtyPieces(viewer, dirty) {
   const shared = viewer.chunkManager?.rpc?.objects;
   if (!shared || !dirty) return 0;
-  const holders = [];
+  // Sources are gathered into groups that share an identical voxel bound,
+  // because the bound IS a level's identity and nothing else here is. The
+  // table routinely holds more than one source per level -- a twin resolving
+  // behind the picture, or one store opened as two datasets -- and the
+  // one-layer version of this function, which sorted every source by extent
+  // and indexed by level number, was shifted onto the wrong sources by
+  // exactly those duplicates: keys were sent, counters moved, and the level
+  // that changed kept drawing its past. An operator met it as black stripes
+  // over freshly-landed ground, stuck at middle zooms until a reload.
+  const groups = new Map();
   for (const [, held] of shared) {
     if (held && typeof held.invalidateCache === "function"
         && held.spec && held.spec.upperVoxelBound) {
-      holders.push(held);
+      const bound = Array.from(held.spec.upperVoxelBound).join(",");
+      if (!groups.has(bound)) groups.set(bound, []);
+      groups.get(bound).push(held);
     }
   }
-  const extent = (held) =>
-    held.spec.upperVoxelBound.reduce((all, one) => all * Math.max(1, one), 1);
-  holders.sort((a, b) => extent(b) - extent(a));
+  const extent = (bound) =>
+    bound.split(",").reduce((all, one) => all * Math.max(1, Number(one)), 1);
+  const ladder = [...groups.keys()].sort((a, b) => extent(b) - extent(a));
   let sent = 0;
   for (const [level, pieces] of Object.entries(dirty)) {
-    const holder = holders[Number(level)];
-    if (!holder || !Array.isArray(pieces) || pieces.length === 0) continue;
+    if (!Array.isArray(pieces) || pieces.length === 0) continue;
+    const rung = ladder[Number(level)];
+    const holders = rung ? groups.get(rung) : null;
+    if (!holders) {
+      // A named level with no source to receive it means this answer would
+      // be a partial one, and a partial answer must not look like success:
+      // the caller's fallback (the twin refresh) repaints everything without
+      // a flicker, where a level silently skipped here stays stale for the
+      // rest of the session. Whatever was already delivered above is merely
+      // redundant work for the twin to confirm.
+      return 0;
+    }
     // The engine's chunk keys are grid positions joined x-fastest, z last —
     // read straight out of a frontend source's own chunk map, not assumed —
     // so a piece named (plane, row, column) becomes "column,row,plane".
     const keys = pieces.map((piece) => [...piece].reverse().join(","));
-    holder.rpc.invoke("ChunkSource.refreshChunks",
-                      { id: holder.rpcId, keys });
-    chunkInvalidation.sources += 1;
-    chunkInvalidation.keys += keys.length;
+    for (const holder of holders) {
+      holder.rpc.invoke("ChunkSource.refreshChunks",
+                        { id: holder.rpcId, keys });
+      chunkInvalidation.sources += 1;
+      chunkInvalidation.keys += keys.length;
+      chunkInvalidation.delivered.push({
+        level,
+        bound: Array.from(holder.spec.upperVoxelBound),
+        keys: keys.length,
+      });
+      while (chunkInvalidation.delivered.length > 64) {
+        chunkInvalidation.delivered.shift();
+      }
+    }
     sent += 1;
   }
   if (sent) chunkInvalidation.announcements += 1;
