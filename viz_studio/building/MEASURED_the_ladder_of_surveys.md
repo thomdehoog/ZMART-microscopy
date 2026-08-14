@@ -68,7 +68,9 @@ themselves through the same gateway a server uses, so the full
 fail-closed gate rides along, striping the rows of each pinned level
 across workers. Measured on the same 1,024-position fixture that
 refuted the threads: serial 20.4 s, two processes 13.0 s, four 10.4 s —
-on four cores, against the threads' 26.8 s. zarr's own concurrency
+on four cores, against the threads' 26.8 s. At 4,096 positions the
+process bake took 29.2 s where the ladder's serial bake took 62.8 —
+the ratio holds at scale, and grows with the machine's cores. zarr's own concurrency
 knobs (``async.concurrency``, ``threading.max_workers``) were tried on
 the serial loop and moved nothing (19.7 s), which settles it: the
 ceiling is one interpreter, not the loop's scheduling. A commit landing
