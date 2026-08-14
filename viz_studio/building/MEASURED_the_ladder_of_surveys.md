@@ -300,6 +300,61 @@ and every red taught something. In value order:
   while it only ever skipped). All three options draw the foreign
   image.
 
+## The full record on the card: all ten rungs, and the top one ordinary
+
+> Measured 2026-08-14 on the same 24-core workstation, after the day's
+> fixes landed, drawing ON THE CARD (NVIDIA T400, D3D11, the full
+> Chromium build's headless — see the launcher note above). Every rung
+> re-measured against the committed tree; full spread in
+> ``MEASURED_ladder_2026-08-14_windows_24core_card.json``.
+
+| positions | land | replace | derive | visible | bake | warm | finish | transients |
+|-----------|------|---------|--------|---------|------|------|--------|------------|
+| 64        | 144 [152/166] | 257 [268/274] | 16 [18/42]    | 52 [69/91]    | 1.3   | 1.0   | 0.1  | 0 |
+| 121       | 144 [169/181] | 252 [267/280] | 16 [24/42]    | 50 [64/82]    | 2.0   | 1.0   | 0.1  | 0 |
+| 256       | 144 [153/177] | 256 [286/296] | 30 [32/41]    | 56 [80/108]   | 3.1   | 2.0   | 0.2  | 0 |
+| 529       | 144 [155/199] | 262 [305/321] | 32 [35/40]    | 62 [77/97]    | 3.9   | 3.6   | 0.6  | 0 |
+| 1,024     | 149 [170/183] | 267 [361/410] | 50 [57/171]   | 79 [95/213]   | 5.7   | 7.7   | 1.1  | 0 |
+| 2,025     | 165 [193/442] | 286 [333/575] | 61 [71/265]   | 90 [106/298]  | 7.9   | 14.9  | 2.6  | 0 |
+| 4,096     | 186 [233/262] | 291 [376/998] | 98 [146/667]  | 123 [159/664] | 19.0  | 39.1  | 5.1  | 0 |
+| 8,281     | 191 [214/223] | 316 [349/1627]| 102 [117/141] | 136 [157/171] | 24.9  | 60.3  | 4.5  | 0 |
+| 16,384    | 252 [311/333] | 359 [466/511] | 199 [308/2464]| 219 [301/383] | 50.7  | 127.0 | 12.5 | 0 |
+| 32,761    | 317 [400/951] | 476 [542/598] | 196 [228/295] | 240 [263/359] | 210.6 | 266.9 | 34.9 | 0 |
+
+**The warm finished — 266.9 s, inside the harness's five-minute head
+start — and the top rung is an ordinary row for the first time on any
+machine.** No star, no caveat: the churn at 32,761 ran on fully warm
+ground, and every column says so against the container's warm-poisoned
+row — land 1454 → 317, replace 2082 → 476, visible 758 → 240. The
+campaign's remaining headline claim is measured, and the open thread
+that expected to need the parallel-decode prefill for it closes without
+it. The prefill's flicker mechanism is still worth running to ground —
+as an investigation, no longer as a rescue.
+
+Two findings live inside the numbers:
+
+- **The derive's top-of-ladder growth was substantially the warm race
+  in disguise.** 196 ms at 32,761 against 199 ms at 16,384 — the column
+  stopped growing — and the tails tell the story: 16,384's worst derive
+  is 2,464 ms (changes landing on ground its own warm had not reached,
+  at 127 s of warm against commits starting at once), while 32,761,
+  whose warm had all of a five-minute head start's room, shows a tight
+  228 ms 90th percentile and a 295 ms worst. The residual slope that
+  remains (~5 ms per thousand positions here) is much shallower than
+  the container's ladder suggested.
+- **Landing-to-visible at thirty-two thousand positions is a quarter of
+  a second** (240 ms middling), with zero tiles re-read on any of the
+  four hundred watched changes of the whole record, and zero transients
+  at every rung. An operator adds a tile to a survey of thirty thousand
+  and sees it in the time a key repeat takes.
+
+The one-time costs at the top: 33 minutes writing the fixture (paid
+once, kept), 26 minutes bulk-publishing it (the fixture machinery's
+cost, not a run's — a real run commits as it goes), 210.6 s of bake,
+266.9 s of warm, 34.9 s for the end-of-run linked view. The bake at
+this rung is the next thread's target: still on the four-worker cap
+from the container, on a machine with twenty-four cores.
+
 ## Picking this up on another machine
 
 Everything needed is on this branch. Setup:
@@ -313,11 +368,14 @@ skip, and say so only in the summary. Run
 <somewhere with ~33 GB>`` (add ``--tidy`` for ~17 GB peak; use
 ``--powers 6-12`` for the quick half first — it resumes from its own
 JSON). On a machine with more cores, raise ``_BAKE_PROCESSES`` in
-``declare.py`` and compare. The open threads, in order of value: the
-reverted parallel-decode prefill (find its commit and revert-of-revert
-in the history; its flicker mechanism must be run to ground first),
-the warm-race at the top rung that it would close, and the derive's
-small remaining slope.
+``declare.py`` and compare. The open threads, in order of value, as
+they stand after the full record above: the bake worker count (still
+the container's four-worker cap; 210 s at the top rung on twenty-four
+cores is the thread's target), the reverted parallel-decode prefill's
+flicker mechanism (an investigation now, not a rescue — the warm race
+it was meant to close is closed above), the per-position metadata
+round-trips in the publish path (``NOTE_the_shard_is_written_once.md``
+names them), and the derive's small remaining slope.
 
 ## What the ladder says so far
 
