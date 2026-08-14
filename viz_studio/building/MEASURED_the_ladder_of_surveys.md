@@ -459,3 +459,14 @@ for the collision. Which also bounds the exposure honestly: an
 operator who is not actively navigating during heavy commits never
 meets it, and a reload cures it when they do. The mechanism hunt
 starts inside the scale-selection path with that collision in hand.
+
+The operator finished the matrix with a pre-committed core: on a
+survey already 1,600 tiles big, zooming during a 20-a-second storm
+wedges ALMOST IMMEDIATELY, where the same storm growing from empty only
+wedged late — so "late in the run" was survey SIZE all along, never
+elapsed time. And a rate ceiling showed itself on the way: at 20
+commits a second even an untouched viewer flickers mildly, where ten a
+second untouched is clean — a second edge, far beyond any microscope,
+now measured. The recipe in final form: updates in flight, navigation
+during them, survey size setting the collision window, rate rolling
+the dice. One mechanism carries every observation of the evening.
