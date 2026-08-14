@@ -399,6 +399,45 @@ test("the grid comes from the carrier, so changing the plate changes the plan",
     await expect(page.locator(".sf-readout")).toContainText("54 positions");
   });
 
+test("a volume is recorded off the stage, and holds the run until complete",
+  async ({ page }) => {
+    await connect(page);
+    await gotoStep(page, "Define Carrier");
+    await page.locator(".carrier-type[data-type='volume']").click();
+    await page.waitForTimeout(150);
+
+    // no catalogue controls: a volume is measured, not designed
+    await expect(page.locator(".carrier-preset")).toBeHidden();
+    await expect(page.locator(".carrier-vol-row")).toHaveCount(3);
+
+    /* Standing settles every other carrier; an unfinished volume does not —
+       the step is not done and nothing after it opens. */
+    await expect(page.locator('.step:has-text("Define Carrier")').first())
+      .not.toHaveClass(/done/);
+    await expect(page.locator('.step:has-text("Initial scanfields")').first()).toBeDisabled();
+
+    /* Six recordings — drive to each extreme, record the bound. Re-queried
+       per press, because the recorder redraws itself with every reading. */
+    for (let axis = 0; axis < 3; axis++) {
+      for (const name of ["Set min", "Set max"]) {
+        await page.locator(".carrier-vol-row").nth(axis)
+          .getByRole("button", { name }).click();
+        await page.waitForTimeout(80);
+      }
+    }
+    await expect(page.locator('.step:has-text("Define Carrier")').first())
+      .toHaveClass(/done/);
+    await expect(page.locator('.step:has-text("Initial scanfields")').first()).toBeEnabled();
+
+    // and the run reads it as the one area the bounds enclose
+    await gotoStep(page, "Initial scanfields");
+    await recordSlot(page, "sf-preset", "overview");
+    await page.locator(".sf-mode[data-mode='grid']").click();
+    await page.locator(".sf-apply-grid").click();
+    await page.waitForTimeout(300);
+    await expect(page.locator(".sf-readout")).toContainText("positions");
+  });
+
 test("grid mode hides the drawing tools without freezing the canvas",
   async ({ page }) => {
     await throughFields(page);

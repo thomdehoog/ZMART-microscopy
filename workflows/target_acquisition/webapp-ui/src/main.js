@@ -10,7 +10,7 @@ import {
   describeSession, describeConnection, CONNECT_CHECKS,
   sampleReading, STAGE_LIMITS_MM,
 } from "./lib/microscopes.js";
-import { centres, DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
+import { centres, DEFAULT_CARRIER, describeCarrier, volumeComplete } from "./lib/carriers.js";
 import carrierWidget from "./widgets/carrier.js";
 import scanfieldsWidget from "./widgets/scanfields.js";
 
@@ -827,10 +827,18 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
      It stays editable until something has been done inside the frame, at which
      point changing it would invalidate what was done. */
+  /* A volume is the one carrier that is not settled by standing: it starts
+     unknown, and the step is done when its six bounds have been recorded —
+     and undone again if the type is changed back to an unfinished volume. */
   function carrierSettled() {
     if (indexOfStep("carrier") < 0) return;
-    state.done.add("carrier");
-    state.notes.carrier = describeCarrier(state.carrier);
+    if (volumeComplete(state.carrier)) {
+      state.done.add("carrier");
+      state.notes.carrier = describeCarrier(state.carrier);
+    } else {
+      state.done.delete("carrier");
+      delete state.notes.carrier;
+    }
   }
 
   const carrierLocked = () => {
@@ -984,13 +992,16 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         locked,
         onChange: (next) => {
           state.carrier = next;
-          state.notes.carrier = describeCarrier(next);
+          // an edit can settle the step (a volume's last bound) or unsettle
+          // it (switching to an unfinished volume); the same rule says which
+          carrierSettled();
           // the tissue is spread over the plate, so a different plate is a
           // different sample even before the plan moves
           rebuildSample();
           view.fitted = false;
           drawStage();
           renderRail();
+          renderActionBar();
         },
       });
       return;

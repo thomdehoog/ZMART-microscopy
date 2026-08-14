@@ -17,11 +17,19 @@
 export const CARRIER_TYPES = [
   {
     id: "slide",
-    label: "Slide",
+    label: "Area",
     presets: [
       { label: "Standard (75 × 25 mm)", rows: 1, cols: 1, shape: "rect", w: 75, h: 25, gap: 0, corner: 0.5 },
       { label: "Large (76 × 52 mm)", rows: 1, cols: 1, shape: "rect", w: 76, h: 52, gap: 0, corner: 0.5 },
     ],
+  },
+  {
+    id: "volume",
+    label: "Volume",
+    /* Not a catalogue part: a volume is constructed by recording its bounds
+       off the stage — drive to each extreme of the sample and record x, y
+       and z, min and max. No presets, because the sample is the preset. */
+    presets: [],
   },
   {
     id: "dish",
@@ -30,6 +38,16 @@ export const CARRIER_TYPES = [
       { label: "35 mm dish", rows: 1, cols: 1, shape: "round", w: 35, h: 35, gap: 0, corner: 0 },
       { label: "60 mm dish", rows: 1, cols: 1, shape: "round", w: 60, h: 60, gap: 0, corner: 0 },
       { label: "100 mm dish", rows: 1, cols: 1, shape: "round", w: 100, h: 100, gap: 0, corner: 0 },
+    ],
+  },
+  {
+    id: "chamber",
+    label: "Chamber",
+    presets: [
+      { label: "1-chamber (ibidi)", rows: 1, cols: 1, shape: "rect", w: 48, h: 24, gap: 0, corner: 2 },
+      { label: "2-chamber (ibidi)", rows: 1, cols: 2, shape: "rect", w: 21.3, h: 17.6, gap: 4.8, corner: 1.5 },
+      { label: "4-chamber (Nunc)", rows: 2, cols: 2, shape: "rect", w: 20, h: 10, gap: 3, corner: 1.5 },
+      { label: "8-chamber (ibidi)", rows: 2, cols: 4, shape: "rect", w: 9.4, h: 10.7, gap: 1, corner: 1 },
     ],
   },
   {
@@ -57,16 +75,6 @@ export const CARRIER_TYPES = [
          a plate this lab does not run. */
       { label: "96-well", rows: 8, cols: 12, shape: "round", w: 6.6, h: 6.6, gap: 2.4, corner: 0 },
       { label: "384-well", rows: 16, cols: 24, shape: "round", w: 3.6, h: 3.6, gap: 0.9, corner: 0 },
-    ],
-  },
-  {
-    id: "chamber",
-    label: "Chamber",
-    presets: [
-      { label: "1-chamber (ibidi)", rows: 1, cols: 1, shape: "rect", w: 48, h: 24, gap: 0, corner: 2 },
-      { label: "2-chamber (ibidi)", rows: 1, cols: 2, shape: "rect", w: 21.3, h: 17.6, gap: 4.8, corner: 1.5 },
-      { label: "4-chamber (Nunc)", rows: 2, cols: 2, shape: "rect", w: 20, h: 10, gap: 3, corner: 1.5 },
-      { label: "8-chamber (ibidi)", rows: 2, cols: 4, shape: "rect", w: 9.4, h: 10.7, gap: 1, corner: 1 },
     ],
   },
 ];
@@ -101,6 +109,32 @@ export const DEFAULT_CARRIER = fromPreset(
   "wellplate",
   carrierType("wellplate").presets.find((p) => p.label.startsWith("96-well")),
 );
+
+/**
+ * A volume starts unknown: six bounds, recorded one at a time off the stage.
+ * It carries the same grid fields as every other carrier — one area whose
+ * width and height follow from the recorded x and y — so everything
+ * downstream (centres, tiles, the drawing) reads it unchanged; z is the
+ * volume's own, for the depth the run will image.
+ */
+export const emptyVolume = () => ({
+  type: "volume", rows: 1, cols: 1,
+  w: 0.1, h: 0.1, gapX: 0, gapY: 0, cornerRatio: 0,
+  bounds: { x: [null, null], y: [null, null], z: [null, null] },
+});
+
+/** Whether every bound has been recorded. True for any non-volume carrier. */
+export const volumeComplete = (c) => c.type !== "volume"
+  || ["x", "y", "z"].every((a) => c.bounds[a][0] != null && c.bounds[a][1] != null);
+
+/** One recorded bound lands; width and height follow from x and y. */
+export function withBound(c, axis, which, value) {
+  const bounds = { ...c.bounds, [axis]: [...c.bounds[axis]] };
+  bounds[axis][which] = value;
+  const span = (a) => (bounds[a][0] != null && bounds[a][1] != null
+    ? Math.max(Math.abs(bounds[a][1] - bounds[a][0]), 0.1) : null);
+  return { ...c, bounds, w: span("x") ?? c.w, h: span("y") ?? c.h };
+}
 
 const close = (a, b) => Math.abs(a - b) < 0.005;
 
@@ -163,9 +197,14 @@ export function centres(config) {
   return out;
 }
 
-/** One line for the rail: what was configured, without opening the panel. */
+/** One line for the run: what was configured, without opening the panel. */
 export const describeCarrier = (config) => {
   const g = geometry(config);
+  if (config.type === "volume") {
+    const [zLo, zHi] = config.bounds.z;
+    const depth = zLo != null && zHi != null ? Math.abs(zHi - zLo) : 0;
+    return `Volume · ${g.width.toFixed(1)} × ${g.height.toFixed(1)} × ${depth.toFixed(1)} mm`;
+  }
   const preset = matchingPreset(config);
   const name = preset >= 0
     ? carrierType(config.type).presets[preset].label
