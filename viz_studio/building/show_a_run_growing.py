@@ -212,6 +212,21 @@ def main() -> int:
                 committed.add((position_id, 0))
         to_change = [one for one in spiral_order(across, width)
                      if (one, 0) not in committed]
+        if asked.core:
+            # The square walk's late laps sweep the leftover ring in long
+            # edge-runs rather than circling. What a watcher expects around a
+            # core is a revolution: ring by ring, each ring swept by angle,
+            # the way a stage would orbit ground it has already imaged.
+            import math
+
+            middle = (across - 1) / 2
+
+            def orbit(one: str) -> tuple:
+                r, c = int(one[1:1 + width]), int(one[1 + width:])
+                ring = max(abs(r - middle), abs(c - middle))
+                return (ring, math.atan2(r - middle, c - middle))
+
+            to_change.sort(key=orbit)
     elif asked.replace:
         to_change = []
     else:
