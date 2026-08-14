@@ -66,25 +66,21 @@ def _announce(port: int, dirty: dict) -> None:
         pass
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="reproduces the open storm-staleness finding: after ten landings a "
-    "second under panning and zooming, some zoom bands show less than their "
-    "own reload — the engine settles on the coarsest scale (needed==available"
-    "==2 chunks) with mid-storm content and never asks again. Bounds proven "
-    "correct, server proven correct, browser and GPU exonerated. When the "
-    "mechanism is fixed this xfail turns to XPASS and must be removed — "
-    "see the MEASURED doc's storm section.",
-)
 def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
     browser, built_dist, tmp_path
 ):
     """Ten landings a second, a zooming viewer, and no level left behind."""
     harness.FIXTURES = tmp_path
-    run, order = harness.the_run(6)
-    width = len(str(6 - 1))
+    # The operator's fast recipe: a survey already big when the watching
+    # starts (the central block pre-committed), so the collision window is
+    # wide from the first landing — measured to wedge within ten seconds
+    # where a survey growing from empty needed to get large first.
+    run, order = harness.the_run(14)
+    width = len(str(14 - 1))
+    middle = (14 - 1) / 2
     committed_first = [one for one in order
-                       if int(one[1:1 + width]) < 3]
+                       if abs(int(one[1:1 + width]) - middle) <= 4
+                       and abs(int(one[1 + width:]) - middle) <= 4]
     landing_later = [one for one in order if one not in set(committed_first)]
     for position_id in committed_first:
         harness.fast_publish(run, position_id)
@@ -98,6 +94,11 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     page = browser.new_page(viewport={"width": 1000, "height": 780})
+    import os as os_module
+    if os_module.environ.get("ZMART_STORM_NO_HTTP_CACHE"):
+        session = page.context.new_cdp_session(page)
+        session.send("Network.enable")
+        session.send("Network.setCacheDisabled", {"cacheDisabled": True})
     # The eager check interval every demonstration runs with — the stock
     # page's ten-second rhythm coalesces the storm into a handful of quiet
     # catch-ups, and the regime under test is the loud one.
@@ -124,9 +125,26 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
         stop_zooming = threading.Event()
 
         def zoom_to(multiple: float) -> None:
+            # Centre as well as zoom: the storm's driver PANS, and a
+            # photograph taken off-centre counts honest out-of-canvas ground
+            # as missing picture — the first draft of this gate measured its
+            # own pan offset for an evening and called it staleness.
             page.evaluate(
                 "(wanted) => {"
-                "  window.zmartViewer.navigationState.zoomFactor.value = wanted;"
+                "  const state = window.zmartViewer.navigationState;"
+                "  state.zoomFactor.value = wanted;"
+                "  const position = state.position;"
+                "  const space = position.coordinateSpace.value;"
+                "  if (!space?.rank) return;"
+                "  const moved = Float32Array.from(position.value);"
+                "  for (let axis = 0; axis < space.rank; axis += 1) {"
+                "    const low = space.bounds.lowerBounds[axis];"
+                "    const high = space.bounds.upperBounds[axis];"
+                "    if (Number.isFinite(low) && Number.isFinite(high)) {"
+                "      moved[axis] = (low + high) / 2;"
+                "    }"
+                "  }"
+                "  position.value = moved;"
                 "}",
                 opening_zoom * multiple,
             )
@@ -168,10 +186,125 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
             for position_id in landing_later:
                 harness.fast_publish(run, position_id)
                 _announce(port, _dirty_for(run, pictured, position_id))
-                time.sleep(0.1)
+                time.sleep(0.05)
         finally:
             stop_zooming.set()
             zooming.join(timeout=5)
+
+        def scale_census() -> dict:
+            return page.evaluate(
+                """() => {
+                  const out = { renderLayers: 0, progress: [] };
+                  for (const managed of
+                       window.zmartViewer.layerManager.managedLayers) {
+                    for (const rl of (managed.layer?.renderLayers || [])) {
+                      out.renderLayers += 1;
+                      const p = rl.layerChunkProgressInfo;
+                      if (p) out.progress.push(
+                        [p.numVisibleChunksNeeded,
+                         p.numVisibleChunksAvailable]);
+                    }
+                  }
+                  const shared =
+                    window.zmartViewer.chunkManager.rpc.objects;
+                  out.backendSources = 0;
+                  for (const [, held] of shared) {
+                    if (held && typeof held.invalidateCache === 'function'
+                        && held.spec && held.spec.upperVoxelBound) {
+                      out.backendSources += 1;
+                    }
+                  }
+                  return out;
+                }"""
+            )
+
+        stormed_census = scale_census()
+
+        import os
+        if os.environ.get("ZMART_STORM_HEAL"):
+            # The splitting experiment: name EVERY piece of EVERY level dirty
+            # in one announcement. If the picture heals without a reload, the
+            # delivery machinery is sound and the per-landing dirty naming is
+            # what navigation defeats; if it stays wedged, delivery itself
+            # loses refreshes despite correct names.
+            page.wait_for_timeout(4_000)
+            zoom_to(1.0)
+            page.wait_for_timeout(2_000)
+            before_heal = fraction_lit(page)
+            answered: list[tuple[int, str]] = []
+            page.on("response",
+                    lambda told: answered.append((told.status, told.url))
+                    if "/data/" in told.url else None)
+            everything = {}
+            for level in range(pictured):
+                described = json.loads(
+                    (store / str(level) / "zarr.json").read_text(
+                        encoding="utf-8"))
+                depth, height, wide = described["shape"]
+                everything[str(level)] = [
+                    [0, r, c]
+                    for r in range((height + 511) // 512)
+                    for c in range((wide + 511) // 512)
+                ]
+            _announce(port, everything)
+            page.wait_for_timeout(6_000)
+            after_heal = fraction_lit(page)
+            print(f"HEAL TEST at 1.0x: before {before_heal:.1%} "
+                  f"after full-dirty {after_heal:.1%}", flush=True)
+            from collections import Counter
+            statuses = Counter(status for status, _ in answered)
+            print(f"HEAL NETWORK: {len(answered)} /data/ responses, "
+                  f"statuses {dict(statuses)}", flush=True)
+            print("SWAP LEDGER:", json.dumps(page.evaluate(
+                "() => globalThis.zmartSwapLedger ?? 'never touched'")),
+                flush=True)
+            print("TWINNING:", json.dumps(page.evaluate(
+                "() => window.zmartTwinning")), flush=True)
+            print("FRONTEND SOURCES:", json.dumps(page.evaluate(
+                """() => {
+                  const out = [];
+                  const registry =
+                    window.zmartViewer.chunkManager.rpc.objects;
+                  for (const [id, held] of registry) {
+                    if (held && held.chunks instanceof Map) {
+                      out.push({ id, holds: held.chunks.size,
+                                 sample: [...held.chunks.keys()].slice(0, 4) });
+                    }
+                  }
+                  return out;
+                }""")), flush=True)
+            print("CHUNK DATA MEANS:", json.dumps(page.evaluate(
+                """() => {
+                  const out = [];
+                  const registry =
+                    window.zmartViewer.chunkManager.rpc.objects;
+                  for (const [id, held] of registry) {
+                    if (held && held.chunks instanceof Map) {
+                      for (const [key, chunk] of held.chunks) {
+                        const data = chunk.data ?? null;
+                        let mean = null;
+                        if (data && data.length) {
+                          let sum = 0, n = 0;
+                          const step = Math.max(1, (data.length / 2000) | 0);
+                          for (let i = 0; i < data.length; i += step) {
+                            sum += data[i]; n += 1;
+                          }
+                          mean = Math.round(sum / n);
+                        }
+                        out.push({ id, key,
+                                   held: data ? data.length : null, mean });
+                      }
+                    }
+                  }
+                  return out.slice(0, 12);
+                }""")), flush=True)
+            print("LAYERS NOW:", json.dumps(page.evaluate(
+                """() => window.zmartViewer.layerManager.managedLayers
+                     .map((m) => ({ name: m.name,
+                                    ready: m.isReady ?? null }))""")),
+                flush=True)
+            for status, url in answered[:10]:
+                print(f"   {status} {url.split('/data/')[-1]}", flush=True)
 
         # Let every staged push, flush timeout and refetch settle.
         page.wait_for_timeout(6_000)
@@ -246,6 +379,71 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                 }"""
             )
             print("BELIEVED BOUNDS:", json.dumps(believed))
+            ledger = page.evaluate(
+                """() => {
+                  const q = window.zmartViewer.chunkQueueManager ??
+                            window.zmartViewer.chunkManager?.chunkQueueManager;
+                  if (!q) return "no queue manager reachable";
+                  const read = (cap) => cap ? {
+                    total: cap.capacity ?? cap.sizeLimit ?? null,
+                    used: cap.size ?? cap.currentSize ?? null,
+                    items: cap.itemLimit ?? null,
+                  } : null;
+                  return {
+                    gpu: read(q.capacities?.gpuMemory ?? q.gpuMemoryCapacity),
+                    system: read(q.capacities?.systemMemory
+                                 ?? q.systemMemoryCapacity),
+                    download: read(q.capacities?.download
+                                   ?? q.downloadCapacity),
+                    keys: Object.keys(q),
+                  };
+                }"""
+            )
+            print("MEMORY LEDGER:", json.dumps(ledger))
+            backlog = page.evaluate(
+                """() => {
+                  const q = window.zmartViewer.chunkQueueManager ??
+                            window.zmartViewer.chunkManager?.chunkQueueManager;
+                  if (!q) return "no queue manager";
+                  let length = 0;
+                  let walk = q.pendingChunkUpdates;
+                  const kinds = {};
+                  while (walk && length < 100000) {
+                    length += 1;
+                    const kind = walk.state !== undefined
+                      ? `state=${walk.state}` : (walk.new ? "new" : "update");
+                    kinds[kind] = (kinds[kind] || 0) + 1;
+                    walk = walk.nextUpdate ?? walk.next ?? null;
+                  }
+                  return { pending: length, kinds,
+                           deadline: q.chunkUpdateDeadline,
+                           delay: q.chunkUpdateDelay };
+                }"""
+            )
+            print("PENDING UPDATES:", json.dumps(backlog))
+
+        if os.environ.get("ZMART_STORM_HEAL"):
+            probe_piece = f"http://127.0.0.1:{port}/data/0/{store.name}/0/c/0/0/8"
+            def _bytes_now() -> bytes:
+                request = urllib.request.Request(probe_piece)
+                try:
+                    with urllib.request.urlopen(request, timeout=30) as answer:
+                        return answer.read()
+                except urllib.error.HTTPError:
+                    return b""
+            first_look = _bytes_now()
+            time.sleep(6)
+            second_look = _bytes_now()
+            print(f"BAKE LAG PROBE: piece 0/c/0/0/8 "
+                  f"{len(first_look)}B then {len(second_look)}B, "
+                  f"{'CHANGED while quiet' if first_look != second_look else 'identical'}",
+                  flush=True)
+            _announce(port, {"0": [[0, 0, 8]]})
+            time.sleep(4)
+            third_look = _bytes_now()
+            print(f"AFTER A POKE DERIVE: {len(third_look)}B, "
+                  f"{'CHANGED — the composer was behind' if third_look != second_look else 'still identical'}",
+                  flush=True)
 
         # The oracle is the operator's own cure: a reload builds a fresh
         # client over the very same server, so whatever a reload would fix
@@ -264,6 +462,14 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
             zoom_to(multiple)
             page.wait_for_timeout(2_500)
             fresh[multiple] = fraction_lit(page)
+        fresh_census = scale_census()
+        print("SCALES stormed:", json.dumps(stormed_census),
+              " fresh:", json.dumps(fresh_census), flush=True)
+        if os.environ.get("ZMART_STORM_HEAL"):
+            after_reload = _bytes_now()
+            print(f"PIECE AFTER RELOAD'S DERIVE: {len(after_reload)}B, "
+                  f"{'CHANGED — the reload derive caught the composer up' if after_reload != second_look else 'STILL the same bytes'}",
+                  flush=True)
 
         for multiple in seen:
             stormy, reloaded = seen[multiple], fresh[multiple]
