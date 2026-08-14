@@ -39,6 +39,7 @@ import queue
 import re
 import socket
 import sys
+import time
 import tempfile
 import threading
 from http import HTTPStatus
@@ -605,7 +606,16 @@ class _Handler(SimpleHTTPRequestHandler):
         # Image data is not: a range of a shard is read out of the file directly
         # rather than pulling the whole thing into memory to slice it.
         data = self._read(target) if describing else None
-        on_disk = len(data) if data is not None else target.stat().st_size
+        about = None if data is not None else target.stat()
+        on_disk = len(data) if data is not None else about.st_size
+        validator = self._a_live_pieces_identity(about)
+        if validator and self.headers.get("If-None-Match") == validator:
+            self.send_response(HTTPStatus.NOT_MODIFIED)
+            self.send_header("ETag", validator)
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         total = (
             max(0, on_disk - begins_at) if how_many is None
             else max(0, min(how_many, on_disk - begins_at))
@@ -636,10 +646,49 @@ class _Handler(SimpleHTTPRequestHandler):
         self.send_header("Accept-Ranges", "bytes")
         if wanted:
             self.send_header("Content-Range", f"bytes {start}-{start + len(body) - 1}/{total}")
-        self.send_header("Cache-Control", self._how_long_to_keep(describing))
+        if validator:
+            self.send_header("ETag", validator)
+            self.send_header("Cache-Control", "no-cache")
+        else:
+            self.send_header("Cache-Control", self._how_long_to_keep(describing))
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    # How recently a file may have changed before its identity can be trusted
+    # to tell its next change apart, in nanoseconds. The third appearance of
+    # the still-moving rule (``stores._MTIME_STILL_MOVING_NS``,
+    # ``shardlink.STAMPS_STILL_MOVING_NS``): filesystems stamp files from a
+    # clock that ticks more coarsely than a writer writes, so a piece patched
+    # twice in one tick at the same size keeps one identity -- and answering
+    # "unchanged" against that identity would freeze a stale picture, which is
+    # the one thing a live viewer must never do.
+    _STAMP_STILL_MOVING_NS = 100_000_000
+
+    def _a_live_pieces_identity(self, about: os.stat_result | None) -> str | None:
+        """The validator a live piece of image may be revalidated against.
+
+        Serving live pieces ``no-store`` kept the picture honest by forbidding
+        the browser to hold anything -- and paid for it in bytes: zooming
+        across a large live survey re-fetched and re-decoded the whole picture
+        while the server was busy patching commits, and the operator felt it
+        as lag. The safety actually required is weaker and cheaper: a held
+        copy may exist so long as it is never USED without asking first. That
+        is ``no-cache`` with a validator -- the browser asks with the identity
+        it holds, an unchanged piece costs a bodiless round trip, and a patched
+        one arrives fresh because the patch moved the file's identity.
+
+        The identity is the file's own stamp and size, from the ``stat`` the
+        serving path already takes, so the answer costs no extra look at the
+        disk. ``None`` -- serve the old careful way -- for anything that is
+        not a live piece of image, and for a piece the clock cannot vouch for
+        yet (see ``_STAMP_STILL_MOVING_NS`` above).
+        """
+        if not self._live or about is None:
+            return None
+        if time.time_ns() - about.st_mtime_ns < self._STAMP_STILL_MOVING_NS:
+            return None
+        return f'"{about.st_mtime_ns:x}-{about.st_size:x}"'
 
     def _how_long_to_keep(self, describing: bool) -> str:
         """How long the browser may keep a copy of what we are about to send.
@@ -650,14 +699,17 @@ class _Handler(SimpleHTTPRequestHandler):
         *changing* are exactly the wrong pair, so what may be kept depends on
         whether the data is still being written.
 
-        **A run in progress keeps nothing.** This is the important half. While the
-        instrument is writing, we cannot promise that what is on disk now is what
-        will be there in a minute: a piece may be rewritten, a plane filled in, a
-        timelapse extended. If the browser were holding its own copy it would go
-        on showing the old one, and — this is the part that hurts — there would be
-        nothing on screen to say so. The operator would be looking at a stale
-        picture of a live experiment and making decisions on it. A round trip to a
-        server on the same machine is a very cheap price for not doing that.
+        **A run in progress uses nothing unchecked.** This is the important half.
+        While the instrument is writing, we cannot promise that what is on disk
+        now is what will be there in a minute: a piece may be rewritten, a plane
+        filled in, a timelapse extended. If the browser were trusting its own
+        copy it would go on showing the old one, and — this is the part that
+        hurts — there would be nothing on screen to say so. Most live pieces
+        therefore carry a validator and ``no-cache`` (see
+        ``_a_live_pieces_identity``): kept, but revalidated on every use. What
+        reaches THIS function in live mode is only what could not be given a
+        validator — a piece too freshly written for its identity to be trusted —
+        and that is served ``no-store``, sent whole and kept by nobody.
 
         **Finished data may be kept for a year.** Nothing is writing, so nothing
         can change, and there is no reason to ask twice. ``immutable`` goes
