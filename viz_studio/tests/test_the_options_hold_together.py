@@ -1230,7 +1230,13 @@ def test_an_image_from_another_microscope_is_drawn(harness_page, option):
     )
     harness_page.settle(tries=20)
     showing = _share_of_the_window_showing_picture(harness_page.photograph())
-    assert showing > 0.2, (
+    # The bar is set by the page's own framing, not by taste: the harness fits
+    # the imaged ground across roughly a third of the window's smaller side, so
+    # a solid block that draws completely occupies about a tenth of the window
+    # -- measured at 9.5 percent on all three options -- and one refused every
+    # piece shows nothing at all. Anything comfortably above zero says the
+    # image was read; there is no middle case.
+    assert showing > 0.05, (
         "an image from another microscope drew nothing: only "
         f"{showing:.1%} of the window is picture. An option that asks a "
         "three-axis image for an axis it does not have is refused every piece "

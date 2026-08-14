@@ -440,17 +440,69 @@ function everythingImaged(coverages) {
   return storeNames.flatMap((name) => imagedRegions(coverages[name]));
 }
 
+/**
+ * The ground one acquisition's own description says it covers, in micrometres.
+ *
+ * This is the fallback framing for an image that keeps no coverage record — a
+ * foreign store, written by somebody else's instrument. Their description
+ * still says how many voxels there are along each axis and how big one voxel
+ * is, and that pair is an honest statement of where the picture lies even
+ * when nothing else about this project's conventions is present.
+ */
+async function theGroundTheStoreDeclares(name) {
+  const base = `${dataBase}/${name}.ome.zarr`;
+  const attrs = await fetch(`${base}/.zattrs`).then((answer) => answer.json());
+  const described = (attrs.multiscales || [{}])[0];
+  const axes = (described.axes || []).map((axis) => axis.name);
+  const finest = (described.datasets || [])[0] || {};
+  const scaling = (finest.coordinateTransformations || []).find(
+    (one) => one.type === "scale",
+  );
+  const placing = (finest.coordinateTransformations || []).find(
+    (one) => one.type === "translation",
+  );
+  const layout = await fetch(`${base}/${finest.path}/.zarray`).then((answer) =>
+    answer.json(),
+  );
+  const along = (axis) => {
+    const at = axes.indexOf(axis);
+    if (at < 0) return null;
+    return {
+      from: placing ? placing.translation[at] : 0,
+      across: layout.shape[at] * (scaling ? scaling.scale[at] : 1),
+    };
+  };
+  const wide = along("x");
+  const tall = along("y");
+  if (!(wide?.across > 0) || !(tall?.across > 0)) return [];
+  return [{
+    x0: wide.from,
+    y0: tall.from,
+    x1: wide.from + wide.across,
+    y1: tall.from + tall.across,
+  }];
+}
+
 async function boot() {
   const coverages = await readTheCoverageRecords();
   const coverage = coverages[storeName];
   harness.coverages = coverages;
   harness.coverage = coverage;
-  const regions = everythingImaged(coverages);
+  let regions = everythingImaged(coverages);
+  if (!regions.length && asked.get("bounded") === "0") {
+    // An unbounded page has been told the coverage record does not govern
+    // where the picture may show, so its absence is no obstacle either: the
+    // view is framed on what the store itself declares, and no sheet is cut.
+    regions = (
+      await Promise.all(storeNames.map(theGroundTheStoreDeclares))
+    ).flat();
+  }
   if (!regions.length) {
     throw new Error(
       `the run "${storeName}" has no coverage record, so there is nowhere the ` +
         "picture is allowed to show through and the page would draw an opaque " +
-        "sheet over everything. Write one, or point at a run that kept one.",
+        "sheet over everything. Write one, point at a run that kept one, or " +
+        "open the page unbounded (bounded=0) to frame on the store's own size.",
     );
   }
   // The rectangle the hole is cut around: the ground that holds picture.
