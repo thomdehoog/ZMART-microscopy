@@ -316,12 +316,6 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 .tab:hover { color: var(--ink); }
 .tab[aria-selected="true"] { color: var(--accent-deep); border-bottom-color: var(--accent); }
 
-.tab .count {
-  font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums;
-  background: var(--surface-3); border: 1px solid var(--line);
-  border-radius: 999px; padding: 1px 6px; color: var(--ink-2);
-}
-
 .panel { position: relative; min-width: 0; min-height: 0; display: none; }
 .panel.on { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 
@@ -529,8 +523,35 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .detect-params button.ghost { margin-top: 2px; }
 .tile-host { padding: 12px 14px 0; }
 .tile-host canvas { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: 6px; }
-/* what the settings found on this position, or what the algorithm listens to */
-.detect-note { padding: 8px 14px 12px; font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+/* the channel's closing line: what was found, or what the controls listen to */
+.side-note { padding: 8px 14px 12px; font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+
+/* ---- the selection channel ----------------------------------------------
+   The gated cells light up on the canvas; the channel holds the scatter they
+   are gated on, and widening the channel is how the plot gets room. */
+.analysis-side { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.analysis-legend {
+  padding: 9px 14px; border-bottom: 1px solid var(--line);
+  font-size: 12px; color: var(--ink-2);
+}
+.scatter-wrap { padding: 12px 14px 0; }
+/* the tip positions against the plot exactly, so the box it lives in is the
+   canvas's own and nothing wider */
+.scatter-host { position: relative; }
+.scatter-host canvas {
+  display: block; width: 100%; aspect-ratio: 1 / 1;
+  touch-action: none; cursor: crosshair;
+}
+/* a button in a heading keeps its own case */
+.side-head .ghost.tiny { margin-left: auto; letter-spacing: normal; text-transform: none; }
+
+/* ---- the gallery channel -------------------------------------------------
+   The acquired pairs and their verdicts. One column at the default width;
+   widening the channel is how the grid gets more. */
+.gallery-side { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.side-head .readout {
+  margin: 0 0 0 auto; letter-spacing: normal; text-transform: none; font-weight: 400;
+}
 
 .plot-host { position: relative; min-height: 0; }
 canvas.plot { display: block; width: 100%; height: 100%; touch-action: none; }
@@ -542,7 +563,6 @@ canvas.plot { display: block; width: 100%; height: 100%; touch-action: none; }
    fields editor knows — so while that step is standing here it sets the cursor
    itself and this is the resting state underneath. */
 canvas.stagecv { cursor: default; }
-canvas.scattercv { cursor: crosshair; }
 
 /* The acquired overview lies over the plan, in the same place and at the same
    size, because it is the same square of stage seen for real rather than a
@@ -928,12 +948,17 @@ canvas.livecv[hidden] { display: none; }
 /* The canvas keeps the room; a step whose work is about the frame gets a
    column beside it. Scrolls on its own so the picture never moves. */
 /* one width, so the channel and the name above it stand in the same column */
-.canvas-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 0; }
+.canvas-body { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; min-height: 0; }
 .canvas-side {
   width: var(--side-w); overflow-y: auto; min-height: 0;
   border-left: 1px solid var(--line); background: var(--surface-2);
 }
 .canvas-side[hidden] { display: none; }
+/* The channel's edge, made draggable. It sits over the channel's own border
+   so there is no second line — the affordance is the cursor and the tint. */
+.side-divider { width: 6px; margin-right: -6px; cursor: col-resize; z-index: 2; }
+.side-divider:hover, .side-divider.dragging { background: var(--accent-line); }
+.side-divider[hidden] { display: none; }
 
 .carrier-card { display: flex; flex-direction: column; height: 100%; }
 .carrier-controls {

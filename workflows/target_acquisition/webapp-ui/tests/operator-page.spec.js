@@ -914,6 +914,6 @@ test("one walk of the whole run", async ({ page }) => {
   await runStep(page, 3000);
   await page.locator(".pair").first().locator("button.pick-good").click();
   await expect(page.locator("#gallery-readout")).toContainText("1 marked");
-  await expect(page.locator('.tab[aria-selected="true"]'),
-    "curation continues after the run finishes").toContainText("Gallery");
+  await expect(page.locator(".side-tab"),
+    "curation continues after the run finishes").toContainText("Acquire and curate");
 });

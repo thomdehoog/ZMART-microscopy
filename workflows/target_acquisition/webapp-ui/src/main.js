@@ -252,8 +252,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     // other recorded preset does
     settingsChanged();
     focusPanelsFor(0);
-    el("gate-readout").textContent = "drag a rectangle to gate";
-    el("pairs").textContent = "";
+    renderGateReadout();
     renderPointList();
     renderAll();
   }
@@ -474,7 +473,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      They are three different things — a session, a list of presets, a carrier —
      and a tab beside the canvas should say which of them it opens. They draw
      into the same element because only one is ever shown. */
-  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer-canvas", "foot-analysis", "foot-gallery"];
+  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer-canvas"];
 
   /* Every panel a step may ask for, by the name a step uses for it. `whenShown`
      is how a panel that has to build something of its own — a picture drawn by a
@@ -492,8 +491,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       label: "Canvas", panel: "panel-viewer-canvas",
       whenShown: () => theCanvas.whenShown(),
     },
-    analysis: { label: "Analysis", panel: "panel-analysis" },
-    gallery: { label: "Gallery", panel: "panel-gallery" },
   };
 
   /* Which panels a step gets is `panelsFor` in `frame/steps.js`, and the reason
@@ -949,9 +946,36 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     },
   };
 
+  /* And selection once more: the gated cells light up on the canvas, and the
+     channel holds the scatter they are gated on. */
+  const analysisWidget = {
+    id: "select",
+    label: "Select cells",
+    mount(host) {
+      analysisControls.hidden = false;
+      host.append(analysisControls);
+      sizeCanvas(scatterCv);
+      drawScatter();
+      renderGateReadout();
+    },
+  };
+
+  /* The gallery too: the acquired targets ring on the canvas, and the channel
+     holds the pairs and the verdicts being collected on them. */
+  const galleryWidget = {
+    id: "acquire",
+    label: "Acquire and curate",
+    mount(host) {
+      galleryControls.hidden = false;
+      host.append(galleryControls);
+      buildGallery();
+    },
+  };
+
   const SIDE_WIDGETS = {
     carrier: carrierWidget, scanfields: scanfieldsWidget,
-    focus: focusWidget, detect: detectWidget,
+    focus: focusWidget, detect: detectWidget, select: analysisWidget,
+    acquire: galleryWidget,
   };
 
   const sideWidget = () => SIDE_WIDGETS[step(state.activeIdx).id] ?? null;
@@ -978,11 +1002,15 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      document, and getElementById cannot find what is not in it. */
   const focusControls = el("focus-controls");
   const detectControls = el("detect-controls");
+  const analysisControls = el("analysis-controls");
+  const galleryControls = el("gallery-controls");
 
   function renderSide(show) {
     const host = el("canvas-side");
     const widget = show === "canvas" ? sideWidget() : null;
     host.hidden = !widget;
+    // the divider is the channel's edge, so it is only there when the channel is
+    el("side-divider").hidden = !widget;
     const locked = widget?.id === "carrier" ? carrierLocked() : scanfieldsLocked();
     const key = widget && `${widget.id}:${locked}`;
     if (state.sideMounted === key) return;
@@ -1026,6 +1054,40 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       },
       redraw: drawStage,
     });
+  }
+
+  /* The channel's width is the operator's to set. The divider drags, the
+     variable moves, and everything that reads --side-w — the channel and the
+     name over it — follows. Written on the root, so the width survives
+     walking between steps; the canvas is the bigger half by default and
+     keeps whatever the channel does not take. Clamped so neither the picture
+     nor the controls can be crushed. */
+  {
+    const divider = el("side-divider");
+    const body = divider.parentElement;
+    let resizing = false;
+    divider.addEventListener("pointerdown", (e) => {
+      resizing = true;
+      divider.classList.add("dragging");
+      divider.setPointerCapture(e.pointerId);
+    });
+    divider.addEventListener("pointermove", (e) => {
+      if (!resizing) return;
+      const box = body.getBoundingClientRect();
+      const width = Math.max(240, Math.min(box.width - 360, Math.round(box.right - e.clientX)));
+      document.documentElement.style.setProperty("--side-w", `${width}px`);
+      /* The channel's own observers redraw what lives in it; the stage is
+         resized here, since its panel — the thing observed — has not moved. */
+      sizeCanvas(stageCv); drawStage();
+    });
+    const settle = (e) => {
+      if (!resizing) return;
+      resizing = false;
+      divider.classList.remove("dragging");
+      if (divider.hasPointerCapture?.(e.pointerId)) divider.releasePointerCapture(e.pointerId);
+    };
+    divider.addEventListener("pointerup", settle);
+    divider.addEventListener("pointercancel", settle);
   }
 
   /* What a scan field can be taken with: the presets this run recorded, in the
@@ -1085,16 +1147,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       b.setAttribute("aria-selected", String(state.tab === key));
       b.append(document.createTextNode(meta.label));
 
-      if (key === "analysis" && state.gated.size) {
-        const c = document.createElement("span");
-        c.className = "count"; c.textContent = String(state.gated.size);
-        b.append(c);
-      }
-      if (key === "gallery" && state.acquired.length) {
-        const c = document.createElement("span");
-        c.className = "count"; c.textContent = String(state.acquired.length);
-        b.append(c);
-      }
       b.addEventListener("click", () => { state.tab = key; renderPanels(); renderTabs(); });
       host.append(b);
     }
@@ -1140,7 +1192,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     // looked at, so which of the two is on screen follows the step.
     liveOverview.showFor(step(state.activeIdx), show);
     if (show === "canvas") { sizeCanvas(stageCv); drawStage(); }
-    if (show === "analysis") { sizeCanvas(scatterCv); drawScatter(); }
   }
 
   function renderAll() {
@@ -3226,14 +3277,26 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
   scatterCv.addEventListener("pointerleave", () => scatterTip.classList.remove("on"));
 
+  /* Like the other channels, these controls leave the document with the step.
+     The readout is rendered from the run's state rather than written at the
+     moment of gating, so mounting again always shows what is true now. */
+  const analysisMounted = () => analysisControls.isConnected;
+
+  function renderGateReadout() {
+    if (!analysisMounted()) return;
+    const g = state.gate;
+    el("gate-readout").textContent = g
+      ? `${state.gated.size} of ${state.detected.size} detected gated · area ${g.aLo.toFixed(0)}–${g.aHi.toFixed(0)} µm² · int ${g.iLo.toFixed(2)}–${g.iHi.toFixed(2)}`
+      : "drag a rectangle to gate";
+  }
+
   function applyGate(g) {
     state.gate = g;
     state.gated = new Set(sample.cells
       .filter((c) => state.detected.has(c.id)
         && c.area >= g.aLo && c.area <= g.aHi && c.intensity >= g.iLo && c.intensity <= g.iHi)
       .map((c) => c.id));
-    el("gate-readout").textContent =
-      `${state.gated.size} of ${state.detected.size} detected gated · area ${g.aLo.toFixed(0)}–${g.aHi.toFixed(0)} µm² · int ${g.iLo.toFixed(2)}–${g.iHi.toFixed(2)}`;
+    renderGateReadout();
     drawScatter();
     drawStage();
     renderTabs();
@@ -3242,7 +3305,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
   el("clear-gate").addEventListener("click", () => {
     state.gate = null; state.gated = new Set();
-    el("gate-readout").textContent = "drag a rectangle to gate";
+    renderGateReadout();
     drawScatter(); drawStage(); renderTabs(); renderActionBar();
   });
 
@@ -3281,7 +3344,12 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     return cv;
   }
 
+  /* In the document only while the step is standing, like every channel;
+     mounting rebuilds from the run's state, so nothing stale survives. */
+  const galleryMounted = () => galleryControls.isConnected;
+
   function buildGallery() {
+    if (!galleryMounted()) return;
     const host = el("pairs");
     host.textContent = "";
     state.acquired.forEach((id, i) => {
@@ -3326,6 +3394,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   }
 
   function updateGalleryReadout() {
+    if (!galleryMounted()) return;
     const total = state.acquired.length;
     const marked = state.acquired.filter((id) => state.verdicts[id]).length;
     const good = state.acquired.filter((id) => state.verdicts[id] === "good").length;
@@ -3340,11 +3409,12 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     if (el("panel-canvas").classList.contains("on")) { sizeCanvas(stageCv); drawStage(); }
     if (detectMounted()) drawTilePreview();
     drawTrace();
-    if (el("panel-analysis").classList.contains("on")) { sizeCanvas(scatterCv); drawScatter(); }
+    if (analysisMounted()) { sizeCanvas(scatterCv); drawScatter(); }
   });
   ro.observe(el("panel-canvas"));
+  ro.observe(focusControls);
   ro.observe(detectControls);
-  ro.observe(el("panel-analysis"));
+  ro.observe(analysisControls);
 
   const mo = new MutationObserver(() => { drawStage(); drawTilePreview(); drawTrace(); drawScatter(); });
   mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });

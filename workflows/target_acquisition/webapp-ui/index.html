@@ -56,7 +56,11 @@
             <div class="tip" id="stage-tip"></div>
           </div>
           <!-- a step whose work is about the frame itself docks its controls
-               here, beside what they change, rather than on a tab of its own -->
+               here, beside what they change, rather than on a tab of its own.
+               The divider is the channel's edge made draggable: the operator
+               reshapes how much of the window the channel takes. -->
+          <div class="side-divider" id="side-divider" role="separator"
+               aria-orientation="vertical" aria-label="resize the channel" hidden></div>
           <aside class="canvas-side" id="canvas-side" hidden></aside>
         </div>
         <div class="canvas-foot">
@@ -170,7 +174,7 @@
             <div class="tile-host">
               <canvas id="tile-canvas"></canvas>
             </div>
-            <div class="detect-note" id="detect-readout">—</div>
+            <div class="side-note" id="detect-readout">—</div>
           </div>
       </div>
 
@@ -225,37 +229,42 @@
           </div>
       </div>
 
-      <!-- analysis panel -->
-      <div class="panel" id="panel-analysis" role="tabpanel">
-        <div class="toolbar">
-          <div class="legend">
-            <span><i class="dot" style="background:var(--mark-context)"></i> all cells</span>
-            <span><i class="dot" style="background:var(--mark-gated)"></i> gated</span>
-            <span><i class="dot" style="background:var(--mark-acquired)"></i> acquired</span>
+      <!-- Selection has no panel of its own either: the gated cells light up
+           on the canvas, and the channel holds the scatter they are gated on.
+           Parked here and moved into the channel while the step is standing. -->
+      <div id="analysis-controls" hidden>
+          <div class="analysis-side">
+            <div class="side-head">
+              Gate
+              <button type="button" class="ghost tiny" id="clear-gate">Clear gate</button>
+            </div>
+            <div class="legend analysis-legend">
+              <span><i class="dot" style="background:var(--mark-context)"></i> all cells</span>
+              <span><i class="dot" style="background:var(--mark-gated)"></i> gated</span>
+              <span><i class="dot" style="background:var(--mark-acquired)"></i> acquired</span>
+            </div>
+            <div class="scatter-wrap">
+              <div class="scatter-host">
+                <canvas id="scatter-canvas"></canvas>
+                <div class="tip" id="scatter-tip"></div>
+              </div>
+            </div>
+            <div class="side-note" id="gate-readout">drag a rectangle to gate</div>
           </div>
-          <div class="sep"></div>
-          <button class="ghost" id="clear-gate">Clear gate</button>
-          <div class="readout" id="gate-readout">drag a rectangle to gate</div>
-        </div>
-        <div class="plot-host">
-          <canvas class="plot scattercv" id="scatter-canvas"></canvas>
-          <div class="tip" id="scatter-tip"></div>
-        </div>
-        <div class="panel-foot" id="foot-analysis"></div>
       </div>
 
-      <!-- gallery panel -->
-      <div class="panel" id="panel-gallery" role="tabpanel">
-        <div class="toolbar">
-          <div class="group">
-            <span style="font-weight:600;color:var(--ink-3)">Acquired pairs</span>
-            <span class="readout" id="gallery-readout" style="margin:0">—</span>
+      <!-- The gallery joins the channels: acquisition happens on the canvas —
+           the targets ring there — and the channel holds the acquired pairs
+           and the verdicts being collected on them. -->
+      <div id="gallery-controls" hidden>
+          <div class="gallery-side">
+            <div class="side-head">
+              Acquired pairs
+              <span class="readout" id="gallery-readout">—</span>
+            </div>
+            <div class="side-note">overview crop · target crop — mark each ✓ or ✗</div>
+            <div class="gallery-wrap"><div class="pairs" id="pairs"></div></div>
           </div>
-          <div class="sep"></div>
-          <span style="color:var(--ink-3)">overview crop · target crop — mark each ✓ or ✗</span>
-        </div>
-        <div class="gallery-wrap"><div class="pairs" id="pairs"></div></div>
-        <div class="panel-foot" id="foot-gallery"></div>
       </div>
 
     </div>
