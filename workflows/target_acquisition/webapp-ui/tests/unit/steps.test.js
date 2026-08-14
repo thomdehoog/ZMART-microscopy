@@ -16,7 +16,7 @@ import {
   numbered, firstIncomplete, isReachable, blockedBecause, panelsFor,
 } from "../../src/frame/steps.js";
 import { WORKFLOWS } from "../../src/workflows/index.js";
-import { connect, opticalConfiguration, scanOverview } from "../../src/workflows/steps.js";
+import { connect, initialScanfields, scanOverview } from "../../src/workflows/steps.js";
 import { mockBackend } from "../../src/backend/mock.js";
 
 const ids = (wf) => WORKFLOWS[wf].steps.map((s) => s.id);
@@ -33,9 +33,9 @@ describe("numbering is derived, so reordering costs nothing", () => {
     expect(out.map((s) => s.n)).toEqual(["1", "2a", "2b", "3"]);
   });
 
-  it("numbers target acquisition straight through, one to nine", () => {
+  it("numbers target acquisition straight through, one to eight", () => {
     expect(WORKFLOWS.target_acquisition.steps.map((s) => s.n))
-      .toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+      .toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
   });
 });
 
@@ -50,7 +50,7 @@ describe("ordering", () => {
   });
 
   it("finds the first gap, not the last completed step", () => {
-    expect(firstIncomplete(steps, new Set(["connect", "optics"]))).toBe(2);
+    expect(firstIncomplete(steps, new Set(["connect", "carrier"]))).toBe(2);
     expect(firstIncomplete(steps, new Set())).toBe(0);
   });
 
@@ -80,8 +80,8 @@ describe("readiness belongs to the step, not the frame", () => {
      asks; each step answers for itself. */
   const byId = (id) => stepOf("target_acquisition", id);
   const run = (over = {}) => ({
-    bars: [{ state: "40x · 0.95 NA" }],
     focus: { strategy: "plane", points: [] },
+    focusPreset: { state: "AF one-shot · reflection" },
     detect: { tested: false },
     gated: new Set(),
     targetType: { state: "40x · 0.95 NA · 2 channels" },
@@ -101,10 +101,11 @@ describe("readiness belongs to the step, not the frame", () => {
     }))).toBeNull();
   });
 
-  it("the optical configuration wants at least one preset recorded", () => {
-    expect(blockedBecause(byId("optics"), run({ bars: [{ name: "", state: null }] })))
-      .toMatch(/at least one preset/);
-    expect(blockedBecause(byId("optics"), run())).toBeNull();
+  it("the focus strategy wants its autofocus preset recorded first", () => {
+    expect(blockedBecause(byId("focus"), run({
+      focus: { strategy: "plane", points: [1, 2, 3] },
+      focusPreset: { name: "", state: null },
+    }))).toMatch(/autofocus preset/);
   });
 
   it("detection wants a tile tested first", () => {
@@ -140,7 +141,6 @@ describe("panels follow the step", () => {
   it("gives target acquisition the panels the operator sees", () => {
     expect(panelsOf("target_acquisition")).toEqual({
       connect: ["canvas"],
-      optics: ["canvas"],
       carrier: ["canvas"],
       scanfields: ["canvas"],
       focus: ["canvas"],
@@ -154,7 +154,6 @@ describe("panels follow the step", () => {
   it("puts the canvas on stage from the first step of every run", () => {
     for (const wf of ["target_acquisition", "overview_only", "focus_check"]) {
       expect(panelsOf(wf).connect).toContain("canvas");
-      expect(panelsOf(wf).optics).toContain("canvas");
       expect(panelsOf(wf).carrier).toContain("canvas");
     }
   });
@@ -177,16 +176,16 @@ describe("workflows compose the catalogue rather than restating it", () => {
      declaration, what it shows is what the page will do. */
   it("walks target acquisition in this order", () => {
     expect(ids("target_acquisition")).toEqual([
-      "connect", "optics", "carrier", "scanfields", "focus",
+      "connect", "carrier", "scanfields", "focus",
       "scan", "detect", "select", "acquire",
     ]);
   });
 
   it("walks the shorter runs in this order", () => {
     expect(ids("overview_only")).toEqual([
-      "connect", "optics", "carrier", "scanfields", "scan", "save"]);
+      "connect", "carrier", "scanfields", "scan", "save"]);
     expect(ids("focus_check")).toEqual([
-      "connect", "optics", "carrier", "scanfields", "focus", "save"]);
+      "connect", "carrier", "scanfields", "focus", "save"]);
   });
 
   it("names every workflow in plain words for the chooser", () => {
@@ -199,7 +198,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
   it("shares a step's wording, so a fix reaches every workflow at once", () => {
     for (const wf of ["target_acquisition", "overview_only", "focus_check"]) {
       expect(stepOf(wf, "connect").why).toBe(connect.why);
-      expect(stepOf(wf, "optics").why).toBe(opticalConfiguration.why);
+      expect(stepOf(wf, "scanfields").why).toBe(initialScanfields.why);
     }
   });
 
@@ -240,7 +239,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
      the step still completes, and nothing happens in between. */
   it("every step names work the page knows how to do, or none", () => {
     const known = new Set([
-      "optics", "carrier", "scanfields", "focus", "scan", "detect", "select", "targets"]);
+      "carrier", "scanfields", "focus", "scan", "detect", "select", "targets"]);
     for (const wf of Object.keys(WORKFLOWS)) {
       for (const s of WORKFLOWS[wf].steps) {
         if (s.mode) expect(known.has(s.mode), `${s.id} -> ${s.mode}`).toBe(true);

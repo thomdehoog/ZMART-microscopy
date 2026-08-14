@@ -18,7 +18,7 @@ not be correct about physics.
 2. **Say what you would do and why before changing anything.** Check the
    reading against what is actually on screen.
 
-**The focus map is on the canvas, not in a tab.** Step 5 draws its heatmap over
+**The focus map is on the canvas, not in a tab.** Step 4 draws its heatmap over
 the plan with the canvas's own projection, and its controls — the pattern
 picker, the point list, the sweep and its preview — sit in the channel beside
 it, named `Focus strategy` at the right end of the tab row. Points are laid as
@@ -29,7 +29,7 @@ Clicking the canvas is the other lane, not a mode: a press takes the position
 under it, a press on a placed point removes it, and a press over no position
 pans. SURS and the whole-canvas scope are gone.
 
-**Detection is the same shape as focus.** Step 7 has no tab of its own: the
+**Discovery is the same shape as focus.** Step 6 has no tab of its own: the
 canvas keeps the picture — the cells it finds land there — and the channel
 holds the settings (algorithm, its parameters, `Test on this tile`) with the
 one **test position** beneath them: a pager, the tile preview, and what the
@@ -41,7 +41,7 @@ while the step is standing, so it is built and wired once; anything that writes
 into it asks `focusMounted()` first, because the channel hands it back when the
 step is left.
 
-**The step that defines the overview positions is built.** It is step 4,
+**The step that defines the overview positions is built.** It is step 3,
 Initial scanfields: a geometry editor and a grid mode in the channel beside the
 canvas, ported from `06_scanfields.jsx`. The grid reads the carrier's area
 centres, so the plate decides the plan.
@@ -93,8 +93,7 @@ scan, the focus map and the tile detection is tuned on all read the same list.
 - Clone: `C:\ProgramData\MinicondaZMB\home\t.de\ZMART-microscopy_main`
 - Branch: `design/operator-page-prototype` on
   `github.com/thomdehoog/ZMART-microscopy` — **public repo**. The branch may
-  run ahead of the remote — check
-  `git log origin/design/operator-page-prototype..HEAD` rather than assuming,
+  run ahead of the remote — check `git log @{u}..HEAD` rather than assuming,
   and do not push without asking.
 - The live project: `workflows/target_acquisition/webapp-ui/` — a Vite app.
   **Read its `ARCHITECTURE.md` first.**
@@ -119,8 +118,8 @@ cd workflows/target_acquisition/webapp-ui
 
 npm run dev        # http://127.0.0.1:5174 — hot reload
 npm run build      # one self-contained file -> ../workflow/webapp/static/
-npm run test:unit  # vitest, 89 tests, ~0.3 s
-npm run test:ui    # playwright, 27 tests, ~150 s
+npm run test:unit  # vitest, ~146 tests, ~1 s
+npm run test:ui    # playwright, ~24 tests, ~130 s
 python dev_window.py   # the page in a native pywebview window, still hot-reloading
 ```
 
@@ -129,48 +128,48 @@ resets it to step 1.
 
 ## What the page is
 
-A left rail of workflow steps; one layout for every step — the canvas on the
-left from the very first step, and the standing step's controls in a channel
-on the right whose width the operator drags with the divider (canvas bigger
-by default). Nine steps in `target_acquisition`:
+A narrow left rail of workflow steps; one layout for every step — the canvas
+on the left from the very first step, and the standing step's controls in a
+channel on the right whose width the operator drags with the divider (canvas
+bigger by default). Eight steps in `target_acquisition`:
 
-1 Microscope configuration · 2 Optical configuration · 3 Carrier configuration ·
-4 Initial scanfields · 5 Focus strategy · 6 Scan the overview · 7 Detect cells ·
-8 Select cells · 9 Acquire and curate
+1 Connect · 2 Carrier configuration · 3 Initial scanfields · 4 Focus strategy ·
+5 Scan the overview · 6 Discover Targets · 7 Refine Targets · 8 Acquire Targets
 
-There is no Disconnect step (the session card's own Disconnect button ends a
-session) and no Save-the-run step. Two other workflows exist to prove the
-frame is not built around one: `overview_only` (6 steps) and `focus_check` (6).
+There is no presets step, no Disconnect step, no Save-the-run step, and no
+Restart button: each preset is recorded in the step that uses it, the session
+card's own Disconnect ends a run, and choosing a workflow (re)starts one. Two
+other workflows exist to prove the frame is not built around one:
+`overview_only` (5 steps) and `focus_check` (5).
 
 ## Decisions already settled — do not relitigate without asking
 
 **Frame**
 
-- The rail is **navigation only**: number, title, one-line result. The number
+- The rail is **navigation only**: number and title, nothing else. The number
   carries the state — grey ahead, **green done**, **blue where you are**, and
-  blue wins on a step that is both. There is no tick; the badge said it twice.
-  A note appears only where it carries a result worth reading back (the fitted
-  surface, the tile count); Optical configuration carries none — the badge
-  already says done, and the presets are one click away.
+  blue wins on a step that is both. There is no tick and no note: the badge
+  says done, and what a step produced is on the canvas and in the action bar.
 - **Nothing advances by itself.** Finishing a step leaves you on it. The rail
   still gates order — only the next step is enabled.
 - **A step's action sits at the end of what it operates.** There is no action
   bar. Steps with a tab panel get a foot at its bottom; the carrier's is inside
   its channel. The button carries `.step-run` wherever it lands, which is what
   the tests find it by. `ownButton: true` means "this panel builds its own"
-  (Microscope Configuration does). Three steps have no button at all: Optical
-  Configuration and Carrier configuration are settled by doing the work, and
-  Microscope Configuration's lives in its form.
-- **The canvas is always on the stage** — from the first step. It is the
-  microscope's own limits drawn to scale; nothing about the frame depends on
-  what is mounted in it, so it is there before a session is even open. Every
-  step keeps the picture on the left and puts its own controls in the channel:
-  the session card, the preset recorder, the carrier designer, the scanfield
-  editor, the focus patterns, detection, the gate, the gallery — one layout,
-  no tabs of their own. Configuring the carrier fixes the run's zero too,
-  which is why no step asks for an origin; that happens behind the scenes and
-  is deliberately not drawn. Later the limits come from the controller; today
-  it is UI only.
+  (Connect does). Carrier configuration and Initial scanfields have no button
+  at all — they are settled by doing the work — and Connect's lives in its
+  form.
+- **The canvas is always on the stage — and only shows what the run knows.**
+  Before a session is open it is empty; the stage limits appear with the
+  session, because they are a readout from the connected microscope's
+  configuration; the carrier appears at its own step, when the run is told
+  what the sample is mounted in. Every step keeps the picture on the left and
+  puts its own controls in the channel: the session card, the carrier
+  designer, the scanfield editor and its preset, the focus patterns and their
+  preset, detection, the gate, the gallery and the acquisition type — one
+  layout, no tabs of their own. Configuring the carrier fixes the run's zero
+  too, which is why no step asks for an origin; that happens behind the
+  scenes and is deliberately not drawn.
 - **The channel is resizable**: its edge is a divider the operator drags. The
   width lives in `--side-w` on the root, survives walking between steps, and
   is clamped so neither the picture nor the controls can be crushed. The
@@ -178,8 +177,8 @@ frame is not built around one: `overview_only` (6 steps) and `focus_check` (6).
 - **A tab is always drawn, even alone**, because it names what is loaded —
   the Canvas. It said "Setup" for every step once, and hiding it lost nothing.
 - **The channel beside the canvas is headed, not tabbed**, and **it belongs to
-  the step standing in it**. Carrier configuration owns it on step 3, Initial
-  scanfields on step 4; the heading sits at the right end of the tab row over
+  the step standing in it**. Carrier configuration owns it on step 2, Initial
+  scanfields on step 3; the heading sits at the right end of the tab row over
   the column it heads, styled exactly as a selected tab, because it names whose
   controls those are rather than offering a switch. One column, not two: a
   second would take width from the picture to hold controls for a step nobody
@@ -190,31 +189,26 @@ frame is not built around one: `overview_only` (6 steps) and `focus_check` (6).
 
 **Setup panels**
 
-- **Microscope Configuration** is a form headed "Connect to the microscope":
-  microscope, API, password, and its own button. Opening the session runs six
-  checks that land one at a time (reachable, credentials, API version, stage,
-  objectives, storage). An open session is **not editable and cannot be
-  reopened** — there is no Disconnect here. The run ends the session at its own
-  step, and **Restart** is how you begin again. Nothing says "not connected"
-  before it is; the fields and the button already do.
-- **Optical Configuration** is a recorder, not a picker. Nothing is
-  preconfigured. One section per kind — `RECORD ACQUISITION PRESET`, `RECORD
-  AUTOFOCUS PRESET`, bold headings — each holding a name box, a **Record
-  Microscope State** button, and beneath them the presets recorded of that
-  kind. There is no kind dropdown: the section is the kind. Press the button
-  and the controller reads the state back; the bar *becomes* the record in
-  place and a fresh one opens under the heading. Recording is the work, so a
-  preset existing completes the step, and forgetting the last one undoes it.
-  - A preset **unfolds** (triangle, leading the row) to show everything the
-    controller returned.
-  - Names are capitalised on the way in and clash case-insensitively across
-    the whole run, not per kind.
-  - Adding a kind is one entry in `SETTING_TYPES` — nothing else to touch.
-- The panel's alignment is asserted by a test, not eyeballed: one width, one
-  left and right edge, labels flush, every row opening and closing in the same
-  column. The open bar carries the same fields a session does — one rule in
-  the stylesheet serves both — so it stands taller than the line of text a
-  recorded preset is, and its name and Record are one height.
+- **Connect** is a form headed "Connect to the microscope": microscope, API,
+  password, and its own button. Opening the session runs six checks that land
+  one at a time (reachable, credentials, API version, stage, objectives,
+  storage). An open session is **not editable** — its Disconnect button ends
+  the run and is how you begin again. Nothing says "not connected" before it
+  is; the fields and the button already do.
+- **There is no presets step: each recording lives in the step that uses it,
+  so the state is tested where it matters.** Three single-recording slots,
+  all drawn the same way — a bold heading, a name box and a **Record
+  Microscope State** button; recorded, the bar *becomes* the record in place
+  (unfoldable to everything the controller returned, forgettable with ✕):
+  - `RECORD ACQUISITION PRESET` heads the Initial-scanfields channel. The
+    fields take their frame from it, so the editor waits behind it — and
+    forgetting it takes the editor and the plan away again.
+  - `RECORD AUTOFOCUS PRESET` heads the Focus-strategy channel; Apply
+    strategy waits for it, since the sweeps are measured with it.
+  - `RECORD ACQUISITION TYPE` heads the Acquire-Targets channel; the acquire
+    button waits for it.
+  - Names are capitalised on the way in; `renderRecordingSlot` in `main.js`
+    is the one implementation all three share.
 
 - **Carrier configuration** is a full designer, not a dropdown: type, preset,
   rows/columns, area size, pitch and corner, each pair tieable. It has **no tab
@@ -223,8 +217,7 @@ frame is not built around one: `overview_only` (6 steps) and `focus_check` (6).
   is drawn on the stage. One drawing, not two.
   - The channel is **not a menu for step 3**. The frame outlasts the step that
     set it: readable whenever the canvas is.
-  - **No Apply button.** Configuring is the work, the way recording is in step
-    2 — it always holds a valid carrier and every edit is already on the canvas.
+  - **No Apply button.** Configuring is the work, the way recording is — it always holds a valid carrier and every edit is already on the canvas.
     Standing on the step settles it. It stays editable until a later step has
     run, since that is when changing it would invalidate what was done.
   - `widgets/carrier.js` holds the controls *and* `drawOn` — one subject, one
