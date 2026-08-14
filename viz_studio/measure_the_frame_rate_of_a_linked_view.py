@@ -471,13 +471,16 @@ def frames_counted(browser, built_dist: Path, folder: Path, store, expect: int) 
 
 
 def a_browser(headed: bool = False):
-    """A headless Chromium drawing in software and uncapped, or why there is none.
+    """A headless Chromium drawing uncapped, on the card where there is one.
 
-    Software drawing is needed because the engine wants WebGL2 and most machines
-    running this have no graphics card. Uncapped because a frame rate measured
-    against the display's rhythm cannot be climbed past it; see ``BROWSER_ARGS``.
-    A machine whose policy blocks the browser that was downloaded is offered the
-    one it already has.
+    The card is asked for and software is the fallback -- see ``another_browser``
+    and ``_launched_with`` for how the asking works and why the build matters.
+    Uncapped because a frame rate measured against the display's rhythm cannot
+    be climbed past it; see ``BROWSER_ARGS``. A machine whose policy blocks the
+    browser that was downloaded is offered the one it already has. Whichever is
+    got, ``say_what_is_drawing`` announces it, because a silent fallback to
+    software is indistinguishable from a card and worth more than tenfold in
+    the figures.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -519,16 +522,29 @@ def another_browser(started, headed: bool = False):
 def _launched_with(started, args, headed: bool = False):
     """A browser with these arguments, or the Chromium the machine already has.
 
-    ``headed`` opens a real window, and on this machine it is the **only** way to
-    reach the graphics card: measured on 6 August 2026, a headless Chromium
-    reports SwiftShader whatever arguments it is given, while the same browser
-    with a window reports `NVIDIA T400 4GB … D3D11`. Removing the software flags
-    was therefore necessary and not sufficient, and the run said so itself only
-    because it had been made to announce its renderer.
+    The full Chromium build is asked for by name (``channel="chromium"``),
+    because what Playwright launches by default in headless mode is its
+    *headless shell* -- a build that cannot use a graphics card at all. That is
+    what was really behind the 6 August 2026 finding that a headless browser
+    reports SwiftShader whatever arguments it is given while a window reaches
+    the card: the window was launched from the full build, the headless run
+    from the shell, and the build was the difference rather than the window.
+    Measured on the same machine on 14 August 2026: the full build's headless
+    reports `NVIDIA T400 4GB ... D3D11`, exactly as the window does. So
+    ``headed`` is no longer the only road to the card; it stays for watching a
+    run with your own eyes, and costs what it always did -- a window on
+    somebody's desk that anything typed into disturbs.
 
-    The cost is that a window opens on somebody's desk and anything typed into it
-    disturbs the measurement, so it stays off by default.
+    A machine holding only the shell (an older download, a trimmed cache) still
+    measures: the named build is asked for first and the default is the
+    fallback, and whoever reports the renderer says which one drew.
     """
+    try:
+        return started.chromium.launch(
+            headless=not headed, channel="chromium", args=list(args)
+        )
+    except Exception:
+        pass
     try:
         return started.chromium.launch(headless=not headed, args=list(args))
     except Exception:
