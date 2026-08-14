@@ -26,7 +26,7 @@ insists on:
   path, the way a stage actually drives — and ``--core`` first commits a
   central block for the spiral to wind around.
 - **The same path can be watched in reverse.** ``--inverse-spiral-vanish``
-  starts with a complete survey and replaces its tiles with black frames from
+  starts with a complete survey and replaces its tiles with near-black frames from
   the outside inward. It appends honest replacement commits; it deletes no
   positions or evidence.
 - **The page has a rhythm of its own.** The viewer catches up on its own
@@ -299,7 +299,11 @@ def main() -> int:
     time.sleep(asked.grace)
 
     if asked.inverse_spiral_vanish:
-        vanished = np.zeros((1, harness.FRAME, harness.FRAME), dtype="uint16")
+        # Numeric zero is the Zarr fill value, so an all-zero frame legitimately
+        # stores no chunks and the fail-closed publisher refuses to call it an
+        # acquired position. One is equally black under the show's 46k+ window
+        # while remaining physically present and therefore publishable.
+        vanished = np.ones((1, harness.FRAME, harness.FRAME), dtype="uint16")
         for number, position_id in enumerate(to_change):
             run.replace_a_position(position_id, vanished)
             announce(position_id)
