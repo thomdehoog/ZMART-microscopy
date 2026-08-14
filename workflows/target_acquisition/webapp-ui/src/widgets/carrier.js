@@ -74,7 +74,7 @@ const MM_UM = 1000;
 
 export default {
   id: "carrier",
-  label: "Carrier configuration",
+  label: "Define Carrier",
 
   /** How much stage the carrier covers, for whatever has to frame it. */
   extentUm(config) {

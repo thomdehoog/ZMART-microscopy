@@ -33,9 +33,9 @@ describe("numbering is derived, so reordering costs nothing", () => {
     expect(out.map((s) => s.n)).toEqual(["1", "2a", "2b", "3"]);
   });
 
-  it("numbers target acquisition straight through, one to eight", () => {
+  it("numbers target acquisition straight through, one to nine", () => {
     expect(WORKFLOWS.target_acquisition.steps.map((s) => s.n))
-      .toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
+      .toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
   });
 });
 
@@ -50,7 +50,8 @@ describe("ordering", () => {
   });
 
   it("finds the first gap, not the last completed step", () => {
-    expect(firstIncomplete(steps, new Set(["connect", "carrier"]))).toBe(2);
+    // registering the carrier holds nothing up, so the gap is past it
+    expect(firstIncomplete(steps, new Set(["connect", "carrier"]))).toBe(3);
     expect(firstIncomplete(steps, new Set())).toBe(0);
   });
 
@@ -142,6 +143,7 @@ describe("panels follow the step", () => {
     expect(panelsOf("target_acquisition")).toEqual({
       connect: ["canvas"],
       carrier: ["canvas"],
+      register: ["canvas"],
       scanfields: ["canvas"],
       focus: ["canvas"],
       scan: ["canvas"],
@@ -176,16 +178,16 @@ describe("workflows compose the catalogue rather than restating it", () => {
      declaration, what it shows is what the page will do. */
   it("walks target acquisition in this order", () => {
     expect(ids("target_acquisition")).toEqual([
-      "connect", "carrier", "scanfields", "focus",
+      "connect", "carrier", "register", "scanfields", "focus",
       "scan", "detect", "select", "acquire",
     ]);
   });
 
   it("walks the shorter runs in this order", () => {
     expect(ids("overview_only")).toEqual([
-      "connect", "carrier", "scanfields", "scan", "save"]);
+      "connect", "carrier", "register", "scanfields", "scan", "save"]);
     expect(ids("focus_check")).toEqual([
-      "connect", "carrier", "scanfields", "focus", "save"]);
+      "connect", "carrier", "register", "scanfields", "focus", "save"]);
   });
 
   it("names every workflow in plain words for the chooser", () => {
@@ -332,11 +334,11 @@ describe("the canvas demonstration", () => {
     for (const s of WORKFLOWS.target_acquisition.steps) {
       expect(s.id).not.toMatch(/^canvas-/);
       expect(s.panels.some((p) => p.startsWith("viewer"))).toBe(false);
-      /* And nothing in a real run may skip its place in the queue. Every step of
-         an acquisition produces something the next one needs, so the rule that
-         lets the demonstration's two steps stand apart must not have leaked into
-         one of them. */
-      expect(s.nothingWaitsOnThis).toBeUndefined();
+      /* And nothing in a real run may skip its place in the queue. Every step
+         of an acquisition produces something the next one needs — except
+         Register Carrier, which is declared a placeholder: it holds nothing
+         up until there is something to do in it. */
+      if (s.id !== "register") expect(s.nothingWaitsOnThis).toBeUndefined();
     }
   });
 });

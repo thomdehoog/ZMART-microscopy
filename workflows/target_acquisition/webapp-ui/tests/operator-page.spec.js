@@ -37,7 +37,7 @@ async function recordSlot(page, hostId, name) {
  * the carrier is the work, so standing on that step settles it. */
 async function throughSetup(page) {
   await connect(page);
-  await gotoStep(page, "Carrier configuration");
+  await gotoStep(page, "Define Carrier");
   await page.waitForTimeout(200);
 }
 
@@ -76,17 +76,17 @@ test.afterEach(async ({ page }) => {
 });
 
 test("the rail carries the workflow's declared steps", async ({ page }) => {
-  await expect(page.locator("#steps .step")).toHaveCount(8);
+  await expect(page.locator("#steps .step")).toHaveCount(9);
   await expect(page.locator(".step.active .step-name")).toHaveText("Connect");
   // the fields are said before the focus that keeps them sharp and the scan
   // that visits them, because both of those are about positions that exist
-  await expect(page.locator(".step-name").nth(2)).toHaveText("Initial scanfields");
-  await expect(page.locator(".step-name").nth(3)).toHaveText("Focus strategy");
+  await expect(page.locator(".step-name").nth(3)).toHaveText("Initial scanfields");
+  await expect(page.locator(".step-name").nth(4)).toHaveText("Focus strategy");
 
   await page.locator("#wf-select").selectOption("overview_only");
-  await expect(page.locator("#steps .step")).toHaveCount(5);
+  await expect(page.locator("#steps .step")).toHaveCount(6);
   await page.locator("#wf-select").selectOption("focus_check");
-  await expect(page.locator("#steps .step")).toHaveCount(5);
+  await expect(page.locator("#steps .step")).toHaveCount(6);
 });
 
 /* The declaration and the page, held up against each other.
@@ -173,7 +173,7 @@ test("an open session is not editable, and Disconnect is the way out", async ({ 
   // closing it takes the run with it — everything after this was read off this
   // session — but keeps what it was opened with, since editing that is the
   // reason to close one
-  await gotoStep(page, "Carrier configuration");
+  await gotoStep(page, "Define Carrier");
   await gotoStep(page, "Initial scanfields");
   await recordSlot(page, "sf-preset", "survey");
   await expect(page.locator("#sf-preset .rec-row")).toHaveCount(1);
@@ -184,13 +184,13 @@ test("an open session is not editable, and Disconnect is the way out", async ({ 
   await expect(page.locator(".check-row")).toHaveCount(0);
   await expect(page.locator(".session-done")).toHaveCount(0);
   await expect(page.locator('.field input[type="password"]')).toHaveValue("hunter2");
-  await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeDisabled();
+  await expect(page.locator('.step:has-text("Define Carrier")').first()).toBeDisabled();
 
   // and the next session starts where any run does: what the closed one
   // recorded is gone, what a run begins with is back
   await page.locator(".session-foot button.run").click();
   await page.waitForTimeout(2200);
-  await gotoStep(page, "Carrier configuration");
+  await gotoStep(page, "Define Carrier");
   await gotoStep(page, "Initial scanfields");
   await expect(page.locator("#sf-preset .rec-row")).toHaveCount(0);
   await expect(page.locator("#sf-preset .setting-box.open input")).toHaveValue("");
@@ -266,10 +266,10 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     /* The rail stops at the first step that has not been done, and standing
        on the carrier is what settles it — so it opens, and nothing after it
        does yet. */
-    await expect(page.locator('.step:has-text("Carrier configuration")').first()).toBeEnabled();
+    await expect(page.locator('.step:has-text("Define Carrier")').first()).toBeEnabled();
     await expect(page.locator('.step:has-text("Initial scanfields")').first()).toBeDisabled();
 
-    await gotoStep(page, "Carrier configuration");
+    await gotoStep(page, "Define Carrier");
     await page.waitForTimeout(200);
     await expect(page.locator('.step:has-text("Initial scanfields")').first()).toBeEnabled();
     await expect(page.locator('.step:has-text("Focus strategy")').first()).toBeDisabled();
@@ -297,10 +297,10 @@ test("the canvas is always on the stage, and the channel follows the step",
     await expect(page.locator(".tab")).toHaveText(["Canvas"]);
     await expect(page.locator(".panel.on button.step-run"),
       "configuring it is the work, so there is nothing to press").toHaveCount(0);
-    await expect(page.locator('.step:has-text("Carrier configuration")').first(),
+    await expect(page.locator('.step:has-text("Define Carrier")').first(),
       "and standing on it settles it").toHaveClass(/done/);
     // the channel is named over the column it heads, not as a tab you switch to
-    await expect(page.locator(".side-tab")).toHaveText("Carrier configuration");
+    await expect(page.locator(".side-tab")).toHaveText("Define Carrier");
     await expect(page.locator("#canvas-side")).toBeVisible();
     await expect(page.locator(".carrier-card")).toHaveCount(1);
 
@@ -311,7 +311,7 @@ test("the canvas is always on the stage, and the channel follows the step",
     await expect(page.locator(".session-title"), "and the session comes back when you return")
       .toHaveText("Connect to the microscope");
     await expect(page.locator(".check-row")).toHaveCount(6);
-    await gotoStep(page, "Carrier configuration");
+    await gotoStep(page, "Define Carrier");
     await expect(page.locator(".carrier-card")).toHaveCount(1);
 
     /* The channel belongs to the step standing in it. Scan fields are about
@@ -346,7 +346,7 @@ test("the canvas is always on the stage, and the channel follows the step",
     await expect(page.locator("#canvas-side")).toBeHidden();
     // walking back to the carrier brings its controls back, locked now,
     // because something has been done inside the frame it set
-    await gotoStep(page, "Carrier configuration");
+    await gotoStep(page, "Define Carrier");
     await expect(page.locator(".carrier-card")).toHaveCount(1);
     await expect(page.locator(".carrier-num").first()).toBeDisabled();
 
@@ -379,7 +379,7 @@ test("the grid comes from the carrier, so changing the plate changes the plan",
 
     /* And the carrier stops being editable, because these positions were
        placed relative to areas that must not move out from under them. */
-    await gotoStep(page, "Carrier configuration");
+    await gotoStep(page, "Define Carrier");
     await expect(page.locator(".carrier-preset")).toBeDisabled();
 
     /* A different plate is a different plan. The same three-by-three grid on
@@ -581,7 +581,7 @@ test("walking back to the carrier takes the plan off the canvas, and keeps it",
 
     /* Back on the carrier the plan is not drawn: it is an answer to a question
        being asked again, and these areas are what it was placed against. */
-    await gotoStep(page, "Carrier configuration");
+    await gotoStep(page, "Define Carrier");
     await page.waitForTimeout(300);
     expect(Buffer.compare(bare, await shot()) === 0,
       "the carrier is back to how it looked before any fields existed").toBe(true);

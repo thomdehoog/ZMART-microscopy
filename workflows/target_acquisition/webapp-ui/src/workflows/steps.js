@@ -71,10 +71,21 @@ export const connect = {
    from here on the run is something that happens on a stage. */
 export const carrierConfiguration = {
   id: "carrier",
-  title: "Carrier configuration",
+  title: "Define Carrier",
   why: "Tell the run what the sample is mounted in — it says where within the stage the sample sits.",
   panels: ["canvas"],
   mode: "carrier",
+};
+
+/* A placeholder: registering the mounted carrier against the stage will live
+   here. Empty for now, and it holds nothing up — the run walks past it until
+   there is something to do. */
+export const registerCarrier = {
+  id: "register",
+  title: "Register Carrier",
+  why: "Say where the defined carrier actually sits on the stage. Nothing here yet.",
+  panels: [],
+  nothingWaitsOnThis: true,
 };
 
 /* The preset the overview is taken with is recorded here, not in a step of

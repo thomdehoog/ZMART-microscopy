@@ -18,7 +18,7 @@ not be correct about physics.
 2. **Say what you would do and why before changing anything.** Check the
    reading against what is actually on screen.
 
-**The focus map is on the canvas, not in a tab.** Step 4 draws its heatmap over
+**The focus map is on the canvas, not in a tab.** Step 5 draws its heatmap over
 the plan with the canvas's own projection, and its controls — the pattern
 picker, the point list, the sweep and its preview — sit in the channel beside
 it, named `Focus strategy` at the right end of the tab row. Points are laid as
@@ -29,7 +29,7 @@ Clicking the canvas is the other lane, not a mode: a press takes the position
 under it, a press on a placed point removes it, and a press over no position
 pans. SURS and the whole-canvas scope are gone.
 
-**Discovery is the same shape as focus.** Step 6 has no tab of its own: the
+**Discovery is the same shape as focus.** Step 7 has no tab of its own: the
 canvas keeps the picture — the cells it finds land there — and the channel
 holds the settings (algorithm, its parameters, `Test on this tile`) with the
 one **test position** beneath them: a pager, the tile preview, and what the
@@ -41,7 +41,7 @@ while the step is standing, so it is built and wired once; anything that writes
 into it asks `focusMounted()` first, because the channel hands it back when the
 step is left.
 
-**The step that defines the overview positions is built.** It is step 3,
+**The step that defines the overview positions is built.** It is step 4,
 Initial scanfields: a geometry editor and a grid mode in the channel beside the
 canvas, ported from `06_scanfields.jsx`. The grid reads the carrier's area
 centres, so the plate decides the plan.
@@ -131,16 +131,20 @@ resets it to step 1.
 A narrow left rail of workflow steps; one layout for every step — the canvas
 on the left from the very first step, and the standing step's controls in a
 channel on the right whose width the operator drags with the divider (canvas
-bigger by default). Eight steps in `target_acquisition`:
+bigger by default). Nine steps in `target_acquisition`:
 
-1 Connect · 2 Carrier configuration · 3 Initial scanfields · 4 Focus strategy ·
-5 Scan the overview · 6 Discover Targets · 7 Refine Targets · 8 Acquire Targets
+1 Connect · 2 Define Carrier · 3 Register Carrier · 4 Initial scanfields ·
+5 Focus strategy · 6 Scan the overview · 7 Discover Targets · 8 Refine Targets ·
+9 Acquire Targets
 
-There is no presets step, no Disconnect step, no Save-the-run step, and no
-Restart button: each preset is recorded in the step that uses it, the session
-card's own Disconnect ends a run, and choosing a workflow (re)starts one. Two
-other workflows exist to prove the frame is not built around one:
-`overview_only` (5 steps) and `focus_check` (5).
+Register Carrier is a declared **placeholder** — empty channel, and it holds
+nothing up (`nothingWaitsOnThis`) until registering the mounted carrier
+against the stage actually lives there. There is no presets step, no
+Disconnect step, no Save-the-run step, and no Restart button: each preset is
+recorded in the step that uses it, the session card's own Disconnect ends a
+run, and choosing a workflow (re)starts one. Two other workflows exist to
+prove the frame is not built around one: `overview_only` (6 steps) and
+`focus_check` (6).
 
 ## Decisions already settled — do not relitigate without asking
 
@@ -156,7 +160,7 @@ other workflows exist to prove the frame is not built around one:
   bar. Steps with a tab panel get a foot at its bottom; the carrier's is inside
   its channel. The button carries `.step-run` wherever it lands, which is what
   the tests find it by. `ownButton: true` means "this panel builds its own"
-  (Connect does). Carrier configuration and Initial scanfields have no button
+  (Connect does). Define Carrier and Initial scanfields have no button
   at all — they are settled by doing the work — and Connect's lives in its
   form.
 - **The canvas is always on the stage — and only shows what the run knows.**
@@ -177,8 +181,8 @@ other workflows exist to prove the frame is not built around one:
 - **A tab is always drawn, even alone**, because it names what is loaded —
   the Canvas. It said "Setup" for every step once, and hiding it lost nothing.
 - **The channel beside the canvas is headed, not tabbed**, and **it belongs to
-  the step standing in it**. Carrier configuration owns it on step 2, Initial
-  scanfields on step 3; the heading sits at the right end of the tab row over
+  the step standing in it**. Define Carrier owns it on step 2, Initial
+  scanfields on step 4; the heading sits at the right end of the tab row over
   the column it heads, styled exactly as a selected tab, because it names whose
   controls those are rather than offering a switch. One column, not two: a
   second would take width from the picture to hold controls for a step nobody
@@ -210,7 +214,7 @@ other workflows exist to prove the frame is not built around one:
   - Names are capitalised on the way in; `renderRecordingSlot` in `main.js`
     is the one implementation all three share.
 
-- **Carrier configuration** is a full designer, not a dropdown: type, preset,
+- **Define Carrier** is a full designer, not a dropdown: type, preset,
   rows/columns, area size, pitch and corner, each pair tieable. It has **no tab
   and no picture of its own** — it is what the canvas is drawing, so the
   controls dock in a channel to the right of the canvas and the carrier itself
