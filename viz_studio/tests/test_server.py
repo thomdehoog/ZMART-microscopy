@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import threading
+import time
 
 import numpy as np
 import pytest
@@ -59,10 +61,12 @@ def serving(tmp_path):
         stop()
 
 
-def request(port: int, path: str, method: str = "GET", body: bytes | None = None):
+def request(port: int, path: str, method: str = "GET", body: bytes | None = None,
+            extra: dict[str, str] | None = None):
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
     try:
         headers = {"Content-Length": str(len(body))} if body is not None else {}
+        headers.update(extra or {})
         conn.request(method, path, body=body, headers=headers)
         response = conn.getresponse()
         return response.status, dict(response.getheaders()), response.read()
@@ -346,19 +350,92 @@ def test_config_is_worked_out_fresh_on_every_request(tmp_path):
         thread.join(timeout=5)
 
 
-def test_image_is_not_kept_by_the_browser_during_a_run(serving):
-    """While the instrument is still writing, the browser must hold nothing.
+def test_image_is_revalidated_by_the_browser_during_a_run(serving, tmp_path):
+    """While the instrument is still writing, every shown piece was just checked.
 
     This is the half that matters for a smart-microscopy experiment. Nothing on
-    disk is settled while a run is in progress, so a copy kept in the browser can
-    quietly go on showing an old version of a region — and there would be nothing
-    on screen to say it was old. Someone watching a live experiment would then be
-    making decisions from a stale picture, which is the one failure this viewer
-    exists to prevent. Live is the default, which is why this fixture gets it
-    without asking.
+    disk is settled while a run is in progress, so a copy kept in the browser
+    could quietly go on showing an old version of a region — and there would be
+    nothing on screen to say it was old. The original answer was to forbid
+    keeping anything (``no-store``), which bought the safety by re-sending every
+    byte: zooming across a large live survey re-fetched and re-decoded the whole
+    picture while the server was also busy patching commits, and the operator
+    felt it as lag. The safety actually needed is not "hold nothing" but "never
+    USE a held copy without asking" — which is precisely ``no-cache`` with a
+    validator. An unchanged piece now costs a bodiless round trip instead of its
+    bytes, and a stale picture remains impossible: every piece on screen was
+    revalidated against the file's identity on its way there.
     """
-    _, headers, _ = request(serving, "/data/0/demo.zarr/chunk")
+    chunk = tmp_path / "data" / "demo.zarr" / "chunk"
+    _a_settled_file(chunk)
+    status, headers, body = request(serving, "/data/0/demo.zarr/chunk")
+    assert status == 200 and body == b"\x01\x02\x03\x04"
+    assert headers.get("Cache-Control") == "no-cache"
+    validator = headers.get("ETag")
+    assert validator, "a live piece must carry a validator to revalidate against"
+
+    status, headers, body = request(
+        serving, "/data/0/demo.zarr/chunk",
+        extra={"If-None-Match": validator},
+    )
+    assert status == 304, "an unchanged piece should be answered without a body"
+    assert body == b""
+    assert headers.get("ETag") == validator
+
+
+def test_a_piece_the_clock_cannot_vouch_for_is_not_given_a_validator(serving, tmp_path):
+    """A just-written piece is served the old careful way: sent whole, kept by nobody.
+
+    File identity leans on the modification stamp, and filesystems stamp files
+    from a clock that ticks more coarsely than a writer writes — the same
+    still-moving rule the table caches follow (see ``STAMPS_STILL_MOVING_NS``
+    in ``zmart_live/shardlink.py``). A piece patched twice in one tick at the
+    same size would carry the same identity, and a 304 against it would hand
+    the browser exactly the stale picture all of this exists to prevent. So a
+    piece still within the clock's reach of "now" gets no validator at all and
+    ``no-store``, and only a settled one earns the cheap answer.
+    """
+    chunk = tmp_path / "data" / "demo.zarr" / "chunk"
+    chunk.write_bytes(b"\x05\x06\x07\x08")
+    status, headers, _ = request(serving, "/data/0/demo.zarr/chunk")
+    assert status == 200
     assert headers.get("Cache-Control") == "no-store"
+    assert "ETag" not in headers
+
+
+def test_a_patched_piece_fails_revalidation_and_arrives_fresh(serving, tmp_path):
+    """The other half of the bargain: a changed piece must never be 304'd.
+
+    The validator is the file's own identity — stamp and size — so a patch that
+    changes either retires every held copy at the next ask. The browser asks
+    with the identity it holds, the answer is the new bytes, and the picture it
+    paints is the picture on disk.
+    """
+    chunk = tmp_path / "data" / "demo.zarr" / "chunk"
+    _a_settled_file(chunk)
+    _, headers, _ = request(serving, "/data/0/demo.zarr/chunk")
+    held = headers.get("ETag")
+    assert held
+
+    chunk.write_bytes(b"\x09\x0a\x0b\x0c")
+    _a_settled_file(chunk, later=True)
+    status, headers, body = request(
+        serving, "/data/0/demo.zarr/chunk",
+        extra={"If-None-Match": held},
+    )
+    assert status == 200, "a patched piece answered 304 would freeze a stale picture"
+    assert body == b"\x09\x0a\x0b\x0c"
+    assert headers.get("ETag") and headers.get("ETag") != held
+
+
+def _a_settled_file(target, *, later: bool = False) -> None:
+    """Age ``target`` past the clock's reach, so its identity can be trusted.
+
+    ``later`` keeps the stamp distinct from the previous settling of the same
+    file — two settlings a moment apart must not produce one identity.
+    """
+    stamp = time.time_ns() - (1_000_000_000 if later else 2_000_000_000)
+    os.utime(target, ns=(stamp, stamp))
 
 
 def test_image_may_be_kept_by_the_browser_once_the_data_is_finished(tmp_path):
