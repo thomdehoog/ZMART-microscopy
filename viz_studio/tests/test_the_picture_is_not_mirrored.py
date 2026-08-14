@@ -255,6 +255,16 @@ def lopsided_page(request, browser, built_dist, tmp_path_factory):
     # painting happens on the engine's own schedule rather than ours. A short
     # settle covers that gap.
     page.wait_for_timeout(2000)
+    # Step back from the opening fit. The viewer opens on the whole picture
+    # sized to the window, which for a one-tile acquisition means the specimen
+    # runs to the edges of the photographed field and beyond -- and a centre of
+    # mass measured on a specimen the crop is clipping under-reports every
+    # movement. Three times further out leaves the whole specimen comfortably
+    # inside the field, which is the condition every reading below relies on.
+    # This sets the view rather than asking about the picture, the same kind of
+    # act as the dragging the tests below do.
+    page.evaluate("window.zmartViewer.navigationState.zoomFactor.value *= 3")
+    page.wait_for_timeout(700)
     try:
         yield page
     finally:

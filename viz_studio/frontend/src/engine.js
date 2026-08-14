@@ -1439,9 +1439,41 @@ export function chooseScaleWhenTheImagesAreMeasured(viewer) {
   // Axes, not images: a space with no axes is the placeholder described above.
   // The moment it has any, the engine knows how big a voxel is.
   const measured = () => (position.coordinateSpace.value?.rank ?? 0) > 0;
+  // But the first axes are not the whole picture. A folder of several stores
+  // reaches the engine one description at a time, and the space has axes the
+  // moment the FIRST of them answers -- fitting then zooms to whichever store's
+  // reading happened to finish first, which on a fast machine is reliably one
+  // tile of many. Every store the page asked for has to have been handed over
+  // and answered -- "answered" in the sense whenTheseHaveBeenRead uses, an
+  // unreadable store having been dealt with as much as a perfect one -- before
+  // the bounds are worth fitting to.
+  const settled = () =>
+    measured() &&
+    sourcesStillWaiting(viewer) === 0 &&
+    viewer.layerManager.managedLayers.every((managed) =>
+      (managed.layer?.dataSources ?? []).every(
+        (source) => source.loadState !== undefined,
+      ),
+    );
   let stop = () => {};
+  // Answers arrive on each source's own changed signal -- the same place
+  // whenTheseHaveBeenRead hears them -- so the fit runs in the very dispatch
+  // that delivers the last answer, before the first full drawing, rather than
+  // some time later. A fit that runs late is worse than one that runs early:
+  // it moves the picture under an operator (or a measurement) already using it.
+  // Sources appear over time as the page hands stores over, so each look also
+  // adopts any source it has not heard of yet.
+  const listened = new Set();
+  const heard = [];
   const check = () => {
-    if (!measured()) return;
+    for (const managed of viewer.layerManager.managedLayers) {
+      for (const source of managed.layer?.dataSources ?? []) {
+        if (listened.has(source)) continue;
+        listened.add(source);
+        heard.push(source.changed.add(check));
+      }
+    }
+    if (!settled()) return;
     // Which axes are drawn is settled first, because how far to zoom is worked
     // out from what is being drawn. Choosing the zoom and then changing the axes
     // leaves the view scaled for a picture nobody is looking at.
@@ -1460,8 +1492,18 @@ export function chooseScaleWhenTheImagesAreMeasured(viewer) {
     stop();
     stop = () => {};
   };
-  stop = position.coordinateSpace.changed.add(check);
-  // In case the axes are already known by the time we are asked -- reopening a
+  const stopWatching = position.coordinateSpace.changed.add(check);
+  // A store handed over between two answers has nobody to announce it, so a
+  // slow look on the side adopts strays; it costs a handful of property reads
+  // a few times a second and ends with the fit.
+  const glance = setInterval(check, 250);
+  stop = () => {
+    stopWatching();
+    for (const stopHearing of heard) stopHearing();
+    heard.length = 0;
+    clearInterval(glance);
+  };
+  // In case everything is already read by the time we are asked -- reopening a
   // folder, say, where the descriptions are still in hand.
   check();
   return () => stop();
