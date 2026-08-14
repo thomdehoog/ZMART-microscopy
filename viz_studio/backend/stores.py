@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -724,6 +725,18 @@ _TOO_MANY = _TooManyToCount()
 # again costs one cheap look unless something has actually been written since.
 _frame_counts: dict[str, tuple[int, int | None | _TooManyToCount]] = {}
 
+# How recently the folder may have been touched before its modification time can
+# be trusted to move again. Filesystems stamp folders from a clock that ticks
+# more coarsely than they write -- Windows caches the current time for up to
+# about sixteen milliseconds -- so a frame landing within the same tick as the
+# count leaves the stamp exactly where it was, and a count remembered against
+# that stamp would be served, wrongly, for the rest of the session. The rule is
+# the one build tools settled on long ago: an answer measured against a stamp
+# still within the clock's reach of "now" is used but not remembered, and the
+# next asker counts again. It costs one extra folder reading in the rare moment
+# an ask lands right on a write, and nothing the rest of the time.
+_MTIME_STILL_MOVING_NS = 100_000_000
+
 
 def forget(store: Path) -> None:
     """Let go of everything remembered about one store, because it has been closed.
@@ -832,7 +845,11 @@ def written_timepoints(store: Path) -> int | None:
       is kept and re-used until that time changes. A folder replaced by a shorter
       one carrying an identical timestamp — which ``cp -a`` from an archive does —
       keeps the old, longer answer for the rest of the session. Touching the
-      folder, or reopening the viewer, puts it right.
+      folder, or reopening the viewer, puts it right. The one refinement is that
+      an answer counted while the stamp is still within the filesystem clock's
+      reach of "now" is not remembered at all — see ``_MTIME_STILL_MOVING_NS`` —
+      because a frame landing in the same clock tick would leave the stamp
+      unchanged and the remembered answer stale for good.
     """
     names = axis_names(store)
     if "t" not in names or names.index("t") != 0:
@@ -866,7 +883,8 @@ def written_timepoints(store: Path) -> int | None:
         return None if remembered[1] is _TOO_MANY else remembered[1]
 
     answer = _count_frames(level)
-    _frame_counts[str(watched)] = (stamp, answer)
+    if answer is _TOO_MANY or time.time_ns() - stamp > _MTIME_STILL_MOVING_NS:
+        _frame_counts[str(watched)] = (stamp, answer)
     return None if answer is _TOO_MANY else answer
 
 

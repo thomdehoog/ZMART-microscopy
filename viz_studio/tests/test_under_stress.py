@@ -412,6 +412,11 @@ class TestHowFarTheDataReaches:
             nested=True,
             fill=(slice(0, 3),),
         )
+        # A count taken while the moments folder is still within the clock's
+        # reach of "now" is deliberately not remembered (see
+        # _MTIME_STILL_MOVING_NS), and this test is about the remembering — so
+        # the freshly written store ages past that reach first.
+        time.sleep(stores_module._MTIME_STILL_MOVING_NS / 1e9 + 0.02)
         assert written_timepoints(store) == 3
         assert any(key.startswith(str(store)) for key in stores_module._frame_counts)
 

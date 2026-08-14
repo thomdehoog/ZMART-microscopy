@@ -43,8 +43,10 @@ produces one we agree with.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import struct
+import time
 import warnings
 from pathlib import Path
 
@@ -55,6 +57,7 @@ import zarr
 from zmart_live import shardlink
 from zmart_live.model import ZmartLiveError
 from zmart_live.shardlink import (
+    STAMPS_STILL_MOVING_NS,
     Held,
     describe_the_bundling,
     forget_every_remembered_index,
@@ -873,6 +876,24 @@ def the_bytes_at(held):
         return opened.read(held.length)
 
 
+def the_clock_can_tell_a_change_now(file) -> None:
+    """Wait until ``file`` is old enough for its next change to move its stamps.
+
+    A table read while its file is younger than ``STAMPS_STILL_MOVING_NS`` is
+    used but deliberately not remembered, because a rewrite that soon might not
+    move the file's timestamps at all. Tests below that are about the
+    remembering itself — counting reads, watching the memory's limits, or
+    watching a changed identity get noticed — first let their freshly written
+    fixtures age past that reach, the way any real bundle has by the time a
+    viewer returns to it.
+    """
+    while True:
+        age = time.time_ns() - os.stat(file).st_mtime_ns
+        if age >= STAMPS_STILL_MOVING_NS:
+            return
+        time.sleep(max((STAMPS_STILL_MOVING_NS - age) / 1e9, 0.005))
+
+
 class TestRememberingWhatABundlesTableSaid:
     """A table already read is reused, and only ever for the file it came from.
 
@@ -893,6 +914,9 @@ class TestRememberingWhatABundlesTableSaid:
         image, _ = an_image(
             tmp_path / "one.zarr", (256, 256), (128, 128), (256, 256), compressed=False
         )
+        # A table is only remembered once its file has cooled; this test is
+        # about the remembering, so the freshly written bundle ages first.
+        the_clock_can_tell_a_change_now(Path(image) / "c" / "0" / "0")
         stored = how_the_array_is_stored(image)
         for coordinate in ((0, 0), (0, 1), (1, 0), (1, 1)):
             assert stored.where_one_chunk_lives(coordinate) is not None
@@ -914,6 +938,16 @@ class TestRememberingWhatABundlesTableSaid:
 
         So the check is not that the answer changed. It is that the pixels the
         answer leads to are the ones now stored at that place.
+
+        Two different mechanisms carry that promise, and both are exercised here.
+        A rewrite can land so soon after the write before it that the file's
+        timestamps do not move at all — Windows stamps files from a clock cached
+        for about sixteen milliseconds, and its ``st_ctime`` is creation time
+        besides — and there the protection is that a table this fresh was never
+        remembered in the first place (``STAMPS_STILL_MOVING_NS``). Once the file
+        has cooled the table IS remembered, and the protection changes hands: a
+        later rewrite necessarily moves the stamp, and the changed identity is
+        what makes the old table unusable.
         """
         image, pixels = an_image(
             tmp_path / "rewritten.zarr", (256, 256), (128, 128), (256, 256), compressed=False
@@ -932,10 +966,6 @@ class TestRememberingWhatABundlesTableSaid:
         # teeth and would pass without asking anything, so it says so instead.
         assert now.st_size == was.st_size, "the point is a file that did not change size"
         assert now.st_ino == was.st_ino, "the point is the same file, not a new one"
-        assert now.st_mtime_ns != was.st_mtime_ns, (
-            "this file system does not record when a file changed finely enough for "
-            "the change to be noticed, so this test cannot make its claim here"
-        )
 
         after = stored.where_one_chunk_lives((0, 0))
         assert after is not None
@@ -943,6 +973,26 @@ class TestRememberingWhatABundlesTableSaid:
         assert np.array_equal(
             decoded(the_bytes_at(after), tmp_path / "scratch.zarr", (128, 128), image),
             pixels[0:128, 128:256],
+        ), "the chunk served is not the one now stored at that place in the bundle"
+
+        # Now with the file cooled, so this reading is remembered and the next
+        # rewrite must be noticed by the identity moving rather than by never
+        # having been remembered.
+        the_clock_can_tell_a_change_now(shard)
+        remembered = stored.where_one_chunk_lives((0, 0))
+        assert remembered is not None
+        swap_two_entries_in_the_table(shard, 0, 1, entries=4)  # back the way it was
+        assert shard.stat().st_mtime_ns != now.st_mtime_ns, (
+            "a rewrite of a cooled file did not move its modification time, so "
+            "the identity a remembered table is checked against cannot notice "
+            "changes on this file system at all"
+        )
+        restored = stored.where_one_chunk_lives((0, 0))
+        assert restored is not None
+        assert (restored.offset, restored.length) == (before.offset, before.length)
+        assert np.array_equal(
+            decoded(the_bytes_at(restored), tmp_path / "scratch2.zarr", (128, 128), image),
+            pixels[0:128, 0:128],
         ), "the chunk served is not the one now stored at that place in the bundle"
 
     def test_a_bundle_the_run_is_still_writing_into_fills_in(self, tmp_path):
@@ -1089,8 +1139,13 @@ class TestTheMemoryHasALimit:
     """
 
     def three_bundles(self, tmp_path):
-        """Three separate positions, each with one bundle holding four chunks."""
-        return [
+        """Three separate positions, each with one bundle holding four chunks.
+
+        Aged past the clock's reach before they are handed over, because every
+        test asking for them is about the remembering and its limits, and a
+        table is only remembered once its file has cooled.
+        """
+        images = [
             an_image(
                 tmp_path / f"pos{which}.zarr",
                 (256, 256),
@@ -1101,6 +1156,8 @@ class TestTheMemoryHasALimit:
             )[0]
             for which in range(3)
         ]
+        the_clock_can_tell_a_change_now(Path(images[-1]) / "c" / "0" / "0")
+        return images
 
     def test_one_description_is_read_once_however_often_it_is_asked(
             self, tmp_path):
@@ -1116,6 +1173,9 @@ class TestTheMemoryHasALimit:
         image, _ = an_image(
             tmp_path / "one.zarr", (256, 256), (128, 128), (256, 256),
             compressed=False)
+        # A description is only remembered once its file has cooled; this test
+        # is about the remembering, so the freshly written store ages first.
+        the_clock_can_tell_a_change_now(Path(image) / "zarr.json")
         first = how_the_array_is_stored(image)
         second = how_the_array_is_stored(image)
         assert second.description == first.description

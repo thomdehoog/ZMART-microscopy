@@ -120,6 +120,7 @@ import json
 import math
 import operator
 import os
+import time
 from collections import OrderedDict
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -432,6 +433,23 @@ PLACES_REMEMBERED_AT_MOST = 250_000
 #: bundle nobody has asked about for longest is forgotten.
 BUNDLES_REMEMBERED_AT_MOST = 256
 
+#: How recently a file may have changed before its identity can be trusted to
+#: tell its next change apart, in nanoseconds.
+#:
+#: A remembered table is only ever reused for the exact file identity it came
+#: from, and the identity leans on the file's timestamps. Filesystems stamp
+#: files from a clock that ticks more coarsely than a writer writes -- Windows
+#: caches the current time for up to about sixteen milliseconds, and its
+#: ``st_ctime`` is the file's creation time besides, so it never helps -- which
+#: means a bundle rewritten in the same tick as the write before it, at the
+#: same size, carries the same identity and would be answered from the old
+#: table. In-place replacement is this project's everyday operation, so that is
+#: not a curiosity. The rule is the one build tools settled on long ago: a
+#: table whose file is still within the clock's reach of "now" is used but not
+#: remembered, and the next asker reads it again. Once the file has cooled, a
+#: later rewrite necessarily lands in a different tick and the identity moves.
+STAMPS_STILL_MOVING_NS = 100_000_000
+
 
 @dataclass(frozen=True)
 class Remembering:
@@ -591,6 +609,10 @@ def _remember(which: _WhichFileThisWas, index: ShardIndex) -> None:
     the whole benefit.
     """
     global _PLACES_HELD
+    if time.time_ns() - which.contents_changed_at < STAMPS_STILL_MOVING_NS:
+        # The file is still within the clock's reach of "now", so a rewrite
+        # could leave this identity unchanged; see STAMPS_STILL_MOVING_NS.
+        return
     with _ONE_AT_A_TIME:
         already = _REMEMBERED.pop(which, None)
         if already is not None:
@@ -1219,10 +1241,14 @@ def how_the_array_is_stored(array_path: str | Path) -> StoredArray:
     if mark is not None:
         with _ONE_AT_A_TIME:
             _DESCRIPTIONS_READ += 1
-            _DESCRIPTIONS[key] = (mark, made)
-            _DESCRIPTIONS.move_to_end(key)
-            while len(_DESCRIPTIONS) > DESCRIPTIONS_REMEMBERED_AT_MOST:
-                _DESCRIPTIONS.popitem(last=False)
+            # A description rewritten in the same clock tick would carry the
+            # same identity, so one still that fresh is used without being
+            # remembered; see STAMPS_STILL_MOVING_NS.
+            if time.time_ns() - mark[3] >= STAMPS_STILL_MOVING_NS:
+                _DESCRIPTIONS[key] = (mark, made)
+                _DESCRIPTIONS.move_to_end(key)
+                while len(_DESCRIPTIONS) > DESCRIPTIONS_REMEMBERED_AT_MOST:
+                    _DESCRIPTIONS.popitem(last=False)
     return made
 
 
