@@ -25,6 +25,10 @@ insists on:
   acquisition in spiral order from the centre — every tile connected to the
   path, the way a stage actually drives — and ``--core`` first commits a
   central block for the spiral to wind around.
+- **The same path can be watched in reverse.** ``--inverse-spiral-vanish``
+  starts with a complete survey and replaces its tiles with black frames from
+  the outside inward. It appends honest replacement commits; it deletes no
+  positions or evidence.
 - **The page has a rhythm of its own.** The viewer catches up on its own
   cadence and coalesces whatever landed since its last look, so changes
   arriving faster than the catch-up appear in batches. That coalescing is
@@ -106,7 +110,7 @@ def spiral_order(across: int, width: int) -> list[str]:
     that leave the grid are simply skipped, so the walk covers every cell of a
     bounded square exactly once while every visited cell touches the path.
     """
-    row = column = across // 2
+    row = column = (across - 1) // 2
     walk = [(row, column)]
     step, direction = 1, 0
     moves = ((0, 1), (1, 0), (0, -1), (-1, 0))
@@ -178,6 +182,9 @@ def main() -> int:
                          help="re-image this many interior positions in "
                               "place instead, written dimmer so each one "
                               "shows; wants a survey that is already full")
+    parsing.add_argument("--inverse-spiral-vanish", action="store_true",
+                         help="start complete, then replace every tile with "
+                              "black in the exact reverse spiral order")
     parsing.add_argument("--quick-page", action="store_true",
                          help="serve a copy of the page that checks every "
                               f"{QUICK_CHECK_MS} ms, for single-tile steps "
@@ -198,7 +205,16 @@ def main() -> int:
                 or across - 1 in (int(one[1:1 + width]), int(one[1 + width:]))]
     interior = [one for one in order if one not in set(boundary)]
 
-    if asked.spiral:
+    if asked.inverse_spiral_vanish:
+        spiral = spiral_order(across, width)
+        fresh = [one for one in spiral if (one, 0) not in committed]
+        print(f"pre-committing the complete {across}x{across} survey "
+              f"({len(fresh)} bright tiles before the show)...")
+        for position_id in fresh:
+            harness.fast_publish(run, position_id)
+            committed.add((position_id, 0))
+        to_change = list(reversed(spiral))
+    elif asked.spiral:
         if asked.core:
             low = (across - asked.core) // 2
             core = [f"p{r:0{width}d}{c:0{width}d}"
@@ -282,7 +298,15 @@ def main() -> int:
         pop_the_browser(port)
     time.sleep(asked.grace)
 
-    if asked.replace:
+    if asked.inverse_spiral_vanish:
+        vanished = np.zeros((1, harness.FRAME, harness.FRAME), dtype="uint16")
+        for number, position_id in enumerate(to_change):
+            run.replace_a_position(position_id, vanished)
+            announce(position_id)
+            print(f"  vanished {position_id}  "
+                  f"({number + 1}/{len(to_change)})", flush=True)
+            time.sleep(asked.every)
+    elif asked.replace:
         rng = np.random.default_rng(11)
         renewing = list(interior)
         rng.shuffle(renewing)
