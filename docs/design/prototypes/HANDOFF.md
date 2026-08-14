@@ -214,6 +214,15 @@ prove the frame is not built around one: `overview_only` (6 steps) and
   - Names are capitalised on the way in; `renderRecordingSlot` in `main.js`
     is the one implementation all three share.
 
+- **The carrier types read Area · Volume · Dish · Chamber · Wellplate**,
+  wellplate at the right end. **Volume is recorded, not designed**: choosing
+  it swaps the designer for a bounds recorder — drive the stage to each
+  extreme of the sample and record x, y and z, min and max (the mock hands
+  back a plausible position; a real driver reads the stage). An unfinished
+  volume does not settle the step: standing settles every other carrier, a
+  volume settles when its sixth bound lands. Downstream it is one area whose
+  width and height follow from x and y; z is kept for the depth
+  (`emptyVolume`/`withBound`/`volumeComplete` in `lib/carriers.js`).
 - **Define Carrier** is a full designer, not a dropdown: type, preset,
   rows/columns, area size, pitch and corner, each pair tieable. It has **no tab
   and no picture of its own** — it is what the canvas is drawing, so the

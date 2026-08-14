@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry,
   maxRadius, DEFAULT_CARRIER,
+  emptyVolume, volumeComplete, withBound, describeCarrier,
 } from "../../src/lib/carriers.js";
 
 const preset = (typeId, label) =>
@@ -86,5 +87,37 @@ describe("a configuration knows whether it is still a catalogue part", () => {
     // and it comes back to the growth area Greiner publishes, 0.34 cm²
     expect(g.areaMm2).toBeCloseTo(Math.PI * 3.3 ** 2, 6);
     expect(g.areaMm2 / 100).toBeCloseTo(0.34, 2);
+  });
+});
+
+describe("a volume is recorded, not designed", () => {
+  const record = (v, bounds) => bounds.reduce(
+    (c, [axis, which, value]) => withBound(c, axis, which, value), v);
+
+  it("starts unknown and completes when all six bounds are recorded", () => {
+    let v = emptyVolume();
+    expect(volumeComplete(v)).toBe(false);
+    v = record(v, [["x", 0, 37.5], ["x", 1, 52.5], ["y", 0, 25.0], ["y", 1, 39.0]]);
+    expect(volumeComplete(v), "x and y alone are a footprint, not a volume").toBe(false);
+    v = record(v, [["z", 0, 2.6], ["z", 1, 7.4]]);
+    expect(volumeComplete(v)).toBe(true);
+    // width and height follow from the recorded x and y
+    expect(v.w).toBeCloseTo(15.0, 6);
+    expect(v.h).toBeCloseTo(14.0, 6);
+  });
+
+  it("says its three dimensions in one line", () => {
+    const v = record(emptyVolume(),
+      [["x", 0, 10], ["x", 1, 25], ["y", 0, 5], ["y", 1, 17], ["z", 0, 2], ["z", 1, 6.5]]);
+    expect(describeCarrier(v)).toBe("Volume · 15.0 × 12.0 × 4.5 mm");
+  });
+
+  it("does not care which end was recorded first", () => {
+    const v = record(emptyVolume(), [["x", 0, 52.5], ["x", 1, 37.5]]);
+    expect(v.w).toBeCloseTo(15.0, 6);
+  });
+
+  it("every other carrier is always complete", () => {
+    expect(volumeComplete(DEFAULT_CARRIER)).toBe(true);
   });
 });

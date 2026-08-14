@@ -18,7 +18,7 @@
 
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
-  centres,
+  centres, emptyVolume, withBound,
 } from "../lib/carriers.js";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -59,6 +59,11 @@ const ICONS = {
     g.append(svgEl("rect", { x: 3, y: 8, width: 22, height: 12, rx: 1.5, fill: "none", stroke: "currentColor", "stroke-width": 1.5 }));
     g.append(svgEl("rect", { x: 5.5, y: 10, width: 7, height: 8, rx: 1, fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
     g.append(svgEl("rect", { x: 15.5, y: 10, width: 7, height: 8, rx: 1, fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
+  },
+  // a cube seen from the corner: the one carrier with depth
+  volume: (g) => {
+    g.append(svgEl("path", { d: "M14 3 L24 8 L24 19 L14 25 L4 19 L4 8 Z", fill: "none", stroke: "currentColor", "stroke-width": 1.5, "stroke-linejoin": "round" }));
+    g.append(svgEl("path", { d: "M4 8 L14 13 L24 8 M14 13 L14 25", fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
   },
 };
 
@@ -147,14 +152,26 @@ export default {
       b.disabled = locked;
       b.append(typeIcon(t.id), el("span", null, t.label));
       b.addEventListener("click", () => {
-        const next = fromPreset(t.id, carrierType(t.id).presets[0]);
+        /* A volume is not a catalogue part: it starts unknown and is
+           constructed by recording its bounds, so choosing it opens the
+           recorder rather than a preset. */
+        const next = t.id === "volume"
+          ? emptyVolume()
+          : fromPreset(t.id, carrierType(t.id).presets[0]);
         link = { grid: next.rows === next.cols, size: next.w === next.h, gap: true };
         commit(next);
-        presets.replaceChildren(...presetOptions(t.id));
+        if (t.id !== "volume") presets.replaceChildren(...presetOptions(t.id));
       });
       types.append(b);
     }
     controls.append(types);
+
+    /* Two bodies under the one type row: the designer for the catalogue
+       carriers, the bounds recorder for a volume. sync() shows whichever the
+       chosen type is about. */
+    const designer = el("div", "carrier-designer");
+    const volumeBox = el("div", "carrier-volume");
+    controls.append(designer, volumeBox);
 
     const presetOptions = (typeId) => [
       ...carrierType(typeId).presets.map((p, i) => new Option(p.label, String(i))),
@@ -179,7 +196,7 @@ export default {
       commit(next);
     });
     presetGroup.append(presets, reset);
-    controls.append(presetGroup);
+    designer.append(presetGroup);
 
     /* Three pairs, one shape: two numbers that may be tied together. Written
        once because a row of boxes that behaved slightly differently in each
@@ -225,7 +242,7 @@ export default {
       });
       grid.append(a, b, tie);
       group.append(grid);
-      controls.append(group);
+      designer.append(group);
       return { tie };
     }
 
@@ -302,7 +319,7 @@ export default {
     shapeBtn.addEventListener("click", () => commit({ cornerRatio: cfg.cornerRatio >= 0.99 ? 0 : 1 }));
     shapeGrid.append(cornerIn, areaIn, shapeBtn);
     shapeGroup.append(shapeGrid);
-    controls.append(shapeGroup);
+    designer.append(shapeGroup);
 
     /* Where the run's own button goes: at the end of the numbers that decide
        it, so applying reads as the end of the editing.
@@ -315,7 +332,42 @@ export default {
        about itself. */
     card.append(el("div", "carrier-action"));
 
+    /* The volume recorder: drive the stage to each extreme of the sample and
+       record the bound — six readings, and the volume is what they enclose.
+       The mock hands back a plausible position; a real driver reads the
+       stage. Rebuilt on every sync, which is safe here: it holds buttons and
+       readings, never a field being typed into. */
+    const DEMO_STAGE = { x: [37.5, 52.5], y: [25.0, 39.0], z: [2.6, 7.4] };
+    function renderVolume() {
+      volumeBox.textContent = "";
+      volumeBox.append(el("div", "carrier-vol-why",
+        "Drive the stage to each edge of the sample and record the bound."));
+      for (const axis of ["x", "y", "z"]) {
+        const [lo, hi] = cfg.bounds?.[axis] ?? [null, null];
+        const fmt = (v) => (v == null ? "—" : `${v.toFixed(1)}`);
+        const row = el("div", "carrier-vol-row");
+        row.append(el("span", "carrier-label", axis.toUpperCase()));
+        row.append(el("span", "carrier-vol-span", `${fmt(lo)} – ${fmt(hi)} mm`));
+        for (const [which, name] of [[0, "Set min"], [1, "Set max"]]) {
+          const b = el("button", "ghost tiny", name);
+          b.type = "button";
+          b.disabled = locked;
+          b.addEventListener("click", () => {
+            cfg = withBound(cfg, axis, which, DEMO_STAGE[axis][which]);
+            onChange(cfg);
+            sync();
+          });
+          row.append(b);
+        }
+        volumeBox.append(row);
+      }
+    }
+
     function sync() {
+      const isVolume = cfg.type === "volume";
+      designer.hidden = isVolume;
+      volumeBox.hidden = !isVolume;
+      if (isVolume) renderVolume();
       for (const { i, get, decimals } of inputs) {
         if (document.activeElement === i) continue;
         const v = get();
