@@ -413,3 +413,32 @@ invisible to the whole campaign. Reproduction: a spiral at
 compare zoom levels. The thread this opens: gate the churn's recorder
 at more than one zoom, and run the lost invalidation to ground the way
 the prefill's flicker is queued to be — mechanism first.
+
+### The storm staleness, run half to ground
+
+The stripes were chased through a night of eliminations, each banked as
+a gate. Ruled OUT, with the evidence committed: the browser (Chrome,
+Edge and the harness's Chromium all reproduce; all are one engine), the
+GPU (software and card both show it), the server (every disputed piece
+answers fresh to a cold client, at every level), the invalidation
+routing (a real bug, found and fixed on the way -- see
+``test_dirty_pieces_reach_their_level.py`` -- but not this one), the
+absent-memory (a hole first seen empty paints when it lands; gated),
+and the beside-the-machine push racing evictions (state now verified at
+delivery; kept, not the cause). What reproduces it on demand is
+``test_a_commit_storm_under_zooming.py`` -- landings at ten a second
+under continuous PANNING and zooming on the eager-check page, judged by
+the honest oracle: each zoom band against its own reload, because
+whatever a reload cures WAS staleness. It stands in the suite as a
+strict expected-failure until the mechanism falls.
+
+Where the trail ends tonight, measured from inside the red state: the
+engine's bounds are correct, nothing is starving -- at the worst band
+it renders TWO chunks, the coarsest scale, reports needed equal to
+available, and never asks for more; the fresh client at the same view
+renders the fine scale complete. The level-of-detail machinery is
+wedged coarse with mid-storm content, an accumulating wedge (early in
+the run it is fine), invisible to every needed-vs-available check, and
+undone only by rebuilding the page's world. The next session starts by
+diffing the render layers' scale selection between a stormed session
+and a fresh one at the same view.

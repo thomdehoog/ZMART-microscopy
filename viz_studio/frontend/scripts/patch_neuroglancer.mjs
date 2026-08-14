@@ -191,6 +191,66 @@ registerPromiseRPC("ChunkSource.zmartProbe", function(x) {
 });`,
   },
   {
+    // Upgrade: the staged push verifies the state it captured. The
+    // beside-the-machine download races the state machine itself: an
+    // operator zooming during a storm of announcements moves chunks OUT of
+    // the drawn states while their re-downloads are in flight, and a push
+    // that then lands with the captured state makes the worker's
+    // bookkeeping and the page's holdings disagree -- silently, and for
+    // good, which the storm gate measures as a zoom band showing 41% of a
+    // fully-landed survey. A push is only delivered if the chunk still has
+    // the state it was captured in; one that moved is handed back to the
+    // state machine, whose ordinary path repaints it without anything
+    // visible to lose.
+    // The marker is CODE, not a comment, and that is load-bearing: the
+    // build recompiles the flattened worker bundle every run and strips
+    // comments doing it, so a comment marker vanishes after one build and
+    // the patcher wrongly reports the pinned version changed. Code survives
+    // the recompile; the older entries' markers were code by luck, this
+    // one is by rule.
+    file: join(lib, "chunk_manager", "backend.js"),
+    also: workerBundle,
+    marker: "group.staged.push([chunk, keptState",
+    anchor: `      Promise.resolve(source.download(chunk, abort.signal)).then(() => {
+        const staged = {};
+        const stagedTransfers = [];
+        chunk.serialize(staged, stagedTransfers);
+        staged.state = keptState;
+        group.staged.push([staged, stagedTransfers]);
+        chunk.freeSystemMemory();
+        if (--group.remaining <= 0) group.flush();`,
+    addition: null,
+    replacement: `      Promise.resolve(source.download(chunk, abort.signal)).then(() => {
+        // ZMART: a push verifies the state it captured -- see the patch note.
+        const staged = {};
+        const stagedTransfers = [];
+        chunk.serialize(staged, stagedTransfers);
+        staged.state = keptState;
+        group.staged.push([chunk, keptState, staged, stagedTransfers]);
+        chunk.freeSystemMemory();
+        if (--group.remaining <= 0) group.flush();`,
+  },
+  {
+    file: join(lib, "chunk_manager", "backend.js"),
+    also: workerBundle,
+    marker: "if (chunk.state !== keptState)",
+    anchor: `    for (const [msg, transfers] of group.staged) {
+      queueManager.rpc.invoke("Chunk.update", msg, transfers);
+    }`,
+    addition: null,
+    replacement: `    for (const [chunk, keptState, msg, transfers] of group.staged) {
+      if (chunk.state !== keptState) {
+        // The chunk moved on while its bytes were in flight; delivering the
+        // captured state now would desynchronise the page from the worker.
+        // The state machine gets it back and repaints it the ordinary way.
+        queueManager.updateChunkState(chunk, ChunkState.QUEUED);
+        queueManager.scheduleUpdate();
+        continue;
+      }
+      queueManager.rpc.invoke("Chunk.update", msg, transfers);
+    }`,
+  },
+  {
     file: join(lib, "chunk_manager", "frontend.js"),
     marker: "ZMART patch v2: replace in place",
     anchor: `        if (update.new) {
