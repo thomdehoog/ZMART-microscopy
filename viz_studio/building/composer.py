@@ -216,8 +216,12 @@ class Composer:
         # Where the warm may READ its slabs instead of composing them: a
         # baked picture's folder and which levels it keeps as files. Set by
         # whoever serves a baked picture (see GovernedRun); None means every
-        # slab is composed from the tiles, as always.
+        # slab is composed from the tiles, as always. The second flag says
+        # the warm's follow-up block prefill has finished too — the part of
+        # warmth the PATCHER leans on, which "warm" must include or a churn
+        # started at the flag races it.
         self._warm_store: tuple[Path, frozenset[int]] | None = None
+        self._blocks_prefilled = False
 
         # One encoder per thread, made when that thread first needs one.
         #
@@ -642,7 +646,16 @@ class Composer:
 
     @property
     def coarse_levels_are_warm(self) -> bool:
-        """Whether every slab of every pinned level has been built and kept."""
+        """Whether every slab of every pinned level has been built and kept.
+
+        On a picture whose warm reads the baked files, warmth also includes
+        the follow-up block prefill: the pins alone make the picture
+        SERVABLE, but a patch composes from the tiles' blocks, and warmth
+        that stops short of them was measured handing the first commits
+        multi-second patches the composing warm used to absorb quietly.
+        """
+        if self._warm_store is not None and not self._blocks_prefilled:
+            return False
         wanted = 0
         for level in self.pinned_levels:
             deep, down, across = self.grid(level)
@@ -720,6 +733,7 @@ class Composer:
                                     self._a_block_of(copy, (z, y, x))
                                 except Exception:
                                     continue
+        self._blocks_prefilled = True
 
     def warm_from_the_baked(self, store: Path, levels: frozenset[int]) -> None:
         """Let the warm read these levels' slabs out of this baked folder.
