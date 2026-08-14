@@ -645,7 +645,16 @@ def test_two_tiles_recorded_apart_in_y_are_drawn_one_above_the_other(
             "the two patches are not the same size, so at least one is running off "
             f"the edge of the picture: heights {heights}"
         )
-        apart = (second_start - first_end - 1) / (sum(heights) / 2)
+        # The tile's size on screen is read from the ACROSS axis, where nothing
+        # is clipped, rather than from the stacked patches themselves. The view
+        # opens fitted to the whole picture, and on this stacked scene that
+        # leaves the outer edge of each tile past the photographed field's top
+        # and bottom -- a patch height is then the surviving middle of a tile,
+        # not a tile. The tiles are square, and the one patch the across axis
+        # holds (asserted just above) is a whole tile wide.
+        ((across_start, across_end),) = patches_across(picture)
+        tile_on_screen = across_end - across_start + 1
+        apart = (second_start - first_end - 1) / tile_on_screen
         assert 0.7 < apart < 1.3, (
             "the two tiles were recorded two tile widths apart along y, so one "
             "tile width of unimaged ground should sit between them. What is there "
@@ -676,9 +685,15 @@ def test_a_tile_recorded_twice_as_far_away_is_drawn_twice_as_far_away(
 
     Doubling is asked for rather than a particular number of pixels because a
     number of pixels would be a statement about how far the engine chose to zoom
-    in, which is its own business. A ratio survives any zoom, and it is the
-    stronger claim in any case: it says the viewer places tiles *in proportion* to
-    the positions recorded in them, not merely somewhere different.
+    in, which is its own business. And because the engine fits each opening to
+    the whole of what it was given -- so the two runs, holding different
+    extents, open at different magnifications, and a distance in raw pixels
+    would compare two different rulers. The separation is therefore measured in
+    the one unit both runs share: the tile's own width on the same screen. In
+    tile widths the recorded positions say the separation must go from two to
+    four, whatever magnification either run opened at, and that is the stronger
+    claim in any case: the viewer places tiles *in proportion* to the positions
+    recorded in them, not merely somewhere different.
 
     A tile is kept at the origin in both runs on purpose. It is the reference the
     measurement is made against — a single tile on its own would be drawn in the
@@ -702,7 +717,8 @@ def test_a_tile_recorded_twice_as_far_away_is_drawn_twice_as_far_away(
                 f"separation to measure: {describe(picture)}"
             )
             middles = [sum(patch) / 2 for patch in side_by_side]
-            separations.append(abs(middles[1] - middles[0]))
+            widths = [last - first + 1 for first, last in side_by_side]
+            separations.append(abs(middles[1] - middles[0]) / (sum(widths) / 2))
         finally:
             page.close()
             server.shutdown()
@@ -711,15 +727,15 @@ def test_a_tile_recorded_twice_as_far_away_is_drawn_twice_as_far_away(
     grew = separations[1] / separations[0]
     assert 1.8 < grew < 2.2, (
         "the second tile's recorded position was moved from two tile widths away "
-        "to four, so the distance between the two tiles on screen should have "
-        f"doubled. It changed by a factor of {grew:.2f} instead "
-        f"({separations[0]:.0f} then {separations[1]:.0f} pixels apart). A factor "
-        "near one would mean the recorded position is not what decides where a "
-        "tile is drawn."
+        "to four, so the separation between the two tiles, measured in tile "
+        f"widths on their own screen, should have doubled. It changed by a factor "
+        f"of {grew:.2f} instead ({separations[0]:.1f} then {separations[1]:.1f} "
+        "tile widths apart). A factor near one would mean the recorded position "
+        "is not what decides where a tile is drawn."
     )
     print(
-        f"\n  tiles drawn {separations[0]:.0f} pixels apart at two tile widths and "
-        f"{separations[1]:.0f} at four, a factor of {grew:.2f}"
+        f"\n  tiles drawn {separations[0]:.1f} tile widths apart at two recorded "
+        f"tile widths and {separations[1]:.1f} at four, a factor of {grew:.2f}"
     )
 
 
