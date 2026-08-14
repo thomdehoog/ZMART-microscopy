@@ -37,6 +37,7 @@ import math
 import os
 import queue
 import re
+import socket
 import sys
 import tempfile
 import threading
@@ -1715,6 +1716,24 @@ def make_server(
         # anything beyond that is dropped and retried a second later.
         request_queue_size = 128
         daemon_threads = True
+
+        # The standard server asks to reuse the address, which on Windows means
+        # something different and worse than elsewhere: there SO_REUSEADDR lets
+        # this socket bind a port another process is actively listening on, so a
+        # second viewer on the same port would start without complaint and the
+        # two would fight over connections. Asking for the port exclusively
+        # restores the meaning the friendly message below relies on -- a taken
+        # port is refused at bind. Elsewhere the reuse flag keeps its harmless
+        # meaning, that a freshly closed port can be picked up again without
+        # waiting out TIME_WAIT, and stays on.
+        allow_reuse_address = sys.platform != "win32"
+
+        def server_bind(self):
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                self.socket.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1
+                )
+            super().server_bind()
 
         def serve_forever(self, *args, **kwargs):
             # The disk is watched only while the server is actually running, and
