@@ -104,7 +104,7 @@ export async function walkToTheScan(page) {
   await page.waitForTimeout(2200);
 
   // Standing on the carrier step settles it; the scan fields need a grid.
-  await gotoStep("Carrier configuration");
+  await gotoStep("Define Carrier");
   await page.waitForTimeout(200);
   await gotoStep("Initial scanfields");
   await page.locator(".sf-mode[data-mode='grid']").click();
