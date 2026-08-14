@@ -21,7 +21,7 @@
 
 import { numbered } from "../frame/steps.js";
 import {
-  connect, opticalConfiguration, carrierConfiguration, initialScanfields,
+  connect, carrierConfiguration, initialScanfields,
   focusStrategy, scanOverview, detectCells, selectCells, acquireAndCurate,
   saveRun, theCanvas,
   reworded,
@@ -34,7 +34,6 @@ const workflow = (name, blurb, steps) => ({ name, blurb, steps: numbered(steps) 
    where on it to look. Written once here so the three of them cannot drift. */
 const setUpTheRun = [
   connect,
-  opticalConfiguration,
   carrierConfiguration,
   initialScanfields,
 ];

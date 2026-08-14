@@ -8,7 +8,7 @@ import { WORKFLOWS, DEFAULT_WORKFLOW } from "./workflows/index.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
   describeSession, describeConnection, CONNECT_CHECKS,
-  SETTING_TYPES, settingType, sampleReading, STAGE_LIMITS_MM,
+  sampleReading, STAGE_LIMITS_MM,
 } from "./lib/microscopes.js";
 import { centres, DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
 import carrierWidget from "./widgets/carrier.js";
@@ -128,11 +128,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     };
   }
 
-  /* The acquisition type the targets are imaged with: one reading taken off
-     the instrument in the Acquire Targets channel, the way an optics preset
-     is. A plain open bar until it is recorded. */
-  const newTargetType = () => ({ type: "acquisition", name: "" });
-
   // detection settings live next to the focus strategy: chosen, tried on one
   // tile, then applied to the rest
   function newDetect() {
@@ -152,15 +147,16 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     run_0709_c: { label: "2026-07-09 · slide C", plane: { a: 71, b: 88, c: -389 }, residual: 3.1, ageDays: 19 },
   };
 
-  /* The bars a run starts with: nothing recorded and one open bar waiting
-     under each kind's heading, because a preset is a reading taken off this
-     instrument today and a run that begins with three of them begins by
-     telling the operator something untrue. Built fresh each time, because a
-     bar is edited in place and a shared one would carry the last run's typing
-     into the next. */
-  function startingBars() {
-    return SETTING_TYPES.map((t) => ({ type: t.key, name: "" }));
-  }
+  /* A recording-to-be: nothing until the instrument has been read, because a
+     preset is a reading taken off this instrument today and a run that begins
+     with one begins by telling the operator something untrue. Built fresh
+     each time, because a bar is edited in place and a shared one would carry
+     the last run's typing into the next.
+
+     There is no presets step: each recording lives in the step that uses it —
+     the overview preset with the scan fields, the autofocus preset with the
+     focus strategy, the acquisition type with the targets. */
+  const newRecording = (type) => ({ type, name: "" });
 
   /* Which workflow to open on — `?workflow=canvas_layers`.
    *
@@ -181,11 +177,12 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   const state = {
     session: { ...DEFAULT_SESSION },
     recordings: [],
-    bars: startingBars(),
+    overviewPreset: newRecording("acquisition"),
+    focusPreset: newRecording("autofocus"),
+    targetType: newRecording("acquisition"),
     carrier: { ...DEFAULT_CARRIER },
     fields: [],
     plan: [],
-    targetType: newTargetType(),
     editor: null,
     checks: [],
     wf: WORKFLOWS[WORKFLOW_ASKED_FOR] ? WORKFLOW_ASKED_FOR : DEFAULT_WORKFLOW,
@@ -229,13 +226,13 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   }
   selectEl.value = state.wf;
 
+  /* Choosing a workflow is choosing to begin it: the switch restarts the run.
+     There is no Restart button — the session card's Disconnect ends a run,
+     and picking a workflow starts one. */
   selectEl.addEventListener("change", () => {
-    if (state.locked) { selectEl.value = state.wf; return; }
     state.wf = selectEl.value;
     resetRun();
   });
-
-  el("restart-btn").addEventListener("click", resetRun);
 
   /* Closing the session takes the run with it: settings were read off this
      microscope, the origin is in its coordinates, and the tiles came from it.
@@ -246,18 +243,16 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     Object.assign(state, {
       activeIdx: 0, done: new Set(), running: null, notes: {},
       recordings: [],
-      bars: startingBars(),
+      overviewPreset: newRecording("acquisition"),
+      focusPreset: newRecording("autofocus"),
+      targetType: newRecording("acquisition"),
       carrier: { ...DEFAULT_CARRIER }, fields: [], plan: [], checks: [],
-      targetType: newTargetType(),
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
       detect: newDetect(), detected: new Set(),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], verdicts: {},
       locked: false,
     });
     view.fitted = false;
-    // the presets a run starts with complete their step, by the same rule any
-    // other recorded preset does
-    settingsChanged();
     focusPanelsFor(0);
     renderGateReadout();
     renderPointList();
@@ -265,11 +260,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   }
 
   function renderRail() {
-    /* No summary line: the rail below already lists the steps, and a locked
-       selector shows for itself that the run has started. */
-    selectEl.disabled = state.locked;
-    el("restart-btn").disabled = !state.locked;
-
     const host = el("steps");
     host.textContent = "";
 
@@ -292,20 +282,10 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       if (running) head.insertAdjacentHTML("beforeend", '<span class="spin"></span>');
       b.append(head);
 
-      /* A step says what it produced and nothing else. Standing on one used to
-         unfold a sentence explaining it, which grew the step you were on by
-         two lines and pushed the rest of the run down the rail every time you
-         moved — a rail that shifts underfoot to explain a step the panel
-         beside it is already showing. */
-      if (state.notes[s.id]) {
-        const n = document.createElement("div");
-        n.className = "step-body";
-        const note = document.createElement("div");
-        note.className = "step-note ok";
-        note.textContent = state.notes[s.id];
-        n.append(note);
-        b.append(n);
-      }
+      /* Number and title, nothing else: the rail is navigation, the green
+         badge already says done, and what a step produced is on the canvas
+         and in the action bar. A note under every finished step read as a
+         second, worse copy of the run. */
 
       b.addEventListener("click", () => {
         if (state.running || !reachable) return;
@@ -426,11 +406,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       state.running = null;
       state.done.add(s.id);
       if (s.note) state.notes[s.id] = s.note;
-      if (s.id === "connect") state.notes[s.id] = describeSession(state.session);
-      if (s.id === "optics") {
-        const n = recordedBars().length;
-        state.notes[s.id] = `${n} setting${n === 1 ? "" : "s"} recorded`;
-      }
 
       if (s.mode === "focus") {
         const f = state.focus;
@@ -695,99 +670,20 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   }
 
   const indexOfStep = (id) => steps().findIndex((s) => s.id === id);
-  /* One bar per setting, and a bar is the setting.
+  /* One bar per recording, and the bar is the recording.
    *
    * It starts as a name and a Record button. Recording reads the state off
    * the instrument and the bar becomes that record — the fields give way
    * to what was captured, in place. Nothing jumps to a list somewhere else,
    * and nothing is typed in twice, so nothing can disagree with the
-   * instrument.
-   *
-   * Each kind is a section of its own, so a bar never says its kind: the
-   * heading it stands under does. Recording turns the bar into the record
-   * and a fresh one opens in its place, so every section always has exactly
-   * one bar waiting.
-   */
-  const recordedBars = () => state.bars.filter((b) => b.state);
-
-  /* Recording is the work, so there is nothing left to confirm: the step is
-     done once a setting exists, and undone again if the last one is forgotten.
-     The rail stays honest about what may follow without asking for a press
-     that would only repeat what the operator already did. */
-  /* No note in the rail: the green badge already says done, and the presets
-     themselves are one step-click away. */
-  function settingsChanged() {
-    if (recordedBars().length) state.done.add("optics");
-    else state.done.delete("optics");
-  }
-
-  const ensureOpenBar = () => {
-    for (const t of SETTING_TYPES) {
-      if (!state.bars.some((b) => !b.state && b.type === t.key)) {
-        state.bars.push({ type: t.key, name: "" });
-      }
-    }
-  };
-
-  /* Each recorded setting is its own box, because each is an object the run
-     holds. The bar that takes the next one is not: it is the act of taking,
-     drawn as the field it is being taken into, opening on the same edge the
-     boxes stand on. */
-  function renderOpticsCard(host) {
-    /* No title and no count. The rail says which step this is, the boxes are
-       the settings, and counting things the operator can see is the panel
-       talking about itself instead of showing the run. */
-
-    /* One section per kind, in the order the kinds are declared: a run is
-       read as "what can it image with" and "how does it focus", not as the
-       order somebody happened to press record in. The heading names the kind
-       and the act — bold, because it is the panel's work — and the recorder
-       leads its section so it does not walk further down each time a preset
-       is taken; what has been recorded of the kind collects beneath it. */
-    for (const type of SETTING_TYPES) {
-      const group = document.createElement("div");
-      group.className = "setting-group";
-      group.dataset.kind = type.key;
-
-      const label = document.createElement("div");
-      label.className = "group-label";
-      label.textContent = `Record ${type.label} preset`;
-      group.append(label);
-
-      const open = state.bars.find((b) => !b.state && b.type === type.key);
-      const openBox = document.createElement("div");
-      openBox.className = "setting-box open";
-      openBox.append(renderOpenBar(open));
-      group.append(openBox);
-
-      for (const bar of state.bars.filter((b) => b.state && b.type === type.key)) {
-        const box = document.createElement("div");
-        box.className = "setting-box done";
-        box.append(renderRecordedBar(bar));
-        group.append(box);
-      }
-      host.append(group);
-    }
-  }
+   * instrument. */
 
   /* The summary is the headline; the detail is what the controller actually
-     read. Folded away by default, because a list of presets should stay a
-     list — but one click from view, because "trust me" is not a good answer
-     when the run depends on it.
-
-     The bar draws whatever recording it is handed; `opts` says whose list it
-     belongs to — dropping and redrawing default to the optics presets, and
-     the acquisition type passes its own. */
-  function renderRecordedBar(bar, opts = {}) {
-    const rerender = opts.rerender ?? renderSetup;
-    const dropped = opts.dropped ?? (() => {
-      state.bars = state.bars.filter((b) => b !== bar);
-      ensureOpenBar();
-      settingsChanged();
-      scanfieldsSettled();
-      renderSetup();
-      renderAll();
-    });
+     read. Folded away by default, because a recording should stay a line —
+     but one click from view, because "trust me" is not a good answer when
+     the run depends on it. The bar draws whatever recording it is handed;
+     `opts` says what forgetting it does and what to redraw. */
+  function renderRecordedBar(bar, { rerender, dropped, locked = false }) {
     const wrap = document.createDocumentFragment();
 
     const row = document.createElement("div");
@@ -811,7 +707,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
     const drop = row.querySelector(".rec-drop");
     drop.title = "forget this preset";
-    drop.disabled = !!state.running;
+    drop.disabled = !!state.running || locked;
     drop.addEventListener("click", dropped);
 
     wrap.append(row);
@@ -832,9 +728,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   }
 
   /* Like the recorded bar, this draws whichever recording-to-be it is handed:
-     `opts.taken` is the name space it clashes in, `opts.recorded` what to do
-     once the instrument has been read. Both default to the optics presets. */
-  function renderOpenBar(bar, opts = {}) {
+     `opts.recorded` is what to do once the instrument has been read, and
+     `opts.nth` which of the mock's readings this slot comes back with. */
+  function renderOpenBar(bar, opts) {
     const row = document.createElement("div");
     row.className = "rec-new";
 
@@ -849,52 +745,72 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     go.type = "button";
     go.textContent = "Record Microscope State";
 
-    const why = document.createElement("div");
-    why.className = "session-hint";
-
     const capitalised = (v) => (v ? v[0].toUpperCase() + v.slice(1) : v);
-    const taken = opts.taken ?? ((value) =>
-      state.bars.some((b) => b !== bar
-        && b.name.trim().toLowerCase() === value.toLowerCase()));
-    const recorded = opts.recorded ?? (() => {
-      ensureOpenBar();
-      settingsChanged();
-      scanfieldsSettled();
-      renderSetup();
-      renderAll();
-    });
 
     // typing must not rebuild the row, or the field loses focus every keystroke
     const check = () => {
       bar.name = name.value;
-      const value = name.value.trim();
-      const clash = value && taken(value);
-      go.disabled = !value || clash || !!state.running;
-      why.textContent = clash ? "that name is already used" : "";
-      why.classList.toggle("bad", !!clash);
+      go.disabled = !name.value.trim() || !!state.running;
     };
     name.addEventListener("input", check);
     check();
 
     go.addEventListener("click", () => {
-      const nth = recordedBars().filter((b) => b.type === bar.type).length;
       go.disabled = true;
       go.textContent = "reading…";
       // a controller round-trip, not an instant assignment
       setTimeout(() => {
-        const reading = sampleReading(bar.type, nth);
+        const reading = sampleReading(bar.type, opts.nth ?? 0);
         bar.name = capitalised(name.value.trim());
         bar.state = reading.summary;
         bar.detail = reading.detail;
         bar.frameUm = reading.frameUm;
-        recorded();
+        opts.recorded();
       }, 480);
     });
 
     /* The name leads, the way it leads a recorded row: it is the thing being
        filled in. The kind is said once by the heading above, not by the bar. */
-    row.append(name, go, why);
+    row.append(name, go);
     return row;
+  }
+
+  /* One recording, drawn the way a preset always was: a bold heading, an
+     open bar until the instrument has been read, the record in place after.
+     Each of the three lives in the step that uses it, so the state is tested
+     where it matters. */
+  function renderRecordingSlot(hostId, { label, key, nth, changed, locked = false }) {
+    const host = el(hostId);
+    if (!host) return;
+    host.textContent = "";
+
+    const group = document.createElement("div");
+    group.className = "setting-group";
+    const head = document.createElement("div");
+    head.className = "group-label";
+    head.textContent = label;
+    group.append(head);
+
+    const slot = state[key];
+    const rerender = () => renderRecordingSlot(hostId, { label, key, nth, changed, locked });
+    const box = document.createElement("div");
+    box.className = `setting-box ${slot.state ? "done" : "open"}`;
+    box.append(slot.state
+      ? renderRecordedBar(slot, {
+        rerender,
+        locked,
+        dropped: () => {
+          state[key] = newRecording(slot.type);
+          rerender();
+          changed();
+        },
+      })
+      : renderOpenBar(slot, {
+        nth,
+        recorded: () => { rerender(); changed(); },
+      }));
+    group.append(box);
+    host.append(group);
   }
 
   /* The carrier is what the canvas is drawing, so its controls sit beside the
@@ -937,6 +853,17 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     id: "focus",
     label: "Focus strategy",
     mount(host) {
+      /* The autofocus preset is recorded here, where the sweeps that will be
+         measured with it are chosen. */
+      const rec = document.createElement("div");
+      rec.className = "side-pad";
+      rec.id = "focus-preset";
+      host.append(rec);
+      renderRecordingSlot("focus-preset", {
+        label: "Record autofocus preset", key: "focusPreset", nth: 0,
+        locked: state.focus.applied,
+        changed: () => renderActionBar(),
+      });
       focusControls.hidden = false;
       host.append(focusControls);
       renderPointList();
@@ -949,7 +876,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      where the settings are tried on one position before the sample runs. */
   const detectWidget = {
     id: "detect",
-    label: "Detect cells",
+    label: "Discover Targets",
     mount(host) {
       detectControls.hidden = false;
       host.append(detectControls);
@@ -962,7 +889,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      channel holds the scatter they are gated on. */
   const analysisWidget = {
     id: "select",
-    label: "Select cells",
+    label: "Refine Targets",
     mount(host) {
       analysisControls.hidden = false;
       host.append(analysisControls);
@@ -972,15 +899,12 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     },
   };
 
-  /* The setup steps live in the channel like everything else: the session
-     card and the preset recorder are the controls of the step being stood on,
-     beside the canvas they configure the run for. They rebuild on every
-     render, the way their panel used to, so nothing in them goes stale. */
+  /* The session card lives in the channel like everything else: it is the
+     controls of the step being stood on, beside the canvas it configures the
+     run for. It rebuilds on every render, the way its panel used to, so
+     nothing in it goes stale. */
   const connectWidget = {
-    id: "connect", label: "Microscope configuration", mount: () => renderSetup(),
-  };
-  const opticsWidget = {
-    id: "optics", label: "Optical configuration", mount: () => renderSetup(),
+    id: "connect", label: "Connect", mount: () => renderSetup(),
   };
 
   /* The gallery too: the acquired targets ring on the canvas, and the channel
@@ -992,13 +916,16 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     mount(host) {
       galleryControls.hidden = false;
       host.append(galleryControls);
-      renderTargetType();
+      renderRecordingSlot("target-type", {
+        label: "Record acquisition type", key: "targetType", nth: 1,
+        changed: () => renderActionBar(),
+      });
       buildGallery();
     },
   };
 
   const SIDE_WIDGETS = {
-    connect: connectWidget, optics: opticsWidget,
+    connect: connectWidget,
     carrier: carrierWidget, scanfields: scanfieldsWidget,
     focus: focusWidget, detect: detectWidget, select: analysisWidget,
     acquire: galleryWidget,
@@ -1069,6 +996,33 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       return;
     }
 
+    /* The overview's preset is recorded here, where the fields that will be
+       taken with it are laid — and until it exists there is nothing to lay,
+       because a field takes its frame from the preset. Recording or
+       forgetting it remounts the channel, so the editor appears and
+       disappears with the preset it depends on. */
+    {
+      const rec = document.createElement("div");
+      rec.className = "side-pad";
+      rec.id = "sf-preset";
+      host.append(rec);
+      renderRecordingSlot("sf-preset", {
+        label: "Record acquisition preset", key: "overviewPreset", nth: 0, locked,
+        changed: () => {
+          state.sideMounted = null;
+          scanfieldsSettled();
+          renderAll();
+        },
+      });
+      if (!state.overviewPreset.state) {
+        const wait = document.createElement("div");
+        wait.className = "side-note";
+        wait.textContent = "The fields take their frame from the preset, so it is recorded before they are laid.";
+        host.append(wait);
+        return;
+      }
+    }
+
     state.editor = widget.render(host, {
       fields: state.fields,
       carrier: state.carrier,
@@ -1118,16 +1072,19 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     divider.addEventListener("pointercancel", settle);
   }
 
-  /* What a scan field can be taken with: the presets this run recorded, in the
-     order they were taken. A field names one rather than carrying a frame of
-     its own, so changing what a preset is changes what the plan covers. */
-  const recordedPresets = () => recordedBars().map((b, i) => ({
-    id: `preset${i}`,
-    kind: b.type,
-    name: b.name,
-    summary: b.state,
-    frameUm: b.frameUm,
-  }));
+  /* What a scan field is taken with: the one preset recorded beside the
+     fields. Still a list, because the widget names presets and colours by
+     them — a field names one rather than carrying a frame of its own, so
+     re-recording the preset changes what the plan covers. */
+  const recordedPresets = () => (state.overviewPreset.state
+    ? [{
+      id: "preset0",
+      kind: "acquisition",
+      name: state.overviewPreset.name,
+      summary: state.overviewPreset.state,
+      frameUm: state.overviewPreset.frameUm,
+    }]
+    : []);
 
   /* Drawing fields is the work, the way recording and configuring are: the
      step is done once there is something to scan, and undone again if the last
@@ -1150,7 +1107,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      step away and the channel is about the step you moved to. */
   const SETUP_CARDS = {
     connect: renderSessionCard,
-    optics: renderOpticsCard,
   };
 
   /* The setup cards render into the channel like every other step's controls:
@@ -1168,10 +1124,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     host.append(pad);
   }
 
-  /* Always drawn, even for one. A tab used to say "Setup" for every step and
-     was worth hiding; it says what it holds now — Optical configuration, the
-     presets that were loaded — and naming what you are looking at is worth a
-     line whether or not there is a second one to switch to. */
+  /* Always drawn, even for one. It names what is loaded — the Canvas — and
+     naming what you are looking at is worth a line whether or not there is a
+     second one to switch to. */
   function renderTabs() {
     const host = el("tabs");
     host.textContent = "";
@@ -1598,6 +1553,12 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     ctx.fillStyle = css("--screen");
     ctx.fillRect(0, 0, w, h);
 
+    /* The canvas only shows what the run actually knows. Before a session is
+       open it knows nothing, so it is empty; the stage limits are a readout
+       from the connected microscope's configuration, so they appear with the
+       session; the carrier appears at its own step, when the run is told what
+       the sample is mounted in. */
+    if (!state.done.has("connect")) return;
     drawStageLimits(ctx);
 
     /* One projection for everything that sits in the carrier: the carrier
@@ -1606,6 +1567,8 @@ import scanfieldsWidget from "./widgets/scanfields.js";
        one place and nothing can be drawn against a different answer. */
     const [ox, oy] = carrierOriginUm();
     const place = (x, y) => toScreen(x + ox, y + oy);
+
+    if (!state.done.has("carrier")) { drawScaleBar(ctx, w, h, view.scale); return; }
 
     /* Grey, not the accent: the carrier is the room the run happens in, not a
        thing the run produced. Dark enough to read against the stage behind it,
@@ -3383,43 +3346,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      mounting rebuilds from the run's state, so nothing stale survives. */
   const galleryMounted = () => galleryControls.isConnected;
 
-  /* The acquisition type: one reading taken off the instrument in this
-     channel, the way an optics preset is — set the target image up, name it,
-     press Record. One at a time, because the step acquires with one
-     configuration, and forgetting it opens the bar again. */
-  function renderTargetType() {
-    if (!galleryMounted()) return;
-    const host = el("target-type");
-    host.textContent = "";
-
-    const group = document.createElement("div");
-    group.className = "setting-group";
-    const label = document.createElement("div");
-    label.className = "group-label";
-    label.textContent = "Record acquisition type";
-    group.append(label);
-
-    const t = state.targetType;
-    const box = document.createElement("div");
-    box.className = `setting-box ${t.state ? "done" : "open"}`;
-    box.append(t.state
-      ? renderRecordedBar(t, {
-        rerender: renderTargetType,
-        dropped: () => {
-          state.targetType = newTargetType();
-          renderTargetType();
-          renderActionBar();
-        },
-      })
-      : renderOpenBar(t, {
-        // its own name space: one recording, nothing to clash with
-        taken: () => false,
-        recorded: () => { renderTargetType(); renderActionBar(); },
-      }));
-    group.append(box);
-    host.append(group);
-  }
-
   function buildGallery() {
     if (!galleryMounted()) return;
     const host = el("pairs");
@@ -3493,7 +3419,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
   renderPointList();
   renderDetectToolbar();
-  settingsChanged();
   rebuildSample();
   focusPanelsFor(0);
   renderAll();

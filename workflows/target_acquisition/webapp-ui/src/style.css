@@ -100,8 +100,10 @@
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px rgba(15, 23, 42, 0.07);
 }
 
-/* the width of the column beside a canvas, wherever one stands */
-:root { --side-w: 320px; }
+/* The width of the column beside a canvas, wherever one stands. A little
+   generous by default — the channel is where the work happens — and the
+   divider hands the rest to whoever needs it. */
+:root { --side-w: 360px; }
 
 * { box-sizing: border-box; }
 
@@ -122,7 +124,9 @@ body {
   background: var(--screen);
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(268px, 312px) 1fr;
+  /* narrow: the rail is navigation, and every pixel it gives up goes to the
+     stage and the channel */
+  grid-template-columns: minmax(196px, 232px) 1fr;
   flex: 1;
   min-height: 0;
 }
@@ -148,11 +152,9 @@ body {
 }
 .wf-row { display: flex; gap: 8px; align-items: center; }
 /* The chooser takes whatever room the rail has and no more. Left to itself a
-   dropdown is as wide as its longest choice, and the rail is a fixed column — so
-   naming a workflow a few words longer than the others used to push the Restart
-   button beside it clean off the rail and under the panel next door, where it
-   could not be pressed. A name is a thing somebody will change; the layout
-   should not depend on how long they make it. */
+   dropdown is as wide as its longest choice, and the rail is a fixed column.
+   A name is a thing somebody will change; the layout should not depend on how
+   long they make it. */
 select.wf-select {
   flex: 1 1 0; min-width: 0; width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -236,10 +238,6 @@ button.danger:disabled { opacity: 0.45; cursor: default; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.step-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 2px 28px; }
-.step-note { font-size: 12.5px; color: var(--ink-3); font-family: var(--mono); }
-.step-note.ok { color: var(--good); }
-.step-note.bad { color: var(--bad); }
 button.run {
   align-self: flex-start; font: inherit; font-size: 13px; font-weight: 600;
   color: #fff; background: var(--accent); border: none; border-radius: 7px;
@@ -878,7 +876,6 @@ canvas.livecv[hidden] { display: none; }
 .rec-new button.run {
   grid-column: 2; justify-self: start; align-self: stretch; padding: 0 14px;
 }
-.rec-new .session-hint { grid-column: 1 / -1; margin-top: -2px; }
 
 .rec-name {
   font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-weight: 600;

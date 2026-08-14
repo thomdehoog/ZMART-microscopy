@@ -56,7 +56,7 @@
 
 export const connect = {
   id: "connect",
-  title: "Microscope configuration",
+  title: "Connect",
   why: "Choose the microscope, its API and the password, then open the session.",
   btn: "Connect",
   ownButton: true,
@@ -64,19 +64,6 @@ export const connect = {
      every step keeps the picture on the left and its controls in the channel. */
   panels: ["canvas"],
   ms: 1900,
-};
-
-export const opticalConfiguration = {
-  id: "optics",
-  title: "Optical configuration",
-  why: "Set the microscope up in its own software, name the preset, and record it.",
-  ownButton: true,
-  panels: [],
-  mode: "optics",
-  /* A preset is recorded once it has been read off the instrument, which is
-     what gives a bar something to say for itself. */
-  ready: ({ bars }) =>
-    (bars.some((b) => b.state) ? null : "record at least one preset"),
 };
 
 /* The step that puts the run on the stage. Asking for the canvas here is what
@@ -90,18 +77,23 @@ export const carrierConfiguration = {
   mode: "carrier",
 };
 
+/* The preset the overview is taken with is recorded here, not in a step of
+   its own: the fields take their frame from it, so it is tested where it
+   matters. */
 export const initialScanfields = {
   id: "scanfields",
   title: "Initial scanfields",
-  why: "Say where on the carrier the overview is taken — a block in every area, or regions drawn by hand.",
+  why: "Record the preset the overview is taken with, then say where on the carrier it is taken.",
   panels: [],
   mode: "scanfields",
 };
 
+/* The autofocus preset is recorded here for the same reason: the sweeps that
+   measure the surface are taken with it. */
 export const focusStrategy = {
   id: "focus",
   title: "Focus strategy",
-  why: "Choose how this run keeps every image sharp across the sample.",
+  why: "Record the autofocus preset, then choose how this run keeps every image sharp across the sample.",
   btn: "Apply strategy",
   panels: [],
   ms: 1400,
@@ -111,10 +103,11 @@ export const focusStrategy = {
      describe a line rather than a plane. A fixed height, autofocus at every
      position and reusing an earlier surface each have everything they need the
      moment they are chosen. */
-  ready: ({ focus }) =>
-    (focus.strategy === "plane" && focus.points.length < 3
-      ? "place at least 3 points"
-      : null),
+  ready: ({ focus, focusPreset }) =>
+    (!focusPreset?.state ? "record the autofocus preset first"
+      : focus.strategy === "plane" && focus.points.length < 3
+        ? "place at least 3 points"
+        : null),
 };
 
 /* The count is the smaller half of what this step reports. The other half is
