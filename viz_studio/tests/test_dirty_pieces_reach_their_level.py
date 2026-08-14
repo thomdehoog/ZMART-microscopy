@@ -137,3 +137,85 @@ def test_dirty_levels_land_on_sources_of_that_level_even_with_a_double(
         page.close()
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_ground_first_seen_empty_paints_when_it_lands(
+    browser, built_dist, tmp_path
+):
+    """The tile the engine looked at too early must still appear when it lands.
+
+    This is the stripes' own scenario, planted deliberately instead of raced
+    for. A viewer opens on a survey with a hole; the engine fetches the hole's
+    pieces, is told "nothing here", and remembers that answer. Then the run
+    lands the missing position and announces its dirty pieces. If the refresh
+    path cannot resurrect a chunk the engine has already written off as
+    absent, the hole stays black for the rest of the session — over ground
+    the server answers fresh and complete — which is exactly what an operator
+    watched: black stripes tracing late-landed tiles, cured only by a reload.
+    """
+    harness.FIXTURES = tmp_path
+    run, order = harness.the_run(4)
+    hole = order[5]
+    for position_id in order:
+        if position_id != hole:
+            harness.fast_publish(run, position_id)
+    shown = tmp_path / "gov4x4" / "shown"
+    store = declare_a_governed_picture(shown, run.folder, name="live", bake=True)
+
+    server = make_server(port=0, data_dir=shown, site_dir=built_dist,
+                         store=[store.name], window=harness.BRIGHT, live=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1000, "height": 780})
+    try:
+        port = server.server_address[1]
+        page.goto(f"http://127.0.0.1:{port}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartViewer !== undefined",
+                              timeout=60_000)
+        page.wait_for_function("() => window.zmartSourcesWaiting() === 0",
+                              timeout=90_000)
+        # Long enough for the engine to have asked about the hole and been
+        # told "nothing here" — the remembering under test.
+        page.wait_for_timeout(3_000)
+
+        from pixels import fraction_lit
+
+        with_hole = fraction_lit(page)
+
+        harness.fast_publish(run, hole)
+        pictured = len(json.loads((store / "zarr.json").read_text(
+            encoding="utf-8"))["attributes"]["ome"]["multiscales"][0]["datasets"])
+        origin = run.layout.placement(hole).origin
+        y, x = int(origin.get("y", 0)), int(origin.get("x", 0))
+        piece = 512
+        dirty = {}
+        for number in range(pictured):
+            deepest = min(number, len(run.profile.levels) - 1)
+            rung = run.profile.level(deepest)
+            extended = 2 ** (number - deepest)
+            down_y = int(rung.downsampling.get("y", 1)) * extended
+            down_x = int(rung.downsampling.get("x", 1)) * extended
+            top, left = y // down_y, x // down_x
+            bottom = (y + harness.FRAME - 1) // down_y
+            right = (x + harness.FRAME - 1) // down_x
+            dirty[str(number)] = [
+                [0, row, column]
+                for row in range(top // piece, bottom // piece + 1)
+                for column in range(left // piece, right // piece + 1)
+            ]
+        _announce(port, dirty)
+        page.wait_for_timeout(4_000)
+
+        landed = fraction_lit(page)
+        one_tile = 1 / 16
+        assert landed > with_hole + one_tile / 2, (
+            f"the survey was {with_hole:.1%} lit with its hole and only "
+            f"{landed:.1%} lit after the missing position landed and announced "
+            "its dirty pieces. The engine is still showing the emptiness it "
+            "remembered from before the landing; the server, asked fresh, "
+            "serves the tile."
+        )
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
