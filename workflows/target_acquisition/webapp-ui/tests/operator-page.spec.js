@@ -78,7 +78,7 @@ test.afterEach(async ({ page }) => {
 });
 
 test("the rail carries the workflow's declared steps", async ({ page }) => {
-  await expect(page.locator("#steps .step")).toHaveCount(11);
+  await expect(page.locator("#steps .step")).toHaveCount(9);
   await expect(page.locator(".step.active .step-name")).toHaveText("Microscope configuration");
   // the fields are said before the focus that keeps them sharp and the scan
   // that visits them, because both of those are about positions that exist
@@ -86,9 +86,9 @@ test("the rail carries the workflow's declared steps", async ({ page }) => {
   await expect(page.locator(".step-name").nth(4)).toHaveText("Focus strategy");
 
   await page.locator("#wf-select").selectOption("overview_only");
-  await expect(page.locator("#steps .step")).toHaveCount(7);
+  await expect(page.locator("#steps .step")).toHaveCount(6);
   await page.locator("#wf-select").selectOption("focus_check");
-  await expect(page.locator("#steps .step")).toHaveCount(7);
+  await expect(page.locator("#steps .step")).toHaveCount(6);
 });
 
 /* The declaration and the page, held up against each other.
@@ -395,40 +395,37 @@ test("nothing advances by itself, and the next step stays locked until it can ru
     await expect(page.locator('.step:has-text("Focus strategy")').first()).toBeDisabled();
   });
 
-test("the canvas belongs to the steps that happen inside it, and to no others",
+test("the canvas is always on the stage, and the channel follows the step",
   async ({ page }) => {
-    // a tab names what is loaded, even when it is the only one
-    await expect(page.locator(".tab")).toHaveText(["Microscope configuration"]);
+    /* One layout for every step: the picture on the left, the standing step's
+       controls in the channel on the right. From the very first step — the
+       session card is the channel of Microscope configuration. */
+    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
+    await expect(page.locator(".side-tab")).toHaveText("Microscope configuration");
+    await expect(page.locator(".session-title")).toHaveText("Connect to the microscope");
+
     await throughSetup(page);
-    await expect(page.locator(".tab"), "the run reached the carrier, so the canvas exists")
-      .toHaveText(["Canvas"]);
+    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
     await expect(page.locator(".panel.on button.step-run"),
       "configuring it is the work, so there is nothing to press").toHaveCount(0);
     await expect(page.locator('.step:has-text("Carrier configuration")').first(),
       "and standing on it settles it").toHaveClass(/done/);
     // the channel is named over the column it heads, not as a tab you switch to
     await expect(page.locator(".side-tab")).toHaveText("Carrier configuration");
-    // the carrier is not a tab of its own: its controls dock beside the drawing
-    // they change, and the canvas is the only picture of it
     await expect(page.locator("#canvas-side")).toBeVisible();
     await expect(page.locator(".carrier-card")).toHaveCount(1);
-    // Walking back to a step that is not about the stage leaves the canvas
-    // behind. The session and the instrument are not in the frame, so parking
-    // a tab for it on those steps offers something they have nothing to do
-    // with — the rule every other panel already follows.
+
+    /* Walking back keeps the canvas: the channel changes hands instead. */
     await gotoStep(page, "Optical configuration");
-    await expect(page.locator(".tab")).toHaveText(["Optical configuration"]);
+    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
+    await expect(page.locator(".side-tab")).toHaveText("Optical configuration");
+    await expect(page.locator(".setting-box.open")).toHaveCount(2);
     await gotoStep(page, "Microscope configuration");
-    await expect(page.locator(".tab")).toHaveText(["Microscope configuration"]);
     await expect(page.locator(".session-title"), "and the session comes back when you return")
       .toHaveText("Connect to the microscope");
     await expect(page.locator(".check-row")).toHaveCount(6);
-    await expect(page.locator("#canvas-side"),
-      "which is not the canvas, so the channel is not there either").toBeHidden();
-
-    // and it is there again the moment the operator is back inside the frame
     await gotoStep(page, "Carrier configuration");
-    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
+    await expect(page.locator(".carrier-card")).toHaveCount(1);
 
     /* The channel belongs to the step standing in it. Scan fields are about
        the canvas the way the carrier is, so they take the same column and the

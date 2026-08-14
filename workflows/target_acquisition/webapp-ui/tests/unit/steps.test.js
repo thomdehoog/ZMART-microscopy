@@ -33,9 +33,9 @@ describe("numbering is derived, so reordering costs nothing", () => {
     expect(out.map((s) => s.n)).toEqual(["1", "2a", "2b", "3"]);
   });
 
-  it("numbers target acquisition straight through, one to eleven", () => {
+  it("numbers target acquisition straight through, one to nine", () => {
     expect(WORKFLOWS.target_acquisition.steps.map((s) => s.n))
-      .toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]);
+      .toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
   });
 });
 
@@ -119,40 +119,35 @@ describe("readiness belongs to the step, not the frame", () => {
 
   it("a step with no rule is always ready", () => {
     expect(blockedBecause(byId("connect"), run())).toBeNull();
-    expect(blockedBecause(byId("save"), run())).toBeNull();
+    expect(blockedBecause(byId("carrier"), run())).toBeNull();
   });
 });
 
 describe("panels follow the step", () => {
-  /* What each step is given on screen. The canvas is the microscope's own limits
-     drawn to scale, so it comes up at the step that first asks for it — the
-     carrier — and stays for the rest of the run. Before that there is no stage
-     to draw and the step's own panel has the window to itself. */
+  /* What each step is given on screen. The canvas is the microscope's own
+     limits drawn to scale, and it is there from the first step: every step
+     keeps the picture on the left and its own controls in the channel. */
   const panelsOf = (wf) =>
     Object.fromEntries(WORKFLOWS[wf].steps.map((s, i) => [s.id, panelsFor(WORKFLOWS[wf].steps, i)]));
 
   it("gives target acquisition the panels the operator sees", () => {
     expect(panelsOf("target_acquisition")).toEqual({
-      connect: ["connect"],
-      optics: ["optics"],
+      connect: ["canvas"],
+      optics: ["canvas"],
       carrier: ["canvas"],
       scanfields: ["canvas"],
-      /* Focus and detection bring no panel of their own. Their results are
-         drawn on the canvas, and their controls sit in the channel beside it. */
       focus: ["canvas"],
       scan: ["canvas"],
       detect: ["canvas"],
       select: ["canvas"],
       acquire: ["canvas"],
-      save: ["canvas"],
-      disconnect: ["canvas"],
     });
   });
 
-  it("keeps the canvas away from the steps that happen before there is a stage", () => {
+  it("puts the canvas on stage from the first step of every run", () => {
     for (const wf of ["target_acquisition", "overview_only", "focus_check"]) {
-      expect(panelsOf(wf).connect).not.toContain("canvas");
-      expect(panelsOf(wf).optics).not.toContain("canvas");
+      expect(panelsOf(wf).connect).toContain("canvas");
+      expect(panelsOf(wf).optics).toContain("canvas");
       expect(panelsOf(wf).carrier).toContain("canvas");
     }
   });
@@ -176,15 +171,15 @@ describe("workflows compose the catalogue rather than restating it", () => {
   it("walks target acquisition in this order", () => {
     expect(ids("target_acquisition")).toEqual([
       "connect", "optics", "carrier", "scanfields", "focus",
-      "scan", "detect", "select", "acquire", "save", "disconnect",
+      "scan", "detect", "select", "acquire",
     ]);
   });
 
   it("walks the shorter runs in this order", () => {
     expect(ids("overview_only")).toEqual([
-      "connect", "optics", "carrier", "scanfields", "scan", "save", "disconnect"]);
+      "connect", "optics", "carrier", "scanfields", "scan", "save"]);
     expect(ids("focus_check")).toEqual([
-      "connect", "optics", "carrier", "scanfields", "focus", "save", "disconnect"]);
+      "connect", "optics", "carrier", "scanfields", "focus", "save"]);
   });
 
   it("names every workflow in plain words for the chooser", () => {
@@ -222,12 +217,10 @@ describe("workflows compose the catalogue rather than restating it", () => {
   });
 
   it("every step names panels the page can supply", () => {
-    /* Focus, detection, selection and the gallery are channels beside the
-       canvas now, not panels — a step that named one here would ask for a
-       tab that is gone. */
-    const known = new Set([
-      "canvas", "viewer-canvas",
-      "connect", "optics"]);
+    /* Every working step is a channel beside the canvas now, not a panel —
+       a step that named one of the old panels here would ask for a tab that
+       is gone. */
+    const known = new Set(["canvas", "viewer-canvas"]);
     for (const wf of Object.keys(WORKFLOWS)) {
       for (const s of WORKFLOWS[wf].steps) {
         for (const p of s.panels ?? []) expect(known.has(p), `${s.id} -> ${p}`).toBe(true);
