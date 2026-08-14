@@ -62,12 +62,25 @@ trying; the warm, which only reads and steps aside constantly, was
 merely flat. Both were reverted the same evening — the O(change) derive
 bookkeeping from the same change survived, because it measured well.
 
-The route that would genuinely work is process-level: workers that each
-open the governed run themselves, so the full fail-closed gate rides
-along, splitting the bake by rows within each level. That touches the
-bake's stamp-consistency reasoning (a commit landing mid-bake must
-still be provably re-patched), so it is a careful slice of its own —
-best attempted on a machine with the cores to make it worth the care.
+The route that genuinely works is process-level, and it is now built
+for the governed bake: worker processes that each open the run
+themselves through the same gateway a server uses, so the full
+fail-closed gate rides along, striping the rows of each pinned level
+across workers. Measured on the same 1,024-position fixture that
+refuted the threads: serial 20.4 s, two processes 13.0 s, four 10.4 s —
+on four cores, against the threads' 26.8 s. zarr's own concurrency
+knobs (``async.concurrency``, ``threading.max_workers``) were tried on
+the serial loop and moved nothing (19.7 s), which settles it: the
+ceiling is one interpreter, not the loop's scheduling. A commit landing
+mid-bake stays safe by the stamp's prefix rule — workers can only bake
+NEWER ground than the stamp claims, and the first derive re-patches
+those commits' footprints (the same catch-up finding D2 pinned).
+
+The coarse warm is still serial: it lives inside the serving process by
+design (its slabs must land in the serving composer's own memory), so
+the process trick does not transfer directly. Feeding the warm from
+already-baked FILES instead of composing — the bake now finishes fast
+enough to come first — is the recorded idea for it.
 
 ## The ladder again, with the surviving fixes
 

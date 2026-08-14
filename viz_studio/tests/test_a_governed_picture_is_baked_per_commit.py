@@ -306,8 +306,8 @@ def test_a_commit_landing_during_the_initial_bake_is_not_lost(tmp_path,
     the_real_bake = declaring._bake_the_coarse_ground
     landing = {"left": 1}
 
-    def a_commit_lands_mid_bake(store, composer, described):
-        baked = the_real_bake(store, composer, described)
+    def a_commit_lands_mid_bake(store, composer, described, **carried):
+        baked = the_real_bake(store, composer, described, **carried)
         if landing["left"]:
             landing["left"] -= 1
             run.write_and_publish("posB", some_specimen(4242))
