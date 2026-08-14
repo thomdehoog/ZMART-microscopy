@@ -27,6 +27,7 @@ import os
 import shutil
 import sys
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from multiprocessing import get_context
 from pathlib import Path
 
@@ -313,6 +314,7 @@ def _bake_the_coarse_ground(store: Path, composer: Composer,
     pinned = sorted(composer.pinned_levels)
     datasets = described["attributes"]["ome"]["multiscales"][0]["datasets"]
 
+    built_by_workers = False
     if governed_run is not None and _BAKE_PROCESSES > 1:
         # A governed bake fans its rows out over worker processes, each with
         # its own reading of the run (see _start_baking). Started by spawn
@@ -323,26 +325,42 @@ def _bake_the_coarse_ground(store: Path, composer: Composer,
         # is stopped first; four processes building the picture do not need
         # a fifth building it again in the background.
         composer.stop_warming()
-        working = ProcessPoolExecutor(
-            max_workers=_BAKE_PROCESSES, mp_context=get_context("spawn"),
-            initializer=_start_baking, initargs=(governed_run, composer.piece),
-        )
         try:
-            stripes = []
-            for level in pinned:
-                down = composer.grid(level)[1]
-                for worker in range(min(_BAKE_PROCESSES, down)):
-                    rows = tuple(range(worker, down, _BAKE_PROCESSES))
-                    if rows:
-                        stripes.append(working.submit(
-                            _bake_one_stripe, store, level, rows))
-            # Consumed in order; a stripe that cannot be built stops the
-            # bake, exactly as the serial loop's first failure would.
-            for stripe in stripes:
-                stripe.result()
-        finally:
-            working.shutdown(wait=True, cancel_futures=True)
-    else:
+            working = ProcessPoolExecutor(
+                max_workers=_BAKE_PROCESSES, mp_context=get_context("spawn"),
+                initializer=_start_baking,
+                initargs=(governed_run, composer.piece),
+            )
+            try:
+                stripes = []
+                for level in pinned:
+                    down = composer.grid(level)[1]
+                    for worker in range(min(_BAKE_PROCESSES, down)):
+                        rows = tuple(range(worker, down, _BAKE_PROCESSES))
+                        if rows:
+                            stripes.append(working.submit(
+                                _bake_one_stripe, store, level, rows))
+                # Consumed in order; a stripe that cannot be built stops the
+                # bake, exactly as the serial loop's first failure would.
+                for stripe in stripes:
+                    stripe.result()
+            finally:
+                working.shutdown(wait=True, cancel_futures=True)
+            built_by_workers = True
+        except BrokenProcessPool:
+            # The workers died before doing anything -- almost always
+            # because the calling script starts work at import time, and a
+            # spawned worker re-imports the calling script. The bake matters
+            # more than the speed-up, so it is redone serially, whole; a
+            # piece written twice is written identically. The fix on the
+            # caller's side is one line: put the script's work under
+            # ``if __name__ == "__main__":``.
+            print("The bake's worker processes could not start (usually: "
+                  "the calling script runs its work at import time, and a "
+                  "worker re-imports it -- guard the script with "
+                  "'if __name__ == \"__main__\":'). Baking serially "
+                  "instead, which is slower and otherwise identical.")
+    if not built_by_workers:
         for level in pinned:
             deep, down, across = composer.grid(level)
             for plane in range(deep):
