@@ -1305,7 +1305,10 @@ def make_server(
     # How open pages are told that something has changed.  A recognized ZMART
     # run is governed only by its atomic publication marker; ordinary folders
     # retain the generic directory watcher.
-    told = Announcements()
+    told = Announcements(
+        when_changed=(building.catch_up_governed_runs
+                      if building is not None else None)
+    )
     live_registry = LiveRegistry(library)
     live_registry.refresh()
     watchers = []
@@ -1526,7 +1529,7 @@ def make_server(
     # frame, which is the honest cost of noticing new frames -- but a page reloading,
     # a second window, or several polls arriving together now share one.
     last_built: dict = {"revision": None, "config": None}
-    building = threading.Lock()
+    building_config = threading.Lock()
 
     def config_now() -> dict:
         (
@@ -1542,7 +1545,7 @@ def make_server(
         )
         if last_built["revision"] == revision:
             return last_built["config"]
-        with building:
+        with building_config:
             # Asked again with the lock held: while waiting, another thread may have
             # built exactly what this one was about to build.
             if last_built["revision"] == revision:

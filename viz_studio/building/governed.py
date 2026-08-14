@@ -43,6 +43,7 @@ the copies carry that difference as a fixed outer index — see
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import threading
@@ -58,6 +59,14 @@ from zmart_live.shardlink import how_the_array_is_stored
 
 from composer import PIECE, Composer
 from mosaic import IMAGE_SUFFIX, Copy, Mosaic, Tile, _read_one_tile
+
+
+log = logging.getLogger("viz_studio.governed")
+
+# Page requests own interactive serving while commits are arriving. The
+# announcement worker is a safety net for the state left after demand stops,
+# so it begins only after this much quiet rather than contending per commit.
+_BAKE_CATCH_UP_QUIET_S = 0.25
 
 
 def _promising_its_blocks(copy: Copy) -> Copy:
@@ -135,6 +144,30 @@ def _holding_the_bake_lock(store: Path):
                 fcntl.flock(holding.fileno(), fcntl.LOCK_UN)
     finally:
         holding.close()
+
+
+def _after_a_windows_reader(operation, *paths):
+    """Perform one file swap/removal after a brief Windows sharing lock.
+
+    POSIX permits replacing a file through an open reader; Windows refuses it
+    until that reader closes.  Baked chunks are read by the page and the warm
+    pass while a commit patches them, so a sharing violation is expected and
+    short-lived rather than a reason to turn the whole derive into absence.
+    Retry only the Windows sharing-shaped permission errors, for a bounded
+    five seconds; real permissions damage still fails closed.
+    """
+    deadline = time.monotonic() + 5.0
+    pause = 0.002
+    while True:
+        try:
+            return operation(*paths)
+        except PermissionError as problem:
+            sharing = (getattr(problem, "winerror", None) in (5, 32, 33)
+                       or getattr(problem, "errno", None) in (5, 13))
+            if os.name != "nt" or not sharing or time.monotonic() >= deadline:
+                raise
+            time.sleep(pause)
+            pause = min(pause * 2, 0.05)
 
 
 def _a_tile_stamped(pattern: Tile, store: Path,
@@ -308,6 +341,22 @@ class GovernedRun:
         self._shown = Path(store).resolve() if store is not None else None
         self._baked: tuple[int, ...] | None = None
         self._bake_guard = threading.Lock()
+        # A snapshot, its bake patch, and its installation are one ordered
+        # transaction.  The bake guard alone is too late: two requests may
+        # derive different states before it, then acquire it newest-first;
+        # the older patcher rewrites newer ground before installation makes
+        # it stand down.  Serial derivation lets the waiter reuse the state
+        # just installed, or derive one catch-up snapshot from it.
+        self._derive_guard = threading.Lock()
+        # Announcements, rather than piece requests, drive the last derive
+        # after a burst. One short-lived worker belongs to this opened run;
+        # repeated announcements move its quiet deadline rather than baking
+        # intermediate states behind the same lock page requests need.
+        self._catch_up_guard = threading.Condition()
+        self._catch_up_requested = False
+        self._catch_up_after = 0.0
+        self._catch_up_thread: threading.Thread | None = None
+        self._closing = False
         # What the installed snapshot folded and framed, and what the stamp
         # said when this instance last patched -- the anchors that make
         # installation forward-only, frame moves total invalidations, and
@@ -351,6 +400,75 @@ class GovernedRun:
 
     def composer(self) -> Composer:
         """The composer for the manifest's state as of now."""
+        with self._derive_guard:
+            return self._derive_and_install_the_composer()
+
+    def request_catch_up(self) -> None:
+        """Schedule a demand-free derive, coalescing a burst of announcements."""
+        with self._catch_up_guard:
+            if self._closing:
+                return
+            self._catch_up_requested = True
+            self._catch_up_after = (time.monotonic()
+                                    + _BAKE_CATCH_UP_QUIET_S)
+            if self._catch_up_thread is not None:
+                self._catch_up_guard.notify_all()
+                return
+            worker = threading.Thread(
+                target=self._catch_up_after_announcements,
+                name=f"zmart-bake-catch-up-{self.folder.name}", daemon=True,
+            )
+            self._catch_up_thread = worker
+            worker.start()
+            self._catch_up_guard.notify_all()
+
+    def _catch_up_after_announcements(self) -> None:
+        """Keep deriving until the last announced manifest state is installed."""
+        while True:
+            with self._catch_up_guard:
+                while True:
+                    if self._closing:
+                        self._catch_up_thread = None
+                        return
+                    wait_for = self._catch_up_after - time.monotonic()
+                    if self._catch_up_requested and wait_for <= 0:
+                        self._catch_up_requested = False
+                        break
+                    self._catch_up_guard.wait(
+                        timeout=max(0.0, wait_for)
+                        if self._catch_up_requested else None)
+            try:
+                self.composer()
+                # Take the locks in the same order as composer. A request may
+                # have derived between the call above and this check; its state
+                # is just as good, and must be allowed to finish first.
+                with self._derive_guard:
+                    current = self._run.manifest.fingerprint()
+                    with self._guard:
+                        settled = current == self._mark
+            except Exception:
+                log.exception("the announced bake at %s could not catch up",
+                              self.folder)
+                with self._catch_up_guard:
+                    if self._catch_up_requested and not self._closing:
+                        continue
+                    self._catch_up_thread = None
+                    return
+            with self._catch_up_guard:
+                if self._closing:
+                    self._catch_up_thread = None
+                    return
+                if not settled and not self._catch_up_requested:
+                    self._catch_up_requested = True
+                    self._catch_up_after = (time.monotonic()
+                                            + _BAKE_CATCH_UP_QUIET_S)
+                if self._catch_up_requested:
+                    continue
+                self._catch_up_thread = None
+                return
+
+    def _derive_and_install_the_composer(self) -> Composer:
+        """Derive, patch and install one manifest state without overtaking."""
         mark = self._run.manifest.fingerprint()
         with self._guard:
             if mark == self._mark and self._held is not None:
@@ -500,7 +618,7 @@ class GovernedRun:
         arriving.write_text(
             json.dumps({"events": events, "tail": tail, "layout": layout}),
             encoding="utf-8")
-        os.replace(arriving, stamp)
+        _after_a_windows_reader(os.replace, arriving, stamp)
 
     def _the_stamp(self) -> dict | None:
         """The stamp's identity, or ``None`` when nothing can be trusted.
@@ -637,12 +755,12 @@ class GovernedRun:
         body = made.bytes_for(level, plane, row, column)
         if body is None:
             if baked.is_file():
-                baked.unlink()
+                _after_a_windows_reader(os.unlink, baked)
             return
         inside.mkdir(parents=True, exist_ok=True)
         arriving = baked.with_name(f"{baked.name}.baking")
         arriving.write_bytes(body)
-        os.replace(arriving, baked)
+        _after_a_windows_reader(os.replace, arriving, baked)
 
     def _rehalve_one_level(self, level: int,
                            pieces: list[tuple[int, int]]) -> None:
@@ -695,9 +813,9 @@ class GovernedRun:
                         / str(row) / str(column))
                 if staged.is_file():
                     real.parent.mkdir(parents=True, exist_ok=True)
-                    os.replace(staged, real)
+                    _after_a_windows_reader(os.replace, staged, real)
                 elif real.is_file():
-                    real.unlink()
+                    _after_a_windows_reader(os.unlink, real)
         shutil.rmtree(staging, ignore_errors=True)
 
     def _compose_the_snapshot(self, before: dict[str, int],
@@ -854,7 +972,15 @@ class GovernedRun:
 
     def close(self) -> None:
         """Let go of the held snapshot, closing whatever it holds open."""
-        with self._guard:
+        with self._catch_up_guard:
+            self._closing = True
+            catching_up = self._catch_up_thread
+            self._catch_up_requested = False
+            self._catch_up_guard.notify_all()
+        if (catching_up is not None
+                and catching_up is not threading.current_thread()):
+            catching_up.join()
+        with self._derive_guard, self._guard:
             held, self._held, self._mark = self._held, None, None
             self._drawing = {}
         if held is not None:

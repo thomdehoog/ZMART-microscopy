@@ -17,8 +17,11 @@ means, because the from-scratch bake is trivially true.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -30,6 +33,7 @@ sys.path.insert(0, str(VIZ.parent))
 from zmart_live.tests.test_coordinator import some_specimen  # noqa: E402
 
 from declare import declare_a_governed_picture  # noqa: E402
+from governed import GovernedRun  # noqa: E402
 from test_the_composer_obeys_the_manifest import (  # noqa: E402
     PIECE, a_governed_run, the_columns_of)
 
@@ -182,6 +186,52 @@ def test_the_writer_can_replace_a_baked_piece_while_it_is_served(tmp_path):
         served.forget(store)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows sharing semantics")
+def test_the_bake_retries_a_transient_windows_sharing_violation(
+        tmp_path, monkeypatch):
+    """A transient Windows sharing lock must not turn a commit into absence.
+
+    Windows refuses ``os.replace`` while another thread is reading the
+    destination chunk.  During a storm the page and the warm pass do exactly
+    that, briefly; failing the derive makes the serving door answer absent and
+    produces the black pause the operator saw.  Reproduce that observed error
+    once at the staged-chunk boundary: the patcher must retry and finish.
+    """
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    governed = GovernedRun(run.folder, piece=PIECE, store=store)
+    governed.composer()
+    import governed as governed_module
+
+    real_replace = governed_module.os.replace
+    refused = {"left": 1}
+
+    def a_reader_temporarily_owns_the_destination(arriving, real):
+        if (refused["left"] and ".patching-" in str(arriving)
+                and ".patching-" not in str(real)):
+            refused["left"] -= 1
+            raise PermissionError(5, "Access is denied", str(real))
+        return real_replace(arriving, real)
+
+    monkeypatch.setattr(governed_module.os, "replace",
+                        a_reader_temporarily_owns_the_destination)
+    try:
+        run.replace_a_position("posA", some_specimen(2200))
+        governed.composer()
+        after = every_baked_file(store)
+    finally:
+        governed.close()
+
+    assert refused["left"] == 0, "the test never reached an extended bake"
+
+    reference = a_fresh_bake_of(run.folder, tmp_path / "reference")
+    assert after == reference, (
+        "the bake did not recover after a transient reader released its chunk"
+    )
+
+
 def test_the_http_route_consults_the_manifest_before_any_baked_file(tmp_path):
     """The backend's own file door must not outrun the gate either.
 
@@ -330,6 +380,210 @@ def test_a_commit_landing_during_the_initial_bake_is_not_lost(tmp_path,
     assert after == reference, (
         "the mid-bake commit was stamped as absorbed but never baked, and "
         "the catch-up never patched it"
+    )
+
+
+def test_the_bake_catches_up_after_demand_stops(tmp_path):
+    """A quiet run heals its bake without a piece request driving it.
+
+    A page can stop asking while a commit storm is still outrunning the bake.
+    Judging through ``composer()`` would hide that failure, because the judge's
+    own ask performs the missing catch-up.  Establish serving once, land a
+    short burst, then judge the stamp directly before touching any serving
+    door.  The eventual byte comparison proves that the independently driven
+    catch-up repaired the ground rather than merely advancing its stamp.
+    """
+    run = a_governed_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    import urllib.request
+
+    backend = str(Path(__file__).resolve().parent.parent / "backend")
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
+    from server import make_server
+
+    # One piece ask opens and remembers the governed run.  It is deliberately
+    # the final image request in this test.
+    inside = next(iter(every_baked_file(store)))
+    assert served.the_bytes_behind(store, inside.replace("\\", "/")) is not None
+    server = make_server(port=0, data_dir=tmp_path / "shown",
+                         store=[store.name])
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        run.write_and_publish("posB", some_specimen(4242))
+        run.replace_a_position("posA", some_specimen(2200))
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_address[1]}/api/announce",
+            data=b"{}", headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=30):
+            pass
+
+        expected = 3
+        stamp_path = store / "baked.json"
+        deadline = time.monotonic() + 5
+        stamped = None
+        while time.monotonic() < deadline:
+            stamped = json.loads(stamp_path.read_text(encoding="utf-8"))
+            if stamped.get("events") == expected:
+                break
+            time.sleep(0.05)
+        assert stamped is not None and stamped.get("events") == expected, (
+            f"the run went quiet at {expected} events but its bake stayed at "
+            f"{None if stamped is None else stamped.get('events')}; no client "
+            "request may be needed to drive the final catch-up"
+        )
+        after = every_baked_file(store)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        served.forget(store)
+
+    reference = a_fresh_bake_of(run.folder, tmp_path / "reference")
+    assert after == reference, (
+        "the demand-free catch-up advanced the stamp without repairing all "
+        "of the ground the burst changed"
+    )
+
+
+def test_background_catch_up_waits_for_the_announcement_storm_to_quiet(
+        tmp_path, monkeypatch):
+    """The safety worker must not starve page derives during a commit storm.
+
+    An eager background worker acquired the derive lock on every intermediate
+    state and immediately reacquired it while page requests waited.  The disk
+    became current, but the operator saw no spiral for more than ten seconds
+    and then the whole tail appeared at once.  Announcements drive the safety
+    pass, but must coalesce until a short quiet window; then exactly one pass
+    runs without any page request.
+    """
+    run = a_governed_run(tmp_path)
+    governed = GovernedRun(run.folder, piece=PIECE)
+    called: list[float] = []
+    caught_up = threading.Event()
+
+    def record_one_catch_up():
+        called.append(time.monotonic())
+        with governed._guard:
+            governed._mark = governed._run.manifest.fingerprint()
+        caught_up.set()
+
+    monkeypatch.setattr(governed, "composer", record_one_catch_up)
+    try:
+        for _ in range(6):
+            governed.request_catch_up()
+            time.sleep(0.05)
+        assert not called, (
+            "background baking began while announcements were still arriving"
+        )
+        assert caught_up.wait(timeout=2), (
+            "the final announcement did not drive a catch-up after quiet"
+        )
+    finally:
+        governed.close()
+    assert len(called) == 1, (
+        f"the announcement burst drove {len(called)} background derives"
+    )
+
+
+def test_an_older_derive_cannot_regress_the_bake_behind_a_newer_one(
+        tmp_path, monkeypatch):
+    """A stale patcher must stand down before it changes baked files.
+
+    Request A can finish composing, pause before the bake lock, and be
+    overtaken by request B for a later commit.  Installation already makes A
+    stand down, but that happens after A has patched: without a bake-side
+    stale check it rewrites B's shared ground from its older snapshot and
+    regresses the stamp.  The next unrelated landing then trusts that
+    regressed stamp, patches only its own footprint, and stamps the whole
+    history current while B's hole survives forever.
+    """
+    from zmart_live.coordinator import LivePublisher
+    from zmart_live.model import GridCell
+    from zmart_live.profiles import plan_the_writing
+    from zmart_live.tests.test_coordinator import FRAME
+
+    profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1)
+    cells = {
+        GridCell(row, column): (
+            "posA" if (row, column) == (0, 0) else
+            "posB" if (row, column) == (0, 1) else
+            "posC" if (row, column) == (3, 3) else
+            f"unused-{row}-{column}"
+        )
+        for row in range(4)
+        for column in range(4)
+    }
+    run = LivePublisher(tmp_path, profile, run_id="out-of-order-bake",
+                        cells=cells, timepoints=1)
+    run.write_and_publish("posA", some_specimen(700))
+    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+                                       name="live", piece=PIECE, bake=True)
+    governed = GovernedRun(run.folder, piece=PIECE, store=store)
+    governed.composer()
+
+    old_waits = threading.Event()
+    let_old_continue = threading.Event()
+    real_keep = governed._keep_the_bake_true
+
+    def hold_the_older_snapshot(made, dirtied, current):
+        if current["events"] == 2:
+            old_waits.set()
+            assert let_old_continue.wait(timeout=30)
+        return real_keep(made, dirtied, current)
+
+    monkeypatch.setattr(governed, "_keep_the_bake_true",
+                        hold_the_older_snapshot)
+    run.replace_a_position("posA", some_specimen(2200))
+    failed: list[BaseException] = []
+
+    def derive_the_older_snapshot():
+        try:
+            governed.composer()
+        except BaseException as problem:  # preserve a thread failure for pytest
+            failed.append(problem)
+
+    older = threading.Thread(target=derive_the_older_snapshot)
+    older.start()
+    assert old_waits.wait(timeout=30), "the older derive did not reach the race"
+
+    run.write_and_publish("posB", some_specimen(4242))
+    newer_done = threading.Event()
+
+    def derive_the_newer_snapshot():
+        try:
+            governed.composer()
+        except BaseException as problem:  # preserve a thread failure for pytest
+            failed.append(problem)
+        finally:
+            newer_done.set()
+
+    newer = threading.Thread(target=derive_the_newer_snapshot)
+    newer.start()
+    # Without ordering, the newer derive overtakes and finishes here.  With
+    # ordering, it waits behind the older transaction; either way, release
+    # the deliberately paused request and let both reach a settled state.
+    newer_done.wait(timeout=5)
+    let_old_continue.set()
+    older.join(timeout=30)
+    newer.join(timeout=30)
+    assert not older.is_alive(), "the older derive did not finish"
+    assert not newer.is_alive(), "the newer derive did not finish"
+    assert not failed, f"a racing derive failed: {failed!r}"
+
+    # A landing in another piece advances the stamp.  It must also recover
+    # any ground the out-of-order patcher missed, rather than blessing a hole.
+    run.write_and_publish("posC", some_specimen(1900))
+    governed.composer()
+
+    reference = a_fresh_bake_of(run.folder, tmp_path / "reference")
+    assert every_baked_file(store) == reference, (
+        "an older derive rewrote a newer landing, then the next commit "
+        "stamped the bake current without repairing the missed ground"
     )
 
 
