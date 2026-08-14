@@ -85,7 +85,15 @@ comments.
   `viz_studio/backend/launcher.py` (a native View → "Reload the
   picture" menu) awaiting behavioural verification.
 - A transient-flicker rate ceiling between 10 and 20 commits/s,
-  untouched viewer — measured, unexplained, benign at real rates.
+  untouched viewer — measured, unexplained, benign at real rates. The
+  operator's hypothesis, worth testing first: ordinary engine memory
+  pressure. The chunk queue runs a fixed budget (1 GB GPU / 2 GB
+  system, whatever the card holds), and storm-plus-zoom eviction going
+  dark until refetch would look exactly like the transient half of the
+  night's symptoms — self-healing holes, never the persistent stripes
+  and never the server-side refusal. Raise the capacities and watch
+  whether the transients move; if they do, that whole symptom layer
+  files under "designed behaviour under a budget", not under the bug.
 - The campaign's other threads (bake worker count on 24 cores, the
   prefill flicker, the publish path's metadata round-trips) still
   stand in the doc's open-threads list.
