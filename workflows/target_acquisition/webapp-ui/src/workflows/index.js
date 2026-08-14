@@ -23,7 +23,7 @@ import { numbered } from "../frame/steps.js";
 import {
   connect, opticalConfiguration, carrierConfiguration, initialScanfields,
   focusStrategy, scanOverview, detectCells, selectCells, acquireAndCurate,
-  saveRun, disconnect, theCanvas,
+  saveRun, theCanvas,
   reworded,
 } from "./steps.js";
 
@@ -50,8 +50,6 @@ export const WORKFLOWS = {
       detectCells,
       selectCells,
       acquireAndCurate,
-      saveRun,
-      disconnect,
     ],
   ),
 
@@ -67,7 +65,6 @@ export const WORKFLOWS = {
         why: "Writes the stitched map and its report to the run folder.",
         note: "map + report written",
       }),
-      reworded(disconnect, { why: "Releases the microscope." }),
     ],
   ),
 
@@ -86,7 +83,6 @@ export const WORKFLOWS = {
         ms: 700,
         note: "residual 1.8 µm · written",
       }),
-      reworded(disconnect, { why: "Releases the microscope." }),
     ],
   ),
 

@@ -60,7 +60,9 @@ export const connect = {
   why: "Choose the microscope, its API and the password, then open the session.",
   btn: "Connect",
   ownButton: true,
-  panels: ["connect"],
+  /* The first step asks for the canvas, so the stage is there from the start:
+     every step keeps the picture on the left and its controls in the channel. */
+  panels: ["canvas"],
   ms: 1900,
 };
 
@@ -69,7 +71,7 @@ export const opticalConfiguration = {
   title: "Optical configuration",
   why: "Set the microscope up in its own software, name the preset, and record it.",
   ownButton: true,
-  panels: ["optics"],
+  panels: [],
   mode: "optics",
   /* A preset is recorded once it has been read off the instrument, which is
      what gives a bar something to say for itself. */
@@ -182,15 +184,6 @@ export const saveRun = {
   note: "report + layout written",
 };
 
-export const disconnect = {
-  id: "disconnect",
-  title: "Disconnect",
-  why: "Releases the microscope and shuts the analysis engine down.",
-  btn: "Disconnect",
-  panels: [],
-  ms: 600,
-  note: "session closed",
-};
 
 /**
  * The two steps of the canvas demonstration.

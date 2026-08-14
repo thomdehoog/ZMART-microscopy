@@ -718,13 +718,9 @@ canvas.livecv[hidden] { display: none; }
 }
 
 /* ---- setup panel -------------------------------------------------------
-   What the run is configured with, shown while there is no acquired data to
-   put on the canvas. */
-.setup-wrap { overflow-y: auto; padding: 22px 26px; }
-.setup-list {
-  display: grid; gap: 18px; max-width: 720px;
-  grid-template-columns: minmax(0, 1fr);
-}
+   What the run is configured with. The cards render into the channel like
+   every other step's controls; this is their margin inside it. */
+.side-pad { padding: 12px 14px 14px; }
 
 /* ---- session card ------------------------------------------------------
    The whole card reads top to bottom: what it is for, what it was opened
@@ -857,7 +853,9 @@ canvas.livecv[hidden] { display: none; }
 .rec-row, .rec-new {
   display: grid; align-items: center; gap: var(--row-gap); min-height: 28px;
 }
-.rec-row { grid-template-columns: var(--fold-col) minmax(120px, 1fr) auto 26px; }
+/* Name and summary share the row's width and give way with an ellipsis, so a
+   narrow channel truncates them instead of pushing the row out of its box. */
+.rec-row { grid-template-columns: var(--fold-col) minmax(80px, 1fr) minmax(0, 1fr) 26px; }
 /* The open bar carries no empty fold column. It opens with the name it is
    there to take, where a recorded row opens with its triangle, so the two
    begin on the same edge instead of the bar sitting indented behind a column
@@ -867,7 +865,7 @@ canvas.livecv[hidden] { display: none; }
    to the panel's edge offers room for a sentence when what goes in it is a
    word. The button follows on directly and the slack collects at the end,
    where it says nothing rather than holding the bar apart. */
-.rec-new { grid-template-columns: 240px max-content 1fr; }
+.rec-new { grid-template-columns: minmax(0, 240px) max-content 1fr; }
 
 .rec-fold, .rec-new input { grid-column: 1; }
 .rec-name { grid-column: 2; }
@@ -882,10 +880,14 @@ canvas.livecv[hidden] { display: none; }
 }
 .rec-new .session-hint { grid-column: 1 / -1; margin-top: -2px; }
 
-.rec-name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-weight: 600; }
+.rec-name {
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .rec-state {
   font-family: var(--mono); font-size: 12px; color: var(--ink-2);
   text-align: right; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* The controls sit on the bar rather than in boxes of their own. A bordered
    field inside a bordered box inside a bordered group is three edges saying

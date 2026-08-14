@@ -129,15 +129,18 @@ resets it to step 1.
 
 ## What the page is
 
-A left rail of workflow steps, a right side whose panels follow the step.
-Ten steps in `target_acquisition`:
+A left rail of workflow steps; one layout for every step — the canvas on the
+left from the very first step, and the standing step's controls in a channel
+on the right whose width the operator drags with the divider (canvas bigger
+by default). Nine steps in `target_acquisition`:
 
 1 Microscope configuration · 2 Optical configuration · 3 Carrier configuration ·
 4 Initial scanfields · 5 Focus strategy · 6 Scan the overview · 7 Detect cells ·
-8 Select cells · 9 Acquire and curate · 10 Save the run · 11 Disconnect
+8 Select cells · 9 Acquire and curate
 
-Two other workflows exist to prove the frame is not built around one:
-`overview_only` (7 steps) and `focus_check` (7).
+There is no Disconnect step (the session card's own Disconnect button ends a
+session) and no Save-the-run step. Two other workflows exist to prove the
+frame is not built around one: `overview_only` (6 steps) and `focus_check` (6).
 
 ## Decisions already settled — do not relitigate without asking
 
@@ -146,6 +149,9 @@ Two other workflows exist to prove the frame is not built around one:
 - The rail is **navigation only**: number, title, one-line result. The number
   carries the state — grey ahead, **green done**, **blue where you are**, and
   blue wins on a step that is both. There is no tick; the badge said it twice.
+  A note appears only where it carries a result worth reading back (the fitted
+  surface, the tile count); Optical configuration carries none — the badge
+  already says done, and the presets are one click away.
 - **Nothing advances by itself.** Finishing a step leaves you on it. The rail
   still gates order — only the next step is enabled.
 - **A step's action sits at the end of what it operates.** There is no action
@@ -155,22 +161,22 @@ Two other workflows exist to prove the frame is not built around one:
   (Microscope Configuration does). Three steps have no button at all: Optical
   Configuration and Carrier configuration are settled by doing the work, and
   Microscope Configuration's lives in its form.
-- **The canvas belongs to the steps that happen inside it** — Carrier
-  configuration onward, and to no others. It is the microscope's own limits
-  drawn to scale, so it exists from *reaching* that step, not from finishing it;
-  nothing about the frame depends on what is mounted in it. Walk back to the
-  session or the instrument and it is gone again: those steps are not about the
-  stage, which makes this the same rule every other panel follows. Setting it up
-  fixes the run's zero too, which is why no step asks for an origin; that
-  happens behind the scenes and is deliberately not drawn. Later the limits come
-  from the controller; today it is UI only.
-- **Every step declares its own panel** — `connect`, `optics`, `carrier`,
-  `focus`, … — rather than sharing one called Setup, so the tab beside the
-  canvas says which of them it opens. The three setup panels draw into the same
-  element because only one is ever shown.
+- **The canvas is always on the stage** — from the first step. It is the
+  microscope's own limits drawn to scale; nothing about the frame depends on
+  what is mounted in it, so it is there before a session is even open. Every
+  step keeps the picture on the left and puts its own controls in the channel:
+  the session card, the preset recorder, the carrier designer, the scanfield
+  editor, the focus patterns, detection, the gate, the gallery — one layout,
+  no tabs of their own. Configuring the carrier fixes the run's zero too,
+  which is why no step asks for an origin; that happens behind the scenes and
+  is deliberately not drawn. Later the limits come from the controller; today
+  it is UI only.
+- **The channel is resizable**: its edge is a divider the operator drags. The
+  width lives in `--side-w` on the root, survives walking between steps, and
+  is clamped so neither the picture nor the controls can be crushed. The
+  canvas is the bigger half by default.
 - **A tab is always drawn, even alone**, because it names what is loaded —
-  Microscope configuration, Optical configuration, Canvas. It said "Setup" for
-  every step once, and then hiding it lost nothing.
+  the Canvas. It said "Setup" for every step once, and hiding it lost nothing.
 - **The channel beside the canvas is headed, not tabbed**, and **it belongs to
   the step standing in it**. Carrier configuration owns it on step 3, Initial
   scanfields on step 4; the heading sits at the right end of the tab row over

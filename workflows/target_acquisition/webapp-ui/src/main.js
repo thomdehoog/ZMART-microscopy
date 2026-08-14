@@ -456,7 +456,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         state.notes[s.id] = `${picked.length} pairs acquired`;
         buildGallery();
       }
-      if (s.id === "disconnect") { state.locked = false; }
 
       /* Finishing a run never moves the operator. The gallery is still being
          curated, the trace still being read, and a step that quietly hands
@@ -473,7 +472,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      They are three different things — a session, a list of presets, a carrier —
      and a tab beside the canvas should say which of them it opens. They draw
      into the same element because only one is ever shown. */
-  const FOOT_IDS = ["foot-setup", "foot-canvas", "foot-viewer-canvas"];
+  const FOOT_IDS = ["foot-canvas", "foot-viewer-canvas"];
 
   /* Every panel a step may ask for, by the name a step uses for it. `whenShown`
      is how a panel that has to build something of its own — a picture drawn by a
@@ -481,8 +480,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      learns that it is on screen. It is called every time the panel comes up, and
      a panel that need do nothing simply has none. */
   const PANEL_META = {
-    connect: { label: "Microscope configuration", panel: "panel-setup" },
-    optics: { label: "Optical configuration", panel: "panel-setup" },
     canvas: { label: "Canvas", panel: "panel-canvas" },
     /* The canvas: one viewer, with a button to say which engine draws it. Which
        engine is the canvas's own affair from here — it carries the view across a
@@ -710,15 +707,11 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      done once a setting exists, and undone again if the last one is forgotten.
      The rail stays honest about what may follow without asking for a press
      that would only repeat what the operator already did. */
+  /* No note in the rail: the green badge already says done, and the presets
+     themselves are one step-click away. */
   function settingsChanged() {
-    const n = recordedBars().length;
-    if (n) {
-      state.done.add("optics");
-      state.notes.optics = `${n} preset${n === 1 ? "" : "s"} recorded`;
-    } else {
-      state.done.delete("optics");
-      delete state.notes.optics;
-    }
+    if (recordedBars().length) state.done.add("optics");
+    else state.done.delete("optics");
   }
 
   const ensureOpenBar = () => {
@@ -960,6 +953,17 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     },
   };
 
+  /* The setup steps live in the channel like everything else: the session
+     card and the preset recorder are the controls of the step being stood on,
+     beside the canvas they configure the run for. They rebuild on every
+     render, the way their panel used to, so nothing in them goes stale. */
+  const connectWidget = {
+    id: "connect", label: "Microscope configuration", mount: () => renderSetup(),
+  };
+  const opticsWidget = {
+    id: "optics", label: "Optical configuration", mount: () => renderSetup(),
+  };
+
   /* The gallery too: the acquired targets ring on the canvas, and the channel
      holds the pairs and the verdicts being collected on them. */
   const galleryWidget = {
@@ -973,6 +977,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   };
 
   const SIDE_WIDGETS = {
+    connect: connectWidget, optics: opticsWidget,
     carrier: carrierWidget, scanfields: scanfieldsWidget,
     focus: focusWidget, detect: detectWidget, select: analysisWidget,
     acquire: galleryWidget,
@@ -1013,7 +1018,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     el("side-divider").hidden = !widget;
     const locked = widget?.id === "carrier" ? carrierLocked() : scanfieldsLocked();
     const key = widget && `${widget.id}:${locked}`;
-    if (state.sideMounted === key) return;
+    // the setup cards rebuild on every render, the way their panel used to;
+    // the working widgets keep their state and mount once per key
+    if (state.sideMounted === key && !(widget && SETUP_CARDS[widget.id])) return;
     state.sideMounted = key;
     state.editor?.destroy?.();
     state.editor = null;
@@ -1118,18 +1125,26 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   }
 
   /* A card belongs to its step and shows while you are standing on it —
-     the same rule the rows follow. Click back on Connect and the session and
-     its checks are there again; step away and the panel is about the step you
-     moved to. */
+     click back on Connect and the session and its checks are there again;
+     step away and the channel is about the step you moved to. */
   const SETUP_CARDS = {
     connect: renderSessionCard,
     optics: renderOpticsCard,
   };
 
-  function renderSetup(which = step(state.activeIdx).id) {
-    const host = el("setup-list");
+  /* The setup cards render into the channel like every other step's controls:
+     cleared and rebuilt on every call, which is how their panel behaved, so
+     nothing in them goes stale. */
+  function renderSetup() {
+    const id = step(state.activeIdx).id;
+    const card = SETUP_CARDS[id];
+    if (!card) return;
+    const host = el("canvas-side");
     host.textContent = "";
-    if (SETUP_CARDS[which]) SETUP_CARDS[which](host);
+    const pad = document.createElement("div");
+    pad.className = "side-pad";
+    card(pad);
+    host.append(pad);
   }
 
   /* Always drawn, even for one. A tab used to say "Setup" for every step and
@@ -1187,7 +1202,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     // `PANEL_META`. Everything below this line is the page drawing on its own
     // canvases, which needs no such warning.
     PANEL_META[show].whenShown?.();
-    if (SETUP_CARDS[show]) renderSetup(show);
     // The acquired overview lies over the plan while the scan is what is being
     // looked at, so which of the two is on screen follows the step.
     liveOverview.showFor(step(state.activeIdx), show);

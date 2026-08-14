@@ -88,12 +88,10 @@ export function blockedBecause(step, run) {
  *
  * The canvas itself is the microscope's own limits drawn to scale, so it appears
  * at the step that first asks for it and then stays for the rest of the run. In
- * every workflow that drives a microscope, that step is the carrier: until the
- * run knows what the sample is mounted in there is no stage to draw, and from
- * that point on everything happens on it. Walking back to a step before it
- * leaves the canvas behind, which is right — the session and the instrument are
- * not on the stage. A workflow where nothing asks for the canvas, such as the
- * canvas demonstration, never shows one.
+ * every workflow that drives a microscope, that step is the first one: the
+ * stage is on screen from the start, every step keeps the picture on the left
+ * and puts its own controls in the channel beside it. A workflow where nothing
+ * asks for the canvas, such as the canvas demonstration, never shows one.
  *
  * Saying which modules it wants is the step's business; how wide they are and
  * which of them is on top is the shell's.
