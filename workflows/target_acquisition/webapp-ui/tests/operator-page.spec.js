@@ -28,10 +28,9 @@ async function connect(page, password = "hunter2") {
 
 /** Set the instrument up, name it, record it — the loop the panel is built on. */
 async function record(page, kind, name) {
-  // exactly one bar is open at a time; recording turns it into the record and
-  // opens a fresh one below
-  const bar = page.locator(".setting-box.open");
-  await bar.locator("select").selectOption(kind);
+  // each kind's section keeps one bar open; recording turns it into the
+  // record and opens a fresh one in its place
+  const bar = page.locator(`.setting-group[data-kind="${kind}"] .setting-box.open`);
   await bar.locator("input").fill(name);
   await bar.locator("button.run").click();
   await page.waitForTimeout(650);
@@ -250,10 +249,12 @@ test("settings are recorded off the instrument, and the list grows", async ({ pa
   await expect(page.locator('.step:has-text("Optical configuration")').first())
     .not.toHaveClass(/done/);
 
-  // a recorded setting and the next open bar are separate boxes, and one bar
-  // is always waiting
-  await expect(page.locator(".setting-box.open")).toHaveCount(1);
-  await expect(page.locator(".setting-box.open").locator("input")).toHaveValue("");
+  // a recorded setting and the open bar are separate boxes, and each kind's
+  // section keeps one waiting
+  await expect(page.locator(".setting-box.open")).toHaveCount(2);
+  for (const input of await page.locator(".setting-box.open input").all()) {
+    await expect(input).toHaveValue("");
+  }
 });
 
 test("the optical settings panel lines up", async ({ page }) => {
@@ -274,8 +275,9 @@ test("the optical settings panel lines up", async ({ page }) => {
     // what opens a recorded row: its fold triangle
     const starts = [...document.querySelectorAll(".rec-fold")]
       .map((e) => round(e.getBoundingClientRect().x));
-    // and the open bar, which is not a box, opens on the edge the boxes are on
-    const openStart = round(document.querySelector(".rec-new input").getBoundingClientRect().x);
+    // and the open bars, which are not boxes, open on the edge the boxes are on
+    const openStarts = [...document.querySelectorAll(".rec-new input")]
+      .map((e) => round(e.getBoundingClientRect().x));
     /* A recorded row runs the width of its box and closes with the remove
        button. The open bar does not: its controls sit together at the start
        and the slack collects after Record, so there is nothing to line the
@@ -290,7 +292,7 @@ test("the optical settings panel lines up", async ({ page }) => {
       recordedHeights: heightsOf(".setting-box.done"),
       lefts: boxes.map((b) => round(b.x)),
       rights: boxes.map((b) => round(b.right)),
-      labels, starts, ends, openStart,
+      labels, starts, ends, openStarts,
     };
   });
 
@@ -303,10 +305,12 @@ test("the optical settings panel lines up", async ({ page }) => {
   one(seen.starts, "every recorded row opens in the same column");
   one(seen.ends, "and closes in the same one");
   expect(seen.lefts[0], "labels flush with the bars").toBe(seen.labels[0]);
-  expect(seen.openStart,
-    "the open bar has no box of its own, so its field starts on the edge the "
-    + "boxes stand on rather than inside one")
-    .toBe(seen.lefts[0]);
+  for (const openStart of seen.openStarts) {
+    expect(openStart,
+      "an open bar has no box of its own, so its field starts on the edge the "
+      + "boxes stand on rather than inside one")
+      .toBe(seen.lefts[0]);
+  }
 });
 
 test("a recorded preset unfolds to show everything that was read", async ({ page }) => {
@@ -342,7 +346,7 @@ test("every label sits the same distance off its box", async ({ page }) => {
       const box = g.querySelector(".setting-box").getBoundingClientRect();
       return Math.round(box.top - label.bottom);
     }));
-  expect(gaps.length, "add-new, plus one per kind").toBe(3);
+  expect(gaps.length, "one section per kind").toBe(2);
   expect(new Set(gaps).size, "one spacing, not one per group").toBe(1);
 });
 
@@ -351,7 +355,7 @@ test("a recording will not reuse a name", async ({ page }) => {
   await gotoStep(page, "Optical configuration");
   await record(page, "acquisition", "survey");
 
-  const bar = page.locator(".setting-box.open");
+  const bar = page.locator('.setting-group[data-kind="acquisition"] .setting-box.open');
   await bar.locator("input").fill("survey");
   await expect(bar.locator("button.run")).toBeDisabled();
   await expect(bar.locator(".session-hint")).toHaveText("that name is already used");
@@ -363,6 +367,12 @@ test("a recording will not reuse a name", async ({ page }) => {
   await bar.locator("input").fill("");
   await expect(bar.locator("button.run"),
     "and will not take an empty one either").toBeDisabled();
+
+  // a name identifies a preset across the run, so the other kind's recorder
+  // refuses it too
+  const other = page.locator('.setting-group[data-kind="autofocus"] .setting-box.open');
+  await other.locator("input").fill("survey");
+  await expect(other.locator("button.run")).toBeDisabled();
 });
 
 test("the api offered follows the microscope chosen", async ({ page }) => {
