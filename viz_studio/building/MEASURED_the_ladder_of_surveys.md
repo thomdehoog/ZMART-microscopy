@@ -492,3 +492,20 @@ driver teleports a zoom factor. The next session's first move is a
 gate that drives the real events — mouse wheel and drags over the
 canvas, mid-storm — and it inherits tonight's ledgers, probes and
 eliminations ready-made.
+
+And then the bottom of it, reached by the operator driving Chrome with
+a real wheel: at twenty commits a second the run BREAKS THE SERVING
+ITSELF — F5 stopped curing, a cold client against a brand-new server
+process over the same folder sees 0.0% lit, and the disk explains why:
+the per-commit bake fell behind the storm and its catch-up never
+repaired the missed ground (7.5% of every baked level, permanently),
+so the picture is behind its manifest and the fail-closed gate does
+what it was built to do — refuse to show a picture that lies, forever.
+Every symptom of the night reorders under this: the gate open and the
+picture partially behind reads as stripes; the gate shut reads as
+blank; slower runs never outran the bake and never saw either. The
+defect with an address: the derive's catch-up must actually re-patch
+the footprints a storm made it skip — or the stamp must refuse to
+advance past unpatched ground so the catch-up knows to return. Until
+then the honest bound stands: twenty a second is forty times a
+microscope, and the hour at real rhythm soaked clean.
