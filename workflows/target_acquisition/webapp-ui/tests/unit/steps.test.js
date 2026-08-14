@@ -142,8 +142,8 @@ describe("panels follow the step", () => {
       focus: ["canvas"],
       scan: ["canvas"],
       detect: ["canvas"],
-      select: ["canvas", "analysis"],
-      acquire: ["canvas", "gallery"],
+      select: ["canvas"],
+      acquire: ["canvas"],
       save: ["canvas"],
       disconnect: ["canvas"],
     });
@@ -222,9 +222,12 @@ describe("workflows compose the catalogue rather than restating it", () => {
   });
 
   it("every step names panels the page can supply", () => {
+    /* Focus, detection, selection and the gallery are channels beside the
+       canvas now, not panels — a step that named one here would ask for a
+       tab that is gone. */
     const known = new Set([
       "canvas", "viewer-canvas",
-      "connect", "optics", "focus", "detect", "analysis", "gallery"]);
+      "connect", "optics"]);
     for (const wf of Object.keys(WORKFLOWS)) {
       for (const s of WORKFLOWS[wf].steps) {
         for (const p of s.panels ?? []) expect(known.has(p), `${s.id} -> ${p}`).toBe(true);

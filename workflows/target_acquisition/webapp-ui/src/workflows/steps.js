@@ -146,23 +146,27 @@ export const detectCells = {
   ready: ({ detect }) => (detect.tested ? null : "try it on one tile first"),
 };
 
+/* Selection is the same shape: the gated cells light up on the canvas, and
+   the channel holds the scatter they are gated on. */
 export const selectCells = {
   id: "select",
   title: "Select cells",
   why: "Gate the cells worth imaging — drag a box on the plot, or pick them on the canvas.",
   btn: "Confirm selection",
-  panels: ["analysis"],
+  panels: [],
   ms: 600,
   mode: "select",
   ready: ({ gated }) => (gated.size ? null : "nothing gated yet"),
 };
 
+/* And the gallery joins the channels: the acquired targets ring on the
+   canvas, and the channel holds the pairs and the verdicts collected on them. */
 export const acquireAndCurate = {
   id: "acquire",
   title: "Acquire and curate",
   why: "Images the selected cells at target magnification and collects your verdicts.",
   btn: "Acquire selection",
-  panels: ["gallery"],
+  panels: [],
   ms: 2200,
   mode: "targets",
   ready: ({ gated }) => (gated.size ? null : "nothing gated yet"),
