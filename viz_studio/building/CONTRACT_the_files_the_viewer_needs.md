@@ -215,13 +215,13 @@ lives in views/:
     │   └── survey.ome.zarr/    here from the run, never touched after
     └── views/                  our pen -- everything the viewer needs
         └── live/
-            ├── logbook/          the liveness record (see below)
+            ├── metadata/         the view's liveness record (see below)
             └── live.ome.zarr/    the baked, viewer-shaped pyramid
 
 One sentence rules it all: data/ is written once by the run and never
 touched; views/ is written for lookers and never trusted as science.
 Shipping data/ ships the science complete. Today's code spells the
-first folder positions/ with the logbook beside it; the renames are a
+first folder positions/ with the zmart-live record beside it; the renames are a
 conversion item for the smart-microscopy writer work, recorded here as
 the target.
 
@@ -262,7 +262,7 @@ Every term names either a stored fact or a computed act, never both:
   store's translation. Owned by the writer.
 - **signing** -- the writer's declaration that a store now counts,
   recorded in the data's own metadata (the member declaration); the
-  logbook only restates it at viewer pace.
+  view's metadata folder only restates it at viewer pace.
 - **placements** -- computed acts, never stored: each window's on-the-fly
   projection of locations into its own pixels (its crop, its zoom). This
   is why views cannot disagree about where things are -- they share the
@@ -273,49 +273,52 @@ Every term names either a stored fact or a computed act, never both:
 The renames the conversion carries, today to target:
 
     positions/ (flat stores)  ->  data/survey.ome.zarr/ (declared members)
-    zmart-live/               ->  views/<view>/logbook/
+    zmart-live/               ->  views/<view>/metadata/
     layout.json               ->  locations.json
     committed.json            ->  signed.json
     (per-run frame facts)     ->  canvas.json, at the experiment level
     views/                    ->  views/ (right all along)
 
-## The logbook lives with the view
+## The view's metadata lives with the view
 
-An earlier draft of this contract placed the logbook inside the
-collection, as the data's own metadata. That was wrong, and the reason
-it was wrong is the honest test of ownership: WHO READS IT. Today the
-logbook has exactly one reader -- the visualizer. Nothing else depends
-on it, because nothing else exists yet, and this contract does not
-build for readers that do not exist.
+What this document long called "the logbook" gets its final, plainer
+name here: it is the VIEW'S METADATA, and it lives in the view's
+folder. An earlier draft placed it inside the collection, as the data's
+own metadata. That was wrong, and the reason it was wrong is the honest
+test of ownership: WHO READS IT. Today this record has exactly one
+reader -- the visualizer. Nothing else depends on it, because nothing
+else exists yet, and this contract does not build for readers that do
+not exist.
 
 So the placement follows from the ownership rule already on every other
 line of this document. The data folder is the microscope's: pixels
 arrive there from the run and nothing is ever added to them by anyone
 else -- if liveness ever deserves to be metadata OF the data, that is
 the experiment writer's and the microscope layer's decision, made with
-their pen, outside our scope. The logbook is viewer plumbing, so it
+their pen, outside our scope. This record is viewer plumbing, so it
 lives inside the view it serves, next to the baked store, the same way
 the layout already does:
 
     views/
     └── live/
-        ├── logbook/           what is published, when, which generation
+        ├── metadata/          what is published, when, which generation
         │                        counts -- append-only diary plus one
         │                        atomically-replaced pointer
         └── live.ome.zarr/     the baked, viewer-shaped pyramid
 
 And one consequence must hold, because it is what "just the viewer's"
-means: DELETING THE LOGBOOK IS FINE. Everything the viewer truly needs
-to know -- which stores are complete, which generation is current, what
-came when -- must be findable in the data and its own metadata, and
-putting it there is the WRITER'S responsibility: the member
-declaration, the timestamps, whatever record rides with the files at
-the moment they are written belongs to the writer's side of the fence.
-The logbook never holds the only copy of any truth. It is the viewer's
-fast, viewer-shaped restatement of what the data already says -- kept
-because re-reading a whole survey to learn "what changed?" is too slow
-at live pace, rebuildable from data/ whenever it is lost, and thrown
-away with the rest of views/ without losing one fact.
+means: DELETING THE VIEW'S METADATA IS FINE. Everything the viewer
+truly needs to know -- which stores are complete, which generation is
+current, what came when -- must be findable in the data and its own
+metadata, and putting it there is the WRITER'S responsibility: the
+member declaration, the timestamps, whatever record rides with the
+files at the moment they are written belongs to the writer's side of
+the fence. The view's metadata never holds the only copy of any truth.
+It is the viewer's fast, viewer-shaped restatement of what the data
+already says -- kept because re-reading a whole survey to learn "what
+changed?" is too slow at live pace, rebuildable from data/ whenever it
+is lost, and thrown away with the rest of views/ without losing one
+fact.
 
 ## The acceptance test that rules everything
 
@@ -326,7 +329,7 @@ put it. Nothing in data/ may reference, expect, or know about views/ --
 the dependency points one way only, which is what "the view is just our
 add-on" means structurally: an arrow with no arrow back. And the test
 cuts both ways: deleting views/ deletes every file we ever wrote --
-logbook included -- and nothing of value is lost, because the data's
+the views' metadata included -- and nothing of value is lost, because the data's
 own metadata already tells the whole story and views/ can be rebuilt
 from it. This test is the standing gate the conversion must ship with,
 in the pattern of test_other_tools_can_read_us: data as clean as if we
