@@ -1,5 +1,122 @@
 # ZMART storm-bake and client-staleness handover
 
+## Resolution update — 2026-08-15
+
+This update supersedes the older verdict and next-step sections below while
+preserving them as the investigation record. The backend catch-up fix remains
+valid, the operator-scale client failure is reproduced and explained, and the
+final candidate and the one full-suite run are green.
+
+### The deterministic operator-scale gate
+
+`test_every_zoom_shows_the_survey_after_a_storm_of_landings` now uses the real
+failure regime: a 40x40 survey, central 12x12 already committed, 1,456 remaining
+commits held at measured 20/s, 150 ms live polling, and real wheel and drag input.
+It preserves full network, worker, landing, memory, and image evidence below the
+campaign-owned `D:\zmart-codex-diagnosis-20260814` folder.
+
+The original serialized-worker candidate was reliably red at:
+
+`automated-20ps-red-candidate-20260815-1`
+
+Manifest and bake both reached 1,600, but the warm 1x view showed 47.1% where F5
+showed 100%. One chunk path had up to 124 simultaneous downloads. Raising the
+browser's memory budgets did not move the failure (`automated-20ps-high-memory-
+candidate-20260815-2`), so the memory-pressure hypothesis is ruled out for the
+persistent symptom.
+
+### What the arbitrary timeout did
+
+The inherited worker pump aborted every refresh still open at 2,000 ms. At this
+scale an aborted HTTP request does not cancel the server's expensive composition;
+it merely abandons the answer while the server continues working. Adding an
+outer retry timer amplified that mistake:
+
+- 3,017 `net::ERR_ABORTED` requests;
+- up to 145 requests simultaneously;
+- one important coarse chunk aborted every two seconds for about 100 seconds;
+- F5 fetched that same chunk successfully in 95 ms after the orphan work drained;
+- the warm 1x view remained 69.6% while F5 was 100%.
+
+That evidence is preserved at
+`automated-20ps-retry-candidate-20260815-10`. The apparently careful 250 ms to
+2 s retry policy was therefore removed. Neuroglancer's HTTP reader already
+retries 429, 503, and 504 with bounded exponential backoff (up to 32 attempts).
+A focused test holds real chunk replies for 2.6 seconds and injects one 503; the
+slow reply is not aborted, the 503 is retried by the HTTP layer without a second
+ZMART timer, coverage never dips, and the same-navigation warm/F5 pictures are
+identical. Final focused evidence:
+`slow-and-transient-confirmation-20260815-16`.
+
+### Final worker behavior
+
+Each backend chunk source now owns one refresh pump:
+
+- named invalidations are coalesced in a set;
+- one batch per source is in flight;
+- the same mutable chunk cannot be downloaded concurrently by two refreshes;
+- later announcements form a final batch after the current batch completes;
+- useful slow work has no invented deadline;
+- successful chunks are delivered as they complete;
+- no absent-key cache and no competing retry timer were added.
+
+The patch marker is now the code identifier
+`zmartPumpRefreshesWithoutDeadline`, not the generic RPC name. Existing generated
+workers containing the legacy 2-second implementation are migrated once; a
+second complete build proved idempotent. This matters on the established T400
+setup, where an "already patched" message had otherwise silently retained the
+old behavior.
+
+### The frontend pour earned its keep
+
+The prompt required the object-preserving frontend delivery to go red or be
+reverted. Stock Neuroglancer object replacement passed the three small no-blink
+variants, so that gate alone did not justify the patch. The full 20/s A/B did:
+
+- stock replacement: 1x warm 72.2%, F5 100%, worker pumps still active;
+- object-preserving delivery: every band matched F5 pixel-for-pixel and all
+  worker pumps ended with pending 0, running false, failures 0.
+
+The stock red is preserved at
+`automated-20ps-final-singleflight-20260815-19`. The final proven combination is
+preserved at `automated-20ps-final-proven-combination-20260815-20`.
+
+### Final acceptance evidence and full suite
+
+The final run sustained 19.95 commits/s and recorded manifest and bake identities
+of `events=1600, tail=1600, layout=1`. Warm and fresh coverage was:
+
+| Zoom | Warm after storm | Same-view F5 |
+| --- | ---: | ---: |
+| 0.15x | 100.000% | 100.000% |
+| 0.40x | 100.000% | 100.000% |
+| 1.00x | 100.000% | 100.000% |
+| 2.50x | 41.026% | 41.026% |
+
+At every band the missing-pixel fraction, changed-pixel fraction, and mean
+absolute pixel error were all exactly zero. There was no response whose body grew
+after reload, no browser console error, no same-key refresh overlap, and no worker
+refresh failure. The dedicated no-blink guard passed all three variants, and the
+2.6-second fixed-navigation gate never dipped below its opening coverage.
+
+The hundreds of remaining `ERR_ABORTED` network events belong to deliberate
+wheel/drag navigation cancelling chunks that are no longer wanted; unlike the
+removed policy, they do not recur every two seconds for the same refresh, create
+same-key overlap, or leave any warm/F5 difference.
+
+The operator then watched the same final bundle in a fresh, automatically popped
+40x40/core-12 outward spiral at a measured 20.00 commits/s. Their verdict was:
+"Its very nice, it does heal." The run finished at 1,456/1,456 live commits and
+the bake independently settled at `events=1600, tail=1600, layout=1`; its server
+was left running for post-run zoom exploration at the operator's request.
+
+The one final whole-suite invocation completed in 24:54:
+
+`769 passed, 5 skipped, 3 xfailed, 2 warnings in 1494.90s`
+
+The warnings are unrelated Pillow `Image.getdata` deprecations. The suite was not
+repeated.
+
 Status recorded on 2026-08-14 from the 24-core T400 workstation.
 
 ## Verdict
