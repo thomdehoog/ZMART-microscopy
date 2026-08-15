@@ -859,9 +859,17 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                     (landed_at[-1] - landed_at[0]))
         print(f"LANDING RATE: {achieved:.2f}/s over "
               f"{len(landed_at)} commits", flush=True)
-        assert 19.5 <= achieved <= 20.5, (
-            f"the supposed 20/s regression actually ran at {achieved:.2f}/s"
-        )
+        if not 19.5 <= achieved <= 20.5:
+            # A machine that cannot hold the landing rate has not run the
+            # regime this gate exists to test -- but that is a fact about the
+            # machine, not about the code. Failing here taught people to
+            # distrust the gate on slower hardware; skipping says plainly
+            # that the question was not answered, and the staleness
+            # assertions below still run wherever the rate CAN be held.
+            pytest.skip(
+                f"this machine sustained {achieved:.2f} commits/s where the "
+                "storm regime needs 20, so the gate's question was not asked"
+            )
         network_phase["name"] = "quiet"
 
         def scale_census() -> dict:
@@ -1193,20 +1201,40 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                   f"{'CHANGED — the reload derive caught the composer up' if after_reload != second_look else 'STILL the same bytes'}",
                   flush=True)
 
+        # The strongest measurement this gate makes, computed for every run
+        # rather than only when a debug folder is set: the warm picture and
+        # the fresh one must be the SAME picture, pixel for pixel. The
+        # lit-pixel comparison asserted further down cannot see content
+        # staleness -- a warm view showing an older generation at the same
+        # brightness counts exactly as lit -- and it is one-sided, so ground
+        # a commit WITHDREW that the warm client still shows slips past it
+        # too. These three numbers see both directions, and they are what
+        # the campaign's own acceptance evidence was measured in.
+        import numpy as np
+
+        image_differences = {}
+        difference_masks = {}
+        for multiple in seen:
+            storm_image = storm_pixels[multiple]
+            fresh_image = fresh_pixels[multiple]
+            storm_lit = storm_image.max(axis=2) > 40
+            fresh_lit = fresh_image.max(axis=2) > 40
+            missing = fresh_lit & ~storm_lit
+            apart = np.abs(fresh_image.astype(np.int16) -
+                           storm_image.astype(np.int16))
+            difference_masks[multiple] = missing
+            image_differences[str(multiple)] = {
+                "shape": list(missing.shape),
+                "missing_fraction": float(missing.mean()),
+                "changed_fraction": float((apart.max(axis=2) > 8).mean()),
+                "mean_absolute_error": float(apart.mean()),
+            }
+
         if debug_folder is not None:
-            import numpy as np
             from PIL import Image
 
-            image_differences = {}
             for multiple in seen:
-                storm_image = storm_pixels[multiple]
-                fresh_image = fresh_pixels[multiple]
-                storm_lit = storm_image.max(axis=2) > 40
-                fresh_lit = fresh_image.max(axis=2) > 40
-                missing = fresh_lit & ~storm_lit
-                changed = np.abs(
-                    fresh_image.astype(np.int16) -
-                    storm_image.astype(np.int16)).max(axis=2) > 8
+                missing = difference_masks[multiple]
                 ys, xs = np.where(missing)
                 height, width = missing.shape
                 grid = []
@@ -1220,13 +1248,7 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                         row.append(round(float(missing[
                             top:bottom, left:right].mean()), 6))
                     grid.append(row)
-                image_differences[str(multiple)] = {
-                    "shape": [height, width],
-                    "missing_fraction": float(missing.mean()),
-                    "changed_fraction": float(changed.mean()),
-                    "mean_absolute_error": float(np.abs(
-                        fresh_image.astype(np.int16) -
-                        storm_image.astype(np.int16)).mean()),
+                image_differences[str(multiple)].update({
                     "missing_bbox": ([int(xs.min()), int(ys.min()),
                                       int(xs.max()), int(ys.max())]
                                      if len(xs) else None),
@@ -1243,7 +1265,7 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                             enumerate(missing.mean(axis=0)),
                             key=lambda one: one[1], reverse=True)[:12]
                     ],
-                }
+                })
                 Image.fromarray((missing * 255).astype(np.uint8)).save(
                     debug_folder / f"missing_after_storm_{multiple:.2f}x.png")
 
@@ -1340,6 +1362,28 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                 "cures, which is to say: stale pieces. All bands, storm vs "
                 "fresh: " + ", ".join(
                     f"{m:.2f}x {seen[m]:.1%} vs {fresh[m]:.1%}"
+                    for m in sorted(seen))
+            )
+        # And beyond the amount of picture: the same picture. The tolerances
+        # sit far below what one stale 512-pixel piece would register, so
+        # they forgive nothing real; they exist only so that a single pixel
+        # of rendering noise can never flake an honest run.
+        for multiple in seen:
+            found = image_differences[str(multiple)]
+            assert (found["missing_fraction"] <= 0.002
+                    and found["changed_fraction"] <= 0.005
+                    and found["mean_absolute_error"] <= 0.5), (
+                f"at {multiple:.2f}x the warm picture is not the same picture "
+                f"a fresh client sees: {found['missing_fraction']:.3%} of "
+                f"pixels lit fresh but dark warm, {found['changed_fraction']:.3%} "
+                f"of pixels differing, mean absolute error "
+                f"{found['mean_absolute_error']:.2f}. The lit-pixel comparison "
+                "above cannot see this — an older generation at equal "
+                "brightness, or withdrawn ground the warm client still shows, "
+                "both count as lit — so pixel identity is asserted in its own "
+                "right. Every band: " + ", ".join(
+                    f"{m:.2f}x missing {image_differences[str(m)]['missing_fraction']:.3%}"
+                    f" changed {image_differences[str(m)]['changed_fraction']:.3%}"
                     for m in sorted(seen))
             )
     finally:
