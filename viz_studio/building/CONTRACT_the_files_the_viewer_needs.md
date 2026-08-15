@@ -301,3 +301,16 @@ bioformats2raw ships its OME/ companion metadata inside the zarr:
 Shipping the collection ships everything: pixels, membership, witness.
 The logbook is not bookkeeping beside the data; it is the data's own
 metadata in a container strong enough for history and atomicity.
+
+## The acceptance test that rules everything
+
+Delete views/. Hand data/ to a stranger with a community tool and no
+ZMART anything. Everything must work: the collection opens, the members
+are the signed current generations, every location is where the stage
+put it. Nothing in data/ may reference, expect, or know about views/ --
+the dependency points one way only, which is what "the view is just our
+add-on" means structurally: an arrow with no arrow back. The witness
+rides along invisible to outsiders, exactly as bioformats2raw's OME/
+companion does. This test is the standing gate the conversion must ship
+with, in the pattern of test_other_tools_can_read_us: data as clean as
+if we had never existed, because for that reader, we haven't.
