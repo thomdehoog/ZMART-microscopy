@@ -181,3 +181,23 @@ target -- the same number the motors understand, no conversion. See it,
 click it, shoot it, see it land again in the same place: the loop closes
 through the coordinate system precisely because the canvas precedes
 every view instead of being defined by one.
+
+## The experiment level: what supersedes acquisitions lives above them
+
+The same test that sorts everything -- would this exist even if no
+acquisition ran? -- names what lives at the experiment level, beside the
+acquisition folders: the FRAME (the one coordinate system every
+acquisition happens in: units, origin, orientation, calibration), the
+SPECIMEN it all happened to, and the CONTROLLER'S DIARY (which
+acquisitions ran, in what order, and why -- which detections spawned
+which targets). This completes a symmetry that holds at every level:
+one author and one record per floor. The controller authors the
+experiment's record, the publisher authors each acquisition's, the
+viewer authors each view's bookkeeping -- one pen per level, truth
+flowing downhill, stamped copies below but never the pen.
+
+One rule protects self-containment here: each acquisition carries
+ABSOLUTE coordinates in the shared frame, so it stands alone when
+shipped or moved. The experiment record defines and documents the frame
+and remembers the why; it must never become required to interpret an
+acquisition's numbers.
