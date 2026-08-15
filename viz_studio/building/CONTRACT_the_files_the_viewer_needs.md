@@ -190,7 +190,12 @@ acquisition folders: the FRAME (the one coordinate system every
 acquisition happens in: units, origin, orientation, calibration), the
 SPECIMEN it all happened to, and the CONTROLLER'S DIARY (which
 acquisitions ran, in what order, and why -- which detections spawned
-which targets). This completes a symmetry that holds at every level:
+which targets). These experiment-level records bundle together into one
+CONFIG folder that lives next to the acquisition folders, so the
+experiment's top level stays readable at a glance: acquisitions, and
+one config/ that explains the world they happened in.
+
+This completes a symmetry that holds at every level:
 one author and one record per floor. The controller authors the
 experiment's record, the publisher authors each acquisition's, the
 viewer authors each view's bookkeeping -- one pen per level, truth
@@ -200,7 +205,12 @@ One rule protects self-containment here: each acquisition carries
 ABSOLUTE coordinates in the shared frame, so it stands alone when
 shipped or moved. The experiment record defines and documents the frame
 and remembers the why; it must never become required to interpret an
-acquisition's numbers.
+acquisition's numbers. And a view that wants to be fully self-contained
+may keep a STAMPED COPY of the canvas inside its own metadata folder --
+a copy travels fine, because "stamped copies below but never the pen"
+is exactly the rule: the one true canvas lives in config/ and never
+moves, and a view's copy is a convenience for shipping, never a second
+authority.
 
 ## The two-folder resolution: data and views
 
@@ -276,7 +286,7 @@ The renames the conversion carries, today to target:
     zmart-live/               ->  views/<view>/metadata/
     layout.json               ->  locations.json
     committed.json            ->  signed.json
-    (per-run frame facts)     ->  canvas.json, at the experiment level
+    (per-run frame facts)     ->  config/canvas.json, at the experiment level
     views/                    ->  views/ (right all along)
 
 ## The view's metadata lives with the view
