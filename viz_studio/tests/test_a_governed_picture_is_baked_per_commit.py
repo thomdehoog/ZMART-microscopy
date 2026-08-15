@@ -530,11 +530,15 @@ def test_an_older_derive_cannot_regress_the_bake_behind_a_newer_one(
     let_old_continue = threading.Event()
     real_keep = governed._keep_the_bake_true
 
-    def hold_the_older_snapshot(made, dirtied, current):
+    def hold_the_older_snapshot(made, dirtied, current, *rest, **named):
+        # The trailing arguments belong to the patcher (its phase ledger and
+        # the paste-over changes) and this race cares nothing about them --
+        # they pass through untouched, so the interceptor keeps working as
+        # the real signature grows.
         if current["events"] == 2:
             old_waits.set()
             assert let_old_continue.wait(timeout=30)
-        return real_keep(made, dirtied, current)
+        return real_keep(made, dirtied, current, *rest, **named)
 
     monkeypatch.setattr(governed, "_keep_the_bake_true",
                         hold_the_older_snapshot)
