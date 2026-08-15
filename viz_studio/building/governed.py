@@ -391,12 +391,27 @@ class GovernedRun:
         self._corners: dict[str, tuple[float, float, float]] = {}
         self._corners_mark: tuple[int, str] | None = None
         self._guard = threading.Lock()
+        # The zarr handles the bake patcher works through, opened once per
+        # opened run rather than once per landing. The declared store's
+        # geometry is fixed at declaration -- re-declaring serves a fresh
+        # GovernedRun -- so a handle opened for one landing is just as true
+        # for every later one, and reopening them per commit was measured as
+        # most of what a landing cost on a large survey (see the bake
+        # accounting below and test_a_landing_costs_the_change_not_the_survey).
+        self._bake_below: dict[int, zarr.Array] = {}
+        self._bake_staging: dict[int, zarr.Array] = {}
         # What deriving snapshots has cost, for the scale harnesses: how many
         # times, how long the last one took, and how many tiles it read from
-        # disk. Read in-process by whoever started the server; never consulted
-        # by the serving path itself.
+        # disk. The bake counters say how much machinery the LAST patch built
+        # rather than reused -- arrays opened, staging folders constructed --
+        # because a landing's cost must be the change, and rebuilding scaffolds
+        # per landing was where a large survey's landings quietly grew dear.
+        # Read in-process by whoever started the server; never consulted by
+        # the serving path itself.
         self.accounting = {"derives": 0, "last_derive_ms": 0.0,
-                           "last_tiles_read": 0, "last_positions": 0}
+                           "last_tiles_read": 0, "last_positions": 0,
+                           "last_bake_arrays_opened": 0,
+                           "last_bake_stagings_built": 0}
 
     def composer(self) -> Composer:
         """The composer for the manifest's state as of now."""
@@ -679,6 +694,8 @@ class GovernedRun:
         system, so a patcher that dies releases it.
         """
         with self._bake_guard, _holding_the_bake_lock(self._shown):
+            self.accounting["last_bake_arrays_opened"] = 0
+            self.accounting["last_bake_stagings_built"] = 0
             stamped = self._the_stamp()
             if stamped == current:
                 self._stamp_installed = current
@@ -793,14 +810,35 @@ class GovernedRun:
         from a fresh bake's; each staged chunk file then replaces the real
         one atomically, and a piece the halving left all-fill has its file
         removed, absence meaning fill here as everywhere.
+
+        The handles and the staging folder are built ONCE per opened run and
+        reused for every later landing. Rebuilding them per landing -- a
+        directory teardown, a metadata copy, and five array opens per level,
+        under the bake lock -- was measured as the bulk of what one landing
+        cost on a 32x32 survey, and none of it changes between landings: the
+        declared store's geometry is fixed, and every staged chunk file is
+        moved out of the staging folder before the patch ends, so the folder
+        comes back empty. The one teardown that still happens is the first
+        of a session, which also sweeps away whatever a crashed predecessor
+        may have left staged.
         """
-        below = zarr.open_array(str(self._shown / str(level - 1)), mode="r")
+        below = self._bake_below.get(level)
+        if below is None:
+            below = zarr.open_array(str(self._shown / str(level - 1)),
+                                    mode="r")
+            self._bake_below[level] = below
+            self.accounting["last_bake_arrays_opened"] += 1
         staging = self._shown / f".patching-{level}"
-        shutil.rmtree(staging, ignore_errors=True)
-        staging.mkdir()
-        shutil.copy2(self._shown / str(level) / "zarr.json",
-                     staging / "zarr.json")
-        above = zarr.open_array(str(staging), mode="r+")
+        above = self._bake_staging.get(level)
+        if above is None:
+            shutil.rmtree(staging, ignore_errors=True)
+            staging.mkdir()
+            shutil.copy2(self._shown / str(level) / "zarr.json",
+                         staging / "zarr.json")
+            above = zarr.open_array(str(staging), mode="r+")
+            self._bake_staging[level] = above
+            self.accounting["last_bake_arrays_opened"] += 1
+            self.accounting["last_bake_stagings_built"] += 1
         deep, height, width = above.shape
         for row, column in pieces:
             top, left = row * self._piece, column * self._piece
@@ -827,7 +865,9 @@ class GovernedRun:
                     _after_a_windows_reader(os.replace, staged, real)
                 elif real.is_file():
                     _after_a_windows_reader(os.unlink, real)
-        shutil.rmtree(staging, ignore_errors=True)
+        # The staging folder stays, empty of chunks -- every staged file was
+        # just moved out or was never written -- so the next landing reuses
+        # it instead of paying to rebuild it. See the docstring above.
 
     def _compose_the_snapshot(self, before: dict[str, int],
                               kept: dict[str, Tile],
@@ -994,6 +1034,11 @@ class GovernedRun:
         with self._derive_guard, self._guard:
             held, self._held, self._mark = self._held, None, None
             self._drawing = {}
+            # The bake patcher's handles go with the run. A zarr array holds
+            # no file open between operations, so letting the objects go is
+            # all the closing they need.
+            self._bake_below = {}
+            self._bake_staging = {}
         if held is not None:
             held.close()
 
