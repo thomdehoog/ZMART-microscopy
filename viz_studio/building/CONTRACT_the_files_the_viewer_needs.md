@@ -105,30 +105,41 @@ at. The recommended rule for everything built on this contract:
 
 ## The shape of an experiment
 
-Acquisitions group into an experiment as plain folders, each acquisition a
+An experiment's top level is exactly two folders, each with one meaning:
+config/ holds the world (the canvas and the controller's diary), and
+acquisitions/ holds what happened in that world. Each acquisition is a
 complete run named for what it is and numbered, because an experiment
 routinely holds several of the same kind:
 
     experiment-2026-08-15/
-    ├── overview-1/            one acquisition = one complete run
-    │   ├── positions/           the pixels (interoperable, immutable)
-    │   ├── zmart-live/          the record that rules (ours)
-    │   └── views/               the viewer's cache (disposable)
-    ├── targets-2/
-    │   ├── positions/
-    │   ├── zmart-live/
-    │   └── views/
-    └── ...
+    ├── config/                the world: canvas.json, the controller's diary
+    └── acquisitions/
+        ├── overview-1/          one acquisition = one complete run
+        │   ├── data/              the microscope's pen
+        │   └── views/             ours, disposable
+        ├── targets-2/
+        │   ├── data/
+        │   └── views/
+        └── ...
 
-Every acquisition carries all three -- the record is not optional and not
-shared, because each run's layout and profile are sealed on their own. The
-acquisition's TYPE lives inside it (the profile records it), never only in
-the folder name. And when acquisitions cause one another -- an overview's
-detections spawning target scans, which is the whole point of a smart
-microscope -- that provenance belongs in a small record at the experiment
-level, beside the acquisition folders: plain JSON, ours, following the
-same rule as everything else here. Folders give structure, records give
-truth, and zarr appears only where there are pixels.
+The wrapper folder earns its one extra level of nesting: "for each
+acquisition" means acquisitions/*, with nothing to skip and no name an
+acquisition cannot take. The acquisition's TYPE lives inside it (the
+profile records it), never only in the folder name. And when
+acquisitions cause one another -- an overview's detections spawning
+target scans, which is the whole point of a smart microscope -- that
+provenance belongs in the controller's diary in config/, plain JSON,
+following the same rule as everything else here. Folders give
+structure, records give truth, and zarr appears only where there are
+pixels.
+
+One standing constraint keeps the tree honest on every operating
+system: Windows historically caps paths at 260 characters, and a zarr
+store's chunk files sit many levels below the store already. So names
+stay short at every level, the tree never grows deeper than this
+contract shows, and any Windows machine that touches the data should
+have long-path support switched on (the LongPathsEnabled setting) --
+deep chunk paths can pass the old limit even in the flattest layout.
 
 ## Sealing a view makes it shippable
 
@@ -191,9 +202,9 @@ acquisition happens in: units, origin, orientation, calibration), the
 SPECIMEN it all happened to, and the CONTROLLER'S DIARY (which
 acquisitions ran, in what order, and why -- which detections spawned
 which targets). These experiment-level records bundle together into one
-CONFIG folder that lives next to the acquisition folders, so the
-experiment's top level stays readable at a glance: acquisitions, and
-one config/ that explains the world they happened in.
+CONFIG folder that lives next to the acquisitions/ folder, so the
+experiment's top level stays readable at a glance: the acquisitions,
+and one config/ that explains the world they happened in.
 
 This completes a symmetry that holds at every level:
 one author and one record per floor. The controller authors the
