@@ -1,41 +1,33 @@
-"""Patching the bake for one landing should read the landing, not the survey.
+"""The bake patch's semantics guards -- and the record of a reverted cure.
 
-The phase ledger reduced a landing's cost to one dominant name: composing the
-dirty piece of the coarsest composed level, 50-70 ms per landing at survey
-scale, roughly constant in survey size. The reason it costs that much is not
-the landed position -- it is everyone underneath the same piece: a coarse
-piece covers a hundred-odd positions, one of them changed, and the patch
-recomposes the piece from every tile beneath it. The candidate cure is
-paste-over: decode the existing baked piece, lay the landed position's
-downsampled footprint over it, encode it back -- the same read-through-the-
-recipe trick that already pays for the re-halved levels -- making the patch
-cost the landing instead of the neighbourhood.
+These tests were built as the instrument for paste-over: patching a dirty
+coarse piece by re-laying only the changed ground over the decoded chunk,
+instead of recomposing the piece from every tile beneath it. The cure was
+implemented, its cost gate went green (tile reads per landing fell from 143
+to 4), its overlap proof and pixel-equality oracle both held -- and the
+survey ladder then showed every landing had become SLOWER, three times
+slower on a small survey. The reads were the wrong currency: the composer's
+inherited warm slabs already amortize tile reads, while pasting added a
+decode of every dirty chunk at every level on top of the encode both paths
+pay. The cure was reverted on that measurement, and the cost gate -- whose
+premise the measurement falsified -- was removed with it. Any second
+attempt starts by splitting the compose phase into decode, read, lay and
+encode, and beating the wall clock, not a proxy.
 
-This file was written as the instrument that had to exist before that cure
-could be built -- its cost gate stood strictly red at 143 tile reads per
-landing -- and the cure now lives in ``governed._paste_the_changed_ground``.
-The three tests keep three different promises.
+What stands are the two guards that were never about the cure's speed,
+only its honesty, and they hold for full recomposition just as well:
 
-The OVERLAP PROOF must stay green forever. Microscope tiles deliberately
-overlap their neighbours (64 pixels in these fixtures), and where they
-overlap, the composer lays the LATER-committed tile on top -- commit order
-is draw order, by first arrival, and a replacement does not move a position
-up the pile. A naive paste-over breaks exactly this: painting the replaced
-position's whole footprint over the piece would put it on top of a later
-neighbour in their shared band. The paste therefore re-lays every tile
-touching the changed region, clipped to that region, in draw order -- and
-this test holds it to that, replacing an early-committed position with
-tellably dim pixels and requiring the shared band to keep the later
-neighbour's bright ones.
+The OVERLAP PROOF: microscope tiles deliberately overlap their neighbours
+(64 pixels in these fixtures), the composer lays the LATER-committed tile
+on top, and a replacement does not move a position up the pile. Whatever
+patches the bake must keep a replaced tile beneath its later neighbours in
+their shared band, and this test catches any patcher that does not.
 
-The COST GATE holds the cure's point: a steady-state landing's bake patch
-now reads a handful of tile rectangles -- the landing and its overlapping
-neighbours -- where recomposition read the piece's whole neighbourhood.
-
-The EQUALITY ORACLE holds the cure's honesty everywhere the proof's sample
-points do not reach: after landings and a replacement have both gone
-through the paste path, every chunk file of the pasted level must decode
-pixel-identical to a full, fresh recomposition of the same piece.
+The EQUALITY ORACLE: after landings and a replacement, every baked chunk
+file of the coarsest composed level must decode pixel-identical to a
+fresh, full composition of the same piece -- the files on disk and the
+composer must never learn to disagree, or the picture would change across
+a session restart.
 """
 
 from __future__ import annotations
@@ -45,7 +37,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 _VIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_VIZ / "building"))
@@ -61,15 +52,6 @@ from governed import GovernedRun  # noqa: E402
 # be mistaken for one another, downsampling and averaging included.
 DIM = 700
 
-# How many steady-state landings the cost gate checks.
-STEADY_LANDINGS = 3
-
-# The cost gate's allowance: the landed position itself, its overlapping
-# neighbours (up to eight), and slack for a tile being read in more than one
-# rectangle. A recomposition of a coarse piece reads the HUNDREDS of tiles
-# beneath it at survey scale; the gap between that and this allowance is the
-# whole point, so the bound is not delicate.
-TILE_READS_ALLOWED = 24
 
 
 def _grid_neighbours(run, order):
@@ -166,65 +148,17 @@ def test_the_overlap_band_belongs_to_the_later_commit(tmp_path):
         opened.close()
 
 
-def test_patching_a_piece_reads_only_the_landed_ground(tmp_path):
-    """A steady landing's bake patch must read O(landing) tile rectangles."""
-    harness.FIXTURES = tmp_path
-    run, order = harness.the_run(12)
-    landings = order[-(STEADY_LANDINGS + 1):]
-    for position_id in order[:-(STEADY_LANDINGS + 1)]:
-        harness.fast_publish(run, position_id)
-    shown = tmp_path / "reads" / "shown"
-    store = declare_a_governed_picture(shown, run.folder, name="live",
-                                       bake=True)
-    opened = GovernedRun(run.folder, store=store)
-    try:
-        opened.composer()
-        harness.fast_publish(run, landings[0])
-        opened.composer()
-        for number, position_id in enumerate(landings[1:], 1):
-            harness.fast_publish(run, position_id)
-            opened.composer()
-            composed = opened.accounting["last_bake_pieces_composed"]
-            pasted = opened.accounting["last_bake_pieces_pasted"]
-            reads = opened.accounting["last_bake_tile_reads"]
-            # Blindness guard: zeros only mean something if pieces were
-            # actually patched -- pasted or composed -- and the patching
-            # read something. The first form of this guard demanded
-            # composed pieces specifically, which the paste-over cure
-            # rightly reduced to zero, and the guard then failed in a way
-            # the expected-failure marker silently absorbed: the gate was
-            # red for the wrong reason and could not announce the cure.
-            assert (composed + pasted) > 0 and reads > 0, (
-                "this landing patched no pieces or read no tiles, so the "
-                "cost this gate watches never arose and its numbers are "
-                "blindness, not thrift -- the survey or the landing choice "
-                "is wrong for this instrument"
-            )
-            assert reads <= TILE_READS_ALLOWED, (
-                f"steady-state landing {number} read {reads} tile "
-                f"rectangles to patch {composed + pasted} dirty piece(s) -- the "
-                "neighbourhood beneath the piece, not the landing. One "
-                "landed position plus its overlapping neighbours is "
-                f"{TILE_READS_ALLOWED} reads with slack; everything beyond "
-                "that is recomposition of ground the landing never touched, "
-                "and it is the dominant cost of every landing at survey "
-                "scale."
-            )
-    finally:
-        opened.close()
+def test_the_baked_files_equal_a_fresh_composition(tmp_path):
+    """Every baked chunk must be pixel-identical to a fresh composition.
 
-
-def test_a_pasted_piece_equals_a_recomposed_one(tmp_path):
-    """Every pasted chunk must be pixel-identical to a full recomposition.
-
-    The overlap proof above checks the two points where paste-over is most
-    likely to be wrong; this oracle checks everywhere. After landings and a
-    replacement have both been patched through the paste path, every chunk
-    file of the pasted level is decoded and compared against the composer's
-    own freshly composed answer for the same piece -- the full recomposition
-    the paste exists to avoid, used here as the reference it must equal.
-    Exact equality: pasting is re-laying the same pixels through the same
-    draw order, so any difference at all is a bug, not a tolerance.
+    The overlap proof above checks the two points where a clever patcher is
+    most likely to go wrong; this oracle checks everywhere. After landings
+    and a replacement have both been patched, every chunk file of the
+    coarsest composed level is decoded and compared against the composer's
+    own freshly composed answer for the same piece. Exact equality: the
+    files and the composer describe the same manifest state, so any
+    difference at all is a bug, not a tolerance -- it would mean the
+    picture changes across a session restart.
     """
     from numcodecs import Zstd
 
@@ -246,13 +180,6 @@ def test_a_pasted_piece_equals_a_recomposed_one(tmp_path):
         run.replace_a_position(early, np.full(
             (1, harness.FRAME, harness.FRAME), DIM, dtype="uint16"))
         held = opened.composer()
-        pasted = opened.accounting["last_bake_pieces_pasted"]
-        assert pasted > 0, (
-            "the replacement was not patched through the paste path, so "
-            "this oracle would be comparing full recompositions with "
-            "themselves and proving nothing"
-        )
-
         baked = tuple(json.loads((store / "zarr.json").read_text(
             encoding="utf-8"))["attributes"]["zmart"]["baked"])
         level = max(one for one in baked if one < held.mosaic.levels)
