@@ -383,9 +383,23 @@ def test_the_spiral_growth_is_visible_under_either_invalidation(
             "already on screen went dark during growth, which is exactly "
             f"the flicker the {mode} invalidation must not show"
         )
-        assert story[-1]["area"] > story[0]["area"] * 1.5, (
-            "the lit region never grew outward -- the spiral filled nothing "
+        # Outward growth, measured by what CAN move. The lit box is bounded
+        # by the fitted viewport -- the seeded block's box already spans much
+        # of it -- so the box only has to grow, while the lit FRACTION is the
+        # honest magnitude signal (measured here: ~8% seeded to ~52% full),
+        # and the centre staying put is what says the growth was outward
+        # around the seed rather than a drift.
+        assert story[-1]["fraction"] > story[0]["fraction"] * 3, (
+            "the lit ground barely grew -- the spiral filled almost nothing "
             "beyond the seeded block"
+        )
+        assert story[-1]["area"] > story[0]["area"], (
+            "the lit region's box never widened -- nothing landed outside "
+            "the seeded block's footprint"
+        )
+        assert story[-1]["centre_offset"] <= story[0]["centre_offset"] + 0.05, (
+            "the lit region drifted off the seeded centre -- growth was not "
+            "the outward spiral"
         )
 
         # The record agrees with the walk: what the manifest committed, in
