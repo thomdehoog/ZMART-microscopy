@@ -124,13 +124,36 @@ DIP = 45
 ENOUGH = 200
 
 
+def the_experiment() -> Path:
+    """The experiment folder every rung lives in, shaped as the contract draws.
+
+    One ladder is one experiment: config/ carries the canvas the controller
+    would have set before anything ran, and each survey size is one
+    acquisition inside acquisitions/. The fixtures exercise the real file
+    structure, so any drift from the contract breaks the gates first.
+    """
+    experiment = FIXTURES / "experiment"
+    config = experiment / "config"
+    if not (config / "canvas.json").is_file():
+        config.mkdir(parents=True, exist_ok=True)
+        (config / "canvas.json").write_text(json.dumps({
+            "units": "micrometer",
+            "origin": [0.0, 0.0],
+            "orientation": "yx",
+            "note": "the one coordinate frame every acquisition happens in",
+        }, indent=2) + "\n")
+    return experiment
+
+
 def the_run(across: int, seed_value: int = 7) -> tuple[LivePublisher, list[str]]:
     """The fixture: an ``across``-squared survey, written once, reused after.
 
     Position pixels are written for every planned cell; nothing is published
     here — publication is the measurement, so it belongs to the caller.
+    Each survey size is one acquisition folder inside the ladder's one
+    experiment, exactly the tree the contract draws.
     """
-    folder = FIXTURES / f"gov{across}x{across}"
+    folder = the_experiment() / "acquisitions" / f"survey-{across}"
     profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1)
     # Name fields sized to the grid, or a three-digit row bleeds into the
     # column: at 113 across, "p10100" reads as row 10 column 100 AND row 101
@@ -142,7 +165,9 @@ def the_run(across: int, seed_value: int = 7) -> tuple[LivePublisher, list[str]]
     # path: mid-run the picture is served from the positions' own stores,
     # and the plain-file view for outside tools is written once, when the
     # run finishes. The churn's writer column measures exactly this writer.
-    run = LivePublisher(folder / "run", profile, run_id=f"scale{across}",
+    # The acquisition folder IS the publisher's folder: the run writes its
+    # data/ and views/ directly inside it, with no extra nesting level.
+    run = LivePublisher(folder, profile, run_id=f"scale{across}",
                         cells=cells, timepoints=1, linked_view="at_run_end")
     order = [f"p{row:0{width}d}{column:0{width}d}"
              for row in range(across) for column in range(across)]
@@ -232,7 +257,9 @@ def main() -> int:
                       f"({(time.time() - began):.0f} s)", flush=True)
         print(f"  published in {time.time() - began:.0f} s")
 
-    shown = FIXTURES / f"gov{across}x{across}" / "shown"
+    # The declared picture is a real view of the acquisition, in the
+    # acquisition's own views/ folder -- the shape the contract draws.
+    shown = run.folder / "views" / "shown"
     if asked.as_declared:
         store = shown / "live.ome.zarr"
         print(f"serving {store} as it stands (--as-declared)")

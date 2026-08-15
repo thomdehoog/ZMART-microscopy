@@ -92,7 +92,7 @@ def test_the_overlap_band_belongs_to_the_later_commit(tmp_path):
     origin = run.layout.placement(early).origin
     step = (run.layout.placement(later).origin["x"] - origin["x"])
 
-    shown = tmp_path / "overlap" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live",
                                        bake=True)
     opened = GovernedRun(run.folder, store=store)
@@ -170,7 +170,7 @@ def test_the_baked_files_equal_a_fresh_composition(tmp_path):
     landings = order[-2:]
     for position_id in order[:-2]:
         harness.fast_publish(run, position_id)
-    shown = tmp_path / "equality" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live",
                                        bake=True)
     opened = GovernedRun(run.folder, store=store)

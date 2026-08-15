@@ -65,7 +65,7 @@ def test_a_landing_costs_the_change_not_the_survey(tmp_path):
     for position_id in order[:-(STEADY_LANDINGS + 1)]:
         harness.fast_publish(run, position_id)
 
-    shown = tmp_path / "steady-cost" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live",
                                        bake=True)
     opened = GovernedRun(run.folder, store=store)
@@ -144,7 +144,7 @@ def test_a_landing_rehalves_with_pixel_work_not_library_machinery(tmp_path):
     for position_id in order[:-(STEADY_LANDINGS + 1)]:
         harness.fast_publish(run, position_id)
 
-    shown = tmp_path / "no-courier" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live",
                                        bake=True)
     opened = GovernedRun(run.folder, store=store)
@@ -202,7 +202,7 @@ def test_the_rehalved_level_reads_back_true(tmp_path):
     landings = order[-(STEADY_LANDINGS + 1):]
     for position_id in order[:-(STEADY_LANDINGS + 1)]:
         harness.fast_publish(run, position_id)
-    shown = tmp_path / "reads-back" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live",
                                        bake=True)
     opened = GovernedRun(run.folder, store=store)

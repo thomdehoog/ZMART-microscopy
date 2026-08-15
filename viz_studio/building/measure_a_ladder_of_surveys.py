@@ -152,7 +152,7 @@ def one_rung(power: int, across: int, churn: int, fixtures: str | None,
         record[name] = float(matched.group(1)) if matched else None
 
     if tidy and fixtures:
-        built = Path(fixtures) / f"gov{across}x{across}"
+        built = Path(fixtures) / "experiment" / "acquisitions" / f"survey-{across}"
         if built.is_dir():
             shutil.rmtree(built)
             sys.stdout.write(f"(tidied away {built})\n")

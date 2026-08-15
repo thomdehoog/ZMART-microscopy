@@ -73,7 +73,7 @@ def _steady_landings(tmp_path: Path, across: int) -> tuple[list[float],
     landings = order[-(STEADY_LANDINGS + 1):]
     for position_id in order[:-(STEADY_LANDINGS + 1)]:
         harness.fast_publish(run, position_id)
-    shown = tmp_path / f"survey-{across}" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live",
                                        bake=False)
     opened = GovernedRun(run.folder, store=store)

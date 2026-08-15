@@ -8,9 +8,8 @@ them.
 
 One OME-Zarr image per microscope position, named for its place in the
 grid (`p00`, `p01`, …), living together inside the acquisition's one
-collection zarr, `data/survey.ome.zarr` (on disk today the code still
-writes them as flat stores under an old folder name — see the renames
-below). Each is an ordinary zarr v3 image any tool can open, with:
+collection zarr, `data/survey.ome.zarr`. Each is an ordinary zarr v3
+image any tool can open, with:
 
 - **five axes, in this order: t, c, z, y, x** — time and channel first,
   even while they are singletons;
@@ -20,7 +19,14 @@ below). Each is an ordinary zarr v3 image any tool can open, with:
   translation, and the translation must equal that position's location
   on the canvas times the voxel size — this is how the viewer knows where
   the tile sits without guessing;
-- the profile's chunking and encoding (sharded chunks, uint16 here).
+- the profile's chunking and encoding (sharded chunks, uint16 here);
+- **no stored unit ever spans time or channel.** Acquisition runs go per
+  channel and per moment, so every shard file and every chunk inside it
+  covers exactly one (t, c) frame. A new moment or a new channel only
+  ever ADDS files — nothing already written is rewritten or extended,
+  which is what lets published pixels stay immutable while the run keeps
+  growing. This is a standing gate
+  (`test_the_files_follow_the_contract.py`), proven able to fail.
 
 **Never overwrite a published position.** A retake is a new member
 beside the old one — `p00.generation-1` — plus a replacement commit in
@@ -28,18 +34,18 @@ the record below; the old generation stays on disk, undeclared.
 
 ## 2. The record that rules
 
-Beside the pixels sits the bookkeeping folder — the view's `metadata/`
-(on disk today it still carries an old name; see the renames below). It
-is the authority on what may be shown:
+Beside the pixels sits the bookkeeping folder — the view's `metadata/`,
+at `views/live/metadata/`. It is what the viewer reads at live pace:
 
-- `signed.json` — what is published *right now* (atomically replaced;
-  today spelled `committed.json`);
+- `signed.json` — what is published *right now* (atomically replaced);
 - `events.jsonl` — the append-only history, one line per publication;
 - `locations.json` — where every position the run will ever image sits
-  on the canvas, fixed **before the first pixel** (today spelled
-  `layout.json`, with its history in `layouts/`);
+  on the canvas, fixed **before the first pixel** (its numbered history
+  in `locations/`);
 - `profiles/` — how every store is written (frame, levels, chunking,
   number type), sealed with the locations;
+- `links.json` — which position's own bytes answer for each piece of
+  the linked view;
 - `publication.lock` — the writer's own lock; leave it alone.
 
 ## The one law
@@ -252,9 +258,8 @@ lives in views/:
 
 One sentence rules it all: data/ is written once by the run and never
 touched; views/ is written for lookers and never trusted as science.
-Shipping data/ ships the science complete. Today's code still writes
-the old folder names; the renames table below maps them, and carrying
-them out is a conversion item for the smart-microscopy writer work.
+Shipping data/ ships the science complete. The code writes exactly this
+shape; the renames table below records what changed to get here.
 
 ## The collection: one zarr for the community, membership by declaration
 
@@ -301,7 +306,7 @@ Every term names either a stored fact or a computed act, never both:
 - **views** -- the windows: free to show less, forbidden to show more
   or other.
 
-The renames the conversion carries, today to target:
+The renames the conversion carried, old to new:
 
     positions/ (flat stores)  ->  data/survey.ome.zarr/ (declared members)
     zmart-live/               ->  views/<view>/metadata/
@@ -350,6 +355,26 @@ already says -- kept because re-reading a whole survey to learn "what
 changed?" is too slow at live pace, rebuildable from data/ whenever it
 is lost, and thrown away with the rest of views/ without losing one
 fact.
+
+## Opening: a view is what you open, and open views stack as layers
+
+The opening gesture is always the same: point the viewer at a view —
+`views/live/`, `views/cropped/` — and that view becomes ONE picture on
+screen. Never one source per position; the scene rule ("never hand the
+drawing engine one source per position") is what keeps a
+thousand-position survey drawing at full rate, and it is measured, not
+asserted.
+
+Opening several views — from one acquisition or from several — stacks
+them as separate LAYERS, one per view, never as channels. Channels are
+what a view carries inside itself (colours of one picture, one contrast
+control each); layers are whole pictures laid on top of one another.
+The reason this simply works is the canvas: every view of an experiment
+projects the same shared coordinate frame, so an overview layer and a
+targets layer land in register without any alignment step. This is also
+what makes the viewer a component rather than an application — a canvas
+the operator app can embed, where "show me these views together" is
+just a list of view folders to open.
 
 ## The acceptance test that rules everything
 
