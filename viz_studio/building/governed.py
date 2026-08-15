@@ -418,6 +418,8 @@ class GovernedRun:
                            "last_bake_stagings_built": 0,
                            "last_bake_zarr_ops": 0,
                            "last_bake_pieces_rehalved": 0,
+                           "last_bake_slabs_built": 0,
+                           "last_bake_slabs_warm": 0,
                            "last_snapshot_swept": 0}
 
     def composer(self) -> Composer:
@@ -767,6 +769,7 @@ class GovernedRun:
             phases["bake_scan"] = (watch() - marked) * 1000
             marked = watch()
             reads_before = made.tile_reads
+            costs_before = dict(made.costs)
             for level in sorted(one for one in baked
                                 if one < made.mosaic.levels):
                 for row, column in sorted(dirtied.get(level, ())):
@@ -775,6 +778,21 @@ class GovernedRun:
                     for plane in range(deep):
                         self._replace_one_piece(made, level, plane, row,
                                                 column)
+            # The compose phase split into its components, from the
+            # composer's own cost ledger: time spent reading tiles, building
+            # slabs (laying included -- reading happens inside building, so
+            # lay time is build minus read), and encoding pieces, beside how
+            # many slabs were built against answered warm. This split exists
+            # because a cure was once aimed at the read COUNT and made
+            # landings slower; whatever is aimed at next is aimed at a
+            # measured component of the wall clock, or not at all.
+            for cost in ("read_ms", "build_ms", "encode_ms"):
+                phases["bake_compose_" + cost[:-3]] = (
+                    made.costs[cost] - costs_before[cost])
+            self.accounting["last_bake_slabs_built"] = (
+                made.costs["slabs_built"] - costs_before["slabs_built"])
+            self.accounting["last_bake_slabs_warm"] = (
+                made.costs["slabs_warm"] - costs_before["slabs_warm"])
             # How many tile rectangles composing the dirty pieces read --
             # a hundred-odd at survey scale for a one-position change, and
             # measured to be the WRONG number to optimise: shrinking it to
