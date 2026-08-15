@@ -411,7 +411,8 @@ class GovernedRun:
         self.accounting = {"derives": 0, "last_derive_ms": 0.0,
                            "last_tiles_read": 0, "last_positions": 0,
                            "last_bake_arrays_opened": 0,
-                           "last_bake_stagings_built": 0}
+                           "last_bake_stagings_built": 0,
+                           "last_snapshot_swept": 0}
 
     def composer(self) -> Composer:
         """The composer for the manifest's state as of now."""
@@ -935,6 +936,17 @@ class GovernedRun:
             for position_id in drawing
         }
         ordered = [tiles[position_id] for position_id in drawing]
+        # How many position entries this snapshot's bookkeeping handled --
+        # the fold above, the drawing and tiles dictionaries, and the
+        # ordered tile list, each of which currently walks the whole survey
+        # however small the change was. Written down so the growth is a
+        # number a test can hold, not a suspicion: a landing's bookkeeping
+        # should be the size of the landing, and today it is the size of
+        # the survey, which at ten thousand positions becomes the dominant
+        # cost of every commit (see
+        # test_absorbing_a_change_touches_the_change).
+        self.accounting["last_snapshot_swept"] = (
+            len(published) + len(order) + 2 * len(drawing))
         return (Composer(TheWorldFrame(ordered, layout, profile),
                          piece=self._piece), drawing, tiles)
 
