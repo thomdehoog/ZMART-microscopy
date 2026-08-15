@@ -236,7 +236,8 @@ registerPromiseRPC("ChunkSource.zmartProbe", function(x) {
       failures: source.zmartRefreshFailures || 0,
       superseded: source.zmartRefreshSuperseded || 0,
       pending: source.zmartPendingRefresh?.size || 0,
-      running: source.zmartRefreshRunning || false,
+      inFlight: source.zmartRefreshInFlight?.size || 0,
+      running: (source.zmartRefreshInFlight?.size || 0) > 0,
       byState: source.zmartRefreshStates || {},
     },
   } });
