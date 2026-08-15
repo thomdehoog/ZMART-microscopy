@@ -116,16 +116,19 @@ at. The recommended rule for everything built on this contract:
 An experiment's top level is exactly two folders, each with one meaning:
 config/ holds the world (the canvas and the controller's diary), and
 acquisitions/ holds what happened in that world. Each acquisition is a
-complete run named for what it is and numbered, because an experiment
-routinely holds several of the same kind:
+complete run in a folder named however its owner likes -- the name is a
+label for humans, nothing more. A number is a handy convention when an
+experiment holds several runs of the same kind (`targets-1`,
+`targets-2`), but nothing requires it, and no tool may ever parse
+meaning out of a folder name:
 
     experiment-2026-08-15/
     ├── config/                the world: canvas.json, the controller's diary
     └── acquisitions/
-        ├── overview-1/          one acquisition = one complete run
+        ├── overview/            one acquisition = one complete run
         │   ├── data/              the microscope's pen
         │   └── views/             ours, disposable
-        ├── targets-2/
+        ├── targets/
         │   ├── data/
         │   └── views/
         └── ...
@@ -239,7 +242,7 @@ are never touched afterwards -- that folder is exactly what the
 acquisition produced, nothing added by anyone else. Everything of ours
 lives in views/:
 
-    targets-2/
+    targets/
     ├── data/                   the microscope's pen -- pixels arrive
     │   └── survey.ome.zarr/    here from the run, never touched after
     └── views/                  our pen -- everything the viewer needs
