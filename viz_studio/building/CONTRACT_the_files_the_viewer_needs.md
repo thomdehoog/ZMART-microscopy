@@ -144,3 +144,14 @@ a LIVE view cannot be shipped mid-run wherever its truth lives -- its
 baked files are being rewritten under any copy -- so sealing is not a
 restriction added to shipping but the honest name for what shipping a
 changing thing always required: a moment of quiet, stamped.
+
+Sealed is complete in MEANING, not in pixels, and that is the point: a
+sealed view carries its truth-slice and its baked coarse levels -- the
+whole survey at overview zoom, a few percent of the data -- while its
+fine levels remain addresses that resolve through the run's positions.
+Views are as self-contained as they can be without carrying data they do
+not need. When one genuinely must stand alone at full depth, that is a
+third, explicit gesture -- materializing, which bakes every level into
+the view at full data cost, opt-in for the rare view that earns it. The
+ladder is: bookmark (live, follows the run), sealed (complete in meaning,
+light), materialized (complete in pixels, heavy) -- each step a choice.
