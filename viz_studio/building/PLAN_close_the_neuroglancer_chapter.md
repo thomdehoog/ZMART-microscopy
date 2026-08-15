@@ -68,16 +68,23 @@ Nothing merges on a software-GL container's word. On the T400:
    can a resident chunk be freed while a refresh downloads into it? This
    is review finding C4, still open, and only the installed library
    answers it.
-4. Optional, decides a simplification: run the storm gate a second time
-   with `ZMART_STORM_REFRESH=whole` in the environment. The page then
-   uses whole-source invalidation (`?refresh=whole`) instead of the
-   named ladder — same gate, same fixtures, one variable changed — and
-   the two modes' numbers stand side by side. Green and comparably fast
-   in whole mode means the named-invalidation ladder (dirty maps, level
-   routing) can retire; the gate asserts which mode the page actually
-   ran, so a mistyped variable cannot measure the wrong one. This
-   switch supersedes the separate `claude/whole-source-only-example`
-   branch, which can be deleted.
+4. The simplification is DECIDED (2026-08-15): whole-source
+   invalidation is the page's default, and the named ladder is
+   deprecated — still reachable via `?refresh=named` /
+   `ZMART_STORM_REFRESH=named` purely so the T400 can sanity-check the
+   choice before the ladder's code is deleted in the cleanup chapter.
+   The deciding evidence, in-container: both modes' delivery machinery
+   proved pixel-clean under direct probes; both failed the storm
+   identity census identically until the census learned to wait for
+   the engine's own fully-loaded word (the difference was
+   Neuroglancer's normal coarse-level appetite, not staleness — zoom
+   in and back out and the corner is sharp, as at any microscope); and
+   with a fair census, whole mode passes the strictest gate the
+   campaign owns while carrying none of the ladder's dirty-map
+   bookkeeping. On the T400, run the storm file once in each mode; if
+   whole holds its rate there too, delete the ladder (dirty maps,
+   level routing, `invalidateTheDirtyPieces`) and the
+   `claude/whole-source-only-example` branch with it.
 
 Green on 1–3 means merge; the branch becomes the trunk the next work
 stands on.

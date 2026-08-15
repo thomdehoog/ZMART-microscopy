@@ -80,15 +80,16 @@ def _dirty_for(run, pictured: int, position_id: str) -> dict:
     return dirty
 
 
-# Which invalidation mode the page runs the storm under. The default is the
-# three-rung named ladder; setting ZMART_STORM_REFRESH=whole reruns the same
-# gate with whole-source invalidation instead, so the two can be measured
-# side by side on the same machine with nothing but an environment variable.
-_REFRESH_MODE = os.environ.get("ZMART_STORM_REFRESH", "named")
+# Which invalidation mode the page runs the storm under. The default is
+# whole-source invalidation -- the page's own default since the ladder
+# retired -- and setting ZMART_STORM_REFRESH=named reruns the same gate
+# with the deprecated named ladder, so the T400 comparison can still
+# measure both with nothing but an environment variable.
+_REFRESH_MODE = os.environ.get("ZMART_STORM_REFRESH", "whole")
 
 
 def _the_page_address(port: int) -> str:
-    suffix = "?refresh=whole" if _REFRESH_MODE == "whole" else ""
+    suffix = "?refresh=named" if _REFRESH_MODE == "named" else ""
     return f"http://127.0.0.1:{port}{suffix}"
 
 

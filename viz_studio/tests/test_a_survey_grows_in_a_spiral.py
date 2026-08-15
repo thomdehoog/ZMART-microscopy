@@ -320,7 +320,7 @@ def test_the_spiral_growth_is_visible_under_either_invalidation(
     try:
         port = server.server_address[1]
         page.add_init_script("globalThis.zmartLiveCheckMs = 150")
-        suffix = "?refresh=whole" if mode == "whole" else ""
+        suffix = "?refresh=named" if mode == "named" else ""
         page.goto(f"http://127.0.0.1:{port}{suffix}",
                   wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined",
