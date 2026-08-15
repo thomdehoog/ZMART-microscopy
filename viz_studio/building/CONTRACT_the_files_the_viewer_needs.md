@@ -250,3 +250,30 @@ instrument-before-scale item); raw directory-walkers that ignore
 metadata may see undeclared entries, and the declared list is the honest
 interface; BigStitcher still receives its XML export, now pointing into
 the collection's members.
+
+## The final vocabulary, and the renames that carry it
+
+Every term names either a stored fact or a computed act, never both:
+
+- **canvas** -- the experiment setting: units, origin, orientation,
+  calibration. Decided once by the controller, above every acquisition.
+- **locations** -- facts on the canvas: where each position physically
+  is. Stored once by the run, driven by the stage, stamped into every
+  store's translation. Owned by the writer.
+- **signing** -- the writer's declaration that a store now counts. What
+  is signed, when, at which generation is the logbook's testimony.
+- **placements** -- computed acts, never stored: each window's on-the-fly
+  projection of locations into its own pixels (its crop, its zoom). This
+  is why views cannot disagree about where things are -- they share the
+  locations and differ only in projection.
+- **views** -- the windows: free to show less, forbidden to show more
+  or other.
+
+The renames the conversion carries, today to target:
+
+    positions/ (flat stores)  ->  data/survey.ome.zarr/ (declared members)
+    zmart-live/               ->  data/logbook/
+    layout.json               ->  locations.json
+    committed.json            ->  signed.json
+    (per-run frame facts)     ->  canvas.json, at the experiment level
+    views/                    ->  views/ (right all along)
