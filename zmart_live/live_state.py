@@ -3,7 +3,7 @@
 The acquisition writer publishes large images and tiny truth in two different
 places.  This module watches only the tiny truth.  It never scans chunks, view
 folders or timestamps to decide what is visible: a complete, strictly validated
-``committed.json`` snapshot and the history it covers are the sole inputs.
+``signed.json`` snapshot and the history it covers are the sole inputs.
 
 The result is deliberately small.  A five-position run and a fifty-thousand-
 position run both describe the same two aggregate overview sources.  Per-position
@@ -124,7 +124,7 @@ class LiveStateSnapshot:
 class LiveStateTracker:
     """Follow one run's marker and retain its last valid bounded scene.
 
-    ``observe`` is cheap while idle: one ``stat`` of ``committed.json``.  Only a
+    ``observe`` is cheap while idle: one ``stat`` of ``signed.json``.  Only a
     changed fingerprint causes the marker and appended history tail to be read.
     Invalid, foreign or regressing state records an error but leaves every last
     good field untouched.

@@ -49,7 +49,7 @@ def test_regressing_foreign_damaged_and_revision_url_state_is_rejected():
         (() => {
           const source = {
             source_id: "linked/overview", role: "linked",
-            url: "views/overview.ome.zarr", revision: 4,
+            url: "views/live/live.ome.zarr", revision: 4,
             layout_revision: 1,
             committed_time_ranges: [{start: 0, stop: 2}],
           };

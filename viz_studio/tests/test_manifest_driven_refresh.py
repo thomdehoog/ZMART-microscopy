@@ -52,7 +52,7 @@ def _server_for(tmp_path, run):
         port=0,
         data_dir=run.folder,
         site_dir=site,
-        store="views/overview.ome.zarr",
+        store="views/live/live.ome.zarr",
         window=(0, 4095),
         live=True,
     )
@@ -265,7 +265,7 @@ def test_live_registry_follows_the_production_open_and_close_routes(tmp_path):
         status, config = _post(
             port,
             "/api/stores/open",
-            {"path": str(second.folder / "views" / "overview.ome.zarr")},
+            {"path": str(second.folder / "views" / "live" / "live.ome.zarr")},
         )
         assert status == 200
         assert [run["dataset"] for run in config["liveState"]["runs"]] == [0, 1]
@@ -309,7 +309,7 @@ def test_binding_a_live_run_declares_the_baked_picture_exactly_once(tmp_path, mo
 
     monkeypatch.setattr(live_config, "declare_a_governed_picture", counting)
     library = Library()
-    library.open(run.folder, names=["views/overview.ome.zarr"], watch=False)
+    library.open(run.folder, names=["views/live/live.ome.zarr"], watch=False)
     registry = LiveRegistry(library)
 
     bindings, governed = registry.refresh()
@@ -362,7 +362,7 @@ def test_a_run_whose_picture_cannot_be_declared_is_withheld_not_linked(tmp_path,
 
     monkeypatch.setattr(live_config, "declare_a_governed_picture", refusing)
     library = Library()
-    library.open(run.folder, names=["views/overview.ome.zarr"], watch=False)
+    library.open(run.folder, names=["views/live/live.ome.zarr"], watch=False)
     registry = LiveRegistry(library)
 
     bindings, governed = registry.refresh()

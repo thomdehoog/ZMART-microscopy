@@ -301,7 +301,7 @@ def test_the_http_route_consults_the_manifest_before_any_baked_file(tmp_path):
 def test_a_rollback_withdraws_ground_from_the_baked_files_too(tmp_path):
     """Review finding D1: the missing leg of the central contract.
 
-    A whole-history rollback shrinks the manifest — committed.json names an
+    A whole-history rollback shrinks the manifest — signed.json names an
     earlier revision, and events beyond it stop existing. A stamp compared
     as a bare count then reads AHEAD of the history and concludes the bake
     is current, so the withdrawn position's baked files survive and the
@@ -312,7 +312,7 @@ def test_a_rollback_withdraws_ground_from_the_baked_files_too(tmp_path):
     """
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    truth = run.folder / "zmart-live" / "committed.json"
+    truth = run.folder / "views" / "live" / "metadata" / "signed.json"
     remembered = truth.read_text(encoding="utf-8")
     run.write_and_publish("posB", some_specimen(4242))
 

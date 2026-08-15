@@ -25,7 +25,7 @@ tail in ``interrupted.json`` before removing those never-published lines. The
 history says what was published, when, which storage plan and which layout it
 used, and that every prerequisite was checked first.
 
-``committed.json`` is the truth: a single small file naming the highest revision
+``signed.json`` is the truth: a single small file naming the highest revision
 that is completely safe to read. It is replaced by writing a new one alongside
 and renaming it over the old, which the operating system does in one step — so a
 reader either sees the whole previous version or the whole new one, and never a
@@ -79,13 +79,15 @@ __all__ = [
     "now_in_words",
 ]
 
-#: The folder, beside the run's images, that holds our own bookkeeping. It is
-#: kept outside the images themselves so that nothing we invented ever turns up
-#: inside a picture somebody opens in another program.
-BOOKKEEPING = "zmart-live"
+#: The folder that holds our own bookkeeping: the live view's ``metadata``
+#: folder, inside ``views/``. It is kept outside the images themselves so that
+#: nothing we invented ever turns up inside a picture somebody opens in
+#: another program, and it lives with the view it serves so that deleting
+#: ``views/`` removes every file of ours in one gesture.
+BOOKKEEPING = "views/live/metadata"
 
 _HISTORY = "events.jsonl"
-_TRUTH = "committed.json"
+_TRUTH = "signed.json"
 _WRITER_LOCK = "publication.lock"
 _SCHEMA = "zmart-live-manifest/1"
 
@@ -675,7 +677,7 @@ class RunManifest:
         is left for the next call. A malformed line that *does* end normally is
         corruption, even when it is currently last, and is reported.
 
-        By default this returns only events covered by ``committed.json``. A line
+        By default this returns only events covered by ``signed.json``. A line
         appended just before a writer crashed is history, but it was never a
         publication and must not become a second route around the atomic commit.
         Recovery code may ask for those lines with ``published_only=False``.

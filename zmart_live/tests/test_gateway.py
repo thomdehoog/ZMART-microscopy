@@ -166,7 +166,7 @@ def test_replacing_one_moment_keeps_other_published_moments_visible(tmp_path):
     answer = answer_from_a_live_run(inherited)
     assert answer is not None and answer.allowed is True
     assert answer.serving is not None
-    assert answer.serving.position.parent.name == "posA.generation-1.ome.zarr"
+    assert answer.serving.position.parent.name == "posA.generation-1"
 
     never_published = run.view_level() / "c/2/0/0/0/0"
     withheld = answer_from_a_live_run(never_published)
@@ -202,7 +202,7 @@ def test_replacement_pixels_are_withheld_while_shared_views_are_being_changed(
     )
     after = answer_from_a_live_run(virtual_edge)
     assert after is not None and after.allowed is True and after.serving is not None
-    assert after.serving.position.parent.name == "posB.generation-1.ome.zarr"
+    assert after.serving.position.parent.name == "posB.generation-1"
 
 
 def test_a_failed_replacement_restores_old_shared_pixels_and_routing(
@@ -227,7 +227,7 @@ def test_a_failed_replacement_restores_old_shared_pixels_and_routing(
     answer = answer_from_a_live_run(linked_piece)
     assert answer is not None and answer.allowed is True
     assert answer.serving is not None
-    assert answer.serving.position.parent.name == "posA.ome.zarr"
+    assert answer.serving.position.parent.name == "posA"
 
 
 def test_a_link_map_from_another_run_fails_closed_after_publication(tmp_path):
@@ -307,7 +307,7 @@ def test_a_link_map_that_moves_a_tile_fails_closed(tmp_path):
 def test_a_lone_legacy_generation_looking_name_is_not_misparsed():
     """Old layouts remain readable after the internal suffix became reserved."""
     assert _generation_named(
-        "sample.generation-1.ome.zarr", ("sample.generation-1",)
+        "sample.generation-1", ("sample.generation-1",)
     ) == ("sample.generation-1", 0)
 
 

@@ -45,12 +45,13 @@ __all__ = [
     "live_run_holding",
 ]
 
-_BOOKKEEPING = "zmart-live"
-_TRUTH = "committed.json"
+_BOOKKEEPING = "views/live/metadata"
+_TRUTH = "signed.json"
 _LINKS = "links.json"
 _LINKS_SCHEMA = "zmart-live-links/3"
-_VIEW = Path("views/overview.ome.zarr")
-_GENERATION = re.compile(r"^(?P<position>.+)\.generation-(?P<generation>\d+)\.ome\.zarr$")
+_DATA = ("data", "survey.ome.zarr")
+_VIEW = Path("views/live/live.ome.zarr")
+_GENERATION = re.compile(r"^(?P<position>.+)\.generation-(?P<generation>\d+)$")
 
 
 @dataclass(frozen=True)
@@ -84,28 +85,25 @@ def _piece_in(path: Path) -> tuple[int, ...] | None:
 def _generation_named(
     store_name: str, position_ids: tuple[str, ...] = ()
 ) -> tuple[str, int] | None:
-    # Early runs could legally contain dots and the word ``generation`` before
-    # the replacement-store namespace was reserved.  The immutable layout gets
-    # first say so that a lone legacy canonical name is not reinterpreted as
-    # somebody else's replacement suffix.  New runs refuse such identifiers at
-    # construction time because a layout containing both spellings is
-    # fundamentally ambiguous on disk.
+    # A member's folder name IS the position id, except that a replacement
+    # carries its generation as a reserved suffix.  Position ids could legally
+    # contain dots and the word ``generation`` before that namespace was
+    # reserved, so the immutable layout gets first say: a known id is matched
+    # whole before anything is read as somebody else's replacement suffix.
+    # New runs refuse such identifiers at construction time because a layout
+    # containing both spellings is fundamentally ambiguous on disk.
     for position_id in sorted(position_ids, key=len, reverse=True):
-        if store_name == f"{position_id}.ome.zarr":
+        if store_name == position_id:
             return position_id, 0
         prefix = f"{position_id}.generation-"
-        ending = ".ome.zarr"
-        if store_name.startswith(prefix) and store_name.endswith(ending):
-            generation = store_name[len(prefix) : -len(ending)]
+        if store_name.startswith(prefix):
+            generation = store_name[len(prefix):]
             if generation.isdigit():
                 return position_id, int(generation)
     found = _GENERATION.fullmatch(store_name)
     if found:
         return found.group("position"), int(found.group("generation"))
-    ending = ".ome.zarr"
-    if store_name.endswith(ending):
-        return store_name[: -len(ending)], 0
-    return None
+    return store_name, 0
 
 
 def _inside(path: Path, parent: Path) -> bool:
@@ -209,7 +207,7 @@ class _LiveRun:
         return (position_id, moment, generation) in self._published_units()
 
     def _geometry(self) -> tuple[SceneLayoutRevision, AcquisitionProfile]:
-        pointer = self.folder / _BOOKKEEPING / "layout.json"
+        pointer = self.folder / _BOOKKEEPING / "locations.json"
         stamp = pointer.stat()
         mark = (
             stamp.st_mtime_ns,
@@ -460,10 +458,10 @@ class _LiveRun:
             return None
 
         parts = relative.parts
-        if len(parts) >= 3 and parts[0] == "positions":
+        if len(parts) >= 4 and parts[:2] == _DATA:
             layout, _profile = self._geometry()
             named = _generation_named(
-                parts[1],
+                parts[2],
                 tuple(placement.position_id for placement in layout.positions),
             )
             if named is None or not piece:
@@ -481,7 +479,7 @@ _known_lock = threading.Lock()
 def live_run_holding(target: str | Path) -> Path | None:
     """Find the nearest live-run root above a possibly absent target.
 
-    Once the bookkeeping directory exists, loss of ``committed.json`` is damage,
+    Once the bookkeeping directory exists, loss of ``signed.json`` is damage,
     not a conversion back into an ordinary ungoverned folder. Recognizing the
     directory keeps pixel requests fail-closed while the small marker is restored.
     """

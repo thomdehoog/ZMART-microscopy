@@ -58,7 +58,7 @@ from zmart_live.gateway import _LiveRun
 from zmart_live.shardlink import how_the_array_is_stored
 
 from composer import PIECE, Composer
-from mosaic import IMAGE_SUFFIX, Copy, Mosaic, Tile, _read_one_tile
+from mosaic import Copy, Mosaic, Tile, _read_one_tile
 
 
 log = logging.getLogger("viz_studio.governed")
@@ -1283,11 +1283,12 @@ class GovernedRun:
     def _the_store_of(self, position_id: str, generation: int) -> Path:
         """Where one published position's current pixels live.
 
-        The same naming rule the run's own writer uses: generation zero keeps
-        the plain name, every replacement carries its number.
+        The same naming rule the run's own writer uses: every position is a
+        member of the run's one collection zarr, generation zero keeps the
+        plain name, and every replacement carries its number.
         """
         if generation == 0:
-            name = f"{position_id}{IMAGE_SUFFIX}"
+            name = position_id
         else:
-            name = f"{position_id}.generation-{generation}{IMAGE_SUFFIX}"
-        return self.folder / "positions" / name
+            name = f"{position_id}.generation-{generation}"
+        return self.folder / "data" / "survey.ome.zarr" / name

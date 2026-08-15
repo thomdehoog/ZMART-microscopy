@@ -659,9 +659,9 @@ def build_the_scene(
     *,
     channels: tuple[str, ...] = ("channel 0",),
     scene_id: str | None = None,
-    positions_folder: str = "positions",
-    views_folder: str = "views",
-    overview_name: str = "overview",
+    positions_folder: str = "data/survey.ome.zarr",
+    views_folder: str = "views/live",
+    overview_name: str = "live",
     derived: Iterable[DerivedView] = (),
 ) -> Scene:
     """Describe a run's images and where they sit, from its own sealed records.
@@ -700,13 +700,8 @@ def build_the_scene(
         or any(not channel for channel in channels)
     ):
         raise SceneRefused(f"A scene needs present, unique channel names; got {channels}.")
-    for name, value in (
-        ("positions folder", positions_folder),
-        ("views folder", views_folder),
-    ):
+    for value in (positions_folder, views_folder):
         _safe_relative_store_path(value)
-        if len(PurePosixPath(unquote(value)).parts) != 1:
-            raise SceneRefused(f"The {name} must be one folder name; got {value!r}.")
     _safe_name(overview_name, "overview")
     for placement in layout.positions:
         _safe_name(placement.position_id, "position")
@@ -734,7 +729,7 @@ def build_the_scene(
             SceneImage(
                 image_id=placement.position_id,
                 role=POSITION_ROLE,
-                path=f"{positions_folder}/{placement.position_id}.ome.zarr",
+                path=f"{positions_folder}/{placement.position_id}",
                 axes=axes,
                 voxel_size=FrozenMap(voxel_size),
                 voxel_unit=profile.voxel_unit,

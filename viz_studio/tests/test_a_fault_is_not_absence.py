@@ -106,7 +106,7 @@ def test_a_broken_manifest_answers_try_again_not_absence(tmp_path):
             "the baseline must serve before any sabotage means anything"
         )
 
-        truth = Path(run.folder) / "zmart-live" / "committed.json"
+        truth = Path(run.folder) / "views" / "live" / "metadata" / "signed.json"
         held = truth.read_bytes()
         truth.write_bytes(b"{ this is not json, as a torn write would be")
         try:

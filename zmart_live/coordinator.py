@@ -46,6 +46,7 @@ from .identity import (
     record_the_layout,
     spatial_fingerprint_of_a_layout,
     store_the_profile,
+    the_records_folder,
 )
 from .manifest import RunManifest, _write_and_replace, now_in_words
 from .model import (
@@ -66,7 +67,7 @@ __all__ = [
     "NotReadyToPublish",
 ]
 
-_LAYOUT = "layout.json"
+_LAYOUT = "locations.json"
 _LINKS = "links.json"
 
 #: The name written into the map of pointers, so that anybody reading that file
@@ -198,8 +199,14 @@ class LivePublisher:
 
     def __post_init__(self) -> None:
         self.folder = Path(self.folder)
-        (self.folder / "positions").mkdir(parents=True, exist_ok=True)
-        (self.folder / "views").mkdir(parents=True, exist_ok=True)
+        self.collection.mkdir(parents=True, exist_ok=True)
+        (self.folder / "views" / "live").mkdir(parents=True, exist_ok=True)
+        # The collection is a real zarr group from the first moment, so a
+        # community tool can open the run's one data handle even before any
+        # position has landed. The member list starts empty and grows with
+        # each publication.
+        if not (self.collection / "zarr.json").exists():
+            self._declare_the_members(())
 
         profile_channels = tuple(self.profile.channels)
         if not profile_channels:
@@ -373,8 +380,19 @@ class LivePublisher:
         """
         which = self.generations.get(position_id, 0) if generation is None else generation
         if which == 0:
-            return self.folder / "positions" / f"{position_id}.ome.zarr"
-        return self.folder / "positions" / f"{position_id}.generation-{which}.ome.zarr"
+            return self.collection / position_id
+        return self.collection / f"{position_id}.generation-{which}"
+
+    @property
+    def collection(self) -> Path:
+        """The one collection zarr every position image lives inside.
+
+        A single path a community tool can open — napari, ImageJ, any OME-Zarr
+        reader — with each position a member group inside it. Which members
+        count is a matter of declaration, not presence: see
+        :meth:`_declare_the_members`.
+        """
+        return self.folder / "data" / "survey.ome.zarr"
 
     @property
     def view_store(self) -> Path:
@@ -384,11 +402,46 @@ class LivePublisher:
         tells the viewer where to find this view, and the two have to agree or
         the operator is handed an address with nothing behind it.
         """
-        return self.folder / "views" / "overview.ome.zarr"
+        return self.folder / "views" / "live" / "live.ome.zarr"
 
     def view_level(self, level: int = 0) -> Path:
         """One resolution level inside the linked OME-Zarr image."""
         return self.view_store / str(level)
+
+    def _declare_the_members(self, members: tuple[str, ...]) -> None:
+        """Write the collection's member list into its own zarr metadata.
+
+        Membership is a matter of declaration, not presence: a store that is
+        on disk but not in this list is invisible to a community reader, which
+        is what keeps a half-written or superseded store from ever looking
+        like published science. Only complete, current-generation members are
+        named. The list is replaced atomically after each publication, so any
+        skew between the manifest and this list shows *less* rather than more.
+        """
+        described = {
+            "zarr_format": 3,
+            "node_type": "group",
+            "attributes": {
+                "zmart": {
+                    "schema": "zmart-collection/1",
+                    "members": sorted(members),
+                }
+            },
+        }
+        _write_and_replace(
+            self.collection / "zarr.json",
+            json.dumps(described, indent=2, sort_keys=True) + "\n",
+        )
+
+    def _declare_the_current_members(self) -> None:
+        """Declare every committed position at its current generation."""
+        committed = {position for position, _ in self._committed_units()}
+        members = tuple(
+            position if self.generations.get(position, 0) == 0
+            else f"{position}.generation-{self.generations[position]}"
+            for position in sorted(committed)
+        )
+        self._declare_the_members(members)
 
     @property
     def link_map_file(self) -> Path:
@@ -400,7 +453,7 @@ class LivePublisher:
         inside an image, so that nothing we invented ever turns up in a picture
         somebody opens in another program.
         """
-        return self.folder / "zmart-live" / _LINKS
+        return the_records_folder(self.folder) / _LINKS
 
     # -- what has already been shown to somebody -----------------------------
 
@@ -710,7 +763,7 @@ class LivePublisher:
     def write_the_layout(self) -> None:
         """Persist the immutable arrangement a published result points at.
 
-        The convenience ``layout.json`` pointer is updated atomically, while the
+        The convenience ``locations.json`` pointer is updated atomically, while the
         numbered snapshot it names is write-once.  Repeating an unchanged layout
         reuses its revision; a genuine spatial change receives a new one.
 
@@ -724,7 +777,7 @@ class LivePublisher:
         pointer is repaired, and a skip blind to the disk would leave
         somebody else's arrangement lying where this run's should be.
         """
-        pointer = self.folder / "zmart-live" / _LAYOUT
+        pointer = the_records_folder(self.folder) / _LAYOUT
         mark = _the_files_identity(pointer)
         if (self.layout is self._layout_recorded and mark is not None
                 and mark == self._layout_mark):
@@ -1404,7 +1457,7 @@ class LivePublisher:
         still happens on every call, so a replaced or tampered pointer drops
         straight back to the full read-and-compare below.
         """
-        target = self.folder / "zmart-live" / _LAYOUT
+        target = the_records_folder(self.folder) / _LAYOUT
         if (self.layout is self._layout_recorded
                 and self._layout_mark is not None
                 and _the_files_identity(target) == self._layout_mark):
@@ -1509,6 +1562,10 @@ class LivePublisher:
             notes=found.describe(),
         )
         self.manifest.publish(event)
+        # The community-facing member list follows the manifest, never leads
+        # it: declared after the commit, so a reader who catches the skew sees
+        # one member too few rather than one too many.
+        self._declare_the_current_members()
         return event
 
     def write_and_publish(
@@ -1648,7 +1705,7 @@ class LivePublisher:
         description those pointers answer for, and the arrangement — the same
         products a per-publish run maintains after every commit, written here
         exactly once instead. Afterwards any outside tool can open
-        ``views/overview.ome.zarr`` as plain files, just as it always could.
+        ``views/live/live.ome.zarr`` as plain files, just as it always could.
 
         Each write carries its own checks: building the map is the moment the
         arrangement is validated (see :meth:`write_the_link_map`), and the map
