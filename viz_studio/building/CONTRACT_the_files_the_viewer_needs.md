@@ -205,24 +205,25 @@ acquisition's numbers.
 ## The two-folder resolution: data and views
 
 The structure above resolves, finally, to two folders per acquisition
-with one pen each. The pixels and their logbook are two halves of one
-thing -- the science -- and they bundle into a single folder the writer
-owns, with the interoperability promise unharmed because it always
-attached to each STORE, never to the folder listing:
+with one pen each. The pixels arrive in data/ from the microscope and
+are never touched afterwards -- that folder is exactly what the
+acquisition produced, nothing added by anyone else. Everything of ours
+lives in views/:
 
     targets-2/
-    ├── data/                   the writer's pen -- written by the run,
-    │   ├── p00.ome.zarr/       never touched after: the pixels
-    │   ├── ...                 and, inside with them,
-    │   └── zmart-live/         their logbook
-    └── views/                  the viewer's pen -- derived, disposable
+    ├── data/                   the microscope's pen -- pixels arrive
+    │   └── survey.ome.zarr/    here from the run, never touched after
+    └── views/                  our pen -- everything the viewer needs
+        └── live/
+            ├── logbook/          the liveness record (see below)
+            └── live.ome.zarr/    the baked, viewer-shaped pyramid
 
 One sentence rules it all: data/ is written once by the run and never
-touched; views/ is written by lookers and never trusted. Shipping data/
-ships the science complete, pixels with their proof. Today's code
-spells the first folder positions/ with the logbook beside it; the
-bundling and rename are a conversion item for the smart-microscopy
-writer work, recorded here as the target.
+touched; views/ is written for lookers and never trusted as science.
+Shipping data/ ships the science complete. Today's code spells the
+first folder positions/ with the logbook beside it; the renames are a
+conversion item for the smart-microscopy writer work, recorded here as
+the target.
 
 ## The collection: one zarr for the community, membership by declaration
 
@@ -230,19 +231,18 @@ The final form of data/ answers the one-handle need directly: the
 position images live INSIDE one collection zarr, so a single path opens
 in napari, ImageJ, or any OME-Zarr tool. What makes this legal under the
 law is one substitution -- membership by DECLARATION, not by presence.
-The collection group's metadata carries the member list, and the
-publisher writes it as part of each commit: only committed,
+The collection group's metadata carries the member list, and the run's
+writer declares each member as part of publishing it: only complete,
 current-generation members are ever declared. Presence keeps meaning
-nothing; the community reads the declaration, and the declaration is the
-logbook's downhill projection, written by the same pen, updated after
-the commit so any skew shows less rather than more.
+nothing; the community reads the declaration, written by the same pen
+that wrote the pixels, updated after each store completes so any skew
+shows less rather than more.
 
     data/
-    ├── survey.ome.zarr/        one collection zarr -- the community handle
-    │   ├── zarr.json             member list: committed, current members only
-    │   ├── p00/  p01/  ...       the position images, unchanged in structure
-    │   └── p01.generation-1/     retired generations stay, undeclared
-    └── logbook/                the one authority, beside it
+    └── survey.ome.zarr/        one collection zarr -- the community handle
+        ├── zarr.json             member list: complete, current members only
+        ├── p00/  p01/  ...       the position images, unchanged in structure
+        └── p01.generation-1/     retired generations stay, undeclared
 
 Trades, chosen not discovered: one more small write per commit (the
 member list, same cost class as committed.json -- it joins that
@@ -260,8 +260,9 @@ Every term names either a stored fact or a computed act, never both:
 - **locations** -- facts on the canvas: where each position physically
   is. Stored once by the run, driven by the stage, stamped into every
   store's translation. Owned by the writer.
-- **signing** -- the writer's declaration that a store now counts. What
-  is signed, when, at which generation is the logbook's testimony.
+- **signing** -- the writer's declaration that a store now counts,
+  recorded in the data's own metadata (the member declaration); the
+  logbook only restates it at viewer pace.
 - **placements** -- computed acts, never stored: each window's on-the-fly
   projection of locations into its own pixels (its crop, its zoom). This
   is why views cannot disagree about where things are -- they share the
@@ -272,35 +273,49 @@ Every term names either a stored fact or a computed act, never both:
 The renames the conversion carries, today to target:
 
     positions/ (flat stores)  ->  data/survey.ome.zarr/ (declared members)
-    zmart-live/               ->  data/logbook/
+    zmart-live/               ->  views/<view>/logbook/
     layout.json               ->  locations.json
     committed.json            ->  signed.json
     (per-run frame facts)     ->  canvas.json, at the experiment level
     views/                    ->  views/ (right all along)
 
-## The logbook is the data's own metadata, and it rides inside
+## The logbook lives with the view
 
-The principle that settles its place: everything must be obtainable from
-the data -- and what cannot live in any single store's attributes are
-the CROSS-STORE, AFTER-THE-FACT facts. Supersession is learned about a
-store long after it was sealed; signing and run-wide order span stores;
-recording these in a store's own attrs would mean mutating published
-science. Cross-store facts need a cross-store place, and that place
-lives INSIDE the collection, beside the members, exactly as
-bioformats2raw ships its OME/ companion metadata inside the zarr:
+An earlier draft of this contract placed the logbook inside the
+collection, as the data's own metadata. That was wrong, and the reason
+it was wrong is the honest test of ownership: WHO READS IT. Today the
+logbook has exactly one reader -- the visualizer. Nothing else depends
+on it, because nothing else exists yet, and this contract does not
+build for readers that do not exist.
 
-    data/
-    └── survey.ome.zarr/       one self-contained thing
-        ├── zarr.json            declared members -- community metadata
-        ├── p00/ p01/ ...        the pixels
-        └── logbook/             the data's rich metadata: cross-store,
-                                 append-only, atomically pointered --
-                                 metadata that outgrew attrs, not
-                                 metadata that left the data
+So the placement follows from the ownership rule already on every other
+line of this document. The data folder is the microscope's: pixels
+arrive there from the run and nothing is ever added to them by anyone
+else -- if liveness ever deserves to be metadata OF the data, that is
+the experiment writer's and the microscope layer's decision, made with
+their pen, outside our scope. The logbook is viewer plumbing, so it
+lives inside the view it serves, next to the baked store, the same way
+the layout already does:
 
-Shipping the collection ships everything: pixels, membership, witness.
-The logbook is not bookkeeping beside the data; it is the data's own
-metadata in a container strong enough for history and atomicity.
+    views/
+    └── live/
+        ├── logbook/           what is published, when, which generation
+        │                        counts -- append-only diary plus one
+        │                        atomically-replaced pointer
+        └── live.ome.zarr/     the baked, viewer-shaped pyramid
+
+And one consequence must hold, because it is what "just the viewer's"
+means: DELETING THE LOGBOOK IS FINE. Everything the viewer truly needs
+to know -- which stores are complete, which generation is current, what
+came when -- must be findable in the data and its own metadata, and
+putting it there is the WRITER'S responsibility: the member
+declaration, the timestamps, whatever record rides with the files at
+the moment they are written belongs to the writer's side of the fence.
+The logbook never holds the only copy of any truth. It is the viewer's
+fast, viewer-shaped restatement of what the data already says -- kept
+because re-reading a whole survey to learn "what changed?" is too slow
+at live pace, rebuildable from data/ whenever it is lost, and thrown
+away with the rest of views/ without losing one fact.
 
 ## The acceptance test that rules everything
 
@@ -309,8 +324,10 @@ ZMART anything. Everything must work: the collection opens, the members
 are the signed current generations, every location is where the stage
 put it. Nothing in data/ may reference, expect, or know about views/ --
 the dependency points one way only, which is what "the view is just our
-add-on" means structurally: an arrow with no arrow back. The witness
-rides along invisible to outsiders, exactly as bioformats2raw's OME/
-companion does. This test is the standing gate the conversion must ship
-with, in the pattern of test_other_tools_can_read_us: data as clean as
-if we had never existed, because for that reader, we haven't.
+add-on" means structurally: an arrow with no arrow back. And the test
+cuts both ways: deleting views/ deletes every file we ever wrote --
+logbook included -- and nothing of value is lost, because the data's
+own metadata already tells the whole story and views/ can be rebuilt
+from it. This test is the standing gate the conversion must ship with,
+in the pattern of test_other_tools_can_read_us: data as clean as if we
+had never existed, because for that reader, we haven't.
