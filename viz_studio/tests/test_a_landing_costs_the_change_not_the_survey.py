@@ -112,3 +112,133 @@ def test_a_landing_costs_the_change_not_the_survey(tmp_path):
             )
     finally:
         opened.close()
+
+
+def test_a_landing_rehalves_with_pixel_work_not_library_machinery(tmp_path):
+    """Re-truing the coarse levels must not pay zarr's dispatcher per landing.
+
+    The zarr library routes every array operation through an internal
+    asynchronous dispatcher -- the right design for cloud storage, where many
+    slow requests want to be in flight together, and a toll of milliseconds
+    per operation when the operation is a tiny local read. A landing's
+    re-halve is exactly that: read four small chunk files, average pixels,
+    write one small chunk file. Profiled at 32x32, the pixel arithmetic was
+    about a millisecond per landing while roughly 100 ms sat in the
+    dispatcher's thread handoffs -- machinery, not work, paid under the bake
+    lock on every landing.
+
+    The chunk files' encoding is written down in each level's own zarr.json,
+    so the patcher can read and write them directly through the same recipe
+    -- the courier is skipped, the bytes still say exactly what zarr would
+    have said, and test_the_rehalved_level_reads_back_true holds the pixels
+    to that. This gate pins the machinery side: a steady-state landing must
+    perform ZERO region operations through the zarr array API. An encoding
+    this repository did not write falls back to the zarr path -- correct
+    everywhere, fast where it matters -- and the fallback announces itself
+    on this counter, so a fixture drifting off the direct path turns this
+    gate red instead of quietly slowing every landing down.
+    """
+    harness.FIXTURES = tmp_path
+    run, order = harness.the_run(SURVEY_ACROSS)
+    landings = order[-(STEADY_LANDINGS + 1):]
+    for position_id in order[:-(STEADY_LANDINGS + 1)]:
+        harness.fast_publish(run, position_id)
+
+    shown = tmp_path / "no-courier" / "shown"
+    store = declare_a_governed_picture(shown, run.folder, name="live",
+                                       bake=True)
+    opened = GovernedRun(run.folder, store=store)
+    try:
+        opened.composer()
+        harness.fast_publish(run, landings[0])
+        opened.composer()
+        for number, position_id in enumerate(landings[1:], 1):
+            harness.fast_publish(run, position_id)
+            opened.composer()
+            rehalved = opened.accounting["last_bake_pieces_rehalved"]
+            # The blindness guard, as in the test above: zeros only mean
+            # something if the machinery under test actually ran.
+            assert rehalved > 0, (
+                "no piece of any extended level was re-halved by this "
+                "landing, so the machinery this test watches never ran -- "
+                "the survey is too small for this instrument. Grow "
+                "SURVEY_ACROSS."
+            )
+            round_trips = opened.accounting["last_bake_zarr_ops"]
+            assert round_trips == 0, (
+                f"steady-state landing {number} re-halved {rehalved} pieces "
+                f"using {round_trips} region operations through the zarr "
+                "array API. Each such operation pays the library's "
+                "dispatcher toll -- thread handoffs worth milliseconds per "
+                "call, against about one millisecond of actual pixel "
+                "arithmetic -- under the bake lock, on every landing. The "
+                "chunk encoding is in the level's own zarr.json, so the "
+                "patch must read and write the chunk files directly through "
+                "that recipe, and leave the array API for encodings this "
+                "repository did not write."
+            )
+    finally:
+        opened.close()
+
+
+def test_the_rehalved_level_reads_back_true(tmp_path):
+    """Every extended level equals the 2x2 mean of the level below, exactly.
+
+    The direct re-halving path above writes chunk files through the recipe
+    in the level's own zarr.json rather than through the zarr array API, so
+    this is the oracle that keeps it honest: after real landings have been
+    patched, each extended level is read back with PLAIN zarr -- the same
+    reader any other tool would use -- and every pixel must equal the same
+    averaging arithmetic applied to the whole level below. Exact equality,
+    not approximate: the arithmetic is fixed (average 2x2, round, cast), so
+    any difference at all means the direct path and the recipe disagree
+    about what the files say. Reading back through zarr is half the point:
+    it proves the files are still ordinary zarr to the rest of the world.
+    """
+    import zarr
+
+    harness.FIXTURES = tmp_path
+    run, order = harness.the_run(SURVEY_ACROSS)
+    landings = order[-(STEADY_LANDINGS + 1):]
+    for position_id in order[:-(STEADY_LANDINGS + 1)]:
+        harness.fast_publish(run, position_id)
+    shown = tmp_path / "reads-back" / "shown"
+    store = declare_a_governed_picture(shown, run.folder, name="live",
+                                       bake=True)
+    opened = GovernedRun(run.folder, store=store)
+    try:
+        opened.composer()
+        for position_id in landings:
+            harness.fast_publish(run, position_id)
+            opened.composer()
+    finally:
+        opened.close()
+
+    rehalved_levels = sorted(
+        int(folder.name.split("-")[1])
+        for folder in Path(store).glob(".patching-*"))
+    assert rehalved_levels, (
+        "no extended level was re-halved, so this oracle checked nothing -- "
+        "the survey is too small for this instrument. Grow SURVEY_ACROSS."
+    )
+    import numpy as np
+
+    for level in rehalved_levels:
+        below = zarr.open_array(str(Path(store) / str(level - 1)),
+                                mode="r")[:]
+        served = zarr.open_array(str(Path(store) / str(level)), mode="r")[:]
+        deep, height, width = served.shape
+        evened = np.pad(below,
+                        ((0, 0), (0, 2 * height - below.shape[1]),
+                         (0, 2 * width - below.shape[2])), mode="edge")
+        expected = (evened.reshape(deep, height, 2, width, 2)
+                    .mean(axis=(2, 4)).round().astype(served.dtype))
+        differing = int((expected != served).sum())
+        assert differing == 0, (
+            f"extended level {level} disagrees with the 2x2 mean of level "
+            f"{level - 1} at {differing} of {expected.size} pixels after "
+            "real landings were patched. The files no longer say what the "
+            "arithmetic says, so either the direct chunk path or its "
+            "reading of the recipe is wrong -- and every other tool reading "
+            "this picture sees the same wrong pixels."
+        )
