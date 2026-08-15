@@ -1019,7 +1019,31 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
         network_phase["name"] = "storm-bands"
         for multiple in (0.15, 0.4, 1.0, 2.5):
             zoom_to(multiple)
-            page.wait_for_timeout(2_500)
+            # Photograph the band at CONVERGENCE, not on a stopwatch. The
+            # refetch tail after 1,456 landings drains at whatever pace the
+            # machine can manage -- instrumented on 2026-08-15: zero flight
+            # failures, zero pending, and still dozens of chunks DOWNLOADING
+            # when a fixed 2.5 s wait photographed the coarsest band, which
+            # failed the identity check for being merely behind, not wrong.
+            # So each band is photographed once its pixels stop changing and
+            # the engine reports nothing in flight, under a hard ceiling.
+            # The gate keeps its teeth: a genuinely WEDGED piece -- the
+            # disease this census exists to catch -- drains to stable-but-
+            # wrong, sails through this wait, and still fails the identity
+            # comparison below.
+            deadline = time.perf_counter() + 45
+            resting = None
+            while True:
+                page.wait_for_timeout(1_500)
+                _, pixels = _save_middle_and_measure(page)
+                quiet = page.evaluate(
+                    "() => window.zmartSourcesWaiting()") == 0
+                if (resting is not None and quiet
+                        and pixels.tobytes() == resting.tobytes()):
+                    break
+                if time.perf_counter() > deadline:
+                    break
+                resting = pixels
             seen[multiple], storm_pixels[multiple] = \
                 _save_middle_and_measure(
                     page,
@@ -1203,7 +1227,21 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
         fresh_pixels = {}
         for multiple in (0.15, 0.4, 1.0, 2.5):
             zoom_to(multiple)
-            page.wait_for_timeout(2_500)
+            # The same convergence rule as the warm bands above, so the two
+            # sides of the comparison are photographed under one standard.
+            deadline = time.perf_counter() + 45
+            resting = None
+            while True:
+                page.wait_for_timeout(1_500)
+                _, pixels = _save_middle_and_measure(page)
+                quiet = page.evaluate(
+                    "() => window.zmartSourcesWaiting()") == 0
+                if (resting is not None and quiet
+                        and pixels.tobytes() == resting.tobytes()):
+                    break
+                if time.perf_counter() > deadline:
+                    break
+                resting = pixels
             fresh[multiple], fresh_pixels[multiple] = \
                 _save_middle_and_measure(
                     page,
