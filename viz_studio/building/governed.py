@@ -475,6 +475,17 @@ class GovernedRun:
                 return self._held
             previous, before = self._held, dict(self._drawing)
             kept = dict(self._tiles)
+        # A DAMAGED publication record must refuse the derive, never pass as
+        # an empty run. The manifest's ordinary read deliberately answers
+        # damage with "nothing published" -- the right fail-closed answer for
+        # one pixel ask, and the wrong one for this long-lived server: folding
+        # "nothing" would derive an empty picture, unbake real files to match
+        # it, and answer 404s the viewer believes for the rest of its session.
+        # The strict read raises for damaged, foreign or unreadable truth, the
+        # serving layer answers "try again shortly" (503), and a repaired
+        # record simply derives on the next ask. A genuinely empty run has a
+        # VALID record saying so, and passes this check untouched.
+        self._run.manifest.committed_strict()
         baked_picture = self._shown is not None and bool(
             self._the_baked_levels())
         began = time.perf_counter()

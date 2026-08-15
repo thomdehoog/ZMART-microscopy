@@ -469,12 +469,20 @@ def test_a_picture_declared_over_a_runs_positions_is_refused(tmp_path):
         served.forget(store)
 
 
-def test_a_governed_picture_that_cannot_be_made_answers_absent(tmp_path):
-    """Damage to the run is a logged absence at the wire, never a hung socket.
+def test_a_governed_picture_that_cannot_be_made_says_try_again(tmp_path):
+    """Damage to the run is "try again shortly" at the wire, never absence.
 
-    One half-written arrival used to make every request repeat the whole
-    transfer read forever; here the run's bookkeeping is gone entirely, and
-    the answer is a plain None per request.
+    Two older mistakes are guarded against at once. One half-written arrival
+    used to make every request repeat the whole transfer read forever -- so
+    each ask here must still fail fast, without redoing expensive work or
+    hanging a socket. And damage used to be answered as a plain absence,
+    which the viewer believes for the rest of its session: a 404 says "there
+    is nothing here, stop asking", and a run whose records were merely
+    unreachable for a moment ended up as a hole only a reload repaired. So a
+    picture that cannot be made raises TemporarilyUnanswerable instead --
+    the server turns it into a 503, which the viewer's own HTTP layer
+    retries -- and test_a_fault_is_not_absence.py holds the wire end of the
+    same promise.
     """
     import served
     from declare import declare_a_governed_picture
@@ -487,8 +495,10 @@ def test_a_governed_picture_that_cannot_be_made_answers_absent(tmp_path):
     shutil.rmtree(run.folder / "zmart-live")
 
     try:
-        assert served.the_bytes_behind(store, "0/c/0/0/0") is None
-        assert served.the_bytes_behind(store, "0/c/0/0/0") is None
+        with pytest.raises(served.TemporarilyUnanswerable):
+            served.the_bytes_behind(store, "0/c/0/0/0")
+        with pytest.raises(served.TemporarilyUnanswerable):
+            served.the_bytes_behind(store, "0/c/0/0/0")
     finally:
         served.forget(store)
 
