@@ -507,10 +507,22 @@ class GovernedRun:
         # serving layer answers "try again shortly" (503), and a repaired
         # record simply derives on the next ask. A genuinely empty run has a
         # VALID record saying so, and passes this check untouched.
+        # Where this derive's time went, phase by phase, for the scale
+        # harnesses. The whole call is covered -- including the tail after
+        # the snapshot is installed, which last_derive_ms deliberately does
+        # not include -- because a landing's cost to the operator is the
+        # whole call, and attributing a slow landing needs every phase to
+        # have a name. Filled only on real derives; the cached early return
+        # above leaves the previous derive's story in place.
+        phases: dict[str, float] = {}
+        watch = time.perf_counter
+        marked = watch()
         self._run.manifest.committed_strict()
+        phases["strict_read"] = (watch() - marked) * 1000
         baked_picture = self._shown is not None and bool(
             self._the_baked_levels())
         began = time.perf_counter()
+        marked = watch()
         layout, profile = self._run._geometry()
         # A frame that MOVED -- a new layout revision or another profile --
         # invalidates every piece and every inherited slab at once: one
@@ -519,6 +531,8 @@ class GovernedRun:
         framed = (layout.revision, profile.profile_id)
         moved_frame = previous is not None and framed != self._frame_installed
         made, drawing, tiles = self._compose_the_snapshot(before, kept)
+        phases["compose"] = (watch() - marked) * 1000
+        marked = watch()
         dirtied: dict[int, set[tuple[int, int]]] | None = None
         if previous is not None and not moved_frame:
             # Which positions appeared, vanished, or moved to another
@@ -560,15 +574,17 @@ class GovernedRun:
         # layout): a bare count read AHEAD of a rolled-back history and
         # left withdrawn ground served from files -- review finding D1.
         folded = self._run._folded
+        phases["inherit"] = (watch() - marked) * 1000
         if baked_picture:
             current = {"events": folded,
                        "tail": self._run._last_folded_revision,
                        "layout": layout.revision}
             self._keep_the_bake_true(
-                made, None if moved_frame else dirtied, current)
+                made, None if moved_frame else dirtied, current, phases)
         self.accounting["derives"] += 1
         self.accounting["last_derive_ms"] = (time.perf_counter() - began) * 1000
         self.accounting["last_positions"] = len(drawing)
+        marked = watch()
         with self._guard:
             # Two threads may have derived DIFFERENT states -- a commit can
             # land between their fingerprint reads -- so installation is
@@ -587,8 +603,12 @@ class GovernedRun:
                 self._frame_installed = framed
             else:
                 stood_down = made
+        phases["install"] = (watch() - marked) * 1000
+        marked = watch()
         if stood_down is not None and stood_down is not self._held:
             stood_down.stop_warming()
+        phases["stop_warming"] = (watch() - marked) * 1000
+        marked = watch()
         # The coarse ground, warmed in the background and pinned. At survey
         # scale a coarse piece covers a hundred-odd positions, and building
         # them on demand is the one slowness an operator feels on a cold
@@ -610,6 +630,8 @@ class GovernedRun:
                 frozenset(one for one in self._the_baked_levels()
                           if one < self._held.mosaic.levels))
         self._held.keep_the_coarse_levels_warm()
+        phases["warm"] = (watch() - marked) * 1000
+        self.accounting["last_phase_ms"] = phases
         return self._held
 
     def _the_baked_levels(self) -> tuple[int, ...]:
@@ -672,8 +694,14 @@ class GovernedRun:
 
     def _keep_the_bake_true(self, made: Composer,
                             dirtied: dict[int, set[tuple[int, int]]] | None,
-                            current: dict) -> None:
+                            current: dict,
+                            phases: dict[str, float] | None = None) -> None:
         """Patch the baked files the manifest's movement reached, then stamp.
+
+        ``phases`` is the derive's phase ledger (see the derive), written
+        into here so a slow landing can say WHICH bake phase was slow:
+        scanning the stamp, composing dirty pieces, re-halving extended
+        levels, or writing the stamp back.
 
         Runs inside the derive, BEFORE the fresh snapshot is handed to
         anyone: once a reader can know about the new state, the files are
@@ -700,28 +728,40 @@ class GovernedRun:
         collide (review finding D7). The file lock is held by the operating
         system, so a patcher that dies releases it.
         """
+        if phases is None:
+            phases = {}
+        watch = time.perf_counter
+        marked = watch()
         with self._bake_guard, _holding_the_bake_lock(self._shown):
             self.accounting["last_bake_arrays_opened"] = 0
             self.accounting["last_bake_stagings_built"] = 0
             self.accounting["last_bake_zarr_ops"] = 0
             self.accounting["last_bake_pieces_rehalved"] = 0
+            self.accounting["last_bake_pieces_composed"] = 0
             stamped = self._the_stamp()
             if stamped == current:
                 self._stamp_installed = current
+                phases["bake_scan"] = (watch() - marked) * 1000
                 return
             if dirtied is None or stamped != self._stamp_installed:
                 dirtied = self._the_ground_the_bake_missed(made, current)
                 if dirtied is None:
                     self._stamp_installed = current
+                    phases["bake_scan"] = (watch() - marked) * 1000
                     return
             baked = self._the_baked_levels()
+            phases["bake_scan"] = (watch() - marked) * 1000
+            marked = watch()
             for level in sorted(one for one in baked
                                 if one < made.mosaic.levels):
                 for row, column in sorted(dirtied.get(level, ())):
                     deep = made.grid(level)[0]
+                    self.accounting["last_bake_pieces_composed"] += 1
                     for plane in range(deep):
                         self._replace_one_piece(made, level, plane, row,
                                                 column)
+            phases["bake_compose"] = (watch() - marked) * 1000
+            marked = watch()
             coarsest = made.mosaic.levels - 1
             reached = dirtied.get(coarsest, set())
             for level in sorted(one for one in baked
@@ -730,10 +770,13 @@ class GovernedRun:
                            for row, column in reached}
                 if reached:
                     self._rehalve_one_level(level, sorted(reached))
+            phases["bake_rehalve"] = (watch() - marked) * 1000
+            marked = watch()
             self.stamp_the_bake(events=current["events"],
                                 tail=current["tail"],
                                 layout=current["layout"])
             self._stamp_installed = current
+            phases["bake_stamp"] = (watch() - marked) * 1000
 
     def _the_ground_the_bake_missed(self, made: Composer, current: dict,
                                     ) -> dict[int, set[tuple[int,
