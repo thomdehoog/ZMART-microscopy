@@ -418,7 +418,6 @@ class GovernedRun:
                            "last_bake_stagings_built": 0,
                            "last_bake_zarr_ops": 0,
                            "last_bake_pieces_rehalved": 0,
-                           "last_bake_pieces_pasted": 0,
                            "last_snapshot_swept": 0}
 
     def composer(self) -> Composer:
@@ -580,21 +579,8 @@ class GovernedRun:
             current = {"events": folded,
                        "tail": self._run._last_folded_revision,
                        "layout": layout.revision}
-            # What this state's change actually IS, for the paste-over path:
-            # the changed positions' new tiles, offered only when every
-            # change still stands in the new snapshot. A change that RETIRED
-            # ground -- a rollback, a vanished position -- leaves pixels that
-            # must give way to whatever lies beneath, which only a full
-            # recomposition knows, so those states offer None and the
-            # patcher rebuilds the dirty pieces whole.
-            changes = None
-            if previous is not None and not moved_frame:
-                still_standing = all(one in drawing for one in changed_names)
-                if still_standing:
-                    changes = {one: tiles[one] for one in changed_names}
             self._keep_the_bake_true(
-                made, None if moved_frame else dirtied, current, phases,
-                changes)
+                made, None if moved_frame else dirtied, current, phases)
         self.accounting["derives"] += 1
         self.accounting["last_derive_ms"] = (time.perf_counter() - began) * 1000
         self.accounting["last_positions"] = len(drawing)
@@ -709,8 +695,7 @@ class GovernedRun:
     def _keep_the_bake_true(self, made: Composer,
                             dirtied: dict[int, set[tuple[int, int]]] | None,
                             current: dict,
-                            phases: dict[str, float] | None = None,
-                            changes: dict[str, Tile] | None = None) -> None:
+                            phases: dict[str, float] | None = None) -> None:
         """Patch the baked files the manifest's movement reached, then stamp.
 
         ``phases`` is the derive's phase ledger (see the derive), written
@@ -718,13 +703,18 @@ class GovernedRun:
         scanning the stamp, composing dirty pieces, re-halving extended
         levels, or writing the stamp back.
 
-        ``changes`` is the state's change as tiles -- the landed or replaced
-        positions in the new snapshot -- when, and only when, every change
-        still stands. With it, a dirty composed piece is patched by
-        re-laying just the changed ground (see _paste_the_changed_ground);
-        without it, or wherever pasting declines, the piece is recomposed
-        whole, which is always correct and merely reads the piece's whole
-        neighbourhood to do it.
+        Dirty composed pieces are recomposed whole, deliberately. A
+        paste-over variant -- re-lay only the changed ground over the
+        decoded existing chunk -- was built, proven correct against an
+        overlap proof and a pixel-equality oracle, and then REVERTED on
+        measurement: it cut tile reads from 143 to 4 per landing and made
+        every landing SLOWER (17.7 to 59.2 ms on a small survey), because
+        the composer's inherited warm slabs already amortize the reads,
+        while pasting added a decode of every dirty chunk at every level
+        on top of the encode both paths pay. The reads were the wrong
+        currency; the survey ladder's wall clock is the instrument that
+        said so, and any second attempt must first split the compose
+        phase into decode/read/lay/encode and beat it there.
 
         Runs inside the derive, BEFORE the fresh snapshot is handed to
         anyone: once a reader can know about the new state, the files are
@@ -761,7 +751,6 @@ class GovernedRun:
             self.accounting["last_bake_zarr_ops"] = 0
             self.accounting["last_bake_pieces_rehalved"] = 0
             self.accounting["last_bake_pieces_composed"] = 0
-            self.accounting["last_bake_pieces_pasted"] = 0
             self.accounting["last_bake_tile_reads"] = 0
             stamped = self._the_stamp()
             if stamped == current:
@@ -781,22 +770,17 @@ class GovernedRun:
             for level in sorted(one for one in baked
                                 if one < made.mosaic.levels):
                 for row, column in sorted(dirtied.get(level, ())):
-                    if changes is not None and self._paste_the_changed_ground(
-                            made, level, row, column, changes):
-                        self.accounting["last_bake_pieces_pasted"] += 1
-                        continue
                     deep = made.grid(level)[0]
                     self.accounting["last_bake_pieces_composed"] += 1
                     for plane in range(deep):
                         self._replace_one_piece(made, level, plane, row,
                                                 column)
-            # How many tile rectangles composing the dirty pieces read. One
-            # landed position under a coarse piece dirties the whole piece,
-            # and recomposing it reads every tile beneath -- a hundred-odd at
-            # survey scale for a one-position change. This number is what a
-            # paste-over patch of the baked piece would shrink to the landing
-            # itself, and the gate that watches it is
-            # test_the_bake_patch_reads_the_landing_not_the_neighbourhood.
+            # How many tile rectangles composing the dirty pieces read --
+            # a hundred-odd at survey scale for a one-position change, and
+            # measured to be the WRONG number to optimise: shrinking it to
+            # four (see the docstring above) made landings slower, because
+            # warm slabs already amortize these reads. Kept as a diagnostic,
+            # not a target.
             self.accounting["last_bake_tile_reads"] = (
                 made.tile_reads - reads_before)
             phases["bake_compose"] = (watch() - marked) * 1000
@@ -865,99 +849,6 @@ class GovernedRun:
                             (at[2] + held[2] - 1) // self._piece + 1):
                         reached.add((row, column))
         return dirty
-
-    def _paste_the_changed_ground(self, made: Composer, level: int,
-                                  row: int, column: int,
-                                  changes: dict[str, Tile]) -> bool:
-        """Patch one composed piece by re-laying only the changed ground.
-
-        Recomposing a dirty coarse piece reads every tile beneath it -- a
-        hundred-odd for a one-position landing -- when the change is the
-        size of one tile. So the piece's existing chunk files are decoded,
-        and only the CHANGED ground is re-laid over them, tile by tile in
-        the composer's own draw order and clipped to the changed region.
-
-        Why that is exactly a full recomposition, not an approximation:
-        laying is pure overwrite with the later-committed tile on top, and
-        any tile that is topmost at a changed pixel touches the changed
-        region, so it is among the tiles re-laid; outside the region the
-        manifest changed nothing, so the old pixels are already the truth.
-        The clipping is what makes it safe for a REPLACED tile too -- a
-        later-committed neighbour keeps owning their shared overlap band,
-        because it is re-laid on top within the band, exactly as the full
-        composition would have laid it. The overlap proof in
-        test_the_bake_patch_reads_the_landing_not_the_neighbourhood holds
-        this in place. Ground a change RETIRED (a rollback, a vanished
-        position) cannot be pasted -- old pixels must give way to whatever
-        is beneath, which only a rebuild knows -- and the caller falls back
-        to full recomposition for those states.
-
-        Returns False when this piece cannot be pasted -- no recipe for the
-        level's encoding, or no changed ground actually reaches the piece --
-        and the caller recomposes it in full instead.
-        """
-        recipe = self._the_baked_recipe(level)
-        # The composer starts every slab from zeros, so ground no tile covers
-        # is zero in every composed piece. Pasting must start from the same
-        # truth, which it can only promise when the declared fill IS zero.
-        if recipe is None or recipe["fill"] != 0:
-            return False
-        piece = self._piece
-        deep, height, width = recipe["shape"]
-        top, left = row * piece, column * piece
-        bottom, right = min(top + piece, height), min(left + piece, width)
-        regions = []
-        for tile in changes.values():
-            at = made.mosaic.lands_at(tile, level)
-            held = tile.copies[level].shape
-            y0, y1 = max(top, at[1]), min(bottom, at[1] + held[1])
-            x0, x1 = max(left, at[2]), min(right, at[2] + held[2])
-            if y0 < y1 and x0 < x1:
-                regions.append((y0, y1, x0, x1))
-        if not regions:
-            return False
-        from numcodecs import Zstd
-
-        packing = Zstd(level=recipe["zstd_level"])
-        unpacking = Zstd()
-        dtype = recipe["dtype"]
-        laid = made._tiles_in_each_piece(level).get((row, column), ())
-        for plane in range(deep):
-            inside = (self._shown / str(level) / "c" / str(plane)
-                      / str(row))
-            baked = inside / str(column)
-            if baked.is_file():
-                buffer = np.frombuffer(
-                    unpacking.decode(baked.read_bytes()),
-                    dtype=dtype).reshape(1, piece, piece).copy()
-            else:
-                # An absent chunk is all-fill ground, which is also what a
-                # fresh composition starts from.
-                buffer = np.full((1, piece, piece), recipe["fill"], dtype)
-            for y0, y1, x0, x1 in regions:
-                for tile, at in laid:
-                    held = tile.copies[level].shape
-                    if not (at[0] <= plane < at[0] + held[0]):
-                        continue
-                    from_y, to_y = max(y0, at[1]), min(y1, at[1] + held[1])
-                    from_x, to_x = max(x0, at[2]), min(x1, at[2] + held[2])
-                    if from_y >= to_y or from_x >= to_x:
-                        continue
-                    buffer[0, from_y - top:to_y - top,
-                           from_x - left:to_x - left] = made._read_from(
-                        tile.copies[level],
-                        (plane - at[0], from_y - at[1], from_x - at[2]),
-                        (plane - at[0] + 1, to_y - at[1], to_x - at[2]))[0]
-            if np.all(buffer == recipe["fill"]):
-                if baked.is_file():
-                    _after_a_windows_reader(os.unlink, baked)
-                continue
-            inside.mkdir(parents=True, exist_ok=True)
-            arriving = baked.with_name(f"{baked.name}.baking")
-            arriving.write_bytes(packing.encode(
-                np.ascontiguousarray(buffer).tobytes()))
-            _after_a_windows_reader(os.replace, arriving, baked)
-        return True
 
     def _replace_one_piece(self, made: Composer, level: int, plane: int,
                            row: int, column: int) -> None:
