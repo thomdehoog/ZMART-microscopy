@@ -400,6 +400,10 @@ class GovernedRun:
         # accounting below and test_a_landing_costs_the_change_not_the_survey).
         self._bake_below: dict[int, zarr.Array] = {}
         self._bake_staging: dict[int, zarr.Array] = {}
+        # Each baked level's chunk encoding, parsed once from its zarr.json
+        # (False marks "not looked yet", None marks "not an encoding the
+        # direct path speaks"). See _the_baked_recipe.
+        self._bake_recipes: dict[int, dict | None] = {}
         # What deriving snapshots has cost, for the scale harnesses: how many
         # times, how long the last one took, and how many tiles it read from
         # disk. The bake counters say how much machinery the LAST patch built
@@ -412,6 +416,8 @@ class GovernedRun:
                            "last_tiles_read": 0, "last_positions": 0,
                            "last_bake_arrays_opened": 0,
                            "last_bake_stagings_built": 0,
+                           "last_bake_zarr_ops": 0,
+                           "last_bake_pieces_rehalved": 0,
                            "last_snapshot_swept": 0}
 
     def composer(self) -> Composer:
@@ -697,6 +703,8 @@ class GovernedRun:
         with self._bake_guard, _holding_the_bake_lock(self._shown):
             self.accounting["last_bake_arrays_opened"] = 0
             self.accounting["last_bake_stagings_built"] = 0
+            self.accounting["last_bake_zarr_ops"] = 0
+            self.accounting["last_bake_pieces_rehalved"] = 0
             stamped = self._the_stamp()
             if stamped == current:
                 self._stamp_installed = current
@@ -841,20 +849,39 @@ class GovernedRun:
             self.accounting["last_bake_arrays_opened"] += 1
             self.accounting["last_bake_stagings_built"] += 1
         deep, height, width = above.shape
-        for row, column in pieces:
-            top, left = row * self._piece, column * self._piece
-            bottom = min(top + self._piece, height)
-            right = min(left + self._piece, width)
-            wanted = (bottom - top, right - left)
-            source = below[:, 2 * top:min(2 * bottom, below.shape[1]),
-                           2 * left:min(2 * right, below.shape[2])]
-            evened = np.pad(source,
-                            ((0, 0), (0, 2 * wanted[0] - source.shape[1]),
-                             (0, 2 * wanted[1] - source.shape[2])),
-                            mode="edge")
-            above[:, top:bottom, left:right] = (
-                evened.reshape(deep, wanted[0], 2, wanted[1], 2)
-                .mean(axis=(2, 4)).round().astype(above.dtype))
+        self.accounting["last_bake_pieces_rehalved"] += len(pieces)
+        served_recipe = self._the_baked_recipe(level)
+        source_recipe = self._the_baked_recipe(level - 1)
+        if (served_recipe is not None and source_recipe is not None
+                and served_recipe["shape"][0] == source_recipe["shape"][0]):
+            # The direct path: the chunk files are read and written through
+            # the recipe their own zarr.json states, skipping the array
+            # API's per-operation dispatcher -- measured as milliseconds of
+            # thread handoff per call against about one millisecond of
+            # actual pixel arithmetic per landing, paid under the bake lock.
+            # The recipe check above is what keeps this honest: an encoding
+            # this repository did not write takes the general path below.
+            for row, column in pieces:
+                self._rehalve_one_piece_directly(
+                    level, staging, source_recipe, served_recipe,
+                    row, column)
+        else:
+            for row, column in pieces:
+                top, left = row * self._piece, column * self._piece
+                bottom = min(top + self._piece, height)
+                right = min(left + self._piece, width)
+                wanted = (bottom - top, right - left)
+                source = below[:, 2 * top:min(2 * bottom, below.shape[1]),
+                               2 * left:min(2 * right, below.shape[2])]
+                self.accounting["last_bake_zarr_ops"] += 1
+                evened = np.pad(source,
+                                ((0, 0), (0, 2 * wanted[0] - source.shape[1]),
+                                 (0, 2 * wanted[1] - source.shape[2])),
+                                mode="edge")
+                above[:, top:bottom, left:right] = (
+                    evened.reshape(deep, wanted[0], 2, wanted[1], 2)
+                    .mean(axis=(2, 4)).round().astype(above.dtype))
+                self.accounting["last_bake_zarr_ops"] += 1
         planes = -(-deep // int(above.chunks[0]))
         for row, column in pieces:
             for plane in range(planes):
@@ -869,6 +896,112 @@ class GovernedRun:
         # The staging folder stays, empty of chunks -- every staged file was
         # just moved out or was never written -- so the next landing reuses
         # it instead of paying to rebuild it. See the docstring above.
+
+    def _the_baked_recipe(self, level: int) -> dict | None:
+        """How one baked level's chunk files are encoded, or None to go general.
+
+        Read once per level from the level's own ``zarr.json`` -- the same
+        recipe every other reader of these files uses, so the direct path
+        below can never drift from what zarr itself would write. ``None``
+        means the encoding is not the one this repository's declare writes
+        (little-endian raw bytes then zstd, one z-plane per chunk, pieces
+        the size of chunks), and the caller must take the general array-API
+        path instead: correct for any encoding, merely slower.
+        """
+        found = self._bake_recipes.get(level, False)
+        if found is not False:
+            return found
+        recipe = None
+        try:
+            described = json.loads(
+                (self._shown / str(level) / "zarr.json").read_text(
+                    encoding="utf-8"))
+            codecs = described["codecs"]
+            chunk = described["chunk_grid"]["configuration"]["chunk_shape"]
+            if (len(codecs) == 2
+                    and codecs[0]["name"] == "bytes"
+                    and codecs[0]["configuration"]["endian"] == "little"
+                    and codecs[1]["name"] == "zstd"
+                    and not codecs[1]["configuration"].get("checksum")
+                    and len(chunk) == 3 and chunk[0] == 1
+                    and chunk[1] == self._piece and chunk[2] == self._piece):
+                recipe = {
+                    "shape": tuple(int(one) for one in described["shape"]),
+                    "dtype": np.dtype(described["data_type"])
+                    .newbyteorder("<"),
+                    "fill": described["fill_value"],
+                    "zstd_level": int(codecs[1]["configuration"]["level"]),
+                }
+        except (OSError, KeyError, TypeError, ValueError):
+            recipe = None
+        self._bake_recipes[level] = recipe
+        return recipe
+
+    def _rehalve_one_piece_directly(self, level: int, staging: Path,
+                                    source_recipe: dict, served_recipe: dict,
+                                    row: int, column: int) -> None:
+        """One piece of one extended level, re-halved file by file.
+
+        The same arithmetic as the array path -- assemble the 2x2 ground
+        beneath the piece, clamp at the picture's edge by repeating the last
+        row or column, average 2x2, round, cast -- performed on chunk files
+        decoded and encoded through the level's own recipe. A chunk file
+        that does not exist reads as fill, and a result that is entirely
+        fill is not written, so absence keeps meaning fill on the way out
+        exactly as it does on the way in.
+        """
+        from numcodecs import Zstd
+
+        deep, height, width = served_recipe["shape"]
+        below_deep, below_height, below_width = source_recipe["shape"]
+        piece = self._piece
+        top, left = row * piece, column * piece
+        wanted = (min(top + piece, height) - top,
+                  min(left + piece, width) - left)
+        src_h = min(2 * (top + wanted[0]), below_height) - 2 * top
+        src_w = min(2 * (left + wanted[1]), below_width) - 2 * left
+        below_dir = self._shown / str(level - 1)
+        source_dtype = source_recipe["dtype"]
+        packing = Zstd(level=served_recipe["zstd_level"])
+        unpacking = Zstd()
+        for plane in range(deep):
+            canvas = np.empty((src_h, src_w), dtype=source_dtype)
+            for down in (0, 1):
+                for across in (0, 1):
+                    grid_row, grid_col = 2 * row + down, 2 * column + across
+                    row0 = grid_row * piece
+                    col0 = grid_col * piece
+                    if row0 >= 2 * top + src_h or col0 >= 2 * left + src_w:
+                        continue
+                    rows = min(piece, 2 * top + src_h - row0)
+                    cols = min(piece, 2 * left + src_w - col0)
+                    held = (below_dir / "c" / str(plane) / str(grid_row)
+                            / str(grid_col))
+                    if held.is_file():
+                        block = np.frombuffer(
+                            unpacking.decode(held.read_bytes()),
+                            dtype=source_dtype).reshape(1, piece, piece)
+                        part = block[0, :rows, :cols]
+                    else:
+                        part = np.full((rows, cols),
+                                       source_recipe["fill"], source_dtype)
+                    canvas[row0 - 2 * top:row0 - 2 * top + rows,
+                           col0 - 2 * left:col0 - 2 * left + cols] = part
+            evened = np.pad(canvas[None],
+                            ((0, 0), (0, 2 * wanted[0] - src_h),
+                             (0, 2 * wanted[1] - src_w)), mode="edge")
+            halved = (evened.reshape(1, wanted[0], 2, wanted[1], 2)
+                      .mean(axis=(2, 4)).round()
+                      .astype(served_recipe["dtype"]))
+            buffer = np.full((1, piece, piece), served_recipe["fill"],
+                             served_recipe["dtype"])
+            buffer[0, :wanted[0], :wanted[1]] = halved[0]
+            if np.all(buffer == served_recipe["fill"]):
+                continue
+            staged = staging / "c" / str(plane) / str(row)
+            staged.mkdir(parents=True, exist_ok=True)
+            (staged / str(column)).write_bytes(
+                packing.encode(np.ascontiguousarray(buffer).tobytes()))
 
     def _compose_the_snapshot(self, before: dict[str, int],
                               kept: dict[str, Tile],
@@ -1051,6 +1184,7 @@ class GovernedRun:
             # all the closing they need.
             self._bake_below = {}
             self._bake_staging = {}
+            self._bake_recipes = {}
         if held is not None:
             held.close()
 
