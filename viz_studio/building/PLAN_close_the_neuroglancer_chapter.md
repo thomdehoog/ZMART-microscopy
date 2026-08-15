@@ -25,10 +25,18 @@ instrument that was red before the fix was believed:
 - **The storm gate asserts pixel identity**, both directions, on every run
   — the campaign's strongest measurement is now CI's guard, not a debug
   artefact.
-- **Landing cost is bounded and survey-size-independent**: ~20 ms on small
-  surveys, ~100–115 ms at 1,024 positions, the growth being pyramid depth
-  (levels), not position count. Proven by the survey ladder; guarded by
-  the landing-cost gates.
+- **Landing cost is bounded and survey-size-independent, proven to
+  4,096 positions.** The full ladder (2026-08-15, in-container with the
+  browser watching, spreads in
+  `MEASURED_ladder_to_4096_in_container.json`): landing a new position
+  costs 196 ms median at 64 positions and 210 ms at 4,096 — a 7% rise
+  across a 64x survey growth. Replacement stays ~330–380 ms. Derive
+  grows 38 → 122 ms with pyramid DEPTH (more zoom levels at bigger
+  surveys), never with position count. Landing-to-visible stays
+  90–225 ms at every rung. Only the one-time costs scale with the
+  survey: the initial bake (30.6 s at 4,096) and the first warm-up
+  (70.4 s), each paid once per declare. Software-rendering numbers —
+  the pessimistic bound; guarded by the landing-cost gates.
 - **The cost surface is permanently instrumented.** Every derive reports
   its phases (`last_phase_ms`), the compose phase reports its components
   (read / build / encode), and the bake reports what it built versus
