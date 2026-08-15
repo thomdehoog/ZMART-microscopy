@@ -13,7 +13,13 @@
  *   pixels keep drawing while the fresh bytes download;
  * - page side (`lib/chunk_manager/frontend.js`): the push that delivers fresh
  *   bytes updates the held chunk object, preserving the renderer's reference
- *   while the ordinary state transition uploads its new texture.
+ *   while the ordinary state transition uploads its new texture;
+ * - and the STOCK whole-source invalidation is rerouted through that same
+ *   keep-drawing-until-replaced delivery. Stock behaviour drops the page's
+ *   whole copy of the source before refetching, which paints one whole frame
+ *   black — measured at 0% lit for ~17 ms by
+ *   `tests/test_the_screen_never_goes_black.py`, the gate that holds this
+ *   cure in place.
  *
  * `engine.js` (invalidateTheDirtyPieces) is the caller; the announcement's
  * `dirty` field is where the chunk names come from.
@@ -43,6 +49,16 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const lib = join(here, "..", "node_modules", "neuroglancer", "lib");
 const workerBundle = join(lib, "chunk_worker.bundle.js");
+
+// On a fresh install the worker bundle is still Neuroglancer's un-flattened
+// import stub: the compiled bundle only comes into being when the build's
+// precompile step runs. Demanding the bundle's anchors at postinstall time
+// therefore failed every clean `npm ci` -- the anchors cannot exist yet.
+// So postinstall runs with --modules-only and patches just the module files,
+// which the first precompile then carries into the bundle it creates; the
+// full pass, bundle checks included, runs during `npm run build` where the
+// bundle really exists and a missing anchor really is a version change.
+const modulesOnly = process.argv.includes("--modules-only");
 
 const PATCHES = [
   {
@@ -220,6 +236,38 @@ registerPromiseRPC("ChunkSource.zmartProbe", function(x) {
 });`,
   },
   {
+    file: join(lib, "chunk_manager", "backend.js"),
+    also: workerBundle,
+    marker: "zmartWholeSourceRefreshes",
+    anchor: `registerRPC(CHUNK_SOURCE_INVALIDATE_RPC_ID, function(x) {
+  const source = this.get(x.id);
+  source.chunkManager.queueManager.invalidateSourceCache(source);
+});`,
+    addition: null,
+    replacement: `registerRPC(CHUNK_SOURCE_INVALIDATE_RPC_ID, function(x) {
+  // ZMART: a whole-source refresh must not empty the screen.
+  //
+  // Stock invalidateSourceCache re-queues every chunk AND sends the page a
+  // key-less "drop your whole copy of this source" message. Between that drop
+  // and the refetch there is nothing left to draw, and the operator sees the
+  // specimen vanish for a frame or two -- a black flash on every refresh.
+  // Measured by test_the_screen_never_goes_black.py: one whole frame at 0%
+  // lit, about 17 ms, invisible to screenshots and plain to the eye.
+  //
+  // So the whole-source refresh now goes the same way the named refresh
+  // does: every chunk the source holds is fed to the refresh pump, which
+  // keeps the old pixels drawing while the fresh bytes download and swaps
+  // each one in as it arrives. Nothing is dropped ahead of its replacement,
+  // so there is never a moment with nothing to draw.
+  const source = this.get(x.id);
+  source.zmartWholeSourceRefreshes =
+    (source.zmartWholeSourceRefreshes || 0) + 1;
+  const pending = source.zmartPendingRefresh ||= new Set();
+  for (const key of source.chunks.keys()) pending.add(key);
+  void zmartPumpRefreshesWithoutDeadline(source);
+});`,
+  },
+  {
     file: join(lib, "chunk_manager", "frontend.js"),
     marker: "Object.assign(chunk, source.getChunk(update))",
     anchor: `        if (update.new) {
@@ -247,7 +295,8 @@ registerPromiseRPC("ChunkSource.zmartProbe", function(x) {
 
 let failed = false;
 for (const patch of PATCHES) {
-  for (const file of [patch.file, patch.also].filter(Boolean)) {
+  const targets = modulesOnly ? [patch.file] : [patch.file, patch.also];
+  for (const file of targets.filter(Boolean)) {
     const held = readFileSync(file, "utf8");
     if (held.includes(patch.marker)) {
       console.log(`already patched: ${file}`);

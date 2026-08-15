@@ -16,11 +16,15 @@ would be for the flash to be fixed where it comes from. A defect that can be
 measured reliably is a defect that can be argued about and fixed; a defect that
 only shows up as "it looked like it blinked" is not.
 
-So the subject of this test is deliberately the *stock* path, not the patched
-one. The patch adds a new message rather than replacing the old one, so the
-stock whole-source invalidation is still there in the built page and can be
-called by hand — which means this test needs no special build. It calls it, and
-then watches the screen.
+So the subject of this test is the whole-source invalidation itself, called by
+hand on every source the page draws from. When this test was first written the
+whole-source path was still stock, and this test measured the flash directly:
+one whole frame at 0% lit, about 17 milliseconds, invisible to screenshots and
+plain to the eye. The repository's patch now routes the whole-source refresh
+through the same keep-drawing-until-replaced delivery the named refresh uses,
+and this test is the gate that holds that cure in place: if the patch is ever
+lost — a Neuroglancer upgrade, a build that skipped the patcher — the flash
+comes back, and this test goes red rather than an operator noticing first.
 
 **Watching the screen is the hard part.** A flash of this kind can last one or
 two drawn frames, which at sixty frames a second is thirty milliseconds or less.
@@ -44,8 +48,11 @@ allowed to decide:
    with an environment variable, for a human who wants to look at the flash
    rather than read numbers about it.
 
-This test is expected to fail today. See the note on the ``xfail`` marker at the
-bottom of the file for what that means and when to take it off.
+A refresh that never happens would also never flicker, so passing the pixel
+check alone would not mean the picture refreshed. The test therefore also
+counts the piece requests the page makes after the invalidation, and fails if
+there were none: the screen must stay lit *and* the data must really have been
+asked for again.
 """
 
 from __future__ import annotations
@@ -131,9 +138,9 @@ WATCH_AFTER_MS = 2_000
 # The baseline picture must be at least this lit before the test is willing to
 # believe its own measurement. If the window opened on a mostly empty view then
 # there was never much picture to lose, and "it did not go dark" would be a
-# statement about nothing. This guard is not the defect being tested; see the
-# note about ``raises`` on the marker at the bottom of the file for how the two
-# are kept apart.
+# statement about nothing. This guard is not the defect being tested, which is
+# why failing it raises ``TheMeasurementCouldNotBeMade`` rather than an
+# assertion: a broken fixture must never be mistaken for a verdict.
 BASELINE_MUST_BE_LIT = 0.30
 
 
@@ -142,10 +149,9 @@ class TheMeasurementCouldNotBeMade(Exception):
 
     This is raised when something goes wrong *before* the real question is
     asked — the survey did not draw, the page never finished opening, the
-    browser would not let the drawing surface be read. It is deliberately not an
-    ``AssertionError``, so that the expected-failure marker on the test below
-    does not quietly absorb it and report a broken fixture as "failed as
-    expected".
+    browser would not let the drawing surface be read. It is deliberately not
+    an ``AssertionError``, so that a broken fixture reads as a broken fixture
+    in the test report rather than as a verdict about the screen.
     """
 
 
@@ -254,14 +260,14 @@ _WATCH_EVERY_FRAME = """([grid, middleShare, litFloor]) => {
   return { started: true, why: null };
 }"""
 
-# The stock, whole-source invalidation, fired by hand on every source the page
-# is drawing from. This is exactly the loop `invalidateTheDirtyPieces` in
+# The whole-source invalidation, fired by hand on every source the page is
+# drawing from. This is exactly the loop `invalidateTheDirtyPieces` in
 # `engine.js` walks to find its sources — every entry in the shared table that
 # knows how to invalidate itself and describes a volume — except that here each
-# one is asked to drop *everything* rather than to refresh named pieces. That
-# is the stock behaviour, unchanged and unpatched, and it is the subject of this
-# test.
-_FIRE_THE_STOCK_WHOLE_SOURCE_INVALIDATION = """() => {
+# one is asked to refresh *everything* rather than named pieces. It is the same
+# call `letGoOfDecodedPieces` makes when a run announces it wrote image into a
+# store already open, so what is measured here is what the operator gets then.
+_FIRE_THE_WHOLE_SOURCE_INVALIDATION = """() => {
   const watch = window.zmartFlickerWatch;
   const shared = window.zmartViewer.chunkManager
     && window.zmartViewer.chunkManager.rpc
@@ -521,30 +527,6 @@ def _stop_recording_the_screen(session, caught: list[dict], into: Path,
 # The test itself.
 # --------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "stock Neuroglancer can only invalidate a chunk source whole: it "
-        "re-requests every piece the source holds and tells the page to drop "
-        "its copy of all of them, so between the dropping and the arriving "
-        "there is nothing left to draw and the picture goes black. On a live "
-        "microscopy run that happens on every commit, and the operator sees a "
-        "flash each time. This is the defect the named-invalidation patch in "
-        "frontend/scripts/patch_neuroglancer.mjs works around — the patch adds "
-        "a second message that refreshes only the pieces a commit touched, so "
-        "the rest of the picture is never let go of. The workaround is good "
-        "but it is a patch this repository has to carry forever, and the real "
-        "cure is for a whole-source refresh not to empty the screen in the "
-        "first place. When somebody fixes it at that level, this test starts "
-        "passing; because the marker is strict, pytest will then report it as "
-        "an unexpected pass (XPASS) and fail the run, which is the reminder to "
-        "delete this marker and let the test stand as an ordinary gate. The "
-        "marker is also limited to AssertionError, so that a broken fixture — "
-        "a survey that never drew, a page that never opened — is reported as a "
-        "genuine failure instead of being mistaken for the defect."
-    ),
-)
 def test_the_screen_never_goes_black_when_the_cache_is_invalidated(
     browser, built_dist, tmp_path
 ):
@@ -553,7 +535,7 @@ def test_the_screen_never_goes_black_when_the_cache_is_invalidated(
     The scenario is deliberately as quiet as it can be made. A modest survey is
     written and every position is committed *before* the picture is declared, so
     by the time the page opens there is nothing still arriving and nothing still
-    baking. The picture is then left alone to settle, and only then is the stock
+    baking. The picture is then left alone to settle, and only then is the
     whole-source invalidation fired. Anything the measurement sees after that
     moment is caused by the invalidation and by nothing else, which is what
     makes a two-frame dip attributable rather than merely interesting.
@@ -652,7 +634,18 @@ def test_the_screen_never_goes_black_when_the_cache_is_invalidated(
                 f"{STEADY_FRAMES_WANTED} frames in ten seconds, so there is no "
                 "steady picture to compare anything against")
 
-        fired = page.evaluate(_FIRE_THE_STOCK_WHOLE_SOURCE_INVALIDATION)
+        # From here on, count the piece requests the page makes. A refresh that
+        # never asks for anything can never flicker either, so the pixel check
+        # alone could be fooled by an invalidation that quietly did nothing.
+        # The listener starts just before the invalidation is fired, so every
+        # request it sees was caused by it — the picture was settled and the
+        # live poll was pushed a minute away before the watching began.
+        refetches: list[str] = []
+        page.on("request",
+                lambda asked: refetches.append(asked.url)
+                if "/data/" in asked.url and "/c/" in asked.url else None)
+
+        fired = page.evaluate(_FIRE_THE_WHOLE_SOURCE_INVALIDATION)
         if not fired.get("asked"):
             raise TheMeasurementCouldNotBeMade(
                 "no chunk source in the page accepted a whole-source "
@@ -696,12 +689,22 @@ def test_the_screen_never_goes_black_when_the_cache_is_invalidated(
             screencast = None
             print("FLICKER RECORDING:", recording_into, flush=True)
 
-        # The one assertion. Everything above is setup and measurement; this is
-        # the question. Note that it is a plain `assert`, and the expected-
-        # failure marker on this test is limited to AssertionError, so this is
-        # the only thing that can be reported as "failed as expected".
+        # The two assertions. Everything above is setup and measurement; these
+        # are the questions. First: the refresh must really have happened —
+        # pieces must have been asked for again after the invalidation, because
+        # a refresh that fetches nothing can never flicker and would pass the
+        # pixel check while leaving the operator's picture permanently stale.
+        assert refetches, (
+            "the whole-source invalidation caused no piece requests at all — "
+            "the screen stayed lit only because nothing was refreshed, which "
+            "trades a visible flash for a silently stale picture"
+        )
+        # Second: at no drawn frame may the picture have collapsed. This is
+        # what the operator experiences as the absence of the black flash.
         assert found["deepest"] >= found["collapsed_below"], (
             _describe_what_was_seen(found))
+        print(f"REFRESH CONFIRMED: {len(refetches)} piece requests after the "
+              "invalidation", flush=True)
     finally:
         if screencast is not None and recording_into is not None:
             _stop_recording_the_screen(screencast, caught_frames,

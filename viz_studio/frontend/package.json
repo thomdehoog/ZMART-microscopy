@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "node precompile-workers.mjs && node scripts/patch_neuroglancer.mjs && vite build && node copy-async-worker.mjs",
-    "postinstall": "node scripts/patch_neuroglancer.mjs",
+    "postinstall": "node scripts/patch_neuroglancer.mjs --modules-only",
     "preview": "vite preview"
   },
   "dependencies": {
