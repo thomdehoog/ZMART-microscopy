@@ -65,9 +65,16 @@ Nothing merges on a software-GL container's word. On the T400:
    can a resident chunk be freed while a refresh downloads into it? This
    is review finding C4, still open, and only the installed library
    answers it.
-4. Optional, decides a simplification: run the 40x40 gate on the
-   `claude/whole-source-only-example` branch. Green there means the
-   named-invalidation ladder (dirty maps, level routing) can retire.
+4. Optional, decides a simplification: run the storm gate a second time
+   with `ZMART_STORM_REFRESH=whole` in the environment. The page then
+   uses whole-source invalidation (`?refresh=whole`) instead of the
+   named ladder — same gate, same fixtures, one variable changed — and
+   the two modes' numbers stand side by side. Green and comparably fast
+   in whole mode means the named-invalidation ladder (dirty maps, level
+   routing) can retire; the gate asserts which mode the page actually
+   ran, so a mistyped variable cannot measure the wrong one. This
+   switch supersedes the separate `claude/whole-source-only-example`
+   branch, which can be deleted.
 
 Green on 1–3 means merge; the branch becomes the trunk the next work
 stands on.

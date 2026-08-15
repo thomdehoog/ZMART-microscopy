@@ -80,6 +80,18 @@ def _dirty_for(run, pictured: int, position_id: str) -> dict:
     return dirty
 
 
+# Which invalidation mode the page runs the storm under. The default is the
+# three-rung named ladder; setting ZMART_STORM_REFRESH=whole reruns the same
+# gate with whole-source invalidation instead, so the two can be measured
+# side by side on the same machine with nothing but an environment variable.
+_REFRESH_MODE = os.environ.get("ZMART_STORM_REFRESH", "named")
+
+
+def _the_page_address(port: int) -> str:
+    suffix = "?refresh=whole" if _REFRESH_MODE == "whole" else ""
+    return f"http://127.0.0.1:{port}{suffix}"
+
+
 def _announce(port: int, dirty: dict) -> None:
     request = urllib.request.Request(
         f"http://127.0.0.1:{port}/api/announce",
@@ -194,7 +206,7 @@ def test_a_slow_or_transient_refresh_reaches_confirmation_after_quiet(
     try:
         port = server.server_address[1]
         page.add_init_script("globalThis.zmartLiveCheckMs = 150")
-        page.goto(f"http://127.0.0.1:{port}", wait_until="domcontentloaded")
+        page.goto(_the_page_address(port), wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined",
                               timeout=60_000)
         page.wait_for_function("() => window.zmartSourcesWaiting() === 0",
@@ -310,7 +322,7 @@ def test_a_slow_or_transient_refresh_reaches_confirmation_after_quiet(
               position: Array.from(
                 window.zmartViewer.navigationState.position.value),
             })""")
-        page.goto(f"http://127.0.0.1:{port}", wait_until="domcontentloaded")
+        page.goto(_the_page_address(port), wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined",
                               timeout=60_000)
         page.wait_for_function("() => window.zmartSourcesWaiting() === 0",
@@ -425,7 +437,7 @@ def test_tiles_advance_before_a_commit_storm_quiets(
     try:
         port = server.server_address[1]
         page.add_init_script("globalThis.zmartLiveCheckMs = 150")
-        page.goto(f"http://127.0.0.1:{port}", wait_until="domcontentloaded")
+        page.goto(_the_page_address(port), wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined",
                                timeout=60_000)
         page.wait_for_function("() => window.zmartSourcesWaiting() === 0",
@@ -624,9 +636,14 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
     page.on("pageerror", lambda told: troubles.append(str(told)))
     try:
         port = server.server_address[1]
-        page.goto(f"http://127.0.0.1:{port}", wait_until="domcontentloaded")
+        page.goto(_the_page_address(port), wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined",
                               timeout=60_000)
+        # The page must confirm which mode it is actually in, or a mistyped
+        # environment variable would silently measure the wrong one.
+        assert page.evaluate("window.zmartRefreshMode") == _REFRESH_MODE, (
+            f"the page is not in the requested {_REFRESH_MODE!r} refresh mode"
+        )
         page.wait_for_function("() => window.zmartSourcesWaiting() === 0",
                               timeout=90_000)
         page.wait_for_timeout(2_000)
@@ -1176,7 +1193,7 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                 encoding="utf-8")),
         }
         network_phase["name"] = "reload"
-        page.goto(f"http://127.0.0.1:{port}", wait_until="domcontentloaded")
+        page.goto(_the_page_address(port), wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined",
                               timeout=60_000)
         page.wait_for_function("() => window.zmartSourcesWaiting() === 0",

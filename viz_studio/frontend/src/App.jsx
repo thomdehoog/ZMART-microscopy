@@ -502,6 +502,21 @@ export default function App() {
     let stop = false;
     const askAgain = async () => (stop ? "busy" : catchUp());
 
+    // Which invalidation an in-place write triggers. "named" climbs the
+    // three-rung ladder below, most surgical first. "whole" skips straight
+    // to the last rung: drop every decoded piece and let the safe refresh
+    // pump refetch each one behind the picture already on screen. Both are
+    // kept deliberately so they can be measured side by side on a real GPU
+    // -- the surgical path touches less, the whole path carries no dirty
+    // bookkeeping, and each may win somewhere. The choice is one URL away
+    // (?refresh=whole) and the page says which it used in
+    // window.zmartRefreshMode, so a measurement can never mistake one mode
+    // for the other.
+    const refreshMode =
+      new URLSearchParams(window.location.search).get("refresh") === "whole"
+        ? "whole" : "named";
+    window.zmartRefreshMode = refreshMode;
+
     const listener = new EventSource("/api/events");
     // Any message at all means "ask again", so both the named event and anything
     // else that arrives are treated the same. Being generous here means a future
@@ -531,7 +546,9 @@ export default function App() {
         // a twin layer resolves the current truth while the old one keeps
         // drawing. Only when nothing could be twinned either does the blunt
         // path run, because a stale picture is still worse than a blink.
-        if (invalidateTheDirtyPieces(engine.current, said.dirty) === 0
+        if (refreshMode === "whole") {
+          letGoOfDecodedPieces(engine.current);
+        } else if (invalidateTheDirtyPieces(engine.current, said.dirty) === 0
             && refreshTheImagesWithoutBlanking(engine.current) === 0) {
           letGoOfDecodedPieces(engine.current);
         }
