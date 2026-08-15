@@ -180,12 +180,18 @@ class Composer:
         self._pool: ProcessPoolExecutor | None = None
         self._pool_guard = threading.Lock()
         # How many tile rectangles have been read to compose pieces, ever,
-        # for this composer. A caller who wants the cost of ONE operation
-        # notes the value before and after -- the way the governed bake
-        # patcher does, because "how many tiles did patching this landing
-        # touch" is the number that decides whether a landing costs the
-        # landing or the whole neighbourhood beneath its piece.
+        # for this composer, and where composing's time has gone: reading
+        # tiles, building slabs (laying included), and encoding pieces --
+        # cumulative milliseconds, beside counts of slabs built versus
+        # answered warm. A caller who wants the cost of ONE operation notes
+        # the values before and after, the way the governed bake patcher
+        # does. These exist because a cure was once built against the read
+        # COUNT alone and made every landing slower: warm slabs were
+        # amortizing the reads and the real money was elsewhere. Time per
+        # component is the currency that cannot mislead that way.
         self.tile_reads = 0
+        self.costs = {"read_ms": 0.0, "build_ms": 0.0, "encode_ms": 0.0,
+                      "slabs_built": 0, "slabs_warm": 0, "encodes": 0}
 
         # Decoded blocks of the tiles, most recently used last. Kept because a
         # piece of the picture is smaller than a block of a tile, so neighbouring
@@ -530,6 +536,7 @@ class Composer:
         still to hand afterwards.
         """
         self.tile_reads += 1
+        reading_began = time.perf_counter()
         size = copy.chunks
         out = np.empty(tuple(high[axis] - low[axis] for axis in range(3)),
                        copy.dtype)
@@ -549,6 +556,7 @@ class Composer:
                             from_[0] - began[0]:to[0] - began[0],
                             from_[1] - began[1]:to[1] - began[1],
                             from_[2] - began[2]:to[2] - began[2]]
+        self.costs["read_ms"] += (time.perf_counter() - reading_began) * 1000
         return out
 
     def _build_slab(self, level: int, plane: int, row: int, column: int) -> np.ndarray:
@@ -557,6 +565,7 @@ class Composer:
         Where two tiles cover the same ground the later one wins, which is the rule
         the rest of the project follows and the one an operator already sees.
         """
+        building_began = time.perf_counter()
         depth = self.slab_depth(level)
         low_z = (plane // depth) * depth
         deep, height, width = self.mosaic.shape(level)
@@ -591,6 +600,9 @@ class Composer:
                      tile.copies[level],
                      (from_z - at[0], from_y - at[1], from_x - at[2]),
                      (to_z - at[0], to_y - at[1], to_x - at[2]))
+        self.costs["build_ms"] += (
+            time.perf_counter() - building_began) * 1000
+        self.costs["slabs_built"] += 1
         return slab
 
     def _slab_for(self, level: int, plane: int, row: int, column: int) -> np.ndarray:
@@ -606,10 +618,12 @@ class Composer:
         with self._guard:
             found = self._pinned.get(key)
             if found is not None:
+                self.costs["slabs_warm"] += 1
                 return found
             found = self._slabs.get(key)
             if found is not None:
                 self._slabs.move_to_end(key)
+                self.costs["slabs_warm"] += 1
                 return found
         built = self._built_wherever(level, plane, row, column)
         with self._guard:
@@ -892,9 +906,14 @@ class Composer:
             piece = slab[plane - (plane // depth) * depth]
             if not piece.any():
                 return None
+            encoding_began = time.perf_counter()
             encoder = self._my_encoder()
             encoder[0] = piece
-            return bytes(encoder.store._store_dict["c/0/0/0"].to_bytes())
+            body = bytes(encoder.store._store_dict["c/0/0/0"].to_bytes())
+            self.costs["encode_ms"] += (
+                time.perf_counter() - encoding_began) * 1000
+            self.costs["encodes"] += 1
+            return body
         finally:
             with self._guard:
                 self._answering -= 1
