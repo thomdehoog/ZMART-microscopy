@@ -166,6 +166,10 @@ def main() -> int:
     parsing.add_argument("--port", type=int, default=8851)
     parsing.add_argument("--every", type=float, default=0.1,
                          help="seconds between changes")
+    parsing.add_argument("--rate", type=float, default=0.0,
+                         help="for pre-written landings, target this many "
+                              "commits per second including publication and "
+                              "announcement overhead (0 uses --every)")
     parsing.add_argument("--grace", type=float, default=2.0,
                          help="seconds between the page being popped and the "
                               "first change")
@@ -193,6 +197,8 @@ def main() -> int:
                          help="do not open a browser; something else — a "
                               "pywebview window, say — is the watcher")
     asked = parsing.parse_args()
+    if asked.rate < 0:
+        parsing.error("--rate cannot be negative")
 
     harness.FIXTURES = Path(asked.fixtures)
     across = asked.across
@@ -324,12 +330,24 @@ def main() -> int:
                   flush=True)
             time.sleep(asked.every)
     else:
+        landed_at = []
+        schedule_started = time.perf_counter()
         for number, position_id in enumerate(to_change):
             harness.fast_publish(run, position_id)
             announce(position_id)
+            landed_at.append(time.perf_counter())
             print(f"  landed {position_id}  ({number + 1}/{len(to_change)})",
                   flush=True)
-            time.sleep(asked.every)
+            if asked.rate and number + 1 < len(to_change):
+                next_due = schedule_started + (number + 1) / asked.rate
+                time.sleep(max(0.0, next_due - time.perf_counter()))
+            else:
+                time.sleep(asked.every)
+        if len(landed_at) > 1:
+            elapsed = landed_at[-1] - landed_at[0]
+            achieved = (len(landed_at) - 1) / elapsed
+            print(f"  measured landing rate: {achieved:.2f}/s over "
+                  f"{len(landed_at)} commits", flush=True)
 
     print("\nthe show is over; still serving so the picture can be explored. "
           "Ctrl+C to stop.", flush=True)

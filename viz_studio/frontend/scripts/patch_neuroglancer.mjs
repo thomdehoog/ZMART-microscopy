@@ -88,13 +88,16 @@ registerRPC("ChunkSource.invalidateChunks", function(x) {
   {
     file: join(lib, "chunk_manager", "backend.js"),
     also: workerBundle,
-    marker: "ChunkSource.refreshChunks",
+    marker: "zmartPumpRefreshesWithoutDeadline",
+    legacyStart: "async function zmartPumpRefreshes(source) {",
+    legacyEnd: `  void zmartPumpRefreshes(source);
+});`,
     anchor: `registerRPC(CHUNK_SOURCE_INVALIDATE_RPC_ID, function(x) {
   const source = this.get(x.id);
   source.chunkManager.queueManager.invalidateSourceCache(source);
 });`,
     addition: `
-// ZMART: refresh NAMED chunks beside the state machine, delivered as one.
+// ZMART: refresh NAMED chunks beside the state machine.
 //
 // A live storm can name the same visible chunk again before its previous
 // refresh finishes. Downloading both into the same mutable Chunk races their
@@ -102,10 +105,15 @@ registerRPC("ChunkSource.invalidateChunks", function(x) {
 // the buffer before its owner reaches serialize. One source therefore has one
 // refresh pump. Announcements received while it runs are coalesced into the
 // next batch, so quiet always produces a final batch begun after the last
-// announcement. The old frontend chunks keep drawing until that batch is
-// pushed back-to-back.
+// announcement. The old frontend chunks keep drawing until each replacement
+// succeeds. A slow response is not a failure: aborting useful composition at
+// an arbitrary deadline makes the server repeat the same expensive work and
+// can keep it behind forever. Completed chunks are therefore delivered as
+// soon as they arrive. The HTTP reader already retries 429/503/504 with
+// bounded backoff, so this pump must not start a competing retry policy.
 //
-async function zmartPumpRefreshes(source) {
+
+async function zmartPumpRefreshesWithoutDeadline(source) {
   if (source.zmartRefreshRunning) return;
   source.zmartRefreshRunning = true;
   const queueManager = source.chunkManager.queueManager;
@@ -114,8 +122,6 @@ async function zmartPumpRefreshes(source) {
       const keys = [...source.zmartPendingRefresh];
       source.zmartPendingRefresh.clear();
       source.zmartRefreshBatches = (source.zmartRefreshBatches || 0) + 1;
-      const staged = [];
-      const controllers = new Set();
       const jobs = [];
       for (const key of keys) {
         const chunk = source.chunks.get(key);
@@ -131,18 +137,19 @@ async function zmartPumpRefreshes(source) {
             || chunk.state === ChunkState.SYSTEM_MEMORY) {
           const keptState = chunk.state;
           const abort = new AbortController();
-          controllers.add(abort);
           jobs.push(Promise.resolve(source.download(chunk, abort.signal)).then(
             () => {
-              controllers.delete(abort);
               const msg = {};
               const transfers = [];
               chunk.serialize(msg, transfers);
               msg.state = keptState;
-              staged.push([msg, transfers]);
+              queueManager.rpc.invoke("Chunk.update", msg, transfers);
               chunk.freeSystemMemory();
             },
-            () => controllers.delete(abort),
+            () => {
+              source.zmartRefreshFailures =
+                (source.zmartRefreshFailures || 0) + 1;
+            },
           ));
         } else {
           switch (chunk.state) {
@@ -157,30 +164,12 @@ async function zmartPumpRefreshes(source) {
         }
       }
       queueManager.scheduleUpdate();
-
-      let open = true;
-      const flush = () => {
-        if (!open) return;
-        open = false;
-        for (const [msg, transfers] of staged) {
-          queueManager.rpc.invoke("Chunk.update", msg, transfers);
-        }
-        staged.length = 0;
-      };
-      const timeout = setTimeout(() => {
-        flush();
-        for (const abort of controllers) {
-          abort.abort(new DOMException("ZMART refresh timed out", "AbortError"));
-        }
-      }, 2000);
       await Promise.allSettled(jobs);
-      clearTimeout(timeout);
-      flush();
     }
   } finally {
     source.zmartRefreshRunning = false;
     if (source.zmartPendingRefresh.size !== 0) {
-      void zmartPumpRefreshes(source);
+      void zmartPumpRefreshesWithoutDeadline(source);
     }
   }
 }
@@ -189,7 +178,7 @@ registerRPC("ChunkSource.refreshChunks", function(x) {
   const source = this.get(x.id);
   const pending = source.zmartPendingRefresh ||= new Set();
   for (const key of x.keys) pending.add(key);
-  void zmartPumpRefreshes(source);
+  void zmartPumpRefreshesWithoutDeadline(source);
 });`,
   },
   {
@@ -221,6 +210,7 @@ registerPromiseRPC("ChunkSource.zmartProbe", function(x) {
       maxOverlap: source.zmartMaxRefreshOverlap || 0,
       overlapKeys: [...(source.zmartRefreshOverlapKeys || [])].slice(0, 8),
       batches: source.zmartRefreshBatches || 0,
+      failures: source.zmartRefreshFailures || 0,
       superseded: source.zmartRefreshSuperseded || 0,
       pending: source.zmartPendingRefresh?.size || 0,
       running: source.zmartRefreshRunning || false,
@@ -236,13 +226,11 @@ registerPromiseRPC("ChunkSource.zmartProbe", function(x) {
           chunk = source.getChunk(update);
           source.addChunk(key, chunk);
         } else {`,
-    addition: null, // replacement, not addition -- see apply below
+    addition: null,
     replacement: `        if (update.new) {
-          // ZMART: a render pass retains the chunk object. Replacing that
-          // object frees the texture the renderer still points at and leaves
-          // a black tile even though the source map reports a fresh chunk.
-          // Decode beside the held object, then move the decoded fields into
-          // it so every render-side reference survives the refresh.
+          // ZMART: refresh data without replacing the chunk object retained
+          // by render layers. Replacing it passed the short no-blink gate but
+          // reproducibly left the 20/s storm at 72% where F5 showed 100%.
           chunk = source.chunks.get(key);
           if (chunk !== void 0) {
             if (chunk.state === ChunkState.GPU_MEMORY) {
@@ -265,7 +253,19 @@ for (const patch of PATCHES) {
       console.log(`already patched: ${file}`);
       continue;
     }
-    if (!held.includes(patch.anchor)) {
+    let grafted;
+    const legacyAt = patch.legacyStart
+      ? held.indexOf(patch.legacyStart)
+      : -1;
+    const legacyThrough = legacyAt === -1
+      ? -1
+      : held.indexOf(patch.legacyEnd, legacyAt);
+    if (legacyAt !== -1 && legacyThrough !== -1) {
+      const afterLegacy = legacyThrough + patch.legacyEnd.length;
+      grafted = held.slice(0, legacyAt) + patch.addition
+        + held.slice(afterLegacy);
+      console.log(`migrated legacy patch: ${file}`);
+    } else if (!held.includes(patch.anchor)) {
       console.error(
         `the anchor no longer matches in ${file} -- the pinned `
         + "neuroglancer version has changed. Re-verify the patch against the "
@@ -273,12 +273,13 @@ for (const patch of PATCHES) {
       );
       failed = true;
       continue;
+    } else {
+      grafted = patch.replacement
+        ? held.replace(patch.anchor, patch.replacement)
+        : held.replace(patch.anchor, patch.anchor + patch.addition);
+      console.log(`patched: ${file}`);
     }
-    const grafted = patch.replacement
-      ? held.replace(patch.anchor, patch.replacement)
-      : held.replace(patch.anchor, patch.anchor + patch.addition);
     writeFileSync(file, grafted);
-    console.log(`patched: ${file}`);
   }
 }
 if (failed) process.exit(1);
