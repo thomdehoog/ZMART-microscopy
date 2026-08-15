@@ -129,3 +129,18 @@ microscope -- that provenance belongs in a small record at the experiment
 level, beside the acquisition folders: plain JSON, ours, following the
 same rule as everything else here. Folders give structure, records give
 truth, and zarr appears only where there are pixels.
+
+## Sealing a view makes it shippable
+
+A view becomes a complete, standalone thing through one gesture: sealing.
+Sealing waits for the patch in flight to finish, then writes the slice of
+the record the view has absorbed -- which positions, which generations, as
+of which revision -- into the view's folder beside the store. A sealed
+view folder can be copied to another machine, shared with a collaborator,
+or archived, carrying its own truth with its moment declared. Frozen
+views (exports, report crops) are born sealed; the live view is sealed
+whenever it is handed off, typically when the acquisition ends. Note that
+a LIVE view cannot be shipped mid-run wherever its truth lives -- its
+baked files are being rewritten under any copy -- so sealing is not a
+restriction added to shipping but the honest name for what shipping a
+changing thing always required: a moment of quiet, stamped.
