@@ -59,6 +59,25 @@ except ImportError:  # pragma: no cover - a checkout without zmart_live
 
 log = logging.getLogger("viz_studio.serving")
 
+
+class TemporarilyUnanswerable(Exception):
+    """This piece cannot be answered right now — which is not the same as absent.
+
+    The viewer treats an absent answer (a 404) as the truth about the ground:
+    there is nothing here, stop asking. That is right for ground that was never
+    imaged, and dangerously wrong for a picture that merely could not answer at
+    this moment — a derive that lost a race for the bake lock, a description
+    briefly unreadable while another process replaces it. Answering those as
+    absent leaves a hole in the operator's picture that only a reload repairs,
+    because nothing ever tells the viewer to ask again.
+
+    So the two answers are kept apart. Genuine absence stays ``None`` and
+    becomes a 404. A failure that a retry may cure raises this instead, and the
+    server answers 503 — which the viewer's own HTTP layer retries with bounded
+    backoff, no ZMART timer involved. The worst case for a persistent fault is
+    a bounded burst of retries and an honest failure, never a quiet hole.
+    """
+
 # One composer per built picture, kept for as long as the viewer is open on
 # it, each remembered WITH the identity of the description it was opened
 # from, so a re-declaration is noticed and rebuilt rather than served stale.
@@ -299,8 +318,19 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
         is most of it. All four are ordinary answers rather than faults, served
         as absent and painted by the engine from the declared fill value.
     """
-    held = _composer_for(Path(store))
+    where = Path(store)
+    held = _composer_for(where)
     if held is None:
+        # Nothing to answer with -- but WHY matters at the wire. A plain image
+        # that is simply not a built picture is genuine absence, and the
+        # request falls through to the ordinary file doors. A picture whose
+        # opening FAILED is refused for a moment (see _refused), and that
+        # refusal must not dress up as absence: the viewer believes a 404 and
+        # never asks again, where a 503 is retried by its own HTTP layer.
+        with _guard:
+            if where.resolve() in _refused:
+                raise TemporarilyUnanswerable(
+                    f"the picture at {where} could not be opened just now")
         return None
     parts = inside.strip("/").split("/")
     if len(parts) != 5 or parts[1] != "c" or not parts[0].isdecimal():
@@ -318,10 +348,12 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
     if GovernedRun is not None and isinstance(held, GovernedRun):
         try:
             composer = held.composer()
-        except Exception:
+        except Exception as problem:
             log.exception("the governed run behind %s could not derive; "
-                          "answering absent", store)
-            return None
+                          "answering 'try again shortly'", store)
+            raise TemporarilyUnanswerable(
+                f"the governed run behind {store} could not derive"
+            ) from problem
     # Ground the declaration baked is a real file, answered as one: no
     # building, no tiles, immune to everything that makes building slow. This
     # is also the only door to the picture's own levels above the tiles' --
@@ -332,11 +364,13 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
     if baked.is_file():
         return baked.read_bytes()
     # Everything from here can genuinely fail -- a rollback deleting a store
-    # mid-read, damage under committed ground refusing to be papered over --
-    # and every failure is the same answer at the wire: absent, with the
-    # reason in the log rather than in a dying connection. The engine paints
-    # fill for absent ground, which for withheld and damaged ground alike is
-    # the fail-closed picture.
+    # mid-read, damage under committed ground refusing to be papered over.
+    # An address outside the picture, or ground no tile covers, stays an
+    # ordinary absent answer. A FAILURE is different: it may pass -- the
+    # rollback finishes, the reader wins the next race -- so it is answered
+    # as "try again shortly" rather than as absence the viewer would believe
+    # for the rest of the session. Either way the reason lives in the log
+    # rather than in a dying connection, and no pixels are ever guessed.
     try:
         if composer is None:
             composer = held
@@ -348,10 +382,12 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
         if not (0 <= plane < deep and 0 <= row < down and 0 <= column < across):
             return None
         return composer.bytes_for(level, plane, row, column)
-    except Exception:
+    except Exception as problem:
         log.exception("the piece %s of %s could not be served; answering "
-                      "absent", inside, store)
-        return None
+                      "'try again shortly'", inside, store)
+        raise TemporarilyUnanswerable(
+            f"the piece {inside} of {store} could not be served just now"
+        ) from problem
 
 
 def forget(store: Path) -> None:

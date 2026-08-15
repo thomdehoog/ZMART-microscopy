@@ -396,7 +396,18 @@ class _Handler(SimpleHTTPRequestHandler):
             # file, so no piece of it can be handed over as it is; the piece is
             # built out of whichever tiles cover that ground and served as bytes
             # that never existed until now. See viz_studio/building/served.py.
-            made = self._built(rel)
+            #
+            # "Could not answer just now" is a different thing from "there is
+            # nothing here", and the difference matters at the wire: the
+            # viewer believes a 404 for the rest of the session, where a 503
+            # is retried by its own HTTP layer with bounded backoff. A derive
+            # that lost a race must get the second answer, or the operator is
+            # left with a hole only a reload repairs.
+            try:
+                made = self._built(rel)
+            except building.TemporarilyUnanswerable:
+                self._send_empty(HTTPStatus.SERVICE_UNAVAILABLE)
+                return
             if made is not None:
                 self._send_bytes(made)
                 return
@@ -420,7 +431,14 @@ class _Handler(SimpleHTTPRequestHandler):
         # baked ground included, keeps the fast door it always had.
         governed = self._a_governed_piece_behind(target)
         if governed is not None:
-            made = building.the_bytes_behind(*governed)
+            try:
+                made = building.the_bytes_behind(*governed)
+            except building.TemporarilyUnanswerable:
+                # The same distinction as the built door above: this piece
+                # exists as a file, but the manifest could not be consulted
+                # just now, so neither the file nor absence would be honest.
+                self._send_empty(HTTPStatus.SERVICE_UNAVAILABLE)
+                return
             if made is not None:
                 self._send_bytes(made)
             else:
