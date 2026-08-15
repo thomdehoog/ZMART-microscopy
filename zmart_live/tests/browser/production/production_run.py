@@ -58,7 +58,7 @@ What the viewer is pointed at
 -----------------------------
 
 One image, and only one: the run-wide seamless overview at
-``views/overview.ome.zarr``. That is not a convenience for the test. It
+``views/live/live.ome.zarr``. That is not a convenience for the test. It
 is the rule :mod:`zmart_live.scene` exists to protect — the drawing engine is
 given one source per view and never one per position, because every source it is
 handed becomes a layer that takes part in every frame for as long as the viewer
@@ -273,10 +273,10 @@ def cells_in_a_row(how_many: int) -> dict[GridCell, str]:
 #: The name of the run-wide picture the viewer opens, relative to the run folder.
 #: :class:`~zmart_live.coordinator.LivePublisher` decides this; it is repeated
 #: here only so the server can recognise addresses that fall inside it.
-SEAMLESS = "views/overview.ome.zarr"
+SEAMLESS = "views/live/live.ome.zarr"
 
 #: Where each position's own image lives, relative to the run folder.
-POSITIONS = "positions"
+POSITIONS = "data/survey.ome.zarr"
 
 #: The steps this file performs when it is asked to write a position without
 #: committing it — that is, :meth:`LivePublisher.write_and_publish` stopped one

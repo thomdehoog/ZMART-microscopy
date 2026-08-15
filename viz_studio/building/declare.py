@@ -211,8 +211,9 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
 
     Args:
         where: the folder to put the description in.
-        run: the governed run's root — the folder holding ``positions/``,
-            ``views/`` and the manifest's bookkeeping.
+        run: the governed run's root — the folder holding ``data/`` (the
+            collection of position images) and ``views/`` (the live view's
+            store and its metadata).
         name: what to call the picture.
         piece: how large a piece of the built picture is.
 

@@ -62,7 +62,7 @@ def held_open_briefly(path, *, seconds: float = 0.4):
 
 def test_the_small_marker_is_replaced_despite_a_readers_hold(tmp_path):
     """The atomic replace waits out a brief hold instead of dying of it."""
-    target = tmp_path / "committed.json"
+    target = tmp_path / "signed.json"
     _write_and_replace(target, json.dumps({"revision": 1}))
 
     reader = held_open_briefly(target)
@@ -94,7 +94,7 @@ def test_a_fault_that_is_not_a_brief_hold_still_raises_at_once(tmp_path, monkeyp
     """
     import zmart_live.manifest as manifest
 
-    target = tmp_path / "committed.json"
+    target = tmp_path / "signed.json"
 
     def a_permanent_refusal(*_args, **_kwargs):
         trouble = PermissionError("this is not a transient hold")

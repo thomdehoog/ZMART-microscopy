@@ -287,14 +287,14 @@ class TestDamageThatWouldNotAnnounceItself:
         run.write_a_position("posA", some_specimen())
         run.write_the_link_map(frozenset({"posA"}))
         run.write_the_view()
-        (run.folder / "zmart-live" / "layout.json").unlink()
+        (run.folder / "views" / "live" / "metadata" / "locations.json").unlink()
         found = run.inspect("posA")
         assert not found.everything_checks_out
         assert not found.layout_ready
 
     def test_an_unreadable_arrangement_is_caught(self, run):
         everything_but_the_commit(run, "posA")
-        (run.folder / "zmart-live" / "layout.json").write_text("not json")
+        (run.folder / "views" / "live" / "metadata" / "locations.json").write_text("not json")
         found = run.inspect("posA")
         assert not found.layout_ready
         with pytest.raises(NotReadyToPublish):
@@ -405,12 +405,19 @@ class TestOverlapIsKeptAndTheLaterArrivalIsDrawn:
         )
 
     def test_the_run_writes_exactly_one_view(self, run):
-        """positions/, one linked view, and nothing else derived on disk."""
+        """One collection of positions, one view folder, nothing else derived."""
         run.write_and_publish("posA", some_specimen(1000))
         views = sorted(child.name for child in (run.folder / "views").iterdir())
-        assert views == ["overview.ome.zarr"], (
+        assert views == ["live"], (
             "the raw-overlap selector and the trimmed seamless picture are "
-            "retired; a run owns its positions and the one linked view"
+            "retired; a run owns its positions and the one live view"
+        )
+        inside = sorted(
+            child.name for child in (run.folder / "views" / "live").iterdir()
+        )
+        assert inside == ["live.ome.zarr", "metadata"], (
+            "the live view folder holds exactly the linked store and the "
+            "view's own metadata"
         )
 
     def test_the_link_map_records_positions_in_commit_order(self, run):
@@ -621,7 +628,7 @@ class TestTheRunIsDescribedHonestly:
     def test_the_stored_arrangement_matches_the_one_in_memory(self, run):
         run.write_and_publish("posA", some_specimen())
         stored = json.loads(
-            (run.folder / "zmart-live" / "layout.json").read_text()
+            (run.folder / "views" / "live" / "metadata" / "locations.json").read_text()
         )
         assert stored == run.layout.to_json()
 
@@ -850,7 +857,7 @@ class TestSharedViewsAdvanceIncrementally:
         opened_positions = []
 
         def record_position_opens(store, *args, **kwargs):
-            if "/positions/" in str(store):
+            if "/survey.ome.zarr/" in str(store):
                 opened_positions.append(str(store))
             return really_open(store, *args, **kwargs)
 
@@ -919,7 +926,7 @@ class TestReadinessIsMeasuredAgainstTheRealPixels:
         pointed at somebody else's account of who owns what.
         """
         run.write_and_publish("posA", some_specimen(1000))
-        stored = run.folder / "zmart-live" / "layout.json"
+        stored = run.folder / "views" / "live" / "metadata" / "locations.json"
 
         for changed, why in (
             ({"run_id": "somebody-elses-run"}, "run"),
@@ -1385,7 +1392,7 @@ class TestPublishedPixelsStayAsTheyWerePublished:
 
         restarted = LivePublisher(tmp_path, profile, run_id="run-restart", cells=cells)
         assert restarted.generations == {"posA": 1}
-        assert restarted.position_store("posA").name == "posA.generation-1.ome.zarr"
+        assert restarted.position_store("posA").name == "posA.generation-1"
 
         restarted.write_the_view()
         forget_live_run(tmp_path)
@@ -1509,7 +1516,7 @@ class TestALinkedViewDeferredToRunEnd:
         deferred.write_and_publish("posA", some_specimen(700))
         assert deferred.inspect("posA").everything_checks_out
 
-        target = deferred.folder / "zmart-live" / "layout.json"
+        target = deferred.folder / "views" / "live" / "metadata" / "locations.json"
         swapped = json.loads(target.read_text(encoding="utf-8"))
         swapped["run_id"] = "somebody-elses-run"
         target.write_text(json.dumps(swapped), encoding="utf-8")

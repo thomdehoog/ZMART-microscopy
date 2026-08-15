@@ -384,7 +384,7 @@ class TestALayoutRevisionIsNeverOverwritten:
     """Observed before this was fixed: every layout was revision 1, written flat.
 
     ``LivePublisher`` built its snapshot with ``revision=1`` and never changed
-    it, and ``write_the_layout`` wrote ``layout.json`` straight over the previous
+    it, and ``write_the_layout`` wrote the pointer straight over the previous
     contents on every single commit. Two things followed from that. A position
     arriving later could not create a later snapshot, so a smart run that adds
     positions as it goes had no way to record the arrangement changing. And a
@@ -463,7 +463,7 @@ class TestALayoutRevisionIsNeverOverwritten:
         assert newest.position_ids == ("posA", "posB")
 
     def test_the_convenience_pointer_follows_the_newest_revision(self, tmp_path):
-        """``layout.json`` stays where the rest of the code already looks for it.
+        """``locations.json`` stays where the rest of the code already looks for it.
 
         It is a copy of the newest snapshot, replaced in one indivisible step so
         that a reader never sees half of it. The numbered files beside it are the
@@ -471,7 +471,7 @@ class TestALayoutRevisionIsNeverOverwritten:
         """
         record_the_layout(tmp_path, a_layout(a_placement("posA", 0, 0)))
         record_the_layout(tmp_path, a_layout(a_placement("posA", 0, 0), a_placement("posB", 0, 1)))
-        pointer = identity.the_records_folder(tmp_path) / "layout.json"
+        pointer = identity.the_records_folder(tmp_path) / "locations.json"
         stored = SceneLayoutRevision.from_json(json.loads(pointer.read_text()))
         assert stored.revision == 2
         assert stored.to_json() == load_a_layout_revision(tmp_path, 2).to_json()

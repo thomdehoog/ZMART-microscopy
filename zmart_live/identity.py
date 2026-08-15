@@ -32,19 +32,22 @@ the profiles of one facility apart while staying short enough to read in a log.
 Keeping the records where they can be found again
 -------------------------------------------------
 
-Profiles and layout snapshots are written into a ``zmart-live`` folder beside
-the run's images:
+Profiles and location snapshots are written into the live view's own
+``metadata`` folder, beside the store that view serves:
 
 .. code-block:: text
 
     the-run/
-      positions/ ...
-      views/ ...
-      zmart-live/
-        profiles/confocal-1152-128-3f9a2c7d1e5b.json
-        layouts/layout-000001.json
-        layouts/layout-000002.json
-        layout.json          <- a copy of the newest snapshot, for convenience
+      data/
+        survey.ome.zarr/ ...
+      views/
+        live/
+          live.ome.zarr/ ...
+          metadata/
+            profiles/confocal-1152-128-3f9a2c7d1e5b.json
+            locations/locations-000001.json
+            locations/locations-000002.json
+            locations.json   <- a copy of the newest snapshot, for convenience
 
 Two rules govern that folder, and both exist for the same reason.
 
@@ -127,8 +130,11 @@ __all__ = [
 ]
 
 #: The folder, inside a run, that holds the run's own descriptions of itself as
-#: opposed to its pixels.
-RECORDS_FOLDER = "zmart-live"
+#: opposed to its pixels. It lives with the view it serves — the contract in
+#: ``viz_studio/building/CONTRACT_the_files_the_viewer_needs.md`` explains why:
+#: the data folder belongs to the microscope, and everything of ours is
+#: bundled under ``views/`` where it can be deleted without losing science.
+RECORDS_FOLDER = "views/live/metadata"
 
 #: How many characters of the fingerprint end up in a name. Twelve hexadecimal
 #: characters is a little under fifty bits, which keeps every profile a facility
@@ -136,7 +142,7 @@ RECORDS_FOLDER = "zmart-live"
 #: can compare two of them by eye in a log line.
 FINGERPRINT_LENGTH = 12
 
-_LAYOUT_POINTER = "layout.json"
+_LAYOUT_POINTER = "locations.json"
 
 
 def the_records_folder(run_folder: Path | str) -> Path:
@@ -336,16 +342,16 @@ def _layout_file(run_folder: Path | str, revision: int) -> Path:
             f"Stored layout snapshots are numbered from one, so that 'revision 0' "
             f"can mean 'nothing recorded yet'; got {revision}."
         )
-    return the_records_folder(run_folder) / "layouts" / f"layout-{revision:06d}.json"
+    return the_records_folder(run_folder) / "locations" / f"locations-{revision:06d}.json"
 
 
 def stored_layout_revisions(run_folder: Path | str) -> tuple[int, ...]:
-    """Every layout snapshot this run has written, in order."""
-    folder = the_records_folder(run_folder) / "layouts"
+    """Every location snapshot this run has written, in order."""
+    folder = the_records_folder(run_folder) / "locations"
     if not folder.is_dir():
         return ()
     numbers = []
-    for path in folder.glob("layout-*.json"):
+    for path in folder.glob("locations-*.json"):
         try:
             numbers.append(int(path.stem.split("-", 1)[1]))
         except ValueError:  # pragma: no cover - a file somebody put there by hand
@@ -421,9 +427,10 @@ def record_the_layout(run_folder: Path | str, layout: SceneLayoutRevision) -> Sc
     was decided. Use *that* returned object when building a commit record, so
     that the commit refers to a snapshot which genuinely exists on disk.
 
-    A copy of the newest snapshot is also left at ``zmart-live/layout.json``,
-    replaced in one indivisible step, for readers that simply want the current
-    arrangement without first working out which number is newest.
+    A copy of the newest snapshot is also left at ``locations.json`` in the
+    records folder, replaced in one indivisible step, for readers that simply
+    want the current arrangement without first working out which number is
+    newest.
     """
     fingerprint = spatial_fingerprint_of_a_layout(layout)
     newest = latest_layout_revision(run_folder)

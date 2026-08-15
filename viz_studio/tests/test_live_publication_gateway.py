@@ -42,7 +42,7 @@ def test_the_real_backend_withholds_then_routes_the_same_virtual_chunk(tmp_path)
     site = tmp_path / "site"
     site.mkdir()
     (site / "index.html").write_text("viewer", encoding="utf-8")
-    store = "views/overview.ome.zarr"
+    store = "views/live/live.ome.zarr"
     server = make_server(
         port=0,
         data_dir=run.folder,

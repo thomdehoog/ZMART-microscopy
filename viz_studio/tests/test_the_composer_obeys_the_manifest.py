@@ -164,7 +164,7 @@ def test_a_half_written_arrival_does_not_take_down_serving(tmp_path):
     run.write_and_publish("posA", some_specimen(700))
 
     # A position mid-arrival: the folder exists, its description does not yet.
-    wreck = run.folder / "positions" / "posEvil.ome.zarr"
+    wreck = run.folder / "data" / "survey.ome.zarr" / "posEvil"
     wreck.mkdir()
     (wreck / "zarr.json").write_text("{ this is not json", encoding="utf-8")
 

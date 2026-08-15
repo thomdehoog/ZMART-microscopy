@@ -248,7 +248,7 @@ class TestTheAxesAreKeptInTheOrderTheAcquisitionDeclared:
         scene = build_the_scene(profile, a_layout(profile))
         compiled = compile_for_neuroglancer(scene, nothing_published())
 
-        transform = compiled.source("linked/overview").transform
+        transform = compiled.source("linked/live").transform
         assert transform.axes == ("t", "c", "z", "y", "x")
         assert transform.scale_row() == (1.0, 1.0, 2.0, 0.5, 0.25)
 
@@ -445,8 +445,8 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
         early = compile_for_neuroglancer(scene, published(1, **{"pos-0-0": 1}))
         later = compile_for_neuroglancer(scene, published(9, **{"pos-0-0": 1, "pos-1-0": 9}))
 
-        assert early.source("linked/overview").revision == 1
-        assert later.source("linked/overview").revision == 9
+        assert early.source("linked/live").revision == 1
+        assert later.source("linked/live").revision == 9
 
     def test_the_revision_appears_nowhere_in_any_address(self):
         profile = a_plan()
@@ -470,7 +470,7 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
         )
         compiled = compile_for_neuroglancer(scene, published(9, **{"pos-0-0": 3, "pos-0-1": 7}))
 
-        assert compiled.source("linked/overview").revision == 7
+        assert compiled.source("linked/live").revision == 7
         # A derived product names no positions, so nothing tells us anything more
         # precise than the run-wide counter.
         assert compiled.source("derived/nuclei").revision == 9
@@ -481,7 +481,7 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
         scene = build_the_scene(profile, a_layout(profile, 2, 2))
         compiled = compile_for_neuroglancer(scene, published(5, **{"somebody-else": 5}))
 
-        assert compiled.source("linked/overview").revision == 0
+        assert compiled.source("linked/live").revision == 0
         assert compiled.revision == 5  # the run has moved on; this view has not
 
     def test_the_store_root_is_prefixed_without_doubling_the_slash(self):
@@ -489,14 +489,14 @@ class TestTheRevisionTravelsBesideTheAddressNeverInsideIt:
         scene = build_the_scene(profile, a_layout(profile))
         compiled = compile_for_neuroglancer(scene, nothing_published(), store_root="/runs/today/")
 
-        assert compiled.source("linked/overview").url == ("/runs/today/views/overview.ome.zarr")
+        assert compiled.source("linked/live").url == ("/runs/today/views/live/live.ome.zarr")
 
     def test_with_no_store_root_the_path_stands_alone(self):
         profile = a_plan()
         scene = build_the_scene(profile, a_layout(profile))
         compiled = compile_for_neuroglancer(scene, nothing_published())
 
-        assert compiled.source("linked/overview").url == ("views/overview.ome.zarr")
+        assert compiled.source("linked/live").url == ("views/live/live.ome.zarr")
 
 
 class TestADerivedNamesakeDoesNotCollapseIntoTheOverview:
@@ -517,8 +517,8 @@ class TestADerivedNamesakeDoesNotCollapseIntoTheOverview:
             channels=channels,
             derived=(
                 DerivedView(
-                    image_id="overview",
-                    path="analysis/overview.ome.zarr",
+                    image_id="live",
+                    path="analysis/stitched-live.ome.zarr",
                     channels=channels,
                 ),
             ),
@@ -532,8 +532,8 @@ class TestADerivedNamesakeDoesNotCollapseIntoTheOverview:
         was written for.
         """
         scene = self.a_scene_with_a_namesake()
-        linked = scene.image("linked/overview")
-        namesake = scene.image("derived/overview")
+        linked = scene.image("linked/live")
+        namesake = scene.image("derived/live")
 
         assert linked.voxel_size == namesake.voxel_size
         assert linked.channels == namesake.channels
@@ -581,10 +581,10 @@ class TestADerivedNamesakeDoesNotCollapseIntoTheOverview:
     def test_a_channel_is_pinned_by_index_on_every_row(self):
         compiled = compile_for_neuroglancer(self.a_scene_with_a_namesake(), nothing_published())
 
-        gfp = compiled.layer("overview (linked) gfp")
+        gfp = compiled.layer("live (linked) gfp")
         assert gfp.channel_index == 1
         assert gfp.local_position["c"] == 1
-        dapi = compiled.layer("overview (derived) dapi")
+        dapi = compiled.layer("live (derived) dapi")
         assert dapi.channel_index == 0
         assert dapi.local_position["c"] == 0
 
