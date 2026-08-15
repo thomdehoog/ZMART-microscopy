@@ -53,7 +53,7 @@ def _serving(built_dist, run=None, *, loads=None):
         port=0,
         data_dir=run.folder if run is not None else loads[0]["path"],
         site_dir=built_dist,
-        store="views/overview-seamless.ome.zarr",
+        store="views/live/live.ome.zarr",
         loads=loads,
         window=(0, 4095),
         live=True,
@@ -120,30 +120,30 @@ def _operator_state(page):
           layers: window.zmartViewer.layerManager.managedLayers.map((managed) => managed.name),
           layerState: JSON.parse(JSON.stringify(window.zmartLayerState)),
           min: Number(document.querySelector(
-            '[aria-label="min overview (linked) channel 0"]').value),
+            '[aria-label="min live (linked) channel 0"]').value),
           max: Number(document.querySelector(
-            '[aria-label="max overview (linked) channel 0"]').value),
+            '[aria-label="max live (linked) channel 0"]').value),
           opacity: Number(document.querySelector(
-            '[aria-label="opacity overview (linked) channel 0"]').value),
+            '[aria-label="opacity live (linked) channel 0"]').value),
           group: window.zmartConfig.groups[0],
           groupOpacity: Number(document.querySelector(
             `[aria-label="opacity group ${window.zmartConfig.groups[0]}"]`).value),
           lut: document.querySelector(
-            '[aria-label="colour map overview (linked) channel 0"]').value,
+            '[aria-label="colour map live (linked) channel 0"]').value,
         })"""
     )
 
 
 def _tune(page):
     page.locator(
-        "[aria-label='toggle overview (linked) channel 0']"
+        "[aria-label='toggle live (linked) channel 0']"
     ).locator("xpath=../..").click()
-    _set_range(page, "min overview (linked) channel 0", 100)
-    _set_range(page, "max overview (linked) channel 0", 3500)
-    _set_range(page, "opacity overview (linked) channel 0", 0.83)
+    _set_range(page, "min live (linked) channel 0", 100)
+    _set_range(page, "max live (linked) channel 0", 3500)
+    _set_range(page, "opacity live (linked) channel 0", 0.83)
     group = page.evaluate("() => window.zmartConfig.groups[0]")
     _set_range(page, f"opacity group {group}", 0.91)
-    page.get_by_label("colour map overview (linked) channel 0").select_option("viridis")
+    page.get_by_label("colour map live (linked) channel 0").select_option("viridis")
     page.wait_for_function("() => window.zmartAnnotationSource !== undefined")
     page.evaluate(
         """() => {
@@ -224,7 +224,7 @@ def test_positions_and_replacement_appear_from_commits_and_keep_operator_state(
             # The earlier model's seamless and non_seamless pair, which this
             # set once named, no longer exists.
             assert set(page.evaluate("() => window.zmartSourceRefreshing.sources")) == {
-                "0/gateway-run/linked/overview",
+                "0/gateway-run/linked/live",
             }
             _assert_operator_state(before, _operator_state(page))
             assert [
@@ -232,7 +232,7 @@ def test_positions_and_replacement_appear_from_commits_and_keep_operator_state(
                 for url in row["sources"]
             ] == stable_urls
             affected = [path for path in requests[commit_mark:] if path.startswith("/data/")]
-            assert any("views/picture.ome.zarr" in path for path in affected)
+            assert any("views/live/picture.ome.zarr" in path for path in affected)
 
             mean_before = float(image_middle(page).mean())
             replacement = run.replace_a_position("posA", some_specimen(3500))
@@ -317,8 +317,8 @@ def test_one_run_commit_makes_no_requests_for_an_unrelated_live_run(
     one.write_and_publish("posA", some_specimen(1200))
     two.write_and_publish("posA", some_specimen(2200))
     loads = [
-        {"path": one.folder, "stores": ["views/overview-seamless.ome.zarr"], "name": "one"},
-        {"path": two.folder, "stores": ["views/overview-seamless.ome.zarr"], "name": "two"},
+        {"path": one.folder, "stores": ["views/live/live.ome.zarr"], "name": "one"},
+        {"path": two.folder, "stores": ["views/live/live.ome.zarr"], "name": "two"},
     ]
     with _serving(built_dist, loads=loads) as address:
         page = browser.new_page(viewport={"width": 1200, "height": 900})
@@ -342,7 +342,7 @@ def test_one_run_commit_makes_no_requests_for_an_unrelated_live_run(
             # seamless and non_seamless pair, which this set once named, no
             # longer exists.
             assert set(page.evaluate("() => window.zmartSourceRefreshing.sources")) == {
-                "0/run-one/linked/overview",
+                "0/run-one/linked/live",
             }
         finally:
             page.close()

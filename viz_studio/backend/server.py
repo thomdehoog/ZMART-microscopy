@@ -519,7 +519,7 @@ class _Handler(SimpleHTTPRequestHandler):
         from that. The store is found by peeling the piece address off the end
         (a piece is always ``level/c/`` and one number per axis), rather than
         assumed to sit directly under the opened folder: a live run's served
-        picture lives at ``views/picture.ome.zarr``, one folder down.
+        picture lives at ``views/live/picture.ome.zarr``, deeper inside.
 
         ``None`` means this is not a piece of a built picture — the answer for
         every ordinary image, and for a pointed-at one — which costs one look

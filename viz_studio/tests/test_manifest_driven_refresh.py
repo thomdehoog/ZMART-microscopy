@@ -315,7 +315,7 @@ def test_binding_a_live_run_declares_the_baked_picture_exactly_once(tmp_path, mo
     bindings, governed = registry.refresh()
     assert len(bindings) == 1 and governed == {0}
     assert len(declared) == 1
-    store = run.folder / "views" / "picture.ome.zarr"
+    store = run.folder / "views" / "live" / "picture.ome.zarr"
     assert (store / "zarr.json").is_file()
     assert (store / "baked.json").is_file()
 
