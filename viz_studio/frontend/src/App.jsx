@@ -502,19 +502,20 @@ export default function App() {
     let stop = false;
     const askAgain = async () => (stop ? "busy" : catchUp());
 
-    // Which invalidation an in-place write triggers. "named" climbs the
-    // three-rung ladder below, most surgical first. "whole" skips straight
-    // to the last rung: drop every decoded piece and let the safe refresh
-    // pump refetch each one behind the picture already on screen. Both are
-    // kept deliberately so they can be measured side by side on a real GPU
-    // -- the surgical path touches less, the whole path carries no dirty
-    // bookkeeping, and each may win somewhere. The choice is one URL away
-    // (?refresh=whole) and the page says which it used in
-    // window.zmartRefreshMode, so a measurement can never mistake one mode
-    // for the other.
+    // Which invalidation an in-place write triggers. The DEFAULT is
+    // "whole": drop every decoded piece and let the safe refresh pump
+    // refetch each one behind the picture already on screen -- no dirty
+    // bookkeeping, and the 2026-08-15 storm identity gate passes it clean.
+    // The "named" ladder (surgical refetch of exactly the announced
+    // pieces) is retired as the default but stays one URL away
+    // (?refresh=named) so the T400 comparison can still measure both;
+    // its full removal is a cleanup-chapter step once the GPU pass
+    // confirms the choice. The page says which mode it used in
+    // window.zmartRefreshMode, so a measurement can never mistake one
+    // mode for the other.
     const refreshMode =
-      new URLSearchParams(window.location.search).get("refresh") === "whole"
-        ? "whole" : "named";
+      new URLSearchParams(window.location.search).get("refresh") === "named"
+        ? "named" : "whole";
     window.zmartRefreshMode = refreshMode;
 
     const listener = new EventSource("/api/events");
