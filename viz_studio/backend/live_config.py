@@ -182,6 +182,21 @@ class LiveRegistry:
                 run_root = live_run_holding(dataset.root)
                 if run_root is None:
                     continue
+                # A live binding is only made where the live view can actually
+                # be served: the run root, or a folder holding the live view.
+                # Any OTHER opened folder inside the run -- one specific
+                # derived view, a gate's declared picture, a sealed export --
+                # is an ordinary dataset: its rows are built from the stores
+                # it holds, exactly as if it lay outside the run. Substituting
+                # the run's live picture into it is impossible by construction
+                # (the picture is not under the opened folder), and declaring
+                # one on its behalf would bake a second picture nobody asked
+                # for. Its pixel requests still pass the manifest gate, which
+                # keys off the files, not off this registry.
+                picture = (run_root / LIVE_PICTURE).resolve()
+                opened = Path(dataset.root).resolve()
+                if not (opened == picture or opened in picture.parents):
+                    continue
                 governed.add(dataset.number)
                 dataset.watch = False
                 tracker = self._trackers_by_root.get(run_root)
