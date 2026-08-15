@@ -93,10 +93,11 @@ at. The recommended rule for everything built on this contract:
   bending the stores toward them.
 - **Structure is interoperable at the filesystem.** Runs group into
   plain folders -- an experiment holding sibling acquisitions, each named
-  for what it is, each carrying its own `positions/`, `zmart-live/` and
-  `views/`. The profile already records the acquisition type. No zarr
-  group wraps any of this: a level that holds no pixels gains nothing
-  from being zarr, and a human with a file manager is also a reader.
+  for what it is, each carrying its own `data/` and `views/`. The
+  profile already records the acquisition type. No zarr group wraps the
+  experiment or the acquisitions: a level that holds no pixels gains
+  nothing from being zarr, and a human with a file manager is also a
+  reader.
 - **Everything in between is ours.** The `zmart-live/` records may
   evolve; outsiders who need their content get it through exporters or
   the gateway, not by reading the files as a stable format. And
