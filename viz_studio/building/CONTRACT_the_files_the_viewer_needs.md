@@ -287,6 +287,20 @@ metadata may see undeclared entries, and the declared list is the honest
 interface; BigStitcher still receives its XML export, now pointing into
 the collection's members.
 
+**The declaration is also the arrival signal.** How does a watcher learn
+that something new landed? Never by watching files: a file appearing is
+not a frame being complete (the oldest trap in this project), and
+filesystem events do not travel over network shares, where microscope
+data actually lives. Instead the writer declares AFTER each completed
+write, and the watcher polls one small file: a new POSITION appears in
+the member list, and a new TIMEPOINT moves that member's declared
+moment count, which rides beside the list when time lands. Pixels
+first, declaration second — the viewer's own publication rule, met from
+the microscope's side of the fence. The test writer that proves this
+end works (`viz_studio/tests/a_microscope.py`) imports nothing of ours
+by design: the viewer depends on this contract, never on our
+publisher's habits.
+
 ## The final vocabulary, and the renames that carry it
 
 Every term names either a stored fact or a computed act, never both:
