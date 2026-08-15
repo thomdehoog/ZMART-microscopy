@@ -102,3 +102,30 @@ at. The recommended rule for everything built on this contract:
   the gateway, not by reading the files as a stable format. And
   `views/` is openable but disposable by contract -- nothing should ever
   be built on a cache.
+
+## The shape of an experiment
+
+Acquisitions group into an experiment as plain folders, each acquisition a
+complete run named for what it is and numbered, because an experiment
+routinely holds several of the same kind:
+
+    experiment-2026-08-15/
+    ├── overview-1/            one acquisition = one complete run
+    │   ├── positions/           the pixels (interoperable, immutable)
+    │   ├── zmart-live/          the record that rules (ours)
+    │   └── views/               the viewer's cache (disposable)
+    ├── targets-2/
+    │   ├── positions/
+    │   ├── zmart-live/
+    │   └── views/
+    └── ...
+
+Every acquisition carries all three -- the record is not optional and not
+shared, because each run's layout and profile are sealed on their own. The
+acquisition's TYPE lives inside it (the profile records it), never only in
+the folder name. And when acquisitions cause one another -- an overview's
+detections spawning target scans, which is the whole point of a smart
+microscope -- that provenance belongs in a small record at the experiment
+level, beside the acquisition folders: plain JSON, ours, following the
+same rule as everything else here. Folders give structure, records give
+truth, and zarr appears only where there are pixels.
