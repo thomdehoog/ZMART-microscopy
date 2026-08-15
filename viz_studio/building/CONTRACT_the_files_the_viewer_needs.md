@@ -58,3 +58,22 @@ server serves the picture; each commit thereafter appears on screen by
 itself. Announcing the commit to the running server
 (`POST /api/announce`) is what makes it appear immediately rather than on
 the next poll.
+
+## What the viewer adds beside your data — and never inside it
+
+The declared picture — the one the browser actually opens, with its
+prebaked coarse levels — is a **separate store**, typically
+`views/picture.ome.zarr` inside the run folder, beside `positions/`.
+Nothing of the viewer's is ever written into a position store. The
+declared picture is a valid OME-Zarr in its own right, but its metadata
+says what it really is: derived ground, recording what it was built from
+and which of its levels exist as baked files. The same holds for a
+transfer served by pointing: the view store holds a small list naming
+which bytes of which tile file each piece is, and the pixels are never
+copied.
+
+The consequence worth knowing: **the derived store is disposable.**
+Deleting `views/` loses nothing but warm-up time — declaring again
+rebuilds it from the positions and the record, which remain the only
+truth. Your data and the viewer's cache never share a folder, so neither
+can ever damage the other.
