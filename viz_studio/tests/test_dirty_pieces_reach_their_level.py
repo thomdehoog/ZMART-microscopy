@@ -44,7 +44,7 @@ def a_baked_survey(tmp_path):
     run, order = harness.the_run(4)
     for position_id in order:
         harness.fast_publish(run, position_id)
-    shown = tmp_path / "gov4x4" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live", bake=True)
     return run, shown, store
 

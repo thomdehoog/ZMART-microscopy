@@ -76,7 +76,7 @@ def _serving(tmp_path: Path):
     run, order = harness.the_run(4)
     for position_id in order:
         harness.fast_publish(run, position_id)
-    shown = tmp_path / "fault-vs-absence" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live",
                                        bake=True)
     server = make_server(port=0, data_dir=shown,

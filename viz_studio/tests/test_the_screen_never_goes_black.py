@@ -549,7 +549,7 @@ def test_the_screen_never_goes_black_when_the_cache_is_invalidated(
     for position_id in order:
         harness.fast_publish(run, position_id)
 
-    shown = tmp_path / "never-black" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live",
                                        bake=True)
 

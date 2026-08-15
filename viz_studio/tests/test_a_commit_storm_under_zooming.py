@@ -123,7 +123,7 @@ def test_a_slow_or_transient_refresh_reaches_confirmation_after_quiet(
     for position_id in committed_first:
         harness.fast_publish(run, position_id)
 
-    shown = tmp_path / "timeout-retry" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live", bake=True)
     pictured = len(json.loads((store / "zarr.json").read_text(
         encoding="utf-8"))["attributes"]["ome"]["multiscales"][0]["datasets"])
@@ -407,7 +407,7 @@ def test_tiles_advance_before_a_commit_storm_quiets(
     landing_later = [one for one in order if one not in set(committed_first)]
     for position_id in committed_first:
         harness.fast_publish(run, position_id)
-    shown = tmp_path / "live-progress" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live",
                                        bake=True)
     pictured = len(json.loads((store / "zarr.json").read_text(
@@ -513,7 +513,7 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
     landing_later = [one for one in order if one not in set(committed_first)]
     for position_id in committed_first:
         harness.fast_publish(run, position_id)
-    shown = tmp_path / "storm40x40" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live", bake=True)
     pictured = len(json.loads((store / "zarr.json").read_text(
         encoding="utf-8"))["attributes"]["ome"]["multiscales"][0]["datasets"])

@@ -35,6 +35,15 @@ instrument that was red before the fix was believed:
   reused. The next person reads counters; they do not rerun this campaign.
 - **A clean checkout builds.** `npm install && npm run build` works from
   scratch; postinstall patches modules only, the build verifies the bundle.
+- **The file structure is the contract's.** The conversion landed: position
+  images are members of one collection zarr (`data/survey.ome.zarr/`,
+  membership by declaration), everything of ours lives under
+  `views/live/` (`live.ome.zarr` beside `metadata/` with `signed.json`,
+  `locations.json`, `events.jsonl`, `profiles/`), and the test fixtures
+  build the real experiment shape — config/ plus acquisitions/ — so any
+  drift breaks a gate first. The standing acceptance gate is
+  `zmart_live/tests/test_the_files_follow_the_contract.py`, every
+  assertion proven able to fail before its green was trusted.
 - **One optimization was built, measured, and deliberately reverted**
   (chunk-file paste-over), and the record of why — including the
   correction of its first wrong post-mortem — lives in

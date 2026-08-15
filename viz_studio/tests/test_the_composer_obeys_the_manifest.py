@@ -414,7 +414,7 @@ def test_a_governed_picture_is_served_with_the_gate_on(tmp_path):
     run.write_and_publish("posA", some_specimen(700))
     written_but_not_published(run, "posB", 4242)
 
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE)
     try:
         a_only, _, b_only = the_columns_of(run)
@@ -489,7 +489,7 @@ def test_a_governed_picture_that_cannot_be_made_says_try_again(tmp_path):
 
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE)
     import shutil
     shutil.rmtree(run.folder / "zmart-live")
@@ -520,7 +520,7 @@ def test_a_run_of_several_channels_is_refused_at_the_declare_door(tmp_path):
                         cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
                         timepoints=1)
     with pytest.raises(ValueError, match="channel"):
-        declare_a_governed_picture(tmp_path / "shown", run.folder, name="live")
+        declare_a_governed_picture(run.folder / "views" / "shown", run.folder, name="live")
 
 
 # -- a derive reads the pattern, not the survey -----------------------------------

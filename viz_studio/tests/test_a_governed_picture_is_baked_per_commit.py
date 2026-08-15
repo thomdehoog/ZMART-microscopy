@@ -62,7 +62,7 @@ def test_declaring_with_bake_writes_the_coarse_ground_as_files(tmp_path):
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
 
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     baked = every_baked_file(store)
     assert baked, "bake=True must leave the coarse ground on disk as files"
@@ -100,7 +100,7 @@ def test_a_landing_patches_the_bake_to_match_a_fresh_one(tmp_path):
     """
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     before = every_baked_file(store)
 
@@ -126,7 +126,7 @@ def test_a_replacement_is_served_new_from_files_with_no_stale_moment(tmp_path):
     """Between the commit and the answer there is no window of old ground."""
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     try:
         a_only, _, _ = the_columns_of(run)
@@ -156,11 +156,11 @@ def test_declaring_without_bake_removes_an_earlier_bake(tmp_path):
     """The switch works both ways, exactly as it does for transfers."""
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     assert every_baked_file(store)
 
-    again = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    again = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE)
     assert again == store
     assert not every_baked_file(store), (
@@ -172,7 +172,7 @@ def test_the_writer_can_replace_a_baked_piece_while_it_is_served(tmp_path):
     """The WinError 5 rule extends to baked files: read, and let go."""
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     try:
         a_only, _, _ = the_columns_of(run)
@@ -199,7 +199,7 @@ def test_the_bake_retries_a_transient_windows_sharing_violation(
     """
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     governed = GovernedRun(run.folder, piece=PIECE, store=store)
     governed.composer()
@@ -256,9 +256,9 @@ def test_the_http_route_consults_the_manifest_before_any_baked_file(tmp_path):
 
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
-    server = make_server(port=0, data_dir=tmp_path / "shown",
+    server = make_server(port=0, data_dir=run.folder / "views" / "shown",
                          store=[store.name])
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -316,7 +316,7 @@ def test_a_rollback_withdraws_ground_from_the_baked_files_too(tmp_path):
     remembered = truth.read_text(encoding="utf-8")
     run.write_and_publish("posB", some_specimen(4242))
 
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     try:
         _, _, b_only = the_columns_of(run)
@@ -365,7 +365,7 @@ def test_a_commit_landing_during_the_initial_bake_is_not_lost(tmp_path,
 
     monkeypatch.setattr(declaring, "_bake_the_coarse_ground",
                         a_commit_lands_mid_bake)
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     try:
         _, _, b_only = the_columns_of(run)
@@ -395,7 +395,7 @@ def test_the_bake_catches_up_after_demand_stops(tmp_path):
     """
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     import urllib.request
 
@@ -408,7 +408,7 @@ def test_the_bake_catches_up_after_demand_stops(tmp_path):
     # the final image request in this test.
     inside = next(iter(every_baked_file(store)))
     assert served.the_bytes_behind(store, inside.replace("\\", "/")) is not None
-    server = make_server(port=0, data_dir=tmp_path / "shown",
+    server = make_server(port=0, data_dir=run.folder / "views" / "shown",
                          store=[store.name])
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -521,7 +521,7 @@ def test_an_older_derive_cannot_regress_the_bake_behind_a_newer_one(
     run = LivePublisher(tmp_path, profile, run_id="out-of-order-bake",
                         cells=cells, timepoints=1)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     governed = GovernedRun(run.folder, piece=PIECE, store=store)
     governed.composer()
@@ -603,13 +603,13 @@ def test_redeclaring_under_a_running_server_is_noticed(tmp_path):
     """
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE)
     try:
         a_only, _, _ = the_columns_of(run)
         assert served.the_bytes_behind(store, f"0/c/0/0/{a_only}") is not None
 
-        again = declare_a_governed_picture(tmp_path / "shown", run.folder,
+        again = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                            name="live", piece=PIECE,
                                            bake=True)
         assert again == store
@@ -638,7 +638,7 @@ def test_an_unreadable_picture_description_fails_closed(tmp_path,
     """
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     served.forget(store)
 
@@ -688,9 +688,9 @@ def test_an_aliased_piece_path_cannot_walk_past_the_gate(tmp_path):
 
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
-    server = make_server(port=0, data_dir=tmp_path / "shown",
+    server = make_server(port=0, data_dir=run.folder / "views" / "shown",
                          store=[store.name])
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -737,7 +737,7 @@ def test_a_baked_picture_still_warms_the_composer_for_its_patcher(tmp_path):
 
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     governed = GovernedRun(run.folder, piece=PIECE, store=store)
     try:
@@ -758,7 +758,7 @@ def test_an_empty_run_bakes_nothing_because_absence_means_fill(tmp_path):
     run = a_governed_run(tmp_path)
     run.write_the_view()
     run.write_the_layout()
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     assert not every_baked_file(store), (
         "an empty picture's bake must write no pixel files at all"
@@ -783,7 +783,7 @@ def test_the_warm_reads_the_bake_and_holds_the_composed_ground(tmp_path):
     run = a_governed_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
     run.write_and_publish("posB", some_specimen(4242))
-    store = declare_a_governed_picture(tmp_path / "shown", run.folder,
+    store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE, bake=True)
     try:
         baked = GovernedRun(run.folder, piece=PIECE, store=store)

@@ -99,7 +99,7 @@ def test_one_stuck_refresh_stalls_only_itself(
         if position_id not in (first_landing, second_landing):
             harness.fast_publish(run, position_id)
 
-    shown = tmp_path / "stuck-refresh" / "shown"
+    shown = run.folder / "views" / "shown"
     store = declare_a_governed_picture(shown, run.folder, name="live",
                                        bake=True)
     pictured = len(json.loads((store / "zarr.json").read_text(
