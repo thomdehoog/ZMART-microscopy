@@ -104,90 +104,97 @@ registerRPC("ChunkSource.invalidateChunks", function(x) {
   {
     file: join(lib, "chunk_manager", "backend.js"),
     also: workerBundle,
-    marker: "zmartPumpRefreshesWithoutDeadline",
-    legacyStart: "async function zmartPumpRefreshes(source) {",
-    legacyEnd: `  void zmartPumpRefreshes(source);
+    marker: "zmartRefreshOneKey",
+    legacyStart: "async function zmartPumpRefreshesWithoutDeadline(source) {",
+    legacyEnd: `  void zmartPumpRefreshesWithoutDeadline(source);
 });`,
     anchor: `registerRPC(CHUNK_SOURCE_INVALIDATE_RPC_ID, function(x) {
   const source = this.get(x.id);
   source.chunkManager.queueManager.invalidateSourceCache(source);
 });`,
     addition: `
-// ZMART: refresh NAMED chunks beside the state machine.
+// ZMART: refresh NAMED chunks beside the state machine, one flight per key.
 //
 // A live storm can name the same visible chunk again before its previous
 // refresh finishes. Downloading both into the same mutable Chunk races their
 // callbacks: one callback can serialize bytes written by another and detach
-// the buffer before its owner reaches serialize. One source therefore has one
-// refresh pump. Announcements received while it runs are coalesced into the
-// next batch, so quiet always produces a final batch begun after the last
-// announcement. The old frontend chunks keep drawing until each replacement
-// succeeds. A slow response is not a failure: aborting useful composition at
-// an arbitrary deadline makes the server repeat the same expensive work and
-// can keep it behind forever. Completed chunks are therefore delivered as
-// soon as they arrive. The HTTP reader already retries 429/503/504 with
-// bounded backoff, so this pump must not start a competing retry policy.
+// the buffer before its owner reaches serialize. So each KEY owns at most
+// one in-flight refresh, with latest-wins intent: a key named again while
+// its flight is out is refreshed once more when that flight lands, however
+// many times it was named in between. An earlier pump serialized whole
+// BATCHES instead -- every key waited for the slowest key in its batch, so
+// one request that never settled (a stalled socket, a server wedged behind
+// a lock) silently starved every later refresh for the source, forever,
+// while reporting itself healthy. Per-key flights keep the no-two-writers
+// guarantee and confine a stuck key to itself.
 //
+// No deadline, deliberately: a slow response is not a failure, and aborting
+// useful composition at an arbitrary cutoff makes the server repeat the
+// same expensive work and can keep it behind forever. Completed chunks are
+// delivered the moment they arrive, and the HTTP reader already retries
+// 429/503/504 with bounded backoff, so no competing ZMART retry timer.
 
-async function zmartPumpRefreshesWithoutDeadline(source) {
-  if (source.zmartRefreshRunning) return;
-  source.zmartRefreshRunning = true;
+async function zmartRefreshOneKey(source, key, intent) {
   const queueManager = source.chunkManager.queueManager;
   try {
-    while (source.zmartPendingRefresh.size !== 0) {
-      const keys = [...source.zmartPendingRefresh];
-      source.zmartPendingRefresh.clear();
-      source.zmartRefreshBatches = (source.zmartRefreshBatches || 0) + 1;
-      const jobs = [];
-      for (const key of keys) {
-        const chunk = source.chunks.get(key);
-        source.zmartRefreshOffered = (source.zmartRefreshOffered || 0) + 1;
-        if (chunk === void 0) {
-          source.zmartRefreshAbsent = (source.zmartRefreshAbsent || 0) + 1;
-          continue;
-        }
-        const stateName = ChunkState[chunk.state];
-        const states = source.zmartRefreshStates ||= {};
-        states[stateName] = (states[stateName] || 0) + 1;
-        if (chunk.state === ChunkState.GPU_MEMORY
-            || chunk.state === ChunkState.SYSTEM_MEMORY) {
-          const keptState = chunk.state;
-          const abort = new AbortController();
-          jobs.push(Promise.resolve(source.download(chunk, abort.signal)).then(
-            () => {
-              const msg = {};
-              const transfers = [];
-              chunk.serialize(msg, transfers);
-              msg.state = keptState;
-              queueManager.rpc.invoke("Chunk.update", msg, transfers);
-              chunk.freeSystemMemory();
-            },
-            () => {
-              source.zmartRefreshFailures =
-                (source.zmartRefreshFailures || 0) + 1;
-            },
-          ));
-        } else {
-          switch (chunk.state) {
-            case ChunkState.DOWNLOADING:
-              cancelChunkDownload(chunk);
-              break;
-            case ChunkState.SYSTEM_MEMORY_WORKER:
-              chunk.freeSystemMemory();
-              break;
-          }
-          queueManager.updateChunkState(chunk, ChunkState.QUEUED);
-        }
+    do {
+      intent.again = false;
+      const chunk = source.chunks.get(key);
+      source.zmartRefreshOffered = (source.zmartRefreshOffered || 0) + 1;
+      if (chunk === void 0) {
+        source.zmartRefreshAbsent = (source.zmartRefreshAbsent || 0) + 1;
+        continue;
       }
-      queueManager.scheduleUpdate();
-      await Promise.allSettled(jobs);
-    }
+      const stateName = ChunkState[chunk.state];
+      const states = source.zmartRefreshStates ||= {};
+      states[stateName] = (states[stateName] || 0) + 1;
+      if (chunk.state === ChunkState.GPU_MEMORY
+          || chunk.state === ChunkState.SYSTEM_MEMORY) {
+        const keptState = chunk.state;
+        try {
+          await source.download(chunk, new AbortController().signal);
+          const msg = {};
+          const transfers = [];
+          chunk.serialize(msg, transfers);
+          msg.state = keptState;
+          queueManager.rpc.invoke("Chunk.update", msg, transfers);
+          chunk.freeSystemMemory();
+        } catch (problem) {
+          source.zmartRefreshFailures =
+            (source.zmartRefreshFailures || 0) + 1;
+        }
+      } else {
+        switch (chunk.state) {
+          case ChunkState.DOWNLOADING:
+            cancelChunkDownload(chunk);
+            break;
+          case ChunkState.SYSTEM_MEMORY_WORKER:
+            chunk.freeSystemMemory();
+            break;
+        }
+        queueManager.updateChunkState(chunk, ChunkState.QUEUED);
+        queueManager.scheduleUpdate();
+      }
+    } while (intent.again);
   } finally {
-    source.zmartRefreshRunning = false;
-    if (source.zmartPendingRefresh.size !== 0) {
-      void zmartPumpRefreshesWithoutDeadline(source);
-    }
+    source.zmartRefreshInFlight.delete(key);
   }
+}
+
+function zmartPumpRefreshesWithoutDeadline(source) {
+  const flights = source.zmartRefreshInFlight ||= new Map();
+  source.zmartRefreshBatches = (source.zmartRefreshBatches || 0) + 1;
+  for (const key of source.zmartPendingRefresh) {
+    const flying = flights.get(key);
+    if (flying !== void 0) {
+      flying.again = true;
+      continue;
+    }
+    const intent = { again: false };
+    flights.set(key, intent);
+    void zmartRefreshOneKey(source, key, intent);
+  }
+  source.zmartPendingRefresh.clear();
 }
 
 registerRPC("ChunkSource.refreshChunks", function(x) {
