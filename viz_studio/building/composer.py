@@ -179,6 +179,13 @@ class Composer:
         self._pinning = pinning
         self._pool: ProcessPoolExecutor | None = None
         self._pool_guard = threading.Lock()
+        # How many tile rectangles have been read to compose pieces, ever,
+        # for this composer. A caller who wants the cost of ONE operation
+        # notes the value before and after -- the way the governed bake
+        # patcher does, because "how many tiles did patching this landing
+        # touch" is the number that decides whether a landing costs the
+        # landing or the whole neighbourhood beneath its piece.
+        self.tile_reads = 0
 
         # Decoded blocks of the tiles, most recently used last. Kept because a
         # piece of the picture is smaller than a block of a tile, so neighbouring
@@ -522,6 +529,7 @@ class Composer:
         difference is which blocks were decoded to get there, and whether they are
         still to hand afterwards.
         """
+        self.tile_reads += 1
         size = copy.chunks
         out = np.empty(tuple(high[axis] - low[axis] for axis in range(3)),
                        copy.dtype)

@@ -738,6 +738,7 @@ class GovernedRun:
             self.accounting["last_bake_zarr_ops"] = 0
             self.accounting["last_bake_pieces_rehalved"] = 0
             self.accounting["last_bake_pieces_composed"] = 0
+            self.accounting["last_bake_tile_reads"] = 0
             stamped = self._the_stamp()
             if stamped == current:
                 self._stamp_installed = current
@@ -752,6 +753,7 @@ class GovernedRun:
             baked = self._the_baked_levels()
             phases["bake_scan"] = (watch() - marked) * 1000
             marked = watch()
+            reads_before = made.tile_reads
             for level in sorted(one for one in baked
                                 if one < made.mosaic.levels):
                 for row, column in sorted(dirtied.get(level, ())):
@@ -760,6 +762,15 @@ class GovernedRun:
                     for plane in range(deep):
                         self._replace_one_piece(made, level, plane, row,
                                                 column)
+            # How many tile rectangles composing the dirty pieces read. One
+            # landed position under a coarse piece dirties the whole piece,
+            # and recomposing it reads every tile beneath -- a hundred-odd at
+            # survey scale for a one-position change. This number is what a
+            # paste-over patch of the baked piece would shrink to the landing
+            # itself, and the gate that watches it is
+            # test_the_bake_patch_reads_the_landing_not_the_neighbourhood.
+            self.accounting["last_bake_tile_reads"] = (
+                made.tile_reads - reads_before)
             phases["bake_compose"] = (watch() - marked) * 1000
             marked = watch()
             coarsest = made.mosaic.levels - 1
