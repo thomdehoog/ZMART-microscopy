@@ -523,18 +523,21 @@ export default function App() {
         said = null; // not readable, so treat it as a plain "something changed"
       }
       if (said?.imageWrittenInPlace && engine.current) {
-        // Said outright, so there is no need to wait and find out. Three
-        // rungs, most surgical first. An announcement that names the dirty
-        // pieces refetches exactly those and touches nothing else — no
-        // flicker is possible, because nothing on screen is dropped. One
-        // that does not is refreshed behind the picture already on screen —
-        // a twin layer resolves the current truth while the old one keeps
-        // drawing. Only when nothing could be twinned either does the blunt
-        // path run, because a stale picture is still worse than a blink.
-        if (invalidateTheDirtyPieces(engine.current, said.dirty) === 0
-            && refreshTheImagesWithoutBlanking(engine.current) === 0) {
-          letGoOfDecodedPieces(engine.current);
-        }
+        // EXPERIMENT under measurement — whole-source refresh only.
+        //
+        // The three-rung ladder this replaces (named dirty pieces, then the
+        // twin layer, then the blunt whole-source drop) existed because the
+        // whole-source path used to paint a black frame: the worker dropped
+        // the page's whole copy of a source before refetching it. That drop
+        // is gone — the patched whole-source invalidation now refreshes every
+        // held chunk in place, old pixels drawing until each replacement
+        // arrives (see scripts/patch_neuroglancer.mjs and
+        // tests/test_the_screen_never_goes_black.py). If the operator-scale
+        // storm gate stays green on this single rung, the announcement's
+        // dirty bookkeeping and the level-ladder routing in engine.js stop
+        // being necessary at all, and the ladder can retire. If it does not,
+        // this block goes back to the ladder above it in history.
+        letGoOfDecodedPieces(engine.current);
         askAgain();
         return;
       }
