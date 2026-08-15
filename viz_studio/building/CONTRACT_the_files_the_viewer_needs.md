@@ -201,3 +201,25 @@ ABSOLUTE coordinates in the shared frame, so it stands alone when
 shipped or moved. The experiment record defines and documents the frame
 and remembers the why; it must never become required to interpret an
 acquisition's numbers.
+
+## The two-folder resolution: data and views
+
+The structure above resolves, finally, to two folders per acquisition
+with one pen each. The pixels and their logbook are two halves of one
+thing -- the science -- and they bundle into a single folder the writer
+owns, with the interoperability promise unharmed because it always
+attached to each STORE, never to the folder listing:
+
+    targets-2/
+    ├── data/                   the writer's pen -- written by the run,
+    │   ├── p00.ome.zarr/       never touched after: the pixels
+    │   ├── ...                 and, inside with them,
+    │   └── zmart-live/         their logbook
+    └── views/                  the viewer's pen -- derived, disposable
+
+One sentence rules it all: data/ is written once by the run and never
+touched; views/ is written by lookers and never trusted. Shipping data/
+ships the science complete, pixels with their proof. Today's code
+spells the first folder positions/ with the logbook beside it; the
+bundling and rename are a conversion item for the smart-microscopy
+writer work, recorded here as the target.
