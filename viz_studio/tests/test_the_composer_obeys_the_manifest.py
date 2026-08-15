@@ -492,7 +492,7 @@ def test_a_governed_picture_that_cannot_be_made_says_try_again(tmp_path):
     store = declare_a_governed_picture(run.folder / "views" / "shown", run.folder,
                                        name="live", piece=PIECE)
     import shutil
-    shutil.rmtree(run.folder / "zmart-live")
+    shutil.rmtree(run.folder / "views" / "live" / "metadata")
 
     try:
         with pytest.raises(served.TemporarilyUnanswerable):

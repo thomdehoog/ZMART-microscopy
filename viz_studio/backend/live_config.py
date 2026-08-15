@@ -2,7 +2,7 @@
 
 This module is also where the migration to one live path is finished: the live
 source a browser is handed is the run's **governed baked picture**, declared at
-``views/picture.ome.zarr`` when the run is first bound, not the zero-copy linked
+``views/live/picture.ome.zarr`` when the run is first bound, not the zero-copy linked
 view the scene still compiles. The substitution lives here, in the adapter,
 because the two packages must stay one-directional: ``viz_studio`` may import
 ``building``, while ``zmart_live`` — whose scene compiler names the linked
@@ -38,9 +38,11 @@ except ImportError:  # pragma: no cover - a checkout without the building module
 
 LIVE_STATE_SET_SCHEMA = "zmart-live-frontend-state-set/1"
 
-# Where a live run's served picture lives, relative to the run root. The views
-# folder is the plain folder for derived views, and the picture is one of them.
-LIVE_PICTURE = "views/picture.ome.zarr"
+# Where a live run's served picture lives, relative to the run root: inside
+# the live view's own folder, beside the linked store and the view's
+# metadata -- the picture is part of that one view, exactly as the contract
+# draws it.
+LIVE_PICTURE = "views/live/picture.ome.zarr"
 
 # How long a failed declaration is remembered before it is tried again. Long
 # enough that a refusal does not re-derive the run on every config poll, short
@@ -71,7 +73,7 @@ def the_live_picture_declared(run_root: Path) -> Path:
         )
     began = time.perf_counter()
     made = declare_a_governed_picture(
-        run_root / "views", run_root, name="picture", bake=True
+        run_root / "views" / "live", run_root, name="picture", bake=True
     )
     print(
         f"declared the baked live picture {made} "

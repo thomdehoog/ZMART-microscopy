@@ -347,11 +347,14 @@ def test_the_spiral_growth_is_visible_under_either_invalidation(
         never_regressed = True
         rings = sorted({ring_of(*cell, ACROSS) for cell in landing})
         for ring in rings:
+            # No pacing on purpose: outside a deliberate burst test, the
+            # spiral fills in as fast as the writer can land -- which is not
+            # far past twenty a second anyway, and exactly the cadence the
+            # viewer has to keep up with in real acquisition.
             for cell in [one for one in landing
                          if ring_of(*one, ACROSS) == ring]:
                 harness.fast_publish(run, named_for(cell))
                 _announce(port, _dirty_for(run, pictured, named_for(cell)))
-                time.sleep(0.05)
             # The ring has landed; the page now has to show it. Poll until
             # the photograph has both more light and a larger lit box than
             # the previous ring, or fail loudly with the whole story.
