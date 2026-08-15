@@ -1015,6 +1015,36 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
         # band must show it essentially complete; a band markedly darker than
         # its neighbours is holding pieces the server no longer agrees with.
 
+        def the_view_is_fully_loaded() -> bool:
+            """The engine's own word that no wanted chunk is still missing.
+
+            Neuroglancer is allowed to draw a coarser level where the sharper
+            one has not been fetched yet -- a slightly blurry patch, not a
+            stale one, cured by nothing but its own appetite. Both storms'
+            identity runs failed on exactly that (2026-08-15): the same
+            corner, both invalidation modes, all data proven correct on
+            disk and in flight. So a band is only photographed once the
+            engine reports every visible chunk it WANTS as AVAILABLE, which
+            pins the level choice on both sides of the comparison; a viewer
+            that never gets there hits the ceiling and fails the identity
+            check as before.
+            """
+            return page.evaluate(
+                """() => {
+                  let needed = 0, available = 0;
+                  for (const managed of
+                       window.zmartViewer.layerManager.managedLayers) {
+                    for (const rl of (managed.layer?.renderLayers || [])) {
+                      const p = rl.layerChunkProgressInfo;
+                      if (!p) continue;
+                      needed += p.numVisibleChunksNeeded;
+                      available += p.numVisibleChunksAvailable;
+                    }
+                  }
+                  return needed > 0 && available >= needed;
+                }"""
+            )
+
         def refresh_flights_still_out() -> int:
             """How many named refreshes the worker still owes, pending or flying.
 
@@ -1071,7 +1101,8 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                 _, pixels = _save_middle_and_measure(page)
                 quiet = (page.evaluate(
                     "() => window.zmartSourcesWaiting()") == 0
-                    and refresh_flights_still_out() == 0)
+                    and refresh_flights_still_out() == 0
+                    and the_view_is_fully_loaded())
                 if (resting is not None and quiet
                         and pixels.tobytes() == resting.tobytes()):
                     break
@@ -1270,7 +1301,8 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                 _, pixels = _save_middle_and_measure(page)
                 quiet = (page.evaluate(
                     "() => window.zmartSourcesWaiting()") == 0
-                    and refresh_flights_still_out() == 0)
+                    and refresh_flights_still_out() == 0
+                    and the_view_is_fully_loaded())
                 if (resting is not None and quiet
                         and pixels.tobytes() == resting.tobytes()):
                     break
