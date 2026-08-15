@@ -59,8 +59,11 @@ Nothing merges on a software-GL container's word. On the T400:
 1. Pull the branch; `npm install && npm run build` from clean.
 2. `python -m pytest viz_studio/tests/test_the_screen_never_goes_black.py
    viz_studio/tests/test_one_stuck_refresh_stalls_only_itself.py
-   viz_studio/tests/test_a_commit_storm_under_zooming.py -s` — the three
-   browser gates on real GPU.
+   viz_studio/tests/test_a_commit_storm_under_zooming.py
+   viz_studio/tests/test_a_survey_grows_in_a_spiral.py -s` — the browser
+   gates on real GPU. The spiral gate runs both invalidation modes by
+   itself; raise `ZMART_SPIRAL_ACROSS` / `ZMART_SPIRAL_SEED_RINGS` to
+   open on an already-large survey and watch late landings stay prompt.
 3. Read the pinned Neuroglancer eviction path once (twenty minutes):
    can a resident chunk be freed while a refresh downloads into it? This
    is review finding C4, still open, and only the installed library
