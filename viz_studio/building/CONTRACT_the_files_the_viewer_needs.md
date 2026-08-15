@@ -77,3 +77,28 @@ Deleting `views/` loses nothing but warm-up time — declaring again
 rebuilds it from the positions and the record, which remain the only
 truth. Your data and the viewer's cache never share a folder, so neither
 can ever damage the other.
+
+## Which layers promise interoperability
+
+Interoperability is a promise, and a promise needs a boundary it is made
+at. The recommended rule for everything built on this contract:
+
+- **Pixels are interoperable at the position store.** Each
+  `p*.ome.zarr` is plain OME-Zarr with canonical axes and its placement
+  in its own translation -- the form stitching tools such as
+  multiview-stitcher consume directly. This promise deserves a standing
+  test through an independent reader (the `test_other_tools_can_read_us`
+  pattern), and tools with their own native formats (BigStitcher's BDV
+  XML) are served by small exporters written FROM the record, never by
+  bending the stores toward them.
+- **Structure is interoperable at the filesystem.** Runs group into
+  plain folders -- an experiment holding sibling acquisitions, each named
+  for what it is, each carrying its own `positions/`, `zmart-live/` and
+  `views/`. The profile already records the acquisition type. No zarr
+  group wraps any of this: a level that holds no pixels gains nothing
+  from being zarr, and a human with a file manager is also a reader.
+- **Everything in between is ours.** The `zmart-live/` records may
+  evolve; outsiders who need their content get it through exporters or
+  the gateway, not by reading the files as a stable format. And
+  `views/` is openable but disposable by contract -- nothing should ever
+  be built on a cache.
