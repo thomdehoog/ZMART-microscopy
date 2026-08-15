@@ -1014,6 +1014,39 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
         # Photograph every zoom band. The survey is fully landed, so every
         # band must show it essentially complete; a band markedly darker than
         # its neighbours is holding pieces the server no longer agrees with.
+
+        def refresh_flights_still_out() -> int:
+            """How many named refreshes the worker still owes, pending or flying.
+
+            ``zmartSourcesWaiting`` counts only the frontend's layer loading;
+            a per-key refresh flight in the worker -- including the long final
+            one a storm's coalesced announces collapse into -- is invisible to
+            it. Instrumented 2026-08-15: the warm client's LAST refetch of the
+            coarsest piece was still in flight through the whole census, so
+            the bands photographed a picture whose correction was already on
+            the wire. The census therefore drains these flights explicitly.
+            """
+            return page.evaluate(
+                """async () => {
+                  let owed = 0;
+                  for (const [, held] of
+                       window.zmartViewer.chunkManager.rpc.objects) {
+                    if (!held || typeof held.invalidateCache !== 'function'
+                        || !held.spec?.upperVoxelBound) continue;
+                    const answer = await Promise.race([
+                      held.rpc.promiseInvoke(
+                        'ChunkSource.zmartProbe', { source: held.rpcId }),
+                      new Promise((resolve) => setTimeout(
+                        () => resolve(null), 2_000)),
+                    ]);
+                    const refresh = answer?.value?.refresh;
+                    if (refresh) owed += (refresh.pending || 0)
+                        + (refresh.inFlight || 0);
+                  }
+                  return owed;
+                }"""
+            )
+
         seen = {}
         storm_pixels = {}
         network_phase["name"] = "storm-bands"
@@ -1031,13 +1064,14 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
             # disease this census exists to catch -- drains to stable-but-
             # wrong, sails through this wait, and still fails the identity
             # comparison below.
-            deadline = time.perf_counter() + 45
+            deadline = time.perf_counter() + 150
             resting = None
             while True:
                 page.wait_for_timeout(1_500)
                 _, pixels = _save_middle_and_measure(page)
-                quiet = page.evaluate(
+                quiet = (page.evaluate(
                     "() => window.zmartSourcesWaiting()") == 0
+                    and refresh_flights_still_out() == 0)
                 if (resting is not None and quiet
                         and pixels.tobytes() == resting.tobytes()):
                     break
@@ -1229,13 +1263,14 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
             zoom_to(multiple)
             # The same convergence rule as the warm bands above, so the two
             # sides of the comparison are photographed under one standard.
-            deadline = time.perf_counter() + 45
+            deadline = time.perf_counter() + 150
             resting = None
             while True:
                 page.wait_for_timeout(1_500)
                 _, pixels = _save_middle_and_measure(page)
-                quiet = page.evaluate(
+                quiet = (page.evaluate(
                     "() => window.zmartSourcesWaiting()") == 0
+                    and refresh_flights_still_out() == 0)
                 if (resting is not None and quiet
                         and pixels.tobytes() == resting.tobytes()):
                     break
