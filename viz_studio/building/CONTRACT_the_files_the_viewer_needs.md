@@ -277,3 +277,27 @@ The renames the conversion carries, today to target:
     committed.json            ->  signed.json
     (per-run frame facts)     ->  canvas.json, at the experiment level
     views/                    ->  views/ (right all along)
+
+## The logbook is the data's own metadata, and it rides inside
+
+The principle that settles its place: everything must be obtainable from
+the data -- and what cannot live in any single store's attributes are
+the CROSS-STORE, AFTER-THE-FACT facts. Supersession is learned about a
+store long after it was sealed; signing and run-wide order span stores;
+recording these in a store's own attrs would mean mutating published
+science. Cross-store facts need a cross-store place, and that place
+lives INSIDE the collection, beside the members, exactly as
+bioformats2raw ships its OME/ companion metadata inside the zarr:
+
+    data/
+    └── survey.ome.zarr/       one self-contained thing
+        ├── zarr.json            declared members -- community metadata
+        ├── p00/ p01/ ...        the pixels
+        └── logbook/             the data's rich metadata: cross-store,
+                                 append-only, atomically pointered --
+                                 metadata that outgrew attrs, not
+                                 metadata that left the data
+
+Shipping the collection ships everything: pixels, membership, witness.
+The logbook is not bookkeeping beside the data; it is the data's own
+metadata in a container strong enough for history and atomicity.
