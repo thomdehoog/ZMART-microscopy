@@ -6,13 +6,16 @@ instead of recomposing the piece from every tile beneath it. The cure was
 implemented, its cost gate went green (tile reads per landing fell from 143
 to 4), its overlap proof and pixel-equality oracle both held -- and the
 survey ladder then showed every landing had become SLOWER, three times
-slower on a small survey. The reads were the wrong currency: the composer's
-inherited warm slabs already amortize tile reads, while pasting added a
-decode of every dirty chunk at every level on top of the encode both paths
-pay. The cure was reverted on that measurement, and the cost gate -- whose
-premise the measurement falsified -- was removed with it. Any second
-attempt starts by splitting the compose phase into decode, read, lay and
-encode, and beating the wall clock, not a proxy.
+slower on a small survey. The cure was reverted on that measurement, and
+the cost gate -- a proxy the wall clock had contradicted -- was removed
+with it. The compose anatomy built afterwards corrected the post-mortem
+too: the dirty piece's slab is rebuilt every landing (zero warm hits), so
+tile reading really is most of the compose cost and the read-cutting was
+aimed at real money -- the chunk-file paste lost on ~50 ms of overhead of
+its own that was never attributed. The standing instruction: a second
+attempt patches the INHERITED SLAB in memory instead of chunk files, and
+begins with a red gate denominated in bake_compose_read milliseconds,
+plus a phase split of its own path.
 
 What stands are the two guards that were never about the cure's speed,
 only its honesty, and they hold for full recomposition just as well:

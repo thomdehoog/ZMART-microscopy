@@ -707,16 +707,24 @@ class GovernedRun:
 
         Dirty composed pieces are recomposed whole, deliberately. A
         paste-over variant -- re-lay only the changed ground over the
-        decoded existing chunk -- was built, proven correct against an
-        overlap proof and a pixel-equality oracle, and then REVERTED on
+        decoded existing chunk file -- was built, proven correct against
+        an overlap proof and a pixel-equality oracle, and then REVERTED on
         measurement: it cut tile reads from 143 to 4 per landing and made
-        every landing SLOWER (17.7 to 59.2 ms on a small survey), because
-        the composer's inherited warm slabs already amortize the reads,
-        while pasting added a decode of every dirty chunk at every level
-        on top of the encode both paths pay. The reads were the wrong
-        currency; the survey ladder's wall clock is the instrument that
-        said so, and any second attempt must first split the compose
-        phase into decode/read/lay/encode and beat it there.
+        every landing SLOWER (17.7 to 59.2 ms on a small survey). The
+        compose anatomy that was built afterwards says why the first
+        post-mortem was itself wrong: the dirty piece's slab is rebuilt
+        from scratch every landing (zero warm hits -- inheritance rightly
+        drops dirty slabs), tile reading is 60-75%% of the compose phase,
+        so cutting reads WAS aimed at real money -- and the chunk-file
+        paste still lost because its own path carried ~50 ms of overhead
+        for four reads that was never attributed before the revert. Two
+        lessons stand. Measured: reads dominate compose, encode is 3-10 ms,
+        and the correctly-aimed cure is to re-lay the changed ground into
+        the INHERITED SLAB -- decoded pixels already in memory, no chunk
+        decode anywhere -- before encoding as usual. Methodological: that
+        cure is not to be built until a red gate denominated in
+        bake_compose_read milliseconds exists, and until the cure's own
+        path is split the way the compose phase now is.
 
         Runs inside the derive, BEFORE the fresh snapshot is handed to
         anyone: once a reader can know about the new state, the files are
