@@ -155,3 +155,29 @@ third, explicit gesture -- materializing, which bakes every level into
 the view at full data cost, opt-in for the rare view that earns it. The
 ladder is: bookmark (live, follows the run), sealed (complete in meaning,
 light), materialized (complete in pixels, heavy) -- each step a choice.
+
+## The canvas comes first, and every view sticks to it
+
+The coordinate system is not defined by any view. It is designed by the
+process that comes before everything -- the controller that plans the run
+-- and sealed into the layout and profile at the start: this world, this
+size, these planned places. The run is born into that canvas. An empty
+run is a valid empty canvas, every landing fills ground that already had
+its address, and the canvas can never move, grow, or shrink while the
+run lives -- a picture whose origin shifted whenever a far position
+landed was one of this project's hardest-won lessons.
+
+Every consumer inherits the one canvas rather than deriving its own. The
+stage drives it, the writer stamps it into every store's translation,
+the record diaries what landed on it, and every view -- live, cropped,
+frozen, however many -- is a window onto it. That is why views can never
+disagree about where things are, and why the picture on screen mirrors
+the specimen on the stage.
+
+And it is the foundation smart microscopy stands on: because screen and
+stage share one coordinate system, the viewer is a control surface, not
+just a display. A detection at (y, x) on the canvas IS a drivable stage
+target -- the same number the motors understand, no conversion. See it,
+click it, shoot it, see it land again in the same place: the loop closes
+through the coordinate system precisely because the canvas precedes
+every view instead of being defined by one.
