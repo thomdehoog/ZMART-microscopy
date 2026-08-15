@@ -4,52 +4,59 @@ For anyone writing acquisition software that the ZMART viewer must be able
 to show. A run is **one folder** holding **two things**, and one law binds
 them.
 
-## 1. `positions/` — the pixels
+## 1. `data/` — the pixels
 
 One OME-Zarr image per microscope position, named for its place in the
-grid (`p00.ome.zarr`, `p01.ome.zarr`, …). Each is an ordinary zarr v3
-image any tool can open, with:
+grid (`p00`, `p01`, …), living together inside the acquisition's one
+collection zarr, `data/survey.ome.zarr` (on disk today the code still
+writes them as flat stores under an old folder name — see the renames
+below). Each is an ordinary zarr v3 image any tool can open, with:
 
 - **five axes, in this order: t, c, z, y, x** — time and channel first,
   even while they are singletons;
 - **a pyramid of levels** (level `0` full size, each next one halved in
   y and x by averaging), exactly as many as the run's sealed profile says;
 - **its place written inside it**: every level carries a scale and a
-  translation, and the translation must equal the layout's placement for
-  that position times the voxel size — this is how the viewer knows where
+  translation, and the translation must equal that position's location
+  on the canvas times the voxel size — this is how the viewer knows where
   the tile sits without guessing;
 - the profile's chunking and encoding (sharded chunks, uint16 here).
 
-**Never overwrite a published position.** A retake is a new store beside
-the old one — `p00.generation-1.ome.zarr` — plus a replacement commit in
-the record below.
+**Never overwrite a published position.** A retake is a new member
+beside the old one — `p00.generation-1` — plus a replacement commit in
+the record below; the old generation stays on disk, undeclared.
 
-## 2. `zmart-live/` — the record that rules
+## 2. The record that rules
 
-The bookkeeping folder is the authority on what may be shown:
+Beside the pixels sits the bookkeeping folder — the view's `metadata/`
+(on disk today it still carries an old name; see the renames below). It
+is the authority on what may be shown:
 
-- `committed.json` — what is published *right now* (atomically replaced);
+- `signed.json` — what is published *right now* (atomically replaced;
+  today spelled `committed.json`);
 - `events.jsonl` — the append-only history, one line per publication;
-- `layout.json` and `layouts/` — where every position the run will ever
-  image sits, fixed **before the first pixel**;
+- `locations.json` — where every position the run will ever image sits
+  on the canvas, fixed **before the first pixel** (today spelled
+  `layout.json`, with its history in `layouts/`);
 - `profiles/` — how every store is written (frame, levels, chunking,
-  number type), sealed with the layout;
+  number type), sealed with the locations;
 - `publication.lock` — the writer's own lock; leave it alone.
 
 ## The one law
 
 **Pixels first, record second.** Write a position's store completely, then
 publish it with one atomic commit. The viewer believes the record and only
-the record: a store on disk that was never committed is invisible, and a
-committed store missing a chunk is treated as damage and refused — never
+the record: a store on disk that was never signed is invisible, and a
+signed store missing a chunk is treated as damage and refused — never
 quietly filled in. Zero is the fill value, so an all-zero frame cannot be
 published; write at least one.
 
 ## In practice
 
-Do not write any of this by hand. `zmart_live`'s publisher
-(`LivePublisher`) produces every file above correctly — layout and profile
-sealing, pyramid building, translations, atomic commits, replacements.
+Do not write any of this by hand. The record's publisher
+(`LivePublisher`) produces every file above correctly — locations and
+profile sealing, pyramid building, translations, atomic commits,
+replacements.
 This page exists so that any *other* writer knows exactly what it must
 match, and so a reader of a run folder knows what they are looking at.
 
@@ -62,9 +69,9 @@ the next poll.
 ## What the viewer adds beside your data — and never inside it
 
 The declared picture — the one the browser actually opens, with its
-prebaked coarse levels — is a **separate store**, typically
-`views/picture.ome.zarr` inside the run folder, beside `positions/`.
-Nothing of the viewer's is ever written into a position store. The
+prebaked coarse levels — is a **separate store** inside the view's own
+folder, `views/live/live.ome.zarr`, beside `data/` and never inside it.
+Nothing of the viewer's is ever written into a position image. The
 declared picture is a valid OME-Zarr in its own right, but its metadata
 says what it really is: derived ground, recording what it was built from
 and which of its levels exist as baked files. The same holds for a
@@ -74,19 +81,19 @@ copied.
 
 The consequence worth knowing: **the derived store is disposable.**
 Deleting `views/` loses nothing but warm-up time — declaring again
-rebuilds it from the positions and the record, which remain the only
-truth. Your data and the viewer's cache never share a folder, so neither
-can ever damage the other.
+rebuilds it from the data, which remains the only truth. Your data and
+the viewer's cache never share a folder, so neither can ever damage the
+other.
 
 ## Which layers promise interoperability
 
 Interoperability is a promise, and a promise needs a boundary it is made
 at. The recommended rule for everything built on this contract:
 
-- **Pixels are interoperable at the position store.** Each
-  `p*.ome.zarr` is plain OME-Zarr with canonical axes and its placement
-  in its own translation -- the form stitching tools such as
-  multiview-stitcher consume directly. This promise deserves a standing
+- **Pixels are interoperable at the position image.** Each member of
+  the collection (`p00`, `p01`, …) is plain OME-Zarr with canonical
+  axes and its place in its own translation -- the form stitching tools
+  such as multiview-stitcher consume directly. This promise deserves a standing
   test through an independent reader (the `test_other_tools_can_read_us`
   pattern), and tools with their own native formats (BigStitcher's BDV
   XML) are served by small exporters written FROM the record, never by
@@ -98,7 +105,7 @@ at. The recommended rule for everything built on this contract:
   experiment or the acquisitions: a level that holds no pixels gains
   nothing from being zarr, and a human with a file manager is also a
   reader.
-- **Everything in between is ours.** The `zmart-live/` records may
+- **Everything in between is ours.** The view's metadata files may
   evolve; outsiders who need their content get it through exporters or
   the gateway, not by reading the files as a stable format. And
   `views/` is openable but disposable by contract -- nothing should ever
@@ -172,7 +179,7 @@ light), materialized (complete in pixels, heavy) -- each step a choice.
 
 The coordinate system is not defined by any view. It is designed by the
 process that comes before everything -- the controller that plans the run
--- and sealed into the layout and profile at the start: this world, this
+-- and sealed into the locations and profile at the start: this world, this
 size, these planned places. The run is born into that canvas. An empty
 run is a valid empty canvas, every landing fills ground that already had
 its address, and the canvas can never move, grow, or shrink while the
@@ -242,10 +249,9 @@ lives in views/:
 
 One sentence rules it all: data/ is written once by the run and never
 touched; views/ is written for lookers and never trusted as science.
-Shipping data/ ships the science complete. Today's code spells the
-first folder positions/ with the zmart-live record beside it; the renames are a
-conversion item for the smart-microscopy writer work, recorded here as
-the target.
+Shipping data/ ships the science complete. Today's code still writes
+the old folder names; the renames table below maps them, and carrying
+them out is a conversion item for the smart-microscopy writer work.
 
 ## The collection: one zarr for the community, membership by declaration
 
@@ -267,7 +273,7 @@ shows less rather than more.
         └── p01.generation-1/     retired generations stay, undeclared
 
 Trades, chosen not discovered: one more small write per commit (the
-member list, same cost class as committed.json -- it joins that
+member list, same cost class as signed.json -- it joins that
 instrument-before-scale item); raw directory-walkers that ignore
 metadata may see undeclared entries, and the declared list is the honest
 interface; BigStitcher still receives its XML export, now pointing into
@@ -319,7 +325,7 @@ else -- if liveness ever deserves to be metadata OF the data, that is
 the experiment writer's and the microscope layer's decision, made with
 their pen, outside our scope. This record is viewer plumbing, so it
 lives inside the view it serves, next to the baked store, the same way
-the layout already does:
+the locations file already does:
 
     views/
     └── live/
