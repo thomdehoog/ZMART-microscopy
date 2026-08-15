@@ -117,7 +117,17 @@ at its top in plain language.
 5. **The OME-Zarr writer stays where it lives** (`zmart_live`,
    `zmart_storage`) — it is production code with its own suite, not test
    scaffolding; the fixtures merely drive it fast. No move needed.
-6. **Comment altitude pass, last.** The campaign wrote incident-flavoured
+6. **Re-document the record as consumer-neutral.** `zmart_live` grew up
+   serving the viewer and reads that way -- the name, and the link-map
+   and view-route artifacts the publisher bundles into each publication.
+   Architecturally the dependency points one way (the viewer imports the
+   record's package, never the reverse), and the smart-microscopy loop
+   will be the record's second consumer, reading truth through the same
+   gateway. The docs should say so plainly: the manifest and gateway are
+   the run's publication record and its one reading API for EVERY
+   consumer, and the view-flavoured riders in the record folder are one
+   consumer's convenience, ignorable by the rest.
+7. **Comment altitude pass, last.** The campaign wrote incident-flavoured
    comments where invariant-flavoured ones should stand. One sweep,
    guided by the rule already in CLAUDE.md: say why, plainly, for a
    reader at the microscope; history belongs in `building/history/`.
