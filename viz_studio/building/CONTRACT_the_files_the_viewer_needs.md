@@ -223,3 +223,30 @@ ships the science complete, pixels with their proof. Today's code
 spells the first folder positions/ with the logbook beside it; the
 bundling and rename are a conversion item for the smart-microscopy
 writer work, recorded here as the target.
+
+## The collection: one zarr for the community, membership by declaration
+
+The final form of data/ answers the one-handle need directly: the
+position images live INSIDE one collection zarr, so a single path opens
+in napari, ImageJ, or any OME-Zarr tool. What makes this legal under the
+law is one substitution -- membership by DECLARATION, not by presence.
+The collection group's metadata carries the member list, and the
+publisher writes it as part of each commit: only committed,
+current-generation members are ever declared. Presence keeps meaning
+nothing; the community reads the declaration, and the declaration is the
+logbook's downhill projection, written by the same pen, updated after
+the commit so any skew shows less rather than more.
+
+    data/
+    ├── survey.ome.zarr/        one collection zarr -- the community handle
+    │   ├── zarr.json             member list: committed, current members only
+    │   ├── p00/  p01/  ...       the position images, unchanged in structure
+    │   └── p01.generation-1/     retired generations stay, undeclared
+    └── logbook/                the one authority, beside it
+
+Trades, chosen not discovered: one more small write per commit (the
+member list, same cost class as committed.json -- it joins that
+instrument-before-scale item); raw directory-walkers that ignore
+metadata may see undeclared entries, and the declared list is the honest
+interface; BigStitcher still receives its XML export, now pointing into
+the collection's members.
