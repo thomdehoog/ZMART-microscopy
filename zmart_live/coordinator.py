@@ -422,7 +422,9 @@ class LivePublisher:
         """One resolution level inside the linked OME-Zarr image."""
         return self.view_store / str(level)
 
-    def _declare_the_members(self, members: tuple[str, ...]) -> None:
+    def _declare_the_members(
+        self, members: tuple[str, ...], moments: dict[str, int] | None = None
+    ) -> None:
         """Write the collection's member list into its own zarr metadata.
 
         Membership is a matter of declaration, not presence: a store that is
@@ -431,6 +433,12 @@ class LivePublisher:
         like published science. Only complete, current-generation members are
         named. The list is replaced atomically after each publication, so any
         skew between the manifest and this list shows *less* rather than more.
+
+        ``moments`` rides beside the list, per member: how many complete
+        moments that member holds, counted from moment zero. This one small
+        file is thereby also the arrival signal the contract promises — a
+        watcher polls it, and a new position or a new moment shows here, and
+        only here, once its pixels are complete.
         """
         described = {
             "zarr_format": 3,
@@ -439,6 +447,7 @@ class LivePublisher:
                 "zmart": {
                     "schema": "zmart-collection/1",
                     "members": sorted(members),
+                    "moments": dict(sorted((moments or {}).items())),
                 }
             },
         }
@@ -448,14 +457,25 @@ class LivePublisher:
         )
 
     def _declare_the_current_members(self) -> None:
-        """Declare every committed position at its current generation."""
-        committed = {position for position, _ in self._committed_units()}
-        members = tuple(
-            position if self.generations.get(position, 0) == 0
-            else f"{position}.generation-{self.generations[position]}"
-            for position in sorted(committed)
-        )
-        self._declare_the_members(members)
+        """Declare every committed position at its current generation.
+
+        Each member's declared moment count is the contiguous complete
+        prefix from moment zero: a reader iterating up to the count always
+        finds complete frames, and a gap in the record simply stops the
+        count rather than being papered over.
+        """
+        committed: dict[str, set[int]] = {}
+        for position, moment in self._committed_units():
+            committed.setdefault(position, set()).add(moment)
+        members = {}
+        for position in sorted(committed):
+            name = (position if self.generations.get(position, 0) == 0
+                    else f"{position}.generation-{self.generations[position]}")
+            count = 0
+            while count in committed[position]:
+                count += 1
+            members[name] = count
+        self._declare_the_members(tuple(members), members)
 
     @property
     def link_map_file(self) -> Path:

@@ -123,6 +123,49 @@ def test_only_complete_current_generations_are_declared(experiment):
     assert "posA" not in members
 
 
+def test_each_member_declares_its_written_moments(tmp_path):
+    """The declaration carries each member's complete moment count.
+
+    The contract makes one small file both the community's membership
+    metadata and the arrival signal a watcher polls: a new position
+    appears in the member list, and a new timepoint moves that member's
+    declared moment count, riding beside the list. The count is the
+    contiguous complete prefix from moment zero — a reader iterating
+    t = 0 .. count-1 always finds complete frames, and a gap in the
+    record simply stops the count, never overclaims across it.
+    """
+    profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1,
+                                  timepoints=4)
+    run = LivePublisher(
+        tmp_path / "acquisitions" / "timelapse", profile,
+        run_id="contract-moments",
+        cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+    )
+    collection = run.collection
+
+    def declared_moments():
+        described = json.loads((collection / "zarr.json").read_text())
+        return described["attributes"]["zmart"]["moments"]
+
+    run.write_and_publish("posA", a_specimen(1), timepoint=0)
+    assert declared_moments() == {"posA": 1}
+
+    run.write_and_publish("posA", a_specimen(2), timepoint=1)
+    assert declared_moments() == {"posA": 2}
+
+    # posB arrives, then skips moment 1 and lands moment 2: the record
+    # holds the gap honestly, and the declared count stops before it.
+    run.write_and_publish("posB", a_specimen(3), timepoint=0)
+    run.write_and_publish("posB", a_specimen(4), timepoint=2)
+    assert declared_moments() == {"posA": 2, "posB": 1}
+
+    # A retake advances every published moment (the record's set
+    # semantics), so the member is renamed to its new generation and its
+    # moment count comes with it.
+    run.replace_a_position("posA", a_specimen(5), timepoint=0)
+    assert declared_moments() == {"posA.generation-1": 2, "posB": 1}
+
+
 def test_a_stranger_with_plain_zarr_can_read_everything(experiment):
     """The heart of the acceptance test, before views/ is even touched."""
     collection = experiment / "acquisitions" / "overview" / "data" / "survey.ome.zarr"
