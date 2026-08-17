@@ -446,7 +446,9 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
         <span style={styles.controlLabel} title="Draw the specimen stretched along an axis. Does not change the data">
           stretch
         </span>
-        <div style={{ display: "flex", gap: 6, flex: 1 }}>
+        {/* The three inputs take the slider column AND the value column, so
+            their right edge lines up with the numbers above them. */}
+        <div style={{ display: "flex", gap: 6, gridColumn: "2 / -1" }}>
           {["x", "y", "z"].map((axis) => (
             <label key={axis} style={{ display: "flex", alignItems: "center", gap: 3, flex: 1 }}>
               <span style={{ ...styles.controlLabel, minWidth: 0 }}>{axis}</span>
@@ -459,14 +461,14 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
                 }}
                 aria-label={`stretch ${axis}`}
                 title={`How many times to stretch the picture along ${axis}. 1 is as the run declared it`}
-                style={{ ...styles.select, width: "100%", minWidth: 44 }}
+                style={{ ...styles.select, width: "100%", minWidth: 34 }}
               />
             </label>
           ))}
         </div>
       </div>
       {stretchedUnevenly(displayScales, mode) && (
-        <div style={{ ...styles.controlLabel, color: "#d9a441", padding: "0 0 6px" }}>
+        <div style={{ ...styles.controlLabel, color: "#d9a441", padding: "0 12px 6px" }}>
           {mode === "volume"
             ? "the axes are stretched differently, so no single scale bar is true in every direction"
             : "x and y are stretched differently, so no single scale bar is true in both directions"}
@@ -999,7 +1001,9 @@ const styles = {
   },
   control: {
     display: "grid",
-    gridTemplateColumns: "42px 1fr 42px",
+    // The label column is sized to the longest label (BRIGHTNESS); anything
+    // narrower lets the text run underneath the slider beside it.
+    gridTemplateColumns: "68px 1fr 42px",
     alignItems: "center",
     gap: 6,
     padding: "2px 12px",
