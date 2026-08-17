@@ -63,11 +63,43 @@ becomes an absolute byte bound sized per machine (the revised plan
 already says so); this instrument joins the ladder per rung and asserts
 before any warm pass.
 
-## Instruments still to run
+## Instruments 1 and 4 — the held-volume refetch bill and the z-step cost
+(2026-08-17, in-container, `measure_the_volume_refetch_and_z_step.py`)
 
-- Instrument 1 — the held-volume refetch counter (requests and bytes in
-  the window after one announcement, volume view held), on a synthetic
-  deep survey.
-- Instrument 4 — the z-step cost counter on a finished picture (one plane
-  step should cost one plane's pieces; the bench observation says it may
-  refresh far more).
+The fixture is the Thy1 one-source trick made synthetic: one 13-plane
+stamped tile, linked into a grid of blocks (symlinks, the Linux junction),
+declared as one built picture and served live. Screenshots of every stage
+were saved and looked at: the flat view drew the stamped plane and its
+grid, the 3-D view drew the brightest-ray projection, and the engine's own
+census matched what the pictures showed.
+
+**Instrument 1 — the held-volume refetch bill, and its law.** After one
+whole-source announcement with the 3-D view held:
+
+| survey | pieces per plane at the rendered level | chunk requests |
+| ------ | -------------------------------------- | -------------- |
+| 3×3    | 1                                      | 13 + flat      |
+| 7×7    | 4                                      | 52             |
+
+Exactly **depth × piece-columns at the rendered level**, linear, both
+cells settling in half a second at toy scale. The mechanism both reviews
+computed by hand is confirmed empirically, and the scale-up is pure
+arithmetic: at the motivating survey's shape (291 planes, six piece
+columns at the volume's level) the same law gives ~1,750 requests per
+landing — the never-converges regime. The mitigation decision now has its
+measured law and its counter; what remains is running the chosen
+mitigation against it.
+
+**Instrument 4 — the z-step is innocent at this scale.** On a finished
+picture, stepping one plane cost one plane's visible pieces (15 requests
+at 3×3, 12 at 7×7, ~0.01 MB) and stepping back cost **zero** — the plane
+was cached. The bench observation ("stepping z seems to refresh
+everything") did not reproduce on a finished picture in-container; it may
+involve the live announce path or real-scale caches, so the bench
+confirmation should repeat the step during live growth as well as after
+it. Until then, no design decision leans on the observation.
+
+## Bench confirmations owed (one run each, real Thy1)
+
+Slab-read ratio, pinned-bytes at the workstation's RAM, the refetch law's
+constants at real chunk sizes, and the z-step during live growth.
