@@ -18,6 +18,17 @@
 These do not test the feature; they decide its shape. Nothing downstream
 may be built on an answer these have not given.
 
+One practical rule for where they run: **synthetic decides, Thy1
+confirms.** The Thy1 data lives at the workstation, not in the container
+where iteration happens — so each instrument runs first on a synthetic
+deep governed fixture (stamped planes, small, built to the fixture rules
+below), and the numbers that decide — request counts, bytes, per-plane
+decode cost, pinned bytes — are shape-driven, so the synthetic run is the
+deciding one. Each instrument then gets one confirming run on real Thy1
+at the bench, recorded beside the synthetic number in the MEASURED
+document; a confirmation that disagrees with its synthetic number reopens
+the question, loudly.
+
 - **The held-volume refetch counter.** The existing Thy1 one-source script
   with the volume view toggled on; land one block; the server counts
   requests and bytes served in the window after the announcement. One
