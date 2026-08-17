@@ -54,6 +54,26 @@ honest version.
   piece address is a change to every reader of the chunk key, and gets the
   depth plan's discipline: the readers listed by name, one shape defined
   once, and the shift-the-key sabotage that must go red at every reader.
+
+  **Landed 2026-08-17.** The readers were enumerated first (every parse,
+  format, and arity assumption, both server doors, the bake paths, the
+  frontend); the address now has exactly one definition
+  (`composer.the_piece_address`, identity-checked across the doors by the
+  oracle suite), reading the flat five-part form as frame (0, 0) and the
+  grown seven-part form (`level/c/t/c/z/y/x`) in full — so nothing about
+  a flat picture's wire traffic moved. The composer serves any (moment,
+  channel): the request's pair threads to the position stores' own front
+  axes, slab and block caches key by frame, and a governed tile carries
+  its committed-moment set, so an unpublished moment's pixels on disk
+  serve as absent — the record, never the files. The snapshot's drawn-set
+  gate moved from moment zero to any-committed-moment (finding 2's fold
+  item), and the change-detection learned that a new moment dirties its
+  footprint without moving a generation — a bug the combined-axes oracle
+  caught within its first hour, inherited stale emptiness serving over a
+  fresh commit. The oracle itself (value = 1000·t + 100·c + z + 7, both
+  doors, default suite) stands; the bake refuses grown pictures until the
+  per-(t, c) bake lands; the declare-door refusals stand until the
+  browser gate proves the grown picture draws.
 - **Time is not refused today — it is silently truncated.** The picture
   serves the first moment of a timelapse as if it were the whole run,
   which violates the plan's own refuse-until-it-works principle right now.

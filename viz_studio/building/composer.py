@@ -120,6 +120,31 @@ CODECS = [
 PINNED_SHARE = 0.01
 
 
+def the_piece_address(inside: str) -> tuple[int, int, int, int, int, int] | None:
+    """Read one piece address, or ``None`` when the path does not name one.
+
+    Returns ``(level, moment, channel, plane, row, column)``. The flat form
+    ``level/c/z/y/x`` — every three-axis picture — reads as frame (0, 0);
+    the grown form ``level/c/t/c/z/y/x`` carries all six numbers, exactly
+    the chunk key the engine derives from a five-axis description.
+
+    Defined once and imported by every door that parses a piece address
+    (the depth plan's one-shape rule): two doors that parsed differently
+    would quietly disagree about which pixels an address names, and that
+    is a wrong-picture bug with nothing on screen to say so.
+    """
+    parts = inside.strip("/").split("/")
+    if len(parts) not in (5, 7) or parts[1] != "c":
+        return None
+    if not all(one.isdecimal() for one in (parts[0], *parts[2:])):
+        return None
+    level = int(parts[0])
+    tail = [int(one) for one in parts[2:]]
+    if len(tail) == 3:
+        return (level, 0, 0, *tail)
+    return (level, *tail)
+
+
 class MissingCommittedGround(RuntimeError):
     """A chunk the manifest promised is not on disk, and nothing may stand in.
 
@@ -151,8 +176,9 @@ def _start_working(written: dict, piece: int, budget: int) -> None:
                            blocks_weighing_at_most=budget, pinning=False)
 
 
-def _build_in_worker(level: int, plane: int, row: int, column: int):
-    return _WORKING_ON._slab_for(level, plane, row, column)
+def _build_in_worker(level: int, plane: int, row: int, column: int,
+                     moment: int = 0, channel: int = 0):
+    return _WORKING_ON._slab_for(level, plane, row, column, moment, channel)
 
 
 class Composer:
@@ -322,7 +348,12 @@ class Composer:
             held_pinned = list(donor._pinned.items())
         with self._guard:
             for key, slab in held_slabs:
-                level, _, row, column = key
+                # The key is (moment, channel, level, slab_z, row, column).
+                # Dirty names (row, column) per level with no (t, c) yet, so
+                # a dirty piece lets go of EVERY frame's slab there -- the
+                # conservative side until the plan's named (t, c-set) dirty
+                # shape lands.
+                level, row, column = key[2], key[4], key[5]
                 if (row, column) in dirty.get(level, ()) or key in self._slabs:
                     continue
                 self._slabs[key] = slab
@@ -331,7 +362,7 @@ class Composer:
                 _, dropped = self._slabs.popitem(last=False)
                 self._weighs -= dropped.nbytes
             for key, slab in held_pinned:
-                level, _, row, column = key
+                level, row, column = key[2], key[4], key[5]
                 if (row, column) in dirty.get(level, ()):
                     continue
                 self._pinned.setdefault(key, slab)
@@ -470,10 +501,14 @@ class Composer:
             self._indexed[level] = index
             return index
 
-    def _a_block_of(self, copy, at: tuple[int, int, int]) -> np.ndarray:
+    def _a_block_of(self, copy, at: tuple[int, int, int],
+                    outer: tuple[int, ...]) -> np.ndarray:
         """One whole stored block of a tile, decoded, kept for whoever needs it next.
 
-        ``at`` names the block in the tile's own grid of them, as ``(z, y, x)``.
+        ``at`` names the block in the tile's own grid of them, as ``(z, y, x)``;
+        ``outer`` fixes the axes the store keeps in front of those — empty for
+        a transfer's plain tile, the requested (moment, channel) for a
+        five-axis position store.
 
         Asked for **whole** rather than as the part wanted, and that is the point.
         Zarr decompresses the whole block either way -- that is what a block is --
@@ -481,12 +516,12 @@ class Composer:
         and throws the rest away. Keeping it means the next piece of the picture
         along, which wants the same block, gets it for nothing.
 
-        The key carries ``outer`` beside the path: two copies of one store that
-        read different moments or channels hold different pixels under the same
+        The key carries ``outer`` beside the path: two reads of one store at
+        different moments or channels hold different pixels under the same
         (z, y, x), and a key without it would hand one moment's specimen to
-        another's request the day the picture grows those axes.
+        another's request.
         """
-        key = (copy.held_in, copy.outer, at)
+        key = (copy.held_in, outer, at)
         with self._block_guard:
             found = self._blocks.get(key)
             if found is not None:
@@ -498,16 +533,14 @@ class Composer:
         # governed run -- is checked before being read, because zarr would
         # answer an absent chunk with silent fill and this ground was promised
         # by a commit. A transfer's copies promise nothing and skip this.
-        if copy.presence is not None and not copy.presence(at):
+        if copy.presence is not None and not copy.presence(outer + at):
             raise MissingCommittedGround(
-                f"{copy.held_in} was published, but its block {at} is not on "
-                "disk. Refusing to invent fill for committed ground."
+                f"{copy.held_in} was published, but its block {outer + at} is "
+                "not on disk. Refusing to invent fill for committed ground."
             )
-        # ``outer`` holds any axes the store keeps in front of (z, y, x) --
-        # empty for a transfer's tile, one moment of one channel for a governed
-        # run's position. Indexing with plain integers collapses those axes, so
+        # Indexing the leading axes with plain integers collapses them, so
         # what comes back is three-dimensional either way.
-        held = np.asarray(copy.array[copy.outer + (
+        held = np.asarray(copy.array[outer + (
             slice(at[0] * size[0], (at[0] + 1) * size[0]),
             slice(at[1] * size[1], (at[1] + 1) * size[1]),
             slice(at[2] * size[2], (at[2] + 1) * size[2]),
@@ -528,7 +561,8 @@ class Composer:
         return held
 
     def _read_from(self, copy, low: tuple[int, int, int],
-                   high: tuple[int, int, int]) -> np.ndarray:
+                   high: tuple[int, int, int],
+                   outer: tuple[int, ...]) -> np.ndarray:
         """A rectangle of one tile, assembled out of whichever blocks hold it.
 
         The same numbers zarr would have returned for the same slice. The only
@@ -543,7 +577,7 @@ class Composer:
         for bz in range(low[0] // size[0], (high[0] - 1) // size[0] + 1):
             for by in range(low[1] // size[1], (high[1] - 1) // size[1] + 1):
                 for bx in range(low[2] // size[2], (high[2] - 1) // size[2] + 1):
-                    block = self._a_block_of(copy, (bz, by, bx))
+                    block = self._a_block_of(copy, (bz, by, bx), outer)
                     began = (bz * size[0], by * size[1], bx * size[2])
                     from_ = tuple(max(low[axis], began[axis]) for axis in range(3))
                     to = tuple(min(high[axis], began[axis] + block.shape[axis])
@@ -559,11 +593,20 @@ class Composer:
         self.costs["read_ms"] += (time.perf_counter() - reading_began) * 1000
         return out
 
-    def _build_slab(self, level: int, plane: int, row: int, column: int) -> np.ndarray:
+    def _build_slab(self, level: int, plane: int, row: int, column: int,
+                    moment: int = 0, channel: int = 0) -> np.ndarray:
         """Lay the tiles into one column of ground, for every plane of one file.
 
         Where two tiles cover the same ground the later one wins, which is the rule
         the rest of the project follows and the one an operator already sees.
+
+        ``moment`` and ``channel`` say which (t, c) frame of a five-axis tile
+        is being drawn; a plain three-axis tile ignores them (it is only ever
+        asked for frame zero, since its picture declares no other). A tile
+        that carries a record of its committed moments (a governed run's) is
+        skipped entirely for a moment that record does not name — the ground
+        serves as absent, and the store is never even opened, so pixels that
+        are written but unpublished cannot leak onto anybody's screen.
         """
         building_began = time.perf_counter()
         depth = self.slab_depth(level)
@@ -578,13 +621,24 @@ class Composer:
         slab = np.zeros((high_z - low_z, self.piece, self.piece),
                         self.mosaic.dtype)
         for tile, at in self._tiles_in_each_piece(level).get((row, column), ()):
+            if tile.moments is not None and moment not in tile.moments:
+                continue
+            copy = tile.copies[level]
+            # A store keeping fewer front axes than asked for is a plain
+            # tile: it holds exactly one frame, and this request is for it.
+            # A five-axis store whose room stops short of the asked moment
+            # simply is not there at that moment -- absence expresses it.
+            outer = (moment, channel)[:len(copy.outer_shape)]
+            if any(index >= room
+                   for index, room in zip(outer, copy.outer_shape)):
+                continue
             # The copy's own declared spatial extent -- NOT the opened array's.
             # The array of a governed position is five axes and its leading
-            # shape entries are the moment and channel singletons, which read
+            # shape entries are the moment and channel room, which read
             # here as a one-voxel tile; and opening a store to learn a shape
             # the copy already wrote down is the exact waste the Copy class
             # exists to avoid.
-            held = tile.copies[level].shape
+            held = copy.shape
             # The index answers by piece across the specimen, which is where tiles
             # differ. Depth it says nothing about, and a tile shallower than the
             # picture -- Thy1's are 256 planes against one of 291 -- reaches this
@@ -597,23 +651,29 @@ class Composer:
             slab[from_z - low_z:to_z - low_z,
                  from_y - top:to_y - top,
                  from_x - left:to_x - left] = self._read_from(
-                     tile.copies[level],
+                     copy,
                      (from_z - at[0], from_y - at[1], from_x - at[2]),
-                     (to_z - at[0], to_y - at[1], to_x - at[2]))
+                     (to_z - at[0], to_y - at[1], to_x - at[2]),
+                     outer)
         self.costs["build_ms"] += (
             time.perf_counter() - building_began) * 1000
         self.costs["slabs_built"] += 1
         return slab
 
-    def _slab_for(self, level: int, plane: int, row: int, column: int) -> np.ndarray:
+    def _slab_for(self, level: int, plane: int, row: int, column: int,
+                  moment: int = 0, channel: int = 0) -> np.ndarray:
         """The slab holding this plane, built if it is not already to hand.
 
         A slab of a pinned level is kept in the pinned store, outside the byte
         bound, so the warmed coarse ground can never be evicted by a flood of
         fine work -- see ``PINNED_SHARE`` for why that is safe to hold.
+
+        The key carries the (moment, channel) beside the spatial address:
+        two frames of one piece are different pixels, and a key without the
+        pair would hand one moment's specimen to another's request.
         """
         depth = self.slab_depth(level)
-        key = (level, (plane // depth) * depth, row, column)
+        key = (moment, channel, level, (plane // depth) * depth, row, column)
         pinned = self._pinning and level in self.pinned_levels
         with self._guard:
             found = self._pinned.get(key)
@@ -625,7 +685,7 @@ class Composer:
                 self._slabs.move_to_end(key)
                 self.costs["slabs_warm"] += 1
                 return found
-        built = self._built_wherever(level, plane, row, column)
+        built = self._built_wherever(level, plane, row, column, moment, channel)
         with self._guard:
             if pinned:
                 self._pinned.setdefault(key, built)
@@ -794,7 +854,10 @@ class Composer:
         everything downstream sees one kind of slab whichever way it came.
         """
         depth = self.slab_depth(level)
-        key = (level, low_z, row, column)
+        # Baked files exist only for the flat frame today, so what is read
+        # back installs as frame (0, 0) -- the same six-part key every slab
+        # carries.
+        key = (0, 0, level, low_z, row, column)
         with self._guard:
             if key in self._pinned or key in self._slabs:
                 return
@@ -819,10 +882,11 @@ class Composer:
         """Whether every slab is built in this process, the measured default."""
         return self._workers == 1
 
-    def _built_wherever(self, level: int, plane: int, row: int, column: int):
+    def _built_wherever(self, level: int, plane: int, row: int, column: int,
+                        moment: int = 0, channel: int = 0):
         """Build a slab here, or hand it to a worker process when they exist."""
         if self._workers == 1:
-            return self._build_slab(level, plane, row, column)
+            return self._build_slab(level, plane, row, column, moment, channel)
         with self._pool_guard:
             if self._pool is None:
                 # Each worker is handed the written-down mosaic once, so workers
@@ -838,7 +902,8 @@ class Composer:
                               max(budget, 64 * 1024 * 1024)),
                 )
             pool = self._pool
-        return pool.submit(_build_in_worker, level, plane, row, column).result()
+        return pool.submit(_build_in_worker, level, plane, row, column,
+                           moment, channel).result()
 
     def close(self) -> None:
         """Stop the warmer and let the worker processes go."""
@@ -886,8 +951,13 @@ class Composer:
             self._encoders.array = held
         return held
 
-    def bytes_for(self, level: int, plane: int, row: int, column: int) -> bytes | None:
+    def bytes_for(self, level: int, plane: int, row: int, column: int,
+                  moment: int = 0, channel: int = 0) -> bytes | None:
         """One piece of the picture, encoded exactly as its description promises.
+
+        ``moment`` and ``channel`` name which (t, c) frame is being asked
+        for; a three-axis picture is only ever asked for frame (0, 0), which
+        is also the default, so every flat caller reads as it always did.
 
         ``None`` for a piece that holds only the fill value, which on a scattered
         run is most of the picture: the grid spans the bounding box of every
@@ -901,7 +971,7 @@ class Composer:
         with self._guard:
             self._answering += 1
         try:
-            slab = self._slab_for(level, plane, row, column)
+            slab = self._slab_for(level, plane, row, column, moment, channel)
             depth = self.slab_depth(level)
             piece = slab[plane - (plane // depth) * depth]
             if not piece.any():
@@ -940,6 +1010,7 @@ class Composer:
         and grid shift together, so where a tile lands cancels the offset.
         """
         base = self.mosaic.voxel_um(0)
+        grown = self.mosaic.frame_room != (1, 1)
         datasets = []
         for level in range(self.mosaic.levels):
             voxel = self.mosaic.voxel_um(level)
@@ -950,10 +1021,23 @@ class Composer:
             datasets.append({
                 "path": str(level),
                 "coordinateTransformations": [
-                    {"type": "scale", "scale": list(voxel)},
-                    {"type": "translation", "translation": at},
+                    {"type": "scale",
+                     "scale": ([1.0, 1.0] if grown else []) + list(voxel)},
+                    {"type": "translation",
+                     "translation": ([0.0, 0.0] if grown else []) + at},
                 ],
             })
+        # A picture whose tiles keep room for several moments or colours
+        # grows the (t, c) axes; a flat picture stays exactly the three-axis
+        # description it always was, so nothing about the flat door moves.
+        axes = ([
+            {"name": "t", "type": "time", "unit": "second"},
+            {"name": "c", "type": "channel"},
+        ] if grown else []) + [
+            {"name": "z", "type": "space", "unit": "micrometer"},
+            {"name": "y", "type": "space", "unit": "micrometer"},
+            {"name": "x", "type": "space", "unit": "micrometer"},
+        ]
         return json.dumps({
             "attributes": {
                 "ome": {
@@ -961,11 +1045,7 @@ class Composer:
                     "multiscales": [{
                         "name": "built",
                         "type": "mean" if self.mosaic.averaged else "nearest",
-                        "axes": [
-                            {"name": "z", "type": "space", "unit": "micrometer"},
-                            {"name": "y", "type": "space", "unit": "micrometer"},
-                            {"name": "x", "type": "space", "unit": "micrometer"},
-                        ],
+                        "axes": axes,
                         "datasets": datasets,
                     }],
                 }
@@ -975,19 +1055,28 @@ class Composer:
         }).encode()
 
     def array_json(self, level: int) -> bytes:
-        """One resolution of the picture, in pieces of :data:`PIECE`."""
+        """One resolution of the picture, in pieces of :data:`PIECE`.
+
+        A grown picture declares five axes with one-frame chunks along
+        (t, c), so the engine's chunk keys carry the moment and channel and
+        every piece still holds exactly one (z, y, x) frame — which is why
+        the flat encoder's bytes serve both forms: the raw C-order bytes of
+        a (1, 1, 1, piece, piece) chunk are the bytes of (1, piece, piece).
+        """
         depth, height, width = self.mosaic.shape(level)
+        moments, channels = self.mosaic.frame_room
+        grown = (moments, channels) != (1, 1)
         return json.dumps({
             "zarr_format": 3,
             "node_type": "array",
-            "shape": [depth, height, width],
+            "shape": ([moments, channels] if grown else []) + [depth, height, width],
             "data_type": self.mosaic.dtype,
             "chunk_grid": {"name": "regular", "configuration": {
-                "chunk_shape": [1, self.piece, self.piece]}},
+                "chunk_shape": ([1, 1] if grown else []) + [1, self.piece, self.piece]}},
             "chunk_key_encoding": {"name": "default",
                                    "configuration": {"separator": "/"}},
             "fill_value": 0,
             "codecs": CODECS,
             "attributes": {},
-            "dimension_names": list(self.mosaic.axes),
+            "dimension_names": (["t", "c"] if grown else []) + list(self.mosaic.axes),
         }).encode()

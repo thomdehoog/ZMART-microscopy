@@ -533,15 +533,22 @@ class _Handler(SimpleHTTPRequestHandler):
         if building is None:
             return None
         parts = rel.split("/")
-        if len(parts) < 7 or parts[-4] != "c":
-            return None
-        if not (parts[-5].isdecimal()
-                and all(one.isdecimal() for one in parts[-3:])):
-            return None
-        store = self._library.resolve("/".join(parts[:-5]))
-        if store is None:
-            return None
-        return building.the_bytes_behind(store, "/".join(parts[-5:]))
+        # The piece is the address at the end -- seven parts for a picture
+        # grown along (t, c), five for a flat one. The longer form is tried
+        # first, because a five-part suffix of a seven-part address is never
+        # itself a valid piece (its second part would be a coordinate, not
+        # the literal "c"); one parser decides what counts as an address.
+        for arity in (7, 5):
+            if len(parts) < arity + 2:
+                continue
+            suffix = "/".join(parts[-arity:])
+            if building.the_piece_address(suffix) is None:
+                continue
+            store = self._library.resolve("/".join(parts[:-arity]))
+            if store is None:
+                return None
+            return building.the_bytes_behind(store, suffix)
+        return None
 
     def _send_bytes(self, body: bytes) -> None:
         """Answer with bytes that are not a file and never were.
