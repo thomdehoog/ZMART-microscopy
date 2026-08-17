@@ -55,6 +55,7 @@ import numpy as np
 import zarr
 
 from zmart_live.gateway import _LiveRun
+from zmart_live.model import rounded_up
 from zmart_live.shardlink import how_the_array_is_stored
 
 from composer import PIECE, Composer
@@ -288,7 +289,7 @@ class TheWorldFrame(Mosaic):
                          for placement in self._layout.positions),
                         default=float(frame.get(axis, 1)),
                     )
-                    reach.append(-(-int(edge) // int(down)))
+                    reach.append(rounded_up(int(edge), int(down)))
                 found = tuple(reach)
                 TheWorldFrame._shapes[named] = found
             self._shape[level] = found  # type: ignore[assignment]

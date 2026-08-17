@@ -329,7 +329,8 @@ def _samples(store: Path, *, channel: int | None = None):
         if not _level_holds_pixels(store / level):
             continue
         try:
-            data = _sample(group[level], held)
+            array = group[level]
+            data = _sample(array, held)
         except (OSError, KeyError, ValueError, IndexError, MemoryError):
             # IndexError among them because a caller may name a channel the array
             # does not have. A store that cannot be sampled is one this simply has
@@ -338,6 +339,22 @@ def _samples(store: Path, *, channel: int | None = None):
             continue
         values = np.asarray(data, dtype=np.float64).ravel()
         values = values[np.isfinite(values)]
+        # Declared-but-never-written ground reads back as the fill value, and a
+        # room declared generously (a survey partway through, a stack whose
+        # tail planes are still to come) can hold more of it than of specimen.
+        # Counted into the percentiles it drags the window's floor to zero and
+        # washes the picture out, so the fill value is dropped from the
+        # *measurement* — never from the picture. The trade: a real voxel that
+        # happens to equal the fill exactly is not counted either, which for
+        # camera data (whose background sits well above zero) costs nothing.
+        # A sample that is nothing but fill is kept as it is: that is the
+        # picture-of-pure-black case ``_level_holds_pixels`` already documents,
+        # and pretending it held no values at all would be a different lie.
+        fill = getattr(array, "fill_value", None)
+        if fill is not None and np.isfinite(float(fill)):
+            imaged = values[values != float(fill)]
+            if imaged.size:
+                values = imaged
         if values.size == 0:
             continue
         return attrs, values, position == 0

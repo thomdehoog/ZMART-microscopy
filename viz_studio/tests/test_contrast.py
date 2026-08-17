@@ -76,7 +76,12 @@ def test_an_unreadable_store_falls_back_to_the_full_range(tmp_path):
 
 
 def test_histogram_covers_every_sample_in_compact_bins(tmp_path):
-    data = np.arange(8 * 16 * 16, dtype=np.uint16).reshape(8, 16, 16)
+    # Starting at 1, not 0: a voxel equal to the store's fill value is
+    # excluded from the measurement by design (declared-but-unwritten ground
+    # reads back as fill — see the generously-declared-room gate in
+    # test_brightness_is_measured_honestly), and this test's own claim is
+    # about bins covering the sample, not about that rule.
+    data = np.arange(1, 8 * 16 * 16 + 1, dtype=np.uint16).reshape(8, 16, 16)
     histogram = intensity_histogram(write_store(tmp_path / "hist.zarr", data))
     assert histogram is not None
     assert len(histogram["counts"]) == HISTOGRAM_BINS
