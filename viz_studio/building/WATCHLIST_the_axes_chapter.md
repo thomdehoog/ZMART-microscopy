@@ -89,7 +89,14 @@
 19. **The axes are proven together.** One combined-axes identity oracle
     (value = 1000·t + 100·c + z) in the default suite; independent-axis
     gates alone close neither chapter.
-20. **The pointed door's frame rate slid while its gate was dark.** The
+20. **The deprecated named ladder keeps failing its own gates.** After the
+    T400's intermittent named-mode staleness, the in-container delivery
+    gate (`test_dirty_pieces_reach_their_level::…even_with_a_double`)
+    now times out on the clean tree too (2026-08-17, pre-existing,
+    confirmed by stash). Each failure strengthens the deletion already
+    scheduled for the cleanup chapter; nothing new is built on named
+    mode.
+21. **The pointed door's frame rate slid while its gate was dark.** The
     drawing-keeps-up ratio (200 pointed stores against 20) was calibrated
     at 35–40% in the sandbox and measured 22% when the gate was revived
     on 2026-08-17 — it had been uncollectable since a rename, and the

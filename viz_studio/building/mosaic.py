@@ -152,6 +152,13 @@ class Tile:
     # Comparing tiles needs it, and reading every description a second time to
     # get it cost more than the whole of the rest of opening.
     axes: tuple[str, ...] = ()
+    # Which moments of this tile have been PUBLISHED, where a record governs
+    # it (a live run's manifest). ``None`` — every transfer and built picture —
+    # means no record governs the tile and its files are the honest truth.
+    # A governed tile is skipped entirely for a moment this set does not name:
+    # the ground serves as absent and the store is never opened, so pixels
+    # written but not yet published cannot leak onto anybody's screen.
+    moments: frozenset[int] | None = None
 
     def footprint(self, level: int, at: tuple[int, int, int]
                   ) -> tuple[int, int, int, int]:
@@ -227,23 +234,32 @@ class Mosaic:
         default_factory=dict, repr=False)
 
     @property
-    def moments_recorded(self) -> int:
-        """How many timepoints the tiles' stores keep room for.
+    def frame_room(self) -> tuple[int, int]:
+        """How many (moments, channels) the tiles' stores keep room for.
 
-        The writer declares its timepoint room when it first makes an array
-        — the arrays themselves are the durable declaration (see
-        ``zmart_live.coordinator``) — so the first tile that carries a time
-        axis is the place to read it. Asked by the declare door: a picture
-        that can serve one moment must refuse a timelapse rather than
-        silently show its first frame as if it were the whole run. A run
-        with no arrived positions reports 1, because the room is simply not
-        written down anywhere else yet.
+        The writer declares this room when it first makes an array — the
+        arrays themselves are the durable declaration (see
+        ``zmart_live.coordinator``) — so the first tile that carries the
+        front axes is the place to read it. ``(1, 1)`` — every plain
+        three-axis tile — means a flat picture: one frame, no time or
+        colour room, and the picture's own description stays three axes.
+        Anything more and the served picture grows the (t, c) axes.
         """
         for tile in self.tiles:
             for copy in tile.copies:
-                if copy.outer_shape:
-                    return int(copy.outer_shape[0])
-        return 1
+                if len(copy.outer_shape) >= 2:
+                    return (int(copy.outer_shape[0]), int(copy.outer_shape[1]))
+        return (1, 1)
+
+    @property
+    def moments_recorded(self) -> int:
+        """How many timepoints the tiles' stores keep room for.
+
+        Asked by the declare door: a picture that cannot serve time yet
+        must refuse a timelapse rather than silently show its first frame
+        as if it were the whole run.
+        """
+        return self.frame_room[0]
 
     def voxel_um(self, level: int) -> tuple[float, float, float]:
         """How large one voxel of the built picture is at this resolution.
@@ -566,12 +582,17 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
                 "strange for no reason anybody can point at, so this is refused "
                 "rather than drawn."
             )
-    if len(axes) != 3:
+    # Three axes is a plain spatial picture; five is one that also records
+    # time and colour, and the built picture then grows those axes too (see
+    # ``Mosaic.frame_room``). The mosaic's OWN axes stay the spatial three
+    # either way -- the (t, c) room rides on each copy's ``outer_shape`` --
+    # because everything spatial in here reasons in (z, y, x).
+    if not (len(axes) == 3 or (len(axes) == 5 and tuple(axes[:2]) == ("t", "c"))):
         raise ValueError(
-            f"{tiles[0].store} stores its picture as {', '.join(axes)}. This builds "
-            "over transfers of three axes — depth, height and width — which is what "
-            "a mesoSPIM transfer writes. A five-axis run of ours is shown by "
-            "pointing instead; see zmart_storage.linked."
+            f"{tiles[0].store} stores its picture as {', '.join(axes)}. This "
+            "builds over tiles of three spatial axes — depth, height and "
+            "width — optionally behind a (t, c) pair. Anything else has no "
+            "agreed meaning to draw."
         )
 
     kind = _refuse_tiles_that_disagree(tiles)
@@ -582,7 +603,7 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
     return Mosaic(
         tiles=tiles,
         levels=tiles[0].keeps,
-        axes=axes,  # type: ignore[arg-type]
+        axes=tuple(axes[-3:]),  # type: ignore[arg-type]
         dtype=kind,
         corner_um=corner,  # type: ignore[arg-type]
     )
@@ -621,6 +642,11 @@ def the_mosaic_written_down(mosaic: Mosaic) -> dict:
                         "dtype": copy.dtype,
                         "voxel_um": list(copy.voxel_um),
                         "corner_um": list(copy.corner_um),
+                        # The room along the store's front axes -- written
+                        # only when there is one, so every flat picture's
+                        # ledger stays byte-for-byte what it always was.
+                        **({"outer_shape": list(copy.outer_shape)}
+                           if copy.outer_shape else {}),
                     }
                     for copy in tile.copies
                 ],
@@ -654,6 +680,8 @@ def read_the_mosaic_as_written(held: dict) -> Mosaic:
                     dtype=copy["dtype"],
                     voxel_um=tuple(copy["voxel_um"]),
                     corner_um=tuple(copy["corner_um"]),
+                    outer=(0,) * len(copy.get("outer_shape", ())),
+                    outer_shape=tuple(copy.get("outer_shape", ())),
                 )
                 for copy in one["copies"]
             ],

@@ -83,10 +83,13 @@ def _promising_its_blocks(copy: Copy) -> Copy:
     """
     stored = []
 
-    def is_on_disk(at: tuple[int, int, int]) -> bool:
+    def is_on_disk(index: tuple[int, ...]) -> bool:
+        # The FULL chunk index, front axes included -- the composer passes
+        # the requested (moment, channel) ahead of (z, y, x), so the promise
+        # is checked for exactly the frame being served.
         if not stored:
             stored.append(how_the_array_is_stored(copy.held_in))
-        return stored[0].where_one_chunk_lives(copy.outer + tuple(at)) is not None
+        return stored[0].where_one_chunk_lives(tuple(index)) is not None
 
     copy.presence = is_on_disk
     return copy
@@ -172,7 +175,8 @@ def _after_a_windows_reader(operation, *paths):
 
 
 def _a_tile_stamped(pattern: Tile, store: Path,
-                    corner_um: tuple[float, float, float]) -> Tile:
+                    corner_um: tuple[float, float, float],
+                    moments: frozenset[int] | None = None) -> Tile:
     """One published position's tile, stamped from the pattern instead of read.
 
     Every position of a governed run is written by the same writer from the
@@ -206,7 +210,7 @@ def _a_tile_stamped(pattern: Tile, store: Path,
         for one in pattern.copies
     ]
     return Tile(name=store.name, store=store, copies=copies,
-                axes=pattern.axes, turned=pattern.turned)
+                axes=pattern.axes, turned=pattern.turned, moments=moments)
 
 
 class TheWorldFrame(Mosaic):
@@ -306,16 +310,18 @@ class TheWorldFrame(Mosaic):
         return tuple(self._profile.channels)
 
     @property
-    def moments_recorded(self) -> int:
-        """The run's timepoint room, knowable before any position arrives.
+    def frame_room(self) -> tuple[int, int]:
+        """The run's (moments, channels) room, knowable before any arrival.
 
-        The sealed profile declares the room, so an empty timelapse run can
-        be refused exactly as an empty two-colour one can. The arrays still
-        get a say for runs sealed before the profile carried the room —
-        there the arrays are the only durable declaration — so whichever
+        The sealed profile declares both, so an empty timelapse run can be
+        refused exactly as an empty two-colour one can. The arrays still
+        get a say for runs sealed before the profile carried the time room
+        — there the arrays are the only durable declaration — so whichever
         source declares more moments is believed.
         """
-        return max(int(self._profile.timepoints), super().moments_recorded)
+        from_tiles = super().frame_room
+        return (max(int(self._profile.timepoints), from_tiles[0]),
+                len(self._profile.channels))
 
     @property
     def slab_depths(self) -> list[int]:
@@ -561,13 +567,22 @@ class GovernedRun:
             changed_names = frozenset(
                 one for one in before.keys() | drawing.keys()
                 if before.get(one) != drawing.get(one)
+                # A new MOMENT moves no generation, but the piece it lands
+                # in may hold an inherited slab built when that moment was
+                # still absent -- serving it warm would show yesterday's
+                # emptiness over today's commit (caught by the combined-axes
+                # oracle the day this line was written).
+                or (one in kept and one in tiles
+                    and kept[one].moments != tiles[one].moments)
             )
             # The paths the change retired: a replaced or vanished
-            # position's old copies. Their cached blocks go no further.
+            # position's old copies. Their cached blocks go no further. A
+            # moments-only change retires nothing -- the store is the same
+            # store, and its other moments' decoded blocks stay warm.
             stale = frozenset(
                 copy.held_in
                 for one in changed_names
-                if one in kept
+                if one in kept and before.get(one) != drawing.get(one)
                 for copy in kept[one].copies
             )
             dirtied = self._what_changed_dirtied(
@@ -1132,6 +1147,17 @@ class GovernedRun:
         for position_id, _moment, generation in published:
             if generation > current.get(position_id, -1):
                 current[position_id] = generation
+        # Which moments each position has published AT ITS CURRENT generation
+        # -- the set a tile carries so the composer can serve moment t of one
+        # position and honest absence of another. Built from the same one
+        # fold, and gating the drawn set on it (rather than on moment zero,
+        # as this used to) also lets a position whose first commit named a
+        # later moment be drawn at all -- the record allows arriving late.
+        moments_of: dict[str, frozenset[int]] = {}
+        for position_id, generation in current.items():
+            moments_of[position_id] = frozenset(
+                moment for one, moment, its in published
+                if one == position_id and its == generation)
         drawing = {
             position_id: current[position_id] for position_id in order
             # The two manifest reads above can straddle a commit, and then the
@@ -1140,10 +1166,15 @@ class GovernedRun:
             # the very next ask derives again and draws it -- found by the
             # burst harness at ~26 adds a second as a KeyError and one piece
             # blinking absent, never at the writer's own cadence.
-            if (position_id, 0, current.get(position_id)) in published
+            if moments_of.get(position_id)
         }
         changed = [one for one, generation in drawing.items()
-                   if before.get(one) != generation or one not in kept]
+                   if before.get(one) != generation or one not in kept
+                   # A new MOMENT moves no generation, but the tile carries
+                   # its committed-moment set, so the tile must be restamped
+                   # (cheap: no file is read) or the landing would serve as
+                   # absent from the carried-over tile.
+                   or kept[one].moments != moments_of[one]]
         read = 0
         fresh: dict[str, Tile] = {}
         if changed:
@@ -1166,7 +1197,7 @@ class GovernedRun:
             fresh = {
                 one: _a_tile_stamped(
                     self._pattern, self._the_store_of(one, drawing[one]),
-                    corners[one])
+                    corners[one], moments=moments_of[one])
                 for one in changed
             }
         self.accounting["last_tiles_read"] = read

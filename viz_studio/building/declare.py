@@ -153,6 +153,15 @@ def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
     described = json.loads(composer.group_json())
     baked: list[int] = []
     if bake:
+        if mosaic.frame_room != (1, 1):
+            raise ValueError(
+                f"the picture at {transfer} keeps room for "
+                f"{mosaic.frame_room[0]} moment(s) and {mosaic.frame_room[1]} "
+                "channel(s), and the bake writes one file per flat piece — "
+                "baking it would freeze one frame and serve it for every "
+                "other. The per-(t, c) bake is ordered work; until it lands, "
+                "declare a grown picture without the bake."
+            )
         try:
             baked = _bake_the_coarse_ground(store, composer, described)
         finally:

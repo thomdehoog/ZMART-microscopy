@@ -23,7 +23,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from composer import Composer
+from composer import Composer, the_piece_address
 
 # What the built picture is called in the address. Anything else asked for is
 # answered with a plain "nothing here".
@@ -84,21 +84,24 @@ def serve(composer: Composer, port: int = 0):
                 ledger["descriptions"] += 1
                 return self._send(composer.array_json(level), "application/json")
 
-            # A piece is named by its resolution, then "c", then one number per
-            # axis: depth, height, width. Three, because a transfer has three axes.
-            if len(parts) == 5 and parts[1] == "c" and parts[0].isdigit():
-                level = int(parts[0])
+            # A piece is named by its resolution, then "c", then one number
+            # per axis of the picture's own description -- three for a flat
+            # picture, five for one grown along (t, c). One parser decides
+            # (the_piece_address), the same one every door uses.
+            address = the_piece_address(inside)
+            if address is not None:
+                level, moment, channel, plane, row, column = address
                 if not 0 <= level < composer.mosaic.levels:
                     return self._missing(asked)
-                if not all(one.isdigit() for one in parts[2:]):
-                    return self._missing(asked)
-                plane, row, column = (int(one) for one in parts[2:])
                 deep, down, across = composer.grid(level)
+                moments, channels = composer.mosaic.frame_room
                 if not (0 <= plane < deep and 0 <= row < down
-                        and 0 <= column < across):
+                        and 0 <= column < across
+                        and 0 <= moment < moments and 0 <= channel < channels):
                     return self._missing(asked)
                 began = time.perf_counter()
-                body = composer.bytes_for(level, plane, row, column)
+                body = composer.bytes_for(level, plane, row, column,
+                                          moment, channel)
                 spent = (time.perf_counter() - began) * 1000
                 with guard:
                     ledger["work_ms"][level].append(spent)

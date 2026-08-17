@@ -39,7 +39,7 @@ import threading
 import time
 from pathlib import Path
 
-from composer import Composer
+from composer import Composer, the_piece_address
 from declare import OURS
 from mosaic import Mosaic, read_the_mosaic_as_written, read_the_transfer
 
@@ -308,8 +308,9 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
 
     Args:
         store: the built picture's own folder.
-        inside: what came after it — ``0/c/145/9/8``: the resolution, then one
-            number per axis.
+        inside: what came after it — ``0/c/145/9/8`` for a flat picture, or
+            ``0/c/2/1/145/9/8`` for one grown along (t, c): the resolution,
+            then one number per axis of its own description.
 
     Returns:
         The encoded piece, or ``None`` when this is not a built picture, when the
@@ -332,11 +333,10 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
                 raise TemporarilyUnanswerable(
                     f"the picture at {where} could not be opened just now")
         return None
-    parts = inside.strip("/").split("/")
-    if len(parts) != 5 or parts[1] != "c" or not parts[0].isdecimal():
+    address = the_piece_address(inside)
+    if address is None:
         return None
-    if not all(one.isdecimal() for one in parts[2:]):
-        return None
+    level, moment, channel, plane, row, column = address
     # A governed picture consults its run BEFORE any file may answer: asking
     # for the composer checks the manifest's fingerprint, and a moved
     # fingerprint derives the fresh snapshot -- which patches the baked
@@ -359,10 +359,14 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
     # is also the only door to the picture's own levels above the tiles' --
     # those exist nowhere but as baked files, so past this point the composer's
     # bounds rightly refuse them. The address is safe as a path because only
-    # digit-shaped five-part names reach here.
-    baked = Path(store).joinpath(parts[0], "c", *parts[2:])
-    if baked.is_file():
-        return baked.read_bytes()
+    # digit-shaped names reach here. Baked files exist only for flat pictures
+    # today -- the per-(t, c) bake is ordered work -- so only the flat frame
+    # looks for one.
+    if (moment, channel) == (0, 0):
+        baked = Path(store).joinpath(str(level), "c",
+                                     str(plane), str(row), str(column))
+        if baked.is_file():
+            return baked.read_bytes()
     # Everything from here can genuinely fail -- a rollback deleting a store
     # mid-read, damage under committed ground refusing to be papered over.
     # An address outside the picture, or ground no tile covers, stays an
@@ -374,14 +378,14 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
     try:
         if composer is None:
             composer = held
-        level = int(parts[0])
         if not 0 <= level < composer.mosaic.levels:
             return None
-        plane, row, column = (int(one) for one in parts[2:])
         deep, down, across = composer.grid(level)
-        if not (0 <= plane < deep and 0 <= row < down and 0 <= column < across):
+        moments, channels = composer.mosaic.frame_room
+        if not (0 <= plane < deep and 0 <= row < down and 0 <= column < across
+                and 0 <= moment < moments and 0 <= channel < channels):
             return None
-        return composer.bytes_for(level, plane, row, column)
+        return composer.bytes_for(level, plane, row, column, moment, channel)
     except Exception as problem:
         log.exception("the piece %s of %s could not be served; answering "
                       "'try again shortly'", inside, store)
