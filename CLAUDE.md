@@ -51,3 +51,21 @@ saved more than once by a look where arithmetic had stalled — the
 blurry-corner investigation of 2026-08-15 ended the moment the two band
 photographs were placed side by side. A metric can be satisfied by the
 wrong picture; an inspected screenshot cannot.
+
+## Build simply; let tests catch the mistakes (a standing rule for code)
+
+Write the simplest, most readable thing that does the job — the least
+amount of code that a colleague can follow. Do not be defensive by
+default: guards, fallbacks, retries, and special-case handling earn their
+place only when a **proven** failure demands them — a bug we actually hit,
+a measurement that showed the danger, a review finding with evidence.
+Speculative armor ("what if someone someday…") is over-engineering; it
+grows the code, hides the real path, and defends against ghosts.
+
+The safety net is the tests, not scattered guards. When something breaks,
+we would rather see it break loudly in a test, understand it, and then
+address it cleanly at its cause — that is cheaper and more honest than
+code that quietly tolerates states it was never designed for. So: the
+main path does exactly what it is supposed to do, plainly; every defense
+that does exist can point at the incident or measurement that justified
+it; and everything else is a test's job.

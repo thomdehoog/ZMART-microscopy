@@ -1,11 +1,15 @@
 # The governed picture grows channels and time
 
-> Written 2026-08-17, beside the depth plan and in its discipline: a plan to
-> review, not work in progress — nothing here is started. The depth plan
-> (`PLAN_the_picture_grows_a_z_axis.md`) already sets the one rule the axes
-> share: the picture is declared over its full (t, c, z, y, x) room before
-> the first landing, and nothing that lands may ever move the description.
-> This plan is what channels and time need beyond that rule.
+> Written 2026-08-17 beside the depth plan; revised the same week after a
+> blind adversarial review filed eleven findings
+> (`REVIEW_the_picture_grows_c_and_t.md`) and its verdict — do not build
+> from this plan as written — was accepted. The revision keeps what the
+> review endorsed (the file contract, the four-square F5 grid, the
+> no-pyramids-over-c-or-t rule, instrument-before-scaling) and replaces
+> what fell: the inventory of what exists was wrong, and the inventory is
+> what a build is sized by. The disposition table at the end maps every
+> finding. Nothing here is started, and nothing may be built before the
+> instruments this revision orders have run.
 
 ## The want
 
@@ -13,189 +17,230 @@ An acquisition records two colours per position, moment after moment, and
 the operator wants to watch it the way they watch the flat survey today:
 pick a channel, slide through time, and see landings appear live — with a
 retake of one moment updating that moment and leaving every other exactly
-as it was. Today the governed picture serves the first channel of the first
-moment and refuses everything else, loudly
-(`declare_a_governed_picture`, pinned by
-`test_a_survey_grows_in_a_spiral.py::test_the_viewer_still_refuses_to_collapse_two_colours`).
-The refusal was right — better than colours silently collapsed — and this
-plan is how it retires.
+as it was.
 
-## What already exists (most of the truth, none of the serving)
+## What actually exists, corrected
 
-- **The file contract for (t, c) is settled and gated.** Every chunk file
-  covers exactly one moment of one channel, so a new moment or channel only
-  ever ADDS files; publishing moment one leaves every byte of moment zero
-  untouched (byte-compared in
-  `test_a_survey_grows_in_a_spiral.py::TestTheSpiralWithColoursAndMoments`
-  and in the stranger-writer gate). The writer writes it, plain zarr reads
-  it back, and each colour keeps exactly its own pixels.
-- **The record carries moments.** The manifest commits (position, timepoint)
-  units, the gateway folds them, a replacement advances every published
-  moment of a position and the size of that spike is pinned
-  (`zmart_live/tests/test_a_replacement_advances_every_moment.py`).
-- **Arrival has a signal.** The collection declaration names each member's
-  written moments, so a watcher learns "a new timepoint exists" from one
-  small file (`viz_studio/tests/a_microscope.py` and the contract's
-  arrival-signal section). Nothing needs to scan chunk folders.
-- **The viewer already speaks channel and time for finished data.** The
-  layer panel gives each channel its own row and contrast; the time slider
-  counts written frames per store (`server.py`, `frames` /
-  `written_timepoints`). What is missing is these axes on the LIVE governed
-  picture, not the controls.
-- **The piece address space already has the slots.** Both serving doors
-  answer `level/c/t/c/z/y/x` in zarr's five-axis chunk form; the governed
-  picture simply always says t = 0, c = 0 today.
+The review audited the original list against the shipped code; this is the
+honest version.
 
-## What has to be built
+**Real and gated:**
+- The (t, c) **file contract**: every chunk covers one moment of one
+  channel, new moments only add files, byte-compared in the spiral's
+  colours-and-moments gates and the stranger-writer gate.
+- The record carries **moments** — the published unit is
+  (position, timepoint, generation) — and the replacement rule's *set*
+  semantics (every published moment advances) are thoroughly pinned.
+- The layer panel's per-channel rows and contrast, for finished data.
 
-1. **Declare the full room, then stop refusing.** The profile already says
-   how many channels and timepoints the acquisition will have;
-   `declare_a_governed_picture` declares that room and drops its
-   multi-channel refusal the same day the serving below exists — never
-   before, so the refusal keeps guarding until the whole chain works.
-   Ground not yet imaged is absence, exactly as the flat picture already
-   expresses it.
-2. **The derive answers per (t, c).** A piece request carries its moment
-   and channel; the composer reads the one (t, c) frame of each tile it
-   composes — which the chunk layout makes a single-file read by
-   construction. No cross-moment, no cross-channel arithmetic exists
-   anywhere, so this is address plumbing, not new truth.
-3. **Dirty footprints carry (t, c).** A landing in moment m, channel k
-   dirties pieces of exactly (m, k) — a landing in one moment leaves every
-   other moment's pieces untouched, which becomes a gate before it becomes
-   a feature. A replacement dirties every published moment of that
-   position (the manifest already says so); the spike is O(moments) and
-   its size is already pinned at the record layer.
-4. **The bake follows the moment being written.** Per landing, the bake
-   patches the touched pieces of the landing's own (t, c) only — so the
-   per-landing bake bill does not grow with the length of the timelapse.
-   Old moments bake on first visit (the cold-open posture the closing plan
-   already recommends), and that choice gets a cold-open test before it is
-   trusted. Whether both channels of the current moment stay baked-warm
-   together is a ladder measurement, not an argument: channels are few and
-   viewed together, moments are many and viewed one at a time.
-5. **The time slider ends at the declaration.** The live picture's slider
-   ranges over declared room but marks written moments from the collection
-   declaration's per-member moment counts — an operator can see how far
-   the run has come without the slider running off into moments nobody
-   imaged.
+**Claimed before, false or absent, now named as work:**
+- The record has **no channel in its unit**, and the writer only accepts a
+  commit carrying every channel of a moment at once. A landing IS all
+  channels of one moment; per-channel landings do not exist and are not
+  needed. Footprints are per (moment, all-channels), and every gate recipe
+  says so.
+- The profile declares channels but **not timepoints** — the t extent
+  lives only in a writer constructor argument and, once pixels exist, in
+  the arrays. Declaring the room from the profile requires **timepoints in
+  the sealed profile**, a format change with migration, named here as
+  built work.
+- The shipped collection declaration lists members only; the per-member
+  **written-moments field exists only in the test writer and the
+  contract's promise**. The arrival signal the slider needs must first be
+  built into the publisher.
+- The governed door's piece address is **three-axis** (`level/c/z/y/x`) in
+  roughly ten parsers, writers and fast paths — the five-axis form exists
+  only in the position stores, a different door. Growing (t, c) into the
+  piece address is a change to every reader of the chunk key, and gets the
+  depth plan's discipline: the readers listed by name, one shape defined
+  once, and the shift-the-key sabotage that must go red at every reader.
+- **Time is not refused today — it is silently truncated.** The picture
+  serves the first moment of a timelapse as if it were the whole run,
+  which violates the plan's own refuse-until-it-works principle right now.
+  Day-one change, ordered before anything else in this plan: declaring a
+  multi-moment run refuses loudly, exactly as multi-channel does, with the
+  remedy named in the message. One unit test, red against the shipped
+  code today.
 
-## An open decision this plan inherits from the depth reviews
+## The synchronous stall this axis owns (the review's first finding)
 
-Both independent reviews of the depth plan flag the same collision, and it
-belongs to time more than to depth: **the declared room meets the
-open-ended timelapse.** The declare-the-full-room rule assumes the profile
-knows how many moments the acquisition will have, and a "run until
-stopped" acquisition does not — while the writer refuses commits beyond
-the declared moments, so declaring short is a run that stops early, and
-declaring generously is a slider mostly full of never-imaged room. The
-rule for this must be STATED before anything is built: either the
-controller always declares a generous ceiling and stopping early is
-ordinary (absence already expresses it, and the slider marks written
-moments, so the operator never sees the empty tail as ground) — or time is
-the one axis where a description may grow, with the reload-to-see-it cost
-that was measured and rejected for y and x. This plan leans to the first,
-but leaning is not deciding, and the decision is the reviews' to force.
+A replacement on a long timelapse dirties its footprint times every
+published moment, and the bake patch runs inside the derive while every
+piece request queues behind the lock. By this repository's own measured
+numbers, a retake at 500 moments is minutes of frozen picture in the
+worst case and tens of seconds in the impossible best. This is the
+c-and-t chapter's version of depth's synchronous-patch finding, and it
+gets the same treatment: **measured first, then mitigated, before build.**
+The instrument is the replacement-latency rung at the record layer, no
+browser: replace one position at m = 50, 200, 500 published moments and
+measure time-to-first-answered-piece during the patch. The mitigation is
+chosen from that number — lazy per-moment patching behind
+compose-on-request (only the viewed moment patches synchronously; others
+patch on their next visit), or patching outside the derive lock — never
+assumed.
 
-## The one scaling term to instrument first
+## The per-(t, c) snapshot is designed work, not bookkeeping
 
-Time multiplies stored pieces; it must not multiply any per-landing cost.
-The instrument comes first, as always: the ladder gains a moments column —
-land into moment m of a survey that already holds m − 1 written moments,
-and the landing/derive/bake numbers must match the single-moment table
-(196–210 ms landing, flat) with the moment count varied. The one known
-O(moments) event is the replacement spike, already pinned; nothing else may
-scale with t, and the gate that says so is red-provable by making the bake
-touch a neighbouring moment on purpose.
+The shipped snapshot machinery throws the time axis away, and the review
+listed where; this plan now owns each as design work with its own gate:
+
+- **The published-unit gate moves to per-moment.** The fold collapses
+  units to one generation per position and gates the drawn set on moment
+  zero; a fail-closed per-(t, c) picture must answer tile presence per
+  moment — drawn at t = 3, refused at t = 5, for the same position.
+- **The caches learn the axes.** The block cache already carries the
+  outer index (the repository prepared it for exactly this day); the slab
+  cache and warm bookkeeping do not, and two (t, c) frames of one piece
+  must never collide. Cache keys grow (t, c) together with the dirty
+  shape.
+- **One named dirty shape**: (t, c-set, level, row, column), defined
+  once, imported by all five consumers the review enumerated (derive,
+  slab inheritance, index inheritance, bake patcher, stamp-recovery
+  sweep), with the sabotage test proving there is exactly one definition.
+- **The warm pass and the pins follow the written, current ground.** The
+  warmer walks written moments only — never the declared tail — and pins
+  are bounded by the absolute byte budget the depth plan already ordered,
+  with the viewed moment's warmth prioritized and old moments evictable.
+
+## The bake follows the moment being written — with its mechanism named
+
+Per landing, the bake patches the touched pieces of the landing's own
+moment (all channels — that is what a commit is). Old moments bake on
+first visit, and that posture now says what it is: **a write on the read
+path**, new machinery with lock consequences, built deliberately. Two
+prerequisites the review proved missing:
+
+- **The stamp gains per-(t, c) coverage.** Today's one-prefix stamp makes
+  any hiccup dirty everything, and "everything" times a declared room is
+  hours of recompose plus a sweep of moments nobody imaged. The coverage
+  record — which moments' baked ground this stamp vouches for — is
+  written down in format before any code, and the recovery gate is
+  record-level and red today by construction: bake, tear the stamp,
+  reopen, and the repatch touches only written moments' pieces.
+- **The sweep and the walkers skip unwritten ground**, so the generous
+  ceiling costs nothing — proven by the t parity rung below, not assumed.
+
+## The scaling terms, honestly: one known red, one spike, three bills
+
+- **A per-landing O(positions × moments) term already ships** in the unit
+  fold — the plan says so now instead of presenting the moments column as
+  confirmation of flatness. The instrument: the ladder's moments column
+  plus the swept-counter of `test_absorbing_a_change_touches_the_change`
+  extended with a moments axis. The fix must make a landing's bookkeeping
+  the size of the landing again, with t in the room.
+- **The replacement spike** is the stall section above — priced, then
+  mitigated.
+- **Three refetch bills under the decided whole-source default**, each
+  with its counter before build: the **two-channel storm** (both channels
+  on screen is the common case; the 20/s bar was measured single-channel,
+  and requests-per-landing is recorded against the same bar); the
+  **held-old-moment bill** (a page inspecting m − 1 refetches its
+  screenful on every landing in m — the t-shaped shadow of depth's
+  held-volume finding, measured by the same kind of counter); and the
+  **moment-flip cold bill** (the operator's compare-two-moments gesture
+  against one shared slab budget — the t-step counter the depth test plan
+  already ordered, adopted here by name).
+
+## The declared room for time: decided, with its conditions owned
+
+**Generous ceiling, inherited from the depth plan's per-axis rule.**
+Absence expresses the tail; stopping early is ordinary. The conditions,
+now owned rather than waved at: timepoints enter the sealed profile (the
+format change above); the walkers skip unwritten moments and the
+**declared≫imaged parity rung for t** proves it (declared 500, written
+50, numbers must match declared-equals-written); and the day the ceiling
+is reached, the writer's refusal names the remedy — a new acquisition,
+priced as a cold open — and the operator's experience of it is the
+contract's own answer: two acquisitions opened side by side as two
+layers on the one canvas.
+
+## The slider says what is written
+
+The shipped control offers only committed moments and snaps to them, and
+the repository's remembered-absence doctrine warns against offering
+unwritten frames. This plan keeps that behaviour: **the slider ranges
+over written moments** (driven by the publisher's written-moments
+declaration, once it exists), and the declared ceiling appears as text
+beside it ("moment 37 of 500 declared"), not as slider room. One browser
+gate covers the seam: hold the page while a new moment lands, and the
+slider's range grows without navigation or reload.
 
 ## How we will know it is done
 
-Every browser gate here is a Playwright test, and every one measures the
-same four-square grid — because the two postures catch different diseases,
-and the F5 comparison is the oracle for both:
+Every browser gate runs the four-square grid — held view and scrolling,
+each before and after F5, compared fully loaded — and the station walk
+with its per-station F5 pairs, exactly as the depth test plan records
+the operator's protocol. The review proved the grid is an oracle for
+*staleness*, not *identity* — a total channel collapse passes every F5
+comparison because both sides lie identically — so identity gets its own
+standing gate, in the default suite, record-level and browser-free:
 
-|                    | before F5 (warm)            | after F5 (fresh)          |
-|--------------------|-----------------------------|---------------------------|
-| **held view**      | growth appears unasked      | must equal the warm shot  |
-| **scrolling around** | no stale or dark ground   | must equal the warm shot  |
-
-A held view — hands off, no navigation at all — is the hard test for
-in-place refresh, because navigation asks fresh questions and quietly
-repairs staleness: the Thy1 announce-word bug was invisible to anyone who
-scrolled and obvious to anyone who held still. Scrolling and zooming
-during landings is the hard test for the refresh machinery under fire,
-because that is where the original black stripes lived. And in both
-postures the warm picture is photographed BEFORE a reload and compared to
-the same view AFTER one: if F5 changes anything (once both sides are fully
-loaded, per the storm census rule), the held page was lying, however
-plausible it looked. Pressing F5 must never be a repair tool — that
-sentence is the assertion, in every gate, in both postures.
-
-The existing gates grow axes rather than new machinery, in the depth plan's
-own pattern — `test_a_built_picture_grows_while_watched.py` is the held-view
-template and `test_a_commit_storm_under_zooming.py` the scrolling one, and
-each (t, c) gate below states which posture it runs, or runs both:
-
-- **grows-while-watched, per moment**: hold the view on moment m while
-  landings arrive in it — they appear within the flat picture's bound;
-  switch the slider to m − 1 — nothing there has moved, byte for byte.
-- **warm equals reload, across (t, c)**: the pixel census runs at several
-  zoom bands, on both channels, on at least two moments.
-- **the spiral with colours, on screen**: the record-level colours-and-
-  moments tests gain their browser half — the seeded centre grows outward
-  in one channel while the other channel and the previous moment hold
-  still.
-- **the storm rate holds** with two channels: twenty commits a second was
-  the flat bar; the (t, c) plumbing must be measured against the same bar,
-  not assumed past it.
-
-## Test economics: small first, fast always, the big one opt-in
-
-Every correctness gate here runs on synthetic data, and the loop must stay
-fast enough to iterate in — a suite someone waits half an hour for is a
-suite that stops being run, and then it guards nothing. The budgets are
-part of the plan, not a hope:
-
-- **Arithmetic and record-level tests in milliseconds to seconds.** Spiral
-  walks, dirty footprints, moment-untouched byte comparisons — no browser,
-  tiny frames, the pattern the colours-and-moments tests already set.
-- **Browser gates under ninety seconds each**, on the smallest survey that
-  can exercise the claim — 4x4 and 8x8 grids, two channels, two or three
-  moments, small frames. Start at the smallest size that can possibly show
-  the basics working, and only grow a fixture when a specific claim needs
-  the size; the storm gate earns its 40x40 because rate-under-fire IS its
-  claim, and nothing else inherits that scale by default.
-- **One heavyweight fixture, linked, and opt-in.** The Thy1 evening showed
-  the trick: one real volume laid out 49 times through links cost 195 KB.
-  The synthetic version is better still — build ONE volume of a gigabyte
-  or two, once, full of delicate structures chosen so that mistakes are
-  visible (gradients that make any misplacement obvious, fine grids that
-  blur if a level lies, point sources that vanish if a plane is dropped,
-  per-channel and per-moment signatures so the wrong (t, c) can never
-  masquerade as the right one) — and link it into as large a survey as
-  the test wants for kilobytes. Every pixel has a known right answer by
-  construction. This fixture backs the occasional big run — the ladder, a
-  soak, a scale question — behind an environment knob, never in the
-  default suite, and it is written once to a durable folder and reused,
-  the scale-harness rule this repository already lives by.
-
-The gates prove correctness at small scale; the ladder proves cost at
-large scale; nothing waits on both at once.
+- **The (t, c) identity oracle.** A tiny governed fixture stamped
+  value = 1000·t + 100·c; the served composer is asked for pieces at
+  every (t, c) and compared against ground truth by construction.
+  Milliseconds to run; red under any collapse, swap, or off-by-one on
+  either axis. This gate is what lets the multi-channel refusal retire
+  without reopening the door to the disease it guarded against — the
+  refusal falls only the day this oracle stands.
+- **The moment-untouched checks compare files, not screenshots.** "Switch
+  to m − 1 and nothing has moved" is masked by navigation-triggered
+  refresh under the whole-source default, so the assertion is on the
+  baked files and served bytes of m − 1, byte-compared — or on a second
+  held page that never navigates.
+- **The growth gate, rewritten to what the record supports**: landings
+  carry all channels, so the spiral grows in both channels at once and
+  the per-channel *values* are asserted against the stamp — one channel's
+  growth showing the other channel's numbers is exactly what the identity
+  oracle exists to catch.
+- The storm bar holds with two channels live; the parity rung holds with
+  a generous t ceiling; the replacement rung's chosen mitigation holds
+  its time-to-first-answered-piece bound.
 
 ## What is deliberately not in this plan
 
-- No z — that is the depth plan, reviewed separately; the two share only
-  the declare-the-room rule and must not gate on each other.
-- No pyramids over c or t — that is not a thing, and deliberately so.
-  A pyramid is a spatial economy (more specimen per pixel), and the
-  question it answers exists only for x, y and, in true volumes, z.
-  Averaging channels would invent colours nobody recorded, and blurring
-  time would smear motion into ghosts that exist in no frame. Every
-  (t, c) pair carries its own spatial pyramid; the axes themselves are
-  never downsampled.
-- No multi-moment compositing (temporal projections, motion overlays):
-  views may one day compute them, but the served picture answers one
-  (t, c) at a time, full stop.
-- No channel merging in the server. Colours meet only in the compositor of
-  the viewer, where each keeps its own contrast — the refusal to collapse
-  colours retires by being made unnecessary, not by being weakened.
+- No per-channel commits: the record's unit is a moment with all its
+  channels, and the plan builds on that truth rather than quietly
+  changing the writer.
+- No pyramids over c or t — a pyramid is a spatial economy; averaged
+  channels are colours nobody recorded, blurred time is motion smeared
+  into ghosts that exist in no frame. Every (t, c) pair carries its own
+  spatial pyramid.
+- No multi-moment compositing in the server; views may compute such
+  things one day, the served picture answers one (t, c) at a time.
+- No channel merging in the server; colours meet only in the viewer's
+  compositor, each with its own contrast.
+- No z — the sibling depth plan owns it; the two share the ceiling rule,
+  the one-shape discipline, and the test economics, and must not
+  contradict each other.
+
+## Test economics: small first, fast always, the big one opt-in
+
+Unchanged from the first version, with one correction the review forced:
+the wrong-(t, c) signatures live in the DEFAULT suite now (the identity
+oracle above, milliseconds), not only in the opt-in heavyweight fixture.
+The budgets stand: record-level tests in milliseconds to seconds, browser
+gates under ninety seconds on the smallest survey that exercises the
+claim, and the gigabyte-scale linked fixture — delicate structures,
+per-(t, c) signatures, every pixel a known right answer — behind an
+environment knob for the ladder and the soak, never in the default suite.
+
+## Disposition of the eleven findings
+
+| Finding | Disposition |
+| --- | --- |
+| 1 replacement stall (severe) | Accepted; priced by the record-layer latency rung at m = 50/200/500 before build; mitigation chosen from the number |
+| 2 snapshot discards moments (severe) | Accepted; per-moment unit gate, (t, c) cache keys, one named dirty shape across five consumers, written-ground warm pass — all named as designed work with gates |
+| 3 bake-on-first-visit unmechanized, one-prefix stamp (severe) | Accepted; write-on-read named, per-(t, c) stamp coverage designed on paper first, tear-the-stamp recovery gate red today |
+| 4 three-axis address, contradiction with depth plan (severe) | Accepted; inventory corrected, readers enumerated, one-shape rule and shift-key sabotage inherited |
+| 5 matrix passes channel collapse (severe) | Accepted; the (t, c) identity oracle joins the default suite, the refusal falls only when it stands; m − 1 checks compare files |
+| 6 no channel in the manifest's unit (moderate) | Accepted; landings are all-channels-of-one-moment everywhere, growth gate rewritten to value assertions, no per-channel commits |
+| 7 four inventory overclaims (moderate) | Accepted; corrected above — timepoints into the profile, moments into the publisher's declaration, the loud time refusal ordered day-one, the remedy into the message |
+| 8 fold already O(positions × moments) (moderate) | Accepted; named a known red with its counter, not a fact to confirm |
+| 9 ceiling with unowned conditions (moderate) | Accepted; ceiling decided, t parity rung and skip-unwritten ordered, ceiling-reached experience documented |
+| 10 uninstrumented refetch bills (moderate) | Accepted; two-channel storm, held-old-moment counter, moment-flip cold bill — counters before build |
+| 11 slider contradiction (minor) | Accepted; written-moments slider kept, ceiling as text, one grows-without-reload gate |
+
+Nothing was refuted. The review's closing note — the plan's shape was
+right, its inventory was not — is the lesson this revision encodes: the
+inventory is what a build is sized by, and every "already exists" claim
+above now points at the line that proves it.
