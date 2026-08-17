@@ -97,6 +97,28 @@ export default function AxisSlider({
     };
   }, [viewer, axisName]);
 
+  // Written ground is the only ground on offer, and that has to hold for the
+  // POSITION, not just for the slider's range. The view can land off the
+  // written list without the slider's help -- steered from a console, or a
+  // rollback shrinking the list under a held view -- and the picture there
+  // is honest absence: black. Left that way, the slider would read "2 / 2"
+  // over an empty screen (it clamps its display to the nearest written
+  // moment), and dragging it to the moment it already claims would change
+  // nothing at all. So the view is brought back to the nearest written
+  // moment instead. The engine opens between frames (halves are its way of
+  // saying "the middle"), so anything within half a frame counts as on it.
+  React.useEffect(() => {
+    if (!viewer || !axis || !committedMoments?.length) return;
+    const distance = (moment) => Math.abs(axis.min + moment - axis.value);
+    const nearest = committedMoments.reduce(
+      (best, moment) => (distance(moment) < distance(best) ? moment : best),
+    );
+    if (distance(nearest) <= 0.5) return;
+    const moved = Float32Array.from(viewer.navigationState.position.value);
+    moved[axis.index] = axis.min + nearest;
+    viewer.navigationState.position.value = moved;
+  }, [viewer, axis, committedMoments]);
+
   if (!axis) return null;
   // Never offer more steps than there is data for. A store is given its full
   // length in time when it is created, long before the run has produced that many
@@ -129,6 +151,13 @@ export default function AxisSlider({
     : Math.max(reachable.min, Math.min(reachable.max, reachable.value));
   const stepNumber = allowed ? nearestAllowed + 1 : Math.round(value - reachable.min + 1);
   const count = allowed ? allowed.length : Math.round(reachable.max - reachable.min + 1);
+  // A live acquisition declares its whole room along this axis before the
+  // frames exist, so the committed list can stop well short of the declared
+  // span. The reading then says both things: where you are among the frames
+  // that are actually written, and how much room was declared -- so an
+  // operator watching "2 / 2 of 40 declared" knows the run has just begun,
+  // not that it is over.
+  const declared = Math.round(axis.max - axis.min + 1);
   const moveTo = (next) => {
     const current = viewer.navigationState.position.value;
     const moved = Float32Array.from(current);
@@ -179,6 +208,7 @@ export default function AxisSlider({
       />
       <output aria-label={`${axisName} position value`} style={styles.axisValue}>
         {stepNumber} / {count}
+        {allowed && declared > count ? ` of ${declared} declared` : null}
       </output>
     </label>
   );
@@ -240,7 +270,9 @@ function usePlayback(viewer, axisName, limit, committedMoments) {
 const styles = {
   axisControl: {
     display: "grid",
-    gridTemplateColumns: "22px 16px 1fr 74px",
+    // The reading column sizes to its text: with the declared-room note it
+    // can be far wider than the bare "2 / 2".
+    gridTemplateColumns: "22px 16px 1fr auto",
     alignItems: "center",
     gap: 8,
     padding: "8px 12px",

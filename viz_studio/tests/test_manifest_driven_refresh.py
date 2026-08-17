@@ -171,18 +171,18 @@ def test_live_state_and_config_advance_only_after_commit_with_stable_urls(tmp_pa
         thread.join(timeout=5)
 
 
-def test_a_timelapse_run_is_refused_loudly_not_silently_truncated(tmp_path):
-    """The day-one order of the c-and-t plan: no moment-0-as-the-whole-run.
+def test_a_timelapse_run_binds_and_serves_its_grown_picture(tmp_path):
+    """The refusal retired the day the served time axis stood its gates.
 
-    The served governed picture is still z-y-x only, so a run that keeps
-    room for several moments cannot be shown truthfully yet. It used to be
-    shown anyway — its first moment standing in for the whole timelapse,
-    with nothing on screen to say so. Now the declare door refuses, the
-    registry withholds the binding (the same posture as a failed bake),
-    and the reason names both the problem and what the operator can do
-    instead. This test falls the day the served time axis lands, which is
-    exactly when the refusal must be retired.
+    A timelapse run was refused at this door from the day the truncation
+    was caught until the combined-axes oracle and the browser gate both
+    stood (the c-and-t plan's own condition). Now it binds: the registry
+    declares a GROWN picture — five axes, compose-on-request (the flat
+    run keeps its bake; the per-(t, c) bake is ordered work) — and the
+    served description carries the time axis a browser steers.
     """
+    import json
+
     run = a_live_run(tmp_path, timepoints=2)
     run.write_and_publish("posA", some_specimen(700))
     library = Library()
@@ -190,12 +190,16 @@ def test_a_timelapse_run_is_refused_loudly_not_silently_truncated(tmp_path):
     registry = LiveRegistry(library)
 
     bindings, governed = registry.refresh()
-    assert bindings == ()
-    assert governed == {0}, "the run still governs its dataset while refused"
-    reasons = list(registry.errors.values())
-    assert any("moment" in why for why in reasons)
-    assert any("pointing" in why for why in reasons), (
-        "the refusal must name what the operator can do instead"
+    assert governed == {0}
+    assert len(bindings) == 1, (
+        f"the timelapse run did not bind: {registry.errors}"
+    )
+    described = json.loads(
+        (run.folder / LIVE_PICTURE / "zarr.json").read_text())
+    axes = [axis["name"] for axis in
+            described["attributes"]["ome"]["multiscales"][0]["axes"]]
+    assert axes == ["t", "c", "z", "y", "x"], (
+        "the live picture of a timelapse run must declare the grown axes"
     )
 
 

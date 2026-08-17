@@ -213,10 +213,13 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
     every later commit keeps it true. Declaring again without ``bake``
     removes the baked ground, exactly as it does for a transfer.
 
-    The picture serves the run's first channel and first moment. A run that
-    records several channels is refused here, loudly, rather than shown with
-    its colours silently collapsed; growing the served axes is the named next
-    step of the gate work.
+    A run that records several channels or several moments is declared as a
+    picture GROWN along (t, c): five axes, one frame per chunk, every frame
+    served from the record (see the combined-axes oracle in
+    ``test_every_plane_serves_its_own_stamp``). The loud refusals that once
+    stood here — no silent colour collapse, no first-moment-as-the-run —
+    retired the day that oracle and the browser gate both stood; what they
+    guarded is now guarded by the serving itself.
 
     Args:
         where: the folder to put the description in.
@@ -243,24 +246,15 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
         folded = governed._run._folded
         tail = governed._run._last_folded_revision
         revision = governed._run._geometry()[0].revision
-        channels = composer.mosaic.channels_recorded
-        if len(channels) > 1:
+        if bake and composer.mosaic.frame_room != (1, 1):
             raise ValueError(
-                f"the run at {run} records {len(channels)} channels "
-                f"({', '.join(channels)}), and this picture can serve exactly "
-                "one — declaring it would silently collapse the colours into "
-                "whichever came first. Growing the served channel axis is the "
-                "gate work's next step; until then, a multi-colour run is "
-                "shown by pointing."
-            )
-        moments = composer.mosaic.moments_recorded
-        if moments > 1:
-            raise ValueError(
-                f"the run at {run} keeps room for {moments} moments, and this "
-                "picture can serve exactly one — declaring it would silently "
-                "show the first moment as if it were the whole timelapse. "
-                "Growing the served time axis is the gate work's next step; "
-                "until then, a timelapse is shown by pointing."
+                f"the run at {run} keeps room for "
+                f"{composer.mosaic.frame_room[0]} moment(s) and "
+                f"{composer.mosaic.frame_room[1]} channel(s), and the bake "
+                "writes one file per flat piece — baking it would freeze one "
+                "frame and serve it for every other. The per-(t, c) bake is "
+                "ordered work; until it lands, declare a grown run without "
+                "the bake."
             )
 
         store = where / f"{name}.ome.zarr"

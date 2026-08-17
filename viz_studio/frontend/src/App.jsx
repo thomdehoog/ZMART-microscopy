@@ -793,9 +793,19 @@ export default function App() {
       }
     };
     lookAgain();
-    // The coordinate space settles a moment after the images are attached, so it
-    // is worth looking once more shortly afterwards.
-    const settled = setTimeout(lookAgain, 250);
+    // The coordinate space settles a moment after the images are attached, so
+    // it is worth looking once more shortly afterwards -- but ONLY if the
+    // axes themselves changed in the meantime. The engine keeps the position
+    // steady across everything milder (a timelapse gaining a frame only moves
+    // a bound), so on a live run this delayed restore used to fight the
+    // operator: every landing armed a quarter-second window in which moving
+    // the T or Z slider was silently undone by a stale capture. Caught by
+    // the written-moments slider gate the day the time axis went live.
+    const namesAtArming = space?.names?.join(",");
+    const settled = setTimeout(() => {
+      const now = viewer.navigationState.position.coordinateSpace.value;
+      if (now?.names?.join(",") !== namesAtArming) lookAgain();
+    }, 250);
     return () => clearTimeout(settled);
   }, [viewer, scene, config, mode, layerState]);
 
