@@ -80,6 +80,23 @@ plan is how it retires.
    the run has come without the slider running off into moments nobody
    imaged.
 
+## An open decision this plan inherits from the depth reviews
+
+Both independent reviews of the depth plan flag the same collision, and it
+belongs to time more than to depth: **the declared room meets the
+open-ended timelapse.** The declare-the-full-room rule assumes the profile
+knows how many moments the acquisition will have, and a "run until
+stopped" acquisition does not — while the writer refuses commits beyond
+the declared moments, so declaring short is a run that stops early, and
+declaring generously is a slider mostly full of never-imaged room. The
+rule for this must be STATED before anything is built: either the
+controller always declares a generous ceiling and stopping early is
+ordinary (absence already expresses it, and the slider marks written
+moments, so the operator never sees the empty tail as ground) — or time is
+the one axis where a description may grow, with the reload-to-see-it cost
+that was measured and rejected for y and x. This plan leans to the first,
+but leaning is not deciding, and the decision is the reviews' to force.
+
 ## The one scaling term to instrument first
 
 Time multiplies stored pieces; it must not multiply any per-landing cost.
