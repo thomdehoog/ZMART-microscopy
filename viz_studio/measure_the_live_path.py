@@ -282,7 +282,7 @@ def main() -> int:
     print()
     print(f"{'already open':>13} {'a position arriving':>32} {'a tile landing in one store':>32}")
     print(f"{'':>13} {'requests':>16} {'seconds':>15} {'requests':>16} {'seconds':>15}")
-    for left, right in zip(many, one):
+    for left, right in zip(many, one, strict=True):
         print(f"{left['already']:>13} {left['requests']:>16} {left['seconds']:>14}s "
               f"{right['requests']:>16} {right['seconds']:>14}s")
     print()

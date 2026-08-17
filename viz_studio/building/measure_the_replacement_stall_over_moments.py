@@ -45,7 +45,6 @@ _BUILDING = Path(__file__).resolve().parent
 sys.path.insert(0, str(_BUILDING))
 
 import numpy as np  # noqa: E402
-
 from governed import GovernedRun  # noqa: E402
 
 from zmart_live.coordinator import LivePublisher  # noqa: E402

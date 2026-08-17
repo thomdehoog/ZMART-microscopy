@@ -26,7 +26,6 @@ import subprocess
 import sys
 
 import pytest
-
 from pixels import assert_something_was_drawn, colour_spread, image_middle
 
 _PROGRESS = """() => {

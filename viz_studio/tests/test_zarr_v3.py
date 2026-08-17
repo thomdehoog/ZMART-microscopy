@@ -49,7 +49,6 @@ from stores import (
     zarr_scheme,
 )
 
-
 # How wide the full-resolution copy of these stores is, in voxels.
 #
 # Large enough that the specimen fills a fair share of the window when it is drawn,

@@ -38,18 +38,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import numpy as np  # noqa: E402
-
 import beneath  # noqa: E402
+import numpy as np  # noqa: E402
 import showing_through  # noqa: E402
 from drive import GESTURES, MARGIN_CSS_PX, Recording, pan_steadily  # noqa: E402
 from margins import (  # noqa: E402
     margins_around_the_hole,
     margins_at_every_cut,
-    only_the_whole_ones,
     worst_drift,
 )
-
 
 # ---------------------------------------------------------------------------
 # 0. Can anything behind the engine's canvas be seen at all?
@@ -373,7 +370,7 @@ def handedness(harness) -> dict:
     """
     harness.open(store="lopsided", draw="none")
     picture = harness.photograph()
-    height, width = picture.shape[0], picture.shape[1]
+    height = picture.shape[0]
     # Read along the middle of the picture, over the part of the row that is
     # actually specimen rather than background.
     row = picture[height // 2, :, :].mean(axis=1)
@@ -735,7 +732,6 @@ def _does_it_appear_at_all(harness, canvases, span) -> dict:
 
     # And now the one call the interface offers for it.
     harness.clear_ledger()
-    started = time.perf_counter()
     asked = harness.believes("window.harness.tilesMayHaveLanded()")
     time.sleep(2.0)
     harness.settle(tries=20)
@@ -979,7 +975,7 @@ def _does_it_keep_up(harness, canvases) -> dict:
                 elapsed = time.perf_counter() - started
             pictures = [picture for _, picture in recording.pictures()]
             changed = sum(
-                1 for a, b in zip(pictures, pictures[1:]) if not np.array_equal(a, b)
+                1 for a, b in zip(pictures, pictures[1:], strict=False) if not np.array_equal(a, b)
             )
             drawing_rate.append(round(changed / elapsed, 1))
             lag.append(round(elapsed, 2))
@@ -1101,7 +1097,7 @@ def drawing_rate_with_many_positions(harness) -> dict:
                 elapsed = time.perf_counter() - started
             pictures = [picture for _, picture in recording.pictures()]
             changed = sum(
-                1 for a, b in zip(pictures, pictures[1:]) if not np.array_equal(a, b)
+                1 for a, b in zip(pictures, pictures[1:], strict=False) if not np.array_equal(a, b)
             )
             readings.append(round(changed / elapsed, 1))
         in_order = sorted(readings)

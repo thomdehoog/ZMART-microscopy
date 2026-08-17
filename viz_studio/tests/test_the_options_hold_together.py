@@ -262,7 +262,7 @@ def test_the_view_is_measured_in_micrometres(harness_page, option):
     before = _where_the_picture_starts(harness_page.photograph())
     step_um = 40 * view["zoom"]
     harness_page.believes(
-        "window.harness.setView({centre: {x: %r, y: %r}})"
+        "window.harness.setView({centre: {x: %r, y: %r}})"  # noqa: UP031 -- JavaScript braces
         % (view["centre"]["x"] + step_um, view["centre"]["y"])
     )
     harness_page.settle(tries=20)
@@ -717,7 +717,7 @@ def test_the_runs_own_colours_are_read_when_the_page_says_nothing(
 def _draw_in_the_slots(harness, *, under: str, over: str) -> None:
     """Put the page's own drawing in one slot, the other, or neither."""
     harness.believes(
-        "window.harness.drawInTheSlots({under: %r, over: %r, colour: '#00ff00'})"
+        "window.harness.drawInTheSlots({under: %r, over: %r, colour: '#00ff00'})"  # noqa: UP031 -- JavaScript braces
         % (under, over)
     )
     harness.settle(tries=20)

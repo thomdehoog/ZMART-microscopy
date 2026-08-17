@@ -33,10 +33,10 @@ linked._refuse_a_placement_that_does_not_line_up_when_shrunk = (
 # directly, so nothing here needs the list.
 linked.GrowingLinkedView.add = lambda self, tile: None
 
+import geometry as g
+
 from zmart_storage.canvas import Channel
 from zmart_storage.positions import start_a_run
-
-import geometry as g
 
 HERE = Path(__file__).resolve().parent
 RUN = HERE / "run"
@@ -61,7 +61,7 @@ def main() -> None:
 
     positions = sorted((RUN / "anywhere.ome.zarr" / "positions").glob("*.ome.zarr"))
     print(f"wrote {len(positions)} positions into {RUN}")
-    for place, one in zip(g.PLACES, positions):
+    for place, one in zip(g.PLACES, positions, strict=True):
         print(f"   {one.name} lands at y={place[0]:>4} x={place[1]:>4}")
     print(f"\ntile {g.TILE}, piece {g.CHUNK}, step {g.STEP}, "
           f"overlap {g.OVERLAP}, canvas {g.CANVAS}")

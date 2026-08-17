@@ -155,7 +155,7 @@ def finest_voxel_metres(store: Path) -> float:
     finest = multiscale["datasets"][0]["coordinateTransformations"][0]["scale"]
     spatial = [
         length * METRES_IN_LONG[axis["unit"]]
-        for axis, length in zip(multiscale["axes"], finest)
+        for axis, length in zip(multiscale["axes"], finest, strict=True)
         if axis.get("type") == "space"
     ]
     assert spatial, f"{store} does not say how large a voxel is"

@@ -8,7 +8,6 @@ asked for.
 
 from __future__ import annotations
 
-import json
 import shutil
 import statistics
 import sys
@@ -21,11 +20,10 @@ for extra in (REPO, REPO / "viz_studio" / "options" / "measure", REPO / "viz_stu
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import drive
-from acquisitions import write_the_square
-from many_sources import which_engine_is_drawing, lit_share, _the_page_can_open_a_viewer
-
 import geometry as g
-from compose_server import serve, STORE
+from acquisitions import write_the_square
+from compose_server import STORE, serve
+from many_sources import _the_page_can_open_a_viewer, lit_share, which_engine_is_drawing
 
 HERE = Path(__file__).resolve().parent
 POSITIONS = HERE / "run" / "anywhere.ome.zarr" / "positions"

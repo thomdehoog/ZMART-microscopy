@@ -521,7 +521,7 @@ _ANSWERED_FROM_MEMORY = 0
 #: writer is always read afresh. A description is a kilobyte or two, so even a
 #: hundred-thousand-position survey fits comfortably under the limit.
 DESCRIPTIONS_REMEMBERED_AT_MOST = 200_000
-_DESCRIPTIONS: OrderedDict[str, tuple[tuple, "StoredArray"]] = OrderedDict()
+_DESCRIPTIONS: OrderedDict[str, tuple[tuple, StoredArray]] = OrderedDict()
 _DESCRIPTIONS_READ = 0
 _DESCRIPTIONS_FROM_MEMORY = 0
 

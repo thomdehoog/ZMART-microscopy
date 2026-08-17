@@ -655,31 +655,6 @@ class ProductionRun:
                 + " at once, so no answer for it would be honest",
             )
 
-        if inside_the_run.startswith(f"{RAW_OVERLAP}/"):
-            # A piece of this picture is addressed as (stop on the tile slider,
-            # moment, colour, plane, row, column).
-            stop, moment = piece[0], piece[1]
-            here = self._tiles_at_that_stop_covering(stop, piece[-2:])
-            if len(here) == 1:
-                return ("gate", Wrote(here[0].position_id, moment))
-            if not here:
-                return (
-                    "refuse",
-                    f"no tile sitting at stop {stop} on the tile slider "
-                    "photographed that ground",
-                )
-            # As above, this is checked rather than assumed. The publisher refuses
-            # to write this picture when two tiles sharing a stop share specimen,
-            # so reaching here would mean the geometry had changed underneath us,
-            # and there would be no honest answer to give. See
-            # :func:`_the_gate_can_answer_for_every_raw_piece`.
-            return (
-                "refuse",
-                f"stop {stop} holds "
-                + ", ".join(p.position_id for p in here)
-                + " over that same ground, so no answer for it would be honest",
-            )
-
         # Somewhere new. The publisher may have grown another picture since this
         # was written, and a picture nobody has taught this server to read is a
         # picture it cannot promise anything about.
@@ -873,8 +848,8 @@ def _the_gate_can_answer_for_every_raw_piece(run: ProductionRun) -> None:
     if trouble:
         raise SystemExit(
             "This run cannot be gated honestly, so it is not worth serving. Some "
-            f"pieces of the picture at {run.folder / RAW_OVERLAP} hold parts of two "
-            "tiles that share a stop on the tile slider, which means neither "
+            "pieces of the run-wide picture hold parts of two tiles that share "
+            "a stop on the tile slider, which means neither "
             "serving nor refusing them would tell the truth: "
             + "; ".join(trouble)
             + ". Change the frame size or the positions so that tiles sharing a "
@@ -1059,11 +1034,6 @@ def main() -> None:
     print(
         f"the seamless picture:   {address}/page/index.html"
         f"?store={address}/{SEAMLESS}/0/%7Czarr3:",
-        flush=True,
-    )
-    print(
-        f"every overlapping pixel: {address}/page/index.html"
-        f"?store={address}/{RAW_OVERLAP}/0/%7Czarr3:",
         flush=True,
     )
     try:

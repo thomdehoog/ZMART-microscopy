@@ -43,8 +43,7 @@ import json
 import threading
 
 import numpy as np
-import pytest
-from pixels import assert_something_was_drawn, colour_spread, fraction_lit, image_middle
+from pixels import colour_spread, fraction_lit, image_middle
 from server import make_server
 
 # A specimen a few tiles across, declared up front the way a run would declare a mosaic

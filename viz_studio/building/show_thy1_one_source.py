@@ -44,9 +44,7 @@ sys.path.insert(0, str(_BUILDING))
 import measure_a_governed_run_at_scale as harness  # noqa: E402,F401  (puts the backend on the path)
 from declare import declare_a_built_picture  # noqa: E402
 from server import make_server  # noqa: E402
-
-from show_thy1_spiralling import (  # noqa: E402
-    _place_a_block, _spiral, _the_tile_we_borrow)
+from show_thy1_spiralling import _place_a_block, _spiral, _the_tile_we_borrow  # noqa: E402
 
 # The display window measured from the tile itself: background just under 400,
 # ninety-nine percent of the specimen below about 2,100.

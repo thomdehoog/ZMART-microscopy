@@ -24,9 +24,7 @@ Run: python measure_the_volume_refetch_and_z_step.py [--across 3] [--keep]
 from __future__ import annotations
 
 import argparse
-import io
 import json
-import shutil
 import sys
 import tempfile
 import threading
@@ -37,10 +35,9 @@ from pathlib import Path
 _BUILDING = Path(__file__).resolve().parent
 sys.path.insert(0, str(_BUILDING))
 
+import measure_a_governed_run_at_scale as harness  # noqa: E402,F401
 import numpy as np  # noqa: E402
 import zarr  # noqa: E402
-
-import measure_a_governed_run_at_scale as harness  # noqa: E402,F401
 from declare import declare_a_built_picture  # noqa: E402
 from server import make_server  # noqa: E402
 

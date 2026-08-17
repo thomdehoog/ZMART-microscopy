@@ -34,18 +34,14 @@ import urllib.request
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 VIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(VIZ / "building"))
 
-from PIL import Image  # noqa: E402
-
-from declare import declare_a_built_picture  # noqa: E402
 import served  # noqa: E402
-
-from test_a_transfer_is_built_into_one_picture import (  # noqa: E402
-    PIECE, STEP_UM, _write_a_tile)
+from declare import declare_a_built_picture  # noqa: E402
+from PIL import Image  # noqa: E402
+from test_a_transfer_is_built_into_one_picture import PIECE, STEP_UM, _write_a_tile  # noqa: E402
 
 sys.path.insert(0, str(VIZ / "backend"))
 from server import make_server  # noqa: E402

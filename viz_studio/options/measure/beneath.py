@@ -87,7 +87,7 @@ ENOUGH_OF_THE_PICTURE_LEFT = 0.5
 def _a_colour_in_one_slot(harness, *, under: str, over: str, name: str) -> dict:
     """Draw the same flat colour in one slot or the other, and photograph it."""
     harness.believes(
-        "window.harness.drawInTheSlots({under: %r, over: %r, colour: %r})"
+        "window.harness.drawInTheSlots({under: %r, over: %r, colour: %r})"  # noqa: UP031 -- JavaScript braces
         % (under, over, BEHIND_IS_GREEN)
     )
     harness.settle(tries=20)

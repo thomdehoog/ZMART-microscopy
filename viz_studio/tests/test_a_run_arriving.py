@@ -21,7 +21,6 @@ import json
 import threading
 
 import numpy as np
-import pytest
 import zarr
 from server import make_server
 

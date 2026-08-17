@@ -20,7 +20,6 @@ alone rather than guessed at.
 
 from __future__ import annotations
 
-import json
 import sys
 import threading
 import urllib.error
@@ -28,7 +27,6 @@ import urllib.request
 from pathlib import Path
 
 import linking
-import pytest
 from server import make_server
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))

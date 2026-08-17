@@ -19,11 +19,11 @@ import numpy as np
 _VIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_VIZ / "building"))
 
-from zmart_live.model import GridCell  # noqa: E402
-from zmart_live.profiles import plan_the_writing  # noqa: E402
-
 from check import decode  # noqa: E402
 from governed import GovernedRun  # noqa: E402
+
+from zmart_live.model import GridCell  # noqa: E402
+from zmart_live.profiles import plan_the_writing  # noqa: E402
 
 FRAME = 384
 PLANES = 3
@@ -146,7 +146,7 @@ def test_concurrent_fire_across_every_axis_stays_frame_pure(tmp_path):
                 answers = list(pool.map(
                     lambda address: composer.bytes_for(*address),
                     addresses * 2))
-                for address, body in zip(addresses * 2, answers):
+                for address, body in zip(addresses * 2, answers, strict=True):
                     assert body == quiet[address], (
                         f"{address} answered differently under concurrency"
                     )

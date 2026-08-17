@@ -120,17 +120,17 @@ def main() -> int:
                 where = (0, (index // across) * TILE[1], (index % across) * TILE[2])
                 # A new place: the ordinary arrival.
                 fresh.append(_timed(
-                    lambda: run.write(_a_picture(index), at=where)))
+                    lambda index=index, where=where: run.write(_a_picture(index), at=where)))
                 # The same place in the other colour, and at a later moment. The
                 # view already knows this place, so these should cost less.
                 colour.append(_timed(
-                    lambda: run.write(_a_picture(index), at=where, channel=1)))
+                    lambda index=index, where=where: run.write(_a_picture(index), at=where, channel=1)))
                 moment.append(_timed(
-                    lambda: run.write(_a_picture(index), at=where, frame=1)))
+                    lambda index=index, where=where: run.write(_a_picture(index), at=where, frame=1)))
                 # A slab of z above it, which is a new place and a new image.
                 above = (TILE[0], where[1], where[2])
                 slab.append(_timed(
-                    lambda: run.write(_a_picture(index), at=above)))
+                    lambda index=index, above=above: run.write(_a_picture(index), at=above)))
             grown += REPEATS
 
             rows.append({

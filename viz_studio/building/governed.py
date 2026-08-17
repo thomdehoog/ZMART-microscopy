@@ -54,14 +54,12 @@ from pathlib import Path
 
 import numpy as np
 import zarr
+from composer import PIECE, Composer
+from mosaic import Copy, Mosaic, Tile, _read_one_tile
 
 from zmart_live.gateway import _LiveRun
 from zmart_live.model import rounded_up
 from zmart_live.shardlink import how_the_array_is_stored
-
-from composer import PIECE, Composer
-from mosaic import Copy, Mosaic, Tile, _read_one_tile
-
 
 log = logging.getLogger("viz_studio.governed")
 
@@ -1259,7 +1257,8 @@ class GovernedRun:
             self._corners = {
                 placement.position_id: tuple(
                     float(placement.origin.get(axis, 0.0)) * size
-                    for axis, size in zip(("z", "y", "x"), voxel))
+                    for axis, size in zip(("z", "y", "x"), voxel,
+                                          strict=True))
                 for placement in layout.positions
             }
             self._corners_mark = named

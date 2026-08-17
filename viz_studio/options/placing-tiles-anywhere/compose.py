@@ -17,10 +17,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import geometry as g
 import numpy as np
 import zarr
-
-import geometry as g
 
 # The description of one piece: the same shape, kind of number and encoding the
 # positions use. Saying it once here is what makes the bytes this file produces

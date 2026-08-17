@@ -25,7 +25,6 @@ import threading
 from pathlib import Path
 
 import numpy as np
-import pytest
 import zarr
 
 _VIZ = Path(__file__).resolve().parents[1]

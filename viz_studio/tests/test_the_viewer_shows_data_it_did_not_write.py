@@ -22,15 +22,13 @@ import urllib.request
 from pathlib import Path
 
 import numpy as np
-import pytest
 import zarr
 
 _VIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_VIZ / "building"))
 
-from server import make_server  # noqa: E402
-
 from a_microscope import AMicroscope  # noqa: E402
+from server import make_server  # noqa: E402
 
 FRAME = 256
 

@@ -22,7 +22,6 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
-
 from server import make_server
 from stores import declared_channels, discover
 
@@ -188,7 +187,10 @@ def test_real_store_renders(real_server, browser):
         page.goto(url, wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined", timeout=60_000)
         page.wait_for_function(
-            "() => { const p = (%s)(); return p.available > 0 && p.available >= p.needed; }" % _PROGRESS_JS.strip(),
+            # Percent-format on purpose: the payload is JavaScript, whose own
+            # braces would fight str.format.
+            "() => { const p = (%s)(); return p.available > 0 && p.available >= p.needed; }"  # noqa: UP031
+            % _PROGRESS_JS.strip(),
             timeout=180_000,
         )
         progress = page.evaluate(_PROGRESS_JS)

@@ -428,8 +428,9 @@ def main() -> int:
             rows.append(row)
             if row["shown_ms"] is not None:
                 showing = name
-            say = lambda key: (f"{row[key]:>6.0f}ms" if row[key] is not None
-                               else "     --")
+            def say(key, row=row):
+                return (f"{row[key]:>6.0f}ms" if row[key] is not None
+                        else "     --")
             print(f"  {number + 1:>4} {name:>10} {say('opened_ms')} "
                   f"{say('closed_ms')} {say('gone_ms')} "
                   f"{say('shown_ms')} {say('blank_ms')} {row['requests']:>9}"

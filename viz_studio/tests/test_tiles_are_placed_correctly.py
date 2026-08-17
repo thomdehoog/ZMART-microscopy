@@ -67,7 +67,6 @@ import threading
 from pathlib import Path
 
 import numpy as np
-import pytest
 from server import make_server
 
 # The size of one tile, in voxels and in micrometres. Small enough that several of

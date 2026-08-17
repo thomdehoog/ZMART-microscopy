@@ -22,7 +22,6 @@ import threading
 import time
 from pathlib import Path
 
-import numpy as np
 import pytest
 import stores
 import zarr

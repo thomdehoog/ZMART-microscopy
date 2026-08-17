@@ -30,15 +30,13 @@ for extra in (REPO, REPO / "viz_studio" / "options" / "measure", REPO / "viz_stu
     sys.path.insert(0, str(extra))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import numpy as np
-
 import drive
-from acquisitions import write_the_square
-from many_sources import _the_page_can_open_a_viewer
-
 import geometry as g
+import numpy as np
+from acquisitions import write_the_square
 from compose import Composer
-from compose_server import serve, STORE
+from compose_server import STORE, serve
+from many_sources import _the_page_can_open_a_viewer
 
 HERE = Path(__file__).resolve().parent
 POSITIONS = HERE / "run" / "pyramid.ome.zarr" / "positions"
@@ -153,14 +151,14 @@ def main() -> None:
             print(f"   brightness found there : {here:.1f} "
                   f"(evenness: spread {spread:.2f})")
             print(f"   which names size       : level {nearest}")
-            print(f"   pixels in the whole window at each size's brightness: "
+            print("   pixels in the whole window at each size's brightness: "
                   + ", ".join(f"level {level}: {count}"
                               for level, count in areas.items()))
 
     print("\nsummary — which size of the picture reached the screen")
     print(f"{'zoom (um/px)':>13}  {'brightness at the patch':>23}  "
           f"{'size that names':>15}  {'largest area':>13}")
-    for zoom, here, spread, nearest, areas in found:
+    for zoom, here, _spread, nearest, areas in found:
         biggest = max(areas, key=lambda one: areas[one])
         print(f"{zoom:>13}  {here:>23.1f}  {f'level {nearest}':>15}  "
               f"{f'level {biggest} ({areas[biggest]} px)':>13}")

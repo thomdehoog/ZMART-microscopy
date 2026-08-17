@@ -315,7 +315,7 @@ def where_the_drawing_sits(picture, at=0.5) -> dict:
     picture = np.asarray(picture)
     height, width = picture.shape[0], picture.shape[1]
     gaps = []
-    for line, along in (
+    for line, _along in (
         (picture[int(height * at), :, :3], "across"),
         (picture[:, int(width * at), :3], "down"),
     ):

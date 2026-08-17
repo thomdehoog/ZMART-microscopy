@@ -39,9 +39,9 @@ import queue
 import re
 import socket
 import sys
-import time
 import tempfile
 import threading
+import time
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path

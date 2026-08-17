@@ -47,9 +47,9 @@ from mosaic import Mosaic, read_the_mosaic_as_written, read_the_transfer
 # package must still serve every ordinary built picture -- the same guard the
 # backend server keeps for this module itself.
 try:
-    from zmart_live.gateway import live_run_holding
-
     from governed import GovernedRun
+
+    from zmart_live.gateway import live_run_holding
 except ImportError:  # pragma: no cover - a checkout without zmart_live
     GovernedRun = None  # type: ignore[assignment, misc]
 

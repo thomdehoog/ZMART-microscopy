@@ -40,7 +40,6 @@ import measure_a_governed_run_at_scale as harness  # noqa: E402
 from declare import declare_a_governed_picture  # noqa: E402
 from governed import GovernedRun  # noqa: E402
 
-
 # The scaling comparison's two sizes. Sixteen times the positions: a
 # bookkeeping cost that followed the survey would show as many times the
 # steady per-landing time; a cost that follows the change stays flat.

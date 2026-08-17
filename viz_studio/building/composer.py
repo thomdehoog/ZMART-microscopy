@@ -161,7 +161,8 @@ def _tile_has_the_frame(tile, level: int, moment: int, channel: int) -> bool:
         return False
     room = tile.copies[level].outer_shape
     outer = (moment, channel)[:len(room)]
-    return all(index < extent for index, extent in zip(outer, room))
+    return all(index < extent
+               for index, extent in zip(outer, room, strict=False))
 
 
 class MissingCommittedGround(RuntimeError):

@@ -170,7 +170,7 @@ def the_table_so_far(records: list[dict]) -> str:
         f"{'trans':>6}",
     ]
     for r in records:
-        def told(name):
+        def told(name, r=r):
             s = r.get(name) or {}
             if not s:
                 return "-"

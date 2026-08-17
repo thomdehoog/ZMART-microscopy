@@ -323,7 +323,8 @@ def voxel_size(store: Path) -> tuple[float, ...]:
             names = axis_names(store)
             if len(names) == len(found):
                 found = [
-                    value for name, value in zip(names, found) if name in ("z", "y", "x")
+                    value for name, value in zip(names, found, strict=True)
+                    if name in ("z", "y", "x")
                 ]
             return tuple(round(float(value), 6) for value in found)
     return ()

@@ -30,14 +30,12 @@ VIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(VIZ / "building"))
 sys.path.insert(0, str(VIZ.parent))
 
-from zmart_live.tests.test_coordinator import some_specimen  # noqa: E402
-
+import served  # noqa: E402
 from declare import declare_a_governed_picture  # noqa: E402
 from governed import GovernedRun  # noqa: E402
-from test_the_composer_obeys_the_manifest import (  # noqa: E402
-    PIECE, a_governed_run, the_columns_of)
+from test_the_composer_obeys_the_manifest import PIECE, a_governed_run, the_columns_of  # noqa: E402
 
-import served  # noqa: E402
+from zmart_live.tests.test_coordinator import some_specimen  # noqa: E402
 
 
 def every_baked_file(store: Path) -> dict[str, bytes]:
@@ -131,7 +129,6 @@ def test_a_replacement_is_served_new_from_files_with_no_stale_moment(tmp_path):
     try:
         a_only, _, _ = the_columns_of(run)
         import numpy as np
-
         from check import decode
         first = served.the_bytes_behind(store, f"0/c/0/0/{a_only}")
         assert first is not None and 700 in decode(
@@ -250,7 +247,6 @@ def test_the_http_route_consults_the_manifest_before_any_baked_file(tmp_path):
     if backend not in sys.path:
         sys.path.insert(0, backend)
     import numpy as np
-
     from check import decode
     from server import make_server
 
@@ -777,7 +773,6 @@ def test_the_warm_reads_the_bake_and_holds_the_composed_ground(tmp_path):
     padding included.
     """
     import numpy as np
-
     from governed import GovernedRun
 
     run = a_governed_run(tmp_path)

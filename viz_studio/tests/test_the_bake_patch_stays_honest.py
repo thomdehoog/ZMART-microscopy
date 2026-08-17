@@ -48,7 +48,6 @@ import measure_a_governed_run_at_scale as harness  # noqa: E402
 from declare import declare_a_governed_picture  # noqa: E402
 from governed import GovernedRun  # noqa: E402
 
-
 # The replacement's brightness: far below the fixtures' BRIGHT window
 # (46,000-62,000) and far above zero, so the three grounds this file must
 # tell apart -- bright neighbour, dim replacement, empty fill -- can never

@@ -20,7 +20,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from contrast import display_window
 from server import make_server
 from stores import (
@@ -32,7 +31,6 @@ from stores import (
     prefer_filter,
     select_tiles,
 )
-
 
 # --------------------------------------------------------------------------
 # Helpers: write real OME-Zarr v2 stores, the way the acquisition does.
@@ -167,7 +165,8 @@ def test_folder_ignores_files_and_non_stores(tmp_path):
     channel_folder(folder, ["Tile0_Ch488.ome.zarr"])
     (folder / "notes.txt").write_text("hello", encoding="utf-8")     # a stray file
     (folder / "scratch").mkdir()                                     # a plain directory
-    junk = folder / "half.ome.zarr"; junk.mkdir()
+    junk = folder / "half.ome.zarr"
+    junk.mkdir()
     (junk / ".zattrs").write_text("not json", encoding="utf-8")      # a broken store
     _, found = discover(folder)
     assert found == ["Tile0_Ch488.ome.zarr"]            # only the real store survives
@@ -250,7 +249,8 @@ def test_omero_window_is_honoured_for_the_plane_and_ignored_for_the_volume(tmp_p
 
 def test_missing_or_broken_store_returns_the_full_range(tmp_path):
     assert display_window(tmp_path / "does-not-exist.zarr") == (0.0, 65535.0)
-    broken = tmp_path / "broken.zarr"; broken.mkdir()
+    broken = tmp_path / "broken.zarr"
+    broken.mkdir()
     (broken / ".zattrs").write_text("{ not json", encoding="utf-8")
     assert display_window(broken) == (0.0, 65535.0)
 

@@ -28,7 +28,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 from pixels import fraction_lit
 from stores import channels
 
