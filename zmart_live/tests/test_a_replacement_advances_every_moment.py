@@ -31,13 +31,13 @@ from .test_coordinator import FRAME, some_specimen
 
 
 def a_timelapse_run(folder, *, timepoints):
-    profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1)
+    profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1,
+                                  timepoints=timepoints)
     return LivePublisher(
         folder,
         profile,
         run_id="replacement-spike-run",
         cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
-        timepoints=timepoints,
     )
 
 

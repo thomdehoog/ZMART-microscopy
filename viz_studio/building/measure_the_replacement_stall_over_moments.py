@@ -85,12 +85,13 @@ def a_moment_committed(run: LivePublisher, position_id: str,
 
 def main() -> int:
     folder = Path(mkdtemp(prefix="replacement-stall-"))
-    profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1)
+    profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1,
+                                  timepoints=max(RUNGS))
     run = LivePublisher(
         folder / "experiment" / "acquisitions" / "timelapse",
         profile, run_id="stall-rung",
         cells={GridCell(0, 0): "pos00"},
-        timepoints=max(RUNGS), linked_view="at_run_end",
+        linked_view="at_run_end",
     )
     frame = np.full((1, FRAME, FRAME), 1200, "uint16")
     run.write_and_publish("pos00", frame, timepoint=0)

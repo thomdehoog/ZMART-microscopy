@@ -78,7 +78,7 @@ MOMENTS = 2
 COLOURS = ("488", "561")
 
 
-def _a_profile() -> AcquisitionProfile:
+def _a_profile(timepoints: int = 1) -> AcquisitionProfile:
     """Seal the way one ordinary tiled acquisition is written.
 
     The profile is built here by hand rather than asked for from
@@ -99,6 +99,7 @@ def _a_profile() -> AcquisitionProfile:
         voxel_unit="micrometer",
         overlap_pixels={"y": OVERLAP, "x": OVERLAP},
         channels=COLOURS,
+        timepoints=timepoints,
         levels=tuple(
             LevelGeometry(
                 level=step,
@@ -903,14 +904,13 @@ def test_a_position_a_live_run_actually_wrote_can_be_opened(tmp_path):
     """
     from zmart_live.coordinator import LivePublisher
 
-    profile = _a_profile()
+    profile = _a_profile(timepoints=MOMENTS)
     publisher = LivePublisher(
         folder=tmp_path,
         profile=profile,
         run_id="a-run",
         cells={GridCell(0, 0): "pos00000", GridCell(0, 1): "pos00001"},
         channels=COLOURS,
-        timepoints=MOMENTS,
     )
     publisher.write_a_position(
         "pos00001", np.full((len(COLOURS), Z_PLANES, FRAME, FRAME), 900, "uint16")
@@ -951,6 +951,7 @@ def test_the_live_linked_view_is_also_opened_by_the_outside_reader(
         "overview",
         frame=FRAME,
         z_planes=Z_PLANES,
+        timepoints=MOMENTS,
         channels=COLOURS,
         voxel_size=VOXEL_UM,
     )
@@ -960,7 +961,6 @@ def test_the_live_linked_view_is_also_opened_by_the_outside_reader(
         run_id="a-view-run",
         cells={GridCell(0, 0): "pos00000"},
         channels=COLOURS,
-        timepoints=MOMENTS,
     )
     publisher.write_a_position(
         "pos00000", np.full((len(COLOURS), Z_PLANES, FRAME, FRAME), 900, "uint16")

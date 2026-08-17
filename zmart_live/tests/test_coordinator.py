@@ -49,6 +49,22 @@ def profile():
     return made
 
 
+@pytest.fixture(scope="module")
+def a_profile_with_room():
+    """Seal a profile that keeps room for several moments.
+
+    The time room lives in the sealed profile now, so a test that wants a
+    timelapse asks the planner for one rather than handing the writer a
+    number the profile never declared — the writer refuses that, and one
+    test below pins the refusal.
+    """
+    def sealed(timepoints):
+        made, _ = plan_the_writing("overview", frame=FRAME, z_planes=1,
+                                   timepoints=timepoints)
+        return made
+    return sealed
+
+
 @pytest.fixture
 def run(tmp_path, profile):
     return LivePublisher(
@@ -732,7 +748,7 @@ class TestOneMomentAtATimeIsWhatGetsChecked:
     publication therefore has to be about that moment and no other.
     """
 
-    def test_a_moment_nobody_wrote_cannot_be_published(self, tmp_path, profile):
+    def test_a_moment_nobody_wrote_cannot_be_published(self, tmp_path, a_profile_with_room):
         """Reproduced before the fix: an entirely unwritten moment was published.
 
         ``inspect(position, timepoint=1)`` did not look at moment 1 at all. It
@@ -743,10 +759,9 @@ class TestOneMomentAtATimeIsWhatGetsChecked:
         """
         run = LivePublisher(
             tmp_path,
-            profile,
+            a_profile_with_room(2),
             run_id="run-moments",
             cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
-            timepoints=2,
         )
         run.write_and_publish("posA", some_specimen(1000))
         assert run.manifest.revision() == 1
@@ -762,14 +777,13 @@ class TestOneMomentAtATimeIsWhatGetsChecked:
             run.publish("posA", timepoint=1)
         assert run.manifest.revision() == 1
 
-    def test_a_moment_that_was_written_can_be_published(self, tmp_path, profile):
+    def test_a_moment_that_was_written_can_be_published(self, tmp_path, a_profile_with_room):
         """The positive arm: the refusal above must not refuse everything."""
         run = LivePublisher(
             tmp_path,
-            profile,
+            a_profile_with_room(2),
             run_id="run-moments-2",
             cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
-            timepoints=2,
         )
         run.write_and_publish("posA", some_specimen(1000))
         event = run.write_and_publish("posA", some_specimen(1500), timepoint=1)
@@ -778,7 +792,7 @@ class TestOneMomentAtATimeIsWhatGetsChecked:
         assert run.manifest.revision() == 2
 
     def test_a_positions_first_publication_may_name_its_moment(
-        self, tmp_path, profile
+        self, tmp_path, a_profile_with_room
     ):
         """The first commit of a position is its arrival, whichever moment it names.
 
@@ -790,10 +804,9 @@ class TestOneMomentAtATimeIsWhatGetsChecked:
         """
         run = LivePublisher(
             tmp_path,
-            profile,
+            a_profile_with_room(3),
             run_id="run-first-named",
             cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
-            timepoints=3,
         )
         event = run.write_and_publish("posA", some_specimen(1500), timepoint=0)
         assert event.event_type == "position_committed"
@@ -811,17 +824,16 @@ class TestOneMomentAtATimeIsWhatGetsChecked:
         assert arrived_late.timepoint == 1
 
     def test_an_uncommitted_moment_stays_out_when_another_position_commits(
-        self, tmp_path, profile
+        self, tmp_path, a_profile_with_room
     ):
         """An on-disk future moment remains inaccessible until its own commit."""
         import zarr
 
         run = LivePublisher(
             tmp_path,
-            profile,
+            a_profile_with_room(2),
             run_id="run-moment-leak",
             cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
-            timepoints=2,
         )
         run.write_and_publish("posA", some_specimen(1000))
         run.write_a_position("posA", some_specimen(4242), timepoint=1)
@@ -1285,25 +1297,28 @@ class TestAReopenedRunKeepsItsMeaning:
 
     @pytest.mark.parametrize("reopened_room", [1, 3])
     def test_declared_timepoint_room_cannot_change_after_pixels_exist(
-        self, tmp_path, profile, reopened_room
+        self, tmp_path, a_profile_with_room, reopened_room
     ):
+        """The room is part of the sealed profile now, so changing it means
+        changing the profile — and the layout guard refuses a reopening
+        under a different profile before the arrays are even looked at. The
+        array-shape check underneath stays as the second line, for runs
+        written before the profile carried the room."""
         cells = {GridCell(0, 0): "posA"}
         first = LivePublisher(
             tmp_path,
-            profile,
+            a_profile_with_room(2),
             run_id="fixed-time-room",
             cells=cells,
-            timepoints=2,
         )
         first.write_a_position("posA", some_specimen(1000))
 
-        with pytest.raises(ZmartLiveError, match="timepoint room"):
+        with pytest.raises(ZmartLiveError, match="same plan"):
             LivePublisher(
                 tmp_path,
-                profile,
+                a_profile_with_room(reopened_room),
                 run_id="fixed-time-room",
                 cells=cells,
-                timepoints=reopened_room,
             )
 
     @pytest.mark.parametrize("timepoints", [0, -1, True, 1.5])
