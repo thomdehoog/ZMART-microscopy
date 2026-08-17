@@ -407,3 +407,27 @@ Each cost real time to check, so the next session should not spend it again.
 - **A brightness measurement is shown before it is final.** The alternative is to show nothing
   until the run finishes writing, which would mean an operator watching a run seeing no
   histogram and no sensible window for its whole length.
+
+---
+
+## Observed 2026-08-17, at the workstation, not yet reproduced
+
+**The volume view is sometimes brighter warm than after a reload.** *Observed*
+by the operator while watching a built picture grow (the Thy1 one-source
+spiral); a reload settled the brightness back down. Not yet reproduced under
+instrumentation, so the mechanism is unproven. Two candidates, both plausible
+and both catchable by the same instrument:
+
+- the twin refresh deliberately draws the elder layer and its replacement
+  together for a moment, and volume compositing **adds** — so a twin that
+  lingers, or is created repeatedly under a storm of announcements, would
+  read as extra brightness that a reload (one layer, no twin) does not have;
+- the volume view's display window is derived once from what was sampled at
+  load, and a picture that has since grown is being shown through a window a
+  fresh page would derive differently.
+
+The instrument that decides it is the 3-D variant of
+`tests/test_a_built_picture_grows_while_watched.py`: the same held-view,
+hands-off discipline with the volume view toggled on, comparing not just lit
+fraction but mean brightness, warm against fresh. Until that exists and has
+been seen red, this entry is an observation, not a fault.
