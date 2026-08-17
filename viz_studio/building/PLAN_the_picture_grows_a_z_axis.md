@@ -291,7 +291,13 @@ here was measured on, now said out loud:
 - **warm equals reload** at several zoom bands AND several planes, both
   postures, under the fully-loaded census rule;
 - the storm rate holds in the flat view at depth; the volume-view rate is
-  whatever its measured budget says, written in the table, not assumed.
+  whatever its measured budget says, written in the table, not assumed;
+- **the axes are proven together, not only one at a time** (the
+  operator's order, 2026-08-17): the shared combined-axes identity
+  oracle — a small fixture stamped value = 1000·t + 100·c + z, the
+  served composer against ground truth at every (t, c, z) — lives in
+  the default suite and holds. It is defined once, in the c-and-t
+  plan's done-criteria, and neither chapter closes without it.
 
 ## Disposition of the seventeen findings
 

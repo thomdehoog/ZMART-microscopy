@@ -200,6 +200,7 @@ def _a_tile_stamped(pattern: Tile, store: Path,
             voxel_um=one.voxel_um,
             corner_um=corner_um,
             outer=one.outer,
+            outer_shape=one.outer_shape,
         ))
         for one in pattern.copies
     ]

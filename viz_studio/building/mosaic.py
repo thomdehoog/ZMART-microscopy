@@ -103,6 +103,11 @@ class Copy:
     # itself grows those axes, a copy reads one moment of one channel --
     # see :mod:`governed`.
     outer: tuple[int, ...] = ()
+    # How much room the store keeps along those front axes -- (t, c) for a
+    # governed position. Kept so the picture can notice it is being asked to
+    # show a timelapse it can only truncate, and refuse instead (see
+    # ``Mosaic.moments_recorded``).
+    outer_shape: tuple[int, ...] = ()
     # Whether one stored block of this copy actually exists on disk, asked with
     # the block's (z, y, x) coordinate. ``None`` -- every transfer's tile --
     # means nobody promised anything: zarr's fill value is the honest answer
@@ -220,6 +225,25 @@ class Mosaic:
         default_factory=dict, repr=False)
     _shape: dict[int, tuple[int, int, int]] = field(
         default_factory=dict, repr=False)
+
+    @property
+    def moments_recorded(self) -> int:
+        """How many timepoints the tiles' stores keep room for.
+
+        The writer declares its timepoint room when it first makes an array
+        — the arrays themselves are the durable declaration (see
+        ``zmart_live.coordinator``) — so the first tile that carries a time
+        axis is the place to read it. Asked by the declare door: a picture
+        that can serve one moment must refuse a timelapse rather than
+        silently show its first frame as if it were the whole run. A run
+        with no arrived positions reports 1, because the room is simply not
+        written down anywhere else yet.
+        """
+        for tile in self.tiles:
+            for copy in tile.copies:
+                if copy.outer_shape:
+                    return int(copy.outer_shape[0])
+        return 1
 
     def voxel_um(self, level: int) -> tuple[float, float, float]:
         """How large one voxel of the built picture is at this resolution.
@@ -422,6 +446,7 @@ def _read_one_tile(store: Path) -> Tile:
             voxel_um=voxel,
             corner_um=(corner[0], corner[1], corner[2]),
             outer=(0,) * (len(shape) - 3),
+            outer_shape=tuple(shape[:-3]),
         ))
     ours = described.get(OURS_IN_THE_DESCRIPTION)
     turned = float((ours or {}).get("turned_radians") or 0.0)

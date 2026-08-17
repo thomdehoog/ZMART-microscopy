@@ -11,7 +11,6 @@ from contextlib import contextmanager
 from urllib.parse import urlsplit
 
 import numpy as np
-import pytest
 import server as server_module
 from pixels import fraction_lit, image_middle
 from server import make_server
@@ -249,62 +248,40 @@ def test_positions_and_replacement_appear_from_commits_and_keep_operator_state(
             page.close()
 
 
-def test_uncommitted_time_is_not_offered_and_cached_empty_time_refreshes(
+def test_time_is_never_offered_on_a_single_moment_run(
     browser, built_dist, tmp_path
 ):
-    run = a_live_run(tmp_path, timepoints=2)
+    """A run with one moment of room has no time axis anywhere on screen.
+
+    Not offered goes further than a missing slider: the engine's own space
+    has no time axis at all, so there is no way — not even from a console —
+    to steer the view onto a moment that holds nothing. This used to force
+    the position to t=1 and watch the picture dim; the axis it forced does
+    not exist, which is the stronger form of the same promise.
+
+    A run that keeps room for SEVERAL moments no longer reaches this page
+    at all: the declare door refuses it loudly rather than serving its
+    first moment as the whole run (see
+    test_manifest_driven_refresh.test_a_timelapse_run_is_refused_loudly_not_silently_truncated).
+    The moment-by-moment promises this test once carried — uncommitted time
+    never offered, committed reach reported, a landing in a time gap never
+    flushing the decoded cache — are ordered work of the c-and-t chapter
+    (PLAN_the_picture_grows_c_and_t.md) and return with the served axis.
+    """
+    run = a_live_run(tmp_path)
     run.write_and_publish("posA", some_specimen(1500))
     with _serving(built_dist, run) as address:
         page = browser.new_page(viewport={"width": 1200, "height": 900})
         try:
             _open(page, address, 1)
             _wait_for_picture(page)
-            t0_lit = fraction_lit(page)
-            assert t0_lit > 0.04
+            assert fraction_lit(page) > 0.04
             assert page.get_by_label("t position", exact=True).count() == 0
-
-            # Not offered goes further than a missing slider: while only one
-            # moment is committed, the engine's own space has no time axis at
-            # all, so there is no way — not even from a console — to steer the
-            # view onto a moment that holds nothing. This used to force the
-            # position to t=1 and watch the picture dim; the axis it forced no
-            # longer exists until a second moment lands, which is the stronger
-            # form of the same promise.
             assert page.evaluate(
                 """() => Array.from(
                   window.zmartViewer.navigationState.position.coordinateSpace.value.names
                 )"""
             ) == ["z", "y", "x"]
-
-            prepare_without_publishing(run, "posA", 2800, moment=1)
-            page.wait_for_timeout(1500)
-            assert page.get_by_label("t position", exact=True).count() == 0
-            assert page.evaluate("() => window.zmartConfig.layers[0].committedTimeRanges") == [
-                {"start": 0, "stop": 1}
-            ]
-
-            run.publish("posA", timepoint=1)
-            _wait_for_revision(page, 2)
-            assert page.evaluate("() => window.zmartConfig.layers[0].committedTimeRanges") == [
-                {"start": 0, "stop": 2}
-            ]
-            # From here down the test wants the second moment on screen, and the
-            # served governed picture cannot show it yet: it is built z-y-x
-            # only, however far the run's own overview reaches in time. That is
-            # the recorded migration gap — "the t axis through the served
-            # picture", building/DECISION_finish_the_migration_to_one_live_path.md
-            # — not a refresh fault, so what CAN be promised today is promised
-            # above (uncommitted time is never offered, and the committed reach
-            # is reported), and the rest waits for the axis to exist.
-            if page.get_by_label("t position", exact=True).count() == 0:
-                pytest.xfail(
-                    "the governed picture serves z-y-x only; the t axis through "
-                    "the served picture is the recorded migration work"
-                )
-            assert page.get_by_label("t position", exact=True).get_attribute("max") == "1"
-            _set_range(page, "t position", 1)
-            _wait_for_picture(page)
-            assert fraction_lit(page) > 0.04
         finally:
             page.close()
 
@@ -375,31 +352,11 @@ def test_suppressed_sse_hint_is_recovered_by_conditional_check(
             page.close()
 
 
-def test_filling_a_committed_time_gap_does_not_globally_flush_decoded_cache(
-    browser, built_dist, tmp_path
-):
-    run = a_live_run(tmp_path, timepoints=3)
-    run.write_and_publish("posA", some_specimen(1500), timepoint=0)
-    with _serving(built_dist, run) as address:
-        page = browser.new_page(viewport={"width": 1200, "height": 900})
-        try:
-            _open(page, address, 1)
-            _wait_for_picture(page)
-            baseline = page.evaluate("() => window.zmartLetGo.times")
-
-            run.write_and_publish("posA", some_specimen(2200), timepoint=2)
-            _wait_for_revision(page, 2)
-            _wait_for_picture(page)
-            assert page.evaluate(
-                "() => window.zmartConfig.layers[0].committedTimeRanges"
-            ) == [{"start": 0, "stop": 1}, {"start": 2, "stop": 3}]
-
-            run.write_and_publish("posA", some_specimen(3000), timepoint=1)
-            _wait_for_revision(page, 3)
-            _wait_for_picture(page)
-            assert page.evaluate(
-                "() => window.zmartConfig.layers[0].committedTimeRanges"
-            ) == [{"start": 0, "stop": 3}]
-            assert page.evaluate("() => window.zmartLetGo.times") == baseline
-        finally:
-            page.close()
+# A browser gate named test_filling_a_committed_time_gap_does_not_globally
+# _flush_decoded_cache lived here until 2026-08-17. Its claim — a landing in
+# a committed time gap heals the ranges without tripping the whole-source
+# decoded-cache flush (zmartLetGo.times unchanged) — needs a timelapse run
+# on screen, and a timelapse run is now refused at the declare door until
+# the served picture grows a time axis. The claim is recorded as ordered
+# work in PLAN_the_picture_grows_c_and_t.md (the slider section) and the
+# gate returns with the axis, asserting pixels as well as ranges.

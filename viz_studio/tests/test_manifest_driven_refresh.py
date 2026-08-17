@@ -9,7 +9,7 @@ import threading
 import live_config
 from announcements import Announcements, ManifestWatcher
 from library import Library
-from live_config import LIVE_PICTURE, LiveRegistry, live_rows
+from live_config import LIVE_PICTURE, LiveBinding, LiveRegistry, live_rows
 from server import make_server
 
 from zmart_live.live_state import LiveStateTracker
@@ -171,52 +171,79 @@ def test_live_state_and_config_advance_only_after_commit_with_stable_urls(tmp_pa
         thread.join(timeout=5)
 
 
-def test_declared_time_room_does_not_reach_config_until_its_event_commits(tmp_path):
+def test_a_timelapse_run_is_refused_loudly_not_silently_truncated(tmp_path):
+    """The day-one order of the c-and-t plan: no moment-0-as-the-whole-run.
+
+    The served governed picture is still z-y-x only, so a run that keeps
+    room for several moments cannot be shown truthfully yet. It used to be
+    shown anyway — its first moment standing in for the whole timelapse,
+    with nothing on screen to say so. Now the declare door refuses, the
+    registry withholds the binding (the same posture as a failed bake),
+    and the reason names both the problem and what the operator can do
+    instead. This test falls the day the served time axis lands, which is
+    exactly when the refusal must be retired.
+    """
     run = a_live_run(tmp_path, timepoints=2)
     run.write_and_publish("posA", some_specimen(700))
-    server, thread = _server_for(tmp_path, run)
-    port = server.server_address[1]
-    try:
-        _, _, body = _request(port, "/api/config")
-        assert {tuple((r["start"], r["stop"]) for r in row["committedTimeRanges"])
-                for row in json.loads(body)["layers"]} == {((0, 1),)}
+    library = Library()
+    library.open(run.folder, names=["views/live/live.ome.zarr"], watch=False)
+    registry = LiveRegistry(library)
 
-        prepare_without_publishing(run, "posA", 2400, moment=1)
-        _, _, body = _request(port, "/api/config")
-        assert {tuple((r["start"], r["stop"]) for r in row["committedTimeRanges"])
-                for row in json.loads(body)["layers"]} == {((0, 1),)}
-
-        run.publish("posA", timepoint=1)
-        _, _, body = _request(port, "/api/config")
-        config = json.loads(body)
-        assert {tuple((r["start"], r["stop"]) for r in row["committedTimeRanges"])
-                for row in config["layers"]} == {((0, 2),)}
-        assert {revision for row in config["layers"] for revision in row["sourceRevisions"]} == {2}
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
+    bindings, governed = registry.refresh()
+    assert bindings == ()
+    assert governed == {0}, "the run still governs its dataset while refused"
+    reasons = list(registry.errors.values())
+    assert any("moment" in why for why in reasons)
+    assert any("pointing" in why for why in reasons), (
+        "the refusal must name what the operator can do instead"
+    )
 
 
-def test_gapped_commits_have_ranges_but_no_misleading_frame_high_water(tmp_path):
+def _bound_directly(run) -> LiveBinding:
+    """A live binding built without the registry, for testing the rows.
+
+    The registry rightly refuses to bind a timelapse run until the served
+    picture grows a time axis (see the refusal test above). The rows
+    machinery underneath — how the tracker's committed time ranges reach
+    the frontend's config — is what that future axis will stand on, so it
+    keeps its own gate by constructing the binding directly.
+    """
+    return LiveBinding(
+        tracker=LiveStateTracker(run.folder),
+        dataset_number=0,
+        dataset_root=run.folder,
+    )
+
+
+def test_the_rows_report_committed_time_ranges_and_no_false_high_water(tmp_path):
     run = a_live_run(tmp_path, timepoints=3)
     run.write_and_publish("posA", some_specimen(700))
-    prepare_without_publishing(run, "posA", 2400, moment=2)
-    run.publish("posA", timepoint=2)
-    server, thread = _server_for(tmp_path, run)
-    port = server.server_address[1]
-    try:
-        _, _, body = _request(port, "/api/config")
-        rows = json.loads(body)["layers"]
+    binding = _bound_directly(run)
+
+    def ranges():
+        binding.tracker.observe()
+        rows = live_rows(binding)
         assert rows
-        assert all(
-            row["committedTimeRanges"]
-            == [{"start": 0, "stop": 1}, {"start": 2, "stop": 3}]
-            for row in rows
-        )
-        assert all(row["frames"] == 0 for row in rows)
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
+        assert len({json.dumps(row["committedTimeRanges"]) for row in rows}) == 1
+        return rows[0]["committedTimeRanges"], rows[0]["frames"]
+
+    assert ranges() == ([{"start": 0, "stop": 1}], 1)
+
+    # Written but unpublished never reaches the config: the record, not the
+    # files, says what exists (the tracker-level twin lives in
+    # zmart_live/tests/test_live_state.py; this pins the rows on top).
+    prepare_without_publishing(run, "posA", 2400, moment=2)
+    assert ranges() == ([{"start": 0, "stop": 1}], 1)
+
+    # Publishing moment 2 leaves a gap at moment 1. The ranges say so, and
+    # the legacy contiguous `frames` count reports 0 rather than a high-water
+    # mark that would make the gap look like ordinary growth.
+    run.publish("posA", timepoint=2)
+    assert ranges() == ([{"start": 0, "stop": 1}, {"start": 2, "stop": 3}], 0)
+
+    # Filling the gap heals the ranges into one, and the count follows.
+    run.write_and_publish("posA", some_specimen(2900), timepoint=1)
+    assert ranges() == ([{"start": 0, "stop": 3}], 3)
 
 
 def test_damaged_marker_serves_last_good_state_as_degraded_until_restored(tmp_path):

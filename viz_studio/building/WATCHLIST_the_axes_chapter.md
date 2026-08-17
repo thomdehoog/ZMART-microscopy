@@ -78,3 +78,14 @@
     acquisition, pinned in the profile; gates run both shapes.
 17. **No pyramid ever crosses c or t.** Spatial economy only; every
     (t, c) pair carries its own pyramid.
+18. **A refused run must not be a silently empty page.** The day-one
+    time refusal (landed 2026-08-17) withholds the binding and the
+    reason lives in the registry's errors and the server log — but
+    nothing carries it to the operator's screen, for this refusal or
+    for the older multi-channel and failed-bake ones. An operator who
+    opens a timelapse sees an empty viewer and no explanation. When any
+    refusal is expected in front of an operator, the reason must reach
+    the page; until then this is a known gap, not an accepted design.
+19. **The axes are proven together.** One combined-axes identity oracle
+    (value = 1000·t + 100·c + z) in the default suite; independent-axis
+    gates alone close neither chapter.
