@@ -179,12 +179,24 @@ exists for our own stores.
 
 ## The z-halving decision, restated so it can actually be decided
 
-The binary switch was a false dichotomy. Thy1 itself neither always halves
-nor never halves: it **holds depth for three levels** (its z voxel being
-~6× coarser than x/y) **and then halves** — the anisotropy-aware rule, and
-the profile already has the vocabulary for it: a per-level `downsampling`
-map with a z entry. The decision is therefore *per level, pinned in the
-profile*, and the experiment has three arms (never halve; halve always;
+The binary switch was a false dichotomy — and the resolution is not to
+pick a winner but to make the pyramid's shape a fact of the data. **Both
+shapes are first-class, forever: a pyramid that shrinks only y and x, and
+one that shrinks z too.** Which one a given acquisition gets depends on
+what was acquired — a thin stack or a 2-D-ish survey shrinks x/y only; a
+true volume earns z-halving — and Thy1 itself uses the mixed form: it
+**holds depth for three levels** (its z voxel being ~6× coarser than x/y)
+**and then halves**. The profile already has the vocabulary: a per-level
+`downsampling` map with a z entry, declared per acquisition, pinned at
+sealing. Every consumer — composer, patcher, gateway, declared metadata —
+reads that map and assumes nothing; a hard-coded "z never shrinks" or "z
+always halves" anywhere in the chain is a bug by definition, and the gates
+run every correctness stage on BOTH shapes so neither can rot as the
+untested one.
+
+What remains to *decide* is only the recommendation — which shape the
+controller should choose per data shape by default — and that is the
+experiment's job, with three arms (never halve; halve always;
 hold-until-isotropic-then-halve) and four columns: bake milliseconds per
 landing, bytes fetched per zoom-out, **the held-volume refetch bill** (the
 column that dominates, per broken premise 1), and one interop afternoon —
