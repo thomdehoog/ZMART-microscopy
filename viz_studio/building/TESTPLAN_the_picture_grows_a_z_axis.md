@@ -34,6 +34,14 @@ may be built on an answer these have not given.
   machine's RAM. Red on day one by design — it is the instrument that
   demotes the RAM pin from load-bearing tier to garnish under an absolute
   byte bound.
+- **The z-step cost counter.** A bench observation (2026-08-17) says that
+  navigating in z or t *seems to trigger a refresh of the whole thing*.
+  On a FINISHED picture — no landings, nothing to refresh — step the plane
+  slider one plane and count requests and bytes at the server. Stepping
+  one plane should cost one plane's pieces; if it refetches the world,
+  that is a cost bug at any depth and a disaster at 291 planes, found
+  before it is built on. The same counter, one moment step, the day t
+  exists.
 
 ## The two kinds of data, and what each is for
 
@@ -105,6 +113,30 @@ and scrolling around, each photographed before and after F5**, compared
 only when both sides are fully loaded. F5 must never be a repair tool, in
 either posture.
 
+**The canonical recipe is the station walk**, and it exists because of a
+bench fact: navigating — especially stepping z or t — tends to trigger a
+refresh, so any test that moves will quietly repair the staleness it was
+sent to find. A single warm-versus-F5 comparison at the end of a session
+therefore proves almost nothing; the comparison must happen **at every
+station**. The walk: while landings drip continuously (the Thy1-spiral
+pattern, synthetic), visit a fixed sequence of stations — a held plane in
+a middle slab, a different plane, a different x/y position, a different
+zoom, and (the day t exists) a different moment — and at each station,
+once fully loaded, photograph warm, reload, photograph fresh, compare.
+Landings keep arriving between stations, so every comparison happens on
+ground that changed since the page last saw it. A gate passes only if
+every station matches, and the failure message names the station.
+
+Two rules keep the walk honest, because assumptions are exactly what it
+exists to replace. The z/t-refresh observation is an *observation*: the
+stage-0 counter measures it before any gate relies on or compensates for
+it — if stepping a plane does not actually refresh, the walk still works,
+and if it refreshes the world, that is a finding, not a feature. And every
+station-walk gate is red-proven by a named sabotage (suppress the
+announcement, shift the slab key, skip a commit) placed so that exactly
+one station goes wrong — a walk that cannot say *which* station fails is
+an alarm, not an instrument.
+
 - **A landing appears at a held plane, in depth** — the view held on a
   plane in a *middle* slab (never slab zero), a block lands, it appears
   unasked.
@@ -137,6 +169,18 @@ Each gate's red is produced by a named sabotage before its green counts:
 the wire-word sabotage for the announcement chain, a skipped commit for
 the serving side, the shifted slab key for delivery and bake. A gate
 nobody has watched fail is a comment.
+
+**And "watched" means with eyes, not only with assertions.** While a gate
+is being built, its oracle photographs are saved and actually *looked at*
+— the red run's screenshots inspected to confirm the picture is wrong in
+the way the sabotage intended, the green run's to confirm the picture is
+right rather than merely passing. This suite has already been saved twice
+by looking where arithmetic had stalled: the blurry-corner investigation
+ended the moment the two band photographs were put side by side, and the
+frozen-plane bug was an operator's eyes before it was anybody's
+assertion. A metric can be satisfied by the wrong picture; an inspected
+screenshot cannot. Every new gate's falsification note says what the red
+frames showed, not only that the assert fired.
 
 ## Stage 4 — the regression floor
 
