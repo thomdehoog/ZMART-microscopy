@@ -153,6 +153,25 @@ grows ring by ring:
 
 About a percentage point apart, with neither mode ahead consistently.
 
+## The named ladder was deleted (2026-08-18)
+
+The deletion the section below argues for is done. The evidence had
+finished accumulating: intermittent coarsest-band staleness on the T400
+(below), and then the ladder's own in-container delivery gate
+(`test_dirty_pieces_reach_their_level`) timing out on a clean tree.
+Deleted in one pass: the `?refresh=named` switch and mode probe, the
+`invalidateTheDirtyPieces` routing and its counters, the no-black twin
+refresh it fell back to (`refreshTheImagesWithoutBlanking`, `twinning`,
+`adopting`, `disownOneStableSource`), the announcement's `dirty` wire
+field (the API still accepts and ignores it, so an older writer's
+announce is not an error), the tests that drove the named mode, and the
+dirty-footprint arithmetic in the demo and measurement scripts. The
+engine patch keeps its per-key RPC — one registration over the same
+delivery machinery the whole-source path runs on — with a note saying
+it has no caller. What remains is ONE invalidation: drop every decoded
+piece, refetch behind the picture on screen, photographed at convergence
+by the storm census.
+
 ## The named ladder: the retirement check did not come back clean
 
 Step 4 above asks for the storm gate to be run once in each mode, and

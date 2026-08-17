@@ -78,24 +78,23 @@
     acquisition, pinned in the profile; gates run both shapes.
 17. **No pyramid ever crosses c or t.** Spatial economy only; every
     (t, c) pair carries its own pyramid.
-18. **A refused run must not be a silently empty page.** The day-one
-    time refusal (landed 2026-08-17) withholds the binding and the
-    reason lives in the registry's errors and the server log — but
-    nothing carries it to the operator's screen, for this refusal or
-    for the older multi-channel and failed-bake ones. An operator who
-    opens a timelapse sees an empty viewer and no explanation. When any
-    refusal is expected in front of an operator, the reason must reach
-    the page; until then this is a known gap, not an accepted design.
+18. **A refused run must not be a silently empty page.** A run whose
+    binding fails — a failed bake, a damaged manifest — is withheld with
+    the reason in the registry's errors and the server log, and nothing
+    carries it to the operator's screen: they see an empty viewer and no
+    explanation. (The time and channel refusals themselves retired
+    2026-08-18 — a grown run binds and serves — which narrows this gap
+    without closing it.) When any refusal is expected in front of an
+    operator, the reason must reach the page; until then this is a known
+    gap, not an accepted design.
 19. **The axes are proven together.** One combined-axes identity oracle
     (value = 1000·t + 100·c + z) in the default suite; independent-axis
     gates alone close neither chapter.
-20. **The deprecated named ladder keeps failing its own gates.** After the
-    T400's intermittent named-mode staleness, the in-container delivery
-    gate (`test_dirty_pieces_reach_their_level::…even_with_a_double`)
-    now times out on the clean tree too (2026-08-17, pre-existing,
-    confirmed by stash). Each failure strengthens the deletion already
-    scheduled for the cleanup chapter; nothing new is built on named
-    mode.
+20. **The named ladder is deleted (2026-08-18).** Its gates kept failing
+    (T400 intermittent staleness, then its own delivery gate timing out
+    in-container), and the whole-source path passed everything twice
+    over. One invalidation remains; see
+    PLAN_close_the_neuroglancer_chapter.md for the record.
 21. **The pointed door's frame rate slid while its gate was dark.** The
     drawing-keeps-up ratio (200 pointed stores against 20) was calibrated
     at 35–40% in the sandbox and measured 22% when the gate was revived

@@ -97,16 +97,11 @@ class Copy:
     dtype: str
     voxel_um: tuple[float, float, float]
     corner_um: tuple[float, float, float]
-    # The fixed indices in front of (z, y, x) for a store of more than three
-    # axes. A transfer's tile is three axes and this stays empty; a governed
-    # run's position is stored (t, c, z, y, x), and until the served picture
-    # itself grows those axes, a copy reads one moment of one channel --
-    # see :mod:`governed`.
-    outer: tuple[int, ...] = ()
-    # How much room the store keeps along those front axes -- (t, c) for a
-    # governed position. Kept so the picture can notice it is being asked to
-    # show a timelapse it can only truncate, and refuse instead (see
-    # ``Mosaic.moments_recorded``).
+    # How much room the store keeps along the axes in front of (z, y, x) --
+    # (t, c) for a governed position, empty for a plain three-axis tile. The
+    # composer reads a requested (moment, channel) against this room, and
+    # the picture's own description grows the axes when there is more than
+    # one frame of room (see ``Mosaic.frame_room``).
     outer_shape: tuple[int, ...] = ()
     # Whether one stored block of this copy actually exists on disk, asked with
     # the block's (z, y, x) coordinate. ``None`` -- every transfer's tile --
@@ -232,6 +227,7 @@ class Mosaic:
         default_factory=dict, repr=False)
     _shape: dict[int, tuple[int, int, int]] = field(
         default_factory=dict, repr=False)
+    _room: tuple[int, int] | None = field(default=None, repr=False)
 
     @property
     def frame_room(self) -> tuple[int, int]:
@@ -244,22 +240,23 @@ class Mosaic:
         three-axis tile — means a flat picture: one frame, no time or
         colour room, and the picture's own description stays three axes.
         Anything more and the served picture grows the (t, c) axes.
-        """
-        for tile in self.tiles:
-            for copy in tile.copies:
-                if len(copy.outer_shape) >= 2:
-                    return (int(copy.outer_shape[0]), int(copy.outer_shape[1]))
-        return (1, 1)
 
-    @property
-    def moments_recorded(self) -> int:
-        """How many timepoints the tiles' stores keep room for.
-
-        Asked by the declare door: a picture that cannot serve time yet
-        must refuse a timelapse rather than silently show its first frame
-        as if it were the whole run.
+        Remembered after the first ask: the answer is read from immutable
+        descriptions, and this is asked on every served piece.
         """
-        return self.frame_room[0]
+        if self._room is None:
+            found = (1, 1)
+            for tile in self.tiles:
+                for copy in tile.copies:
+                    if len(copy.outer_shape) >= 2:
+                        found = (int(copy.outer_shape[0]),
+                                 int(copy.outer_shape[1]))
+                        break
+                else:
+                    continue
+                break
+            self._room = found
+        return self._room
 
     def voxel_um(self, level: int) -> tuple[float, float, float]:
         """How large one voxel of the built picture is at this resolution.
@@ -461,7 +458,6 @@ def _read_one_tile(store: Path) -> Tile:
             dtype=kind,
             voxel_um=voxel,
             corner_um=(corner[0], corner[1], corner[2]),
-            outer=(0,) * (len(shape) - 3),
             outer_shape=tuple(shape[:-3]),
         ))
     ours = described.get(OURS_IN_THE_DESCRIPTION)
@@ -594,6 +590,18 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
             "width — optionally behind a (t, c) pair. Anything else has no "
             "agreed meaning to draw."
         )
+    # The (t, c) room has to agree too: the picture is declared with ONE
+    # room, and a tile keeping more moments than the declaration would have
+    # its later moments silently unreachable -- the same wrong-picture class
+    # the disagreement refusals below exist for.
+    rooms = {tile.copies[0].outer_shape[:2] for tile in tiles}
+    if len(rooms) > 1:
+        raise ValueError(
+            f"the tiles of {folder} keep different (t, c) room: "
+            f"{sorted(rooms)}. One picture has one room, so a tile with more "
+            "moments or channels than the declaration would quietly lose "
+            "them. This is refused rather than drawn half-true."
+        )
 
     kind = _refuse_tiles_that_disagree(tiles)
 
@@ -680,7 +688,6 @@ def read_the_mosaic_as_written(held: dict) -> Mosaic:
                     dtype=copy["dtype"],
                     voxel_um=tuple(copy["voxel_um"]),
                     corner_um=tuple(copy["corner_um"]),
-                    outer=(0,) * len(copy.get("outer_shape", ())),
                     outer_shape=tuple(copy.get("outer_shape", ())),
                 )
                 for copy in one["copies"]

@@ -52,56 +52,79 @@ _DECLARE_RETRY_S = 2.0
 
 
 def the_live_picture_declared(run_root: Path) -> Path:
-    """The governed baked picture this run is served by, declared if needed.
+    """The governed picture this run is served by, declared if needed.
 
-    Declared with ``bake=True`` so the cold open reads files and every commit
-    patches its own footprint -- the one live path the 2026-08-13 decision
-    settles on. Declaring may take seconds to minutes at scale, so it happens
-    exactly once, on the binding's first creation, and what it cost is said
-    out loud; a store already declared *from this run* and stamped as baked is
-    recognised and left alone. A store declared from some other run is
-    re-declared rather than trusted, because ``governed_from`` is what says
-    whose manifest rules these files.
+    A flat run is declared with the bake, so its cold open reads files and
+    every commit patches its own footprint -- the one live path the
+    2026-08-13 decision settles on. A run grown along (t, c) is declared
+    WITHOUT the bake for now: the bake writes one file per flat piece, and
+    the per-(t, c) bake is ordered work (the c-and-t plan's lazy per-moment
+    patch); its cold opens compose on request instead.
+
+    Declaring can take seconds to minutes at scale, so it happens once, on
+    the binding's first creation: a store already declared FROM THIS RUN in
+    the shape the run needs today is recognised and left alone. A store
+    declared from some other run, or in yesterday's shape (a run that grew
+    axes since), is re-declared rather than trusted.
     """
     store = run_root / LIVE_PICTURE
-    if _already_this_runs_baked_picture(store, run_root):
+    grown = _the_run_is_grown(run_root)
+    if _already_this_runs_picture(store, run_root, grown):
         return store
     if declare_a_governed_picture is None:
         raise RuntimeError(
             f"the live run at {run_root} needs its governed picture declared, "
             "and this checkout has no building module to declare it with."
         )
-    # A run grown along (t, c) is declared WITHOUT the bake for now: the
-    # bake writes one file per flat piece, and the per-(t, c) bake is
-    # ordered work (the c-and-t plan's lazy per-moment patch). Its cold
-    # opens compose on request instead — the flat run keeps the baked cold
-    # open it always had.
-    from zmart_live.gateway import _LiveRun
-
-    profile = _LiveRun(run_root)._geometry()[1]
-    flat = profile.timepoints == 1 and len(profile.channels) == 1
     began = time.perf_counter()
     made = declare_a_governed_picture(
-        run_root / "views" / "live", run_root, name="picture", bake=flat
+        run_root / "views" / "live", run_root, name="picture", bake=not grown
     )
     print(
-        f"declared the {'baked ' if flat else 'grown, compose-on-request '}"
+        f"declared the {'grown, compose-on-request' if grown else 'baked'} "
         f"live picture {made} in {time.perf_counter() - began:.1f} s",
         flush=True,
     )
     return made
 
 
-def _already_this_runs_baked_picture(store: Path, run_root: Path) -> bool:
-    """Whether the store already is this run's baked picture, provably.
+def _the_run_is_grown(run_root: Path) -> bool:
+    """Whether this run's picture carries the (t, c) axes.
 
-    ``baked.json`` is written only by a bake and only after it finished, so
-    its presence beside a description naming this run is the durable mark that
-    declaring already happened. Anything unreadable answers ``False`` -- the
-    re-declaration overwrites cleanly, which is the fail-closed direction.
+    The sealed profile is the declaration for every run written since the
+    time room entered it. Runs sealed BEFORE then declared their room only
+    in the arrays, so the first member's array gets a say too -- the same
+    whichever-declares-more rule the world frame applies -- or exactly
+    those runs would try to bake as flat pictures and be refused forever.
     """
-    if not (store / "baked.json").is_file():
-        return False
+    from zmart_live.gateway import _LiveRun
+
+    profile = _LiveRun(run_root)._geometry()[1]
+    if profile.timepoints > 1 or len(profile.channels) > 1:
+        return True
+    collection = run_root / "data" / "survey.ome.zarr"
+    for member in sorted(collection.glob("*/0/zarr.json")):
+        try:
+            shape = json.loads(member.read_text(encoding="utf-8")).get("shape")
+        except (OSError, ValueError):
+            continue
+        if shape and len(shape) == 5:
+            return shape[0] > 1 or shape[1] > 1
+    return False
+
+
+def _already_this_runs_picture(store: Path, run_root: Path,
+                               grown: bool) -> bool:
+    """Whether the store already is this run's picture, in today's shape.
+
+    For a flat run the durable mark is ``baked.json`` -- written only by a
+    finished bake. A grown picture bakes nothing, so its mark is its own
+    description: five axes, declared from this run. The shape has to match
+    what the run needs TODAY: a picture declared flat before its run grew
+    axes would silently truncate every later moment, so it is re-declared
+    instead. Anything unreadable answers ``False`` -- the re-declaration
+    overwrites cleanly, which is the fail-closed direction.
+    """
     try:
         described = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -111,9 +134,16 @@ def _already_this_runs_baked_picture(store: Path, run_root: Path) -> bool:
     if not governs:
         return False
     try:
-        return Path(governs).resolve() == run_root.resolve()
+        if Path(governs).resolve() != run_root.resolve():
+            return False
     except OSError:
         return False
+    axes = [axis.get("name") for axis in
+            ((described.get("attributes") or {}).get("ome") or {})
+            .get("multiscales", [{}])[0].get("axes", [])]
+    if grown:
+        return axes[:2] == ["t", "c"]
+    return axes[:1] == ["z"] and (store / "baked.json").is_file()
 
 
 @dataclass(frozen=True)

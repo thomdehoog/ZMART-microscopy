@@ -6,17 +6,13 @@ import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/a
 import {
   showTheWholePicture,
   chooseScaleWhenTheImagesAreMeasured,
-  chunkInvalidation,
-  invalidateTheDirtyPieces,
   letGoOfDecodedPieces,
   lettingGo,
-  refreshTheImagesWithoutBlanking,
   sourceRefreshing,
   sourcesStillWaiting,
   syncLayers,
   syncView,
   stretchTheDisplay,
-  twinning,
 } from "./engine.js";
 import ScaleBar from "./ScaleBar.jsx";
 import AxisSlider from "./AxisSlider.jsx";
@@ -502,22 +498,6 @@ export default function App() {
     let stop = false;
     const askAgain = async () => (stop ? "busy" : catchUp());
 
-    // Which invalidation an in-place write triggers. The DEFAULT is
-    // "whole": drop every decoded piece and let the safe refresh pump
-    // refetch each one behind the picture already on screen -- no dirty
-    // bookkeeping, and the 2026-08-15 storm identity gate passes it clean.
-    // The "named" ladder (surgical refetch of exactly the announced
-    // pieces) is retired as the default but stays one URL away
-    // (?refresh=named) so the T400 comparison can still measure both;
-    // its full removal is a cleanup-chapter step once the GPU pass
-    // confirms the choice. The page says which mode it used in
-    // window.zmartRefreshMode, so a measurement can never mistake one
-    // mode for the other.
-    const refreshMode =
-      new URLSearchParams(window.location.search).get("refresh") === "named"
-        ? "named" : "whole";
-    window.zmartRefreshMode = refreshMode;
-
     const listener = new EventSource("/api/events");
     // Any message at all means "ask again", so both the named event and anything
     // else that arrives are treated the same. Being generous here means a future
@@ -539,20 +519,14 @@ export default function App() {
         said = null; // not readable, so treat it as a plain "something changed"
       }
       if (said?.imageWrittenInPlace && engine.current) {
-        // Said outright, so there is no need to wait and find out. Three
-        // rungs, most surgical first. An announcement that names the dirty
-        // pieces refetches exactly those and touches nothing else — no
-        // flicker is possible, because nothing on screen is dropped. One
-        // that does not is refreshed behind the picture already on screen —
-        // a twin layer resolves the current truth while the old one keeps
-        // drawing. Only when nothing could be twinned either does the blunt
-        // path run, because a stale picture is still worse than a blink.
-        if (refreshMode === "whole") {
-          letGoOfDecodedPieces(engine.current);
-        } else if (invalidateTheDirtyPieces(engine.current, said.dirty) === 0
-            && refreshTheImagesWithoutBlanking(engine.current) === 0) {
-          letGoOfDecodedPieces(engine.current);
-        }
+        // Said outright, so there is no need to wait and find out: drop
+        // every decoded piece and let the safe refresh pump refetch each
+        // one behind the picture already on screen. This is the ONE
+        // invalidation — a surgical "named dirty pieces" ladder was
+        // measured against it (in-container and on the T400) and retired:
+        // the whole-source path passed the storm identity gates clean
+        // while the ladder kept failing its own delivery gates.
+        letGoOfDecodedPieces(engine.current);
         askAgain();
         return;
       }
@@ -756,13 +730,6 @@ export default function App() {
     // announcement that did nothing from one that did something that did not help.
     window.zmartLetGo = lettingGo;
     window.zmartSourceRefreshing = sourceRefreshing;
-    // What the no-black refresh did: twins asked for, adopted, abandoned. The
-    // browser tests read this to tell a refresh that never blanked from one
-    // that never happened.
-    window.zmartTwinning = twinning;
-    // What the surgical path did: announcements that named their dirty
-    // pieces, and the sources and keys actually asked to refetch.
-    window.zmartChunkInvalidation = chunkInvalidation;
 
     // Only a change in the shape of the scene can move the view: adding or
     // removing an image makes the engine work out the coordinate space afresh,

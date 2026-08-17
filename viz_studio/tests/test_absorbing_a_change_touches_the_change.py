@@ -139,7 +139,9 @@ def test_the_fold_today_sweeps_every_published_moment(tmp_path):
 
     published_units = 2 * (moments - 1) + 1   # posA has all 8, posB has 7
     positions = 2
-    assert swept == published_units + positions + 2 * positions, (
+    # Two walks over the units per derive: the generation fold, and the
+    # per-position moment gathering that came with the grown picture.
+    assert swept == 2 * published_units + positions + 2 * positions, (
         "the snapshot's sweep no longer equals published-units plus the "
         "per-position walks — if it SHRANK, the O(positions x moments) fix "
         "has landed and this pin should move to the landing-sized count it "
