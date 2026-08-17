@@ -318,12 +318,22 @@ def _playwright():
 def browser(_playwright):
     """A headless Chromium with software GL, or skip if none is usable.
 
-    Software GL is required because neuroglancer needs WebGL2 and CI machines
-    have no GPU. A machine whose policy blocks the downloaded browser fails at
-    launch rather than at import, so both are treated as "cannot run here" — but
+    Software GL is the default because neuroglancer needs WebGL2 and CI
+    machines have no GPU. On a machine that HAS one — the workstation pass —
+    set ``ZMART_REAL_GPU=1`` and the same fixture launches against the real
+    graphics stack instead, so every browser gate measures the hardware the
+    operator will actually use. Without the variable, a workstation would
+    silently run the gates on software rendering and call it a GPU pass.
+
+    A machine whose policy blocks the downloaded browser fails at launch
+    rather than at import, so both are treated as "cannot run here" — but
     only after we have looked for a Chromium the machine already has.
     """
-    gl_args = ["--use-gl=angle", "--use-angle=swiftshader", "--ignore-gpu-blocklist"]
+    if os.environ.get("ZMART_REAL_GPU"):
+        gl_args = ["--ignore-gpu-blocklist", "--enable-gpu"]
+    else:
+        gl_args = ["--use-gl=angle", "--use-angle=swiftshader",
+                   "--ignore-gpu-blocklist"]
     try:
         launched = _launch_chromium(_playwright, gl_args)
     except Exception as exc:
