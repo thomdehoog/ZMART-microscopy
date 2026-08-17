@@ -76,13 +76,23 @@ packaging of files, not a decompression unit. On a governed store, a
 plan derived from the slab economy was calibrated against the wrong door.
 
 *What replaces it:* the 119/128 ms experiment re-run on a store the
-governed writer actually wrote, before any slab code exists — an hour, and
-it decides whether the writer's chunking is on the table. If it is, that
-is a format change to every future run with contract and interop
-consequences, budgeted openly (the contract pins the profile's chunking);
-if it is not, the bake arithmetic below is priced at per-plane decode
-honestly. Nothing downstream may assume the slab economy until this number
-exists for our own stores.
+governed writer actually wrote — now done (2026-08-17, in
+`MEASURED_stage0_depth_instruments.md`): one plane 36 ms, thirteen planes
+455 ms, per-plane cost almost exactly linear. The economy is absent from
+our stores, and the fork resolves into a principle rather than a choice:
+**chunk and shard geometry is the data's fact, and the viewer reads it
+from each store's own metadata — always.** Thy1 packs 32 planes per
+compressed block, our writer packs one, a stranger's instrument will pick
+something else, and the composer already lives this way (its fast direct
+path validates a store's exact recipe and falls back to the general zarr
+path for anything foreign). So the writer's plane-packing becomes a
+per-acquisition profile choice, exactly like the pyramid's z-shape — deep
+acquisitions may pack several planes per block where that pays, flat ones
+keep one — and no viewer component may hard-code either: slab depths are
+read from the store (`slab_depths` already does), costs are priced from
+what the store declares, and the correctness gates run on at least two
+chunk layouts so the layout that is never tested cannot rot. What the
+bake may *assume* is only what the store in front of it says.
 
 ## What already exists (corrected)
 
