@@ -60,6 +60,14 @@ rules the reviews added:
   slab depth (13 planes with an 8-plane slab names both the
   ceiling-versus-floor seam and the final partial slab). Even-only depths
   let a last-plane-blank off-by-one pass every voxel comparison.
+- **Every correctness stage runs on both pyramid shapes.** The data
+  decides whether a pyramid shrinks only y and x or shrinks z too, so
+  both shapes are first-class and the gates are parameterized over them:
+  one fixture profile whose per-level downsampling leaves z alone, one
+  whose z halves (and, once the mixed rule exists, one that holds z for
+  some levels and then halves — the Thy1 shape). A gate green on one
+  shape only certifies one shape; the shape that is never run is the
+  shape that rots.
 
 **The Thy1 blocks are the bench rung, not a test bed** — claims are
 validated there, never debugged there, exactly as before.

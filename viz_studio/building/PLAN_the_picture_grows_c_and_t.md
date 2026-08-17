@@ -186,6 +186,13 @@ large scale; nothing waits on both at once.
 
 - No z — that is the depth plan, reviewed separately; the two share only
   the declare-the-room rule and must not gate on each other.
+- No pyramids over c or t — that is not a thing, and deliberately so.
+  A pyramid is a spatial economy (more specimen per pixel), and the
+  question it answers exists only for x, y and, in true volumes, z.
+  Averaging channels would invent colours nobody recorded, and blurring
+  time would smear motion into ghosts that exist in no frame. Every
+  (t, c) pair carries its own spatial pyramid; the axes themselves are
+  never downsampled.
 - No multi-moment compositing (temporal projections, motion overlays):
   views may one day compute them, but the served picture answers one
   (t, c) at a time, full stop.
