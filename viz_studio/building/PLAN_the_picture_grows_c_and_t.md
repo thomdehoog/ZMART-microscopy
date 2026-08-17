@@ -62,6 +62,24 @@ honest version.
   remedy named in the message. One unit test, red against the shipped
   code today.
 
+  **Landed 2026-08-17.** The declare door reads the timepoint room from
+  the run's own arrays (the writer's durable declaration) and refuses
+  beside the channel check; the registry withholds the binding with the
+  reason, the same posture as a failed bake. The red-then-green gate is
+  `test_the_viewer_refuses_to_truncate_a_timelapse`, and the registry
+  posture is pinned by
+  `test_a_timelapse_run_is_refused_loudly_not_silently_truncated`. Two
+  consequences the landing surfaced, both now owned here: the rows
+  machinery under the future slider keeps its own gate by direct binding
+  (`test_the_rows_report_committed_time_ranges_and_no_false_high_water`),
+  and a browser gate's claim went dormant with the refusal — **a landing
+  that fills a committed time gap must heal the ranges without tripping
+  the whole-source decoded-cache flush** — recorded in the slider section
+  below and returning with the axis. One honest gap remains until
+  timepoints enter the sealed profile: a timelapse run that has not yet
+  landed a single position cannot be told from a flat one, because the
+  room is written nowhere but the arrays.
+
 ## The synchronous stall this axis owns (the review's first finding)
 
 A replacement on a long timelapse dirties its footprint times every
@@ -161,9 +179,14 @@ the repository's remembered-absence doctrine warns against offering
 unwritten frames. This plan keeps that behaviour: **the slider ranges
 over written moments** (driven by the publisher's written-moments
 declaration, once it exists), and the declared ceiling appears as text
-beside it ("moment 37 of 500 declared"), not as slider room. One browser
-gate covers the seam: hold the page while a new moment lands, and the
-slider's range grows without navigation or reload.
+beside it ("moment 37 of 500 declared"), not as slider room. Two browser
+gates cover the seam: hold the page while a new moment lands, and the
+slider's range grows without navigation or reload; and a landing that
+fills a committed time gap heals the ranges into one without tripping
+the whole-source decoded-cache flush — the gate that watched this
+(`zmartLetGo.times` unchanged while the gap closes) went dormant when
+the day-one refusal landed, and returns with the axis, asserting pixels
+as well as ranges.
 
 ## How we will know it is done
 
@@ -182,6 +205,15 @@ standing gate, in the default suite, record-level and browser-free:
   either axis. This gate is what lets the multi-channel refusal retire
   without reopening the door to the disease it guarded against — the
   refusal falls only the day this oracle stands.
+- **The axes are proven together, not only one at a time** (the
+  operator's order, 2026-08-17). The oracle's stamp grows the third
+  axis for almost nothing — value = 1000·t + 100·c + z on a fixture a
+  few planes deep — so one record-level gate catches a collapse, swap,
+  or off-by-one on any of z, c, t **or their combinations**. Neither
+  this chapter nor the depth chapter closes on independent-axis gates
+  alone; the combined rung is shared between the two plans, and a
+  station-walk variant that steps all three axes follows once the
+  served axes exist.
 - **The moment-untouched checks compare files, not screenshots.** "Switch
   to m − 1 and nothing has moved" is masked by navigation-triggered
   refresh under the whole-source default, so the assertion is on the

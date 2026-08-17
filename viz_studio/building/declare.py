@@ -244,6 +244,15 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
                 "gate work's next step; until then, a multi-colour run is "
                 "shown by pointing."
             )
+        moments = composer.mosaic.moments_recorded
+        if moments > 1:
+            raise ValueError(
+                f"the run at {run} keeps room for {moments} moments, and this "
+                "picture can serve exactly one — declaring it would silently "
+                "show the first moment as if it were the whole timelapse. "
+                "Growing the served time axis is the gate work's next step; "
+                "until then, a timelapse is shown by pointing."
+            )
 
         store = where / f"{name}.ome.zarr"
         store.mkdir(parents=True, exist_ok=True)

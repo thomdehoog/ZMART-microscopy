@@ -256,6 +256,32 @@ class TestTheSpiralWithColoursAndMoments:
             declare_a_governed_picture(run.folder / "views" / "shown",
                                        run.folder, name="live")
 
+    def test_the_viewer_refuses_to_truncate_a_timelapse(self, tmp_path):
+        """Several moments must be refused as loudly as several colours.
+
+        Until the served picture grows a time axis, showing a timelapse
+        would silently serve its first moment as if it were the whole run
+        -- science quietly missing from the screen. The c-and-t review
+        (finding 7) caught exactly that happening, so this gate orders the
+        refusal: loud, and naming what the operator can do instead.
+        """
+        from zmart_live.coordinator import LivePublisher
+        from zmart_live.model import GridCell
+        from zmart_live.profiles import plan_the_writing
+
+        profile, _ = plan_the_writing("overview", frame=harness.FRAME,
+                                      z_planes=1)
+        run = LivePublisher(
+            tmp_path / "experiment" / "acquisitions" / "timelapse",
+            profile, run_id="spiral-moments",
+            cells={GridCell(0, 0): "p00"}, timepoints=2,
+        )
+        one_colour = np.full((1, harness.FRAME, harness.FRAME), 1000, "uint16")
+        run.write_and_publish("p00", one_colour, timepoint=0)
+        with pytest.raises(Exception, match="moment"):
+            declare_a_governed_picture(run.folder / "views" / "shown",
+                                       run.folder, name="live")
+
 
 # ---------------------------------------------------------------------------
 # The growth on screen, under both invalidations
