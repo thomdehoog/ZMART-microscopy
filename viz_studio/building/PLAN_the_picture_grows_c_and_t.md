@@ -93,8 +93,31 @@ touch a neighbouring moment on purpose.
 
 ## How we will know it is done
 
+Every browser gate here is a Playwright test, and every one measures the
+same four-square grid — because the two postures catch different diseases,
+and the F5 comparison is the oracle for both:
+
+|                    | before F5 (warm)            | after F5 (fresh)          |
+|--------------------|-----------------------------|---------------------------|
+| **held view**      | growth appears unasked      | must equal the warm shot  |
+| **scrolling around** | no stale or dark ground   | must equal the warm shot  |
+
+A held view — hands off, no navigation at all — is the hard test for
+in-place refresh, because navigation asks fresh questions and quietly
+repairs staleness: the Thy1 announce-word bug was invisible to anyone who
+scrolled and obvious to anyone who held still. Scrolling and zooming
+during landings is the hard test for the refresh machinery under fire,
+because that is where the original black stripes lived. And in both
+postures the warm picture is photographed BEFORE a reload and compared to
+the same view AFTER one: if F5 changes anything (once both sides are fully
+loaded, per the storm census rule), the held page was lying, however
+plausible it looked. Pressing F5 must never be a repair tool — that
+sentence is the assertion, in every gate, in both postures.
+
 The existing gates grow axes rather than new machinery, in the depth plan's
-own pattern:
+own pattern — `test_a_built_picture_grows_while_watched.py` is the held-view
+template and `test_a_commit_storm_under_zooming.py` the scrolling one, and
+each (t, c) gate below states which posture it runs, or runs both:
 
 - **grows-while-watched, per moment**: hold the view on moment m while
   landings arrive in it — they appear within the flat picture's bound;
