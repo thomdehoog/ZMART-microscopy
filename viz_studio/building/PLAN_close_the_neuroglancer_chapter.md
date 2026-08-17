@@ -97,6 +97,117 @@ Nothing merges on a software-GL container's word. On the T400:
 Green on 1–3 means merge; the branch becomes the trunk the next work
 stands on.
 
+## What the workstation measured, 2026-08-17
+
+The pass was run on the 24-core workstation with the NVIDIA T400. The
+first thing to establish was that the card was really being used, because
+a pass on software rendering would have been worse than no pass at all.
+With `ZMART_REAL_GPU=1` the browser reported
+`ANGLE (NVIDIA, NVIDIA T400 4GB (0x00001FF2) Direct3D11 vs_5_0 ps_5_0, D3D11)`,
+so every number below was drawn by the graphics card rather than by the
+processor pretending to be one. Worth recording plainly, because a note
+in this repository's own memory claimed the card could only be reached
+with a visible browser window; on this path that is not so, and a
+headless run is a valid pass.
+
+**The four browser gates: 23 passed in 377.79 s (6 min 17 s).**
+
+- **The screen never goes black.** The recorder counted **zero** frames
+  in which the picture collapsed, and zero milliseconds of collapse,
+  across 121 frames after the change arrived, at a typical frame of
+  16.7 ms — which is to say a steady sixty frames a second. The picture
+  came back every time.
+- **A stuck refresh stalls only itself.** One reply was held open at the
+  socket and the unrelated refreshes carried on.
+- **A slow or transient fault heals.** A chunk was deliberately made to
+  fail; it was retried eleven times and recovered, with no refresh
+  failures and no two refreshes ever downloading the same piece at once.
+  The measurement that matters is that the coverage after the storm
+  quieted and the coverage of a freshly reloaded page were identical to
+  the last digit: 0.6451869658119658 both ways.
+- **Tiles advance during a storm rather than at the end of one.**
+  Coverage rose from 0.295 to 0.641 in seventeen visible steps while
+  positions were still landing.
+- **The commit storm under zooming**, which is the strictest gate here
+  and the one that was red before this campaign's fix: **20.00 landings
+  a second sustained over 1,456 commits** on a 40x40 survey, with real
+  wheel and drag throughout, and the picture after the storm matching a
+  freshly loaded one at every zoom band.
+
+All of this is faster than the software-rendering baseline the plan was
+written against, as the ladder measured on this same machine already
+showed: landing 144 ms at 64 positions and 186 ms at 4,096, where the
+container needed 196 and 210.
+
+**The spiral gate ran both refresh modes**, and they are indistinguishable.
+The figures are the fraction of the picture that is lit as the survey
+grows ring by ring:
+
+| ring | named | whole |
+|---|---|---|
+| seeded | 0.0797 | 0.0797 |
+| 2 | 0.1525 | 0.1653 |
+| 3 | 0.2912 | 0.2825 |
+| 4 | 0.4365 | 0.4494 |
+| 5 | 0.6331 | 0.6418 |
+
+About a percentage point apart, with neither mode ahead consistently.
+
+## The named ladder: the retirement check did not come back clean
+
+Step 4 above asks for the storm gate to be run once in each mode, and
+says that both modes green on the workstation means the ladder may
+safely be deleted. That is not what happened, and the plan should not be
+read as though it were.
+
+The gate was run twice with `ZMART_STORM_REFRESH=named`, back to back,
+on the same machine with the same recipe. **It failed once and passed
+once.**
+
+The failure was the campaign's familiar shape. At the most zoomed-out
+band the storm session showed 81.7 per cent of the picture lit where a
+freshly loaded page over the same server showed 100 per cent — ground
+that stayed stale until a reload. Every other band matched (100 per cent
+at 0.40x and 1.00x, 41 per cent both ways at 2.50x). The landing rate was
+not the problem: named sustained 19.95 a second against whole's 20.00.
+The band that failed is the one where a single coarse piece covers many
+positions, which is exactly where the ladder's routing of an announcement
+to the right resolution level has to be correct, and it is the same place
+the ladder once produced dark stripes over freshly landed ground.
+
+The second run passed at every band, at 20.00 a second, in 248 seconds.
+
+Whole mode, by contrast, passed this gate twice in the same session with
+every band at 100 per cent.
+
+So the honest reading is that the named ladder is *intermittently* stale
+at the coarsest zoom on real hardware. That strengthens rather than
+weakens the case for deleting it in the cleanup chapter — an occasional
+stale picture is harder to live with than a consistent one, because
+nobody can reproduce it on demand — but the condition step 4 actually
+sets was not met, and whoever carries out the deletion should know that
+rather than believe a clean comparison was made.
+
+**The failing run's evidence was not kept**, which is a mistake worth
+recording so it is not repeated. `ZMART_STORM_DEBUG` was set only on the
+second attempt, and that attempt passed, so the folder at
+`D:\zmart-gpu-pass-20260817\named-storm-red` holds the diagnostics of a
+*successful* run despite its name. Anything expected to be unreliable
+should have its debug folder set on the first run, not the second. To
+capture the failure properly, run the named gate in a loop with the debug
+folder set until it goes red, and read the invalidation ledger from the
+run that actually failed.
+
+## What is still owed after this pass
+
+Steps 3, 5 and 6 of the workstation prompt remain: the twenty-minute read
+of the pinned Neuroglancer eviction path (review finding C4, which only
+the installed library can answer), the long soak with a realistic
+acquisition and the viewer open for hours, and the single whole-suite run
+at the very end. The options harness must be built before that suite run
+(`npm --prefix viz_studio/options/harness install && … run build`), or a
+part of the picture-reading tests will skip without saying much about it.
+
 ## Testing that is genuinely still missing
 
 - **Channels and time need no ladder.** The ladder answered the question
