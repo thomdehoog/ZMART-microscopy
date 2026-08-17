@@ -41,13 +41,33 @@ Nothing downstream may assume the Thy1 economy until this fork is decided.
 Thy1 bench confirmation still owed for the absolute numbers; the RATIO is
 shape-driven and already decisive.
 
+## Instrument 3 — the pinned-bytes arithmetic (2026-08-17, in-container)
+
+`measure_the_pinned_bytes.py`, applying the composer's own pinning rule
+(every level ≤ `PINNED_SHARE` of full-resolution voxels, plus the coarsest,
+decoded and unevictable) to three canvases, for all three pyramid shapes,
+against this machine's 16.9 GB:
+
+- **40×40 flat survey** (the ladder's shape): 0.02 GB pinned — the flat
+  geometry that made the pin feel safe.
+- **49 Thy1 blocks** (the motivating evening): 0.10–0.22 GB — also fine,
+  which is why the demo never hurt.
+- **4,096 Thy1-shaped positions, 291 deep**: **18.87 GB pinned with z
+  never halving — more than this machine has**; ~8.1–8.3 GB with z
+  halving (Thy1's held-then-halved shape included) — "tight" at best,
+  before the block cache, the slab cache, and a browser.
+
+The verdict both reviews reached by hand, now re-runnable by anyone:
+the share-based pin is not a dial position in depth. The pin budget
+becomes an absolute byte bound sized per machine (the revised plan
+already says so); this instrument joins the ladder per rung and asserts
+before any warm pass.
+
 ## Instruments still to run
 
 - Instrument 1 — the held-volume refetch counter (requests and bytes in
   the window after one announcement, volume view held), on a synthetic
   deep survey.
-- Instrument 3 — the pinned-bytes arithmetic per deep profile, asserted
-  against machine RAM.
 - Instrument 4 — the z-step cost counter on a finished picture (one plane
   step should cost one plane's pieces; the bench observation says it may
   refresh far more).
