@@ -37,3 +37,17 @@ Concretely:
 
 Good docs are not decoration here; they are how a biologist learns to drive
 their microscope. Treat them with the same care as the code.
+
+## Look at the pictures (a standing habit for browser tests)
+
+This is a viewer; its bugs are pictures. Whenever you build, debug, or
+falsify a browser test, save the oracle screenshots and **actually look at
+them with your vision capability** — do not settle for the numbers alone.
+Look at the red run to confirm the picture is wrong in the way the sabotage
+intended, and at the green run to confirm the picture is right rather than
+merely passing. Put warm and fresh side by side; render a difference image
+when the numbers disagree with your expectations. This repository has been
+saved more than once by a look where arithmetic had stalled — the
+blurry-corner investigation of 2026-08-15 ended the moment the two band
+photographs were placed side by side. A metric can be satisfied by the
+wrong picture; an inspected screenshot cannot.
