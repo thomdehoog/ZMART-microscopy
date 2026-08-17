@@ -38,9 +38,8 @@ for extra in (str(_HERE), str(_VIZ / "tests"), str(_VIZ.parent)):
         sys.path.insert(0, extra)
 
 import numpy as np  # noqa: E402
-from PIL import Image  # noqa: E402
-
 from data_server import Ledger, make_measurement_server  # noqa: E402
+from PIL import Image  # noqa: E402
 
 # Software rendering. There is no graphics card in the containers this is
 # developed in, and without these the drawing surface is simply blank — the

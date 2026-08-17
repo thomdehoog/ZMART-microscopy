@@ -53,7 +53,6 @@ sys.path.insert(0, str(_VIZ / "building"))
 import measure_a_governed_run_at_scale as harness  # noqa: E402
 from declare import declare_a_governed_picture  # noqa: E402
 from server import make_server  # noqa: E402
-
 from test_a_commit_storm_under_zooming import _announce, _dirty_for  # noqa: E402
 
 ACROSS = int(os.environ.get("ZMART_SPIRAL_ACROSS", "12"))
@@ -124,7 +123,7 @@ class TestTheSpiralItself:
     def test_each_ring_is_walked_contiguously(self, across):
         for ring in range(1, ring_of(0, 0, across) + 1):
             walk = one_ring_walk(ring, across)
-            for here, there in zip(walk, walk[1:]):
+            for here, there in zip(walk, walk[1:], strict=False):
                 assert max(abs(here[0] - there[0]), abs(here[1] - there[1])) == 1, (
                     f"ring {ring} jumps from {here} to {there} -- not a walk"
                 )

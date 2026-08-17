@@ -39,8 +39,9 @@ sys.path.insert(0, str(VIZ))
 sys.path.insert(0, str(VIZ / "backend"))
 sys.path.insert(0, str(VIZ / "tests"))
 
-from server import make_server  # noqa: E402
 from measure_the_frame_rate_of_a_linked_view import a_browser  # noqa: E402
+from server import make_server  # noqa: E402
+
 from zmart_storage.canvas import Channel, _declare_one  # noqa: E402
 from zmart_storage.linked import PlacedTile, link_the_tiles  # noqa: E402
 

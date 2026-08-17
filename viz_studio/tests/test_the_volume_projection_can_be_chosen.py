@@ -21,8 +21,6 @@ from __future__ import annotations
 
 import statistics
 
-import pytest
-
 MODE_OF_EACH_LAYER = """() => window.zmartViewer.layerManager.managedLayers
     .filter((m) => m.layer && m.layer.type === 'image')
     .map((m) => m.layer.volumeRenderingMode.value)"""
@@ -37,8 +35,9 @@ def _spread(page) -> float:
     The mean says nothing useful here -- a milky picture and a crisp one can share
     it. What separates them is whether anything stands out from anything else.
     """
-    from PIL import Image
     import io
+
+    from PIL import Image
     # A generous deadline on purpose. The screenshot waits for a stable
     # frame, and the accumulation projection of the demo volume takes ~35 s
     # to draw one on a machine rendering in software (measured 2026-08-15;

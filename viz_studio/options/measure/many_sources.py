@@ -139,12 +139,11 @@ for extra in (str(_HERE), str(_VIZ / "backend"), str(_VIZ.parent)):
     if extra not in sys.path:
         sys.path.insert(0, extra)
 
-import numpy as np  # noqa: E402
-
 import acquisitions  # noqa: E402
 import data_server  # noqa: E402
 import drive  # noqa: E402
 import linking  # noqa: E402
+import numpy as np  # noqa: E402
 from drive import Recording, pan_steadily  # noqa: E402
 
 from zmart_storage import Channel  # noqa: E402
@@ -496,7 +495,7 @@ def _panning(harness, name: str) -> dict:
         last = picture
     gaps = [
         round((later - earlier) * 1000, 1)
-        for earlier, later in zip(changed_at, changed_at[1:])
+        for earlier, later in zip(changed_at, changed_at[1:], strict=False)
     ]
     found = {
         "seconds the drag took": round(elapsed, 2),
@@ -1040,7 +1039,7 @@ def run_the_overlap_question(args, data_dir: Path) -> int:
         with drive.Harness(data_dir, out / f"overlap-{rung}",
                            option=args.option) as harness:
             for shortly, (label, (stores, view)) in zip(
-                ("butted", "overlapping"), conditions.items()
+                ("butted", "overlapping"), conditions.items(), strict=True
             ):
                 print(f"  {label} …", flush=True)
                 asked = [
@@ -1165,7 +1164,7 @@ def main() -> int:
                 also_grouped=args.also_grouped,
             )
             for shortly, (label, asked) in zip(
-                ("A", "B", "Bgrouped"), arrangements.items()
+                ("A", "B", "Bgrouped"), arrangements.items(), strict=True
             ):
                 taken = []
                 for again in range(args.repeats):

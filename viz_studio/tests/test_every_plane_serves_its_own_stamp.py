@@ -39,11 +39,11 @@ import zarr
 _VIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_VIZ / "building"))
 
-from zmart_live.model import GridCell  # noqa: E402
-from zmart_live.profiles import plan_the_writing  # noqa: E402
-
 from check import decode  # noqa: E402
 from governed import GovernedRun  # noqa: E402
+
+from zmart_live.model import GridCell  # noqa: E402
+from zmart_live.profiles import plan_the_writing  # noqa: E402
 
 DEPTH = 13     # ragged on purpose
 STAMP = 1000   # plane k carries the value STAMP + k, everywhere, exactly
@@ -107,9 +107,8 @@ def test_the_governed_door_serves_the_stamp_one_plane_per_block(tmp_path):
 
 def test_the_built_door_serves_the_stamp_several_planes_per_block(tmp_path):
     """Thy1's packing: 8-plane blocks over 13 planes, the final block partial."""
-    from declare import declare_a_built_picture
-
     import served
+    from declare import declare_a_built_picture
 
     side = 256
     store = tmp_path / "stores" / "stamped.ome.zarr"
@@ -191,9 +190,8 @@ def test_the_built_door_serves_every_frame_through_the_real_address(tmp_path):
     takes — so a shift anywhere between the address and the pixels decodes
     to another frame's stamp and fails loudly.
     """
-    from declare import declare_a_built_picture
-
     import served
+    from declare import declare_a_built_picture
 
     side = 128
     store = tmp_path / "stores" / "combined.ome.zarr"
@@ -273,9 +271,9 @@ def test_the_governed_door_serves_the_record_not_the_files(tmp_path):
     everything), and a moment published later starts serving the moment
     it is published.
     """
-    from zmart_live.coordinator import LivePublisher
-
     from governed import GovernedRun
+
+    from zmart_live.coordinator import LivePublisher
 
     frame = 384
     profile, _ = plan_the_writing(

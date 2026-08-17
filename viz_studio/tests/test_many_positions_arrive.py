@@ -33,10 +33,10 @@ import json
 import threading
 
 import numpy as np
-from pixels import assert_something_was_drawn
 from measure_the_frame_rate_of_a_linked_view import (  # noqa: E402
     EVERY_SOURCE_RESOLVED,
 )
+from pixels import assert_something_was_drawn
 from server import make_server
 
 # Enough positions to show pacing plainly at a small group size, and few enough that
@@ -151,7 +151,7 @@ setInterval(() => {
   const seen = window.zmartArrivals;
   if (seen[seen.length - 1] !== held) seen.push(held);
 }, 5);
-""" % GROUP
+""" % GROUP  # noqa: UP031 -- the payload is JavaScript; its braces would fight str.format
 
 HELD = """() => window.zmartViewer.layerManager.managedLayers
            .filter((managed) => managed.layer && managed.layer.type === 'image')

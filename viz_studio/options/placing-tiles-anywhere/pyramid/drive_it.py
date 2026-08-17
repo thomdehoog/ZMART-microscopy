@@ -24,14 +24,12 @@ for extra in (REPO, REPO / "viz_studio" / "options" / "measure", REPO / "viz_stu
     sys.path.insert(0, str(extra))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import numpy as np
-
 import drive
-from acquisitions import write_the_square
-from many_sources import which_engine_is_drawing, lit_share, _the_page_can_open_a_viewer
-
 import geometry as g
-from compose_server import serve, STORE
+import numpy as np
+from acquisitions import write_the_square
+from compose_server import STORE, serve
+from many_sources import _the_page_can_open_a_viewer, lit_share, which_engine_is_drawing
 
 HERE = Path(__file__).resolve().parent
 POSITIONS = HERE / "run" / "pyramid.ome.zarr" / "positions"
@@ -150,16 +148,16 @@ def main() -> None:
                 "first_six": reached_for_first, "by_first_pixel": by_first_pixel,
             })
             print(f"\n{name} — {zoom} micrometres to the pixel")
-            print(f"   time to first pixel on screen : "
+            print("   time to first pixel on screen : "
                   + (f"{first_pixel:.2f} s" if first_pixel is not None
                      else "nothing was ever lit"))
             print(f"   share of the window lit       : {lit_share(shot)}")
-            print(f"   pieces asked for, by size     : "
+            print("   pieces asked for, by size     : "
                   + ", ".join(f"level {level}: {asked[level]}"
                               for level in range(g.LEVELS)))
             print(f"   the first six it asked for    : sizes "
                   f"{reached_for_first}")
-            print(f"   served before anything was lit: "
+            print("   served before anything was lit: "
                   + ", ".join(f"level {level}: {by_first_pixel[level]}"
                               for level in range(g.LEVELS)))
             for level in drew:

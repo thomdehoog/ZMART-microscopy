@@ -145,7 +145,7 @@ def voxel_size_um(image: Path) -> dict:
         if step["type"] == "scale":
             scale = step["scale"]
     found = {}
-    for name, unit, size in zip(names, units, scale or []):
+    for name, unit, size in zip(names, units, scale or [], strict=False):
         # Both spellings occur in the wild. The writer here spells it out in
         # full; the engine insists on the short form.
         if unit in ("micrometer", "um", "µm"):

@@ -38,11 +38,12 @@ from pathlib import Path
 _VIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_VIZ / "building"))
 
+import os  # noqa: E402
+
 import measure_a_governed_run_at_scale as harness  # noqa: E402
+import server as server_module  # noqa: E402
 from declare import declare_a_governed_picture  # noqa: E402
 from server import make_server  # noqa: E402
-import server as server_module  # noqa: E402
-import os  # noqa: E402
 
 # The announcement helper and the dirty-footprint arithmetic are the storm
 # gate's own, imported rather than copied: which pieces a landing touches
@@ -52,7 +53,6 @@ import os  # noqa: E402
 # begin. One implementation, shared, kept honest by the gate that uses it
 # hardest.
 from test_a_commit_storm_under_zooming import _announce, _dirty_for  # noqa: E402
-
 
 # How long to give the second refresh to arrive while the first hangs, in
 # seconds. Generous on purpose: the point is not speed but independence, and

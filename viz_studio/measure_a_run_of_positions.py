@@ -77,8 +77,8 @@ from measure_the_frame_rate_of_a_linked_view import (  # noqa: E402
     WATCH_THE_DRAWING,
     a_browser,
     another_browser,
-    say_what_is_drawing,
     how_long_a_drawing_frame_took,
+    say_what_is_drawing,
 )
 from pixels import fraction_lit  # noqa: E402
 from server import make_server  # noqa: E402
@@ -223,7 +223,7 @@ def how_it_drew(browser, built: Path, folder: Path, store: str,
         # *worst* says the longest an operator ever watched the picture sit still,
         # which is what makes a viewer feel broken even when the average looks
         # respectable.
-        gaps = sorted(later - earlier for earlier, later in zip(at, at[1:]))
+        gaps = sorted(later - earlier for earlier, later in zip(at, at[1:], strict=False))
         return {
             "lit": fraction_lit(page),
             "opened": opened,

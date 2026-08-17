@@ -5,13 +5,10 @@ import sys
 import urllib.request
 from pathlib import Path
 
-import numpy as np
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import geometry as g
-from compose import Composer
-from compose_server import serve, STORE
+from compose_server import STORE, serve
 
 HERE = Path(__file__).resolve().parent
 POSITIONS = HERE / "run" / "anywhere.ome.zarr" / "positions"

@@ -35,10 +35,10 @@ import numpy as np
 _VIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_VIZ / "building"))
 
+from governed import GovernedRun  # noqa: E402
+
 from zmart_live.model import GridCell, rounded_up  # noqa: E402
 from zmart_live.profiles import plan_the_writing  # noqa: E402
-
-from governed import GovernedRun  # noqa: E402
 
 DEPTH = 13   # ragged, per the depth test plan's fixture rule
 FRAME = 384
@@ -145,7 +145,7 @@ def test_pieces_asked_for_all_at_once_are_not_muddled(tmp_path):
         with ThreadPoolExecutor(max_workers=8) as pool:
             answers = list(pool.map(
                 lambda address: composer.bytes_for(*address), addresses))
-        together = dict(zip(addresses, answers))
+        together = dict(zip(addresses, answers, strict=True))
         muddled = [address for address in addresses
                    if alone[address] != together[address]]
         assert not muddled, (

@@ -29,12 +29,10 @@ work at all.
 
 from __future__ import annotations
 
-import json
 import logging
 import queue
 import threading
 from collections.abc import Callable
-
 
 log = logging.getLogger("viz_studio.announcements")
 

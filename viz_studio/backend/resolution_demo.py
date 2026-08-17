@@ -58,8 +58,8 @@ def _add_sphere_shell(volume: np.ndarray) -> None:
     zz, yy, xx = np.ogrid[0:_DEPTH, 0:_HEIGHT, 0:_WIDTH]
     radius = np.sqrt(
         ((zz - _DEPTH / 2) * 1.0) ** 2
-        + ((yy - _HEIGHT * 0.78)) ** 2
-        + ((xx - _WIDTH / 2)) ** 2
+        + (yy - _HEIGHT * 0.78) ** 2
+        + (xx - _WIDTH / 2) ** 2
     )
     shell = (radius > 38) & (radius < 42)
     volume[shell] = _SIGNAL

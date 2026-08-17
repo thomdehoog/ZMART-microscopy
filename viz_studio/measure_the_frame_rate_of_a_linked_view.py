@@ -330,9 +330,11 @@ def how_long_a_drawing_frame_took(at: list[float], drawn_by: list[int]) -> dict:
             "the page was read wrongly rather than that it behaved oddly"
         )
     drew, idled = [], []
-    for earlier, later, before, after in zip(at, at[1:], drawn_by, drawn_by[1:]):
+    for earlier, later, before, after in zip(at, at[1:], drawn_by, drawn_by[1:], strict=False):
         (drew if after > before else idled).append(later - earlier)
-    middle = lambda gaps: sorted(gaps)[len(gaps) // 2] if gaps else None
+    def middle(gaps):
+        return sorted(gaps)[len(gaps) // 2] if gaps else None
+
     return {
         "drawing_ms": middle(drew),
         "idle_ms": middle(idled),
@@ -441,7 +443,7 @@ def how_it_drew(browser, built_dist: Path, folder: Path, store, expect: int) -> 
         # rate the viewer is really holding; the *largest* says the worst pause an
         # operator would feel, which is what makes a viewer feel broken even when
         # the average looks respectable.
-        gaps = sorted(later - earlier for earlier, later in zip(at, at[1:]))
+        gaps = sorted(later - earlier for earlier, later in zip(at, at[1:], strict=False))
         middle = gaps[len(gaps) // 2] if gaps else 0.0
         worst = gaps[-1] if gaps else 0.0
         # How much of the screen actually has specimen on it. Without this the
@@ -488,7 +490,7 @@ def a_browser(headed: bool = False):
         raise SystemExit(
             "playwright is not installed, so no browser could be driven. "
             "Install it with `pip install playwright`."
-        )
+        ) from None
     started = sync_playwright().start()
     try:
         return started, another_browser(started, headed)
@@ -554,7 +556,7 @@ def _launched_with(started, args, headed: bool = False):
             raise SystemExit(
                 "no Chromium on this machine that could be driven, so frames "
                 "cannot be counted here."
-            )
+            ) from None
         return started.chromium.launch(
             executable_path=str(already_here), headless=not headed,
             args=list(args)

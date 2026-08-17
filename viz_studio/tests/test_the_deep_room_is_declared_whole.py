@@ -30,10 +30,10 @@ import numpy as np
 _VIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_VIZ / "building"))
 
+from declare import declare_a_governed_picture  # noqa: E402
+
 from zmart_live.model import GridCell  # noqa: E402
 from zmart_live.profiles import plan_the_writing  # noqa: E402
-
-from declare import declare_a_governed_picture  # noqa: E402
 
 DEPTH = 13  # ragged, per the depth test plan's fixture rule
 FRAME = 384

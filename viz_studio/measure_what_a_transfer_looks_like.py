@@ -202,7 +202,7 @@ def look_at(folder: Path) -> int:
 
     aligned = 0
     phases: Counter = Counter()
-    for name, at, its_voxel, shape in placements:
+    for _name, at, its_voxel, _shape in placements:
         if its_voxel != voxel:
             continue
         # Where this tile begins, counted in voxels from the run's own corner.

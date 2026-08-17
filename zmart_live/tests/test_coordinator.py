@@ -32,7 +32,6 @@ from zmart_live.identity import (
     latest_layout_revision,
     load_a_layout_revision,
     load_the_profile,
-    name_for_a_profile,
     stored_profile_ids,
 )
 from zmart_live.model import GridCell, ZmartLiveError

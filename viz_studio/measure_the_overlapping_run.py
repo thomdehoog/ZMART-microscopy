@@ -343,7 +343,6 @@ def count_what_was_lost(folder: Path, shape: dict) -> dict:
     sampled: every voxel handed to the writer is read back out of the archive and
     compared with what went in.
     """
-    import json
 
     import zarr
 

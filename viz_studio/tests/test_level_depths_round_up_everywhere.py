@@ -28,8 +28,8 @@ import pytest
 _VIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_VIZ / "building"))
 
-from zmart_live.coordinator import LivePublisher
-from zmart_live.model import AcquisitionProfile, GridCell, LevelGeometry
+from zmart_live.coordinator import LivePublisher  # noqa: E402
+from zmart_live.model import AcquisitionProfile, GridCell, LevelGeometry  # noqa: E402
 
 DEPTH = 13  # odd on purpose: the ceiling-versus-floor seam, and 13 // 2 != -(-13 // 2)
 

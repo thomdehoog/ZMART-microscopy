@@ -66,15 +66,12 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
-
 _VIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_VIZ / "building"))
 
 import measure_a_governed_run_at_scale as harness  # noqa: E402
 from declare import declare_a_governed_picture  # noqa: E402
 from server import make_server  # noqa: E402
-
 
 # --------------------------------------------------------------------------
 # The numbers this test depends on, and why each one is what it is.

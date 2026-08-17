@@ -128,7 +128,7 @@ def test_a_newer_format_view_draws_the_specimen_and_not_blankness(tmp_path):
     misplaced one are both caught here, and told apart.
     """
     run = tmp_path / "run"
-    view = _a_newer_run(run)
+    _a_newer_run(run)
     width = ACROSS * TILE[2]
 
     server = make_server(

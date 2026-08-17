@@ -29,7 +29,6 @@ import linking  # noqa: E402
 
 from zmart_storage.canvas import Channel, _declare_one  # noqa: E402
 from zmart_storage.linked import (  # noqa: E402
-
     PlacedTile,
     start_a_growing_view,
 )

@@ -39,7 +39,6 @@ import measure_a_governed_run_at_scale as harness  # noqa: E402
 from declare import declare_a_governed_picture  # noqa: E402
 from governed import GovernedRun  # noqa: E402
 
-
 # Wide enough that the picture has extended pyramid levels to keep true --
 # they are where the per-landing rebuilding lived -- and small enough that
 # writing the fixture stays a matter of seconds. Sixteen across is the

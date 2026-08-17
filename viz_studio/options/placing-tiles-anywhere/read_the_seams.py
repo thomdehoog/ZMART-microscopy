@@ -82,7 +82,7 @@ def main() -> None:
             (on_screen.shape[1], on_screen.shape[0]), Image.BILINEAR)
     ).astype(float)
     wrong = np.abs(on_screen - pushed)[flat]
-    print(f"\nagainst the same tiles pushed onto whole pieces instead:")
+    print("\nagainst the same tiles pushed onto whole pieces instead:")
     print(f"median disagreement                : {np.median(wrong):.1f}")
     print(f"pixels differing by more than 4    : {int((wrong > 4).sum())}")
 

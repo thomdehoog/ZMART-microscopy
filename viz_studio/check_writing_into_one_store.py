@@ -61,7 +61,6 @@ import shutil
 import sys
 import tempfile
 import threading
-import time
 from pathlib import Path
 
 VIZ = Path(__file__).resolve().parent
@@ -146,8 +145,8 @@ ANNOUNCE = """async () => {
 
 
 def run() -> None:
-    from playwright.sync_api import sync_playwright
     from pixels import colour_spread, image_middle
+    from playwright.sync_api import sync_playwright
 
     root = Path(tempfile.mkdtemp(prefix="zmart-latechunk-"))
     try:

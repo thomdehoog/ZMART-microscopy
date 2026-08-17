@@ -30,12 +30,12 @@ VIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(VIZ / "building"))
 sys.path.insert(0, str(VIZ.parent))
 
+from check import decode  # noqa: E402
+from governed import GovernedRun  # noqa: E402
+
 from zmart_live.model import GridCell  # noqa: E402
 from zmart_live.profiles import plan_the_writing  # noqa: E402
 from zmart_live.tests.test_coordinator import FRAME, some_specimen  # noqa: E402
-
-from check import decode  # noqa: E402
-from governed import GovernedRun  # noqa: E402
 
 # Small pieces, so the picture is several pieces across and posA-only ground,
 # shared ground, and posB-only ground all fall in different pieces.
@@ -353,7 +353,6 @@ def test_a_transfers_decimated_levels_keep_their_own_registration(tmp_path):
 
     import numpy as np
     import zarr
-
     from composer import Composer
     from mosaic import read_the_transfer
 
@@ -514,9 +513,9 @@ def test_a_run_of_several_channels_declares_with_its_colour_axis(tmp_path):
     """
     import json
 
-    from zmart_live.coordinator import LivePublisher
-
     from declare import declare_a_governed_picture
+
+    from zmart_live.coordinator import LivePublisher
 
     profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1,
                                   channels=("488", "561"))
@@ -604,7 +603,7 @@ def test_a_stamped_tile_says_exactly_what_the_walked_tile_would(tmp_path):
         assert stamped.axes == walked.axes
         assert stamped.turned == walked.turned
         assert len(stamped.copies) == len(walked.copies)
-        for ours, theirs in zip(stamped.copies, walked.copies):
+        for ours, theirs in zip(stamped.copies, walked.copies, strict=True):
             assert ours.held_in == theirs.held_in
             assert ours.shape == theirs.shape
             assert ours.chunks == theirs.chunks

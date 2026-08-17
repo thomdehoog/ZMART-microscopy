@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 
 import numpy as np
-import pytest
 import zarr
 from contrast import HISTOGRAM_BINS, display_window, intensity_histogram, measure
 from demo_data import write_demo_zarr
