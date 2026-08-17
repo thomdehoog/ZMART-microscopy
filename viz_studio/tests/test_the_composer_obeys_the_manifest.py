@@ -503,13 +503,17 @@ def test_a_governed_picture_that_cannot_be_made_says_try_again(tmp_path):
         served.forget(store)
 
 
-def test_a_run_of_several_channels_is_refused_at_the_declare_door(tmp_path):
-    """Half a picture must not ship: folding colours silently would be wrong.
+def test_a_run_of_several_channels_declares_with_its_colour_axis(tmp_path):
+    """The old refusal's promise, kept the grown way: no colour is folded.
 
-    The governed picture serves one channel today; a run recording more is
-    refused loudly at declaration, with the growth path named, rather than
-    shown with its colours collapsed into whichever came first.
+    A run recording several channels used to be refused at this door so its
+    colours could never be silently collapsed. It now declares as a grown
+    picture whose description carries the channel axis — and the promise
+    the refusal kept is held by the combined-axes oracle, which pins every
+    channel's pixels to that channel's own stamp.
     """
+    import json
+
     from zmart_live.coordinator import LivePublisher
 
     from declare import declare_a_governed_picture
@@ -517,10 +521,13 @@ def test_a_run_of_several_channels_is_refused_at_the_declare_door(tmp_path):
     profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1,
                                   channels=("488", "561"))
     run = LivePublisher(tmp_path, profile, run_id="two-colours",
-                        cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
-                        timepoints=1)
-    with pytest.raises(ValueError, match="channel"):
-        declare_a_governed_picture(run.folder / "views" / "shown", run.folder, name="live")
+                        cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"})
+    store = declare_a_governed_picture(run.folder / "views" / "shown",
+                                       run.folder, name="live")
+    level = json.loads((store / "0" / "zarr.json").read_text())
+    assert level["shape"][:2] == [1, 2], (
+        "two declared channels must give the picture a two-channel axis"
+    )
 
 
 # -- a derive reads the pattern, not the survey -----------------------------------
@@ -604,7 +611,7 @@ def test_a_stamped_tile_says_exactly_what_the_walked_tile_would(tmp_path):
             assert ours.dtype == theirs.dtype
             assert ours.voxel_um == theirs.voxel_um
             assert ours.corner_um == theirs.corner_um
-            assert ours.outer == theirs.outer
+            assert ours.outer_shape == theirs.outer_shape
             assert ours.presence is not None, (
                 "a stamped committed tile must still promise its blocks — "
                 "absent chunks are damage to fail closed on, not fill"

@@ -33,11 +33,12 @@ What this module adds between them:
   on every ask, and when it has moved the mosaic and composer are derived
   again from the new truth rather than mutated under whoever is reading them.
 
-The served picture is three axes (z, y, x) for the moment, reading each
-position's first moment and first channel; the address space grows t and c
-with the gate work's later steps. Positions are stored (t, c, z, y, x) and
-the copies carry that difference as a fixed outer index — see
-:class:`mosaic.Copy`.
+The served picture carries whatever axes the run records: a flat run is
+three axes (z, y, x), and a run whose profile keeps room for several
+moments or channels is served grown, five axes with one frame per chunk,
+every requested (moment, channel) read against the position stores' own
+front axes and gated by the record — see :meth:`TheWorldFrame.frame_room`
+and the combined-axes oracle in ``test_every_plane_serves_its_own_stamp``.
 """
 
 from __future__ import annotations
@@ -204,7 +205,6 @@ def _a_tile_stamped(pattern: Tile, store: Path,
             dtype=one.dtype,
             voxel_um=one.voxel_um,
             corner_um=corner_um,
-            outer=one.outer,
             outer_shape=one.outer_shape,
         ))
         for one in pattern.copies
@@ -300,24 +300,14 @@ class TheWorldFrame(Mosaic):
         return found  # type: ignore[return-value]
 
     @property
-    def channels_recorded(self) -> tuple[str, ...]:
-        """The colours the run records — the profile's, not any tile's.
-
-        Asked by the declare door: a picture that can serve one channel must
-        refuse a run recording several, and it must be able to refuse before
-        a single position has arrived.
-        """
-        return tuple(self._profile.channels)
-
-    @property
     def frame_room(self) -> tuple[int, int]:
         """The run's (moments, channels) room, knowable before any arrival.
 
-        The sealed profile declares both, so an empty timelapse run can be
-        refused exactly as an empty two-colour one can. The arrays still
-        get a say for runs sealed before the profile carried the time room
-        — there the arrays are the only durable declaration — so whichever
-        source declares more moments is believed.
+        The sealed profile declares both, so an empty run's picture already
+        has its full shape. The arrays still get a say for runs sealed
+        before the profile carried the time room — there the arrays are
+        the only durable declaration — so whichever source declares more
+        moments is believed.
         """
         from_tiles = super().frame_room
         return (max(int(self._profile.timepoints), from_tiles[0]),
@@ -1149,15 +1139,18 @@ class GovernedRun:
                 current[position_id] = generation
         # Which moments each position has published AT ITS CURRENT generation
         # -- the set a tile carries so the composer can serve moment t of one
-        # position and honest absence of another. Built from the same one
-        # fold, and gating the drawn set on it (rather than on moment zero,
-        # as this used to) also lets a position whose first commit named a
-        # later moment be drawn at all -- the record allows arriving late.
-        moments_of: dict[str, frozenset[int]] = {}
-        for position_id, generation in current.items():
-            moments_of[position_id] = frozenset(
-                moment for one, moment, its in published
-                if one == position_id and its == generation)
+        # position and honest absence of another. Built in ONE pass over the
+        # published units (a per-position sweep here would be O(positions x
+        # units) on the per-commit hot path this whole derive keeps O(change)).
+        # Gating the drawn set on it, rather than on moment zero as this used
+        # to, also lets a position whose first commit named a later moment be
+        # drawn at all -- the record allows arriving late.
+        gathered: dict[str, set[int]] = {}
+        for position_id, moment, generation in published:
+            if generation == current[position_id]:
+                gathered.setdefault(position_id, set()).add(moment)
+        moments_of = {position_id: frozenset(moments)
+                      for position_id, moments in gathered.items()}
         drawing = {
             position_id: current[position_id] for position_id in order
             # The two manifest reads above can straddle a commit, and then the
@@ -1215,8 +1208,10 @@ class GovernedRun:
         # the survey, which at ten thousand positions becomes the dominant
         # cost of every commit (see
         # test_absorbing_a_change_touches_the_change).
+        # Two passes over the published units now: the generation fold and
+        # the per-position moment gathering above.
         self.accounting["last_snapshot_swept"] = (
-            len(published) + len(order) + 2 * len(drawing))
+            2 * len(published) + len(order) + 2 * len(drawing))
         return (Composer(TheWorldFrame(ordered, layout, profile),
                          piece=self._piece), drawing, tiles)
 

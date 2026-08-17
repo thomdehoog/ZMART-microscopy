@@ -21,8 +21,10 @@
  *   `tests/test_the_screen_never_goes_black.py`, the gate that holds this
  *   cure in place.
  *
- * `engine.js` (invalidateTheDirtyPieces) is the caller; the announcement's
- * `dirty` field is where the chunk names come from.
+ * The per-key RPC ("ChunkSource.refreshChunks") has no caller since the
+ * named-pieces ladder was retired; it stays because it is one registration
+ * over the same delivery machinery the rerouted whole-source invalidation
+ * runs on, and unpicking it from the pinned-version diff buys nothing.
  *
  * **Worker patches target the module AND the compiled bundle, and the build
  * runs this AFTER precompiling.** The precompile step flattens the worker's

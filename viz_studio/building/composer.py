@@ -145,6 +145,25 @@ def the_piece_address(inside: str) -> tuple[int, int, int, int, int, int] | None
     return (level, *tail)
 
 
+def _tile_has_the_frame(tile, level: int, moment: int, channel: int) -> bool:
+    """Whether one tile holds anything at all for this (moment, channel).
+
+    Two ways it may not, and both mean honest absence rather than a read: a
+    governed tile whose record does not name the moment (pixels may even be
+    on disk, written but unpublished — the record rules, so the store is
+    never opened), and a store whose declared room stops short of the asked
+    frame. A plain three-axis tile holds exactly one frame, which is the
+    one every flat request asks for. This is the ONE definition of "is the
+    tile there at this frame" — the slab builder and the emptiness
+    short-cut both use it, so they can never disagree.
+    """
+    if tile.moments is not None and moment not in tile.moments:
+        return False
+    room = tile.copies[level].outer_shape
+    outer = (moment, channel)[:len(room)]
+    return all(index < extent for index, extent in zip(outer, room))
+
+
 class MissingCommittedGround(RuntimeError):
     """A chunk the manifest promised is not on disk, and nothing may stand in.
 
@@ -621,17 +640,10 @@ class Composer:
         slab = np.zeros((high_z - low_z, self.piece, self.piece),
                         self.mosaic.dtype)
         for tile, at in self._tiles_in_each_piece(level).get((row, column), ()):
-            if tile.moments is not None and moment not in tile.moments:
+            if not _tile_has_the_frame(tile, level, moment, channel):
                 continue
             copy = tile.copies[level]
-            # A store keeping fewer front axes than asked for is a plain
-            # tile: it holds exactly one frame, and this request is for it.
-            # A five-axis store whose room stops short of the asked moment
-            # simply is not there at that moment -- absence expresses it.
             outer = (moment, channel)[:len(copy.outer_shape)]
-            if any(index >= room
-                   for index, room in zip(outer, copy.outer_shape)):
-                continue
             # The copy's own declared spatial extent -- NOT the opened array's.
             # The array of a governed position is five axes and its leading
             # shape entries are the moment and channel room, which read
@@ -971,6 +983,15 @@ class Composer:
         with self._guard:
             self._answering += 1
         try:
+            # Ground no tile holds at this frame is absent before any slab
+            # is built: a generously declared room leaves most of the time
+            # axis unwritten, and building (and caching) a full zero slab
+            # per absent frame would evict genuinely warm ground -- caught
+            # by the under-fire gate the day the room went live.
+            covering = self._tiles_in_each_piece(level).get((row, column), ())
+            if not any(_tile_has_the_frame(tile, level, moment, channel)
+                       for tile, _ in covering):
+                return None
             slab = self._slab_for(level, plane, row, column, moment, channel)
             depth = self.slab_depth(level)
             piece = slab[plane - (plane // depth) * depth]

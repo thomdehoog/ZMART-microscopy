@@ -294,41 +294,10 @@ def main() -> int:
 
     session.on("Page.screencastFrame", one_frame)
 
-    # The picture may declare MORE levels than the profile: a baked picture
-    # extends the pyramid above the tiles, the engine shows those levels at
-    # overview zoom, and an announce that stops at the profile's levels names
-    # nothing the engine holds -- the browser then refetches nothing and the
-    # screen never changes, measured as nan on every baked churn row.
-    pictured_levels = len(json.loads((store / "zarr.json").read_text(
-        encoding="utf-8"))["attributes"]["ome"]["multiscales"][0]["datasets"])
-
-    def the_dirty_pieces_of(position_id: str) -> dict:
-        piece = 512
-        origin = run.layout.placement(position_id).origin
-        y, x = int(origin.get("y", 0)), int(origin.get("x", 0))
-        profile = run.profile
-        dirty = {}
-        for number in range(pictured_levels):
-            deepest = min(number, len(profile.levels) - 1)
-            rung = profile.level(deepest)
-            extended = 2 ** (number - deepest)
-            down_y = int(rung.downsampling.get("y", 1)) * extended
-            down_x = int(rung.downsampling.get("x", 1)) * extended
-            top, left = y // down_y, x // down_x
-            bottom = (y + FRAME - 1) // down_y
-            right = (x + FRAME - 1) // down_x
-            dirty[str(number)] = [
-                [0, row, column]
-                for row in range(top // piece, bottom // piece + 1)
-                for column in range(left // piece, right // piece + 1)
-            ]
-        return dirty
-
     def announce(position_id: str) -> None:
         request = urllib.request.Request(
             f"http://127.0.0.1:{port}/api/announce",
-            data=json.dumps({"wrote_image_in_place": True,
-                             "dirty": the_dirty_pieces_of(position_id)}).encode(),
+            data=json.dumps({"wrote_image_in_place": True}).encode(),
             headers={"Content-Type": "application/json"}, method="POST",
         )
         with urllib.request.urlopen(request, timeout=30):

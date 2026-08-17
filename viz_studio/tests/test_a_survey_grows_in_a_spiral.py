@@ -23,10 +23,9 @@ Two different things can break, so two different instruments guard them:
    lit fraction never falls back (nothing already on screen may go dark --
    the no-black promise, held during growth).
 
-The gate runs under BOTH cache invalidations -- the named ladder that
-refetches exactly the dirty pieces, and whole-source invalidation that drops
-everything and refetches behind the picture on screen (``?refresh=whole``).
-Each mode may win somewhere; both must show the spiral.
+The gate runs under the one cache invalidation the viewer keeps:
+whole-source, which drops everything and refetches behind the picture on
+screen. (A named per-piece ladder was measured beside it and deleted.)
 
 In-container sizes are deliberately modest. On a real GPU the same gate
 scales through two environment knobs: ``ZMART_SPIRAL_ACROSS`` (survey side,
@@ -141,13 +140,10 @@ class TestTheSpiralItself:
 # Colours and moments ride the same spiral, at the record level
 # ---------------------------------------------------------------------------
 #
-# The served picture is deliberately single-channel and single-moment today,
-# and growing its axes is named next-chapter work -- so the browser gate
-# below stays one colour. But the FILE contract for channels and time is
-# already load-bearing, and it is guarded here: a run recording two colours
-# over two moments, landed in the same spiral, must keep every promise the
-# contract makes about (t, c) -- and the viewer's refusal to show it
-# half-true must stay loud.
+# A run recording two colours over two moments, landed in the same spiral,
+# must keep every promise the FILE contract makes about (t, c): a new moment
+# only ever adds files, the record and the walk agree moment by moment, and
+# the declared picture carries the grown (t, c) axes.
 
 class TestTheSpiralWithColoursAndMoments:
 
@@ -315,10 +311,8 @@ def _lit_geometry(page, floor: int = 40) -> dict:
             "centre_offset": offset}
 
 
-@pytest.mark.parametrize("mode", ["named", "whole"])
-def test_the_spiral_growth_is_visible_under_either_invalidation(
-    browser, built_dist, tmp_path, mode
-):
+
+def test_the_spiral_growth_is_visible(browser, built_dist, tmp_path):
     harness.FIXTURES = tmp_path
     run, order = harness.the_run(ACROSS)
     width = len(str(ACROSS - 1))
@@ -346,14 +340,10 @@ def test_the_spiral_growth_is_visible_under_either_invalidation(
     try:
         port = server.server_address[1]
         page.add_init_script("globalThis.zmartLiveCheckMs = 150")
-        suffix = "?refresh=named" if mode == "named" else ""
-        page.goto(f"http://127.0.0.1:{port}{suffix}",
+        page.goto(f"http://127.0.0.1:{port}",
                   wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined",
                                timeout=60_000)
-        assert page.evaluate("window.zmartRefreshMode") == mode, (
-            "the page is not in the invalidation mode this run measures"
-        )
         page.wait_for_function("() => window.zmartSourcesWaiting() === 0",
                                timeout=90_000)
         page.wait_for_timeout(2_000)
@@ -397,17 +387,17 @@ def test_the_spiral_growth_is_visible_under_either_invalidation(
                     break
                 page.wait_for_timeout(300)
             assert grown is not None, (
-                f"ring {ring} landed but never became visible in {mode} mode; "
+                f"ring {ring} landed but never became visible; "
                 f"story so far: {json.dumps(story)}"
             )
             story.append(dict(grown, ring=ring))
 
-        print("SPIRAL GROWTH:", json.dumps({"mode": mode, "story": story}),
+        print("SPIRAL GROWTH:", json.dumps({"story": story}),
               flush=True)
         assert never_regressed, (
             "the lit canvas shrank while the spiral was landing -- ground "
             "already on screen went dark during growth, which is exactly "
-            f"the flicker the {mode} invalidation must not show"
+            "the flicker the invalidation must not show"
         )
         # Outward growth, measured by what CAN move. The lit box is bounded
         # by the fitted viewport -- the seeded block's box already spans much

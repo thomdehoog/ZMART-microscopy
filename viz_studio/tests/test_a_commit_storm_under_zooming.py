@@ -80,23 +80,21 @@ def _dirty_for(run, pictured: int, position_id: str) -> dict:
     return dirty
 
 
-# Which invalidation mode the page runs the storm under. The default is
-# whole-source invalidation -- the page's own default since the ladder
-# retired -- and setting ZMART_STORM_REFRESH=named reruns the same gate
-# with the deprecated named ladder, so the T400 comparison can still
-# measure both with nothing but an environment variable.
-_REFRESH_MODE = os.environ.get("ZMART_STORM_REFRESH", "whole")
-
-
 def _the_page_address(port: int) -> str:
-    suffix = "?refresh=named" if _REFRESH_MODE == "named" else ""
-    return f"http://127.0.0.1:{port}{suffix}"
+    return f"http://127.0.0.1:{port}"
 
 
-def _announce(port: int, dirty: dict) -> None:
+def _announce(port: int, dirty: dict | None = None) -> None:
+    """Tell the page image was written in place.
+
+    ``dirty`` is accepted for the callers that still compute footprints for
+    their own bookkeeping; the wire no longer carries it -- the page's one
+    invalidation drops every decoded piece and refetches behind the picture
+    on screen.
+    """
     request = urllib.request.Request(
         f"http://127.0.0.1:{port}/api/announce",
-        data=json.dumps({"wrote_image_in_place": True, "dirty": dirty}).encode(),
+        data=json.dumps({"wrote_image_in_place": True}).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -640,11 +638,6 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
         page.goto(_the_page_address(port), wait_until="domcontentloaded")
         page.wait_for_function("() => window.zmartViewer !== undefined",
                               timeout=60_000)
-        # The page must confirm which mode it is actually in, or a mistyped
-        # environment variable would silently measure the wrong one.
-        assert page.evaluate("window.zmartRefreshMode") == _REFRESH_MODE, (
-            f"the page is not in the requested {_REFRESH_MODE!r} refresh mode"
-        )
         page.wait_for_function("() => window.zmartSourcesWaiting() === 0",
                               timeout=90_000)
         page.wait_for_timeout(2_000)
@@ -710,8 +703,6 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                     t: performance.now(),
                     zoom: viewer.navigationState.zoomFactor.value,
                     progress, sources,
-                    invalidation: JSON.parse(JSON.stringify(
-                      window.zmartChunkInvalidation ?? null)),
                     memory: performance.memory ? {
                       used: performance.memory.usedJSHeapSize,
                       total: performance.memory.totalJSHeapSize,
@@ -956,8 +947,6 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
             print("SWAP LEDGER:", json.dumps(page.evaluate(
                 "() => globalThis.zmartSwapLedger ?? 'never touched'")),
                 flush=True)
-            print("TWINNING:", json.dumps(page.evaluate(
-                "() => window.zmartTwinning")), flush=True)
             print("FRONTEND SOURCES:", json.dumps(page.evaluate(
                 """() => {
                   const out = [];
@@ -1117,8 +1106,6 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                      if debug_folder is not None else None))
         worker_probes = []
         if os_module.environ.get("ZMART_STORM_DEBUG"):
-            print("CLIENT INVALIDATION:", json.dumps(page.evaluate(
-                "() => window.zmartChunkInvalidation")), flush=True)
             worker_probes = page.evaluate(
                 """async () => {
                   const out = [];
