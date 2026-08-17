@@ -95,7 +95,7 @@ def _give_up_on_the_picture(reason: str) -> None:
     pytest.skip(f"{PIXELS_NOT_LOOKED_AT}: {reason}")
 
 
-for source_root in (_REPO_ROOT, _BACKEND):
+for source_root in (_REPO_ROOT, _VIZ_ROOT, _BACKEND):
     if str(source_root) not in sys.path:
         sys.path.insert(0, str(source_root))
 

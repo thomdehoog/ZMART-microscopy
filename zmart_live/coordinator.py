@@ -55,6 +55,7 @@ from .model import (
     GridCell,
     SceneLayoutRevision,
     ZmartLiveError,
+    rounded_up,
 )
 from .omezarr import describe_the_position
 from .ownership import check_the_grid_holds_together, place_the_tiles
@@ -809,7 +810,7 @@ class LivePublisher:
             ),
             taken_from=(0, 0, 0),
             size=tuple(
-                self.profile.frame_shape.get(axis, 1) // by[axis]
+                rounded_up(self.profile.frame_shape.get(axis, 1), by[axis])
                 for axis in ("z", "y", "x")
             ),
         )
@@ -820,9 +821,9 @@ class LivePublisher:
         smaller = self.profile.level(level_number).downsampling
         depth = self.profile.frame_shape.get("z", 1)
         return (
-            depth // smaller.get("z", 1),
-            height // smaller.get("y", 1),
-            width // smaller.get("x", 1),
+            rounded_up(depth, smaller.get("z", 1)),
+            rounded_up(height, smaller.get("y", 1)),
+            rounded_up(width, smaller.get("x", 1)),
         )
 
     def write_the_link_map(

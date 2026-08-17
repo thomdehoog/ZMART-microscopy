@@ -291,6 +291,21 @@ def _frozen_axis_map(values: Mapping[str, int] | None) -> FrozenMap:
     return FrozenMap({str(axis): int(size) for axis, size in values.items()})
 
 
+def rounded_up(size: int, step: int) -> int:
+    """How large an extent is at a coarser level: divided, rounding UP.
+
+    A stack 13 planes deep, halved, is 7 planes deep — the seventh coarse
+    plane is only half-filled, but the specimen in plane 13 lives there,
+    and rounding down to 6 would cut it off the picture. The same holds
+    across and down the image. Every place that turns a full-resolution
+    extent into a zoomed-out level's extent divides through this one
+    function, so the writer, the gateway and the viewer can never quietly
+    disagree about how large the world is (the depth chapter's rounding
+    gate, ``test_level_depths_round_up_everywhere``).
+    """
+    return -(-int(size) // int(step))
+
+
 # ---------------------------------------------------------------------------
 # Where something is
 # ---------------------------------------------------------------------------

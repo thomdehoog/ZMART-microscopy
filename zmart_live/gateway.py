@@ -29,6 +29,7 @@ from .model import (
     AcquisitionProfile,
     SceneLayoutRevision,
     ZmartLiveError,
+    rounded_up,
 )
 from .viewroute import (
     Placed,
@@ -329,17 +330,21 @@ class _LiveRun:
                 by_y = geometry.downsampling.get("y", 1)
                 by_x = geometry.downsampling.get("x", 1)
                 expected_view_shape = (
-                    profile.frame_shape.get("z", 1) // by_z,
-                    max(
-                        placement.origin["y"] + profile.frame_shape["y"]
-                        for placement in layout.positions
-                    )
-                    // by_y,
-                    max(
-                        placement.origin["x"] + profile.frame_shape["x"]
-                        for placement in layout.positions
-                    )
-                    // by_x,
+                    rounded_up(profile.frame_shape.get("z", 1), by_z),
+                    rounded_up(
+                        max(
+                            placement.origin["y"] + profile.frame_shape["y"]
+                            for placement in layout.positions
+                        ),
+                        by_y,
+                    ),
+                    rounded_up(
+                        max(
+                            placement.origin["x"] + profile.frame_shape["x"]
+                            for placement in layout.positions
+                        ),
+                        by_x,
+                    ),
                 )
                 if tuple(level["view_shape"]) != expected_view_shape:
                     raise ValueError("a live view route declares the wrong view shape")
@@ -368,9 +373,9 @@ class _LiveRun:
                         placement.origin["x"] // by_x,
                     )
                     expected_size = (
-                        profile.frame_shape.get("z", 1) // by_z,
-                        profile.frame_shape["y"] // by_y,
-                        profile.frame_shape["x"] // by_x,
+                        rounded_up(profile.frame_shape.get("z", 1), by_z),
+                        rounded_up(profile.frame_shape["y"], by_y),
+                        rounded_up(profile.frame_shape["x"], by_x),
                     )
                     if (
                         tuple(entry["lands_at"]) != expected_lands_at

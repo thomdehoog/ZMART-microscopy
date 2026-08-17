@@ -194,6 +194,79 @@ def test_a_store_with_nothing_written_at_all_says_so(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------
+# A generously declared room, only partly imaged
+
+
+def _write_a_partially_imaged_deep_store(path: Path) -> Path:
+    """Thirteen planes declared, six written — a deep run partway through.
+
+    The written ground is bright on purpose (background near 9000, signal at
+    12000): if declared emptiness leaks into the measurement it shows up as
+    an unmistakable zero at the bottom of the window, far from anything the
+    specimen contains.
+    """
+    rng = np.random.default_rng(11)
+    written = rng.integers(9000, 9600, size=(6, 256, 256)).astype("uint16")
+    written[:, 96:160, 96:160] = 12000
+
+    group = zarr.open_group(str(path), mode="w", zarr_format=2)
+    array = group.create_array(
+        "0", shape=(13, 256, 256), chunks=(1, 256, 256), dtype="uint16",
+        chunk_key_encoding={"name": "v2", "separator": "/"},
+    )
+    array[:6] = written  # planes 6..12 stay declared room: no files, fill zero
+    (path / ".zattrs").write_text(json.dumps({
+        "multiscales": [{
+            "version": "0.4",
+            "axes": [
+                {"name": "z", "type": "space", "unit": "micrometer"},
+                {"name": "y", "type": "space", "unit": "micrometer"},
+                {"name": "x", "type": "space", "unit": "micrometer"},
+            ],
+            "datasets": [{"path": "0", "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 1.0, 1.0]}]}],
+        }]
+    }))
+    return path
+
+
+def test_a_generously_declared_room_does_not_dilute_the_window(tmp_path: Path) -> None:
+    """The window is the imaged ground's, never the declared emptiness's.
+
+    The depth plan declares room as a ceiling — more planes, more positions
+    than may ever be imaged — so a store being measured mid-run always holds
+    declared-but-unwritten ground, and zarr serves that ground as fill
+    zeros. Counted into the percentiles, they drag the window's floor to
+    zero and wash the specimen out. This is a standing gate precisely
+    because a warm-versus-fresh census is blind to it: a window wrong the
+    same way in both screenshots passes every census ever taken.
+    """
+    store = _write_a_partially_imaged_deep_store(tmp_path / "deep.ome.zarr")
+
+    found = contrast.measure(store)
+    low, high = found["window"]
+    assert low >= 8000, (
+        f"the window starts at {low}, below anything the specimen contains "
+        "-- declared emptiness was counted as if it were imaged ground"
+    )
+    assert 11000 <= high <= 12500, f"window {(low, high)} misses the signal"
+    assert found["volumeWindow"][0] >= 8000
+    assert found["histogram"]["autoWindow"]["low"] >= 8000
+
+
+def test_counting_the_declared_emptiness_really_does_dilute(tmp_path: Path) -> None:
+    """Proof that the gate above can fail — the fault, reproduced raw."""
+    store = _write_a_partially_imaged_deep_store(tmp_path / "diluted.ome.zarr")
+    whole = np.asarray(zarr.open_group(str(store), mode="r")["0"][...],
+                       dtype=np.float64).ravel()
+    low, _ = contrast._window(whole, volumetric=False)
+    assert low == 0.0, (
+        "measuring the whole declared room no longer gives a zero floor, so "
+        "this no longer reproduces the fault the gate above guards against"
+    )
+
+
+# --------------------------------------------------------------------------
 # Several channels in one store
 
 

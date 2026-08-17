@@ -310,7 +310,7 @@ COORDINATOR_FAULTS: list[tuple[str, str, str]] = [
     ),
     (
         "make the zoomed-out picture one plane deep whatever was recorded",
-        '            depth // smaller.get("z", 1),',
+        '            rounded_up(depth, smaller.get("z", 1)),',
         "            1,",
     ),
     (

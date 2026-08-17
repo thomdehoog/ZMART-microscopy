@@ -92,6 +92,27 @@ validated there, never debugged there, exactly as before.
 
 ## Stage 1 — geometry gates (no browser, minutes to run)
 
+> **Landed 2026-08-17** (the parts buildable before construction), each
+> red-first or sabotage-proven, all in seconds:
+> `test_the_deep_room_is_declared_whole` (declare on the empty deep run,
+> land, re-declare, every description byte-identical);
+> `test_level_depths_round_up_everywhere` (was red — the writer's two
+> sites floored an odd depth to 6 where the ceiling is 7; the rule now
+> lives once, as `zmart_live.model.rounded_up`, imported by the writer,
+> the gateway and the world frame, identity-checked by the gate; a
+> shipped no-op, 534 zmart_live tests unchanged);
+> `test_every_plane_serves_its_own_stamp` (the z identity oracle, both
+> doors, both chunk packings, ragged 13 planes, sabotage-proven red on a
+> one-plane shift — the z third of the combined-axes oracle);
+> the window gate in `test_brightness_is_measured_honestly` (was red —
+> declared-but-unwritten ground diluted the percentile window's floor to
+> zero; the fill value is now excluded from the measurement, with the
+> trade documented in `contrast._samples`).
+> Still ordered, riding construction: the ceiling-cost parity half of the
+> room gate (needs the per-axis ceiling in the profile), the named dirty
+> shape with its slab member, slab address bounds, and the halving
+> decision's per-profile pin.
+
 - **The room is declared whole, and generously.** A declared deep picture's
   description covers the full (t, c, z, y, x) room from the profile before
   any position lands, and a landing never changes it: declare, land,
