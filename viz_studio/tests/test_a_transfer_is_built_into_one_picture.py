@@ -651,12 +651,18 @@ def test_tiles_that_disagree_are_refused(tmp_path: Path, what: str, changed: dic
         read_the_transfer(folder)
 
 
-def test_a_transfer_of_five_axes_is_turned_away(tmp_path: Path):
-    """Ours are shown by pointing instead, and the message should say so."""
+def test_a_transfer_of_five_axes_builds_carrying_its_room(tmp_path: Path):
+    """Five-axis tiles build now, their (t, c) room riding on each copy.
+
+    This used to be a refusal ("ours are shown by pointing instead"), and
+    it retired with the grown picture: a tile behind a (t, c) pair is an
+    ordinary spatial tile whose front-axes room the served description
+    carries. Only an axis order with no agreed meaning is still refused.
+    """
     folder = tmp_path / "five"
     folder.mkdir()
     store = folder / "Tile0.ome.zarr"
-    zarr.create_array(store=str(store / "0"), shape=(1, 1, 2, 8, 8),
+    zarr.create_array(store=str(store / "0"), shape=(3, 2, 2, 8, 8),
                       chunks=(1, 1, 2, 8, 8), dtype="uint16", zarr_format=3,
                       dimension_names=["t", "c", "z", "y", "x"], overwrite=True)
     (store / "zarr.json").write_text(json.dumps({
@@ -669,7 +675,17 @@ def test_a_transfer_of_five_axes_is_turned_away(tmp_path: Path):
         "zarr_format": 3, "node_type": "group",
     }), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="three axes"):
+    mosaic = read_the_transfer(folder)
+    assert mosaic.axes == ("z", "y", "x"), "the mosaic itself stays spatial"
+    assert mosaic.frame_room == (3, 2), "the (t, c) room must ride along"
+
+    # An axis order nobody agreed on still has no meaning to draw.
+    weird = folder / "Tile0.ome.zarr" / "zarr.json"
+    described = json.loads(weird.read_text())
+    described["attributes"]["ome"]["multiscales"][0]["axes"] = [
+        {"name": one} for one in "cztyx"]
+    weird.write_text(json.dumps(described), encoding="utf-8")
+    with pytest.raises(ValueError, match="axes"):
         read_the_transfer(folder)
 
 

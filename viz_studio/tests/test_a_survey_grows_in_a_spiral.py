@@ -247,49 +247,40 @@ class TestTheSpiralWithColoursAndMoments:
             assert (position_id, 0, 0) in published
             assert (position_id, 1, 0) in published
 
-    def test_the_viewer_still_refuses_to_collapse_two_colours(self, tmp_path):
-        """The refusal is part of the contract: loud, never a silent collapse."""
+    def test_a_run_with_colours_and_moments_declares_as_a_grown_picture(
+        self, tmp_path
+    ):
+        """The refusals retired the day the grown serving stood its gates.
+
+        A run recording several colours or moments was refused at this
+        door — loudly, never a silent collapse — from the day the
+        truncation was caught until the combined-axes oracle and the
+        browser gates stood (the plan's own condition). Now it declares as
+        a picture grown along (t, c), whose every frame the oracle holds
+        to its own stamp. The room comes from the sealed profile, so an
+        EMPTY run declares with its full grown description too.
+        """
+        import json
+
         run, width = self.a_two_colour_timelapse(tmp_path)
+        store = declare_a_governed_picture(run.folder / "views" / "empty",
+                                           run.folder, name="live")
+        described = json.loads((store / "zarr.json").read_text())
+        axes = [axis["name"] for axis in
+                described["attributes"]["ome"]["multiscales"][0]["axes"]]
+        assert axes == ["t", "c", "z", "y", "x"]
+        level = json.loads((store / "0" / "zarr.json").read_text())
+        assert level["shape"][:2] == [2, 2], (
+            "the grown description must carry the profile's (t, c) room"
+        )
+
+        # The bake stays flat-only until the per-(t, c) bake lands, and
+        # says so rather than freezing one frame over every other.
         run.write_and_publish(f"p{0:0{width}d}{0:0{width}d}",
                               self.coloured_frame(1000), timepoint=0)
-        with pytest.raises(Exception, match="channel"):
-            declare_a_governed_picture(run.folder / "views" / "shown",
-                                       run.folder, name="live")
-
-    def test_the_viewer_refuses_to_truncate_a_timelapse(self, tmp_path):
-        """Several moments must be refused as loudly as several colours.
-
-        Until the served picture grows a time axis, showing a timelapse
-        would silently serve its first moment as if it were the whole run
-        -- science quietly missing from the screen. The c-and-t review
-        (finding 7) caught exactly that happening, so this gate orders the
-        refusal: loud, and naming what the operator can do instead.
-        """
-        from zmart_live.coordinator import LivePublisher
-        from zmart_live.model import GridCell
-        from zmart_live.profiles import plan_the_writing
-
-        profile, _ = plan_the_writing("overview", frame=harness.FRAME,
-                                      z_planes=1, timepoints=2)
-        run = LivePublisher(
-            tmp_path / "experiment" / "acquisitions" / "timelapse",
-            profile, run_id="spiral-moments",
-            cells={GridCell(0, 0): "p00"},
-        )
-        # The refusal must not need a single landed position: the sealed
-        # profile declares the room, so an empty timelapse run is refused
-        # exactly as an empty two-colour one is. (Before the room entered
-        # the profile, an empty timelapse was indistinguishable from a flat
-        # run and slipped through to be truncated later.)
-        with pytest.raises(Exception, match="moment"):
-            declare_a_governed_picture(run.folder / "views" / "empty",
-                                       run.folder, name="live")
-
-        one_colour = np.full((1, harness.FRAME, harness.FRAME), 1000, "uint16")
-        run.write_and_publish("p00", one_colour, timepoint=0)
-        with pytest.raises(Exception, match="moment"):
-            declare_a_governed_picture(run.folder / "views" / "shown",
-                                       run.folder, name="live")
+        with pytest.raises(Exception, match="bake"):
+            declare_a_governed_picture(run.folder / "views" / "baked",
+                                       run.folder, name="live", bake=True)
 
 
 # ---------------------------------------------------------------------------

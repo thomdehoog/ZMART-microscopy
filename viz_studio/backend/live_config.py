@@ -71,13 +71,22 @@ def the_live_picture_declared(run_root: Path) -> Path:
             f"the live run at {run_root} needs its governed picture declared, "
             "and this checkout has no building module to declare it with."
         )
+    # A run grown along (t, c) is declared WITHOUT the bake for now: the
+    # bake writes one file per flat piece, and the per-(t, c) bake is
+    # ordered work (the c-and-t plan's lazy per-moment patch). Its cold
+    # opens compose on request instead — the flat run keeps the baked cold
+    # open it always had.
+    from zmart_live.gateway import _LiveRun
+
+    profile = _LiveRun(run_root)._geometry()[1]
+    flat = profile.timepoints == 1 and len(profile.channels) == 1
     began = time.perf_counter()
     made = declare_a_governed_picture(
-        run_root / "views" / "live", run_root, name="picture", bake=True
+        run_root / "views" / "live", run_root, name="picture", bake=flat
     )
     print(
-        f"declared the baked live picture {made} "
-        f"in {time.perf_counter() - began:.1f} s",
+        f"declared the {'baked ' if flat else 'grown, compose-on-request '}"
+        f"live picture {made} in {time.perf_counter() - began:.1f} s",
         flush=True,
     )
     return made

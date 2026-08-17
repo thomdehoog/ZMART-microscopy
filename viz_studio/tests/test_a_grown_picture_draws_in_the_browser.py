@@ -174,25 +174,32 @@ def test_the_grown_picture_draws_and_steers(browser, built_dist, tmp_path):
             f"{again:.1f} after -- reload disagrees with the held page"
         )
 
-        # Colour: however the frontend exposes it — a c axis in the space,
-        # or per-channel rows — steering it must brighten by the channel
-        # stamp. When neither exists, the grown picture lost its colours.
-        if "c" in names:
-            _steer(page, "c", 1)
-            _settled(page)
-            recoloured = _mean_brightness(page)
-            page.screenshot(path=str(shots / "5_c1.png"))
-            assert recoloured > again + 10, (
-                "steering c did not brighten -- the channel axis is not "
-                "reaching the pixels"
-            )
-        else:
-            rows = page.evaluate(
-                "() => (window.zmartConfig?.layers || []).length")
-            assert rows >= COLOURS, (
-                f"no c axis in {names} and only {rows} layer row(s) -- the "
-                "second colour is not reachable anywhere on this page"
-            )
+        # Colour. The frontend splits the channels into panel rows (there is
+        # no c axis in the engine's space; each row pins its own channel),
+        # so the proof that channel 2's OWN pixels reach the screen is to
+        # take it away: hiding the brighter channel must dim the blend by
+        # its stamp. Counting the rows would not do -- a channel 2 that was
+        # silently a copy of channel 1 would still make two rows.
+        rows = page.evaluate("() => (window.zmartConfig?.layers || []).length")
+        assert rows >= COLOURS, (
+            f"only {rows} layer row(s) -- the second colour is not "
+            "reachable anywhere on this page"
+        )
+        both = _mean_brightness(page)
+        page.get_by_label("toggle channel 2").click()
+        _settled(page)
+        one_hidden = _mean_brightness(page)
+        page.screenshot(path=str(shots / "5_channel_2_hidden.png"))
+        assert one_hidden < both - 10, (
+            f"hiding channel 2 left the canvas at {one_hidden:.1f} against "
+            f"{both:.1f} with both shown -- its pixels were never on screen, "
+            "or another channel's stood in for them"
+        )
+        page.get_by_label("toggle channel 2").click()
+        _settled(page)
+        assert abs(_mean_brightness(page) - both) < 10, (
+            "showing channel 2 again did not restore the blend"
+        )
     finally:
         page.close()
         server.shutdown()

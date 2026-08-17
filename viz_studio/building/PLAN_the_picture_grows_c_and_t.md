@@ -86,6 +86,24 @@ honest version.
   LIVE source would today offer the declared t room rather than the
   written moments, and uncommitted time must never be offered — so the
   refusals retire with the written-moments slider work, next.
+
+  **The slider work landed and the refusals retired** (same day,
+  `test_the_live_slider_offers_written_moments`, screenshots inspected):
+  a timelapse run binds and serves its grown picture (compose-on-request;
+  the flat run keeps its bake); the T slider ranges over the WRITTEN
+  moments from authoritative live state, reads "1 / 2 of 4 declared",
+  and grows on the held page when a moment lands; a view forced off the
+  written ground snaps back to the nearest written moment. Two real
+  bugs fell out of building the gate, both of the kind the operator's
+  station-walk protocol exists to catch: the delayed view-restore used
+  to re-arm on every landing and silently undo a slider move made
+  within a quarter second of it; and the slider's clamped display made
+  dragging to the moment it already showed a no-op over a black frame.
+  Channel identity on screen is pinned by hide-one-channel dimming the
+  blend in the grown browser gate. Still ordered: the lazy per-(t, c)
+  bake with its one-moment latency bound, and the refetch-bill counters
+  (two-channel storm, held-old-moment, moment-flip cold) as gates
+  before this chapter closes.
 - **Time is not refused today — it is silently truncated.** The picture
   serves the first moment of a timelapse as if it were the whole run,
   which violates the plan's own refuse-until-it-works principle right now.
