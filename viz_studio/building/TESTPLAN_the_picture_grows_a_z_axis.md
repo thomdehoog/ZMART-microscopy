@@ -71,6 +71,13 @@ rules the reviews added:
   slab depth (13 planes with an 8-plane slab names both the
   ceiling-versus-floor seam and the final partial slab). Even-only depths
   let a last-plane-blank off-by-one pass every voxel comparison.
+- **Every correctness stage runs on at least two chunk layouts.** Chunk
+  and shard geometry is the data's fact — one plane per compressed block
+  (our writer today) and several planes per block (Thy1's shape, and a
+  per-profile option tomorrow) — and the viewer must read it from the
+  store rather than assume it. One fixture of each, and the gates
+  imported over both; a viewer correct on one packing only is correct by
+  coincidence.
 - **Every correctness stage runs on both pyramid shapes.** The data
   decides whether a pyramid shrinks only y and x or shrinks z too, so
   both shapes are first-class and the gates are parameterized over them:
