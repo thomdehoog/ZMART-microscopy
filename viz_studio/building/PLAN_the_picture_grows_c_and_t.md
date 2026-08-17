@@ -74,6 +74,18 @@ honest version.
   doors, default suite) stands; the bake refuses grown pictures until the
   per-(t, c) bake lands; the declare-door refusals stand until the
   browser gate proves the grown picture draws.
+
+  **The browser gate stands too** (same day,
+  `test_a_grown_picture_draws_in_the_browser`, screenshots inspected by
+  eye): the engine's own space carries the time axis, the page offers
+  the T slider and per-channel rows without a line of new frontend code
+  — the linked door's five-axis machinery carries over — and steering
+  t and z moves the drawn pixels by exactly the stamped steps, with the
+  operator's F5 pair holding at every station. What still holds the
+  live-door refusals in place is the slider contract alone: a grown
+  LIVE source would today offer the declared t room rather than the
+  written moments, and uncommitted time must never be offered — so the
+  refusals retire with the written-moments slider work, next.
 - **Time is not refused today — it is silently truncated.** The picture
   serves the first moment of a timelapse as if it were the whole run,
   which violates the plan's own refuse-until-it-works principle right now.
