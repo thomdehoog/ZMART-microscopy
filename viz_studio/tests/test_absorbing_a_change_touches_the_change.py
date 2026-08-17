@@ -94,6 +94,58 @@ def _steady_landings(tmp_path: Path, across: int) -> tuple[list[float],
         opened.close()
 
 
+def test_the_fold_today_sweeps_every_published_moment(tmp_path):
+    """The known O(positions × moments) term, pinned so its fix is visible.
+
+    Every derive folds the full published record, and a published unit is
+    one (position, moment, generation) — so a timelapse multiplies the
+    fold's bookkeeping by its length, on every landing, however small the
+    landing was. The c-and-t review named this the term that must fall
+    before time is served (finding 8), and the plan orders the fix to make
+    a landing's bookkeeping the size of the landing again. This test pins
+    today's exact count; the day the fix lands, this pin fails and moves
+    to the landing-sized number, which is precisely the visibility it is
+    here for. Small on purpose: two positions and eight moments prove the
+    multiplication as surely as two hundred would.
+    """
+    import numpy as np
+
+    from zmart_live.coordinator import LivePublisher
+    from zmart_live.model import GridCell
+    from zmart_live.profiles import plan_the_writing
+
+    moments = 8
+    profile, _ = plan_the_writing("overview", frame=harness.FRAME, z_planes=1)
+    run = LivePublisher(
+        tmp_path / "experiment" / "acquisitions" / "timelapse",
+        profile, run_id="fold-moments",
+        cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+        timepoints=moments, linked_view="at_run_end",
+    )
+    frame = np.full((1, harness.FRAME, harness.FRAME), 900, "uint16")
+    for moment in range(moments - 1):
+        run.write_and_publish("posA", frame, timepoint=moment)
+        run.write_and_publish("posB", frame, timepoint=moment)
+
+    opened = GovernedRun(run.folder)
+    try:
+        opened.composer()
+        run.write_and_publish("posA", frame, timepoint=moments - 1)
+        opened.composer()
+        swept = opened.accounting["last_snapshot_swept"]
+    finally:
+        opened.close()
+
+    published_units = 2 * (moments - 1) + 1   # posA has all 8, posB has 7
+    positions = 2
+    assert swept == published_units + positions + 2 * positions, (
+        "the snapshot's sweep no longer equals published-units plus the "
+        "per-position walks — if it SHRANK, the O(positions x moments) fix "
+        "has landed and this pin should move to the landing-sized count it "
+        "was waiting for; if it GREW, a new per-derive walk has crept in."
+    )
+
+
 def test_a_landing_costs_the_same_on_a_small_and_a_large_survey(tmp_path):
     """Steady per-landing derive time must not follow the survey's size."""
     small_ms, small_sweeps, small_n = _steady_landings(tmp_path, SMALL_ACROSS)
