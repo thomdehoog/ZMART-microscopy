@@ -161,7 +161,12 @@ def test_config_includes_a_histogram_for_a_readable_store(tmp_path):
     config = config_from(data_dir=tmp_path, site_dir=site, store="sample.zarr")
     histogram = config["layers"][0]["histogram"]
     assert len(histogram["counts"]) == 64
-    assert sum(histogram["counts"]) == data.size
+    # One pixel short of the image on purpose: declared-but-unwritten ground
+    # reads back as the store's fill value (zero here), so the measurement
+    # drops that value to keep a half-written run from washing the window
+    # out. The single genuine zero in this ramp goes uncounted with it —
+    # the documented trade in contrast._samples.
+    assert sum(histogram["counts"]) == data.size - 1
 
 
 def test_tiles_of_one_channel_merge_into_a_single_layer(tmp_path):

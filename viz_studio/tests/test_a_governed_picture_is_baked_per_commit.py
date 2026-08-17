@@ -793,8 +793,11 @@ def test_the_warm_reads_the_bake_and_holds_the_composed_ground(tmp_path):
         composing.stop_warming()
         held = dict(read_back._pinned)
         assert held, "a baked picture's warm must have pinned something"
-        for (level, low_z, row, column), slab in held.items():
-            built = composing._slab_for(level, low_z, row, column)
+        # Pinned keys carry the full frame address (moment, channel) first;
+        # a flat survey lives at frame (0, 0).
+        for (moment, channel, level, low_z, row, column), slab in held.items():
+            built = composing._slab_for(level, low_z, row, column,
+                                        moment=moment, channel=channel)
             assert np.array_equal(slab, built), (
                 f"the slab read back for level {level} piece "
                 f"({row}, {column}) differs from the composed one — the "
