@@ -120,6 +120,35 @@ would build a second live path, which is exactly what the decision retired.
   measurement it disagrees with, and this repository has the scars to prove
   it. Until then, nothing downstream may assume either choice.
 
+## The tests come bake-free, and the bake comes last
+
+The correctness gates for depth are written and kept green **without any
+bake at all**: tiny synthetic tiles compose in microseconds, so
+grows-while-watched, warm-equals-reload, and the dirty bookkeeping are all
+testable on the compose-on-request path alone — exactly how the held-view
+gate and the growing demonstration already run today (``bake=False``
+throughout). A bake in those tests would only add moving parts to the thing
+under test. The bake — or the in-memory pinning that may replace most of it —
+enters only at the measurement stage, where its speed and its disk bill are
+themselves what the ladder is measuring, on real-shaped data. So the slab
+gates are built first and stay bake-free forever; the slab bake is built
+against them, never before them.
+
+The disk bill is also why "bake everything" is not on the table for depth: a
+baked full-resolution level is a second copy of the specimen, terabytes on a
+real survey. With z-halving each level is an eighth of the one above, so
+baking only the levels holding at most a percent of the full-resolution
+voxels — the transfer door's existing ``PINNED_SHARE`` posture — keeps the
+whole baked pyramid under two percent of the data. And counting positions per
+piece shows even that may be generous: a piece meets only a handful of tiles
+until the coarsest two or three levels of a large survey, so the dial runs
+from "bake nothing, pin the coarse levels in memory" (cold opens re-pay the
+warm — minutes at ten thousand positions) through "bake the coarsest only"
+to "bake the pinned share" (under two percent of the bytes, cold opens are
+file-reads). Where it sits is a ladder measurement — per-piece compose time
+by level against the cold-open budget — not an argument. Full resolution is
+never baked: L0 is links or on-request, always.
+
 ## How we will know it is done
 
 The operator's sentence, made measurable. With the depth slider and the
