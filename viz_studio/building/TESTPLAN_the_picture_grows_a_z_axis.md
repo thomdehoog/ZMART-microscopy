@@ -153,6 +153,16 @@ Landings keep arriving between stations, so every comparison happens on
 ground that changed since the page last saw it. A gate passes only if
 every station matches, and the failure message names the station.
 
+The walk is the operator's own protocol, written down exactly as it was
+performed at the bench — because this manual procedure is what found
+every problem this campaign has fixed: *watch live things appearing;
+wait a bit; take a screenshot; press F5; take a screenshot; compare.
+Then go somewhere else — a different z, a different channel, a
+different t; wait a bit; screenshot, F5, screenshot, compare again —
+all while positions keep landing.* The "wait a bit" is part of the
+instrument: it gives the live refresh its fair chance, so a mismatch
+after the wait is the machinery's failure, not impatience.
+
 Two rules keep the walk honest, because assumptions are exactly what it
 exists to replace. The z/t-refresh observation is an *observation*: the
 stage-0 counter measures it before any gate relies on or compensates for
