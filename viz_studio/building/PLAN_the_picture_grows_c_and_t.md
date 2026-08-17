@@ -132,6 +132,39 @@ each (t, c) gate below states which posture it runs, or runs both:
   the flat bar; the (t, c) plumbing must be measured against the same bar,
   not assumed past it.
 
+## Test economics: small first, fast always, the big one opt-in
+
+Every correctness gate here runs on synthetic data, and the loop must stay
+fast enough to iterate in — a suite someone waits half an hour for is a
+suite that stops being run, and then it guards nothing. The budgets are
+part of the plan, not a hope:
+
+- **Arithmetic and record-level tests in milliseconds to seconds.** Spiral
+  walks, dirty footprints, moment-untouched byte comparisons — no browser,
+  tiny frames, the pattern the colours-and-moments tests already set.
+- **Browser gates under ninety seconds each**, on the smallest survey that
+  can exercise the claim — 4x4 and 8x8 grids, two channels, two or three
+  moments, small frames. Start at the smallest size that can possibly show
+  the basics working, and only grow a fixture when a specific claim needs
+  the size; the storm gate earns its 40x40 because rate-under-fire IS its
+  claim, and nothing else inherits that scale by default.
+- **One heavyweight fixture, linked, and opt-in.** The Thy1 evening showed
+  the trick: one real volume laid out 49 times through links cost 195 KB.
+  The synthetic version is better still — build ONE volume of a gigabyte
+  or two, once, full of delicate structures chosen so that mistakes are
+  visible (gradients that make any misplacement obvious, fine grids that
+  blur if a level lies, point sources that vanish if a plane is dropped,
+  per-channel and per-moment signatures so the wrong (t, c) can never
+  masquerade as the right one) — and link it into as large a survey as
+  the test wants for kilobytes. Every pixel has a known right answer by
+  construction. This fixture backs the occasional big run — the ladder, a
+  soak, a scale question — behind an environment knob, never in the
+  default suite, and it is written once to a durable folder and reused,
+  the scale-harness rule this repository already lives by.
+
+The gates prove correctness at small scale; the ladder proves cost at
+large scale; nothing waits on both at once.
+
 ## What is deliberately not in this plan
 
 - No z — that is the depth plan, reviewed separately; the two share only
