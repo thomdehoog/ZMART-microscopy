@@ -97,6 +97,15 @@ compose-on-request (only the viewed moment patches synchronously; others
 patch on their next visit), or patching outside the derive lock — never
 assumed.
 
+**Measured 2026-08-17, and the mitigation chosen**
+(`MEASURED_stage0_c_and_t_instruments.md`): the projected synchronous
+bill is ~165–190 s of frozen picture at a 500-moment retake, against
+0.33 s flat for the lazy path — so the mitigation is **lazy per-moment
+patching behind compose-on-request**, with patching outside the derive
+lock available only as a refinement on top. The build gate that ships
+with the mechanism: time-to-first-answered-piece after a retake stays
+inside the one-moment bound at every rung, measured, not assumed.
+
 ## The per-(t, c) snapshot is designed work, not bookkeeping
 
 The shipped snapshot machinery throws the time axis away, and the review
