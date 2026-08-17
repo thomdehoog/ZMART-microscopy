@@ -678,3 +678,48 @@ def test_an_empty_folder_says_so(tmp_path: Path):
     (tmp_path / "nothing").mkdir()
     with pytest.raises(ValueError, match="no OME-Zarr images"):
         read_the_transfer(tmp_path / "nothing")
+
+
+def test_declaring_again_over_a_new_tile_serves_it_without_a_restart(
+        tmp_path: Path):
+    """A tile that lands mid-run must reach whoever is already being served.
+
+    A growing survey re-declares its picture as tiles arrive, and the serving
+    side keeps a mark of the declaration so a re-declared picture is rebuilt
+    rather than remembered (review finding D5). This holds that promise to the
+    case that found its edge at the microscope: the survey's extent pinned by
+    its corner tiles, so a landing changes which tiles exist without moving
+    the picture's shape. Seen live as a picture that grew only after a reload,
+    while every plane looked frozen at whatever moment it was first visited.
+
+    Deliberately no ``served.forget`` between the declares: production never
+    forgets, so the mark alone must notice the landing.
+    """
+    folder = tmp_path / "transfer"
+    folder.mkdir()
+    # Three of the four: both far corners are down, so the picture's extent --
+    # and with it the description -- is already what it will always be.
+    for number, (row, column) in [(0, (0, 0)), (2, (1, 0)), (3, (1, 1))]:
+        _write_a_tile(folder / f"Tile{number}.ome.zarr", number,
+                      (row * STEP_UM, column * STEP_UM))
+    store = declare_a_built_picture(tmp_path / "views", folder, name="built",
+                                    piece=PIECE)
+    try:
+        # Ground only the missing tile will cover: the top-right piece, past
+        # tile 0's right edge and above the second row's top.
+        empty = served.the_bytes_behind(store, "0/c/0/0/3")
+        assert empty is None, "ground no tile covers must be served as absent"
+
+        _write_a_tile(folder / "Tile1.ome.zarr", 1, (0.0, STEP_UM))
+        again = declare_a_built_picture(tmp_path / "views", folder,
+                                        name="built", piece=PIECE)
+        assert again == store
+
+        grown = served.the_bytes_behind(store, "0/c/0/0/3")
+        assert grown is not None, (
+            "the tile that landed is still being served as absent ground -- "
+            "the remembered composer outlived the declaration that replaced it"
+        )
+    finally:
+        served.forget(store)
+
