@@ -89,3 +89,13 @@
 19. **The axes are proven together.** One combined-axes identity oracle
     (value = 1000·t + 100·c + z) in the default suite; independent-axis
     gates alone close neither chapter.
+20. **The pointed door's frame rate slid while its gate was dark.** The
+    drawing-keeps-up ratio (200 pointed stores against 20) was calibrated
+    at 35–40% in the sandbox and measured 22% when the gate was revived
+    on 2026-08-17 — it had been uncollectable since a rename, and the
+    slide happened unseen during the conversion chapter. The line is
+    re-drawn beneath today's number so a further slide is caught; the
+    bench decides whether 22% matters on real graphics, and the bisect
+    walks the conversion history if it does. The general lesson stands
+    beside the specific one: a gate that stops collecting is a gate that
+    reports green, so revived suites deserve a collection check.
