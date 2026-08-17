@@ -160,7 +160,7 @@ class TestTheSpiralWithColoursAndMoments:
 
         profile, _ = plan_the_writing(
             "overview", frame=harness.FRAME, z_planes=1,
-            channels=("green", "red"),
+            channels=("green", "red"), timepoints=2,
         )
         width = len(str(self.ACROSS - 1))
         cells = {GridCell(row, column): f"p{row:0{width}d}{column:0{width}d}"
@@ -168,7 +168,7 @@ class TestTheSpiralWithColoursAndMoments:
         run = LivePublisher(
             folder / "experiment" / "acquisitions" / "spiral",
             profile, run_id="spiral-colours",
-            cells=cells, channels=("green", "red"), timepoints=2,
+            cells=cells, channels=("green", "red"),
         )
         return run, width
 
@@ -270,12 +270,21 @@ class TestTheSpiralWithColoursAndMoments:
         from zmart_live.profiles import plan_the_writing
 
         profile, _ = plan_the_writing("overview", frame=harness.FRAME,
-                                      z_planes=1)
+                                      z_planes=1, timepoints=2)
         run = LivePublisher(
             tmp_path / "experiment" / "acquisitions" / "timelapse",
             profile, run_id="spiral-moments",
-            cells={GridCell(0, 0): "p00"}, timepoints=2,
+            cells={GridCell(0, 0): "p00"},
         )
+        # The refusal must not need a single landed position: the sealed
+        # profile declares the room, so an empty timelapse run is refused
+        # exactly as an empty two-colour one is. (Before the room entered
+        # the profile, an empty timelapse was indistinguishable from a flat
+        # run and slipped through to be truncated later.)
+        with pytest.raises(Exception, match="moment"):
+            declare_a_governed_picture(run.folder / "views" / "empty",
+                                       run.folder, name="live")
+
         one_colour = np.full((1, harness.FRAME, harness.FRAME), 1000, "uint16")
         run.write_and_publish("p00", one_colour, timepoint=0)
         with pytest.raises(Exception, match="moment"):

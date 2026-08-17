@@ -22,13 +22,13 @@ from .test_coordinator import FRAME, some_specimen
 def a_live_run(folder, *, timepoints=1):
     from zmart_live.coordinator import LivePublisher
 
-    profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1)
+    profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1,
+                                  timepoints=timepoints)
     return LivePublisher(
         folder,
         profile,
         run_id="gateway-run",
         cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
-        timepoints=timepoints,
     )
 
 

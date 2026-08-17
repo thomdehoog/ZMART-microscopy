@@ -695,6 +695,7 @@ def plan_the_writing(
     frame: int | tuple[int, int],
     dtype: str = "uint16",
     z_planes: int = 1,
+    timepoints: int = 1,
     channels: tuple[str, ...] = ("channel 0",),
     voxel_size: tuple[float, float, float] = (1.0, 1.0, 1.0),
     voxel_unit: str = "micrometer",
@@ -713,7 +714,10 @@ def plan_the_writing(
     ``z_planes`` and ``channels`` do not affect where seams fall or which zoom
     levels can be pointed at. They are recorded because they are part of what
     makes this acquisition the acquisition it is, and the depth is also what
-    sizes the file bundles.
+    sizes the file bundles. ``timepoints`` is the room along time, declared as
+    a generous ceiling — how many moments the run MAY record; stopping early
+    is ordinary. One is the default, and means a snapshot rather than a
+    timelapse.
 
     The profile's name is worked out from everything the profile says, so two
     acquisitions that differ anywhere — in pixel type, in depth, in colours, in
@@ -814,6 +818,7 @@ def plan_the_writing(
         levels=tuple(levels),
         codecs=("bytes", "zstd"),
         channels=tuple(channels),
+        timepoints=timepoints,
         sealed=True,
     )
     shape = f"{height}" if height == width else f"{height}x{width}"

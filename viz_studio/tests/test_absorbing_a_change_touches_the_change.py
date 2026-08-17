@@ -115,12 +115,13 @@ def test_the_fold_today_sweeps_every_published_moment(tmp_path):
     from zmart_live.profiles import plan_the_writing
 
     moments = 8
-    profile, _ = plan_the_writing("overview", frame=harness.FRAME, z_planes=1)
+    profile, _ = plan_the_writing("overview", frame=harness.FRAME, z_planes=1,
+                                  timepoints=moments)
     run = LivePublisher(
         tmp_path / "experiment" / "acquisitions" / "timelapse",
         profile, run_id="fold-moments",
         cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
-        timepoints=moments, linked_view="at_run_end",
+        linked_view="at_run_end",
     )
     frame = np.full((1, harness.FRAME, harness.FRAME), 900, "uint16")
     for moment in range(moments - 1):

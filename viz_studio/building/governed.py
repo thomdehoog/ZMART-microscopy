@@ -306,6 +306,18 @@ class TheWorldFrame(Mosaic):
         return tuple(self._profile.channels)
 
     @property
+    def moments_recorded(self) -> int:
+        """The run's timepoint room, knowable before any position arrives.
+
+        The sealed profile declares the room, so an empty timelapse run can
+        be refused exactly as an empty two-colour one can. The arrays still
+        get a say for runs sealed before the profile carried the room —
+        there the arrays are the only durable declaration — so whichever
+        source declares more moments is believed.
+        """
+        return max(int(self._profile.timepoints), super().moments_recorded)
+
+    @property
     def slab_depths(self) -> list[int]:
         """How many planes one file holds per level, from the profile.
 

@@ -714,6 +714,15 @@ class AcquisitionProfile:
     rather than being left to the commit records because two acquisitions that
     image different colours are genuinely different acquisitions, and a profile
     that did not mention them could not tell the two apart.
+
+    ``timepoints`` is the room along time — how many moments this acquisition
+    may record, declared as a generous ceiling (stopping early is ordinary and
+    costs nothing; absence expresses the unimaged tail). It lives here for the
+    same reason the channels do: a timelapse is a different acquisition from a
+    snapshot, and a viewer that cannot serve time yet must be able to see that
+    and refuse before a single position has landed. One moment is the default,
+    and a one-moment profile writes no field at all, so every profile sealed
+    before this room existed keeps its stored form and its fingerprint.
     """
 
     profile_id: str
@@ -731,6 +740,7 @@ class AcquisitionProfile:
     levels: tuple[LevelGeometry, ...] = ()
     codecs: tuple[str, ...] = ()
     channels: tuple[str, ...] = ()
+    timepoints: int = 1
     sealed: bool = True
 
     def __post_init__(self) -> None:
@@ -766,6 +776,15 @@ class AcquisitionProfile:
             raise ZmartLiveError(f"Axis names must be present and unique; got {self.axes}.")
         if not self.dtype:
             raise ZmartLiveError("An acquisition profile has to name its pixel dtype.")
+        if (
+            not isinstance(self.timepoints, int)
+            or isinstance(self.timepoints, bool)
+            or self.timepoints < 1
+        ):
+            raise ZmartLiveError(
+                f"A profile has to keep room for at least one timepoint; got "
+                f"{self.timepoints!r}."
+            )
         if self.topology not in TOPOLOGIES:
             raise ZmartLiveError(
                 f"'{self.topology}' is not a known arrangement of positions. "
@@ -945,6 +964,10 @@ class AcquisitionProfile:
             "codecs": list(self.codecs),
             "channels": list(self.channels),
             "sealed": self.sealed,
+            # One moment writes no field at all: every profile sealed before
+            # the time room existed keeps its exact stored form, and with it
+            # the fingerprint its profile_id ends in.
+            **({"timepoints": self.timepoints} if self.timepoints != 1 else {}),
         }
 
     @classmethod
@@ -967,6 +990,7 @@ class AcquisitionProfile:
             levels=tuple(LevelGeometry.from_json(lvl) for lvl in value.get("levels", ())),
             codecs=tuple(value.get("codecs", ())),
             channels=tuple(value.get("channels", ())),
+            timepoints=int(value.get("timepoints", 1)),
             sealed=bool(value.get("sealed", True)),
         )
 

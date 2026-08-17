@@ -182,7 +182,10 @@ class LivePublisher:
     run_id: str
     cells: dict[GridCell, str]
     channels: tuple[str, ...] | None = None
-    timepoints: int = 1
+    #: Room along time. ``None`` — the ordinary case — takes the room from the
+    #: sealed profile, which is where it is declared; a value given here may
+    #: only agree with the profile, exactly as the channels may.
+    timepoints: int | None = None
     #: When the linked plain-file view is written. ``"per_publish"`` refreshes
     #: it after every commit, so outside tools can open the run mid-experiment;
     #: ``"at_run_end"`` writes it once, in :meth:`finish_the_run`, which takes
@@ -236,6 +239,8 @@ class LivePublisher:
                     "profile and cannot be changed independently; plan a profile "
                     "with those channels instead."
                 )
+        if self.timepoints is None:
+            self.timepoints = self.profile.timepoints
         if (
             not isinstance(self.timepoints, int)
             or isinstance(self.timepoints, bool)
@@ -244,6 +249,14 @@ class LivePublisher:
             raise ZmartLiveError(
                 f"A live position store needs room for at least one timepoint; got "
                 f"{self.timepoints!r}."
+            )
+        if self.timepoints != self.profile.timepoints:
+            raise ZmartLiveError(
+                f"This writer was given room for {self.timepoints} timepoint(s), "
+                f"but its sealed acquisition profile declares "
+                f"{self.profile.timepoints}. The time room is part of the profile "
+                "and cannot be changed independently; plan a profile with that "
+                "room instead."
             )
         if self.linked_view not in ("per_publish", "at_run_end"):
             raise ZmartLiveError(
