@@ -632,7 +632,7 @@ class TestTheLoadWindow:
             page.get_by_label("open surveyrun", exact=True).wait_for(timeout=10_000)
             page.get_by_label("open surveyrun", exact=True).click()
             page.get_by_label("scene folder").wait_for(timeout=10_000)
-            page.get_by_label("prebake", exact=True).check()
+            page.get_by_label("full build", exact=True).check()
             page.get_by_label("build the scene").click()
             page.get_by_label("show the scene").wait_for(timeout=30_000)
             page.get_by_label("show the scene").click()
