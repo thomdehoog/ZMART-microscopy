@@ -434,9 +434,10 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                   checked={!constructing.bake}
                   onChange={() => setConstructing((current) => ({ ...current, bake: false }))}
                   disabled={constructing.running || !!constructing.built}
-                  aria-label="linked only"
+                  aria-label="quick build"
+                  title="Write only the scene's description; the build is immediate. Everything, including the zoomed-out picture, is composed the first time it is looked at"
                 />
-                linked only
+                quick build
               </label>
               <label style={styles.constructChoice}>
                 <input
@@ -444,9 +445,10 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                   checked={constructing.bake}
                   onChange={() => setConstructing((current) => ({ ...current, bake: true }))}
                   disabled={constructing.running || !!constructing.built}
-                  aria-label="prebake"
+                  aria-label="full build"
+                  title="Also compute the zoomed-out picture -- the top of the scene's pyramid -- and keep it as files. Takes time once; the whole survey then appears instantly on every open. Fine detail is composed as you look either way"
                 />
-                prebake
+                full build
               </label>
               {!constructing.built ? (
                 <button
@@ -455,8 +457,8 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                   disabled={constructing.running}
                   aria-label="build the scene"
                   title={constructing.bake
-                    ? "Compute every piece now and keep it -- takes time, opens instantly ever after"
-                    : "Write only the view's description; each piece is made when first looked at"}
+                    ? "Compute the zoomed-out picture now and keep it -- takes time once, opens instantly ever after"
+                    : "Write only the scene's description; everything is composed as it is looked at"}
                   style={styles.loadOpen}
                 >
                   {constructing.running ? "building…" : "Build"}
