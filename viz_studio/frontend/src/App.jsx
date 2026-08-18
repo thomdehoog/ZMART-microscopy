@@ -467,22 +467,20 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                 </button>
               )}
             </div>
-            {/* The rule of thumb below is measured, not guessed: on the lab
+            {/* The recommendation is measured, not guessed: on the lab
                 workstation (MEASURED_the_ladder_of_surveys.md, the
                 on-the-card table) the bake costs 5.7 s at 1,024 positions of
                 384-pixel test tiles where the unbaked first look costs
-                7.7 s -- the crossover, at roughly 150 megapixels of survey.
-                At 4,096 tiles it is 19 s of build against a 39 s first
-                look. Both sides scale with the pixels read, so in camera
-                terms the crossover is a few dozen 2048-pixel frames. */}
+                7.7 s -- the crossover, at roughly 150 megapixels of survey,
+                a few dozen full camera frames. At 4,096 tiles it is 19 s of
+                build against a 39 s first look, and the unbaked scene pays
+                that again on every cold open. */}
             <div style={styles.constructNote}>
               A scene is a link: its pixels are always read from the raw
               data. The hard copy is only the zoomed-out overview, kept as
-              files. Building it takes time once, and a big survey then
-              opens instantly. Without it, the overview is computed the
-              first time you look. Rule of thumb: up to a few dozen camera
-              frames either way feels quick; beyond that, the hard copy pays
-              for itself on the very first open.
+              files. We recommend it: the build is a one-time cost, and the
+              positions then load instantly. Without it, the overview is
+              computed the first time you look.
             </div>
             {constructing.running && (
               <div
