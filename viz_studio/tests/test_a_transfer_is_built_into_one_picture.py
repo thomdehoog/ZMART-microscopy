@@ -790,3 +790,139 @@ def test_a_transfer_of_four_axes_builds_with_channel_room(tmp_path: Path):
         )
     finally:
         composer.close()
+
+
+def _write_a_grown_tile(store: Path, number: int, at_um: tuple[float, float],
+                        *, moments: int = 2, channels: int = 2) -> None:
+    """A five-axis tile whose every (t, c) frame holds its own brightness.
+
+    The values are chosen so a frame served in another frame's place is
+    unmistakable in one comparison: position, moment and channel each move
+    the counts by amounts no rounding can confuse.
+    """
+    room = (moments, channels)
+    picture = np.empty(room + TILE, "uint16")
+    for moment in range(moments):
+        for channel in range(channels):
+            picture[moment, channel] = (500 + number * 900
+                                        + moment * 40 + channel * 4000)
+    datasets = []
+    for level in range(LEVELS):
+        shrink = 2 ** level
+        shaped = picture[..., ::shrink, ::shrink]
+        array = zarr.create_array(
+            store=str(store / str(level)), shape=shaped.shape,
+            chunks=(1, 1) + shaped.shape[2:], dtype="uint16", zarr_format=3,
+            dimension_names=["t", "c", "z", "y", "x"], overwrite=True,
+        )
+        array[:] = shaped
+        datasets.append({
+            "path": str(level),
+            "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 1.0, VOXEL_UM[0],
+                                            VOXEL_UM[1] * shrink,
+                                            VOXEL_UM[2] * shrink]},
+                {"type": "translation",
+                 "translation": [0.0, 0.0, 0.0, at_um[0], at_um[1]]},
+            ],
+        })
+    (store / "zarr.json").write_text(json.dumps({
+        "attributes": {"ome": {
+            "version": "0.5",
+            "multiscales": [{
+                "name": store.name, "type": "nearest",
+                "axes": [{"name": one} for one in "tczyx"],
+                "datasets": datasets,
+            }],
+        }},
+        "zarr_format": 3, "node_type": "group",
+    }), encoding="utf-8")
+
+
+def test_a_grown_picture_bakes_one_file_per_frame(tmp_path: Path):
+    """The hard copy of a grown picture holds every (t, c) frame.
+
+    This used to be a refusal -- "the bake writes one file per flat piece,
+    baking it would freeze one frame and serve it for every other" -- and
+    this test is that refusal retiring. Every baked file must hold exactly
+    the bytes composing that frame would put on the wire, the extended
+    coarse levels above the tiles must carry the full (t, c) room, and the
+    serving door must answer grown pieces from the files alone.
+    """
+    folder = tmp_path / "grown"
+    folder.mkdir()
+    # One row of four, so the picture is wide enough that the pyramid keeps
+    # halving above the tiles' own coarsest copy.
+    for number in range(4):
+        _write_a_grown_tile(folder / f"Tile{number}.ome.zarr", number,
+                            (0.0, number * STEP_UM))
+
+    store = declare_a_built_picture(tmp_path / "views", folder, name="built",
+                                    piece=PIECE, bake=True)
+
+    mosaic = read_the_transfer(folder)
+    composer = Composer(mosaic, piece=PIECE)
+    try:
+        moments, channels = composer.mosaic.frame_room
+        assert (moments, channels) == (2, 2)
+        pinned = sorted(composer.pinned_levels)
+        assert pinned, "the fixture must pin at least its coarsest level"
+        for level in pinned:
+            deep, down, across = composer.grid(level)
+            for moment in range(moments):
+                for channel in range(channels):
+                    for plane in range(deep):
+                        for row in range(down):
+                            for column in range(across):
+                                body = composer.bytes_for(
+                                    level, plane, row, column,
+                                    moment=moment, channel=channel)
+                                baked = store.joinpath(
+                                    str(level), "c", str(moment),
+                                    str(channel), str(plane), str(row),
+                                    str(column))
+                                if body is None:
+                                    assert not baked.exists(), (
+                                        f"empty ground must stay unwritten, "
+                                        f"but {baked} exists"
+                                    )
+                                    continue
+                                assert baked.is_file(), (
+                                    f"frame ({moment}, {channel}) of level "
+                                    f"{level} was not baked at {baked}"
+                                )
+                                assert baked.read_bytes() == body, (
+                                    f"the baked file at {baked} does not "
+                                    "hold what composing this frame gives"
+                                )
+    finally:
+        composer.close()
+
+    # The picture's own levels above the tiles carry the full room, and a
+    # frame up there is its own frame -- not moment (0, 0) frozen for all.
+    described = json.loads((store / "zarr.json").read_text())
+    levels = described["attributes"]["ome"]["multiscales"][0]["datasets"]
+    assert len(levels) > mosaic.levels, (
+        "a picture this wide must keep halving above its tiles"
+    )
+    top = zarr.open_array(str(store / levels[-1]["path"]), mode="r")
+    assert top.shape[:2] == (2, 2), "the extended levels must keep the room"
+    ceiling = np.asarray(top)
+    assert ceiling[0, 0].mean() != ceiling[0, 1].mean(), (
+        "the extended level serves one frame for another"
+    )
+
+    # And the files alone answer, with the tiles walked away.
+    served.forget(store)
+    for tile in sorted(folder.glob("*.ome.zarr")):
+        (tile / "zarr.json").rename(tile / "zarr.json.walked-away")
+    try:
+        coarsest = mosaic.levels - 1
+        one = served.the_bytes_behind(store, f"{coarsest}/c/1/1/0/0/0")
+        other = served.the_bytes_behind(store, f"{coarsest}/c/0/0/0/0/0")
+        assert one is not None and other is not None
+        assert one != other, "two frames must answer two different pictures"
+    finally:
+        for tile in sorted(folder.glob("*.ome.zarr")):
+            (tile / "zarr.json.walked-away").rename(tile / "zarr.json")
+        served.forget(store)
