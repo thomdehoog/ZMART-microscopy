@@ -443,3 +443,53 @@ def test_the_histogram_dims_the_brightness_outside_the_window(two_channel_page):
         "the full-brightness stretch must be contiguous -- it is the window"
     )
     assert first > 0, "bars below the black point must be dimmed"
+
+
+def test_the_histogram_axis_can_be_switched_between_linear_and_log(two_channel_page):
+    """A skewed channel can spread its dim end out; the choice is explicit.
+
+    Fluorescence often piles most of its brightness near background with a
+    long tail, and on a linear axis that reads as everything bunched left.
+    The log axis stretches the dim end and compresses the tail. It is a
+    visible toggle rather than a rule guessed from bit depth, because the
+    skew is a property of the specimen's distribution, not of the container
+    the camera writes.
+
+    On the linear axis every bin is drawn one unit wide; on the log axis the
+    dim bins widen and the bright ones narrow, so the drawing itself is what
+    is checked, before and after and back again.
+    """
+    page = two_channel_page
+    widths = lambda: page.evaluate(  # noqa: E731 -- a tiny page probe
+        """() => Array.from(
+          document.querySelector('[aria-label="histogram Ch488"]')
+            .querySelectorAll('rect'),
+        ).filter((bar) => bar.getAttribute('fill') === 'currentColor')
+         .map((bar) => Number(bar.getAttribute('width')))"""
+    )
+    linear = widths()
+    assert max(linear) - min(linear) < 1e-6, "the linear axis draws equal bins"
+
+    page.get_by_label("logarithmic brightness axis").click()
+    page.wait_for_timeout(300)
+    logged = widths()
+    assert logged[0] > logged[-1], (
+        "on the log axis the dim bins must widen and the bright ones narrow"
+    )
+
+    # The bars still drag correctly under the warped axis: the engine's
+    # window moves, through the log mapping and back.
+    before = _window_in_engine(page)
+    box = page.locator("[aria-label='histogram Ch488']").bounding_box()
+    middle = box["y"] + box["height"] / 2
+    page.mouse.move(box["x"] + box["width"] * 0.05, middle)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] * 0.5, middle, steps=6)
+    page.mouse.up()
+    page.wait_for_timeout(600)
+    assert _window_in_engine(page)[0] > before[0]
+
+    page.get_by_label("linear brightness axis").click()
+    page.wait_for_timeout(300)
+    back = widths()
+    assert max(back) - min(back) < 1e-6, "switching back restores equal bins"
