@@ -739,3 +739,54 @@ def test_declaring_again_over_a_new_tile_serves_it_without_a_restart(
     finally:
         served.forget(store)
 
+
+
+def test_a_transfer_of_four_axes_builds_with_channel_room(tmp_path: Path):
+    """(c, z, y, x) tiles — the ordinary multi-channel position — build too.
+
+    Their room is (1, channels): no time axis, colour riding in front. The
+    reading has to index each store by CHANNEL alone, the one front axis it
+    actually has. That is the trap this gate holds shut: the front axes are
+    always drawn from (t, c), so a lazy "first however-many of (moment,
+    channel)" would feed the MOMENT to a single-front-axis store and quietly
+    serve channel 0's pixels for every colour.
+    """
+    folder = tmp_path / "four"
+    folder.mkdir()
+    store = folder / "Tile0.ome.zarr"
+    made = zarr.create_array(
+        store=str(store / "0"), shape=(2, 3, 8, 8), chunks=(1, 3, 8, 8),
+        dtype="uint16", zarr_format=3,
+        dimension_names=["c", "z", "y", "x"], overwrite=True)
+    frames = np.empty((2, 3, 8, 8), "uint16")
+    for channel in range(2):
+        frames[channel] = 1000 * (channel + 1)
+    made[:] = frames
+    (store / "zarr.json").write_text(json.dumps({
+        "attributes": {"ome": {"version": "0.5", "multiscales": [{
+            "name": "four", "axes": [{"name": one} for one in "czyx"],
+            "datasets": [{"path": "0", "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 1.0, 0.5, 0.5]},
+                {"type": "translation", "translation": [0.0] * 4}]}],
+        }]}},
+        "zarr_format": 3, "node_type": "group",
+    }), encoding="utf-8")
+
+    mosaic = read_the_transfer(folder)
+    assert mosaic.axes == ("z", "y", "x"), "the mosaic itself stays spatial"
+    assert mosaic.frame_room == (1, 2), "no time room, two colours of room"
+
+    composer = Composer(mosaic, piece=8)
+    try:
+        from numcodecs import Zstd
+
+        first = composer.bytes_for(0, 0, 0, 0, moment=0, channel=0)
+        second = composer.bytes_for(0, 0, 0, 0, moment=0, channel=1)
+        assert first is not None and second is not None
+        decode = Zstd().decode
+        assert np.frombuffer(decode(first), "uint16").max() == 1000
+        assert np.frombuffer(decode(second), "uint16").max() == 2000, (
+            "channel 1 must serve its own pixels, not channel 0's"
+        )
+    finally:
+        composer.close()

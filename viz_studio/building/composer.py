@@ -56,7 +56,7 @@ from pathlib import Path
 
 import numpy as np
 import zarr
-from mosaic import Mosaic
+from mosaic import Mosaic, the_frame_room_of, the_front_axes
 
 # How large a piece of the built picture is, across height and width. A builder is
 # free to choose this, since nothing constrains it to match how the tiles happen to
@@ -159,10 +159,8 @@ def _tile_has_the_frame(tile, level: int, moment: int, channel: int) -> bool:
     """
     if tile.moments is not None and moment not in tile.moments:
         return False
-    room = tile.copies[level].outer_shape
-    outer = (moment, channel)[:len(room)]
-    return all(index < extent
-               for index, extent in zip(outer, room, strict=False))
+    moments, channels = the_frame_room_of(tile.copies[level].outer_shape)
+    return moment < moments and channel < channels
 
 
 class MissingCommittedGround(RuntimeError):
@@ -644,7 +642,12 @@ class Composer:
             if not _tile_has_the_frame(tile, level, moment, channel):
                 continue
             copy = tile.copies[level]
-            outer = (moment, channel)[:len(copy.outer_shape)]
+            # The store's front axes are named by their count -- (t, c), the
+            # channel alone, or none -- so the index is built through that
+            # one rule rather than by truncating (moment, channel), which
+            # would feed the moment to a channel-only store.
+            outer = tuple(moment if name == "t" else channel
+                          for name in the_front_axes(copy.outer_shape))
             # The copy's own declared spatial extent -- NOT the opened array's.
             # The array of a governed position is five axes and its leading
             # shape entries are the moment and channel room, which read

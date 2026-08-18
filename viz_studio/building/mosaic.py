@@ -248,9 +248,8 @@ class Mosaic:
             found = (1, 1)
             for tile in self.tiles:
                 for copy in tile.copies:
-                    if len(copy.outer_shape) >= 2:
-                        found = (int(copy.outer_shape[0]),
-                                 int(copy.outer_shape[1]))
+                    if copy.outer_shape:
+                        found = the_frame_room_of(copy.outer_shape)
                         break
                 else:
                     continue
@@ -525,6 +524,23 @@ def _refuse_tiles_that_disagree(tiles: list[Tile]) -> str:
     return kind
 
 
+def the_front_axes(outer_shape: tuple[int, ...]) -> tuple[str, ...]:
+    """Which axes a store keeps in front of (z, y, x), from how many it keeps.
+
+    The front axes are always drawn from (t, c) in that order -- two of them
+    is (t, c), one is the channel alone, none is a plain spatial picture --
+    so their meaning follows from the count. This is the ONE place that rule
+    lives; every read that fixes the front axes builds its index through it.
+    """
+    return ("t", "c")[2 - len(outer_shape):]
+
+
+def the_frame_room_of(outer_shape: tuple[int, ...]) -> tuple[int, int]:
+    """The (moments, channels) a store's front axes keep room for."""
+    named = dict(zip(the_front_axes(outer_shape), outer_shape, strict=True))
+    return (int(named.get("t", 1)), int(named.get("c", 1)))
+
+
 def read_the_transfer(folder: str | Path) -> Mosaic:
     """Open a transfer and work out how its tiles fit together.
 
@@ -578,23 +594,26 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
                 "strange for no reason anybody can point at, so this is refused "
                 "rather than drawn."
             )
-    # Three axes is a plain spatial picture; five is one that also records
-    # time and colour, and the built picture then grows those axes too (see
-    # ``Mosaic.frame_room``). The mosaic's OWN axes stay the spatial three
-    # either way -- the (t, c) room rides on each copy's ``outer_shape`` --
-    # because everything spatial in here reasons in (z, y, x).
-    if not (len(axes) == 3 or (len(axes) == 5 and tuple(axes[:2]) == ("t", "c"))):
+    # Three axes is a plain spatial picture; four adds colour in front; five
+    # records time and colour both, and the built picture then grows those
+    # axes too (see ``Mosaic.frame_room``). The front axes are always drawn
+    # from (t, c) in that order, which is why their meaning follows from how
+    # many there are -- see ``the_front_axes``. The mosaic's OWN axes stay
+    # the spatial three either way, because everything spatial in here
+    # reasons in (z, y, x).
+    front = tuple(axes[:-3])
+    if tuple(axes[-3:]) != ("z", "y", "x") or front != ("t", "c")[2 - len(front):]:
         raise ValueError(
             f"{tiles[0].store} stores its picture as {', '.join(axes)}. This "
             "builds over tiles of three spatial axes — depth, height and "
-            "width — optionally behind a (t, c) pair. Anything else has no "
-            "agreed meaning to draw."
+            "width — optionally behind a channel axis or a (t, c) pair. "
+            "Anything else has no agreed meaning to draw."
         )
     # The (t, c) room has to agree too: the picture is declared with ONE
     # room, and a tile keeping more moments than the declaration would have
     # its later moments silently unreachable -- the same wrong-picture class
     # the disagreement refusals below exist for.
-    rooms = {tile.copies[0].outer_shape[:2] for tile in tiles}
+    rooms = {the_frame_room_of(tile.copies[0].outer_shape) for tile in tiles}
     if len(rooms) > 1:
         raise ValueError(
             f"the tiles of {folder} keep different (t, c) room: "
