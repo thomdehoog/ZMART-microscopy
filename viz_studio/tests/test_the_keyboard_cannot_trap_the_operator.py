@@ -23,10 +23,22 @@ showed it open, so the operator's next click on the eye appeared to do nothing;
 box, which this viewer replaces with its own; `s` switched the slices off inside
 the volume; `o` added an orthographic projection.
 
+The panel tables were the second hole, closed later (2026-08-18, the decision
+recorded in CONTROLS.md): the engine's per-panel defaults still bound a whole
+keyboard — arrows panned, comma and full stop stepped z, the brackets stepped
+time straight past the written-moments clamp the slider enforces, `r`, `e` and
+Shift with the arrows rotated the slice so the picture silently stopped lining
+up with the stage coordinates drawn over it, and Ctrl with `=` zoomed. All of
+it reachable by a stray keystroke, none of it shown anywhere on screen. Moving
+through the stack and through time belongs to the sliders, where it is visible,
+labelled, and clamped to what has actually been written; moving around belongs
+to the two gestures (drag pans, the wheel zooms). So the panels now install
+only the gestures we chose, and no keyboard at all.
+
 Each test presses a key and checks that nothing moved. "Nothing moved" is also
 what a page that never loaded would report, so the first test here proves the
-keystrokes are genuinely arriving — by checking that a key we *do* want still
-does its job. Without that, this whole file could pass against a blank screen.
+keystrokes are genuinely arriving — by watching them land on the engine's own
+element. Without that, this whole file could pass against a blank screen.
 """
 
 from __future__ import annotations
@@ -70,25 +82,24 @@ def press(page, key: str) -> None:
 def test_the_keystrokes_really_do_reach_the_engine(viewer_page):
     """Proof that the rest of this file can fail.
 
-    The comma and full stop keys step through z, and they are bound on the image
-    panel rather than in the global table — so they are exactly what this viewer
-    wants to keep. If this stops working, the tests below are no longer testing
-    that a key does nothing; they are testing that no key arrives at all.
+    No key is allowed to move the view any more, so "reaches the engine" is
+    watched at the door instead: a listener on the engine's own element sees
+    the keystroke arrive. If this stops working, the tests below are no longer
+    testing that a key does nothing; they are testing that no key arrives at
+    all.
     """
-    before = viewer_page.evaluate(
-        "() => { const v = window.zmartViewer;"
-        " const i = v.navigationState.position.coordinateSpace.value.names.indexOf('z');"
-        " return v.navigationState.position.value[i]; }"
+    viewer_page.evaluate(
+        "() => { window.zmartKeysSeen = [];"
+        " document.querySelector('.neuroglancer-panel').addEventListener("
+        "   'keydown', (event) => window.zmartKeysSeen.push(event.code), true); }"
     )
     press(viewer_page, "Period")
-    after = viewer_page.evaluate(
-        "() => { const v = window.zmartViewer;"
-        " const i = v.navigationState.position.coordinateSpace.value.names.indexOf('z');"
-        " return v.navigationState.position.value[i]; }"
-    )
-    assert after != before, (
-        "'.' no longer steps through z, so the keyboard is not reaching the "
-        "engine at all and nothing else in this file means anything"
+    press(viewer_page, "ArrowRight")
+    assert viewer_page.evaluate("() => window.zmartKeysSeen") == [
+        "Period", "ArrowRight",
+    ], (
+        "keystrokes are not reaching the engine's element at all, so nothing "
+        "else in this file means anything"
     )
 
 
@@ -170,24 +181,126 @@ def test_the_statistics_panel_does_not_open(viewer_page):
 # worlds. A test that cannot fail is worse than no test, because it reads as
 # cover that is not there.
 
+_POSITION = "() => Array.from(window.zmartViewer.navigationState.position.value)"
+_ZOOM = "() => window.zmartViewer.navigationState.zoomFactor.value"
+_FACING = (
+    "() => Array.from("
+    "window.zmartViewer.navigationState.pose.orientation.orientation)"
+)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",  # panned x and y
+        "Comma", "Period",                                  # stepped z
+        "BracketLeft", "BracketRight",                      # stepped time
+    ],
+)
+def test_no_key_moves_the_position(viewer_page, key):
+    """Moving belongs to the sliders and to dragging, where it is visible.
+
+    The brackets were the worst of these: they stepped time directly, straight
+    past the T slider's clamp to the moments that have actually been written,
+    onto ground the record has not published — which the screen shows as
+    honest black, with nothing to say why.
+    """
+    before = viewer_page.evaluate(_POSITION)
+    press(viewer_page, key)
+    assert viewer_page.evaluate(_POSITION) == before, (
+        f"{key} moved the view; steering lives on the sliders and the mouse, "
+        "never on a key with no label on screen"
+    )
+
+
+@pytest.mark.parametrize("key", ["r", "e", "Shift+ArrowLeft", "Shift+ArrowUp"])
+def test_no_key_rotates_the_flat_view(viewer_page, key):
+    """A rotated slice silently stops lining up with the stage coordinates.
+
+    The operator's carrier outline and tile positions are drawn in stage
+    coordinates, straight. CONTROLS.md section 2 removes rotation from the
+    flat view entirely for that reason, and asks for exactly this test:
+    an unbound gesture looks like a gesture nobody tried, so without it the
+    rotation quietly comes back the next time the bindings are edited.
+    """
+    before = viewer_page.evaluate(_FACING)
+    press(viewer_page, key)
+    assert viewer_page.evaluate(_FACING) == before, (
+        f"{key} rotated the view, and nothing on screen says how to undo it"
+    )
+
+
+def test_shift_drag_does_not_rotate_either(viewer_page):
+    """The same trap on the mouse: Shift and drag is easy to make by accident."""
+    before = viewer_page.evaluate(_FACING)
+    box = viewer_page.locator(".neuroglancer-panel").first.bounding_box()
+    middle = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    viewer_page.keyboard.down("Shift")
+    viewer_page.mouse.move(*middle)
+    viewer_page.mouse.down()
+    viewer_page.mouse.move(middle[0] + 120, middle[1] + 60, steps=8)
+    viewer_page.mouse.up()
+    viewer_page.keyboard.up("Shift")
+    viewer_page.wait_for_timeout(400)
+    assert viewer_page.evaluate(_FACING) == before, (
+        "Shift+drag rotated the flat view -- the picture no longer lines up "
+        "with the stage coordinates drawn over it, and nothing errors"
+    )
+
+
+@pytest.mark.parametrize("key", ["Control+Equal", "Control+Minus"])
+def test_no_key_zooms(viewer_page, key):
+    """Zoom lives on the wheel, and nowhere else."""
+    before = viewer_page.evaluate(_ZOOM)
+    press(viewer_page, key)
+    assert viewer_page.evaluate(_ZOOM) == before, (
+        f"{key} zoomed the view; zoom belongs to the wheel alone"
+    )
+
+
+def test_the_right_button_does_not_recentre(viewer_page):
+    """A right click jumped the view to the point clicked, without warning."""
+    before = viewer_page.evaluate(_POSITION)
+    box = viewer_page.locator(".neuroglancer-panel").first.bounding_box()
+    viewer_page.mouse.click(
+        box["x"] + box["width"] * 0.75, box["y"] + box["height"] * 0.25,
+        button="right",
+    )
+    viewer_page.wait_for_timeout(400)
+    assert viewer_page.evaluate(_POSITION) == before, (
+        "a right click recentred the view -- movement an operator did not ask "
+        "for and cannot see the reason of"
+    )
+
 
 def test_navigation_still_works_after_all_of_them(viewer_page):
-    """The point of the fix is to remove traps, not to deaden the keyboard."""
-    for key in ["Space", "Digit1", "b", "a", "v", "s", "o", "h", "n"]:
+    """The point of the fix is to remove traps, not to deaden the page.
+
+    The two gestures that remain are the two CONTROLS.md promises: the plain
+    wheel zooms, and a drag pans.
+    """
+    for key in ["Space", "Digit1", "b", "a", "v", "s", "o", "h", "n",
+                "ArrowRight", "Period", "r", "Control+Equal"]:
         press(viewer_page, key)
 
-    before = viewer_page.evaluate(
-        "() => window.zmartViewer.navigationState.zoomFactor.value"
-    )
     box = viewer_page.locator(".neuroglancer-panel").first.bounding_box()
-    viewer_page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-    viewer_page.keyboard.down("Control")
-    viewer_page.mouse.wheel(0, -600)
-    viewer_page.keyboard.up("Control")
-    viewer_page.wait_for_timeout(600)
+    middle = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
 
-    assert (
-        viewer_page.evaluate("() => window.zmartViewer.navigationState.zoomFactor.value")
-        != before
-    ), "zooming stopped working, so the fix took away more than the traps"
+    zoom_before = viewer_page.evaluate(_ZOOM)
+    viewer_page.mouse.move(*middle)
+    viewer_page.mouse.wheel(0, -600)
+    viewer_page.wait_for_timeout(600)
+    assert viewer_page.evaluate(_ZOOM) != zoom_before, (
+        "the wheel stopped zooming, so the fix took away more than the traps"
+    )
+
+    place_before = viewer_page.evaluate(_POSITION)
+    viewer_page.mouse.move(*middle)
+    viewer_page.mouse.down()
+    viewer_page.mouse.move(middle[0] - 150, middle[1] - 80, steps=8)
+    viewer_page.mouse.up()
+    viewer_page.wait_for_timeout(600)
+    assert viewer_page.evaluate(_POSITION) != place_before, (
+        "dragging stopped panning, so the fix took away more than the traps"
+    )
     assert viewer_page.evaluate(_PANELS) == 1

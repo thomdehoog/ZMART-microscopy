@@ -22,10 +22,9 @@ import { makeMinimalViewer } from "neuroglancer/unstable/ui/minimal_viewer.js";
 // themselves. The engine has a third — its *global* table — which we
 // deliberately leave out; see the note beside the call below for why.
 import {
-  getDefaultPerspectivePanelBindings,
-  getDefaultSliceViewPanelBindings,
-} from "neuroglancer/unstable/ui/default_input_event_bindings.js";
-import { registerActionListener } from "neuroglancer/unstable/util/event_action_map.js";
+  EventActionMap,
+  registerActionListener,
+} from "neuroglancer/unstable/util/event_action_map.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
 // Loaded after the engine's own stylesheet so it wins: this hides the handful of
 // controls the engine draws inside the image itself. See the file for why.
@@ -69,41 +68,68 @@ export default function NeuroglancerView({ onViewer }) {
       resetStateWhenEmpty: false,
     });
 
-    // Navigation inside the image panels: drag to pan, wheel to move through z,
-    // drag to rotate the volume, the arrow keys, and so on. This is everything an
-    // operator needs in order to move around an acquisition, and all of it is
-    // wanted.
+    // The panels are given explicit tables holding exactly the gestures our
+    // interface documents, instead of inheriting the engine's defaults. What
+    // an operator can do to the picture is written out here, once, in full —
+    // CONTROLS.md records each decision.
     //
-    // What is **not** installed is the engine's global keyboard table, and that
-    // omission is the whole point of doing this by hand rather than calling
-    // `setDefaultInputEventBindings`. That table binds single unmodified letters
-    // and digits across the whole page, to actions belonging to an interface this
-    // viewer deliberately hides — and one of them left an operator with no way
-    // out. Pressing the space bar split the image into four panels, and because
-    // clicking "2D" while the viewer already believed it was in 2-D changes
-    // nothing and so re-runs nothing, there was no way back short of switching to
-    // 3-D and returning. It needed no click to reach: the engine's element holds
-    // the keyboard focus from the moment the page loads, so a stray space bar was
-    // enough.
+    // The engine's *global* keyboard table is not installed either, and never
+    // was. It binds single unmodified letters and digits across the whole
+    // page, to actions belonging to an interface this viewer hides — the
+    // space bar split the image into four panels with no way back, the digits
+    // hid channels while the panel's eye still showed them open, and several
+    // letters restored scale bars and axis lines this viewer draws for
+    // itself. The engine's element holds the keyboard focus from the moment
+    // the page loads, so a stray keystroke was enough.
     //
-    // Its siblings were quieter but no better. The digits 1 to 9 hid a channel
-    // while the panel's eye still showed it as open, so the operator's next click
-    // on that eye appeared to do nothing; `b`, `a` and `v` put back the engine's
-    // own scale bars, axis lines and bounding box, which are switched off because
-    // this viewer draws its own; `s` turned the slices off inside the volume view;
-    // and `o` added an orthographic projection.
+    // The engine's *panel* tables used to be installed whole, and they were
+    // the second hole (closed 2026-08-18): they bound their own keyboard —
+    // arrows panned, comma and full stop stepped z, the brackets stepped time
+    // straight past the T slider's clamp to the written moments, `r`, `e` and
+    // Shift with the arrows rotated the flat view so the picture silently
+    // stopped lining up with the stage coordinates drawn over it, and a right
+    // click jumped the view to the point clicked. None of it is shown
+    // anywhere on screen. Moving through the stack and through time belongs
+    // to the sliders, where it is visible, labelled and clamped; moving
+    // around belongs to the two gestures. So: no keyboard at all, and the
+    // flat view cannot rotate. The test file
+    // `test_the_keyboard_cannot_trap_the_operator.py` holds each of these
+    // removals in place.
     //
-    // Nothing in that table is reachable through our own interface, so leaving it
-    // out removes a set of traps and costs an operator nothing. The engine's own
-    // help panel (`h`) goes with it, which is right — it describes controls that
-    // are not on screen.
+    // What stays, besides movement, is the drawing family our Point and Box
+    // buttons rely on: Ctrl+click places (the engine's "annotate" action
+    // triggers whichever placement tool those buttons installed), Enter
+    // finishes a shape and Backspace undoes a step of one. Without an active
+    // tool all three do nothing.
     const bindings = viewer.inputEventBindings;
     bindings.sliceView.addParent(
-      getDefaultSliceViewPanelBindings(),
+      EventActionMap.fromObject({
+        "at:mousedown0": { action: "translate-via-mouse-drag", stopPropagation: true },
+        "at:touchtranslate2": "translate-in-plane-via-touchtranslate",
+        "at:touchpinch": "zoom-via-touchpinch",
+        "at:control+mousedown0": "annotate",
+        enter: "finish-annotation",
+        backspace: "undo-annotation-step",
+      }),
       Number.NEGATIVE_INFINITY,
     );
+    // The volume view keeps rotation — turning the specimen over is the point
+    // of a three-dimensional view, and nothing is drawn over it in stage
+    // coordinates — and it keeps the slab-thickness wheel, which has no
+    // control of its own yet.
     bindings.perspectiveView.addParent(
-      getDefaultPerspectivePanelBindings(),
+      EventActionMap.fromObject({
+        "at:mousedown0": { action: "rotate-via-mouse-drag", stopPropagation: true },
+        "at:shift+mousedown0": { action: "translate-via-mouse-drag", stopPropagation: true },
+        "at:touchtranslate1": "rotate-out-of-plane-via-touchtranslate",
+        "at:touchtranslate2": "translate-in-plane-via-touchtranslate",
+        "at:touchrotate": "rotate-in-plane-via-touchrotate",
+        "at:touchpinch": "zoom-via-touchpinch",
+        "at:alt+wheel": { action: "adjust-depth-range-via-wheel", preventDefault: true },
+        "at:control+mousedown0": "annotate",
+        enter: "finish-annotation",
+        backspace: "undo-annotation-step",
+      }),
       Number.NEGATIVE_INFINITY,
     );
 

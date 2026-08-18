@@ -41,39 +41,35 @@ above it explains what was left out and why.
 Read out of the installed engine, not from memory. Gestures marked **at:** are
 handled inside an image panel; the rest are keys.
 
-**This is the engine's own table, which is what the wheel rows below describe.**
-Since 6 August 2026 `viz_studio`'s viewer overrides two of them on both of its
-panels — the plain wheel zooms and shift and the wheel step through z — which is
-the decision in section 1 below, finally carried out. Where the two disagree, the
-override wins; nothing else in the table has changed.
+**Since 18 August 2026 the engine's default panel tables are no longer
+installed at all.** The viewer hands each panel an explicit table holding
+exactly the gestures below (`NeuroglancerView.jsx`), so this section now
+describes our tables rather than the engine's, and "everything else" is not
+bound — most importantly, no key changes the view and the flat view cannot
+rotate. The engine's defaults, read out of its source when this decision was
+carried out, additionally bound: the arrow keys (pan), `,` and `.` (step z),
+`[` and `]` (step time — straight past the T slider's clamp to the moments
+that have actually been written), `r`, `e` and Shift with the arrows
+(rotate), `z` (snap), Ctrl with `=` and `-` (zoom), Alt with `=`, `-` and
+the wheel (slab thickness), Ctrl with the wheel (zoom), a right click
+(recentre on the point clicked) and a double click (select). All of that is
+gone; `test_the_keyboard_cannot_trap_the_operator.py` holds it gone.
 
-### The mouse
+### The flat view
 
 | Gesture | What it does today |
 | --- | --- |
 | Drag, left button | Pan — move the image under the pointer |
-| **Shift + drag, left button** | **Rotate the plane** (see the warning below) |
-| Wheel | **Step through z**, one plane per notch |
-| Shift + wheel | Step through z, ten planes per notch |
-| Ctrl + wheel | Zoom |
-| Alt + wheel | Change how thick a slab is drawn |
-| Right button | Centre the view on the point clicked |
-| Double click | Select what is under the pointer |
-| Ctrl + drag | Start an annotation |
-
-### The keys
-
-| Key | What it does today |
-| --- | --- |
-| Arrow keys | Move a step in x or y |
-| `,` and `.` | Back and forward one plane in z |
-| `[` and `]` | Back and forward one moment in time |
-| Ctrl + `=` / Ctrl + `-` | Zoom in and out |
-| Alt + `=` / Alt + `-` | Make the drawn slab thinner or thicker |
-| `z` | Snap the view back to the axes |
-| **`r` and `e`** | **Rotate the plane** (see the warning below) |
-| **Shift + arrow keys** | **Rotate out of the plane** (see the warning below) |
+| Wheel | Zoom, about the pointer |
+| Shift + wheel | Step through z, one plane per notch |
+| Ctrl + click | Place a point or box, when one of those tools is chosen |
 | Enter, Backspace | Finish an annotation, undo a step of one |
+
+### The volume view
+
+The same, except that a plain drag rotates the specimen — turning it over is
+the point of a three-dimensional view — a Shift + drag pans, and Alt + wheel
+changes how thick a slab is drawn, which has no control of its own yet.
 
 ### What is deliberately **not** bound
 
@@ -88,9 +84,14 @@ nothing and removes a set of traps. The reasoning is written out in full in
 
 ---
 
-## The decision that has been made
+## The decision that has been made — DONE, 18 August 2026
 
-**In the flat view there are exactly two ways to move around, and nothing else.**
+**In the flat view there are exactly two ways to move around, and nothing
+else.** Carried out by giving each panel an explicit binding table in
+`NeuroglancerView.jsx` instead of the engine's defaults, and held in place by
+`tests/test_the_keyboard_cannot_trap_the_operator.py`, whose trap tests were
+written first and shown red against the old build — every removal below was
+proven live before it was removed.
 
 | Gesture | What it does |
 | --- | --- |
@@ -224,7 +225,7 @@ more important — the viewer no longer flips it silently. If an instrument
 records that its stage runs the other way, that belongs in the acquisition's own
 description, and the viewer should read it from there rather than assume.
 
-### 2. Rotation is bound four different ways, and probably should not be
+### 2. Rotation is bound four different ways, and probably should not be — DONE
 
 Shift + drag, `r`, `e`, and Shift + arrow keys all rotate the view. That is a
 sensible thing to offer for a volume that was acquired at an angle to the axes.
