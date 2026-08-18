@@ -601,9 +601,26 @@ def _read_the_plate(store: Path, plate: dict) -> list[Tile]:
             f"the plate at {store} declares no wells, so there is nothing "
             "to lay out."
         )
+    row_names = [row.get("name") for row in plate.get("rows") or []]
+    column_names = [column.get("name") for column in plate.get("columns") or []]
     read = []
     for well in wells:
-        path, row, column = well["path"], well["rowIndex"], well["columnIndex"]
+        path = well["path"]
+        row, column = well.get("rowIndex"), well.get("columnIndex")
+        if row is None or column is None:
+            # Some writers name only the well's path; the plate's own rows
+            # and columns lists still say where "B/1" belongs.
+            try:
+                row_name, column_name = path.split("/")
+                row = row_names.index(row_name)
+                column = column_names.index(column_name)
+            except ValueError:
+                raise ValueError(
+                    f"the well at {path} of the plate {store.name} carries "
+                    "no row and column indices, and its path does not match "
+                    "the plate's declared rows and columns -- there is no "
+                    "way to know where it belongs."
+                ) from None
         described, _ = _the_description_of(store / path)
         images = (described.get("well") or {}).get("images") or []
         fields = [_read_one_tile(store / path / image["path"])

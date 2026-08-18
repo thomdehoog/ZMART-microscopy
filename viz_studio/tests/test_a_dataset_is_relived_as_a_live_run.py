@@ -129,6 +129,21 @@ class TestPlanningAReplay:
         assert view.name.endswith(".ome.zarr") and view.exists(), (
             "the replay must leave a live view that any viewer can open"
         )
+        # And the pixels, falsified rather than trusted: every published
+        # position must hold exactly the source tile's own values. A replay
+        # that mapped a position onto the wrong cell, or fed one tile's
+        # pixels to another's name, would pass every count above and still
+        # be showing the operator a lie.
+        survey = tmp_path / "run" / "data" / "survey.ome.zarr"
+        for position in ("pos00", "pos01", "pos02", "pos03"):
+            published = np.asarray(
+                zarr.open_group(str(survey / position), mode="r")["0"]
+            ).squeeze()
+            source = np.asarray(zarr.open_array(
+                str(scan / f"{position}.ome.zarr" / "0"), mode="r")).squeeze()
+            assert np.array_equal(published, source), (
+                f"{position} was published with pixels that are not its own"
+            )
 
 
 def _post(address: str, route: str, payload: dict) -> tuple[int, dict]:
