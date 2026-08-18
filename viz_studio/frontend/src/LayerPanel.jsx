@@ -775,7 +775,7 @@ export default function LayerPanel({
           run the workflow decides what is shown, so this whole box is absent —
           see `allow_open` in the server. */}
       {canOpen && onOpenStore && (
-        <div style={styles.loadBox}>
+        <div style={styles.card}>
           <div style={styles.headingRow}>
             <span style={styles.heading}>load data</span>
             <button
@@ -947,7 +947,6 @@ const styles = {
     fontVariantNumeric: "tabular-nums",
   },
   eyeGlyph: { width: 14, height: 14, display: "block" },
-  loadBox: { ...BLOCK, flexShrink: 0 },
   // The card every section sits on. Same blue as the display settings, so the
   // darker panel ground showing between the cards reads as the separation.
   card: { ...BLOCK, paddingBottom: 8, background: "#141922", flexShrink: 0 },
