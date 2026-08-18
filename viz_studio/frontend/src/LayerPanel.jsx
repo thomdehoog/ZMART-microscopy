@@ -68,10 +68,11 @@ function contrastRange(layer, window_) {
  * The spread of brightness in a channel, with the chosen window marked on it.
  *
  * This is the one picture in the panel that answers a question a microscopist
- * actually asks: is this channel saturating, or is it sitting on background? The
- * shaded band shows which part of the spread is being stretched across the
- * screen, so it can be read at a glance — anything to the left of the band comes
- * out black, anything to the right comes out white.
+ * actually asks: is this channel saturating, or is it sitting on background?
+ * The bars between the window's two marks are drawn at full light — that is
+ * the brightness the display ramp is spent on — and the bars outside them are
+ * dimmed: everything to the left saturates to black, everything to the right
+ * to white.
  *
  * The two bars ARE the window, so they drag: take hold near one and pull, and
  * that edge of the window follows — the same window the MIN and MAX sliders
@@ -133,18 +134,12 @@ function Histogram({ layer, window_, color, onWindow }) {
       onPointerUp={letGo}
       onPointerCancel={letGo}
     >
-      {right > left && (
-        <rect
-          x={left}
-          y="0"
-          width={right - left}
-          height="24"
-          fill={color}
-          opacity="0.16"
-        />
-      )}
+      {/* Bars inside the window at full light, bars outside it dimmed: the
+          dimmed brightness is what saturates to black or white, the bright
+          stretch is what the display ramp is actually spent on. */}
       {counts.map((count, index) => {
         const height = (Math.log1p(count) / Math.log1p(peak)) * 22;
+        const shown = index + 0.5 >= left && index + 0.5 <= right;
         return (
           <rect
             key={index}
@@ -153,6 +148,7 @@ function Histogram({ layer, window_, color, onWindow }) {
             width="1"
             height={height}
             fill="currentColor"
+            opacity={shown ? 1 : 0.3}
           />
         );
       })}
@@ -379,28 +375,13 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   const setHigh = (high) =>
     onWindow(index, { low: window_.low, high: Math.max(high, window_.low + 1) });
 
-  // Brightness and contrast are not a second setting; they are the same window
-  // described the way a microscopist is used to describing it, which is how Fiji
-  // has always presented it. The two handles say *where* the window is; these two
-  // say how bright the middle of it is and how tightly it is drawn around that
-  // middle. Moving either pair moves the other, because underneath there is only
-  // ever one window.
-  //
-  // Brightness runs backwards on purpose: pulling the window down towards the
-  // dark end makes the picture brighter, since more of the image lands above it.
-  const track = Math.max(1, max - min);
-  const middle = (window_.low + window_.high) / 2;
-  const width = Math.max(1, window_.high - window_.low);
-  const brightness = Math.round((1 - (middle - min) / track) * 100);
-  const contrast = Math.round((1 - width / track) * 100);
-  const windowAround = (centre, spread) => {
-    const half = Math.max(0.5, spread / 2);
-    return onWindow(index, { low: centre - half, high: centre + half });
-  };
-  const setBrightness = (value) =>
-    windowAround(min + (1 - value / 100) * track, width);
-  const setContrast = (value) =>
-    windowAround(middle, Math.max(1, (1 - value / 100) * track));
+  // There used to be BRIGHTNESS and CONTRAST sliders below MIN and MAX --
+  // the same window re-described, the way Fiji presents it. They were removed
+  // (2026-08-18) once the window became directly grabbable in the histogram:
+  // MIN and MAX are the two saturation points, everything below the first is
+  // black and everything above the second is white, and a second pair of
+  // handles moving the very same window read as controls that do something
+  // else when they do not.
   const isMask = layer.kind === "segmentation";
 
   return (
@@ -489,32 +470,6 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               style={styles.range}
             />
             <output style={styles.value}>{Math.round(window_.high)}</output>
-          </label>
-          <label style={styles.control}>
-            <span style={styles.controlLabel} title="Move the whole window up or down the range at once">
-              brightness
-            </span>
-            <input
-              type="range" min="0" max="100" step="1" value={brightness}
-              onChange={(event) => setBrightness(Number(event.target.value))}
-              aria-label={`brightness ${layer.name}`}
-              title="Slides the window along without changing how wide it is"
-              style={styles.range}
-            />
-            <output style={styles.value}>{brightness}</output>
-          </label>
-          <label style={styles.control}>
-            <span style={styles.controlLabel} title="Draw the window tighter around its middle">
-              contrast
-            </span>
-            <input
-              type="range" min="0" max="99" step="1" value={contrast}
-              onChange={(event) => setContrast(Number(event.target.value))}
-              aria-label={`contrast ${layer.name}`}
-              title="Narrows the window around its middle, so a smaller range of brightness fills the screen"
-              style={styles.range}
-            />
-            <output style={styles.value}>{contrast}</output>
           </label>
         </>
       )}
@@ -1015,11 +970,12 @@ const styles = {
   histogramRow: {
     display: "grid",
     // The histogram takes the row's width, starting at the labels' left
-    // edge; Auto sits over Reset in a narrow column beside it, sized so
-    // RESET keeps a little air before its own border.
-    gridTemplateColumns: "1fr 48px",
+    // edge. The button column and gap match the value column of the control
+    // rows below exactly, so the histogram's right edge lines up with the
+    // end of every slider's track.
+    gridTemplateColumns: "1fr 42px",
     alignItems: "end",
-    gap: 7,
+    gap: 6,
     padding: "1px 12px 4px",
   },
   histogram: {
@@ -1032,7 +988,11 @@ const styles = {
     borderRadius: 3,
   },
   autoButton: {
-    padding: "4px 5px",
+    // Full column width with the text centred, so the word keeps even air
+    // on both sides however narrow the column.
+    width: "100%",
+    padding: "4px 0",
+    textAlign: "center",
     border: "1px solid #303a46",
     borderRadius: 4,
     background: "#1b222b",

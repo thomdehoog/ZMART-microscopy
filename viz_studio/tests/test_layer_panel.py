@@ -400,3 +400,46 @@ def test_the_saturation_bars_in_the_histogram_can_be_dragged(two_channel_page):
     assert lowered[0] == pytest.approx(lifted[0]), (
         "the black point must hold still while the white point is dragged"
     )
+
+
+def test_the_histogram_dims_the_brightness_outside_the_window(two_channel_page):
+    """What saturates is dimmed; what reaches the screen is drawn at full light.
+
+    The part of the brightness spread between the two bars is what the display
+    ramp is spent on; everything outside it clips to black or white. The
+    histogram says so at a glance by drawing the inside bars at full opacity
+    and the outside ones dimmed -- the picture of the window, not just marks
+    on it.
+    """
+    page = two_channel_page
+    # Push the black point well into the distribution, so bars exist on both
+    # sides of it.
+    box = page.locator("[aria-label='histogram Ch488']").bounding_box()
+    middle = box["y"] + box["height"] / 2
+    page.mouse.move(box["x"] + box["width"] * 0.05, middle)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] * 0.5, middle, steps=6)
+    page.mouse.up()
+    page.wait_for_timeout(600)
+
+    opacities = page.evaluate(
+        """() => Array.from(
+          document.querySelector('[aria-label="histogram Ch488"]')
+            .querySelectorAll('rect'),
+        ).filter((bar) => bar.getAttribute('fill') === 'currentColor')
+         .map((bar) => Number(bar.getAttribute('opacity') ?? 1))"""
+    )
+    distinct = sorted(set(opacities))
+    assert len(distinct) == 2, (
+        f"expected dimmed and full bars, saw opacities {distinct} -- the "
+        "histogram is not showing which brightness reaches the screen"
+    )
+    dimmed, full = distinct
+    assert full == 1 and dimmed < 1
+    # The dimmed bars sit at the edges, the full ones in one middle stretch.
+    inside = [opacity == full for opacity in opacities]
+    first, last = inside.index(True), len(inside) - 1 - inside[::-1].index(True)
+    assert all(inside[first:last + 1]), (
+        "the full-brightness stretch must be contiguous -- it is the window"
+    )
+    assert first > 0, "bars below the black point must be dimmed"
