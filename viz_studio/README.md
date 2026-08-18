@@ -34,15 +34,16 @@ corner and follows the zoom.
 Everything else is one bar of controls down one edge, which folds away when you
 want the whole screen for the specimen. It has up to four parts:
 
-- **load data** — choose a folder to show. Left out when a workflow is deciding
-  what to show (see `--no-open-button`).
+- **load data** — opens the load window (described below), where scenes are
+  loaded, built from raw data, or replayed. Left out when a workflow is
+  deciding what to show (see `--no-open-button`).
 - **display settings** — the histogram, black and white points, opacity and colour
   for whichever channel is picked out below. There is one set of these rather than
   one per channel: you adjust one channel at a time, and with sliders on every row
   only two or three channels fitted on a screen.
 - **image data** — every acquisition open, with its channels under it. Click a
-  channel to adjust it, use the eye to hide it, drag an acquisition by its grip
-  to change which is drawn on top.
+  channel to adjust it, use the eye to hide it, and the × to close an
+  acquisition you are done with.
 - **selection** — the places you have marked. Off unless asked for (`--select`).
 
 ## Opening your own data
@@ -89,6 +90,32 @@ A few things worth knowing:
   a row its name and its false colour, and `Tile0` and the filter block keep the
   labels short and distinct (that is also what `--tiles` and `--filter` select on).
   `DATA_LAYOUT.md` records how a run is written to disk and why.
+
+## The load window
+
+The **load data** button opens a window with three tabs. In its list, one
+click selects a row and highlights it, the way your operating system's own
+file choosers work; a double click steps into a folder. The **Choose
+folder…** button opens the system's chooser where one is available.
+
+- **load existing scene** — the tab the window starts on. Walk to a scene
+  built earlier, select it, press Open, and it appears exactly as it was.
+- **build new scene** — for raw data straight from the microscope: a folder
+  holding one OME-Zarr per position. Building reads as three numbered steps:
+  choose the raw data, say where the scene is saved, and build. A scene is
+  assembled by linking the raw data into a virtual OME-Zarr, so nothing is
+  copied; ticking *include a hard copy of the low-resolution overview* also
+  computes the zoomed-out picture once and keeps it as files (well under one
+  percent of the data), which we recommend — the survey then opens
+  instantly. A progress bar follows the build, and the finished scene waits
+  for your own click on Show.
+- **other** — everything else the viewer can read, opened directly: demo
+  data, test runs, a scene from somewhere unusual. A folder of raw grid
+  positions can also be **replayed** here: instead of appearing all at once,
+  its positions land on screen one at a time through the very doorway the
+  microscope uses during smart microscopy — a dress rehearsal for a live
+  run, on data already on disk. The replay writes a real run into a
+  `replays` folder beside the dataset, so it can be opened again later.
 - **Put the controls on the left** with `--panel-side left`, if that side is easier
   to reach at your microscope.
 - **Show the selection list** with `--select` if you want to mark places.
