@@ -116,16 +116,35 @@ def test_showing_it_again_restores_it(two_channel_page):
 
 
 def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
-    two_channel_page.click("[aria-label='colour Ch488']")
+    """The colour is chosen in the display settings, not on the row.
+
+    The palette dots sit with the other settings for the selected channel;
+    the little swatch on the row only *shows* the choice. One place to
+    change it, every place reflecting it.
+    """
     two_channel_page.click("[aria-label='cyan for Ch488']")
     two_channel_page.wait_for_timeout(800)
     shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
     assert "0.2, 0.8, 1" in shader
 
 
+def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
+    """The swatch beside the channel's name follows the palette."""
+    two_channel_page.click("[aria-label='cyan for Ch488']")
+    two_channel_page.wait_for_timeout(500)
+    swatch = two_channel_page.locator("[aria-label='colour Ch488']")
+    background = swatch.evaluate("(el) => getComputedStyle(el).backgroundColor")
+    assert background == "rgb(51, 204, 255)", (
+        f"the row swatch shows {background}, not the cyan just chosen"
+    )
+    assert swatch.evaluate("(el) => el.tagName") != "BUTTON", (
+        "the swatch is a read-out; choosing the colour lives in the display "
+        "settings"
+    )
+
+
 def test_colour_survives_the_three_d_toggle(two_channel_page):
     """Mode switching rebuilds the shaders; a chosen colour must not be lost."""
-    two_channel_page.click("[aria-label='colour Ch488']")
     two_channel_page.click("[aria-label='cyan for Ch488']")
     two_channel_page.wait_for_timeout(500)
     two_channel_page.click("text=3D")
@@ -493,3 +512,34 @@ def test_the_histogram_axis_can_be_switched_between_linear_and_log(two_channel_p
     page.wait_for_timeout(300)
     back = widths()
     assert max(back) - min(back) < 1e-6, "switching back restores equal bins"
+
+
+def test_the_numbers_beside_the_sliders_can_be_typed_into(two_channel_page):
+    """The value beside a slider is a box, not just a read-out.
+
+    An operator who knows the counts they want should be able to type them.
+    Typing commits on Enter (or on leaving the box); sliding still updates
+    the number, because box and slider describe the same window.
+    """
+    page = two_channel_page
+    box = page.locator("[aria-label='min value Ch488']")
+    box.fill("1234")
+    box.press("Enter")
+    page.wait_for_timeout(600)
+    assert _window_in_engine(page)[0] == pytest.approx(1234), (
+        "a typed minimum must reach the engine like a slid one"
+    )
+
+    # And the other direction: sliding updates the box.
+    page.evaluate(
+        """() => {
+          const slider = document.querySelector('[aria-label="min Ch488"]');
+          const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype, 'value').set;
+          setter.call(slider, String(Number(slider.min) + 1));
+          slider.dispatchEvent(new Event('input', { bubbles: true }));
+          slider.dispatchEvent(new Event('change', { bubbles: true }));
+        }"""
+    )
+    page.wait_for_timeout(600)
+    assert box.input_value() != "1234", "sliding must update the number box"

@@ -159,9 +159,10 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear" }) {
       onPointerUp={letGo}
       onPointerCancel={letGo}
     >
-      {/* Bars inside the window at full light, bars outside it dimmed: the
-          dimmed brightness is what saturates to black or white, the bright
-          stretch is what the display ramp is actually spent on. */}
+      {/* Bars inside the window at full light -- near-white, so the stretch
+          the display ramp is spent on is unmistakable -- and bars outside it
+          dimmed to a quarter: that brightness saturates to black or white.
+          One glance says which pixels are being looked at. */}
       {counts.map((count, index) => {
         const height = (Math.log1p(count) / Math.log1p(peak)) * 22;
         const centre = measured.low + ((index + 0.5) * span) / counts.length;
@@ -176,16 +177,50 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear" }) {
             width={ends - starts}
             height={height}
             fill="currentColor"
-            opacity={shown ? 1 : 0.3}
+            opacity={shown ? 1 : 0.25}
           />
         );
       })}
       {[left, right].map((x, edge) =>
         x > 0 && x < counts.length ? (
-          <rect key={edge} x={x} y="0" width="0.6" height="24" fill={color} opacity="0.9" />
+          <rect key={edge} x={x} y="0" width="0.8" height="24" fill="#2f81f7" />
         ) : null,
       )}
     </svg>
+  );
+}
+
+/**
+ * The number beside a slider, as a box that can be typed into.
+ *
+ * While untouched it simply shows the slider's value. Start typing and it
+ * holds your draft until Enter or leaving the box commits it; a draft that
+ * is not a number is quietly dropped and the real value comes back. So box
+ * and slider always describe the same setting, whichever one moved last.
+ */
+function ValueBox({ value, onCommit, label, suffix = "" }) {
+  const [draft, setDraft] = React.useState(null);
+  const commit = () => {
+    if (draft !== null) {
+      const asked = Number(draft.replace(suffix, ""));
+      if (Number.isFinite(asked)) onCommit(asked);
+    }
+    setDraft(null);
+  };
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={draft ?? `${value}${suffix}`}
+      onChange={(event) => setDraft(event.target.value)}
+      onFocus={(event) => event.target.select()}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      }}
+      aria-label={label}
+      style={styles.valueBox}
+    />
   );
 }
 
@@ -390,8 +425,8 @@ function stretchedUnevenly(displayScales, mode) {
   return onScreen.some((factor) => factor !== onScreen[0]);
 }
 
-function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity, onLut,
-                          displayScales = { x: 1, y: 1, z: 1 } }) {
+function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity,
+                          onColor, onLut, displayScales = { x: 1, y: 1, z: 1 } }) {
   const measuredWindow = mode === "volume" ? layer.volumeWindow || layer.window : layer.window;
   const window_ = entry.window || measuredWindow || { low: 0, high: 65535 };
   const { min, max } = contrastRange(layer, window_);
@@ -518,7 +553,11 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               title="Anything dimmer than this is shown as black"
               style={styles.range}
             />
-            <output style={styles.value}>{Math.round(window_.low)}</output>
+            <ValueBox
+              value={Math.round(window_.low)}
+              onCommit={setLow}
+              label={`min value ${layer.name}`}
+            />
           </label>
           <label style={styles.control}>
             <span style={styles.controlLabel} title="Anything brighter than this is shown as white">
@@ -540,7 +579,11 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               title="Anything brighter than this is shown as white"
               style={styles.range}
             />
-            <output style={styles.value}>{Math.round(window_.high)}</output>
+            <ValueBox
+              value={Math.round(window_.high)}
+              onCommit={setHigh}
+              label={`max value ${layer.name}`}
+            />
           </label>
         </>
       )}
@@ -571,15 +614,47 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
           aria-label={`opacity ${layer.name}`}
           style={styles.range}
         />
-        <output style={styles.value}>{Math.round(entry.opacity * 100)}%</output>
+        <ValueBox
+          value={Math.round(entry.opacity * 100)}
+          suffix="%"
+          onCommit={(asked) => onOpacity(index, Math.min(1, Math.max(0, asked / 100)))}
+          label={`opacity value ${layer.name}`}
+        />
       </label>
+      {/* The colour is chosen here, with the channel's other settings; the
+          swatch on the row above only shows the choice. */}
+      <div style={styles.control}>
+        <span style={styles.controlLabel} title="The colour this channel is drawn in">
+          colour
+        </span>
+        <div style={{ display: "flex", gap: 5, gridColumn: "2 / -1", alignItems: "center" }}>
+          {PALETTE.map((choice) => {
+            const chosen = css(choice.rgb) === css(entry.color);
+            return (
+              <button
+                key={choice.name}
+                type="button"
+                onClick={() => onColor(index, choice.rgb)}
+                style={{
+                  ...styles.paletteDot,
+                  background: css(choice.rgb),
+                  ...(chosen ? styles.paletteDotChosen : null),
+                }}
+                title={choice.name}
+                aria-label={`${choice.name} for ${layer.name}`}
+                aria-pressed={chosen}
+              />
+            );
+          })}
+        </div>
+      </div>
           {lookupTables.length > 0 && (
         <label style={styles.control}>
           <span
             style={styles.controlLabel}
             title="Paint this channel in a run of colours instead of one flat colour"
           >
-            colour
+            colour map
           </span>
           <select
             value={entry.lut || ""}
@@ -641,7 +716,6 @@ export default function LayerPanel({
   busy = false,
   notice = null,
 }) {
-  const [openSwatch, setOpenSwatch] = React.useState(null);
   const [collapsed, setCollapsed] = React.useState({});
 
   // Every row, paired with the position it holds in the panel's own state, so a
@@ -676,31 +750,17 @@ export default function LayerPanel({
           >
             <Eye open={visible} />
           </button>
-          <button
-            onClick={() => setOpenSwatch(openSwatch === index ? null : index)}
+          {/* A read-out, not a control: the colour is chosen in the display
+              settings, and this swatch follows the choice. */}
+          <span
             style={{ ...styles.swatch, background: css(color) }}
-            title="The colour this channel is drawn in"
+            title="The colour this channel is drawn in -- choose it in the display settings"
             aria-label={`colour ${layer.name}`}
+            role="img"
           />
           <span style={styles.name} title={layer.name}>
             {layer.name}
           </span>
-          {openSwatch === index && (
-            <div style={styles.palette}>
-              {PALETTE.map((entry) => (
-                <button
-                  key={entry.name}
-                  onClick={() => {
-                    onColor(index, entry.rgb);
-                    setOpenSwatch(null);
-                  }}
-                  style={{ ...styles.paletteDot, background: css(entry.rgb) }}
-                  title={entry.name}
-                  aria-label={`${entry.name} for ${layer.name}`}
-                />
-              ))}
-            </div>
-          )}
         </div>
       </div>
     );
@@ -808,6 +868,7 @@ export default function LayerPanel({
           lookupTables={lookupTables}
           onWindow={onWindow}
           onOpacity={onOpacity}
+          onColor={onColor}
           onLut={onLut}
           displayScales={displayScales}
         />
@@ -1022,7 +1083,7 @@ const styles = {
   controlsGroup: { color: "#8b95a3", font: "10px/1 system-ui, sans-serif" },
   row: { position: "relative", display: "flex", alignItems: "center", gap: 8, padding: "5px 12px" },
   eye: { background: "none", border: "none", color: "#c9d1d9", cursor: "pointer", fontSize: 13, padding: 0 },
-  swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid #39424e", cursor: "pointer", padding: 0 },
+  swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid #39424e", display: "inline-block", flexShrink: 0 },
   name: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   palette: {
     position: "absolute",
@@ -1038,13 +1099,14 @@ const styles = {
     boxShadow: "0 2px 8px rgba(0,0,0,.6)",
   },
   paletteDot: { width: 15, height: 15, borderRadius: 3, border: "1px solid #39424e", cursor: "pointer", padding: 0 },
+  paletteDotChosen: { outline: "2px solid #2f81f7", outlineOffset: 1 },
   histogramRow: {
     display: "grid",
     // The histogram takes the row's width, starting at the labels' left
     // edge. The button column and gap match the value column of the control
     // rows below exactly, so the histogram's right edge lines up with the
     // end of every slider's track.
-    gridTemplateColumns: "1fr 42px",
+    gridTemplateColumns: "1fr 48px",
     alignItems: "end",
     gap: 6,
     padding: "1px 12px 4px",
@@ -1053,7 +1115,9 @@ const styles = {
     display: "block",
     width: "100%",
     height: 44,
-    color: "#53657a",
+    // Near-white: the full-light bars between the window's marks must read
+    // as "this is what you are seeing", against the dimmed rest.
+    color: "#dde5ee",
     background: "#0d1015",
     border: "1px solid #202731",
     borderRadius: 3,
@@ -1075,7 +1139,7 @@ const styles = {
     display: "grid",
     // The label column is sized to the longest label (BRIGHTNESS); anything
     // narrower lets the text run underneath the slider beside it.
-    gridTemplateColumns: "68px 1fr 42px",
+    gridTemplateColumns: "68px 1fr 48px",
     alignItems: "center",
     gap: 6,
     padding: "2px 12px",
@@ -1088,4 +1152,17 @@ const styles = {
   autoButtonOn: { background: "#1f3a5f", borderColor: "#2f81f7", color: "#dbe6f3" },
   range: { width: "100%", accentColor: "#2f81f7", cursor: "pointer" },
   value: { color: "#aab4c0", textAlign: "right", fontVariantNumeric: "tabular-nums" },
+  // The typed twin of the value read-out: same column, same right-aligned
+  // numerals, with just enough of a border to say "you may type here".
+  valueBox: {
+    width: "100%",
+    background: "#0d1015",
+    border: "1px solid #202731",
+    borderRadius: 3,
+    color: "#aab4c0",
+    font: "inherit",
+    fontVariantNumeric: "tabular-nums",
+    textAlign: "right",
+    padding: "1px 3px",
+  },
 };
