@@ -525,20 +525,86 @@ class TestTheLoadWindow:
         # It starts where the server is looking, and the path is visible.
         assert str(first) in page.get_by_label("folder path").input_value()
 
-    def test_walking_up_and_opening_a_run_by_clicking(self, no_chooser):
+    def test_raw_data_is_opened_by_constructing_a_viewer(self, no_chooser):
+        """A folder of positions is raw data: a viewer is constructed over it.
+
+        One composed picture draws far faster than many stores handed to the
+        engine separately, so raw data always goes through construction. The
+        operator says where the viewer's files live and whether the pieces
+        are prebaked now or made on the fly when looked at; on the fly is
+        the default, writes only the declaration, and serves immediately.
+        """
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
         page.get_by_label("parent folder").click()
-        # The parent holds both runs; the one that carries images offers Open.
-        page.get_by_label("open targetscan").wait_for(timeout=10_000)
-        page.get_by_label("open targetscan").click()
+        page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
+        page.get_by_label("open targetscan", exact=True).click()
+        # The construction pane, with the destination already suggested.
+        destination = page.get_by_label("viewer files folder")
+        destination.wait_for(timeout=10_000)
+        assert destination.input_value().endswith("targetscan/views")
+        page.get_by_label("start constructing").click()
         page.wait_for_function(
-            "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
+            "() => window.zmartConfig.groups.includes('targetscan')", timeout=30_000
         )
         assert page.get_by_role("dialog", name="load data").count() == 0, (
             "a successful open is finished; the window should close itself"
         )
+        assert (second / "views" / "targetscan.ome.zarr" / "zarr.json").exists(), (
+            "the viewer's files must be where the operator was told they go"
+        )
+
+    def test_prebaking_computes_the_pieces_and_reports_its_progress(
+        self, browser, built_dist, tmp_path
+    ):
+        """The prebake choice computes every piece now, into real files.
+
+        The window polls the construction's progress while it runs; when it
+        is done the picture's baked ground sits on disk and the acquisition
+        is open. Single-channel data here: the per-frame bake of grown
+        pictures is its own ordered chapter, and a grown folder is refused
+        with a plain answer instead (the refusal has its own words in
+        declare._bake_the_coarse_ground).
+        """
+        first = tmp_path / "overview"
+        run = tmp_path / "surveyrun"
+        first.mkdir()
+        run.mkdir()
+        _store(first / "overview_pos001.ome.zarr", channels=1)
+        _store(run / "surveyrun_pos001.ome.zarr", channels=1)
+        server = make_server(port=0, data_dir=first, site_dir=built_dist,
+                             store="overview_pos001.ome.zarr")
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        page = browser.new_page(viewport={"width": 1300, "height": 1000})
+        try:
+            page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                      wait_until="domcontentloaded")
+            page.wait_for_function("() => window.zmartConfig !== undefined",
+                                   timeout=30_000)
+            page.get_by_label("open images").click()
+            page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+            page.get_by_label("parent folder").click()
+            page.get_by_label("open surveyrun", exact=True).wait_for(timeout=10_000)
+            page.get_by_label("open surveyrun", exact=True).click()
+            page.get_by_label("viewer files folder").wait_for(timeout=10_000)
+            page.get_by_label("prebake the pieces").check()
+            page.get_by_label("start constructing").click()
+            page.wait_for_function(
+                "() => window.zmartConfig.groups.includes('surveyrun')",
+                timeout=30_000,
+            )
+            store = run / "views" / "surveyrun.ome.zarr"
+            assert (store / "zarr.json").exists()
+            assert any(any((store / str(level)).glob("**/*"))
+                       for level in range(4) if (store / str(level)).is_dir()), (
+                "a prebaked picture keeps its pieces as real files"
+            )
+        finally:
+            page.close()
+            server.shutdown()
+            thread.join(timeout=5)
 
     def test_a_typed_path_navigates(self, no_chooser):
         page, first, second = no_chooser
@@ -593,6 +659,108 @@ class TestTheLoadWindow:
             assert status in (403, 404), (
                 f"the folder listing answered {status} on a server that "
                 "does not allow opening"
+            )
+        finally:
+            page.close()
+            server.shutdown()
+            thread.join(timeout=5)
+
+
+class TestRelinking:
+    """A viewer whose raw data has moved asks to be pointed at it again."""
+
+    def _a_viewer_with_moved_data(self, tmp_path):
+        """Construct a viewer over a run, then move the run away."""
+        import shutil
+
+        run = tmp_path / "surveyrun"
+        run.mkdir()
+        _store(run / "surveyrun_pos001.ome.zarr", channels=1)
+        import importlib
+        declare = importlib.import_module("declare")
+        store = declare.declare_a_built_picture(
+            run / "views", run, name="surveyrun")
+        shutil.move(str(run / "surveyrun_pos001.ome.zarr"),
+                    str(tmp_path / "elsewhere.ome.zarr"))
+        moved_to = tmp_path / "moved"
+        moved_to.mkdir()
+        shutil.move(str(tmp_path / "elsewhere.ome.zarr"),
+                    str(moved_to / "surveyrun_pos001.ome.zarr"))
+        return run, store, moved_to
+
+    def test_opening_it_answers_with_a_relink_ask(
+        self, browser, built_dist, tmp_path, demo_store
+    ):
+        """The miss is caught at open, with a plain answer naming the miss.
+
+        Without this the open succeeds and every piece fails later, one
+        request at a time, with nothing on screen saying why -- the picture
+        simply stays black. Refusing at the door, with where the data WAS,
+        is what lets the window prompt for where it is now.
+        """
+        run, store, moved_to = self._a_viewer_with_moved_data(tmp_path)
+        server = make_server(port=0, data_dir=tmp_path, site_dir=built_dist,
+                             store=[], loads=[{"path": str(demo_store)}])
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        page = browser.new_page()
+        try:
+            page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                      wait_until="domcontentloaded")
+            page.wait_for_function("() => window.zmartConfig !== undefined",
+                                   timeout=30_000)
+            answer = page.evaluate(
+                """async (path) => {
+                     const r = await fetch('/api/stores/open', {
+                       method: 'POST',
+                       headers: {'Content-Type': 'application/json'},
+                       body: JSON.stringify({path}),
+                     });
+                     return {status: r.status, body: await r.json()};
+                   }""",
+                str(store),
+            )
+            assert answer["status"] == 409, answer
+            assert answer["body"]["relink"]["was"].endswith("surveyrun"), (
+                "the answer must say where the data was, so the window can "
+                "ask where it is now"
+            )
+        finally:
+            page.close()
+            server.shutdown()
+            thread.join(timeout=5)
+
+    def test_the_window_prompts_for_the_data_and_relinks(
+        self, browser, built_dist, tmp_path, demo_store
+    ):
+        run, store, moved_to = self._a_viewer_with_moved_data(tmp_path)
+        server = make_server(port=0, data_dir=tmp_path, site_dir=built_dist,
+                             store=[], loads=[{"path": str(demo_store)}])
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        page = browser.new_page(viewport={"width": 1300, "height": 1000})
+        try:
+            page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                      wait_until="domcontentloaded")
+            page.wait_for_function("() => window.zmartConfig !== undefined",
+                                   timeout=30_000)
+            page.get_by_label("open images").click()
+            page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+            # Walk to the viewer's files and open them.
+            box = page.get_by_label("folder path")
+            box.fill(str(run / "views"))
+            box.press("Enter")
+            page.get_by_label("open surveyrun.ome.zarr", exact=True).wait_for(
+                timeout=10_000)
+            page.get_by_label("open surveyrun.ome.zarr", exact=True).click()
+            # The window asks for the data instead of failing black.
+            data_box = page.get_by_label("raw data folder")
+            data_box.wait_for(timeout=10_000)
+            data_box.fill(str(moved_to))
+            page.get_by_label("start constructing").click()
+            page.wait_for_function(
+                "() => window.zmartConfig.groups.includes('surveyrun')",
+                timeout=30_000,
             )
         finally:
             page.close()

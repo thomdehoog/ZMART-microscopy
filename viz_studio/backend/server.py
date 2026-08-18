@@ -215,6 +215,7 @@ class _Handler(SimpleHTTPRequestHandler):
         config: dict,
         library=None,
         browse=None,
+        bake_job=None,
         allow_open: bool = True,
         live: bool = True,
         announcements=None,
@@ -226,6 +227,9 @@ class _Handler(SimpleHTTPRequestHandler):
         self._library = library  # which folders may be read from, and what is in them
         self._browse = browse  # opens a native folder chooser, when one is available
         self._allow_open = allow_open  # may the operator change what is open?
+        # One prebake at a time, shared by every request this server answers.
+        # See _serve_bake for the shape of what it holds.
+        self._bake_job = bake_job if bake_job is not None else {}
         self._site_dir = site_dir  # the built page, served as the base directory
         self._live = live  # is the data still being written? decides what may be kept
         # How open pages are told that something has changed. See announcements.py.
@@ -980,6 +984,8 @@ class _Handler(SimpleHTTPRequestHandler):
             "/api/stores/open",
             "/api/stores/close",
             "/api/stores/list",
+            "/api/stores/construct",
+            "/api/stores/construct-status",
             "/api/annotations",
             "/api/announce",
         }:
@@ -990,7 +996,8 @@ class _Handler(SimpleHTTPRequestHandler):
         # something a run-mode page offers. ``/api/stores/open`` itself stays
         # answerable either way -- it is the doorway a smart-microscopy
         # workflow uses to say what should be shown, button or no button.
-        if route == "/api/stores/list" and not self._allow_open:
+        if route in ("/api/stores/list", "/api/stores/construct",
+                     "/api/stores/construct-status") and not self._allow_open:
             self._send_json({"error": "opening by hand is switched off here"},
                             HTTPStatus.NOT_FOUND)
             return
@@ -1008,6 +1015,10 @@ class _Handler(SimpleHTTPRequestHandler):
             self._serve_close(payload)
         elif route == "/api/stores/list":
             self._serve_list_folders(payload)
+        elif route == "/api/stores/construct":
+            self._serve_construct(payload)
+        elif route == "/api/stores/construct-status":
+            self._send_json(dict(self._bake_job) or {"state": "idle"})
         elif route == "/api/announce":
             self._serve_announcement(payload)
         else:
@@ -1105,11 +1116,121 @@ class _Handler(SimpleHTTPRequestHandler):
             "folders": folders,
         })
 
+    @staticmethod
+    def _a_relink_needed(store: Path) -> dict | None:
+        """Is this a constructed viewer whose raw data is no longer there?
+
+        A constructed picture records what it was built from; when that
+        folder has moved, the answer names it, plus whether the picture had
+        prebaked ground -- so the relink can offer to rebake what was baked.
+        Anything that is not a constructed picture answers None and opens
+        the ordinary way.
+        """
+        described = store / "zarr.json"
+        if not described.is_file():
+            return None
+        try:
+            attrs = json.loads(described.read_text()).get("attributes", {})
+            ours = attrs.get("zmart") or {}
+            built_from = ours.get("built_from")
+        except (OSError, ValueError):
+            return None
+        if not built_from:
+            return None
+        # "Not there any more" is judged the way the transfer reader judges
+        # it: the folder must still hold tiles. A folder that exists but has
+        # been emptied -- the tiles moved elsewhere, the views left behind --
+        # is just as disconnected as one that is gone.
+        was = Path(built_from)
+        if was.is_dir() and any(one.is_dir() for one in was.glob("*.ome.zarr")):
+            return None
+        return {"store": str(store), "was": str(built_from),
+                "name": store.name.removesuffix(".ome.zarr"),
+                "baked": bool(ours.get("baked"))}
+
+    def _serve_construct(self, payload: object) -> None:
+        """Construct a viewer over raw data, in the background, then open it.
+
+        Raw data -- a folder of position stores -- is always opened through a
+        constructed picture: one composed source draws far faster than many
+        stores handed to the engine separately (measured in
+        test_one_picture_keeps_the_drawing_rate). The construction writes the
+        viewer's files into the folder the operator chose. ``bake`` decides
+        how much: without it only the declaration is written and every piece
+        is made on the fly when looked at; with it the pieces themselves are
+        computed now and kept, which takes real time on real data. Either way
+        the work runs in a thread and the load window polls
+        /api/stores/construct-status to draw its progress. One construction
+        at a time: a second ask while one runs is refused rather than queued,
+        because the answer to "how far along?" must mean one thing.
+        """
+        asked = payload if isinstance(payload, dict) else {}
+        data = asked.get("path")
+        viewer = asked.get("viewer_folder")
+        if not isinstance(data, str) or not data.strip():
+            self._send_json({"error": "the folder holding the images is needed"},
+                            HTTPStatus.BAD_REQUEST)
+            return
+        if not isinstance(viewer, str) or not viewer.strip():
+            self._send_json({"error": "the folder for the viewer's files is needed"},
+                            HTTPStatus.BAD_REQUEST)
+            return
+        if self._bake_job.get("state") == "running":
+            self._send_json({"error": "a bake is already running"},
+                            HTTPStatus.CONFLICT)
+            return
+        data_path = Path(data.strip()).expanduser()
+        if not data_path.is_dir():
+            self._send_json({"error": f"there is no folder at {data_path}"},
+                            HTTPStatus.NOT_FOUND)
+            return
+        from declare import declare_a_built_picture
+
+        bake = bool(asked.get("bake"))
+        name = asked.get("name") if isinstance(asked.get("name"), str) else None
+        job = self._bake_job
+        job.clear()
+        job.update({"state": "running", "fraction": 0.0, "bake": bake})
+        library, viewer_path = self._library, Path(viewer.strip()).expanduser()
+
+        def told(done, total):
+            job["fraction"] = round(done / max(total, 1), 4)
+
+        def work():
+            try:
+                store = declare_a_built_picture(
+                    viewer_path, data_path, name=name or data_path.name,
+                    bake=bake, told=told)
+                library.open(store)
+                job.update({"state": "done", "fraction": 1.0,
+                            "store": str(store)})
+            except Exception as why:  # noqa: BLE001 -- shown to the operator whole
+                job.update({"state": "error", "error": str(why)})
+
+        threading.Thread(target=work, daemon=True).start()
+        self._send_json({"started": True})
+
     def _serve_open(self, payload: object) -> None:
         """Open a folder of images and answer with the viewer's new contents."""
         path = payload.get("path") if isinstance(payload, dict) else None
         if not isinstance(path, str) or not path.strip():
             self._send_json({"error": "a folder path is needed"}, HTTPStatus.BAD_REQUEST)
+            return
+        target = Path(path.strip()).expanduser()
+        homeless = self._a_relink_needed(target)
+        if homeless is not None:
+            # Opening would succeed and every piece would then fail one
+            # request at a time, drawing nothing but black with no reason on
+            # screen. Refusing at the door, with where the data WAS, lets the
+            # load window ask where it is now.
+            self._send_json({
+                "error": (
+                    f"this viewer was built from {homeless['was']}, and "
+                    "nothing is there any more -- point it at the raw data "
+                    "again"
+                ),
+                "relink": homeless,
+            }, HTTPStatus.CONFLICT)
             return
         try:
             self._library.open(path.strip())
@@ -1880,6 +2001,7 @@ def make_server(
         config=config_now,
         library=library,
         browse=browse,
+        bake_job={},
         allow_open=allow_open,
         live=live,
         announcements=told,

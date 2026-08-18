@@ -116,8 +116,33 @@ async function openPath(path) {
     body: JSON.stringify({ path }),
   });
   const answer = await response.json().catch(() => null);
-  if (!response.ok) return { error: answer?.error || `could not open ${path}` };
+  if (!response.ok) {
+    return {
+      error: answer?.error || `could not open ${path}`,
+      relink: answer?.relink || null,
+    };
+  }
   return { config: answer };
+}
+
+async function startConstruction(path, viewerFolder, bake, name) {
+  const response = await fetch("/api/stores/construct", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, viewer_folder: viewerFolder, bake, name }),
+  });
+  const answer = await response.json().catch(() => null);
+  if (!response.ok) return { error: answer?.error || "the construction could not start" };
+  return { started: true };
+}
+
+async function constructionStatus() {
+  const response = await fetch("/api/stores/construct-status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  return response.json().catch(() => ({ state: "error", error: "unreadable answer" }));
 }
 
 async function listFolders(path) {
@@ -141,7 +166,61 @@ async function listFolders(path) {
  * to walk into. Errors from either the walk or the open show inside the
  * window, where the operator is looking.
  */
-function LoadWindow({ listing, busy, onNavigate, onOpen, onCancel }) {
+function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) {
+  const [busy, setBusy] = React.useState(false);
+  const [openError, setOpenError] = React.useState(null);
+  // Raw data being constructed into a viewer: which folder, where the
+  // viewer's files go, and whether the pieces are prebaked now or made on
+  // the fly later. Null while the operator is still walking folders.
+  const [constructing, setConstructing] = React.useState(null);
+  const polling = React.useRef(null);
+
+  React.useEffect(() => () => clearInterval(polling.current), []);
+
+  // Opening a store directly -- and a viewer whose raw data has moved
+  // answers with a relink ask, which becomes the pane below, prefilled.
+  const openStore = async (path) => {
+    setBusy(true);
+    const result = await openPath(path);
+    setBusy(false);
+    if (result.config) {
+      onOpened(result.config);
+    } else if (result.relink) {
+      setConstructing({
+        relink: true,
+        name: result.relink.name,
+        data: result.relink.was,
+        destination: path.slice(0, path.lastIndexOf("/")),
+        bake: result.relink.baked,
+      });
+    } else {
+      setConstructing(null);
+      setOpenError(result.error);
+    }
+  };
+
+  const start = async () => {
+    const { data, destination, bake, relink, name } = constructing;
+    setConstructing((current) => ({ ...current, running: true, fraction: 0, error: null }));
+    const begun = await startConstruction(data, destination, bake,
+                                          relink ? name : undefined);
+    if (begun.error) {
+      setConstructing((current) => ({ ...current, running: false, error: begun.error }));
+      return;
+    }
+    polling.current = setInterval(async () => {
+      const status = await constructionStatus();
+      if (status.state === "running") {
+        setConstructing((current) => current && { ...current, fraction: status.fraction || 0 });
+      } else {
+        clearInterval(polling.current);
+        if (status.state === "done") onConstructed();
+        else setConstructing((current) => current &&
+          { ...current, running: false, error: status.error || "the construction failed" });
+      }
+    }, 350);
+  };
+
   return (
     <div style={styles.loadShade}>
       <div role="dialog" aria-label="load data" style={styles.loadWindow}>
@@ -184,7 +263,7 @@ function LoadWindow({ listing, busy, onNavigate, onOpen, onCancel }) {
                 type="button"
                 onClick={() =>
                   folder.opens === "store"
-                    ? onOpen(`${listing.path}/${folder.name}`)
+                    ? openStore(`${listing.path}/${folder.name}`)
                     : onNavigate(`${listing.path}/${folder.name}`)
                 }
                 style={{ ...styles.loadRow, flex: 1 }}
@@ -194,16 +273,33 @@ function LoadWindow({ listing, busy, onNavigate, onOpen, onCancel }) {
               >
                 {folder.name}
               </button>
-              {folder.opens && (
+              {folder.opens === "store" && (
                 <button
                   type="button"
-                  onClick={() => onOpen(`${listing.path}/${folder.name}`)}
+                  onClick={() => openStore(`${listing.path}/${folder.name}`)}
                   disabled={busy}
                   aria-label={`open ${folder.name}`}
-                  title="Open these images: they become one acquisition in the image data"
+                  title="Open this image: it becomes one acquisition in the image data"
                   style={styles.loadOpen}
                 >
                   {busy ? "…" : "Open"}
+                </button>
+              )}
+              {folder.opens === "folder" && (
+                <button
+                  type="button"
+                  onClick={() => setConstructing({
+                    data: `${listing.path}/${folder.name}`,
+                    name: folder.name,
+                    destination: `${listing.path}/${folder.name}/views`,
+                    bake: false,
+                  })}
+                  disabled={busy}
+                  aria-label={`open ${folder.name}`}
+                  title="Raw positions: a viewer is constructed over them, and you choose where its files go"
+                  style={styles.loadOpen}
+                >
+                  Open…
                 </button>
               )}
             </div>
@@ -212,8 +308,91 @@ function LoadWindow({ listing, busy, onNavigate, onOpen, onCancel }) {
             <div style={styles.loadEmptyNote}>no folders in here</div>
           )}
         </div>
-        {listing.error && (
-          <div style={styles.loadError} role="alert">{listing.error}</div>
+        {constructing && (
+          <div style={styles.constructPane}>
+            <div style={styles.constructTitle}>
+              {constructing.relink
+                ? `point to the raw data for ${constructing.name}`
+                : `construct the viewer for ${constructing.name}`}
+            </div>
+            {constructing.relink && (
+              <label style={styles.constructRow}>
+                <span style={styles.constructLabel}>raw data</span>
+                <input
+                  type="text"
+                  value={constructing.data}
+                  onChange={(event) => setConstructing(
+                    (current) => ({ ...current, data: event.target.value }))}
+                  aria-label="raw data folder"
+                  title="Where the raw data lives now. The viewer was built from a folder that is no longer there"
+                  style={{ ...styles.loadPath, marginBottom: 0, flex: 1 }}
+                />
+              </label>
+            )}
+            <label style={styles.constructRow}>
+              <span style={styles.constructLabel}>viewer files</span>
+              <input
+                type="text"
+                value={constructing.destination}
+                onChange={(event) => setConstructing(
+                  (current) => ({ ...current, destination: event.target.value }))}
+                aria-label="viewer files folder"
+                title="Where the viewer's own files are written. The raw data is read and never changed"
+                style={{ ...styles.loadPath, marginBottom: 0, flex: 1 }}
+              />
+            </label>
+            {/* On the fly serves immediately and computes each piece when it
+                is first looked at; prebaking computes every piece now, which
+                takes time but makes every later open instant. */}
+            <div style={styles.constructRow}>
+              <label style={styles.constructChoice}>
+                <input
+                  type="radio"
+                  checked={!constructing.bake}
+                  onChange={() => setConstructing((current) => ({ ...current, bake: false }))}
+                  aria-label="pieces on the fly"
+                />
+                pieces on the fly
+              </label>
+              <label style={styles.constructChoice}>
+                <input
+                  type="radio"
+                  checked={constructing.bake}
+                  onChange={() => setConstructing((current) => ({ ...current, bake: true }))}
+                  aria-label="prebake the pieces"
+                />
+                prebake the pieces
+              </label>
+              <button
+                type="button"
+                onClick={start}
+                disabled={constructing.running}
+                aria-label="start constructing"
+                style={styles.loadOpen}
+              >
+                {constructing.running ? "…" : "Start"}
+              </button>
+            </div>
+            {constructing.running && (
+              <div
+                style={styles.progressTrack}
+                role="progressbar"
+                aria-label="construction progress"
+                aria-valuenow={Math.round((constructing.fraction || 0) * 100)}
+              >
+                <div style={{ ...styles.progressFill,
+                              width: `${Math.round((constructing.fraction || 0) * 100)}%` }} />
+              </div>
+            )}
+            {constructing.error && (
+              <div style={styles.loadError} role="alert">{constructing.error}</div>
+            )}
+          </div>
+        )}
+        {(listing.error || openError) && (
+          <div style={styles.loadError} role="alert">
+            {listing.error || openError}
+          </div>
         )}
       </div>
     </div>
@@ -1204,22 +1383,19 @@ export default function App() {
       {loadListing && (
         <LoadWindow
           listing={loadListing}
-          busy={storeBusy}
           onNavigate={async (path) => {
             const listing = await listFolders(path);
             setLoadListing((current) =>
               listing.error ? { ...current, error: listing.error } : listing);
           }}
-          onOpen={async (path) => {
-            setStoreBusy(true);
-            const result = await openPath(path);
-            setStoreBusy(false);
-            if (result.config) {
-              applyConfig(result.config);
-              setLoadListing(null);
-            } else {
-              setLoadListing((current) => ({ ...current, error: result.error }));
-            }
+          onOpened={(config) => {
+            applyConfig(config);
+            setLoadListing(null);
+          }}
+          onConstructed={async () => {
+            const config = await fetchConfig();
+            if (config) applyConfig(config);
+            setLoadListing(null);
           }}
           onCancel={() => setLoadListing(null)}
         />
@@ -1320,6 +1496,49 @@ const styles = {
     cursor: "pointer",
   },
   loadEmptyNote: { padding: "10px 12px", color: "#8b95a3", font: "12px/1.4 system-ui, sans-serif" },
+  constructPane: {
+    marginTop: 10,
+    padding: "10px 12px",
+    border: "1px solid #2b3440",
+    borderRadius: 6,
+    background: "#10141a",
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  constructTitle: {
+    font: "600 11px/1 system-ui, sans-serif",
+    letterSpacing: ".06em",
+    textTransform: "uppercase",
+    color: "#8b95a3",
+  },
+  constructRow: { display: "flex", alignItems: "center", gap: 10 },
+  constructLabel: {
+    font: "600 10px/1 system-ui, sans-serif",
+    letterSpacing: ".04em",
+    textTransform: "uppercase",
+    color: "#7f8a98",
+    flexShrink: 0,
+  },
+  constructChoice: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    font: "12px/1.2 system-ui, sans-serif",
+    color: "#c9d1d9",
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 4,
+    background: "#0d1015",
+    border: "1px solid #202731",
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    background: "#2f81f7",
+    transition: "width 200ms linear",
+  },
   loadError: {
     marginTop: 8,
     padding: "7px 9px",
