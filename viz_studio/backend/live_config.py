@@ -19,6 +19,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from contrast import intensity_histogram
 from stores import channels, zarr_scheme
 
 from zmart_live.gateway import live_run_holding
@@ -376,10 +377,13 @@ def _display_for(store: Path, channel_index: int, chosen_window) -> dict:
         "color": list(channel["color"]) if channel.get("color") else None,
         "window": window,
         "volumeWindow": window,
-        # A virtual view owns no pixels to sample directly.  Its run-provided
-        # display window is authoritative; an invented histogram would be worse
-        # than showing none.
-        "histogram": None,
+        # A virtual view owns no pixels of its own, but the measurement knows
+        # where the real ones live -- it follows the view to a member of the
+        # run's data collection (see contrast._the_members_behind). The
+        # run-provided display window above stays authoritative either way;
+        # the histogram is what the panel draws beside it and what the Auto
+        # button offers as an alternative.
+        "histogram": intensity_histogram(store, channel=channel_index),
     }
 
 

@@ -166,3 +166,54 @@ def test_measuring_an_unreadable_store_still_gives_a_usable_window(tmp_path):
     assert together["window"] == (0.0, 65535.0)
     assert together["volumeWindow"] == (0.0, 65535.0)
     assert together["histogram"] is None
+
+
+# -- measuring a linked live picture ------------------------------------------
+#
+# A live run's picture holds no voxels of its own: every piece of it is
+# answered by handing over a position's file, so its level folders hold only
+# descriptions. Measuring it directly finds nothing, and for as long as that
+# was the whole story a live run opened with no histogram -- the panel had
+# nothing to draw and the Auto button nothing to work from. The contract
+# layout says exactly where the real pixels are (the members of the
+# acquisition's data collection), so the measurement follows the link.
+
+def a_linked_run(folder, *, channels=("channel 0",), value=1200):
+    from zmart_live.coordinator import LivePublisher
+    from zmart_live.model import GridCell
+    from zmart_live.profiles import plan_the_writing
+
+    frame = 384
+    profile, _ = plan_the_writing("overview", frame=frame, z_planes=1,
+                                  channels=channels)
+    run = LivePublisher(folder, profile, run_id="measured",
+                        cells={GridCell(0, 0): "p00"})
+    if len(channels) == 1:
+        pixels = np.full((1, frame, frame), value, "uint16")
+    else:
+        pixels = np.empty((len(channels), 1, frame, frame), "uint16")
+        for index in range(len(channels)):
+            pixels[index] = value * (index + 1)
+    run.write_and_publish("p00", pixels)
+    return folder / "views" / "live" / "live.ome.zarr"
+
+
+def test_a_linked_live_picture_measures_through_its_members(tmp_path):
+    live = a_linked_run(tmp_path, value=1200)
+    found = intensity_histogram(live)
+    assert found is not None, (
+        "a live picture holds no voxels of its own, but the members of its "
+        "data collection do -- the measurement must follow the link"
+    )
+    assert found["low"] <= 1200 <= found["high"]
+
+
+def test_each_channel_of_a_linked_picture_measures_its_own_brightness(tmp_path):
+    live = a_linked_run(tmp_path, channels=("green", "red"), value=900)
+    first = intensity_histogram(live, channel=0)
+    second = intensity_histogram(live, channel=1)
+    assert first is not None and second is not None
+    assert first["high"] < second["low"], (
+        "the two channels hold different brightness on purpose; a shared "
+        "histogram would set both channels' windows from the mixture"
+    )
