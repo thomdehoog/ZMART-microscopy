@@ -399,12 +399,18 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
         </div>
         {kind && (
         <>
+        {/* On the build tab the walk is block 1 of 3, so it wears the same
+            card as the two blocks below it; the other tabs keep it bare. */}
+        <div style={kind === "raw"
+          ? { ...styles.constructPane, marginTop: 0, flex: 1, minHeight: 0 }
+          : { display: "contents" }}>
         {kind === "raw" && (
-          <div style={{ ...styles.constructTitle, marginBottom: 8 }}>
+          <div style={styles.constructTitle}>
             1 · choose the raw data
           </div>
         )}
-        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <div style={{ display: "flex", gap: 8,
+                      marginBottom: kind === "raw" ? 0 : 8 }}>
           <input
             key={listing.path}
             type="text"
@@ -482,6 +488,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
           {!listing.folders.length && (
             <div style={styles.loadEmptyNote}>no folders in here</div>
           )}
+        </div>
         </div>
         {kind !== "raw" && !constructing && (
           <div style={styles.loadActions}>
