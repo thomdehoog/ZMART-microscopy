@@ -1094,7 +1094,7 @@ const styles = {
     // edge. The button column and gap match the value column of the control
     // rows below exactly, so the histogram's right edge lines up with the
     // end of every slider's track.
-    gridTemplateColumns: "1fr 48px",
+    gridTemplateColumns: "1fr 60px",
     alignItems: "end",
     gap: 6,
     padding: "1px 12px 4px",
@@ -1102,7 +1102,9 @@ const styles = {
   histogram: {
     display: "block",
     width: "100%",
-    height: 44,
+    // Sized so the two buttons beside it, stacked with their gap, stand
+    // exactly as tall: top and bottom edges line up.
+    height: 54,
     // Near-white: the full-light bars between the window's marks must read
     // as "this is what you are seeing", against the dimmed rest.
     color: "#dde5ee",
@@ -1112,22 +1114,26 @@ const styles = {
   },
   autoButton: {
     // Full column width with the text centred, so the word keeps even air
-    // on both sides however narrow the column.
+    // on both sides however narrow the column. Two of these stacked, with
+    // their gap, stand exactly as tall as the histogram beside them.
     width: "100%",
-    padding: "4px 0",
+    // Exact height: two of these plus the 4px gap equal the histogram's
+    // rendered 56px (54 content + its border), so tops and bottoms meet.
+    height: 26,
+    padding: 0,
     textAlign: "center",
     border: "1px solid #303a46",
     borderRadius: 4,
     background: "#1b222b",
     color: "#aab4c0",
-    font: "600 10px/1 system-ui, sans-serif",
+    font: "600 11px/24px system-ui, sans-serif",
     cursor: "pointer",
   },
   control: {
     display: "grid",
     // The label column is sized to the longest label (BRIGHTNESS); anything
     // narrower lets the text run underneath the slider beside it.
-    gridTemplateColumns: "68px 1fr 48px",
+    gridTemplateColumns: "68px 1fr 60px",
     alignItems: "center",
     gap: 6,
     padding: "2px 12px",
@@ -1144,6 +1150,9 @@ const styles = {
   // numerals, with just enough of a border to say "you may type here".
   valueBox: {
     width: "100%",
+    // Padding and border inside the width, or the box overflows its column
+    // by their sum and stops lining up with the buttons above it.
+    boxSizing: "border-box",
     background: "#0d1015",
     border: "1px solid #202731",
     borderRadius: 3,
