@@ -216,6 +216,7 @@ class _Handler(SimpleHTTPRequestHandler):
         library=None,
         browse=None,
         bake_job=None,
+        replay_job=None,
         allow_open: bool = True,
         live: bool = True,
         announcements=None,
@@ -230,6 +231,9 @@ class _Handler(SimpleHTTPRequestHandler):
         # One prebake at a time, shared by every request this server answers.
         # See _serve_bake for the shape of what it holds.
         self._bake_job = bake_job if bake_job is not None else {}
+        # One replay at a time, for the same reason: "how far along?" must
+        # mean one thing. See _serve_replay.
+        self._replay_job = replay_job if replay_job is not None else {}
         self._site_dir = site_dir  # the built page, served as the base directory
         self._live = live  # is the data still being written? decides what may be kept
         # How open pages are told that something has changed. See announcements.py.
@@ -986,6 +990,8 @@ class _Handler(SimpleHTTPRequestHandler):
             "/api/stores/list",
             "/api/stores/construct",
             "/api/stores/construct-status",
+            "/api/stores/replay",
+            "/api/stores/replay-status",
             "/api/annotations",
             "/api/announce",
         }:
@@ -997,7 +1003,8 @@ class _Handler(SimpleHTTPRequestHandler):
         # answerable either way -- it is the doorway a smart-microscopy
         # workflow uses to say what should be shown, button or no button.
         if route in ("/api/stores/list", "/api/stores/construct",
-                     "/api/stores/construct-status") and not self._allow_open:
+                     "/api/stores/construct-status", "/api/stores/replay",
+                     "/api/stores/replay-status") and not self._allow_open:
             self._send_json({"error": "opening by hand is switched off here"},
                             HTTPStatus.NOT_FOUND)
             return
@@ -1019,6 +1026,10 @@ class _Handler(SimpleHTTPRequestHandler):
             self._serve_construct(payload)
         elif route == "/api/stores/construct-status":
             self._send_json(dict(self._bake_job) or {"state": "idle"})
+        elif route == "/api/stores/replay":
+            self._serve_replay(payload)
+        elif route == "/api/stores/replay-status":
+            self._send_json(dict(self._replay_job) or {"state": "idle"})
         elif route == "/api/announce":
             self._serve_announcement(payload)
         else:
@@ -1212,6 +1223,84 @@ class _Handler(SimpleHTTPRequestHandler):
 
         threading.Thread(target=work, daemon=True).start()
         self._send_json({"started": True})
+
+    def _serve_replay(self, payload: object) -> None:
+        """Relive a dataset as a live run, one position at a time.
+
+        The positions go through the very doorway the microscope uses -- the
+        live writer, its sealed profile, one commit each -- so what assembles
+        on screen is the smart-microscopy path itself, not an imitation. The
+        first position is published before this answers; the answer opens the
+        run's live view, so the operator sees tile one at once and the rest
+        land behind it, each announced to the page as a landing would be.
+        The window can poll /api/stores/replay-status to say how far along
+        the rehearsal is. One replay at a time, exactly like the bake.
+        """
+        asked = payload if isinstance(payload, dict) else {}
+        path = asked.get("path")
+        if not isinstance(path, str) or not path.strip():
+            self._send_json({"error": "the folder holding the dataset is needed"},
+                            HTTPStatus.BAD_REQUEST)
+            return
+        if self._replay_job.get("state") == "running":
+            self._send_json({"error": "a replay is already running"},
+                            HTTPStatus.CONFLICT)
+            return
+        data_path = Path(path.strip()).expanduser()
+        if not data_path.is_dir():
+            self._send_json({"error": f"there is no folder at {data_path}"},
+                            HTTPStatus.NOT_FOUND)
+            return
+        from rehearsal import replay_the_dataset
+
+        every = asked.get("every")
+        every_s = float(every) if isinstance(every, (int, float)) else 0.7
+        # A run can only be lived once -- its record only moves forward -- so
+        # every replay gets a fresh, numbered folder beside the dataset.
+        replays = data_path / "replays"
+        number = 1
+        while (replays / f"replay-{number}").exists():
+            number += 1
+        run_folder = replays / f"replay-{number}"
+        job = self._replay_job
+        job.clear()
+        job.update({"state": "running", "done": 0, "total": None})
+        first_landed = threading.Event()
+        announcements = self._announcements
+
+        def told(done, total):
+            job["done"], job["total"] = done, total
+            if done >= 1:
+                first_landed.set()
+
+        def work():
+            try:
+                view = replay_the_dataset(
+                    data_path, run_folder, every_s=every_s, told=told,
+                    announce=lambda: announcements.say_something_changed(
+                        image_written_in_place=True))
+                job.update({"state": "done", "view": str(view)})
+            except Exception as why:  # noqa: BLE001 -- shown to the operator whole
+                job.update({"state": "error", "error": str(why)})
+            finally:
+                first_landed.set()
+
+        threading.Thread(target=work, daemon=True).start()
+        first_landed.wait(timeout=120)
+        if job.get("state") == "error":
+            self._send_json({"error": job["error"]}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            # Named after the dataset, not after the view's own file -- a
+            # heading saying "live" tells the operator nothing about WHAT is
+            # being relived, and two replays side by side would collide.
+            self._library.open(
+                str(run_folder / "views" / "live" / "live.ome.zarr"),
+                name=f"{data_path.name} replay")
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(self._config())
 
     def _serve_open(self, payload: object) -> None:
         """Open a folder of images and answer with the viewer's new contents."""
@@ -2005,6 +2094,7 @@ def make_server(
         library=library,
         browse=browse,
         bake_job={},
+        replay_job={},
         allow_open=allow_open,
         live=live,
         announcements=told,
