@@ -281,7 +281,7 @@ class TestChangingHowSomethingLooks:
         """A colour map is a shader; the pixels behind it do not change."""
         page, watcher, _ = quiet_page
         mark = watcher.mark
-        page.get_by_label("colour map ch0").select_option("viridis")
+        page.get_by_label("lookup table ch0").select_option("viridis")
         page.wait_for_timeout(2500)
         assert watcher.since(mark) == 0
 

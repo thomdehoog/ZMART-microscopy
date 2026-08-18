@@ -122,7 +122,7 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
     the little swatch on the row only *shows* the choice. One place to
     change it, every place reflecting it.
     """
-    two_channel_page.click("[aria-label='cyan for Ch488']")
+    two_channel_page.get_by_label("lookup table Ch488").select_option("flat:cyan")
     two_channel_page.wait_for_timeout(800)
     shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
     assert "0.2, 0.8, 1" in shader
@@ -130,7 +130,7 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
 
 def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
     """The swatch beside the channel's name follows the palette."""
-    two_channel_page.click("[aria-label='cyan for Ch488']")
+    two_channel_page.get_by_label("lookup table Ch488").select_option("flat:cyan")
     two_channel_page.wait_for_timeout(500)
     swatch = two_channel_page.locator("[aria-label='colour Ch488']")
     background = swatch.evaluate("(el) => getComputedStyle(el).backgroundColor")
@@ -141,11 +141,19 @@ def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
         "the swatch is a read-out; choosing the colour lives in the display "
         "settings"
     )
+    # And a chosen colour MAP shows on the swatch too, as its own gradient --
+    # the swatch always mirrors the one lookup-table control.
+    two_channel_page.get_by_label("lookup table Ch488").select_option("viridis")
+    two_channel_page.wait_for_timeout(500)
+    background = swatch.evaluate("(el) => getComputedStyle(el).backgroundImage")
+    assert "gradient" in background, (
+        f"the swatch shows {background!r}, not the chosen colour map"
+    )
 
 
 def test_colour_survives_the_three_d_toggle(two_channel_page):
     """Mode switching rebuilds the shaders; a chosen colour must not be lost."""
-    two_channel_page.click("[aria-label='cyan for Ch488']")
+    two_channel_page.get_by_label("lookup table Ch488").select_option("flat:cyan")
     two_channel_page.wait_for_timeout(500)
     two_channel_page.click("text=3D")
     two_channel_page.wait_for_timeout(1500)
