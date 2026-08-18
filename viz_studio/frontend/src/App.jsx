@@ -470,7 +470,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
             <div style={styles.constructNote}>
               A scene is a link: its pixels are always read from the raw
               data. The hard copy is only the zoomed-out overview, kept as
-              files — building it takes time once, and a big survey then
+              files. Building it takes time once, and a big survey then
               opens instantly. Without it, the overview is computed the
               first time you look.
             </div>
