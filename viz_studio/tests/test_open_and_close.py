@@ -517,13 +517,25 @@ def no_chooser(browser, built_dist, tmp_path):
 class TestTheLoadWindow:
     """Without a native chooser, choosing a folder opens a window in the page."""
 
-    def test_the_window_opens_and_lists_the_folders(self, no_chooser):
+    def test_the_window_asks_what_kind_of_thing_first(self, no_chooser):
+        """Step one is the choice: raw data, or a view constructed earlier.
+
+        Only after the choice does the folder walk appear, offering Open on
+        the kind of thing that was asked for -- raw mode on folders of
+        positions, view mode on stores. The walk starts where the server is
+        looking.
+        """
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         window = page.get_by_role("dialog", name="load data")
         window.wait_for(timeout=10_000)
-        # It starts where the server is looking, and the path is visible.
+        # No folders yet: the choice comes first.
+        assert page.get_by_label("folder path").count() == 0
+        page.get_by_label("load raw data").click()
         assert str(first) in page.get_by_label("folder path").input_value()
+        # The starting folder holds a store; raw mode offers no Open on it.
+        assert page.get_by_label(
+            "open overview_pos001.ome.zarr", exact=True).count() == 0
 
     def test_raw_data_is_opened_by_constructing_a_viewer(self, no_chooser):
         """A folder of positions is raw data: a viewer is constructed over it.
@@ -537,6 +549,7 @@ class TestTheLoadWindow:
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+        page.get_by_label("load raw data").click()
         page.get_by_label("parent folder").click()
         page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
         page.get_by_label("open targetscan", exact=True).click()
@@ -585,6 +598,7 @@ class TestTheLoadWindow:
                                    timeout=30_000)
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+            page.get_by_label("load raw data").click()
             page.get_by_label("parent folder").click()
             page.get_by_label("open surveyrun", exact=True).wait_for(timeout=10_000)
             page.get_by_label("open surveyrun", exact=True).click()
@@ -610,6 +624,7 @@ class TestTheLoadWindow:
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+        page.get_by_label("load raw data").click()
         box = page.get_by_label("folder path")
         box.fill(str(second.parent))
         box.press("Enter")
@@ -618,6 +633,26 @@ class TestTheLoadWindow:
         # accept before the navigation has happened at all.
         page.get_by_label("open overview", exact=True).wait_for(timeout=10_000)
         assert page.get_by_label("open targetscan", exact=True).count() == 1
+
+    def test_custom_opens_anything_directly(self, no_chooser):
+        """The third door: no construction, no questions, just open it.
+
+        Custom is for everything the two disciplined doors do not cover --
+        demo data, the viewer's own test runs (the spiral among them),
+        whatever the library accepts. It opens folders and stores directly,
+        the way a workflow's API call does.
+        """
+        page, first, second = no_chooser
+        page.get_by_label("open images").click()
+        page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+        page.get_by_label("load custom").click()
+        page.get_by_label("parent folder").click()
+        page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
+        page.get_by_label("open targetscan", exact=True).click()
+        page.wait_for_function(
+            "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
+        )
+        assert page.get_by_role("dialog", name="load data").count() == 0
 
     def test_cancel_closes_the_window_and_opens_nothing(self, no_chooser):
         page, first, second = no_chooser
@@ -746,6 +781,7 @@ class TestRelinking:
                                    timeout=30_000)
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+            page.get_by_label("load a view").click()
             # Walk to the viewer's files and open them.
             box = page.get_by_label("folder path")
             box.fill(str(run / "views"))
