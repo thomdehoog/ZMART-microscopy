@@ -424,31 +424,24 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                 Choose…
               </button>
             </label>
-            {/* On the fly serves immediately and computes each piece when it
-                is first looked at; prebaking computes every piece now, which
-                takes time but makes every later open instant. */}
             <div style={styles.constructRow}>
+              {/* The one thing the choice changes gets the name. Unchecked,
+                  the build writes only the scene's description and is
+                  immediate; checked, the zoomed-out picture -- the top of
+                  the scene's pyramid -- is computed now and kept as files,
+                  a hard copy. Fine detail is composed as you look either
+                  way. */}
               <label style={styles.constructChoice}>
                 <input
-                  type="radio"
-                  checked={!constructing.bake}
-                  onChange={() => setConstructing((current) => ({ ...current, bake: false }))}
-                  disabled={constructing.running || !!constructing.built}
-                  aria-label="quick build"
-                  title="Write only the scene's description; the build is immediate. Everything, including the zoomed-out picture, is composed the first time it is looked at"
-                />
-                quick build
-              </label>
-              <label style={styles.constructChoice}>
-                <input
-                  type="radio"
+                  type="checkbox"
                   checked={constructing.bake}
-                  onChange={() => setConstructing((current) => ({ ...current, bake: true }))}
+                  onChange={(event) => setConstructing(
+                    (current) => ({ ...current, bake: event.target.checked }))}
                   disabled={constructing.running || !!constructing.built}
-                  aria-label="full build"
-                  title="Also compute the zoomed-out picture -- the top of the scene's pyramid -- and keep it as files. Takes time once; the whole survey then appears instantly on every open. Fine detail is composed as you look either way"
+                  aria-label="create a hard copy of the overview"
+                  title="Compute the zoomed-out picture now and keep it as files: takes time once, the whole survey then opens instantly. Left unchecked, the build is immediate and the overview is composed the first time it is looked at"
                 />
-                full build
+                create a hard copy of the overview
               </label>
               {!constructing.built ? (
                 <button
