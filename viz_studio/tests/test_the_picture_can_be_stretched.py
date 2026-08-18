@@ -6,6 +6,11 @@ wants the depth squashed or exaggerated. The engine keeps a factor per dimension
 and applies it to the display alone, so this changes how the specimen is drawn
 and nothing about what it claims to be.
 
+**The inputs live in the 3D viewer section** (moved there 2026-08-18): squashing
+or exaggerating depth is what stretching is for, and depth is seen in the
+volume. The factors keep acting in the flat view after switching back, which is
+why half of these tests set a stretch in 3-D and then look at the 2-D picture.
+
 **The factors are matched by axis name, not by position**, and that is the whole
 reason this file exists. Neuroglancer holds *channel* dimensions separately from
 the ones you can navigate, so a two-colour store presents `t, z, y, x` for
@@ -39,8 +44,24 @@ FACTORS = """() => {
 }"""
 
 
+def in_the_volume(page):
+    """Open the 3-D view, where the stretch inputs live."""
+    page.click("text=3D")
+    page.locator("[aria-label='stretch z']").wait_for(timeout=15_000)
+
+
+def back_to_the_plane(page):
+    page.click("text=2D")
+    page.wait_for_timeout(1500)
+
+
+def stretch(page, axis: str, value: str):
+    page.locator(f"[aria-label='stretch {axis}']").fill(value)
+
+
 def test_stretching_an_axis_reaches_the_engine(viewer_page):
-    viewer_page.locator("[aria-label='stretch z']").fill("4")
+    in_the_volume(viewer_page)
+    stretch(viewer_page, "z", "4")
     viewer_page.wait_for_timeout(1200)
     assert viewer_page.evaluate(FACTORS)["z"] == 4
 
@@ -52,7 +73,8 @@ def test_each_axis_is_matched_by_name_and_the_others_left_alone(viewer_page):
     and the engine's are different lists. Stretching z must move z and nothing
     else, whichever store is open.
     """
-    viewer_page.locator("[aria-label='stretch z']").fill("3")
+    in_the_volume(viewer_page)
+    stretch(viewer_page, "z", "3")
     viewer_page.wait_for_timeout(1200)
     got = viewer_page.evaluate(FACTORS)
     assert got["z"] == 3, got
@@ -61,19 +83,38 @@ def test_each_axis_is_matched_by_name_and_the_others_left_alone(viewer_page):
             assert factor == 1, (axis, got)
 
 
+def test_a_stretch_set_in_the_volume_keeps_acting_on_the_plane(viewer_page):
+    """The control moved to the 3-D section; its effect did not move with it.
+
+    An operator who exaggerates depth in the volume and switches back is still
+    looking at a display with that factor applied, and the flat view must
+    agree with the engine about it -- silently dropping the factor on a mode
+    switch would mean the two views show differently-shaped specimen.
+    """
+    in_the_volume(viewer_page)
+    stretch(viewer_page, "z", "4")
+    viewer_page.wait_for_timeout(1200)
+    back_to_the_plane(viewer_page)
+    assert viewer_page.evaluate(FACTORS)["z"] == 4
+
+
 def test_the_scale_bar_ignores_a_stretch_in_depth(viewer_page):
     """Because a bar describes the plane you are looking at, as Fiji's does."""
     before = viewer_page.locator("[aria-label='scale bar']").inner_text()
-    viewer_page.locator("[aria-label='stretch z']").fill("4")
-    viewer_page.wait_for_timeout(1500)
+    in_the_volume(viewer_page)
+    stretch(viewer_page, "z", "4")
+    viewer_page.wait_for_timeout(1200)
+    back_to_the_plane(viewer_page)
     assert viewer_page.locator("[aria-label='scale bar']").inner_text() == before
 
 
 def test_the_scale_bar_follows_a_stretch_in_the_plane(viewer_page):
     before = viewer_page.locator("[aria-label='scale bar']").inner_text()
-    viewer_page.locator("[aria-label='stretch x']").fill("2")
-    viewer_page.locator("[aria-label='stretch y']").fill("2")
-    viewer_page.wait_for_timeout(1500)
+    in_the_volume(viewer_page)
+    stretch(viewer_page, "x", "2")
+    stretch(viewer_page, "y", "2")
+    viewer_page.wait_for_timeout(1200)
+    back_to_the_plane(viewer_page)
     assert viewer_page.locator("[aria-label='scale bar']").inner_text() != before
 
 
@@ -84,12 +125,16 @@ def test_only_a_sheared_aspect_is_warned_about_in_a_single_plane(viewer_page):
     cannot make the bar wrong.
     """
     warning = viewer_page.get_by_text("no single scale bar is true", exact=False)
-    viewer_page.locator("[aria-label='stretch z']").fill("4")
+    in_the_volume(viewer_page)
+    stretch(viewer_page, "z", "4")
     viewer_page.wait_for_timeout(1000)
+    back_to_the_plane(viewer_page)
     assert warning.count() == 0, "a depth stretch keeps the bar true; do not warn"
 
-    viewer_page.locator("[aria-label='stretch x']").fill("2")
+    in_the_volume(viewer_page)
+    stretch(viewer_page, "x", "2")
     viewer_page.wait_for_timeout(1000)
+    back_to_the_plane(viewer_page)
     assert warning.count() == 1, "x and y now disagree, so the bar cannot be true"
 
 
@@ -105,16 +150,15 @@ def test_a_depth_stretch_is_warned_about_once_the_volume_is_on_screen(viewer_pag
     cannot be decided from the factors alone.
     """
     warning = viewer_page.get_by_text("no single scale bar is true", exact=False)
-    viewer_page.locator("[aria-label='stretch z']").fill("4")
-    viewer_page.wait_for_timeout(1000)
-    assert warning.count() == 0, "still a single plane, where depth is not on screen"
-
-    viewer_page.click("text=3D")
-    viewer_page.wait_for_timeout(4000)
+    in_the_volume(viewer_page)
+    stretch(viewer_page, "z", "4")
+    viewer_page.wait_for_timeout(1500)
     assert warning.count() == 1, (
-        "z is on screen now and is drawn four times over, so no single bar "
+        "z is on screen and is drawn four times over, so no single bar "
         "describes the view -- and nothing on screen says so"
     )
+    back_to_the_plane(viewer_page)
+    assert warning.count() == 0, "back in a single plane, depth is off screen again"
 
 
 def test_an_even_stretch_is_never_warned_about(viewer_page):
@@ -125,11 +169,11 @@ def test_an_even_stretch_is_never_warned_about(viewer_page):
     unstretched" would pass the test above and still cry wolf here.
     """
     warning = viewer_page.get_by_text("no single scale bar is true", exact=False)
+    in_the_volume(viewer_page)
     for axis in ("x", "y", "z"):
-        viewer_page.locator(f"[aria-label='stretch {axis}']").fill("2")
+        stretch(viewer_page, axis, "2")
     viewer_page.wait_for_timeout(1200)
     assert warning.count() == 0, "an even stretch is a zoom, not a shear"
 
-    viewer_page.click("text=3D")
-    viewer_page.wait_for_timeout(4000)
-    assert warning.count() == 0, "and it is still a zoom with the volume on screen"
+    back_to_the_plane(viewer_page)
+    assert warning.count() == 0, "and it is still a zoom back in the plane"

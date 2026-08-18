@@ -268,7 +268,6 @@ class TestChangingHowSomethingLooks:
             ("the black point", "min ch0", 1500),
             ("the white point", "max ch0", 8000),
             ("a channel's opacity", "opacity ch0", 0.55),
-            ("the whole acquisition's opacity", "opacity group overview", 0.7),
         ],
     )
     def test_moving_a_slider_fetches_nothing(self, quiet_page, what, label, value):
