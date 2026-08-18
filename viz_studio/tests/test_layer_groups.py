@@ -117,7 +117,12 @@ class TestEveryChannelBecomesARow:
 
 
 class TestGroupControls:
-    """A whole acquisition type can be hidden or dimmed in one action."""
+    """A whole acquisition type can be hidden in one action.
+
+    The per-group opacity slider that used to sit beside the eye was removed
+    (2026-08-18): two opacities acting on one channel read as a control that
+    does nothing. Dimming lives on each channel's own slider now.
+    """
 
     def test_hiding_a_group_hides_its_channels(self, grouped_page):
         grouped_page.get_by_label("toggle group targetscan").click()
@@ -134,42 +139,6 @@ class TestGroupControls:
             if layer["name"].startswith("overview")
         )
         grouped_page.get_by_label("toggle group targetscan").click()
-
-    def test_group_opacity_multiplies_into_each_channel(self, grouped_page):
-        """Dimming the group dims everything in it, keeping relative weights."""
-        before = {
-            layer["name"]: layer["opacity"]
-            for layer in _image_layers(grouped_page)
-            if layer["name"].startswith("overview")
-        }
-        grouped_page.evaluate(
-            """() => {
-              const el = document.querySelector("[aria-label='opacity group overview']");
-              const setter = Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype, 'value').set;
-              setter.call(el, '0.5');
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-            }"""
-        )
-        grouped_page.wait_for_function(
-            """() => window.zmartViewer.layerManager.managedLayers
-                 .filter((m) => m.name.startsWith('overview'))
-                 .every((m) => Math.abs((m.layer.opacity?.value ?? 1) - 0.5) < 0.01)""",
-            timeout=10_000,
-        )
-        after = {
-            layer["name"]: layer["opacity"]
-            for layer in _image_layers(grouped_page)
-            if layer["name"].startswith("overview")
-        }
-        assert all(after[name] < before[name] for name in before)
-        # And the other acquisition type is unaffected.
-        assert all(
-            layer["opacity"] == pytest.approx(1.0)
-            for layer in _image_layers(grouped_page)
-            if layer["name"].startswith("targetscan")
-        )
 
     def test_a_group_can_be_collapsed_without_hiding_the_image(self, grouped_page):
         grouped_page.get_by_label("collapse overview").click()

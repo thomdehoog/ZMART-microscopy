@@ -125,8 +125,6 @@ def _operator_state(page):
           opacity: Number(document.querySelector(
             '[aria-label="opacity live (linked) channel 0"]').value),
           group: window.zmartConfig.groups[0],
-          groupOpacity: Number(document.querySelector(
-            `[aria-label="opacity group ${window.zmartConfig.groups[0]}"]`).value),
           lut: document.querySelector(
             '[aria-label="colour map live (linked) channel 0"]').value,
         })"""
@@ -140,8 +138,6 @@ def _tune(page):
     _set_range(page, "min live (linked) channel 0", 100)
     _set_range(page, "max live (linked) channel 0", 3500)
     _set_range(page, "opacity live (linked) channel 0", 0.83)
-    group = page.evaluate("() => window.zmartConfig.groups[0]")
-    _set_range(page, f"opacity group {group}", 0.91)
     page.get_by_label("colour map live (linked) channel 0").select_option("viridis")
     page.wait_for_function("() => window.zmartAnnotationSource !== undefined")
     page.evaluate(
@@ -175,7 +171,6 @@ def _assert_operator_state(before, after):
     assert after["max"] == 3500
     assert after["opacity"] == 0.83
     assert after["group"] == before["group"]
-    assert after["groupOpacity"] == 0.91
     assert after["lut"] == "viridis"
 
 

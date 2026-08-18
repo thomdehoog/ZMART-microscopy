@@ -220,13 +220,14 @@ export function engineName(spec) {
 /**
  * Turn the panel's state into the layer list the engine should draw.
  *
- * Three things are decided here. The **order** follows the panel, because the
+ * Two things are decided here. The **order** follows the panel, because the
  * engine composites in list order and so the order is what decides which
- * acquisition type sits on top of which. **Opacity** multiplies the group's
- * setting by the channel's, so pulling a whole acquisition type back to a third
- * dims everything in it while each channel keeps its relative weight. And
- * **visibility** needs both: hiding a group hides its channels without forgetting
- * which of them were individually switched off.
+ * acquisition type sits on top of which. And **visibility** needs both the
+ * group and the channel: hiding a group hides its channels without forgetting
+ * which of them were individually switched off. Opacity is the channel's own,
+ * from the slider in its display settings -- the per-acquisition opacity that
+ * used to multiply in here was removed with its slider (2026-08-18): two
+ * opacities acting on one channel read as a control that does nothing.
  */
 export function layersFor(config, mode, layerState, groupState, groupOrder,
                           volumeMode = "max", volume = {}) {
@@ -242,8 +243,7 @@ export function layersFor(config, mode, layerState, groupState, groupOrder,
 
   return all.map(({ spec, index }) => {
     const { visible, color, opacity, lut, window: windowOverride } = layerState[index];
-    const group = groupState[spec.group || ""] || { visible: true, opacity: 1 };
-    const combinedOpacity = opacity * group.opacity;
+    const group = groupState[spec.group || ""] || { visible: true };
     const displayWindow =
       windowOverride || (volumetric ? spec.volumeWindow || spec.window : spec.window);
     // A segmentation mask is drawn by a different kind of layer: the engine gives
@@ -286,12 +286,12 @@ export function layersFor(config, mode, layerState, groupState, groupOrder,
     else if (spec.channelIndex != null) layer.localPosition = [spec.channelIndex];
     layer.visible = visible && group.visible;
     if (isMask) {
-      layer.selectedAlpha = combinedOpacity;
-      layer.notSelectedAlpha = combinedOpacity;
+      layer.selectedAlpha = opacity;
+      layer.notSelectedAlpha = opacity;
       return layer;
     }
     layer.shader = shaderFor(color, volumetric, lut);
-    const controls = shaderControlsFor(displayWindow, volumetric, combinedOpacity,
+    const controls = shaderControlsFor(displayWindow, volumetric, opacity,
                                        volume.attenuation ?? 0);
     if (controls) layer.shaderControls = controls;
     if (volumetric) {
@@ -327,7 +327,7 @@ export function layersFor(config, mode, layerState, groupState, groupOrder,
       // colour, which is the only thing that reaches the bottom-most row's
       // drawing. Two carriers because they are read in two different places by
       // two different regimes -- see the note in `shaderFor`.
-      layer.opacity = combinedOpacity;
+      layer.opacity = opacity;
     }
     return layer;
   });

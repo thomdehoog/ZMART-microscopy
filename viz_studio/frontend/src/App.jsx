@@ -385,7 +385,7 @@ export default function App() {
     ]);
     setGroupState((current) =>
       Object.fromEntries(
-        groups.map((name) => [name, current[name] || { visible: true, opacity: 1 }]),
+        groups.map((name) => [name, current[name] || { visible: true }]),
       ),
     );
     return outcome;
@@ -905,18 +905,6 @@ export default function App() {
   const setGroup = (name, change) =>
     setGroupState((current) => ({ ...current, [name]: { ...current[name], ...change } }));
 
-  // Dragging an acquisition type up or down changes which one is drawn on top,
-  // so this is a real control rather than tidying: the engine composites in the
-  // order it is given, and this is that order.
-  const moveGroup = (from, to) =>
-    setGroupOrder((current) => {
-      if (from === to || from == null || to == null) return current;
-      const next = [...current];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
-
   const setLayer = (index, change) =>
     setLayerState((current) =>
       current.map((entry, i) => (i === index ? { ...entry, ...change } : entry)),
@@ -1048,8 +1036,6 @@ export default function App() {
               onSelect={(index) => setSelectedKey(layerKey(config.layers[index]))}
               canOpen={config.canOpen !== false}
               onGroupToggle={(name) => setGroup(name, { visible: !groupState[name]?.visible })}
-              onGroupOpacity={(name, opacity) => setGroup(name, { opacity })}
-              onGroupMove={moveGroup}
               busy={storeBusy}
               notice={storeNotice}
               onOpenStore={async () => {

@@ -163,7 +163,8 @@ function Eye({ open }) {
  */
 function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
                      attenuation, onAttenuation,
-                     depthSamples, onDepthSamples }) {
+                     depthSamples, onDepthSamples,
+                     displayScales, onDisplayScales }) {
   const accumulating = volumeMode === "on";
   return (
     <>
@@ -178,11 +179,13 @@ function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
         value={volumeMode}
         onChange={(event) => onVolumeMode?.(event.target.value)}
         aria-label="volume projection"
-        title="Brightest keeps the brightest voxel along each ray, which is what most fluorescence is looked at with. Accumulated adds them all up."
-        style={styles.select}
+        title="Brightest keeps the brightest voxel along each ray -- a maximum-intensity projection (MIP), which is how most fluorescence is looked at. Accumulated adds every voxel up instead."
+        // The row has no value readout, so the dropdown may take the value
+        // column too -- its option names are long.
+        style={{ ...styles.select, gridColumn: "2 / -1" }}
       >
-        <option value="max">brightest along the ray (mip)</option>
-        <option value="on">accumulated through the volume</option>
+        <option value="max">brightest along the ray</option>
+        <option value="on">accumulated along the ray</option>
         <option value="min">darkest along the ray</option>
       </select>
     </label>
@@ -209,7 +212,7 @@ function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
         title={accumulating
           ? "Accumulating along a ray washes a picture out; this brightens it back"
           : "Only for the accumulated projection"}
-        style={styles.slider}
+        style={styles.range}
       />
       <output style={styles.value}>{accumulating ? gain.toFixed(1) : "n/a"}</output>
     </label>
@@ -227,7 +230,7 @@ function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
         onChange={(event) => onDepthSamples?.(2 ** Number(event.target.value))}
         aria-label="volume detail"
         title="Too few steps and the volume stays on its coarsest copy however far you zoom in; too many and it will not keep up"
-        style={styles.slider}
+        style={styles.range}
       />
       <output style={styles.value}>{depthSamples}</output>
     </label>
@@ -240,10 +243,41 @@ function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
         onChange={(event) => onAttenuation?.(Number(event.target.value))}
         aria-label="volume depth fade"
         title="Weighs each voxel by how far along the line of sight it is. Nought is no fading"
-        style={styles.slider}
+        style={styles.range}
       />
       <output style={styles.value}>{attenuation.toFixed(1)}</output>
     </label>
+    {/* Stretching the picture along an axis. It lives here because squashing
+        or exaggerating depth on anisotropic data is what it is for, and depth
+        is seen in this view. The factors change how the specimen is DRAWN and
+        nothing about what it claims to be, and they keep acting in the flat
+        view too -- the warning beside the display settings says so whenever
+        the axes on screen disagree. */}
+    <div style={styles.control}>
+      <span style={styles.controlLabel} title="Draw the specimen stretched along an axis. Does not change the data">
+        stretch
+      </span>
+      {/* The three inputs take the slider column AND the value column, so
+          their right edge lines up with the numbers above them. */}
+      <div style={{ display: "flex", gap: 6, gridColumn: "2 / -1" }}>
+        {["x", "y", "z"].map((axis) => (
+          <label key={axis} style={{ display: "flex", alignItems: "center", gap: 3, flex: 1 }}>
+            <span style={{ ...styles.controlLabel, minWidth: 0 }}>{axis}</span>
+            <input
+              type="number" min="0.05" max="20" step="0.05"
+              value={displayScales[axis]}
+              onChange={(event) => {
+                const asked = Number(event.target.value);
+                if (asked > 0) onDisplayScales?.({ ...displayScales, [axis]: asked });
+              }}
+              aria-label={`stretch ${axis}`}
+              title={`How many times to stretch the picture along ${axis}. 1 is as the run declared it`}
+              style={{ ...styles.select, width: "100%", minWidth: 34 }}
+            />
+          </label>
+        ))}
+      </div>
+    </div>
     </>
   );
 }
@@ -292,7 +326,7 @@ function stretchedUnevenly(displayScales, mode) {
 }
 
 function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity, onLut,
-                          displayScales = { x: 1, y: 1, z: 1 }, onDisplayScales }) {
+                          displayScales = { x: 1, y: 1, z: 1 } }) {
   const measuredWindow = mode === "volume" ? layer.volumeWindow || layer.window : layer.window;
   const window_ = entry.window || measuredWindow || { low: 0, high: 65535 };
   const { min, max } = contrastRange(layer, window_);
@@ -347,32 +381,34 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
         <>
           <div style={styles.histogramRow}>
             <Histogram layer={layer} window_={window_} color={css(entry.color)} />
-            <button
-              type="button"
-              onClick={() => onWindow(index, layer.histogram?.autoWindow || layer.window)}
-              disabled={!layer.histogram?.autoWindow && !layer.window}
-              aria-label={`auto contrast ${layer.name}`}
-              title="Set the window from the brightness measured in this channel"
-              style={styles.autoButton}
-            >
-              Auto
-            </button>
             {/* Auto and Reset answer different questions and neither replaces the
                 other. Auto reads the brightness actually present in this channel;
                 Reset puts back the window the run itself declared, which is what
                 the operator saw when the images were opened. Somebody who has
                 pulled the handles about wants the second far more often than a
                 fresh measurement. */}
-            <button
-              type="button"
-              onClick={() => onWindow(index, layer.window || layer.histogram?.autoWindow)}
-              disabled={!layer.window && !layer.histogram?.autoWindow}
-              aria-label={`reset contrast ${layer.name}`}
-              title="Put back the window this run was written with"
-              style={styles.autoButton}
-            >
-              Reset
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <button
+                type="button"
+                onClick={() => onWindow(index, layer.histogram?.autoWindow || layer.window)}
+                disabled={!layer.histogram?.autoWindow && !layer.window}
+                aria-label={`auto contrast ${layer.name}`}
+                title="Set the window from the brightness measured in this channel"
+                style={styles.autoButton}
+              >
+                Auto
+              </button>
+              <button
+                type="button"
+                onClick={() => onWindow(index, layer.window || layer.histogram?.autoWindow)}
+                disabled={!layer.window && !layer.histogram?.autoWindow}
+                aria-label={`reset contrast ${layer.name}`}
+                title="Put back the window this run was written with"
+                style={styles.autoButton}
+              >
+                Reset
+              </button>
+            </div>
           </div>
           <label style={styles.control}>
             <span style={styles.controlLabel} title="Anything dimmer than this is shown as black">
@@ -436,37 +472,12 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
           </label>
         </>
       )}
-      {/* Stretching the picture along an axis, which is a property of the view
-          rather than of a channel -- so it sits here once, not once per colour.
-          Anything other than 1 means the picture is no longer drawn at the
-          proportions the run declared, and the note below says so, because a
-          stretched picture with a quiet scale bar is a way to measure wrongly
-          and never find out. */}
-      <div style={styles.control}>
-        <span style={styles.controlLabel} title="Draw the specimen stretched along an axis. Does not change the data">
-          stretch
-        </span>
-        {/* The three inputs take the slider column AND the value column, so
-            their right edge lines up with the numbers above them. */}
-        <div style={{ display: "flex", gap: 6, gridColumn: "2 / -1" }}>
-          {["x", "y", "z"].map((axis) => (
-            <label key={axis} style={{ display: "flex", alignItems: "center", gap: 3, flex: 1 }}>
-              <span style={{ ...styles.controlLabel, minWidth: 0 }}>{axis}</span>
-              <input
-                type="number" min="0.05" max="20" step="0.05"
-                value={displayScales[axis]}
-                onChange={(event) => {
-                  const asked = Number(event.target.value);
-                  if (asked > 0) onDisplayScales?.({ ...displayScales, [axis]: asked });
-                }}
-                aria-label={`stretch ${axis}`}
-                title={`How many times to stretch the picture along ${axis}. 1 is as the run declared it`}
-                style={{ ...styles.select, width: "100%", minWidth: 34 }}
-              />
-            </label>
-          ))}
-        </div>
-      </div>
+      {/* The stretch inputs themselves live in the 3D viewer section below --
+          squashing or exaggerating depth is what stretching is for, and that
+          is seen in the volume. The warning stays HERE, in both views: a
+          stretch set in the volume still distorts the flat picture after
+          switching back, and a stretched picture with a quiet scale bar is a
+          way to measure wrongly and never find out. */}
       {stretchedUnevenly(displayScales, mode) && (
         <div style={{ ...styles.controlLabel, color: "#d9a441", padding: "0 12px 6px" }}>
           {mode === "volume"
@@ -553,8 +564,6 @@ export default function LayerPanel({
   canOpen = true,
   lookupTables = [],
   onGroupToggle,
-  onGroupOpacity,
-  onGroupMove,
   onOpenStore,
   onCloseGroup,
   busy = false,
@@ -562,7 +571,6 @@ export default function LayerPanel({
 }) {
   const [openSwatch, setOpenSwatch] = React.useState(null);
   const [collapsed, setCollapsed] = React.useState({});
-  const [dragging, setDragging] = React.useState(null);
 
   // Every row, paired with the position it holds in the panel's own state, so a
   // row can still be controlled after being gathered under its group.
@@ -648,34 +656,9 @@ export default function LayerPanel({
           </div>
         </div>
       )}
-      {mode === "volume" && (
-        <div style={styles.loadBox}>
-          <VolumeMode
-            volumeMode={volumeMode}
-            onVolumeMode={onVolumeMode}
-            gain={volumeGain}
-            onGain={onVolumeGain}
-            attenuation={volumeAttenuation}
-            onAttenuation={onVolumeAttenuation}
-            depthSamples={depthSamples}
-            onDepthSamples={onDepthSamples}
-          />
-        </div>
-      )}
-      {layers[selected] && state[selected] && (
-        <ChannelControls
-          layer={layers[selected]}
-          index={selected}
-          entry={state[selected]}
-          mode={mode}
-          lookupTables={lookupTables}
-          onWindow={onWindow}
-          onOpacity={onOpacity}
-          onLut={onLut}
-          displayScales={displayScales}
-          onDisplayScales={onDisplayScales}
-        />
-      )}
+      {/* Each section sits on the same lighter card, so the darker panel
+          ground showing between them is what separates one from the next. */}
+      <div style={styles.card}>
       <div style={styles.headingRow}>
         <span style={styles.heading}>image data</span>
       </div>
@@ -691,42 +674,15 @@ export default function LayerPanel({
       {groups.map((group, position) => {
         const members = rows.filter(({ layer }) => (layer.group || "") === group);
         if (!members.length) return null;
-        const settings = groupState[group] || { visible: true, opacity: 1 };
+        const settings = groupState[group] || { visible: true };
         const isCollapsed = collapsed[group];
         // A group with no name is a store that carried no acquisition type in its
         // filename. It still needs to appear, so its rows are shown plainly with
         // no header rather than hidden under an empty heading.
         if (!group) return <div key="ungrouped">{members.map(renderRow)}</div>;
         return (
-          <div
-            key={group}
-            style={{
-              ...styles.group,
-              ...(dragging === position ? styles.groupDragging : null),
-            }}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              onGroupMove?.(dragging, position);
-              setDragging(null);
-            }}
-          >
+          <div key={group} style={styles.group}>
             <div style={styles.groupHead}>
-              {/* Dragging a group up or down changes which acquisition type is
-                  drawn on top of which, so this is a real control. */}
-              {/* Only the grip starts a drag. With the whole group draggable,
-                  taking hold of a slider inside it began dragging the group
-                  instead of moving the handle -- so the sliders could not be
-                  used at all in some browsers. */}
-              <span
-                style={styles.grip}
-                title="Drag to change what is drawn on top"
-                draggable
-                onDragStart={() => setDragging(position)}
-                onDragEnd={() => setDragging(null)}
-              >
-                ⠿
-              </span>
               <button
                 onClick={() => setCollapsed((c) => ({ ...c, [group]: !c[group] }))}
                 style={styles.disclose}
@@ -746,8 +702,10 @@ export default function LayerPanel({
               <span style={styles.groupName} title={group}>
                 {group}
               </span>
-              <span style={styles.groupCount}>{members.length}</span>
-              {onCloseGroup && (
+              {/* Closing an acquisition by hand belongs to the browse-your-own
+                  workflow; during a run the workflow decides what is shown, so
+                  the button is absent then -- same rule as the folder chooser. */}
+              {canOpen && onCloseGroup && (
                 <button
                   type="button"
                   onClick={() => onCloseGroup(group)}
@@ -760,30 +718,53 @@ export default function LayerPanel({
                 </button>
               )}
             </div>
-            <label style={styles.control}>
-              <span
-                style={styles.controlLabel}
-                title="Dim this whole acquisition at once, keeping the channels in balance"
-              >
-                group
-              </span>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={settings.opacity}
-                onChange={(event) => onGroupOpacity?.(group, Number(event.target.value))}
-                aria-label={`opacity group ${group}`}
-                style={styles.range}
-              />
-              <output style={styles.value}>{Math.round(settings.opacity * 100)}%</output>
-            </label>
             {!isCollapsed && <div style={styles.members}>{members.map(renderRow)}</div>}
           </div>
         );
       })}
       </div>
+      </div>
+      {/* The settings sit directly under the list they act on: pick a channel
+          above, adjust it here. The block names the channel it is adjusting,
+          so the pairing can be read rather than remembered. */}
+      {layers[selected] && state[selected] && (
+        <ChannelControls
+          layer={layers[selected]}
+          index={selected}
+          entry={state[selected]}
+          mode={mode}
+          lookupTables={lookupTables}
+          onWindow={onWindow}
+          onOpacity={onOpacity}
+          onLut={onLut}
+          displayScales={displayScales}
+        />
+      )}
+      {/* How the volume is drawn. These act on the whole view rather than on
+          one channel, so they live in their own section, shown only while the
+          3-D view is. */}
+      {mode === "volume" && (
+        // marginTop matches the gap above the settings block: the display
+        // settings carry marginBottom 12 of their own, so 4 more makes the
+        // same clear 16 pixels of separation.
+        <div style={{ ...styles.card, marginTop: 4 }}>
+          <div style={styles.headingRow}>
+            <span style={styles.heading}>3d viewer</span>
+          </div>
+          <VolumeMode
+            volumeMode={volumeMode}
+            onVolumeMode={onVolumeMode}
+            gain={volumeGain}
+            onGain={onVolumeGain}
+            attenuation={volumeAttenuation}
+            onAttenuation={onVolumeAttenuation}
+            depthSamples={depthSamples}
+            onDepthSamples={onDepthSamples}
+            displayScales={displayScales}
+            onDisplayScales={onDisplayScales}
+          />
+        </div>
+      )}
     </section>
   );
 }
@@ -793,7 +774,11 @@ export default function LayerPanel({
 // What separates one block of the bar from the next: a rule, and enough room on
 // either side of it that the eye reads two sections rather than one long list.
 const BLOCK = {
+  // Ruled top and bottom, so a section reads as a card whichever side the
+  // eye arrives from.
+  borderTop: "1px solid #2b3440",
   borderBottom: "1px solid #2b3440",
+  paddingTop: 8,
   paddingBottom: 8,
   marginBottom: 12,
 };
@@ -827,6 +812,9 @@ const styles = {
   },
   eyeGlyph: { width: 14, height: 14, display: "block" },
   loadBox: { ...BLOCK, flexShrink: 0 },
+  // The card every section sits on. Same blue as the display settings, so the
+  // darker panel ground showing between the cards reads as the separation.
+  card: { ...BLOCK, paddingBottom: 8, background: "#141922", flexShrink: 0 },
   headingRow: {
     display: "flex",
     alignItems: "center",
@@ -865,15 +853,12 @@ const styles = {
     padding: "0 2px",
   },
   group: { borderBottom: "1px solid #1d232b" },
-  groupDragging: { opacity: 0.5, background: "#1a2029" },
   groupHead: {
     display: "flex",
     alignItems: "center",
     gap: 6,
     padding: "7px 12px 3px",
-    cursor: "grab",
   },
-  grip: { color: "#4c5764", cursor: "grab", fontSize: 12, userSelect: "none" },
   disclose: {
     background: "none",
     border: "none",
@@ -901,20 +886,26 @@ const styles = {
     font: "10px system-ui, sans-serif",
     padding: "3px 4px",
   },
-  groupCount: { color: "#5c6673", fontSize: 10, fontVariantNumeric: "tabular-nums" },
   // Channels are indented so it reads as "these belong to that acquisition".
-  members: { paddingLeft: 8, borderLeft: "2px solid #1f2630", marginLeft: 14 },
-  // The list of images has the bar's leftover height and scrolls inside it, so a
-  // run with many acquisitions never pushes the targets off the bottom.
-  list: { flex: 1, minHeight: 90, overflowY: "auto" },
+  // marginLeft puts the 2px line exactly under the centre of the disclosure
+  // triangle above it (12px head padding + half the 10px button).
+  members: { paddingLeft: 8, borderLeft: "2px solid #1f2630", marginLeft: 16 },
+  // The list keeps its natural height so the settings sit directly beneath
+  // it, but a run with many acquisitions is capped and scrolls inside the
+  // cap rather than pushing the settings off the bottom of the bar.
+  list: { flex: "0 1 auto", minHeight: 90, maxHeight: "42vh", overflowY: "auto" },
   panel: {
     display: "flex",
     flexDirection: "column",
     minHeight: 0,
     // Inside the single right-hand bar now, so it takes the bar's width and
-    // shares the height with the targets list below it.
+    // shares the height with the targets list below it. If everything
+    // together still outgrows the bar, the whole panel scrolls.
     flex: 1,
-    background: "#12161c",
+    overflowY: "auto",
+    // Noticeably darker than the section cards (#141922), so the ground
+    // showing between them separates the sections at a glance.
+    background: "#0d1015",
     padding: "12px 0 0",
     font: "13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif",
     color: "#c9d1d9",
@@ -935,12 +926,13 @@ const styles = {
   // otherwise a slider appears to do nothing because it is adjusting a different
   // channel from the one being looked at.
   layerChosen: { background: "#1b2431", borderLeftColor: "#2f81f7" },
-  // Above the list of channels, which is where napari puts the controls for the
-  // selected layer. Anyone arriving from napari looks there first, and the two
-  // things that belong together -- the name of the channel being adjusted and the
-  // controls adjusting it -- end up next to each other rather than at opposite
-  // ends of the bar.
-  controls: { ...BLOCK, paddingBottom: 12, background: "#141922", flexShrink: 0 },
+  // Directly below the list of channels, so the two things that belong
+  // together -- the highlighted row naming the channel and the controls
+  // adjusting it -- end up next to each other rather than at opposite ends
+  // of the bar.
+  // The clear space above the block is what separates it from the list at a
+  // glance; the section rule alone was too easy to read past.
+  controls: { ...BLOCK, marginTop: 16, paddingBottom: 12, background: "#141922", flexShrink: 0 },
   controlsHead: {
     display: "flex",
     alignItems: "baseline",
@@ -976,15 +968,17 @@ const styles = {
   paletteDot: { width: 15, height: 15, borderRadius: 3, border: "1px solid #39424e", cursor: "pointer", padding: 0 },
   histogramRow: {
     display: "grid",
+    // The histogram takes the row's width, starting at the labels' left
+    // edge; Auto sits over Reset in a narrow column beside it.
     gridTemplateColumns: "1fr 42px",
     alignItems: "end",
     gap: 7,
-    padding: "1px 12px 4px 60px",
+    padding: "1px 12px 4px",
   },
   histogram: {
     display: "block",
     width: "100%",
-    height: 28,
+    height: 44,
     color: "#53657a",
     background: "#0d1015",
     border: "1px solid #202731",
