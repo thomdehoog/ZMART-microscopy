@@ -67,8 +67,13 @@ from pathlib import Path
 # backend and is a fair caller of it.
 from stores import DESCRIPTION_FILES, _moments_folder, _read_attrs_at
 
+# The flat window, and what the Auto button restores: the 1st and 99th
+# percentiles of the measured brightness. Percentiles rather than min and max
+# so the window CLIPS -- the dimmest and brightest one per cent saturate to
+# black and white instead of being squeezed onto the ramp, which is what
+# makes the middle ninety-eight per cent actually visible.
 LOW_PERCENTILE = 1.0
-HIGH_PERCENTILE = 99.9
+HIGH_PERCENTILE = 99.0
 
 # Volume rendering needs a different window from a cross-section, for a reason
 # that is physical rather than cosmetic. A slice shows one plane, so a window
@@ -358,7 +363,38 @@ def _samples(store: Path, *, channel: int | None = None):
         if values.size == 0:
             continue
         return attrs, values, position == 0
+
+    # A linked live picture holds no voxels of its own -- every piece of it is
+    # answered by handing over a position's file, so its level folders hold
+    # only descriptions and the loop above finds nothing. The contract layout
+    # says exactly where the real pixels are: the members of the acquisition's
+    # data collection, beside the views. One member is one position, an honest
+    # sample of the specimen rather than the whole field, so the answer is
+    # marked as one to take again ("not settled") like any other early reading.
+    for member in _the_members_behind(store):
+        followed = _samples(member, channel=channel)
+        if followed is not None:
+            return attrs, followed[1], False
     return None
+
+
+def _the_members_behind(store: str | Path) -> list[Path]:
+    """The image stores a linked view answers from, in the contract layout.
+
+    A run keeps its views beside its data: ``<run>/views/<view>/<picture>``
+    and ``<run>/data/survey.ome.zarr``, whose description lists the member
+    stores that hold the actual pixels. Anything that does not sit in that
+    shape simply has no members, and an empty list comes back.
+    """
+    import json
+
+    collection = Path(store).parent.parent.parent / "data" / "survey.ome.zarr"
+    try:
+        described = json.loads((collection / "zarr.json").read_text())
+        members = described["attributes"]["zmart"]["members"]
+    except (OSError, KeyError, ValueError):
+        return []
+    return [collection / member for member in members]
 
 
 def coarsest_level_is_written(store: str | Path) -> bool:
