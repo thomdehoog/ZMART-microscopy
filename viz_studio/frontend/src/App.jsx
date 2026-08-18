@@ -474,13 +474,19 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                 7.7 s -- the crossover, at roughly 150 megapixels of survey,
                 a few dozen full camera frames. At 4,096 tiles it is 19 s of
                 build against a 39 s first look, and the unbaked scene pays
-                that again on every cold open. */}
+                that again on every cold open. "Well under one percent" is
+                the pyramid's own arithmetic: the bake keeps the levels
+                holding at most 1% of the full-resolution voxels
+                (PINNED_SHARE in composer.py) plus the shrinking tail above
+                them, which sums to about half a percent typically and
+                1.33% at the geometric worst. */}
             <div style={styles.constructNote}>
               A scene is a link: its pixels are always read from the raw
               data. The hard copy is only the zoomed-out overview, kept as
-              files. We recommend it: the build is a one-time cost, and the
-              positions then load instantly. Without it, the overview is
-              computed the first time you look.
+              files, well under one percent of the data. We recommend it:
+              the build is a one-time cost, and the positions then load
+              instantly. Without it, the overview is computed the first
+              time you look.
             </div>
             {constructing.running && (
               <div
