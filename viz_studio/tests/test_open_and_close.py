@@ -476,3 +476,125 @@ def test_a_live_viewer_waits_to_be_told(browser, built_dist, demo_store):
         page.close()
         server.shutdown()
         thread.join(timeout=5)
+
+
+@pytest.fixture
+def no_chooser(browser, built_dist, tmp_path):
+    """A viewer with no native folder chooser, as a plain web browser has.
+
+    The desktop window can open the operating system's own chooser; a page
+    served to an ordinary browser cannot, and used to fall back to a bare
+    prompt asking for a path typed blind. The in-page load window replaces
+    that: it lists the server's folders so the operator can walk to the run
+    and open it by clicking.
+    """
+    first = tmp_path / "overview"
+    second = tmp_path / "targetscan"
+    first.mkdir()
+    second.mkdir()
+    _store(first / "overview_pos001.ome.zarr")
+    _store(second / "targetscan_cell007.ome.zarr")
+    server = make_server(
+        port=0,
+        data_dir=first,
+        site_dir=built_dist,
+        store="overview_pos001.ome.zarr",
+        # No browse callable: exactly the situation in a plain browser.
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1300, "height": 1000})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
+        yield page, first, second
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+class TestTheLoadWindow:
+    """Without a native chooser, choosing a folder opens a window in the page."""
+
+    def test_the_window_opens_and_lists_the_folders(self, no_chooser):
+        page, first, second = no_chooser
+        page.get_by_label("open images").click()
+        window = page.get_by_role("dialog", name="load data")
+        window.wait_for(timeout=10_000)
+        # It starts where the server is looking, and the path is visible.
+        assert str(first) in page.get_by_label("folder path").input_value()
+
+    def test_walking_up_and_opening_a_run_by_clicking(self, no_chooser):
+        page, first, second = no_chooser
+        page.get_by_label("open images").click()
+        page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+        page.get_by_label("parent folder").click()
+        # The parent holds both runs; the one that carries images offers Open.
+        page.get_by_label("open targetscan").wait_for(timeout=10_000)
+        page.get_by_label("open targetscan").click()
+        page.wait_for_function(
+            "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
+        )
+        assert page.get_by_role("dialog", name="load data").count() == 0, (
+            "a successful open is finished; the window should close itself"
+        )
+
+    def test_a_typed_path_navigates(self, no_chooser):
+        page, first, second = no_chooser
+        page.get_by_label("open images").click()
+        page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+        box = page.get_by_label("folder path")
+        box.fill(str(second.parent))
+        box.press("Enter")
+        # exact=True throughout: the starting folder already offers
+        # "open overview_pos001.ome.zarr", which a substring match would
+        # accept before the navigation has happened at all.
+        page.get_by_label("open overview", exact=True).wait_for(timeout=10_000)
+        assert page.get_by_label("open targetscan", exact=True).count() == 1
+
+    def test_cancel_closes_the_window_and_opens_nothing(self, no_chooser):
+        page, first, second = no_chooser
+        page.get_by_label("open images").click()
+        page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+        page.get_by_label("cancel loading").click()
+        page.wait_for_timeout(300)
+        assert page.get_by_role("dialog", name="load data").count() == 0
+        assert _groups(page) == ["overview"]
+
+    def test_the_listing_is_not_served_when_opening_is_off(
+        self, browser, built_dist, tmp_path
+    ):
+        """The window walks the server's folders, so it obeys the same gate.
+
+        A run-mode server (allow_open off) offers no way to open data by hand;
+        the listing endpoint has to be off with it, or the panel's missing
+        button would be decoration over an API anyone could still call.
+        """
+        _store(tmp_path / "overview_pos001.ome.zarr")
+        server = make_server(
+            port=0, data_dir=tmp_path, site_dir=built_dist,
+            store="overview_pos001.ome.zarr", allow_open=False,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        page = browser.new_page()
+        try:
+            page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                      wait_until="domcontentloaded")
+            page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
+            status = page.evaluate(
+                """() => fetch('/api/stores/list', {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({}),
+                }).then((r) => r.status)"""
+            )
+            assert status in (403, 404), (
+                f"the folder listing answered {status} on a server that "
+                "does not allow opening"
+            )
+        finally:
+            page.close()
+            server.shutdown()
+            thread.join(timeout=5)

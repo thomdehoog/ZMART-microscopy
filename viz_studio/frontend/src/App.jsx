@@ -92,22 +92,24 @@ async function fetchLiveState(etag = null) {
   }
 }
 
-// Ask Python to show a folder chooser, then open whatever was picked. The chooser
-// has to be opened by Python because a page in a browser cannot be handed a path on
-// the machine; in a plain browser tab there is nothing to open, so the operator is
-// asked to type the path instead of being left with a button that does nothing.
-async function chooseAndOpen() {
-  let path = null;
+// The desktop window can show the operating system's own folder chooser; a
+// page in a plain browser cannot, and used to fall back to a bare prompt
+// asking for a path typed blind. Now the page draws its own load window
+// instead (see LoadWindow below), walking the server's folders by listing
+// them through the API.
+async function tryNativeChooser() {
   try {
     const response = await fetch("/api/browse", { method: "POST" });
     const answer = await response.json().catch(() => null);
     if (answer?.cancelled) return { cancelled: true };
-    if (response.ok && answer?.path) path = answer.path;
-    else if (answer?.reason) path = window.prompt(`${answer.reason}\n\nFolder:`);
+    if (response.ok && answer?.path) return { path: answer.path };
   } catch {
-    path = window.prompt("Folder holding the images:");
+    // fall through to the in-page window
   }
-  if (!path) return { cancelled: true };
+  return { window: true };
+}
+
+async function openPath(path) {
   const response = await fetch("/api/stores/open", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -116,6 +118,106 @@ async function chooseAndOpen() {
   const answer = await response.json().catch(() => null);
   if (!response.ok) return { error: answer?.error || `could not open ${path}` };
   return { config: answer };
+}
+
+async function listFolders(path) {
+  const response = await fetch("/api/stores/list", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(path ? { path } : {}),
+  });
+  const answer = await response.json().catch(() => null);
+  if (!response.ok) return { error: answer?.error || "the folders could not be listed" };
+  return answer;
+}
+
+/**
+ * The load window: pick the folder holding the images, by walking there.
+ *
+ * The path box takes a typed or pasted path (Enter goes there); the rows are
+ * the folders at that path. A folder that holds OME-Zarr images offers Open
+ * and adds one acquisition to the image data; a folder that IS an image opens
+ * directly rather than walking into its own insides; anything else is a place
+ * to walk into. Errors from either the walk or the open show inside the
+ * window, where the operator is looking.
+ */
+function LoadWindow({ listing, busy, onNavigate, onOpen, onCancel }) {
+  return (
+    <div style={styles.loadShade}>
+      <div role="dialog" aria-label="load data" style={styles.loadWindow}>
+        <div style={styles.loadHead}>
+          <span style={styles.loadTitle}>load data</span>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="cancel loading"
+            style={styles.loadCancel}
+          >
+            Cancel
+          </button>
+        </div>
+        <input
+          key={listing.path}
+          type="text"
+          defaultValue={listing.path}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") onNavigate(event.currentTarget.value);
+          }}
+          aria-label="folder path"
+          title="The folder being looked at. Type or paste a path and press Enter"
+          style={styles.loadPath}
+        />
+        <div style={styles.loadList}>
+          {listing.parent && (
+            <button
+              type="button"
+              onClick={() => onNavigate(listing.parent)}
+              aria-label="parent folder"
+              style={styles.loadRow}
+            >
+              ‹ up one folder
+            </button>
+          )}
+          {listing.folders.map((folder) => (
+            <div key={folder.name} style={styles.loadEntry}>
+              <button
+                type="button"
+                onClick={() =>
+                  folder.opens === "store"
+                    ? onOpen(`${listing.path}/${folder.name}`)
+                    : onNavigate(`${listing.path}/${folder.name}`)
+                }
+                style={{ ...styles.loadRow, flex: 1 }}
+                title={folder.opens === "store"
+                  ? "This folder is an image; opening it adds it to the image data"
+                  : "Look inside this folder"}
+              >
+                {folder.name}
+              </button>
+              {folder.opens && (
+                <button
+                  type="button"
+                  onClick={() => onOpen(`${listing.path}/${folder.name}`)}
+                  disabled={busy}
+                  aria-label={`open ${folder.name}`}
+                  title="Open these images: they become one acquisition in the image data"
+                  style={styles.loadOpen}
+                >
+                  {busy ? "…" : "Open"}
+                </button>
+              )}
+            </div>
+          ))}
+          {!listing.folders.length && (
+            <div style={styles.loadEmptyNote}>no folders in here</div>
+          )}
+        </div>
+        {listing.error && (
+          <div style={styles.loadError} role="alert">{listing.error}</div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 async function closeGroup(group) {
@@ -287,6 +389,8 @@ export default function App() {
   // happens and anything that went wrong is shown rather than swallowed.
   const [storeBusy, setStoreBusy] = React.useState(false);
   const [storeNotice, setStoreNotice] = React.useState(null);
+  // The in-page load window's folder listing; null while it is closed.
+  const [loadListing, setLoadListing] = React.useState(null);
   // Which channel the block of controls is acting on. Held by name rather than by
   // position in the list, because the list is rebuilt whenever something is opened
   // or closed: a position would still be a valid number afterwards and would
@@ -1041,9 +1145,17 @@ export default function App() {
               onOpenStore={async () => {
                 setStoreBusy(true);
                 setStoreNotice(null);
-                const result = await chooseAndOpen();
-                if (result.config) applyConfig(result.config);
-                if (result.error) setStoreNotice(result.error);
+                const chosen = await tryNativeChooser();
+                if (chosen.path) {
+                  const result = await openPath(chosen.path);
+                  if (result.config) applyConfig(result.config);
+                  if (result.error) setStoreNotice(result.error);
+                } else if (chosen.window) {
+                  // No chooser on this machine: the page opens its own window.
+                  const listing = await listFolders(null);
+                  if (listing.error) setStoreNotice(listing.error);
+                  else setLoadListing(listing);
+                }
                 setStoreBusy(false);
               }}
               onCloseGroup={async (group) => {
@@ -1089,6 +1201,29 @@ export default function App() {
           )}
         </aside>
       )}
+      {loadListing && (
+        <LoadWindow
+          listing={loadListing}
+          busy={storeBusy}
+          onNavigate={async (path) => {
+            const listing = await listFolders(path);
+            setLoadListing((current) =>
+              listing.error ? { ...current, error: listing.error } : listing);
+          }}
+          onOpen={async (path) => {
+            setStoreBusy(true);
+            const result = await openPath(path);
+            setStoreBusy(false);
+            if (result.config) {
+              applyConfig(result.config);
+              setLoadListing(null);
+            } else {
+              setLoadListing((current) => ({ ...current, error: result.error }));
+            }
+          }}
+          onCancel={() => setLoadListing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1096,6 +1231,104 @@ export default function App() {
 // -- how it all looks ---------------------------------------------------------
 
 const styles = {
+  // The load window and the shade behind it. The shade keeps the picture
+  // visible but plainly not the thing being interacted with.
+  loadShade: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 60,
+    background: "rgba(4, 6, 9, 0.6)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadWindow: {
+    width: 480,
+    maxWidth: "88vw",
+    maxHeight: "72vh",
+    display: "flex",
+    flexDirection: "column",
+    background: "#141922",
+    border: "1px solid #2b3440",
+    borderRadius: 8,
+    boxShadow: "0 12px 40px rgba(0,0,0,.55)",
+    padding: "12px 14px",
+    font: "13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif",
+    color: "#c9d1d9",
+  },
+  loadHead: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: 10,
+  },
+  loadTitle: {
+    font: "600 11px/1 system-ui, sans-serif",
+    letterSpacing: ".08em",
+    textTransform: "uppercase",
+    color: "#6b7684",
+  },
+  loadCancel: {
+    padding: "4px 10px",
+    border: "1px solid #303a46",
+    borderRadius: 4,
+    background: "#1b222b",
+    color: "#aab4c0",
+    font: "600 11px/1 system-ui, sans-serif",
+    cursor: "pointer",
+  },
+  loadPath: {
+    boxSizing: "border-box",
+    width: "100%",
+    background: "#0d1015",
+    border: "1px solid #202731",
+    borderRadius: 4,
+    color: "#c9d1d9",
+    font: "12px/1.4 ui-monospace, monospace",
+    padding: "6px 8px",
+    marginBottom: 8,
+  },
+  loadList: {
+    flex: 1,
+    minHeight: 120,
+    overflowY: "auto",
+    border: "1px solid #1d232b",
+    borderRadius: 4,
+    background: "#10141a",
+  },
+  loadEntry: { display: "flex", alignItems: "center", gap: 6, paddingRight: 6 },
+  loadRow: {
+    display: "block",
+    width: "100%",
+    textAlign: "left",
+    background: "none",
+    border: "none",
+    borderBottom: "1px solid #171d25",
+    color: "#c9d1d9",
+    font: "12px/1.4 system-ui, sans-serif",
+    padding: "6px 10px",
+    cursor: "pointer",
+  },
+  loadOpen: {
+    flexShrink: 0,
+    padding: "3px 10px",
+    border: "1px solid #2f81f7",
+    borderRadius: 4,
+    background: "#1f3a5f",
+    color: "#dbe6f3",
+    font: "600 11px/1 system-ui, sans-serif",
+    cursor: "pointer",
+  },
+  loadEmptyNote: { padding: "10px 12px", color: "#8b95a3", font: "12px/1.4 system-ui, sans-serif" },
+  loadError: {
+    marginTop: 8,
+    padding: "7px 9px",
+    border: "1px solid #6b2c31",
+    borderRadius: 4,
+    background: "#2a1517",
+    color: "#f0a5a5",
+    font: "12px/1.5 system-ui, sans-serif",
+  },
   shell: { position: "absolute", inset: 0, display: "flex", background: "#0b0d10" },
   bar: {
     width: 264,
