@@ -215,6 +215,7 @@ class _Handler(SimpleHTTPRequestHandler):
         config: dict,
         library=None,
         browse=None,
+        allow_open: bool = True,
         live: bool = True,
         announcements=None,
         live_state=None,
@@ -224,6 +225,7 @@ class _Handler(SimpleHTTPRequestHandler):
         self._data_dir = data_dir  # where drawn targets are saved
         self._library = library  # which folders may be read from, and what is in them
         self._browse = browse  # opens a native folder chooser, when one is available
+        self._allow_open = allow_open  # may the operator change what is open?
         self._site_dir = site_dir  # the built page, served as the base directory
         self._live = live  # is the data still being written? decides what may be kept
         # How open pages are told that something has changed. See announcements.py.
@@ -977,10 +979,20 @@ class _Handler(SimpleHTTPRequestHandler):
             "/api/browse",
             "/api/stores/open",
             "/api/stores/close",
+            "/api/stores/list",
             "/api/annotations",
             "/api/announce",
         }:
             self._send_empty(HTTPStatus.NOT_FOUND)
+            return
+        # Only the folder LISTING obeys ``allow_open``: it exists for the
+        # operator's load window, and walking the server's folders is not
+        # something a run-mode page offers. ``/api/stores/open`` itself stays
+        # answerable either way -- it is the doorway a smart-microscopy
+        # workflow uses to say what should be shown, button or no button.
+        if route == "/api/stores/list" and not self._allow_open:
+            self._send_json({"error": "opening by hand is switched off here"},
+                            HTTPStatus.NOT_FOUND)
             return
         length = int(self.headers.get("Content-Length", 0))
         try:
@@ -994,6 +1006,8 @@ class _Handler(SimpleHTTPRequestHandler):
             self._serve_open(payload)
         elif route == "/api/stores/close":
             self._serve_close(payload)
+        elif route == "/api/stores/list":
+            self._serve_list_folders(payload)
         elif route == "/api/announce":
             self._serve_announcement(payload)
         else:
@@ -1047,6 +1061,49 @@ class _Handler(SimpleHTTPRequestHandler):
         # Nothing chosen is a perfectly ordinary outcome: the operator changed
         # their mind and pressed cancel.
         self._send_json({"path": chosen} if chosen else {"cancelled": True})
+
+    def _serve_list_folders(self, payload: object) -> None:
+        """List the folders at a path, for the in-page load window.
+
+        A plain browser cannot show the operating system's folder chooser, so
+        the page draws its own window and walks the server's folders through
+        this. Each entry says whether it can be opened as images: "store"
+        means the folder is itself an OME-Zarr image, "folder" means OME-Zarr
+        images sit directly inside it. Anything else is just a place to walk
+        into.
+        """
+        asked = payload.get("path") if isinstance(payload, dict) else None
+        path = Path(asked).expanduser() if isinstance(asked, str) and asked.strip() else self._data_dir
+        try:
+            path = path.resolve()
+            if not path.is_dir():
+                self._send_json({"error": f"there is no folder at {path}"},
+                                HTTPStatus.NOT_FOUND)
+                return
+            described = set(DESCRIPTION_FILES)
+            folders = []
+            for entry in sorted(path.iterdir(), key=lambda one: one.name.lower()):
+                if not entry.is_dir() or entry.name.startswith("."):
+                    continue
+                opens = None
+                try:
+                    inside = [child.name for child in entry.iterdir()]
+                    if any(name in described for name in inside):
+                        opens = "store"
+                    elif any((entry / name / stamp).exists()
+                             for name in inside for stamp in described):
+                        opens = "folder"
+                except OSError:
+                    pass
+                folders.append({"name": entry.name, "opens": opens})
+        except OSError as why:
+            self._send_json({"error": str(why)}, HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json({
+            "path": str(path),
+            "parent": str(path.parent) if path.parent != path else None,
+            "folders": folders,
+        })
 
     def _serve_open(self, payload: object) -> None:
         """Open a folder of images and answer with the viewer's new contents."""
@@ -1823,6 +1880,7 @@ def make_server(
         config=config_now,
         library=library,
         browse=browse,
+        allow_open=allow_open,
         live=live,
         announcements=told,
         live_state=live_state_now,
