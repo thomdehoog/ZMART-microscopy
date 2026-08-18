@@ -517,23 +517,26 @@ def no_chooser(browser, built_dist, tmp_path):
 class TestTheLoadWindow:
     """Without a native chooser, choosing a folder opens a window in the page."""
 
-    def test_the_window_asks_what_kind_of_thing_first(self, no_chooser):
-        """Step one is the choice: raw data, or a view constructed earlier.
+    def test_the_window_starts_on_loading_an_existing_view(self, no_chooser):
+        """The window opens ready: the first tab chosen, the folders showing.
 
-        Only after the choice does the folder walk appear, offering Open on
-        the kind of thing that was asked for -- raw mode on folders of
-        positions, view mode on stores. The walk starts where the server is
-        looking.
+        "load existing view" is the commonest thing to do, so it is the tab
+        the window starts on -- no click needed before walking. Each tab
+        offers Open only on its own kind of thing: the starting folder holds
+        a store, which the view tab offers to open, and switching to
+        "build new view" withdraws that offer, since a bare store is not raw
+        positions to build over.
         """
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         window = page.get_by_role("dialog", name="load data")
         window.wait_for(timeout=10_000)
-        # No folders yet: the choice comes first.
-        assert page.get_by_label("folder path").count() == 0
-        page.get_by_label("build new view", exact=True).click()
+        chosen = page.get_by_label("load existing view", exact=True)
+        assert chosen.get_attribute("aria-pressed") == "true"
         assert str(first) in page.get_by_label("folder path").input_value()
-        # The starting folder holds a store; raw mode offers no Open on it.
+        assert page.get_by_label(
+            "open overview_pos001.ome.zarr", exact=True).count() == 1
+        page.get_by_label("build new view", exact=True).click()
         assert page.get_by_label(
             "open overview_pos001.ome.zarr", exact=True).count() == 0
 

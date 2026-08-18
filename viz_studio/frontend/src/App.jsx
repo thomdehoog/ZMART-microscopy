@@ -180,8 +180,9 @@ const LOAD_KINDS = [
 function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) {
   const [busy, setBusy] = React.useState(false);
   const [openError, setOpenError] = React.useState(null);
-  // Which door was chosen; null is step one, the choice itself.
-  const [kind, setKind] = React.useState(null);
+  // Which tab is chosen. Loading an existing view is the commonest thing
+  // to do, so the window starts there, folders already showing.
+  const [kind, setKind] = React.useState("view");
   // Raw data being constructed into a viewer: which folder, where the
   // viewer's files go, and whether the pieces are prebaked now or made on
   // the fly later. Null while the operator is still walking folders.
