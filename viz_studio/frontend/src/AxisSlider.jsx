@@ -155,7 +155,7 @@ export default function AxisSlider({
   // frames exist, so the committed list can stop well short of the declared
   // span. The reading then says both things: where you are among the frames
   // that are actually written, and how much room was declared -- so an
-  // operator watching "2 / 2 of 40 declared" knows the run has just begun,
+  // operator watching "2 / 2 of 40" knows the run has just begun,
   // not that it is over.
   const declared = Math.round(axis.max - axis.min + 1);
   const moveTo = (next) => {
@@ -208,7 +208,7 @@ export default function AxisSlider({
       />
       <output aria-label={`${axisName} position value`} style={styles.axisValue}>
         {stepNumber} / {count}
-        {allowed && declared > count ? ` of ${declared} declared` : null}
+        {allowed && declared > count ? ` of ${declared}` : null}
       </output>
     </label>
   );
