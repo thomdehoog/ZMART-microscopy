@@ -541,6 +541,95 @@ def the_frame_room_of(outer_shape: tuple[int, ...]) -> tuple[int, int]:
     return (int(named.get("t", 1)), int(named.get("c", 1)))
 
 
+# How far apart wells are placed, as a share of the well's own extent. The
+# gap is what makes a plate read as a plate on screen rather than one
+# seamless slab; the ground between wells is served as absent, which costs
+# nothing.
+PLATE_WELL_GAP = 1.08
+
+
+def _the_plate_in(folder: Path) -> tuple[Path, dict] | None:
+    """The one plate this folder holds, or None; ambiguity is refused.
+
+    A plate is a store whose description carries ``ome.plate`` -- the
+    high-content-screening shape, wells of fields with no stage translations.
+    Two plates side by side, or a plate beside loose images, would need a
+    combined layout nobody declared, so both are refused in plain words.
+    """
+    stores = sorted(one for one in folder.glob(f"*{IMAGE_SUFFIX}")
+                    if one.is_dir())
+    plates, plain = [], []
+    for store in stores:
+        try:
+            described, _ = _the_description_of(store)
+        except ValueError:
+            continue
+        if isinstance(described.get("plate"), dict):
+            plates.append((store, described["plate"]))
+        else:
+            plain.append(store)
+    if not plates:
+        return None
+    if len(plates) > 1:
+        raise ValueError(
+            f"{folder} holds {len(plates)} plates, and one picture lays out "
+            "one plate. Put each plate in its own folder and open them one "
+            "at a time."
+        )
+    if plain:
+        raise ValueError(
+            f"{folder} holds a plate and {len(plain)} loose image(s) beside "
+            "it, and there is no declared way to lay the two out together. "
+            "Put the plate in its own folder."
+        )
+    return plates[0]
+
+
+def _read_the_plate(store: Path, plate: dict) -> list[Tile]:
+    """Every field of every well, laid out from the plate's own indices.
+
+    A plate carries no stage translations: where a field belongs follows
+    from the well's row and column indices and the field's place in its
+    well. The fields of one well sit side by side in a square sub-grid;
+    wells step by their own extent plus a small gap. Each field is read by
+    the ordinary tile reader and then moved to its place, so past this
+    point a plate is just tiles.
+    """
+    wells = plate.get("wells") or []
+    if not wells:
+        raise ValueError(
+            f"the plate at {store} declares no wells, so there is nothing "
+            "to lay out."
+        )
+    read = []
+    for well in wells:
+        path, row, column = well["path"], well["rowIndex"], well["columnIndex"]
+        described, _ = _the_description_of(store / path)
+        images = (described.get("well") or {}).get("images") or []
+        fields = [_read_one_tile(store / path / image["path"])
+                  for image in images]
+        read.append((row, column, path.replace("/", ""), fields))
+
+    sample = read[0][3][0].copies[0]
+    field_h = sample.shape[-2] * sample.voxel_um[-2]
+    field_w = sample.shape[-1] * sample.voxel_um[-1]
+    across = math.ceil(math.sqrt(max(len(fields) for *_, fields in read)))
+    pitch_y = across * field_h * PLATE_WELL_GAP
+    pitch_x = across * field_w * PLATE_WELL_GAP
+
+    tiles = []
+    for row, column, well_name, fields in read:
+        for number, tile in enumerate(fields):
+            down, along = divmod(number, across)
+            tile.name = f"{well_name}-{number}"
+            for copy in tile.copies:
+                z, y, x = copy.corner_um
+                copy.corner_um = (z, y + row * pitch_y + down * field_h,
+                                  x + column * pitch_x + along * field_w)
+            tiles.append(tile)
+    return tiles
+
+
 def read_the_transfer(folder: str | Path) -> Mosaic:
     """Open a transfer and work out how its tiles fit together.
 
@@ -558,21 +647,31 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
             would draw one tile as though it were another kind of picture.
     """
     folder = Path(folder)
-    stores = sorted(one for one in folder.glob(f"*{IMAGE_SUFFIX}") if one.is_dir())
-    if not stores:
-        raise ValueError(
-            f"{folder} holds no OME-Zarr images, so there is nothing to build a "
-            "picture from. A transfer is a container of one image per tile; this "
-            "is probably the folder above it, or a single tile rather than the set."
-        )
+    plate = _the_plate_in(folder)
+    if plate is not None:
+        # The second big OME-Zarr shape: a plate of wells and fields, laid
+        # out from its own row and column indices rather than from stage
+        # translations. Past this point its fields are ordinary tiles.
+        tiles = _read_the_plate(*plate)
+    else:
+        stores = sorted(one for one in folder.glob(f"*{IMAGE_SUFFIX}")
+                        if one.is_dir())
+        if not stores:
+            raise ValueError(
+                f"{folder} holds no OME-Zarr images, so there is nothing to "
+                "build a picture from. A transfer is a container of one image "
+                "per tile; this is probably the folder above it, or a single "
+                "tile rather than the set."
+            )
 
-    # Read several tiles at once. Every tile costs a handful of small file reads
-    # and almost no arithmetic, so this waits on the disk rather than on the
-    # processor -- which is exactly the case threads help with, even in Python.
-    # A survey is thousands of tiles and this is the whole of what opening one
-    # costs, so it is worth the four lines.
-    with ThreadPoolExecutor(max_workers=min(32, (len(stores) + 3) // 4 or 1)) as pool:
-        tiles = list(pool.map(_read_one_tile, stores))
+        # Read several tiles at once. Every tile costs a handful of small file
+        # reads and almost no arithmetic, so this waits on the disk rather
+        # than on the processor -- which is exactly the case threads help
+        # with, even in Python. A survey is thousands of tiles and this is
+        # the whole of what opening one costs, so it is worth the four lines.
+        with ThreadPoolExecutor(
+                max_workers=min(32, (len(stores) + 3) // 4 or 1)) as pool:
+            tiles = list(pool.map(_read_one_tile, stores))
 
     keeps = {tile.keeps for tile in tiles}
     if len(keeps) != 1:

@@ -265,6 +265,20 @@ class _Handler(SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             self.close_connection = True
 
+    def finish(self) -> None:
+        """The request's last flush, with the same hang-up tolerance as above.
+
+        A page that closes while its final answer is still in the pipe drops
+        the connection between the handler and this flush, which is outside
+        handle_one_request's guard -- seen as a BrokenPipeError traceback on
+        every browser close during the load-doors ladder of 2026-08-18. The
+        same normal hang-up, swallowed the same way.
+        """
+        try:
+            super().finish()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
     # -- routing ---------------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802 (name fixed by base class)
