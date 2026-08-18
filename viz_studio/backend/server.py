@@ -1213,6 +1213,16 @@ class _Handler(SimpleHTTPRequestHandler):
 
         bake = bool(asked.get("bake"))
         name = asked.get("name") if isinstance(asked.get("name"), str) else None
+        # The name becomes the scene's folder name and nothing else. A name
+        # carrying path steps would land the scene outside the folder the
+        # operator chose -- fed "../escaped", anywhere the server can write.
+        # Found by the abuse battery of 2026-08-18; refused at the door.
+        if name is not None and (not name.strip() or "/" in name
+                                 or "\\" in name or ".." in name):
+            self._send_json(
+                {"error": "the scene's name cannot contain path steps -- "
+                          "give it a plain name"}, HTTPStatus.BAD_REQUEST)
+            return
         job = self._bake_job
         job.clear()
         job.update({"state": "running", "fraction": 0.0, "bake": bake})
@@ -1269,6 +1279,10 @@ class _Handler(SimpleHTTPRequestHandler):
 
         every = asked.get("every")
         every_s = float(every) if isinstance(every, (int, float)) else 0.7
+        # A pace below zero is a slip, not a wish: the replay walks on at
+        # full speed rather than dying inside its own thread on the raw
+        # time.sleep refusal (found by the abuse battery of 2026-08-18).
+        every_s = max(0.0, every_s)
         # A run can only be lived once -- its record only moves forward -- so
         # every replay gets a fresh, numbered folder beside the dataset.
         replays = data_path / "replays"

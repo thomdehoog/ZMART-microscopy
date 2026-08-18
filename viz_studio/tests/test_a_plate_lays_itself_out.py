@@ -136,3 +136,83 @@ def test_two_plates_in_one_folder_are_refused_plainly(tmp_path):
     (second / "plate.ome.zarr").rename(tmp_path / "plate2.ome.zarr")
     with pytest.raises(ValueError, match="plate"):
         read_the_transfer(tmp_path)
+
+
+def test_no_two_plate_tiles_claim_the_same_ground(tmp_path):
+    """The layout arithmetic, falsified rather than trusted.
+
+    A wrong pitch or a swapped row and column would stack fields on one
+    another, and a mean-based gate could still pass by luck. Every pair of
+    footprints must be disjoint, full stop.
+    """
+    mosaic = read_the_transfer(a_small_plate(tmp_path, fields_per_well=3))
+    boxes = []
+    for tile in mosaic.tiles:
+        _, y, x = tile.copies[0].corner_um
+        boxes.append((tile.name, y, y + FIELD[1] * VOXEL_UM[1],
+                      x, x + FIELD[2] * VOXEL_UM[2]))
+    for i, (name_a, top_a, bottom_a, left_a, right_a) in enumerate(boxes):
+        for name_b, top_b, bottom_b, left_b, right_b in boxes[i + 1:]:
+            apart = (bottom_a <= top_b or bottom_b <= top_a
+                     or right_a <= left_b or right_b <= left_a)
+            assert apart, f"{name_a} and {name_b} overlap"
+
+
+def test_wells_without_indices_take_their_place_from_their_names(tmp_path):
+    """Some writers name the well's path and omit rowIndex and columnIndex.
+
+    The plate's own rows and columns lists still say where "B/1" belongs,
+    so the layout is derived from them rather than refused.
+    """
+    folder = a_small_plate(tmp_path)
+    plate = folder / "plate.ome.zarr"
+    described = json.loads((plate / "zarr.json").read_text())
+    for well in described["attributes"]["ome"]["plate"]["wells"]:
+        del well["rowIndex"]
+        del well["columnIndex"]
+    (plate / "zarr.json").write_text(json.dumps(described), encoding="utf-8")
+
+    mosaic = read_the_transfer(folder)
+    corners = {tile.name: tile.copies[0].corner_um[1:] for tile in mosaic.tiles}
+    assert corners["A1-0"] == (0.0, 0.0)
+    assert corners["B1-0"][0] > 0.0 and corners["B1-0"][1] == 0.0
+    assert corners["A2-0"][1] > 0.0 and corners["A2-0"][0] == 0.0
+
+
+def test_a_04_plate_reads_the_same_as_a_05_one(tmp_path):
+    """The older metadata generation, which real converters still write.
+
+    bioformats2raw has produced 0.4 plates for years: flat ``.zattrs``
+    beside zarr v2 arrays. The same wells must land in the same places.
+    """
+    plate = tmp_path / "plate.ome.zarr"
+    wells = [("A/1", 0, 0), ("B/2", 1, 1)]
+    for number, (path, _, _) in enumerate(wells):
+        well = plate / path
+        well.mkdir(parents=True)
+        field = well / "0"
+        field.mkdir()
+        group = zarr.open_group(str(field), mode="w", zarr_format=2)
+        data = np.full(FIELD, 1000 * (number + 1), "uint16")
+        group.create_array("0", shape=FIELD, chunks=FIELD,
+                           dtype="uint16")[:] = data
+        (field / ".zattrs").write_text(json.dumps({"multiscales": [{
+            "version": "0.4",
+            "axes": [{"name": one, "type": "space", "unit": "micrometer"}
+                     for one in ("z", "y", "x")],
+            "datasets": [{"path": "0", "coordinateTransformations": [
+                {"type": "scale", "scale": list(VOXEL_UM)}]}],
+        }]}), encoding="utf-8")
+        (well / ".zattrs").write_text(json.dumps({
+            "well": {"images": [{"path": "0"}]}}), encoding="utf-8")
+    (plate / ".zattrs").write_text(json.dumps({"plate": {
+        "rows": [{"name": "A"}, {"name": "B"}],
+        "columns": [{"name": "1"}, {"name": "2"}],
+        "wells": [{"path": path, "rowIndex": row, "columnIndex": column}
+                  for path, row, column in wells],
+    }}), encoding="utf-8")
+
+    mosaic = read_the_transfer(tmp_path)
+    corners = {tile.name: tile.copies[0].corner_um[1:] for tile in mosaic.tiles}
+    assert corners["A1-0"] == (0.0, 0.0)
+    assert corners["B2-0"][0] > 0.0 and corners["B2-0"][1] > 0.0
