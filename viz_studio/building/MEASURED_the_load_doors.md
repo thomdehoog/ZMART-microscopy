@@ -66,3 +66,24 @@ What the table says:
 The `settled` column of the raw run (five seconds at every rung) is a
 fixed four-second wait inside the instrument plus readiness, kept out of
 the table above because it measures the harness, not the viewer.
+
+## The abuse battery, same day: two defects found by testing to falsify
+
+`test_the_doors_survive_abuse.py` feeds every door exactly what nobody
+should ever feed it. Its first pass found two real defects, both fixed at
+the door the same day:
+
+- **The construct name walked out of the scene folder.** Fed `../escaped`,
+  the scene landed beside the folder the operator chose — anywhere the
+  server can write. Names carrying path steps are now refused.
+- **A negative replay pace killed the replay thread** on `time.sleep`'s
+  raw refusal. The pace is clamped at zero.
+
+The same pass hardened the gates themselves: the replay's pixel identity
+is now pinned per position (a replay mapping a position onto the wrong
+cell passed every count before), the plate layout is pinned
+pairwise-disjoint, a 0.4 plate lays out identically to a 0.5 one, wells
+without indices take their place from the plate's rows and columns lists,
+and the per-frame bake gate was sabotaged once as evidence — two baked
+channels swapped on disk — and went red, proving the gate can see the
+failure it guards.
