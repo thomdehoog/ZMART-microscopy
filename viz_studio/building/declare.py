@@ -107,7 +107,8 @@ def _bake_one_stripe(store: Path, level: int, rows: tuple[int, ...]) -> int:
 
 def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
                             name: str = "built", piece: int = PIECE,
-                            bake: bool = False, workers: int = 1) -> Path:
+                            bake: bool = False, workers: int = 1,
+                            told=None) -> Path:
     """Write the description of a picture built from a transfer.
 
     Args:
@@ -123,6 +124,9 @@ def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
             every tile in front of whoever looks first. A switch, so a baked
             and an unbaked declaration can be compared side by side.
         workers: how many processes build while baking. One builds in place.
+        told: called as ``told(done, total)`` while baking, so whoever asked
+            for the bake can draw a progress bar. The units are rows of
+            pieces; only their ratio means anything.
 
     Returns:
         The picture's own folder, which is what the viewer opens.
@@ -163,7 +167,8 @@ def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
                 "declare a grown picture without the bake."
             )
         try:
-            baked = _bake_the_coarse_ground(store, composer, described)
+            baked = _bake_the_coarse_ground(store, composer, described,
+                                            told=told)
         finally:
             composer.close()
 
@@ -305,7 +310,8 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
 
 def _bake_the_coarse_ground(store: Path, composer: Composer,
                             described: dict, *,
-                            governed_run: Path | None = None) -> list[int]:
+                            governed_run: Path | None = None,
+                            told=None) -> list[int]:
     """Build the coarse ground once, into real files, and extend the pyramid.
 
     Two kinds of level come out of this. The composer's pinned levels are
@@ -374,10 +380,18 @@ def _bake_the_coarse_ground(store: Path, composer: Composer,
                   "'if __name__ == \"__main__\":'). Baking serially "
                   "instead, which is slower and otherwise identical.")
     if not built_by_workers:
+        # One unit of progress per row of pieces, counted up front so the
+        # ratio is honest from the first report.
+        total = sum(composer.grid(level)[0] * composer.grid(level)[1]
+                    for level in pinned)
+        done = 0
         for level in pinned:
             deep, down, across = composer.grid(level)
             for plane in range(deep):
                 for row in range(down):
+                    done += 1
+                    if told is not None:
+                        told(done, total)
                     inside = store / str(level) / "c" / str(plane) / str(row)
                     for column in range(across):
                         # The very bytes the composer would put on the wire,
