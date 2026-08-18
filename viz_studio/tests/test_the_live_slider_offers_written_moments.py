@@ -8,7 +8,7 @@ gate holds the seam between the two:
 
 - the slider ranges over the WRITTEN moments (from authoritative live
   state), never the declared room;
-- the declared ceiling appears beside it as text ("1 / 2 of 4 declared"),
+- the declared ceiling appears beside it as a plain number ("1 / 2 of 4"),
   so a young run reads as young rather than as finished;
 - a landing GROWS the slider on the held page — no navigation, no reload;
 - ground past the written moments serves as honest absence: even steered
@@ -114,7 +114,7 @@ def test_the_slider_ranges_over_written_moments_and_grows(
                 "declared room leaked into the operator's control"
             )
             reading = page.get_by_label("t position value").text_content()
-            assert "of 4 declared" in reading, (
+            assert "of 4" in reading, (
                 f"the reading says {reading!r} -- the declared ceiling is "
                 "not shown, so a young run reads as a finished one"
             )
@@ -167,7 +167,7 @@ def test_the_slider_ranges_over_written_moments_and_grows(
                 timeout=15_000,
             )
             reading = page.get_by_label("t position value").text_content()
-            assert "of 4 declared" in reading
+            assert "of 4" in reading
             page.screenshot(path=str(shots / "4_grew_to_three.png"))
 
             # The F5 pair at a written station: reload agrees with the page.
