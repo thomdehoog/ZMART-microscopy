@@ -18,6 +18,7 @@ their own later chapters.
 import json
 import sys
 import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -130,8 +131,154 @@ class TestPlanningAReplay:
         )
 
 
+def _post(address: str, route: str, payload: dict) -> tuple[int, dict]:
+    """One JSON request straight to the server, no browser in between."""
+    import urllib.error
+    import urllib.request
+
+    asked = urllib.request.Request(
+        f"{address}{route}", data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(asked, timeout=180) as answer:
+            return answer.status, json.loads(answer.read() or b"{}")
+    except urllib.error.HTTPError as refusal:
+        return refusal.code, json.loads(refusal.read() or b"{}")
+
+
+@pytest.fixture
+def serving(built_dist, tmp_path):
+    """A running server on one ordinary acquisition, and the folder beside it."""
+    first = tmp_path / "overview"
+    first.mkdir()
+    from test_open_and_close import _store
+    _store(first / "overview_pos001.ome.zarr", channels=1)
+    server = make_server(port=0, data_dir=first, site_dir=built_dist,
+                         store="overview_pos001.ome.zarr")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}", tmp_path
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+class TestTheReplayRoutes:
+    """The server's own rules for the door, asked without a browser."""
+
+    def test_one_replay_at_a_time(self, serving):
+        """A second ask while one runs is refused, not queued.
+
+        The same rule the bake follows, for the same reason: the answer to
+        "how far along?" has to mean one thing.
+        """
+        address, folder = serving
+        scan = _a_grid_scan(folder / "slowscan")
+        status, _ = _post(address, "/api/stores/replay",
+                          {"path": str(scan), "every": 0.8})
+        assert status == 200
+        refused, answer = _post(address, "/api/stores/replay",
+                                {"path": str(scan)})
+        assert refused == 409 and "already" in answer["error"]
+        # Wait the run out, so nothing is still writing when the folder goes.
+        for _ in range(100):
+            _, told = _post(address, "/api/stores/replay-status", {})
+            if told.get("state") != "running":
+                break
+            time.sleep(0.2)
+        assert told.get("state") == "done"
+
+    def test_a_dataset_off_the_grid_is_refused_with_its_reason(self, serving):
+        """The refusal crosses the wire whole, so the window can show it."""
+        address, folder = serving
+        uneven = folder / "uneven"
+        uneven.mkdir()
+        _write_a_grid_tile(uneven / "pos00.ome.zarr", 0, (0.0, 0.0))
+        _write_a_grid_tile(uneven / "pos01.ome.zarr", 1, (0.0, STEP_UM))
+        _write_a_grid_tile(uneven / "pos02.ome.zarr", 2,
+                           (0.0, STEP_UM * 2 + 17.0))
+        status, answer = _post(address, "/api/stores/replay",
+                               {"path": str(uneven)})
+        assert status == 400
+        assert "grid" in answer["error"], answer
+
+    def test_the_replay_routes_obey_the_open_gate(self, built_dist, tmp_path):
+        """With opening switched off, the replay doors are not served.
+
+        The replay exists for the operator's load window, exactly like the
+        listing; a run-mode page where a workflow decides what is shown
+        offers neither.
+        """
+        first = tmp_path / "overview"
+        first.mkdir()
+        from test_open_and_close import _store
+        _store(first / "overview_pos001.ome.zarr", channels=1)
+        server = make_server(port=0, data_dir=first, site_dir=built_dist,
+                             store="overview_pos001.ome.zarr", allow_open=False)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            address = f"http://127.0.0.1:{server.server_address[1]}"
+            for route in ("/api/stores/replay", "/api/stores/replay-status"):
+                status, _ = _post(address, route, {"path": str(tmp_path)})
+                assert status == 404, f"{route} answered {status} with opening off"
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+
+
 class TestTheReplayDoor:
     """From the other tab, Replay relives the dataset in front of the operator."""
+
+    def test_a_refusal_reaches_the_operator_in_the_window(
+        self, browser, built_dist, tmp_path
+    ):
+        """An off-grid dataset fails where the operator is looking.
+
+        The window stays open with the refusal's own words in its error box,
+        rather than closing on a silent nothing.
+        """
+        first = tmp_path / "overview"
+        first.mkdir()
+        from test_open_and_close import _store
+        _store(first / "overview_pos001.ome.zarr", channels=1)
+        uneven = tmp_path / "uneven"
+        uneven.mkdir()
+        _write_a_grid_tile(uneven / "pos00.ome.zarr", 0, (0.0, 0.0))
+        _write_a_grid_tile(uneven / "pos01.ome.zarr", 1, (0.0, STEP_UM))
+        _write_a_grid_tile(uneven / "pos02.ome.zarr", 2,
+                           (0.0, STEP_UM * 2 + 17.0))
+        server = make_server(port=0, data_dir=first, site_dir=built_dist,
+                             store="overview_pos001.ome.zarr")
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        page = browser.new_page(viewport={"width": 1300, "height": 1000})
+        try:
+            page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                      wait_until="domcontentloaded")
+            page.wait_for_function("() => window.zmartConfig !== undefined",
+                                   timeout=30_000)
+            page.get_by_label("open images").click()
+            window = page.get_by_role("dialog", name="load data")
+            window.wait_for(timeout=10_000)
+            page.get_by_label("other", exact=True).click()
+            box = page.get_by_label("folder path")
+            box.fill(str(tmp_path))
+            box.press("Enter")
+            window.get_by_label("uneven", exact=True).wait_for(timeout=10_000)
+            window.get_by_label("uneven", exact=True).click()
+            page.get_by_label("replay as a live run").click()
+            told = window.get_by_role("alert")
+            told.wait_for(timeout=30_000)
+            assert "grid" in told.inner_text()
+            assert page.get_by_role("dialog", name="load data").count() == 1, (
+                "the window must stay open so the refusal can be read"
+            )
+        finally:
+            page.close()
+            server.shutdown()
+            thread.join(timeout=5)
 
     def test_the_other_tab_replays_tile_by_tile(self, browser, built_dist, tmp_path):
         first = tmp_path / "overview"

@@ -208,4 +208,8 @@ def replay_the_dataset(transfer: str | Path, folder: str | Path, *,
             told(number + 1, plan.total)
         if announce:
             announce()
+    # No finish_the_run here, deliberately: the publisher runs in its
+    # per-publish mode, which keeps the linked view current after every
+    # commit, so there is nothing left to finish -- calling it would only
+    # restate what is already on disk.
     return publisher.folder / "views" / "live" / "live.ome.zarr"
