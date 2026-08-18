@@ -109,12 +109,8 @@ def _open_the_second_through_the_window(page):
     page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
     page.get_by_label("other", exact=True).click()
     page.get_by_label("choose a folder").click()
-    page.wait_for_function(
-        """() => document.querySelector('[aria-label="folder path"]')
-                 ?.value.endsWith('targetscan')""",
-        timeout=10_000,
-    )
-    page.get_by_label("open this folder").click()
+    page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
+    page.get_by_label("open targetscan", exact=True).click()
 
 
 def test_the_viewer_starts_on_the_run_it_was_given(live):
@@ -572,7 +568,9 @@ class TestTheLoadWindow:
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
         page.get_by_label("build new scene", exact=True).click()
-        page.get_by_label("parent folder").click()
+        box = page.get_by_label("folder path")
+        box.fill(str(second.parent))
+        box.press("Enter")
         page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
         page.get_by_label("open targetscan", exact=True).click()
         # The building box, with the destination already suggested.
@@ -628,7 +626,9 @@ class TestTheLoadWindow:
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
             page.get_by_label("build new scene", exact=True).click()
-            page.get_by_label("parent folder").click()
+            box = page.get_by_label("folder path")
+            box.fill(str(run.parent))
+            box.press("Enter")
             page.get_by_label("open surveyrun", exact=True).wait_for(timeout=10_000)
             page.get_by_label("open surveyrun", exact=True).click()
             page.get_by_label("scene folder").wait_for(timeout=10_000)
@@ -677,7 +677,9 @@ class TestTheLoadWindow:
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
         page.get_by_label("other", exact=True).click()
-        page.get_by_label("parent folder").click()
+        box = page.get_by_label("folder path")
+        box.fill(str(second.parent))
+        box.press("Enter")
         page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
         page.get_by_label("open targetscan", exact=True).click()
         page.wait_for_function(

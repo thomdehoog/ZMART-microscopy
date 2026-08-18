@@ -291,9 +291,15 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
             type="button"
             onClick={async () => {
               const chosen = await tryNativeChooser();
-              if (chosen.path) onNavigate(chosen.path);
-              else if (chosen.window) setOpenError(
-                "no system folder chooser here — type a path above or walk the folders below");
+              if (chosen.path) {
+                // Land on the parent: the picked folder then sits in the
+                // list as an ordinary row, wearing its own Open button.
+                const path = chosen.path.replace(/\/+$/, "");
+                onNavigate(path.slice(0, path.lastIndexOf("/")) || "/");
+              } else if (chosen.window) {
+                setOpenError(
+                  "no system folder chooser here — type a path above or walk the folders below");
+              }
             }}
             aria-label="choose a folder"
             title="Pick the folder with the operating system's own chooser"
@@ -303,55 +309,8 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
           </button>
         </div>
         <div style={styles.loadList}>
-          {/* The folder being looked at is itself on offer -- the natural
-              next step after the system chooser picked it directly. */}
-          {kind === "raw" ? (
-            <button
-              type="button"
-              onClick={() => setConstructing({
-                data: listing.path,
-                name: listing.path.split("/").filter(Boolean).pop() || listing.path,
-                destination: `${listing.path}/scenes`,
-                bake: false,
-              })}
-              aria-label="build a scene from this folder"
-              title="Use the folder above as the raw data for a new scene"
-              style={{ ...styles.loadRow, fontWeight: 600 }}
-            >
-              ⊕ build a scene from this folder
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => openStore(listing.path)}
-              disabled={busy}
-              aria-label="open this folder"
-              title="Open the folder above, exactly as it is"
-              style={{ ...styles.loadRow, fontWeight: 600 }}
-            >
-              ⊕ open this folder
-            </button>
-          )}
-          {listing.parent && (
-            <button
-              type="button"
-              onClick={() => onNavigate(listing.parent)}
-              aria-label="parent folder"
-              style={styles.loadRow}
-            >
-              ‹ up one folder
-            </button>
-          )}
-          {/* What the chosen tab is looking for comes first, named for what
-              it is; the plain folders to walk into follow. */}
-          {kind !== "other" && (
-            <div style={styles.loadCaption}>
-              {kind === "raw" ? "datasets here" : "scenes and images here"}
-              {!listing.folders.some((folder) =>
-                kind === "raw" ? folder.opens === "folder" : folder.opens === "store")
-                && " — none"}
-            </div>
-          )}
+          {/* What the chosen tab is looking for floats to the top; the
+              plain folders to walk into follow. */}
           {[...listing.folders].sort((a, b) => {
             const wanted = (folder) =>
               (kind === "raw" ? folder.opens === "folder" : folder.opens === "store") ? 0 : 1;
@@ -1646,13 +1605,6 @@ const styles = {
     cursor: "pointer",
   },
   loadEmptyNote: { padding: "10px 12px", color: "#8b95a3", font: "12px/1.4 system-ui, sans-serif" },
-  loadCaption: {
-    padding: "7px 10px 3px",
-    font: "600 10px/1 system-ui, sans-serif",
-    letterSpacing: ".06em",
-    textTransform: "uppercase",
-    color: "#5c6673",
-  },
   constructPane: {
     marginTop: 10,
     padding: "10px 12px",
