@@ -23,6 +23,21 @@ const LUT_DESCRIPTIONS = {
   ice: "(black → blue → white)",
 };
 
+// What each colour map roughly looks like, as a little gradient -- drawn on a
+// channel's row swatch when that map is chosen, so the swatch always mirrors
+// the one lookup-table control.
+const LUT_GRADIENTS = {
+  viridis: "linear-gradient(90deg, #440154, #21918c, #fde725)",
+  magma: "linear-gradient(90deg, #000004, #b73779, #fcfdbf)",
+  fire: "linear-gradient(90deg, #000000, #e63b1f, #fff3c4)",
+  ice: "linear-gradient(90deg, #000000, #3a6fd8, #ffffff)",
+};
+
+// The palette entry a stored rgb corresponds to, for showing which flat
+// colour the lookup table currently holds.
+const paletteNameOf = (rgb) =>
+  (PALETTE.find((entry) => css(entry.rgb) === css(rgb)) || { name: "grey" }).name;
+
 const css = (rgb) =>
   rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
 
@@ -621,58 +636,45 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
           label={`opacity value ${layer.name}`}
         />
       </label>
-      {/* The colour is chosen here, with the channel's other settings; the
-          swatch on the row above only shows the choice. */}
-      <div style={styles.control}>
-        <span style={styles.controlLabel} title="The colour this channel is drawn in">
-          colour
-        </span>
-        <div style={{ display: "flex", gap: 5, gridColumn: "2 / -1", alignItems: "center" }}>
-          {PALETTE.map((choice) => {
-            const chosen = css(choice.rgb) === css(entry.color);
-            return (
-              <button
-                key={choice.name}
-                type="button"
-                onClick={() => onColor(index, choice.rgb)}
-                style={{
-                  ...styles.paletteDot,
-                  background: css(choice.rgb),
-                  ...(chosen ? styles.paletteDotChosen : null),
-                }}
-                title={choice.name}
-                aria-label={`${choice.name} for ${layer.name}`}
-                aria-pressed={chosen}
-              />
-            );
-          })}
-        </div>
-      </div>
-          {lookupTables.length > 0 && (
+      {/* ONE control decides how the channel is painted: the first entries
+          are single colours, the rest are colour maps. Choosing here is what
+          the swatch on the layer row reflects. */}
         <label style={styles.control}>
           <span
             style={styles.controlLabel}
-            title="Paint this channel in a run of colours instead of one flat colour"
+            title="Lookup table: paint this channel in one flat colour, or in a run of colours that shows more detail"
           >
-            colour map
+            lut
           </span>
           <select
-            value={entry.lut || ""}
-            onChange={(event) => onLut?.(index, event.target.value || null)}
-            aria-label={`colour map ${layer.name}`}
-            title="A colour map shows more detail in a single channel than a plain brightness ramp"
-            style={styles.select}
+            value={entry.lut || `flat:${paletteNameOf(entry.color)}`}
+            onChange={(event) => {
+              const asked = event.target.value;
+              if (asked.startsWith("flat:")) {
+                onLut?.(index, null);
+                const name = asked.slice("flat:".length);
+                onColor(index, (PALETTE.find((choice) => choice.name === name)
+                                || { rgb: null }).rgb);
+              } else {
+                onLut?.(index, asked);
+              }
+            }}
+            aria-label={`lookup table ${layer.name}`}
+            title="Lookup table: the first entries are single colours, the rest paint the brightness in a run of colours"
+            style={{ ...styles.select, gridColumn: "2 / -1" }}
           >
-            <option value="">flat colour</option>
+            {PALETTE.map((choice) => (
+              <option key={choice.name} value={`flat:${choice.name}`}>
+                {choice.name}
+              </option>
+            ))}
             {lookupTables.map((name) => (
               <option key={name} value={name}>
                 {name} {LUT_DESCRIPTIONS[name] || ""}
               </option>
             ))}
           </select>
-          <output style={styles.value} />
         </label>
-      )}
     </div>
   );
 }
@@ -732,7 +734,7 @@ export default function LayerPanel({
   // every row, three channels filled a tall screen and six could not be seen at
   // all. Adjusting one channel at a time is also how the work actually goes.
   const renderRow = ({ layer, index }) => {
-    const { visible, color } = state[index];
+    const { visible, color, lut } = state[index];
     const chosen = index === selected;
     return (
       <div
@@ -753,8 +755,9 @@ export default function LayerPanel({
           {/* A read-out, not a control: the colour is chosen in the display
               settings, and this swatch follows the choice. */}
           <span
-            style={{ ...styles.swatch, background: css(color) }}
-            title="The colour this channel is drawn in -- choose it in the display settings"
+            style={{ ...styles.swatch,
+                     background: (lut && LUT_GRADIENTS[lut]) || css(color) }}
+            title="How this channel is painted -- choose it in the display settings"
             aria-label={`colour ${layer.name}`}
             role="img"
           />
@@ -1085,21 +1088,6 @@ const styles = {
   eye: { background: "none", border: "none", color: "#c9d1d9", cursor: "pointer", fontSize: 13, padding: 0 },
   swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid #39424e", display: "inline-block", flexShrink: 0 },
   name: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  palette: {
-    position: "absolute",
-    left: 34,
-    top: 26,
-    zIndex: 20,
-    display: "flex",
-    gap: 4,
-    padding: 5,
-    background: "#1b212a",
-    border: "1px solid #2f3843",
-    borderRadius: 5,
-    boxShadow: "0 2px 8px rgba(0,0,0,.6)",
-  },
-  paletteDot: { width: 15, height: 15, borderRadius: 3, border: "1px solid #39424e", cursor: "pointer", padding: 0 },
-  paletteDotChosen: { outline: "2px solid #2f81f7", outlineOffset: 1 },
   histogramRow: {
     display: "grid",
     // The histogram takes the row's width, starting at the labels' left

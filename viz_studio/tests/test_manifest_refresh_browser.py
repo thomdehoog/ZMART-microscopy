@@ -126,7 +126,7 @@ def _operator_state(page):
             '[aria-label="opacity live (linked) channel 0"]').value),
           group: window.zmartConfig.groups[0],
           lut: document.querySelector(
-            '[aria-label="colour map live (linked) channel 0"]').value,
+            '[aria-label="lookup table live (linked) channel 0"]').value,
         })"""
     )
 
@@ -138,7 +138,7 @@ def _tune(page):
     _set_range(page, "min live (linked) channel 0", 100)
     _set_range(page, "max live (linked) channel 0", 3500)
     _set_range(page, "opacity live (linked) channel 0", 0.83)
-    page.get_by_label("colour map live (linked) channel 0").select_option("viridis")
+    page.get_by_label("lookup table live (linked) channel 0").select_option("viridis")
     page.wait_for_function("() => window.zmartAnnotationSource !== undefined")
     page.evaluate(
         """() => {
