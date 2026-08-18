@@ -98,6 +98,25 @@ def _groups(page):
     return page.evaluate("() => window.zmartConfig.groups")
 
 
+def _open_the_second_through_the_window(page):
+    """Open the second run the way an operator now does.
+
+    The load window always appears; inside it the native chooser (stood in
+    for by the fixture's ``browse=``) picks the folder, and the run's store
+    is opened from the list the window shows of what it found there.
+    """
+    page.get_by_label("open images").click()
+    page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+    page.get_by_label("other", exact=True).click()
+    page.get_by_label("choose a folder").click()
+    page.wait_for_function(
+        """() => document.querySelector('[aria-label="folder path"]')
+                 ?.value.endsWith('targetscan')""",
+        timeout=10_000,
+    )
+    page.get_by_label("open this folder").click()
+
+
 def test_the_viewer_starts_on_the_run_it_was_given(live):
     page, _, _ = live
     assert _groups(page) == ["overview"]
@@ -105,7 +124,7 @@ def test_the_viewer_starts_on_the_run_it_was_given(live):
 
 def test_opening_adds_an_acquisition_and_its_channels(live):
     page, _, _ = live
-    page.get_by_label("open images").click()
+    _open_the_second_through_the_window(page)
     page.wait_for_function(
         "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
     )
@@ -135,7 +154,7 @@ def test_the_newly_opened_images_actually_render(live):
     the picture can only be coming from the newly opened images.
     """
     page, _, _ = live
-    page.get_by_label("open images").click()
+    _open_the_second_through_the_window(page)
     page.wait_for_function(
         "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
     )
@@ -192,7 +211,7 @@ def test_the_newly_opened_images_actually_render(live):
 
 def test_closing_removes_it_again(live):
     page, _, _ = live
-    page.get_by_label("open images").click()
+    _open_the_second_through_the_window(page)
     page.wait_for_function(
         "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
     )
@@ -214,7 +233,7 @@ def test_settings_on_what_stays_open_are_not_reset(live):
     # Hide the first channel of the run already open.
     page.get_by_label("toggle ch0").first.click()
     page.wait_for_timeout(500)
-    page.get_by_label("open images").click()
+    _open_the_second_through_the_window(page)
     page.wait_for_function(
         "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
     )
@@ -531,12 +550,12 @@ class TestTheLoadWindow:
         page.get_by_label("open images").click()
         window = page.get_by_role("dialog", name="load data")
         window.wait_for(timeout=10_000)
-        chosen = page.get_by_label("load existing view", exact=True)
+        chosen = page.get_by_label("load existing scene", exact=True)
         assert chosen.get_attribute("aria-pressed") == "true"
         assert str(first) in page.get_by_label("folder path").input_value()
         assert page.get_by_label(
             "open overview_pos001.ome.zarr", exact=True).count() == 1
-        page.get_by_label("build new view", exact=True).click()
+        page.get_by_label("build new scene", exact=True).click()
         assert page.get_by_label(
             "open overview_pos001.ome.zarr", exact=True).count() == 0
 
@@ -552,23 +571,30 @@ class TestTheLoadWindow:
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-        page.get_by_label("build new view", exact=True).click()
+        page.get_by_label("build new scene", exact=True).click()
         page.get_by_label("parent folder").click()
         page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
         page.get_by_label("open targetscan", exact=True).click()
-        # The construction pane, with the destination already suggested.
-        destination = page.get_by_label("viewer files folder")
+        # The building box, with the destination already suggested.
+        destination = page.get_by_label("scene folder")
         destination.wait_for(timeout=10_000)
-        assert destination.input_value().endswith("targetscan/views")
-        page.get_by_label("start constructing").click()
+        assert destination.input_value().endswith("targetscan/scenes")
+        page.get_by_label("build the scene").click()
+        # Built is not shown: the scene waits for the operator's own click.
+        page.get_by_label("show the scene").wait_for(timeout=30_000)
+        assert "targetscan" not in page.evaluate(
+            "() => window.zmartConfig.groups"), (
+            "building must not open the scene by itself"
+        )
+        page.get_by_label("show the scene").click()
         page.wait_for_function(
             "() => window.zmartConfig.groups.includes('targetscan')", timeout=30_000
         )
         assert page.get_by_role("dialog", name="load data").count() == 0, (
-            "a successful open is finished; the window should close itself"
+            "showing is finished; the window should close itself"
         )
-        assert (second / "views" / "targetscan.ome.zarr" / "zarr.json").exists(), (
-            "the viewer's files must be where the operator was told they go"
+        assert (second / "scenes" / "targetscan.ome.zarr" / "zarr.json").exists(), (
+            "the scene's files must be where the operator was told they go"
         )
 
     def test_prebaking_computes_the_pieces_and_reports_its_progress(
@@ -601,18 +627,20 @@ class TestTheLoadWindow:
                                    timeout=30_000)
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-            page.get_by_label("build new view", exact=True).click()
+            page.get_by_label("build new scene", exact=True).click()
             page.get_by_label("parent folder").click()
             page.get_by_label("open surveyrun", exact=True).wait_for(timeout=10_000)
             page.get_by_label("open surveyrun", exact=True).click()
-            page.get_by_label("viewer files folder").wait_for(timeout=10_000)
-            page.get_by_label("prebake the pieces").check()
-            page.get_by_label("start constructing").click()
+            page.get_by_label("scene folder").wait_for(timeout=10_000)
+            page.get_by_label("prebake", exact=True).check()
+            page.get_by_label("build the scene").click()
+            page.get_by_label("show the scene").wait_for(timeout=30_000)
+            page.get_by_label("show the scene").click()
             page.wait_for_function(
                 "() => window.zmartConfig.groups.includes('surveyrun')",
                 timeout=30_000,
             )
-            store = run / "views" / "surveyrun.ome.zarr"
+            store = run / "scenes" / "surveyrun.ome.zarr"
             assert (store / "zarr.json").exists()
             assert any(any((store / str(level)).glob("**/*"))
                        for level in range(4) if (store / str(level)).is_dir()), (
@@ -627,7 +655,7 @@ class TestTheLoadWindow:
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-        page.get_by_label("build new view", exact=True).click()
+        page.get_by_label("build new scene", exact=True).click()
         box = page.get_by_label("folder path")
         box.fill(str(second.parent))
         box.press("Enter")
@@ -784,7 +812,7 @@ class TestRelinking:
                                    timeout=30_000)
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-            page.get_by_label("load existing view", exact=True).click()
+            page.get_by_label("load existing scene", exact=True).click()
             # Walk to the viewer's files and open them.
             box = page.get_by_label("folder path")
             box.fill(str(run / "views"))
@@ -796,7 +824,9 @@ class TestRelinking:
             data_box = page.get_by_label("raw data folder")
             data_box.wait_for(timeout=10_000)
             data_box.fill(str(moved_to))
-            page.get_by_label("start constructing").click()
+            page.get_by_label("build the scene").click()
+            page.get_by_label("show the scene").wait_for(timeout=30_000)
+            page.get_by_label("show the scene").click()
             page.wait_for_function(
                 "() => window.zmartConfig.groups.includes('surveyrun')",
                 timeout=30_000,

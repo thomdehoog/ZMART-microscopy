@@ -169,10 +169,10 @@ async function listFolders(path) {
 // Step one of loading: what kind of thing is being opened. Each door decides
 // what the folder walk below it offers to open, and what happens after.
 const LOAD_KINDS = [
-  { key: "view", label: "load existing view",
-    said: "a view built earlier — opens as it was" },
-  { key: "raw", label: "build new view",
-    said: "raw positions from the microscope — a view is built over them" },
+  { key: "view", label: "load existing scene",
+    said: "a scene built earlier — opens as it was" },
+  { key: "raw", label: "build new scene",
+    said: "raw positions from the microscope — a scene is built over them" },
   { key: "other", label: "other",
     said: "anything else the viewer can read — demo data, test runs — opened directly" },
 ];
@@ -228,9 +228,13 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
         setConstructing((current) => current && { ...current, fraction: status.fraction || 0 });
       } else {
         clearInterval(polling.current);
-        if (status.state === "done") onConstructed();
-        else setConstructing((current) => current &&
-          { ...current, running: false, error: status.error || "the construction failed" });
+        if (status.state === "done") {
+          setConstructing((current) => current &&
+            { ...current, running: false, built: status.store });
+        } else {
+          setConstructing((current) => current &&
+            { ...current, running: false, error: status.error || "the build failed" });
+        }
       }
     }, 350);
   };
@@ -271,18 +275,63 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
         </div>
         {kind && (
         <>
-        <input
-          key={listing.path}
-          type="text"
-          defaultValue={listing.path}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") onNavigate(event.currentTarget.value);
-          }}
-          aria-label="folder path"
-          title="The folder being looked at. Type or paste a path and press Enter"
-          style={styles.loadPath}
-        />
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <input
+            key={listing.path}
+            type="text"
+            defaultValue={listing.path}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") onNavigate(event.currentTarget.value);
+            }}
+            aria-label="folder path"
+            title="The folder being looked at. Type or paste a path and press Enter"
+            style={{ ...styles.loadPath, marginBottom: 0, flex: 1 }}
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              const chosen = await tryNativeChooser();
+              if (chosen.path) onNavigate(chosen.path);
+              else if (chosen.window) setOpenError(
+                "no system folder chooser here — type a path above or walk the folders below");
+            }}
+            aria-label="choose a folder"
+            title="Pick the folder with the operating system's own chooser"
+            style={styles.loadCancel}
+          >
+            Choose folder…
+          </button>
+        </div>
         <div style={styles.loadList}>
+          {/* The folder being looked at is itself on offer -- the natural
+              next step after the system chooser picked it directly. */}
+          {kind === "raw" ? (
+            <button
+              type="button"
+              onClick={() => setConstructing({
+                data: listing.path,
+                name: listing.path.split("/").filter(Boolean).pop() || listing.path,
+                destination: `${listing.path}/scenes`,
+                bake: false,
+              })}
+              aria-label="build a scene from this folder"
+              title="Use the folder above as the raw data for a new scene"
+              style={{ ...styles.loadRow, fontWeight: 600 }}
+            >
+              ⊕ build a scene from this folder
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => openStore(listing.path)}
+              disabled={busy}
+              aria-label="open this folder"
+              title="Open the folder above, exactly as it is"
+              style={{ ...styles.loadRow, fontWeight: 600 }}
+            >
+              ⊕ open this folder
+            </button>
+          )}
           {listing.parent && (
             <button
               type="button"
@@ -293,7 +342,21 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
               ‹ up one folder
             </button>
           )}
-          {listing.folders.map((folder) => (
+          {/* What the chosen tab is looking for comes first, named for what
+              it is; the plain folders to walk into follow. */}
+          {kind !== "other" && (
+            <div style={styles.loadCaption}>
+              {kind === "raw" ? "datasets here" : "scenes and images here"}
+              {!listing.folders.some((folder) =>
+                kind === "raw" ? folder.opens === "folder" : folder.opens === "store")
+                && " — none"}
+            </div>
+          )}
+          {[...listing.folders].sort((a, b) => {
+            const wanted = (folder) =>
+              (kind === "raw" ? folder.opens === "folder" : folder.opens === "store") ? 0 : 1;
+            return wanted(a) - wanted(b) || a.name.localeCompare(b.name);
+          }).map((folder) => (
             <div key={folder.name} style={styles.loadEntry}>
               <button
                 type="button"
@@ -327,7 +390,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                   onClick={() => setConstructing({
                     data: `${listing.path}/${folder.name}`,
                     name: folder.name,
-                    destination: `${listing.path}/${folder.name}/views`,
+                    destination: `${listing.path}/${folder.name}/scenes`,
                     bake: false,
                   })}
                   disabled={busy}
@@ -361,7 +424,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
             <div style={styles.constructTitle}>
               {constructing.relink
                 ? `point to the raw data for ${constructing.name}`
-                : `construct the viewer for ${constructing.name}`}
+                : `build the scene for ${constructing.name}`}
             </div>
             {constructing.relink && (
               <label style={styles.constructRow}>
@@ -378,16 +441,29 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
               </label>
             )}
             <label style={styles.constructRow}>
-              <span style={styles.constructLabel}>viewer files</span>
+              <span style={styles.constructLabel}>save scene in</span>
               <input
                 type="text"
                 value={constructing.destination}
                 onChange={(event) => setConstructing(
                   (current) => ({ ...current, destination: event.target.value }))}
-                aria-label="viewer files folder"
-                title="Where the viewer's own files are written. The raw data is read and never changed"
+                aria-label="scene folder"
+                title="Where the scene's own files are written. The raw data is read and never changed"
                 style={{ ...styles.loadPath, marginBottom: 0, flex: 1 }}
               />
+              <button
+                type="button"
+                onClick={async () => {
+                  const chosen = await tryNativeChooser();
+                  if (chosen.path) setConstructing(
+                    (current) => ({ ...current, destination: chosen.path }));
+                }}
+                aria-label="choose where to save the scene"
+                title="Pick the folder with the operating system's own chooser"
+                style={styles.loadCancel}
+              >
+                Choose…
+              </button>
             </label>
             {/* On the fly serves immediately and computes each piece when it
                 is first looked at; prebaking computes every piece now, which
@@ -398,28 +474,45 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                   type="radio"
                   checked={!constructing.bake}
                   onChange={() => setConstructing((current) => ({ ...current, bake: false }))}
-                  aria-label="pieces on the fly"
+                  disabled={constructing.running || !!constructing.built}
+                  aria-label="linked only"
                 />
-                pieces on the fly
+                linked only
               </label>
               <label style={styles.constructChoice}>
                 <input
                   type="radio"
                   checked={constructing.bake}
                   onChange={() => setConstructing((current) => ({ ...current, bake: true }))}
-                  aria-label="prebake the pieces"
+                  disabled={constructing.running || !!constructing.built}
+                  aria-label="prebake"
                 />
-                prebake the pieces
+                prebake
               </label>
-              <button
-                type="button"
-                onClick={start}
-                disabled={constructing.running}
-                aria-label="start constructing"
-                style={styles.loadOpen}
-              >
-                {constructing.running ? "…" : "Start"}
-              </button>
+              {!constructing.built ? (
+                <button
+                  type="button"
+                  onClick={start}
+                  disabled={constructing.running}
+                  aria-label="build the scene"
+                  title={constructing.bake
+                    ? "Compute every piece now and keep it -- takes time, opens instantly ever after"
+                    : "Write only the view's description; each piece is made when first looked at"}
+                  style={styles.loadOpen}
+                >
+                  {constructing.running ? "building…" : "Build"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openStore(constructing.built)}
+                  aria-label="show the scene"
+                  title="The scene is built; open it in the image data"
+                  style={styles.loadOpen}
+                >
+                  Show
+                </button>
+              )}
             </div>
             {constructing.running && (
               <div
@@ -1374,17 +1467,12 @@ export default function App() {
               onOpenStore={async () => {
                 setStoreBusy(true);
                 setStoreNotice(null);
-                const chosen = await tryNativeChooser();
-                if (chosen.path) {
-                  const result = await openPath(chosen.path);
-                  if (result.config) applyConfig(result.config);
-                  if (result.error) setStoreNotice(result.error);
-                } else if (chosen.window) {
-                  // No chooser on this machine: the page opens its own window.
-                  const listing = await listFolders(null);
-                  if (listing.error) setStoreNotice(listing.error);
-                  else setLoadListing(listing);
-                }
+                // The window always appears -- the choice of what kind of
+                // thing is being loaded comes first. The native chooser is a
+                // button inside it.
+                const listing = await listFolders(null);
+                if (listing.error) setStoreNotice(listing.error);
+                else setLoadListing(listing);
                 setStoreBusy(false);
               }}
               onCloseGroup={async (group) => {
@@ -1558,6 +1646,13 @@ const styles = {
     cursor: "pointer",
   },
   loadEmptyNote: { padding: "10px 12px", color: "#8b95a3", font: "12px/1.4 system-ui, sans-serif" },
+  loadCaption: {
+    padding: "7px 10px 3px",
+    font: "600 10px/1 system-ui, sans-serif",
+    letterSpacing: ".06em",
+    textTransform: "uppercase",
+    color: "#5c6673",
+  },
   constructPane: {
     marginTop: 10,
     padding: "10px 12px",

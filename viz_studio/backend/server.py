@@ -1191,7 +1191,7 @@ class _Handler(SimpleHTTPRequestHandler):
         job = self._bake_job
         job.clear()
         job.update({"state": "running", "fraction": 0.0, "bake": bake})
-        library, viewer_path = self._library, Path(viewer.strip()).expanduser()
+        viewer_path = Path(viewer.strip()).expanduser()
 
         def told(done, total):
             job["fraction"] = round(done / max(total, 1), 4)
@@ -1201,7 +1201,10 @@ class _Handler(SimpleHTTPRequestHandler):
                 store = declare_a_built_picture(
                     viewer_path, data_path, name=name or data_path.name,
                     bake=bake, told=told)
-                library.open(store)
+                # Building does not open: the window says "built", and showing
+                # it is the operator's own next click. Building several views
+                # ahead of a session, without each one landing on screen, is
+                # the ordinary way to prepare.
                 job.update({"state": "done", "fraction": 1.0,
                             "store": str(store)})
             except Exception as why:  # noqa: BLE001 -- shown to the operator whole

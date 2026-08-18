@@ -494,6 +494,15 @@ class TestOpeningSomethingElse:
 
             before = list(watcher.urls)
             page.get_by_label("open images").click()
+            page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+            page.get_by_label("other", exact=True).click()
+            page.get_by_label("choose a folder").click()
+            page.wait_for_function(
+                """() => document.querySelector('[aria-label="folder path"]')
+                         ?.value.endsWith('targetscan')""",
+                timeout=10_000,
+            )
+            page.get_by_label("open this folder").click()
             page.wait_for_function(
                 "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
             )
