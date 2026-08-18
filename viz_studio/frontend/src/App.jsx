@@ -145,6 +145,17 @@ async function constructionStatus() {
   return response.json().catch(() => ({ state: "error", error: "unreadable answer" }));
 }
 
+async function startReplay(path) {
+  const response = await fetch("/api/stores/replay", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  const answer = await response.json().catch(() => null);
+  if (!response.ok) return { error: answer?.error || "the replay could not start" };
+  return { config: answer };
+}
+
 async function listFolders(path) {
   const response = await fetch("/api/stores/list", {
     method: "POST",
@@ -174,7 +185,7 @@ const LOAD_KINDS = [
   { key: "raw", label: "build new scene",
     said: "raw positions from the microscope — a scene is built over them" },
   { key: "other", label: "other",
-    said: "anything else the viewer can read — demo data, test runs — opened directly" },
+    said: "anything else the viewer can read — demo data, test runs — opened directly, or replayed as a live run" },
 ];
 
 function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) {
@@ -492,6 +503,24 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
         </div>
         {kind !== "raw" && !constructing && (
           <div style={styles.loadActions}>
+            {kind === "other" && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setBusy(true);
+                  const result = await startReplay(`${listing.path}/${selected.name}`);
+                  setBusy(false);
+                  if (result.config) onOpened(result.config);
+                  else setOpenError(result.error);
+                }}
+                disabled={busy || !selected || selected.opens !== "folder"}
+                aria-label="replay as a live run"
+                title="Relive this dataset as a live run: the positions land on screen one at a time, through the same doorway the microscope uses. A dress rehearsal for smart microscopy, on data already on disk"
+                style={{ ...styles.loadOpen, marginRight: 8 }}
+              >
+                Replay
+              </button>
+            )}
             <button
               type="button"
               onClick={() => openStore(`${listing.path}/${selected.name}`)}
