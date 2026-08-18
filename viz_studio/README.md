@@ -101,7 +101,12 @@ folder…** button opens the system's chooser where one is available.
 - **load existing scene** — the tab the window starts on. Walk to a scene
   built earlier, select it, press Open, and it appears exactly as it was.
 - **build new scene** — for raw data straight from the microscope: a folder
-  holding one OME-Zarr per position. Building reads as three numbered steps:
+  holding one OME-Zarr per position, or a folder holding an HCS **plate**
+  (wells of fields — both the current and the older 0.4 metadata). A plate
+  carries no stage positions, so its wells are laid out from the plate's own
+  rows and columns, the fields of each well side by side, with a small gap
+  between wells so the plate reads as a plate. Building reads as three
+  numbered steps:
   choose the raw data, say where the scene is saved, and build. A scene is
   assembled by linking the raw data into a virtual OME-Zarr, so nothing is
   copied; ticking *include a hard copy of the low-resolution overview* also
