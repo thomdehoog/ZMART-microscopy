@@ -26,6 +26,22 @@ const LUT_DESCRIPTIONS = {
 const css = (rgb) =>
   rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
 
+// The logarithmic brightness axis, anchored at the bottom of whatever band it
+// is drawn over. Fluorescence often piles most of its values near background
+// with a long bright tail; on this axis the dim end spreads out and the tail
+// compresses, so the part an operator actually adjusts gets the room. log1p
+// rather than log so a band starting at zero needs no special case. One pair
+// of functions, used by the histogram's bars, the drag on its marks, and the
+// MIN and MAX sliders alike -- so all three always agree about where a
+// brightness sits on screen.
+const logFraction = (value, low, span) =>
+  Math.log1p(Math.min(Math.max(value - low, 0), span)) / Math.log1p(span);
+const valueAtLogFraction = (fraction, low, span) =>
+  low + Math.expm1(fraction * Math.log1p(span));
+// How finely a log slider is stepped: the element counts these, the numbers
+// shown are always real brightness values.
+const LOG_SLIDER_STEPS = 1000;
+
 // -- the pieces the panel is drawn from ---------------------------------------
 //
 // A histogram, an eye, and the arithmetic that decides how far the contrast
@@ -80,24 +96,33 @@ function contrastRange(layer, window_) {
  * where the drag begins is the one taken hold of, which makes the bars easy
  * to grab even when the window is pushed against an edge.
  */
-function Histogram({ layer, window_, color, onWindow }) {
+function Histogram({ layer, window_, color, onWindow, scale = "linear" }) {
   const dragging = React.useRef(null);
   const counts = layer.histogram?.counts;
   if (!counts?.length) return null;
   const peak = Math.max(...counts, 1);
   const measured = layer.histogram;
-  // The bars are drawn across the range the server measured; the band has to be
-  // placed on that same scale, or it would sit under the wrong bars.
+  // The bars are drawn across the range the server measured; the marks have to
+  // be placed on that same scale, or they would sit under the wrong bars. On
+  // the log axis the same mapping warps bars and marks together.
   const span = measured.high - measured.low || 1;
-  const at = (value) => ((value - measured.low) / span) * counts.length;
-  const left = Math.max(0, at(window_.low));
-  const right = Math.min(counts.length, at(window_.high));
+  const at = (value) => {
+    const fraction =
+      scale === "log"
+        ? logFraction(value, measured.low, span)
+        : Math.min(Math.max((value - measured.low) / span, 0), 1);
+    return fraction * counts.length;
+  };
+  const left = at(window_.low);
+  const right = at(window_.high);
 
   // Where a pointer event sits on the measured brightness scale.
   const valueUnder = (event) => {
     const box = event.currentTarget.getBoundingClientRect();
     const fraction = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
-    return measured.low + fraction * span;
+    return scale === "log"
+      ? valueAtLogFraction(fraction, measured.low, span)
+      : measured.low + fraction * span;
   };
   const takeHold = (event) => {
     if (!onWindow) return;
@@ -139,13 +164,16 @@ function Histogram({ layer, window_, color, onWindow }) {
           stretch is what the display ramp is actually spent on. */}
       {counts.map((count, index) => {
         const height = (Math.log1p(count) / Math.log1p(peak)) * 22;
-        const shown = index + 0.5 >= left && index + 0.5 <= right;
+        const centre = measured.low + ((index + 0.5) * span) / counts.length;
+        const shown = centre >= window_.low && centre <= window_.high;
+        const starts = at(measured.low + (index * span) / counts.length);
+        const ends = at(measured.low + ((index + 1) * span) / counts.length);
         return (
           <rect
             key={index}
-            x={index}
+            x={starts}
             y={24 - height}
-            width="1"
+            width={ends - starts}
             height={height}
             fill="currentColor"
             opacity={shown ? 1 : 0.3}
@@ -384,6 +412,21 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   // else when they do not.
   const isMask = layer.kind === "segmentation";
 
+  // Linear or logarithmic brightness axis, for the histogram AND the MIN and
+  // MAX sliders together -- they describe the same scale, so they warp
+  // together or the marks would stop sitting where the handles say.
+  const [scale, setScale] = React.useState("linear");
+  const travel = Math.max(1, max - min);
+
+  // The Auto light is derived, not stored: it is on exactly while the window
+  // equals the measured one, so dragging any handle away turns it off by
+  // itself and switching channels always shows the truth.
+  const autoWindow = layer.histogram?.autoWindow;
+  const following =
+    !!autoWindow &&
+    Math.abs(window_.low - autoWindow.low) < 0.5 &&
+    Math.abs(window_.high - autoWindow.high) < 0.5;
+
   return (
     <div style={styles.controls} aria-label="channel controls">
       <div style={styles.headingRow}>
@@ -407,33 +450,47 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               window_={window_}
               color={css(entry.color)}
               onWindow={(next) => onWindow(index, next)}
+              scale={scale}
             />
-            {/* Auto and Reset answer different questions and neither replaces the
-                other. Auto reads the brightness actually present in this channel;
-                Reset puts back the window the run itself declared, which is what
-                the operator saw when the images were opened. Somebody who has
-                pulled the handles about wants the second far more often than a
-                fresh measurement. */}
+            {/* Auto is a light as much as a button: lit while the window is
+                the measured one. Clicking it on applies that measurement;
+                clicking it off puts back the window the run itself declared,
+                which is what the old Reset button did -- and moving any
+                handle by hand turns the light off on its own, because the
+                light only ever reports whether window and measurement agree.
+                Log warps the brightness axis, histogram and sliders alike. */}
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <button
                 type="button"
-                onClick={() => onWindow(index, layer.histogram?.autoWindow || layer.window)}
-                disabled={!layer.histogram?.autoWindow && !layer.window}
+                onClick={() =>
+                  onWindow(
+                    index,
+                    following
+                      ? layer.window || autoWindow
+                      : autoWindow || layer.window,
+                  )
+                }
+                disabled={!autoWindow && !layer.window}
                 aria-label={`auto contrast ${layer.name}`}
-                title="Set the window from the brightness measured in this channel"
-                style={styles.autoButton}
+                aria-pressed={following}
+                title={following
+                  ? "The window is the measured one; click to put back the window this run was written with"
+                  : "Set the window from the brightness measured in this channel"}
+                style={{ ...styles.autoButton, ...(following ? styles.autoButtonOn : null) }}
               >
                 Auto
               </button>
               <button
                 type="button"
-                onClick={() => onWindow(index, layer.window || layer.histogram?.autoWindow)}
-                disabled={!layer.window && !layer.histogram?.autoWindow}
-                aria-label={`reset contrast ${layer.name}`}
-                title="Put back the window this run was written with"
-                style={styles.autoButton}
+                onClick={() => setScale(scale === "log" ? "linear" : "log")}
+                aria-label={scale === "log"
+                  ? "linear brightness axis"
+                  : "logarithmic brightness axis"}
+                aria-pressed={scale === "log"}
+                title="Spread the dim end of the brightness axis out. Helpful when most of a channel sits just above background with a long bright tail"
+                style={{ ...styles.autoButton, ...(scale === "log" ? styles.autoButtonOn : null) }}
               >
-                Reset
+                Log
               </button>
             </div>
           </div>
@@ -441,13 +498,22 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
             <span style={styles.controlLabel} title="Anything dimmer than this is shown as black">
               min
             </span>
+            {/* On the log axis the element counts steps along the warped
+                scale, so equal thumb travel means equal movement on the
+                histogram above rather than equal counts; the readout beside
+                it is always the real brightness value. */}
             <input
               type="range"
-              min={min}
-              max={max}
+              min={scale === "log" ? 0 : min}
+              max={scale === "log" ? LOG_SLIDER_STEPS : max}
               step="1"
-              value={window_.low}
-              onChange={(event) => setLow(Number(event.target.value))}
+              value={scale === "log"
+                ? Math.round(logFraction(window_.low, min, travel) * LOG_SLIDER_STEPS)
+                : window_.low}
+              onChange={(event) =>
+                setLow(scale === "log"
+                  ? valueAtLogFraction(Number(event.target.value) / LOG_SLIDER_STEPS, min, travel)
+                  : Number(event.target.value))}
               aria-label={`min ${layer.name}`}
               title="Anything dimmer than this is shown as black"
               style={styles.range}
@@ -460,11 +526,16 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
             </span>
             <input
               type="range"
-              min={min}
-              max={max}
+              min={scale === "log" ? 0 : min}
+              max={scale === "log" ? LOG_SLIDER_STEPS : max}
               step="1"
-              value={window_.high}
-              onChange={(event) => setHigh(Number(event.target.value))}
+              value={scale === "log"
+                ? Math.round(logFraction(window_.high, min, travel) * LOG_SLIDER_STEPS)
+                : window_.high}
+              onChange={(event) =>
+                setHigh(scale === "log"
+                  ? valueAtLogFraction(Number(event.target.value) / LOG_SLIDER_STEPS, min, travel)
+                  : Number(event.target.value))}
               aria-label={`max ${layer.name}`}
               title="Anything brighter than this is shown as white"
               style={styles.range}
@@ -1012,6 +1083,9 @@ const styles = {
     fontSize: 10,
   },
   controlLabel: { textTransform: "uppercase", letterSpacing: ".04em" },
+  // A toggle that is on: the same blue the sliders carry, so "lit" reads as
+  // "active" without a legend.
+  autoButtonOn: { background: "#1f3a5f", borderColor: "#2f81f7", color: "#dbe6f3" },
   range: { width: "100%", accentColor: "#2f81f7", cursor: "pointer" },
   value: { color: "#aab4c0", textAlign: "right", fontVariantNumeric: "tabular-nums" },
 };
