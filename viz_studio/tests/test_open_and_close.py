@@ -531,7 +531,7 @@ class TestTheLoadWindow:
         window.wait_for(timeout=10_000)
         # No folders yet: the choice comes first.
         assert page.get_by_label("folder path").count() == 0
-        page.get_by_label("load raw data").click()
+        page.get_by_label("build new view", exact=True).click()
         assert str(first) in page.get_by_label("folder path").input_value()
         # The starting folder holds a store; raw mode offers no Open on it.
         assert page.get_by_label(
@@ -549,7 +549,7 @@ class TestTheLoadWindow:
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-        page.get_by_label("load raw data").click()
+        page.get_by_label("build new view", exact=True).click()
         page.get_by_label("parent folder").click()
         page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
         page.get_by_label("open targetscan", exact=True).click()
@@ -598,7 +598,7 @@ class TestTheLoadWindow:
                                    timeout=30_000)
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-            page.get_by_label("load raw data").click()
+            page.get_by_label("build new view", exact=True).click()
             page.get_by_label("parent folder").click()
             page.get_by_label("open surveyrun", exact=True).wait_for(timeout=10_000)
             page.get_by_label("open surveyrun", exact=True).click()
@@ -624,7 +624,7 @@ class TestTheLoadWindow:
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-        page.get_by_label("load raw data").click()
+        page.get_by_label("build new view", exact=True).click()
         box = page.get_by_label("folder path")
         box.fill(str(second.parent))
         box.press("Enter")
@@ -645,7 +645,7 @@ class TestTheLoadWindow:
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-        page.get_by_label("load custom").click()
+        page.get_by_label("other", exact=True).click()
         page.get_by_label("parent folder").click()
         page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
         page.get_by_label("open targetscan", exact=True).click()
@@ -781,7 +781,7 @@ class TestRelinking:
                                    timeout=30_000)
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-            page.get_by_label("load a view").click()
+            page.get_by_label("load existing view", exact=True).click()
             # Walk to the viewer's files and open them.
             box = page.get_by_label("folder path")
             box.fill(str(run / "views"))

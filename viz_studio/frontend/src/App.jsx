@@ -169,11 +169,11 @@ async function listFolders(path) {
 // Step one of loading: what kind of thing is being opened. Each door decides
 // what the folder walk below it offers to open, and what happens after.
 const LOAD_KINDS = [
-  { key: "raw", label: "raw data",
-    said: "positions from the microscope — a viewer is constructed over them" },
-  { key: "view", label: "an existing view",
-    said: "a viewer constructed earlier — opens as it was" },
-  { key: "custom", label: "custom",
+  { key: "view", label: "load existing view",
+    said: "a view built earlier — opens as it was" },
+  { key: "raw", label: "build new view",
+    said: "raw positions from the microscope — a view is built over them" },
+  { key: "other", label: "other",
     said: "anything else the viewer can read — demo data, test runs — opened directly" },
 ];
 
@@ -258,7 +258,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                 setConstructing(null);
                 setOpenError(null);
               }}
-              aria-label={`load ${door.key === "view" ? "a view" : door.key === "raw" ? "raw data" : "custom"}`}
+              aria-label={door.label}
               aria-pressed={kind === door.key}
               title={door.said}
               style={{ ...styles.loadKind,
@@ -337,7 +337,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                   Open…
                 </button>
               )}
-              {folder.opens === "folder" && kind === "custom" && (
+              {folder.opens === "folder" && kind === "other" && (
                 <button
                   type="button"
                   onClick={() => openStore(`${listing.path}/${folder.name}`)}
