@@ -72,8 +72,15 @@ function contrastRange(layer, window_) {
  * shaded band shows which part of the spread is being stretched across the
  * screen, so it can be read at a glance — anything to the left of the band comes
  * out black, anything to the right comes out white.
+ *
+ * The two bars ARE the window, so they drag: take hold near one and pull, and
+ * that edge of the window follows — the same window the MIN and MAX sliders
+ * move, so the two controls can never disagree. Whichever bar is nearer to
+ * where the drag begins is the one taken hold of, which makes the bars easy
+ * to grab even when the window is pushed against an edge.
  */
-function Histogram({ layer, window_, color }) {
+function Histogram({ layer, window_, color, onWindow }) {
+  const dragging = React.useRef(null);
   const counts = layer.histogram?.counts;
   if (!counts?.length) return null;
   const peak = Math.max(...counts, 1);
@@ -84,13 +91,47 @@ function Histogram({ layer, window_, color }) {
   const at = (value) => ((value - measured.low) / span) * counts.length;
   const left = Math.max(0, at(window_.low));
   const right = Math.min(counts.length, at(window_.high));
+
+  // Where a pointer event sits on the measured brightness scale.
+  const valueUnder = (event) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    const fraction = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+    return measured.low + fraction * span;
+  };
+  const takeHold = (event) => {
+    if (!onWindow) return;
+    const value = valueUnder(event);
+    dragging.current =
+      Math.abs(value - window_.low) <= Math.abs(value - window_.high) ? "low" : "high";
+    event.currentTarget.setPointerCapture(event.pointerId);
+    follow(event);
+  };
+  const follow = (event) => {
+    if (!dragging.current || !onWindow) return;
+    const value = valueUnder(event);
+    // The floor may not cross the ceiling: a window at least one count wide
+    // always remains, so the picture can never invert.
+    if (dragging.current === "low") {
+      onWindow({ low: Math.min(value, window_.high - 1), high: window_.high });
+    } else {
+      onWindow({ low: window_.low, high: Math.max(value, window_.low + 1) });
+    }
+  };
+  const letGo = () => {
+    dragging.current = null;
+  };
+
   return (
     <svg
       viewBox={`0 0 ${counts.length} 24`}
       preserveAspectRatio="none"
-      style={styles.histogram}
+      style={{ ...styles.histogram, cursor: onWindow ? "ew-resize" : "default" }}
       role="img"
       aria-label={`histogram ${layer.name}`}
+      onPointerDown={takeHold}
+      onPointerMove={follow}
+      onPointerUp={letGo}
+      onPointerCancel={letGo}
     >
       {right > left && (
         <rect
@@ -380,7 +421,12 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
       ) : (
         <>
           <div style={styles.histogramRow}>
-            <Histogram layer={layer} window_={window_} color={css(entry.color)} />
+            <Histogram
+              layer={layer}
+              window_={window_}
+              color={css(entry.color)}
+              onWindow={(next) => onWindow(index, next)}
+            />
             {/* Auto and Reset answer different questions and neither replaces the
                 other. Auto reads the brightness actually present in this channel;
                 Reset puts back the window the run itself declared, which is what
@@ -969,8 +1015,9 @@ const styles = {
   histogramRow: {
     display: "grid",
     // The histogram takes the row's width, starting at the labels' left
-    // edge; Auto sits over Reset in a narrow column beside it.
-    gridTemplateColumns: "1fr 42px",
+    // edge; Auto sits over Reset in a narrow column beside it, sized so
+    // RESET keeps a little air before its own border.
+    gridTemplateColumns: "1fr 48px",
     alignItems: "end",
     gap: 7,
     padding: "1px 12px 4px",

@@ -357,3 +357,46 @@ def test_auto_contrast_restores_the_measured_window(two_channel_page):
     low, high = _window_in_engine(two_channel_page)
     assert low == pytest.approx(expected["low"], abs=0.05)
     assert high == pytest.approx(expected["high"], abs=0.05)
+
+
+def test_the_saturation_bars_in_the_histogram_can_be_dragged(two_channel_page):
+    """The two bars in the histogram ARE the window, and they drag.
+
+    The left bar marks where black begins (everything dimmer saturates to
+    black), the right bar where white begins (everything brighter saturates
+    to white). Taking hold near a bar and pulling moves that edge of the
+    window -- the same window the MIN and MAX sliders move -- and the far
+    edge must hold still while its partner is being dragged.
+    """
+    page = two_channel_page
+    before = _window_in_engine(page)
+    box = page.locator("[aria-label='histogram Ch488']").bounding_box()
+    middle = box["y"] + box["height"] / 2
+
+    # Take hold near the left bar and pull right: the floor rises.
+    page.mouse.move(box["x"] + box["width"] * 0.05, middle)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] * 0.4, middle, steps=6)
+    page.mouse.up()
+    page.wait_for_timeout(600)
+    lifted = _window_in_engine(page)
+    assert lifted[0] > before[0], (
+        "dragging the left bar right must raise the black point"
+    )
+    assert lifted[1] == pytest.approx(before[1]), (
+        "the white point must hold still while the black point is dragged"
+    )
+
+    # And the other side: take hold near the right bar and pull left.
+    page.mouse.move(box["x"] + box["width"] * 0.95, middle)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] * 0.6, middle, steps=6)
+    page.mouse.up()
+    page.wait_for_timeout(600)
+    lowered = _window_in_engine(page)
+    assert lowered[1] < lifted[1], (
+        "dragging the right bar left must lower the white point"
+    )
+    assert lowered[0] == pytest.approx(lifted[0]), (
+        "the black point must hold still while the white point is dragged"
+    )
