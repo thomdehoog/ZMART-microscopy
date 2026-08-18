@@ -187,7 +187,16 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
   // viewer's files go, and whether the pieces are prebaked now or made on
   // the fly later. Null while the operator is still walking folders.
   const [constructing, setConstructing] = React.useState(null);
+  // The row the operator clicked last: highlighted in the list, and what
+  // the Open button below the list acts on. Cleared when the folder or the
+  // tab changes, because the list under it has changed.
+  const [selected, setSelected] = React.useState(null);
   const polling = React.useRef(null);
+
+  const navigate = (path) => {
+    setSelected(null);
+    onNavigate(path);
+  };
 
   React.useEffect(() => () => clearInterval(polling.current), []);
 
@@ -261,6 +270,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
               onClick={() => {
                 setKind(door.key);
                 setConstructing(null);
+                setSelected(null);
                 setOpenError(null);
               }}
               aria-label={door.label}
@@ -281,7 +291,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
             type="text"
             defaultValue={listing.path}
             onKeyDown={(event) => {
-              if (event.key === "Enter") onNavigate(event.currentTarget.value);
+              if (event.key === "Enter") navigate(event.currentTarget.value);
             }}
             aria-label="folder path"
             title="The folder being looked at. Type or paste a path and press Enter"
@@ -295,7 +305,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                 // Land on the parent: the picked folder then sits in the
                 // list as an ordinary row, wearing its own Open button.
                 const path = chosen.path.replace(/\/+$/, "");
-                onNavigate(path.slice(0, path.lastIndexOf("/")) || "/");
+                navigate(path.slice(0, path.lastIndexOf("/")) || "/");
               } else if (chosen.window) {
                 setOpenError(
                   "no system folder chooser here — type a path above or walk the folders below");
@@ -309,75 +319,68 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
           </button>
         </div>
         <div style={styles.loadList}>
-          {/* What the chosen tab is looking for floats to the top; the
-              plain folders to walk into follow. */}
+          {/* One click selects a row and highlights it, the way the
+              operating system's own choosers behave; a double click steps
+              into a folder or opens an image at once. What the chosen tab
+              is looking for floats to the top; the plain folders to walk
+              into follow. */}
           {[...listing.folders].sort((a, b) => {
             const wanted = (folder) =>
               (kind === "raw" ? folder.opens === "folder" : folder.opens === "store") ? 0 : 1;
             return wanted(a) - wanted(b) || a.name.localeCompare(b.name);
           }).map((folder) => (
-            <div key={folder.name} style={styles.loadEntry}>
-              <button
-                type="button"
-                onClick={() =>
-                  folder.opens === "store"
-                    ? openStore(`${listing.path}/${folder.name}`)
-                    : onNavigate(`${listing.path}/${folder.name}`)
-                }
-                style={{ ...styles.loadRow, flex: 1 }}
-                title={folder.opens === "store"
-                  ? "This folder is an image; opening it adds it to the image data"
-                  : "Look inside this folder"}
-              >
-                {folder.name}
-              </button>
-              {folder.opens === "store" && kind !== "raw" && (
-                <button
-                  type="button"
-                  onClick={() => openStore(`${listing.path}/${folder.name}`)}
-                  disabled={busy}
-                  aria-label={`open ${folder.name}`}
-                  title="Open this image: it becomes one acquisition in the image data"
-                  style={styles.loadOpen}
-                >
-                  {busy ? "…" : "Open"}
-                </button>
-              )}
-              {folder.opens === "folder" && kind === "raw" && (
-                <button
-                  type="button"
-                  onClick={() => setConstructing({
+            <button
+              key={folder.name}
+              type="button"
+              onClick={() => {
+                setSelected(folder);
+                if (kind === "raw") {
+                  setConstructing(folder.opens === "folder" ? {
                     data: `${listing.path}/${folder.name}`,
                     name: folder.name,
                     destination: `${listing.path}/${folder.name}/scenes`,
                     bake: false,
-                  })}
-                  disabled={busy}
-                  aria-label={`open ${folder.name}`}
-                  title="Raw positions: a viewer is constructed over them, and you choose where its files go"
-                  style={styles.loadOpen}
-                >
-                  Open…
-                </button>
-              )}
-              {folder.opens === "folder" && kind === "other" && (
-                <button
-                  type="button"
-                  onClick={() => openStore(`${listing.path}/${folder.name}`)}
-                  disabled={busy}
-                  aria-label={`open ${folder.name}`}
-                  title="Open whatever is in here, directly"
-                  style={styles.loadOpen}
-                >
-                  {busy ? "…" : "Open"}
-                </button>
-              )}
-            </div>
+                  } : null);
+                }
+              }}
+              onDoubleClick={() =>
+                folder.opens === "store"
+                  ? kind !== "raw" && openStore(`${listing.path}/${folder.name}`)
+                  : navigate(`${listing.path}/${folder.name}`)
+              }
+              aria-label={folder.name}
+              aria-pressed={selected?.name === folder.name}
+              style={{ ...styles.loadRow,
+                       ...(selected?.name === folder.name
+                         ? styles.loadRowChosen : null) }}
+              title={folder.opens === "store"
+                ? "This folder is an image. Click to select it; double-click to open it at once"
+                : "Click to select this folder; double-click to look inside it"}
+            >
+              {folder.name}
+            </button>
           ))}
           {!listing.folders.length && (
             <div style={styles.loadEmptyNote}>no folders in here</div>
           )}
         </div>
+        {kind !== "raw" && !constructing && (
+          <div style={styles.loadActions}>
+            <button
+              type="button"
+              onClick={() => openStore(`${listing.path}/${selected.name}`)}
+              disabled={busy || !selected
+                        || (kind === "view" && selected.opens !== "store")}
+              aria-label={selected ? `open ${selected.name}` : "open the selection"}
+              title={kind === "view"
+                ? "Open the selected scene: it becomes one acquisition in the image data"
+                : "Open whatever the selected folder holds, directly"}
+              style={styles.loadOpen}
+            >
+              {busy ? "…" : "Open"}
+            </button>
+          </div>
+        )}
         {constructing && (
           <div style={styles.constructPane}>
             <div style={styles.constructTitle}>
@@ -442,30 +445,6 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                 />
                 include a hard copy of the low-resolution overview
               </label>
-              {!constructing.built ? (
-                <button
-                  type="button"
-                  onClick={start}
-                  disabled={constructing.running}
-                  aria-label="build the scene"
-                  title={constructing.bake
-                    ? "Compute the zoomed-out picture now and keep it -- takes time once, opens instantly ever after"
-                    : "Write only the scene's description; everything is composed as it is looked at"}
-                  style={styles.loadOpen}
-                >
-                  {constructing.running ? "building…" : "Build"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => openStore(constructing.built)}
-                  aria-label="show the scene"
-                  title="The scene is built; open it in the image data"
-                  style={styles.loadOpen}
-                >
-                  Show
-                </button>
-              )}
             </div>
             {/* The recommendation is measured, not guessed: on the lab
                 workstation (MEASURED_the_ladder_of_surveys.md, the
@@ -487,6 +466,32 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
               the build is a one-time cost, and the positions then load
               instantly. Without it, the overview is computed the first
               time you look.
+            </div>
+            <div style={styles.loadActions}>
+              {!constructing.built ? (
+                <button
+                  type="button"
+                  onClick={start}
+                  disabled={constructing.running}
+                  aria-label="build the scene"
+                  title={constructing.bake
+                    ? "Compute the zoomed-out picture now and keep it: takes time once, opens instantly ever after"
+                    : "Write only the scene's description; everything is composed as it is looked at"}
+                  style={styles.loadOpen}
+                >
+                  {constructing.running ? "building…" : "Build"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openStore(constructing.built)}
+                  aria-label="show the scene"
+                  title="The scene is built; open it in the image data"
+                  style={styles.loadOpen}
+                >
+                  Show
+                </button>
+              )}
             </div>
             {constructing.running && (
               <div
@@ -1596,7 +1601,6 @@ const styles = {
     borderRadius: 4,
     background: "#10141a",
   },
-  loadEntry: { display: "flex", alignItems: "center", gap: 6, paddingRight: 6 },
   loadRow: {
     display: "block",
     width: "100%",
@@ -1620,6 +1624,8 @@ const styles = {
     cursor: "pointer",
   },
   loadEmptyNote: { padding: "10px 12px", color: "#8b95a3", font: "12px/1.4 system-ui, sans-serif" },
+  loadRowChosen: { background: "#1f3a5f", color: "#dbe6f3" },
+  loadActions: { display: "flex", justifyContent: "flex-end", marginTop: 8 },
   constructPane: {
     marginTop: 10,
     padding: "10px 12px",

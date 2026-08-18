@@ -102,14 +102,17 @@ def _open_the_second_through_the_window(page):
     """Open the second run the way an operator now does.
 
     The load window always appears; inside it the native chooser (stood in
-    for by the fixture's ``browse=``) picks the folder, and the run's store
-    is opened from the list the window shows of what it found there.
+    for by the fixture's ``browse=``) picks the folder, the run's row is
+    selected in the list the window shows, and the window's own Open button
+    opens the selection.
     """
     page.get_by_label("open images").click()
-    page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
+    window = page.get_by_role("dialog", name="load data")
+    window.wait_for(timeout=10_000)
     page.get_by_label("other", exact=True).click()
     page.get_by_label("choose a folder").click()
-    page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
+    window.get_by_label("targetscan", exact=True).wait_for(timeout=10_000)
+    window.get_by_label("targetscan", exact=True).click()
     page.get_by_label("open targetscan", exact=True).click()
 
 
@@ -536,11 +539,13 @@ class TestTheLoadWindow:
         """The window opens ready: the first tab chosen, the folders showing.
 
         "load existing view" is the commonest thing to do, so it is the tab
-        the window starts on -- no click needed before walking. Each tab
-        offers Open only on its own kind of thing: the starting folder holds
-        a store, which the view tab offers to open, and switching to
-        "build new view" withdraws that offer, since a bare store is not raw
-        positions to build over.
+        the window starts on -- no click needed before walking. A click on a
+        row selects and highlights it, the way the operating system's own
+        choosers behave, and the window's one Open button acts on the
+        selection. Each tab offers Open only on its own kind of thing: the
+        starting folder holds a store, which the view tab offers to open,
+        and switching to "build new view" withdraws that offer, since a
+        bare store is not raw positions to build over.
         """
         page, first, second = no_chooser
         page.get_by_label("open images").click()
@@ -549,6 +554,12 @@ class TestTheLoadWindow:
         chosen = page.get_by_label("load existing scene", exact=True)
         assert chosen.get_attribute("aria-pressed") == "true"
         assert str(first) in page.get_by_label("folder path").input_value()
+        row = window.get_by_label("overview_pos001.ome.zarr", exact=True)
+        assert row.count() == 1
+        row.click()
+        assert row.get_attribute("aria-pressed") == "true", (
+            "the clicked row must show as the selection"
+        )
         assert page.get_by_label(
             "open overview_pos001.ome.zarr", exact=True).count() == 1
         page.get_by_label("build new scene", exact=True).click()
@@ -571,8 +582,9 @@ class TestTheLoadWindow:
         box = page.get_by_label("folder path")
         box.fill(str(second.parent))
         box.press("Enter")
-        page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
-        page.get_by_label("open targetscan", exact=True).click()
+        window = page.get_by_role("dialog", name="load data")
+        window.get_by_label("targetscan", exact=True).wait_for(timeout=10_000)
+        window.get_by_label("targetscan", exact=True).click()
         # The building box, with the destination already suggested.
         destination = page.get_by_label("scene folder")
         destination.wait_for(timeout=10_000)
@@ -629,8 +641,9 @@ class TestTheLoadWindow:
             box = page.get_by_label("folder path")
             box.fill(str(run.parent))
             box.press("Enter")
-            page.get_by_label("open surveyrun", exact=True).wait_for(timeout=10_000)
-            page.get_by_label("open surveyrun", exact=True).click()
+            window = page.get_by_role("dialog", name="load data")
+            window.get_by_label("surveyrun", exact=True).wait_for(timeout=10_000)
+            window.get_by_label("surveyrun", exact=True).click()
             page.get_by_label("scene folder").wait_for(timeout=10_000)
             page.get_by_label(
                 "include a hard copy of the low-resolution overview").check()
@@ -660,11 +673,12 @@ class TestTheLoadWindow:
         box = page.get_by_label("folder path")
         box.fill(str(second.parent))
         box.press("Enter")
-        # exact=True throughout: the starting folder already offers
-        # "open overview_pos001.ome.zarr", which a substring match would
+        # exact=True throughout: the starting folder already shows a row
+        # named "overview_pos001.ome.zarr", which a substring match would
         # accept before the navigation has happened at all.
-        page.get_by_label("open overview", exact=True).wait_for(timeout=10_000)
-        assert page.get_by_label("open targetscan", exact=True).count() == 1
+        window = page.get_by_role("dialog", name="load data")
+        window.get_by_label("overview", exact=True).wait_for(timeout=10_000)
+        assert window.get_by_label("targetscan", exact=True).count() == 1
 
     def test_custom_opens_anything_directly(self, no_chooser):
         """The third door: no construction, no questions, just open it.
@@ -681,7 +695,9 @@ class TestTheLoadWindow:
         box = page.get_by_label("folder path")
         box.fill(str(second.parent))
         box.press("Enter")
-        page.get_by_label("open targetscan", exact=True).wait_for(timeout=10_000)
+        window = page.get_by_role("dialog", name="load data")
+        window.get_by_label("targetscan", exact=True).wait_for(timeout=10_000)
+        window.get_by_label("targetscan", exact=True).click()
         page.get_by_label("open targetscan", exact=True).click()
         page.wait_for_function(
             "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
@@ -820,8 +836,10 @@ class TestRelinking:
             box = page.get_by_label("folder path")
             box.fill(str(run / "views"))
             box.press("Enter")
-            page.get_by_label("open surveyrun.ome.zarr", exact=True).wait_for(
+            window = page.get_by_role("dialog", name="load data")
+            window.get_by_label("surveyrun.ome.zarr", exact=True).wait_for(
                 timeout=10_000)
+            window.get_by_label("surveyrun.ome.zarr", exact=True).click()
             page.get_by_label("open surveyrun.ome.zarr", exact=True).click()
             # The window asks for the data instead of failing black.
             data_box = page.get_by_label("raw data folder")
