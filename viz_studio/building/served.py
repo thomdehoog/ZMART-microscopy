@@ -358,15 +358,13 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
     # building, no tiles, immune to everything that makes building slow. This
     # is also the only door to the picture's own levels above the tiles' --
     # those exist nowhere but as baked files, so past this point the composer's
-    # bounds rightly refuse them. The address is safe as a path because only
-    # digit-shaped names reach here. Baked files exist only for flat pictures
-    # today -- the per-(t, c) bake is ordered work -- so only the flat frame
-    # looks for one.
-    if (moment, channel) == (0, 0):
-        baked = Path(store).joinpath(str(level), "c",
-                                     str(plane), str(row), str(column))
-        if baked.is_file():
-            return baked.read_bytes()
+    # bounds rightly refuse them. The bake writes each chunk file at exactly
+    # the path the engine asks for -- flat or grown alike, the frame riding
+    # in the grown path -- so the request's own address is the file's. It is
+    # safe as a path because only digit-shaped names reach here.
+    baked = Path(store).joinpath(*inside.strip("/").split("/"))
+    if baked.is_file():
+        return baked.read_bytes()
     # Everything from here can genuinely fail -- a rollback deleting a store
     # mid-read, damage under committed ground refusing to be papered over.
     # An address outside the picture, or ground no tile covers, stays an

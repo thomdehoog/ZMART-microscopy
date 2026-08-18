@@ -157,15 +157,6 @@ def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
     described = json.loads(composer.group_json())
     baked: list[int] = []
     if bake:
-        if mosaic.frame_room != (1, 1):
-            raise ValueError(
-                f"the picture at {transfer} keeps room for "
-                f"{mosaic.frame_room[0]} moment(s) and {mosaic.frame_room[1]} "
-                "channel(s), and the bake writes one file per flat piece — "
-                "baking it would freeze one frame and serve it for every "
-                "other. The per-(t, c) bake is ordered work; until it lands, "
-                "declare a grown picture without the bake."
-            )
         try:
             baked = _bake_the_coarse_ground(store, composer, described,
                                             told=told)
@@ -380,58 +371,82 @@ def _bake_the_coarse_ground(store: Path, composer: Composer,
                   "'if __name__ == \"__main__\":'). Baking serially "
                   "instead, which is slower and otherwise identical.")
     if not built_by_workers:
-        # One unit of progress per row of pieces, counted up front so the
-        # ratio is honest from the first report.
-        total = sum(composer.grid(level)[0] * composer.grid(level)[1]
-                    for level in pinned)
+        # A grown picture declares the full (t, c, z, y, x) axes, so its
+        # chunk files carry the frame in their path and every frame is baked
+        # as its own files; a flat picture keeps the three-axis paths it
+        # always had.
+        moments, channels = composer.mosaic.frame_room
+        grown = (moments, channels) != (1, 1)
+        # One unit of progress per row of pieces per frame, counted up front
+        # so the ratio is honest from the first report.
+        total = moments * channels * sum(
+            composer.grid(level)[0] * composer.grid(level)[1]
+            for level in pinned)
         done = 0
         for level in pinned:
             deep, down, across = composer.grid(level)
-            for plane in range(deep):
-                for row in range(down):
-                    done += 1
-                    if told is not None:
-                        told(done, total)
-                    inside = store / str(level) / "c" / str(plane) / str(row)
-                    for column in range(across):
-                        # The very bytes the composer would put on the wire,
-                        # kept as the chunk file the engine would ask for --
-                        # so a baked answer and a built one cannot differ.
-                        # Empty ground stays unwritten: absent means fill,
-                        # here as everywhere.
-                        body = composer.bytes_for(level, plane, row, column)
-                        if body is None:
-                            continue
-                        inside.mkdir(parents=True, exist_ok=True)
-                        (inside / str(column)).write_bytes(body)
+            for moment in range(moments):
+                for channel in range(channels):
+                    frame = ((str(moment), str(channel)) if grown else ())
+                    for plane in range(deep):
+                        for row in range(down):
+                            done += 1
+                            if told is not None:
+                                told(done, total)
+                            inside = store.joinpath(str(level), "c", *frame,
+                                                    str(plane), str(row))
+                            for column in range(across):
+                                # The very bytes the composer would put on
+                                # the wire, kept as the chunk file the
+                                # engine would ask for -- so a baked answer
+                                # and a built one cannot differ. Empty
+                                # ground stays unwritten: absent means
+                                # fill, here as everywhere.
+                                body = composer.bytes_for(
+                                    level, plane, row, column,
+                                    moment=moment, channel=channel)
+                                if body is None:
+                                    continue
+                                inside.mkdir(parents=True, exist_ok=True)
+                                (inside / str(column)).write_bytes(body)
 
-    # The picture's own levels, chained upward from what was just baked.
-    depth, height, width = composer.mosaic.shape(coarsest)
+    # The picture's own levels, chained upward from what was just baked. A
+    # grown picture's array carries its (t, c) room in front of the three
+    # spatial axes; the halving touches only y and x, so every frame keeps
+    # shrinking as itself.
     whole = np.asarray(zarr.open_array(str(store / str(coarsest)), mode="r"))
+    room = whole.shape[:-3]
+    depth, height, width = whole.shape[-3:]
     voxel = list(composer.mosaic.voxel_um(coarsest))
     level = coarsest
     while height > composer.piece or width > composer.piece:
         level += 1
         height, width = -(-height // 2), -(-width // 2)
         voxel = [voxel[0], voxel[1] * 2, voxel[2] * 2]
-        evened = np.pad(whole, ((0, 0), (0, height * 2 - whole.shape[1]),
-                                (0, width * 2 - whole.shape[2])), mode="edge")
-        whole = (evened.reshape(depth, height, 2, width, 2)
-                 .mean(axis=(2, 4)).round()
+        evened = np.pad(whole, [(0, 0)] * (len(room) + 1)
+                        + [(0, height * 2 - whole.shape[-2]),
+                           (0, width * 2 - whole.shape[-1])], mode="edge")
+        whole = (evened.reshape(*room, depth, height, 2, width, 2)
+                 .mean(axis=(-3, -1)).round()
                  .astype(composer.mosaic.dtype))
         made = zarr.create_array(
-            store=str(store / str(level)), shape=(depth, height, width),
-            chunks=(1, composer.piece, composer.piece),
+            store=str(store / str(level)),
+            shape=(*room, depth, height, width),
+            chunks=(1,) * len(room) + (1, composer.piece, composer.piece),
             dtype=composer.mosaic.dtype, zarr_format=3,
-            dimension_names=list(composer.mosaic.axes), overwrite=True,
+            dimension_names=(["t", "c"] if room else [])
+            + list(composer.mosaic.axes),
+            overwrite=True,
         )
         made[:] = whole
         datasets.append({
             "path": str(level),
             "coordinateTransformations": [
-                {"type": "scale", "scale": list(voxel)},
+                {"type": "scale",
+                 "scale": [1.0] * len(room) + list(voxel)},
                 {"type": "translation",
-                 "translation": list(composer.mosaic.corner_um)},
+                 "translation": [0.0] * len(room)
+                 + list(composer.mosaic.corner_um)},
             ],
         })
 

@@ -614,17 +614,17 @@ class TestTheLoadWindow:
 
         The window polls the construction's progress while it runs; when it
         is done the picture's baked ground sits on disk and the acquisition
-        is open. Single-channel data here: the per-frame bake of grown
-        pictures is its own ordered chapter, and a grown folder is refused
-        with a plain answer instead (the refusal has its own words in
-        declare._bake_the_coarse_ground).
+        is open. Two channels here, deliberately: multi-channel data used to
+        refuse the bake ("the per-(t, c) bake is ordered work"), and this
+        gate holds the door open now that every frame bakes as its own
+        files.
         """
         first = tmp_path / "overview"
         run = tmp_path / "surveyrun"
         first.mkdir()
         run.mkdir()
         _store(first / "overview_pos001.ome.zarr", channels=1)
-        _store(run / "surveyrun_pos001.ome.zarr", channels=1)
+        _store(run / "surveyrun_pos001.ome.zarr", channels=2)
         server = make_server(port=0, data_dir=first, site_dir=built_dist,
                              store="overview_pos001.ome.zarr")
         thread = threading.Thread(target=server.serve_forever, daemon=True)
