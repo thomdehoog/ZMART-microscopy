@@ -248,6 +248,120 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
     }, 350);
   };
 
+  // The pieces the relink pane and the build blocks share, written once.
+  const saveField = constructing && (
+    <>
+      <input
+        type="text"
+        value={constructing.destination}
+        onChange={(event) => setConstructing(
+          (current) => ({ ...current, destination: event.target.value }))}
+        aria-label="scene folder"
+        title="Where the scene's own files are written. The raw data is read and never changed"
+        style={{ ...styles.loadPath, marginBottom: 0, flex: 1 }}
+      />
+      <button
+        type="button"
+        onClick={async () => {
+          const chosen = await tryNativeChooser();
+          if (chosen.path) setConstructing(
+            (current) => ({ ...current, destination: chosen.path }));
+        }}
+        aria-label="choose where to save the scene"
+        title="Pick the folder with the operating system's own chooser"
+        style={styles.loadCancel}
+      >
+        Choose…
+      </button>
+    </>
+  );
+  const buildParts = constructing && (
+    <>
+      {/* The scene links to the raw data no matter what; that part is
+          stated in the info line, not asked. The one question is whether
+          the zoomed-out overview -- the low-resolution top of the scene's
+          pyramid -- is kept now as a hard copy on disk, or composed from
+          the raw data when someone looks. The recommendation is measured,
+          not guessed: on the lab workstation
+          (MEASURED_the_ladder_of_surveys.md, the on-the-card table) the
+          bake costs 5.7 s at 1,024 positions of 384-pixel test tiles where
+          the unbaked first look costs 7.7 s -- the crossover, at roughly
+          150 megapixels of survey, a few dozen full camera frames. At
+          4,096 tiles it is 19 s of build against a 39 s first look, and
+          the unbaked scene pays that again on every cold open. "Well under
+          one percent" is the pyramid's own arithmetic: the bake keeps the
+          levels holding at most 1% of the full-resolution voxels
+          (PINNED_SHARE in composer.py) plus the shrinking tail above them,
+          about half a percent typically, 1.33% at the geometric worst. */}
+      <div style={styles.constructRow}>
+        <label style={styles.constructChoice}>
+          <input
+            type="checkbox"
+            checked={constructing.bake}
+            onChange={(event) => setConstructing(
+              (current) => ({ ...current, bake: event.target.checked }))}
+            disabled={constructing.running || !!constructing.built}
+            aria-label="include a hard copy of the low-resolution overview"
+            title="The zoomed-out picture is computed once now and kept as files, so the whole survey opens instantly. Left unchecked, it is composed from the raw data the first time it is looked at"
+          />
+          include a hard copy of the low-resolution overview
+        </label>
+      </div>
+      <div style={styles.constructNote}>
+        A scene is assembled by linking the raw data into a virtual
+        OME-Zarr, so nothing is copied. We found that also building the
+        low-resolution overview as a hard copy, well under one percent of
+        the data, dramatically improves the experience: the build is a
+        one-time cost, and the positions then load instantly. Without it,
+        the overview is computed the first time you look.
+      </div>
+      <div style={styles.loadActions}>
+        {!constructing.built ? (
+          <button
+            type="button"
+            onClick={start}
+            disabled={constructing.running}
+            aria-label="build the scene"
+            title={constructing.bake
+              ? "Compute the zoomed-out picture now and keep it: takes time once, opens instantly ever after"
+              : "Write only the scene's description; everything is composed as it is looked at"}
+            style={styles.loadOpen}
+          >
+            {constructing.running ? "building…" : "Build"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => openStore(constructing.built)}
+            aria-label="show the scene"
+            title="The scene is built; open it in the image data"
+            style={styles.loadOpen}
+          >
+            Show
+          </button>
+        )}
+      </div>
+      {/* The bar stays once the build is done, standing full: a finished
+          build should look finished, not vanish. */}
+      {(constructing.running || constructing.built) && (
+        <div
+          style={styles.progressTrack}
+          role="progressbar"
+          aria-label="construction progress"
+          aria-valuenow={constructing.built ? 100
+            : Math.round((constructing.fraction || 0) * 100)}
+        >
+          <div style={{ ...styles.progressFill,
+                        width: `${constructing.built ? 100
+                          : Math.round((constructing.fraction || 0) * 100)}%` }} />
+        </div>
+      )}
+      {constructing.error && (
+        <div style={styles.loadError} role="alert">{constructing.error}</div>
+      )}
+    </>
+  );
+
   return (
     <div style={styles.loadShade}>
       <div role="dialog" aria-label="load data" style={styles.loadWindow}>
@@ -285,6 +399,11 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
         </div>
         {kind && (
         <>
+        {kind === "raw" && (
+          <div style={{ ...styles.constructTitle, marginBottom: 8 }}>
+            1 · choose the raw data
+          </div>
+        )}
         <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
           <input
             key={listing.path}
@@ -381,134 +500,48 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
             </button>
           </div>
         )}
-        {constructing && (
+        {constructing && (constructing.relink ? (
           <div style={styles.constructPane}>
             <div style={styles.constructTitle}>
-              {constructing.relink
-                ? `point to the raw data for ${constructing.name}`
-                : `build the scene for ${constructing.name}`}
+              point to the raw data for {constructing.name}
             </div>
-            {constructing.relink && (
-              <label style={styles.constructRow}>
-                <span style={styles.constructLabel}>raw data</span>
-                <input
-                  type="text"
-                  value={constructing.data}
-                  onChange={(event) => setConstructing(
-                    (current) => ({ ...current, data: event.target.value }))}
-                  aria-label="raw data folder"
-                  title="Where the raw data lives now. The viewer was built from a folder that is no longer there"
-                  style={{ ...styles.loadPath, marginBottom: 0, flex: 1 }}
-                />
-              </label>
-            )}
             <label style={styles.constructRow}>
-              <span style={styles.constructLabel}>save scene in</span>
+              <span style={styles.constructLabel}>raw data</span>
               <input
                 type="text"
-                value={constructing.destination}
+                value={constructing.data}
                 onChange={(event) => setConstructing(
-                  (current) => ({ ...current, destination: event.target.value }))}
-                aria-label="scene folder"
-                title="Where the scene's own files are written. The raw data is read and never changed"
+                  (current) => ({ ...current, data: event.target.value }))}
+                aria-label="raw data folder"
+                title="Where the raw data lives now. The viewer was built from a folder that is no longer there"
                 style={{ ...styles.loadPath, marginBottom: 0, flex: 1 }}
               />
-              <button
-                type="button"
-                onClick={async () => {
-                  const chosen = await tryNativeChooser();
-                  if (chosen.path) setConstructing(
-                    (current) => ({ ...current, destination: chosen.path }));
-                }}
-                aria-label="choose where to save the scene"
-                title="Pick the folder with the operating system's own chooser"
-                style={styles.loadCancel}
-              >
-                Choose…
-              </button>
             </label>
-            {/* The scene links to the raw data no matter what; that part is
-                stated in the info line, not asked. The one question is
-                whether the zoomed-out overview -- the low-resolution top of
-                the scene's pyramid -- is kept now as a hard copy on disk,
-                or composed from the raw data when someone looks. */}
-            <div style={styles.constructRow}>
-              <label style={styles.constructChoice}>
-                <input
-                  type="checkbox"
-                  checked={constructing.bake}
-                  onChange={(event) => setConstructing(
-                    (current) => ({ ...current, bake: event.target.checked }))}
-                  disabled={constructing.running || !!constructing.built}
-                  aria-label="include a hard copy of the low-resolution overview"
-                  title="The zoomed-out picture is computed once now and kept as files, so the whole survey opens instantly. Left unchecked, it is composed from the raw data the first time it is looked at"
-                />
-                include a hard copy of the low-resolution overview
-              </label>
-            </div>
-            {/* The recommendation is measured, not guessed: on the lab
-                workstation (MEASURED_the_ladder_of_surveys.md, the
-                on-the-card table) the bake costs 5.7 s at 1,024 positions of
-                384-pixel test tiles where the unbaked first look costs
-                7.7 s -- the crossover, at roughly 150 megapixels of survey,
-                a few dozen full camera frames. At 4,096 tiles it is 19 s of
-                build against a 39 s first look, and the unbaked scene pays
-                that again on every cold open. "Well under one percent" is
-                the pyramid's own arithmetic: the bake keeps the levels
-                holding at most 1% of the full-resolution voxels
-                (PINNED_SHARE in composer.py) plus the shrinking tail above
-                them, which sums to about half a percent typically and
-                1.33% at the geometric worst. */}
-            <div style={styles.constructNote}>
-              A scene is a link: its pixels are always read from the raw
-              data. The hard copy is only the zoomed-out overview, kept as
-              files, well under one percent of the data. We recommend it:
-              the build is a one-time cost, and the positions then load
-              instantly. Without it, the overview is computed the first
-              time you look.
-            </div>
-            <div style={styles.loadActions}>
-              {!constructing.built ? (
-                <button
-                  type="button"
-                  onClick={start}
-                  disabled={constructing.running}
-                  aria-label="build the scene"
-                  title={constructing.bake
-                    ? "Compute the zoomed-out picture now and keep it: takes time once, opens instantly ever after"
-                    : "Write only the scene's description; everything is composed as it is looked at"}
-                  style={styles.loadOpen}
-                >
-                  {constructing.running ? "building…" : "Build"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => openStore(constructing.built)}
-                  aria-label="show the scene"
-                  title="The scene is built; open it in the image data"
-                  style={styles.loadOpen}
-                >
-                  Show
-                </button>
-              )}
-            </div>
-            {constructing.running && (
-              <div
-                style={styles.progressTrack}
-                role="progressbar"
-                aria-label="construction progress"
-                aria-valuenow={Math.round((constructing.fraction || 0) * 100)}
-              >
-                <div style={{ ...styles.progressFill,
-                              width: `${Math.round((constructing.fraction || 0) * 100)}%` }} />
-              </div>
-            )}
-            {constructing.error && (
-              <div style={styles.loadError} role="alert">{constructing.error}</div>
-            )}
+            <label style={styles.constructRow}>
+              <span style={styles.constructLabel}>save scene in</span>
+              {saveField}
+            </label>
+            {buildParts}
           </div>
-        )}
+        ) : (
+          <>
+            {/* The user asked for the build to read as three blocks:
+                choosing the data (the list above), a home for the scene,
+                and the build itself with its one choice. */}
+            <div style={styles.constructPane}>
+              <div style={styles.constructTitle}>
+                2 · save the scene in
+              </div>
+              <div style={styles.constructRow}>{saveField}</div>
+            </div>
+            <div style={styles.constructPane}>
+              <div style={styles.constructTitle}>
+                3 · build the scene for {constructing.name}
+              </div>
+              {buildParts}
+            </div>
+          </>
+        ))}
         </>
         )}
         {(listing.error || openError) && (
