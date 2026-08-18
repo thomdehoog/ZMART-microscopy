@@ -632,7 +632,8 @@ class TestTheLoadWindow:
             page.get_by_label("open surveyrun", exact=True).wait_for(timeout=10_000)
             page.get_by_label("open surveyrun", exact=True).click()
             page.get_by_label("scene folder").wait_for(timeout=10_000)
-            page.get_by_label("create a hard copy of the overview").check()
+            page.get_by_label(
+                "include a hard copy of the low-resolution overview").check()
             page.get_by_label("build the scene").click()
             page.get_by_label("show the scene").wait_for(timeout=30_000)
             page.get_by_label("show the scene").click()
