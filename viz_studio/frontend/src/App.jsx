@@ -166,9 +166,22 @@ async function listFolders(path) {
  * to walk into. Errors from either the walk or the open show inside the
  * window, where the operator is looking.
  */
+// Step one of loading: what kind of thing is being opened. Each door decides
+// what the folder walk below it offers to open, and what happens after.
+const LOAD_KINDS = [
+  { key: "raw", label: "raw data",
+    said: "positions from the microscope — a viewer is constructed over them" },
+  { key: "view", label: "an existing view",
+    said: "a viewer constructed earlier — opens as it was" },
+  { key: "custom", label: "custom",
+    said: "anything else the viewer can read — demo data, test runs — opened directly" },
+];
+
 function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) {
   const [busy, setBusy] = React.useState(false);
   const [openError, setOpenError] = React.useState(null);
+  // Which door was chosen; null is step one, the choice itself.
+  const [kind, setKind] = React.useState(null);
   // Raw data being constructed into a viewer: which folder, where the
   // viewer's files go, and whether the pieces are prebaked now or made on
   // the fly later. Null while the operator is still walking folders.
@@ -235,6 +248,28 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
             Cancel
           </button>
         </div>
+        <div style={styles.loadKinds}>
+          {LOAD_KINDS.map((door) => (
+            <button
+              key={door.key}
+              type="button"
+              onClick={() => {
+                setKind(door.key);
+                setConstructing(null);
+                setOpenError(null);
+              }}
+              aria-label={`load ${door.key === "view" ? "a view" : door.key === "raw" ? "raw data" : "custom"}`}
+              aria-pressed={kind === door.key}
+              title={door.said}
+              style={{ ...styles.loadKind,
+                       ...(kind === door.key ? styles.loadKindChosen : null) }}
+            >
+              {door.label}
+            </button>
+          ))}
+        </div>
+        {kind && (
+        <>
         <input
           key={listing.path}
           type="text"
@@ -273,7 +308,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
               >
                 {folder.name}
               </button>
-              {folder.opens === "store" && (
+              {folder.opens === "store" && kind !== "raw" && (
                 <button
                   type="button"
                   onClick={() => openStore(`${listing.path}/${folder.name}`)}
@@ -285,7 +320,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                   {busy ? "…" : "Open"}
                 </button>
               )}
-              {folder.opens === "folder" && (
+              {folder.opens === "folder" && kind === "raw" && (
                 <button
                   type="button"
                   onClick={() => setConstructing({
@@ -300,6 +335,18 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                   style={styles.loadOpen}
                 >
                   Open…
+                </button>
+              )}
+              {folder.opens === "folder" && kind === "custom" && (
+                <button
+                  type="button"
+                  onClick={() => openStore(`${listing.path}/${folder.name}`)}
+                  disabled={busy}
+                  aria-label={`open ${folder.name}`}
+                  title="Open whatever is in here, directly"
+                  style={styles.loadOpen}
+                >
+                  {busy ? "…" : "Open"}
                 </button>
               )}
             </div>
@@ -388,6 +435,8 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
               <div style={styles.loadError} role="alert">{constructing.error}</div>
             )}
           </div>
+        )}
+        </>
         )}
         {(listing.error || openError) && (
           <div style={styles.loadError} role="alert">
@@ -1453,6 +1502,18 @@ const styles = {
     font: "600 11px/1 system-ui, sans-serif",
     cursor: "pointer",
   },
+  loadKinds: { display: "flex", gap: 8, paddingBottom: 10 },
+  loadKind: {
+    flex: 1,
+    padding: "8px 10px",
+    border: "1px solid #303a46",
+    borderRadius: 5,
+    background: "#1b222b",
+    color: "#aab4c0",
+    font: "600 11px/1.2 system-ui, sans-serif",
+    cursor: "pointer",
+  },
+  loadKindChosen: { background: "#1f3a5f", borderColor: "#2f81f7", color: "#dbe6f3" },
   loadPath: {
     boxSizing: "border-box",
     width: "100%",
