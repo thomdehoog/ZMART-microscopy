@@ -424,13 +424,12 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                 Choose…
               </button>
             </label>
+            {/* The scene links to the raw data no matter what; that part is
+                stated in the info line, not asked. The one question is
+                whether the zoomed-out overview -- the low-resolution top of
+                the scene's pyramid -- is kept now as a hard copy on disk,
+                or composed from the raw data when someone looks. */}
             <div style={styles.constructRow}>
-              {/* The one thing the choice changes gets the name. Unchecked,
-                  the build writes only the scene's description and is
-                  immediate; checked, the zoomed-out picture -- the top of
-                  the scene's pyramid -- is computed now and kept as files,
-                  a hard copy. Fine detail is composed as you look either
-                  way. */}
               <label style={styles.constructChoice}>
                 <input
                   type="checkbox"
@@ -438,10 +437,10 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                   onChange={(event) => setConstructing(
                     (current) => ({ ...current, bake: event.target.checked }))}
                   disabled={constructing.running || !!constructing.built}
-                  aria-label="create a hard copy of the overview"
-                  title="Compute the zoomed-out picture now and keep it as files: takes time once, the whole survey then opens instantly. Left unchecked, the build is immediate and the overview is composed the first time it is looked at"
+                  aria-label="include a hard copy of the low-resolution overview"
+                  title="The zoomed-out picture is computed once now and kept as files, so the whole survey opens instantly. Left unchecked, it is composed from the raw data the first time it is looked at"
                 />
-                create a hard copy of the overview
+                include a hard copy of the low-resolution overview
               </label>
               {!constructing.built ? (
                 <button
@@ -467,6 +466,13 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                   Show
                 </button>
               )}
+            </div>
+            <div style={styles.constructNote}>
+              A scene is a link: its pixels are always read from the raw
+              data. The hard copy is only the zoomed-out overview, kept as
+              files — building it takes time once, and a big survey then
+              opens instantly. Without it, the overview is computed the
+              first time you look.
             </div>
             {constructing.running && (
               <div
@@ -1623,6 +1629,10 @@ const styles = {
     textTransform: "uppercase",
     color: "#7f8a98",
     flexShrink: 0,
+  },
+  constructNote: {
+    font: "11px/1.5 system-ui, sans-serif",
+    color: "#8b95a3",
   },
   constructChoice: {
     display: "flex",
