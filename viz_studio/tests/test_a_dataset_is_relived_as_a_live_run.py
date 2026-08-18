@@ -360,3 +360,43 @@ class TestTheReplayDoor:
             page.close()
             server.shutdown()
             thread.join(timeout=5)
+
+
+def test_a_04_dataset_replays_the_same(tmp_path):
+    """The older metadata generation replays too, pixels pinned.
+
+    Everything the viewer WRITES is 0.5; this pins the reading side --
+    positions somebody converted years ago should relive exactly like
+    fresh ones. The fixture mirrors the grid scan above in 0.4 form:
+    flat .zattrs beside zarr v2 arrays.
+    """
+    scan = tmp_path / "older"
+    scan.mkdir()
+    for number in range(4):
+        row, column = divmod(number, 2)
+        store = scan / f"pos{number:02d}.ome.zarr"
+        store.mkdir()
+        group = zarr.open_group(str(store), mode="w", zarr_format=2)
+        data = np.full((PLANES, FRAME, FRAME), 1500 + number * 800, "uint16")
+        group.create_array("0", shape=data.shape, chunks=data.shape,
+                           dtype="uint16")[:] = data
+        (store / ".zattrs").write_text(json.dumps({"multiscales": [{
+            "version": "0.4",
+            "axes": [{"name": one, "type": "space", "unit": "micrometer"}
+                     for one in ("z", "y", "x")],
+            "datasets": [{"path": "0", "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 1.0, 1.0]},
+                {"type": "translation",
+                 "translation": [0.0, row * STEP_UM, column * STEP_UM]},
+            ]}],
+        }]}), encoding="utf-8")
+
+    view = replay_the_dataset(scan, tmp_path / "run", every_s=0.0)
+    assert view.exists()
+    survey = tmp_path / "run" / "data" / "survey.ome.zarr"
+    for number in range(4):
+        published = np.asarray(zarr.open_group(
+            str(survey / f"pos{number:02d}"), mode="r")["0"]).squeeze()
+        assert published.max() == 1500 + number * 800, (
+            f"pos{number:02d} relived with pixels that are not its own"
+        )
