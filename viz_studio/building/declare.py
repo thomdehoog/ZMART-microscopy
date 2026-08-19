@@ -91,17 +91,28 @@ def _bake_one_stripe(store: Path, level: int, rows: tuple[int, ...]) -> int:
     _, composer = _BAKING
     deep = composer.grid(level)[0]
     across = composer.grid(level)[2]
+    # A grown run bakes one file per (moment, channel) frame, the frame in
+    # the path exactly as the serial loop writes it; a flat run keeps the
+    # three-part paths it always had.
+    moments, channels = composer.mosaic.frame_room
+    grown = (moments, channels) != (1, 1)
     written = 0
     for row in rows:
-        for plane in range(deep):
-            inside = store / str(level) / "c" / str(plane) / str(row)
-            for column in range(across):
-                body = composer.bytes_for(level, plane, row, column)
-                if body is None:
-                    continue
-                inside.mkdir(parents=True, exist_ok=True)
-                (inside / str(column)).write_bytes(body)
-                written += 1
+        for moment in range(moments):
+            for channel in range(channels):
+                frame = ((str(moment), str(channel)) if grown else ())
+                for plane in range(deep):
+                    inside = store.joinpath(str(level), "c", *frame,
+                                            str(plane), str(row))
+                    for column in range(across):
+                        body = composer.bytes_for(level, plane, row, column,
+                                                  moment=moment,
+                                                  channel=channel)
+                        if body is None:
+                            continue
+                        inside.mkdir(parents=True, exist_ok=True)
+                        (inside / str(column)).write_bytes(body)
+                        written += 1
     return written
 
 
@@ -213,9 +224,10 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
     picture GROWN along (t, c): five axes, one frame per chunk, every frame
     served from the record (see the combined-axes oracle in
     ``test_every_plane_serves_its_own_stamp``). The loud refusals that once
-    stood here — no silent colour collapse, no first-moment-as-the-run —
-    retired the day that oracle and the browser gate both stood; what they
-    guarded is now guarded by the serving itself.
+    stood here — no silent colour collapse, no first-moment-as-the-run, no
+    bake on a grown run — retired one by one as their gates landed; a grown
+    run now bakes one file per (t, c) frame and every commit keeps those
+    files true, pinned by ``test_a_grown_run_is_baked_per_commit``.
 
     Args:
         where: the folder to put the description in.
@@ -242,16 +254,6 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
         folded = governed._run._folded
         tail = governed._run._last_folded_revision
         revision = governed._run._geometry()[0].revision
-        if bake and composer.mosaic.frame_room != (1, 1):
-            raise ValueError(
-                f"the run at {run} keeps room for "
-                f"{composer.mosaic.frame_room[0]} moment(s) and "
-                f"{composer.mosaic.frame_room[1]} channel(s), and the bake "
-                "writes one file per flat piece — baking it would freeze one "
-                "frame and serve it for every other. The per-(t, c) bake is "
-                "ordered work; until it lands, declare a grown run without "
-                "the bake."
-            )
 
         store = where / f"{name}.ome.zarr"
         store.mkdir(parents=True, exist_ok=True)

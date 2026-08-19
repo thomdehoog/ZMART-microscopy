@@ -554,6 +554,7 @@ class GovernedRun:
         phases["compose"] = (watch() - marked) * 1000
         marked = watch()
         dirtied: dict[int, set[tuple[int, int]]] | None = None
+        dirty_moments: frozenset[int] | None = None
         if previous is not None and not moved_frame:
             # Which positions appeared, vanished, or moved to another
             # generation -- worked out once, in one pass, and every
@@ -588,6 +589,21 @@ class GovernedRun:
                 {one: kept[one] for one in changed_names if one in kept},
                 {one: tiles[one] for one in changed_names if one in drawing},
             )
+            # WHICH MOMENTS the change touched, for the baked patch: the
+            # footprint above names ground in y and x, and recomposing that
+            # ground across a whole timelapse per commit is the frozen
+            # picture the stage-0 instruments measured (~165-190 s at a
+            # 500-moment retake). A moments-only change touches exactly the
+            # moments that came or went; a position that appeared, vanished
+            # or moved to another generation touches every moment either
+            # side has written, because another store now backs all of them.
+            touched: set[int] = set()
+            for one in changed_names:
+                was = kept[one].moments if one in kept else frozenset()
+                now = tiles[one].moments if one in tiles else frozenset()
+                touched |= (was | now if before.get(one) != drawing.get(one)
+                            else was ^ now)
+            dirty_moments = frozenset(touched)
             made.inherit_the_unchanged(previous, dirtied, stale=stale)
             # The piece index moves house with the slabs, patched only where
             # the change reached -- see Composer.inherit_the_index.
@@ -609,7 +625,8 @@ class GovernedRun:
                        "tail": self._run._last_folded_revision,
                        "layout": layout.revision}
             self._keep_the_bake_true(
-                made, None if moved_frame else dirtied, current, phases)
+                made, None if moved_frame else dirtied, current, phases,
+                moments=None if moved_frame else dirty_moments)
         self.accounting["derives"] += 1
         self.accounting["last_derive_ms"] = (time.perf_counter() - began) * 1000
         self.accounting["last_positions"] = len(drawing)
@@ -724,8 +741,18 @@ class GovernedRun:
     def _keep_the_bake_true(self, made: Composer,
                             dirtied: dict[int, set[tuple[int, int]]] | None,
                             current: dict,
-                            phases: dict[str, float] | None = None) -> None:
+                            phases: dict[str, float] | None = None, *,
+                            moments: frozenset[int] | None = None) -> None:
         """Patch the baked files the manifest's movement reached, then stamp.
+
+        ``moments`` bounds the patch along time for a grown run: only these
+        moments' frames of the dirty footprint are recomposed (every channel
+        of each, since a publication writes all channels at once). ``None``
+        means every moment in the room -- the recovery direction, taken
+        whenever the footprint itself cannot be trusted. The bound is the
+        c-and-t plan's build gate: the stage-0 instruments projected minutes
+        of frozen picture per retake for a whole-room patch at 500 moments,
+        against a flat cost for patching only what the commit touched.
 
         ``phases`` is the derive's phase ledger (see the derive), written
         into here so a slow landing can say WHICH bake phase was slow:
@@ -795,7 +822,8 @@ class GovernedRun:
                 phases["bake_scan"] = (watch() - marked) * 1000
                 return
             if dirtied is None or stamped != self._stamp_installed:
-                dirtied = self._the_ground_the_bake_missed(made, current)
+                dirtied, moments = self._the_ground_the_bake_missed(made,
+                                                                    current)
                 if dirtied is None:
                     self._stamp_installed = current
                     phases["bake_scan"] = (watch() - marked) * 1000
@@ -805,14 +833,25 @@ class GovernedRun:
             marked = watch()
             reads_before = made.tile_reads
             costs_before = dict(made.costs)
+            # A grown run bakes one file per (moment, channel) frame. The
+            # footprint only names ground in y and x, so time is bounded
+            # here: only the touched moments' frames are recomposed, every
+            # channel of each (see the ``moments`` contract above).
+            moments_room, channels = made.mosaic.frame_room
+            patched = (range(moments_room) if moments is None else
+                       sorted(one for one in moments if one < moments_room))
             for level in sorted(one for one in baked
                                 if one < made.mosaic.levels):
                 for row, column in sorted(dirtied.get(level, ())):
                     deep = made.grid(level)[0]
-                    self.accounting["last_bake_pieces_composed"] += 1
-                    for plane in range(deep):
-                        self._replace_one_piece(made, level, plane, row,
-                                                column)
+                    for moment in patched:
+                        for channel in range(channels):
+                            self.accounting[
+                                "last_bake_pieces_composed"] += 1
+                            for plane in range(deep):
+                                self._replace_one_piece(
+                                    made, level, plane, row, column,
+                                    moment=moment, channel=channel)
             # The compose phase split into its components, from the
             # composer's own cost ledger: time spent reading tiles, building
             # slabs (laying included -- reading happens inside building, so
@@ -840,12 +879,18 @@ class GovernedRun:
             marked = watch()
             coarsest = made.mosaic.levels - 1
             reached = dirtied.get(coarsest, set())
+            # The extended levels are re-halved under the same time bound:
+            # one (moment, channel) address per touched frame, or the single
+            # empty address that is the flat form.
+            frames = ([()] if (moments_room, channels) == (1, 1) else
+                      [(moment, channel) for moment in patched
+                       for channel in range(channels)])
             for level in sorted(one for one in baked
                                 if one >= made.mosaic.levels):
                 reached = {(row // 2, column // 2)
                            for row, column in reached}
                 if reached:
-                    self._rehalve_one_level(level, sorted(reached))
+                    self._rehalve_one_level(level, sorted(reached), frames)
             phases["bake_rehalve"] = (watch() - marked) * 1000
             marked = watch()
             self.stamp_the_bake(events=current["events"],
@@ -855,20 +900,28 @@ class GovernedRun:
             phases["bake_stamp"] = (watch() - marked) * 1000
 
     def _the_ground_the_bake_missed(self, made: Composer, current: dict,
-                                    ) -> dict[int, set[tuple[int,
-                                                             int]]] | None:
+                                    ) -> tuple[dict[int, set[tuple[int,
+                                                                   int]]]
+                                               | None,
+                                               frozenset[int] | None]:
         """The footprints of every event the stamp cannot prove it absorbed.
 
-        ``None`` when the bake is provably current. The stamp's claim is a
-        PREFIX -- so many events, ending at such a revision, under such a
-        layout -- and it is believed only when the history still carries
-        exactly that prefix and the layout has not moved. Anything else --
-        no stamp, a shorter history, a different tail, another layout --
-        dirties everything, because ground that older records covered
-        cannot be named from the current ones. This reads the events file
-        (the one deliberate second reader, bounded to the first derive of
-        a session and to recoveries); a torn read here refuses the derive,
-        which is the fail-closed direction.
+        Returns the dirty footprint and WHICH MOMENTS it is dirty at --
+        ``(None, None)`` when the bake is provably current. The stamp's
+        claim is a PREFIX -- so many events, ending at such a revision,
+        under such a layout -- and it is believed only when the history
+        still carries exactly that prefix and the layout has not moved.
+        Anything else -- no stamp, a shorter history, a different tail,
+        another layout -- dirties everything at every moment, because
+        ground that older records covered cannot be named from the current
+        ones. When the prefix IS believed, the missed events each name the
+        moment they committed, and those moments bound the patch along
+        time; a replacement event moves its position to a new store whose
+        inherited moments the event does not name, so it widens the bound
+        back to every moment. This reads the events file (the one
+        deliberate second reader, bounded to the first derive of a session
+        and to recoveries); a torn read here refuses the derive, which is
+        the fail-closed direction.
         """
         events = self._run.manifest.events()
         stamped = self._the_stamp()
@@ -877,14 +930,22 @@ class GovernedRun:
                               for column in range(made.grid(level)[2])}
                       for level in range(made.mosaic.levels)}
         if stamped is None or stamped["layout"] != current["layout"]:
-            return everything
+            return everything, None
         absorbed = stamped["events"]
         if absorbed > len(events) or absorbed < 0:
-            return everything
+            return everything, None
         if absorbed and events[absorbed - 1].revision != stamped["tail"]:
-            return everything
+            return everything, None
         if absorbed == len(events):
-            return None
+            return None, None
+        touched: set[int] | None = set()
+        for event in events[absorbed:]:
+            if event.event_type == "position_replaced" or touched is None:
+                touched = None
+            else:
+                touched.add(0 if event.timepoint is None
+                            else event.timepoint)
+        moments = None if touched is None else frozenset(touched)
         missed = {event.position_id for event in events[absorbed:]}
         dirty: dict[int, set[tuple[int, int]]] = {}
         named = {tile.name.split(".")[0]: tile
@@ -901,14 +962,24 @@ class GovernedRun:
                             at[2] // self._piece,
                             (at[2] + held[2] - 1) // self._piece + 1):
                         reached.add((row, column))
-        return dirty
+        return dirty, moments
 
     def _replace_one_piece(self, made: Composer, level: int, plane: int,
-                           row: int, column: int) -> None:
-        """One baked chunk file made true, atomically, or removed if empty."""
-        inside = (self._shown / str(level) / "c" / str(plane) / str(row))
+                           row: int, column: int, *, moment: int = 0,
+                           channel: int = 0) -> None:
+        """One baked chunk file made true, atomically, or removed if empty.
+
+        A grown run's chunk files carry the (moment, channel) frame in
+        their path, exactly where the from-scratch bake writes them; a
+        flat run keeps the three-part path it always had.
+        """
+        frame = ((str(moment), str(channel))
+                 if made.mosaic.frame_room != (1, 1) else ())
+        inside = self._shown.joinpath(str(level), "c", *frame, str(plane),
+                                      str(row))
         baked = inside / str(column)
-        body = made.bytes_for(level, plane, row, column)
+        body = made.bytes_for(level, plane, row, column,
+                              moment=moment, channel=channel)
         if body is None:
             if baked.is_file():
                 _after_a_windows_reader(os.unlink, baked)
@@ -918,9 +989,16 @@ class GovernedRun:
         arriving.write_bytes(body)
         _after_a_windows_reader(os.replace, arriving, baked)
 
-    def _rehalve_one_level(self, level: int,
-                           pieces: list[tuple[int, int]]) -> None:
+    def _rehalve_one_level(self, level: int, pieces: list[tuple[int, int]],
+                           frames: list[tuple[int, ...]]) -> None:
         """Recompute touched pieces of one extended level from the one below.
+
+        ``frames`` are the (moment, channel) addresses to re-halve -- the
+        touched frames of a grown run, or the one empty address that is the
+        flat form. Only these frames' chunk files are staged and moved;
+        every other frame's files stay exactly as they were, which is both
+        the time bound and the correctness (an untouched frame's ground did
+        not move, so its files are still true).
 
         The extended levels exist only as baked files, averaged 2x2 in y and
         x from the level beneath -- the same arithmetic the from-scratch
@@ -967,7 +1045,10 @@ class GovernedRun:
             self._bake_staging[level] = above
             self.accounting["last_bake_arrays_opened"] += 1
             self.accounting["last_bake_stagings_built"] += 1
-        deep, height, width = above.shape
+        # A grown run's extended levels carry the (t, c) room in front of
+        # the three spatial axes; the halving touches only y and x, so each
+        # frame in ``frames`` shrinks as itself, one at a time.
+        deep, height, width = above.shape[-3:]
         self.accounting["last_bake_pieces_rehalved"] += len(pieces)
         served_recipe = self._the_baked_recipe(level)
         source_recipe = self._the_baked_recipe(level - 1)
@@ -990,28 +1071,45 @@ class GovernedRun:
                 bottom = min(top + self._piece, height)
                 right = min(left + self._piece, width)
                 wanted = (bottom - top, right - left)
-                source = below[:, 2 * top:min(2 * bottom, below.shape[1]),
-                               2 * left:min(2 * right, below.shape[2])]
-                self.accounting["last_bake_zarr_ops"] += 1
-                evened = np.pad(source,
-                                ((0, 0), (0, 2 * wanted[0] - source.shape[1]),
-                                 (0, 2 * wanted[1] - source.shape[2])),
-                                mode="edge")
-                above[:, top:bottom, left:right] = (
-                    evened.reshape(deep, wanted[0], 2, wanted[1], 2)
-                    .mean(axis=(2, 4)).round().astype(above.dtype))
-                self.accounting["last_bake_zarr_ops"] += 1
-        planes = -(-deep // int(above.chunks[0]))
+                for address in frames:
+                    # The leading integers pick one (moment, channel) frame
+                    # (none for a flat run), so what is read and halved is
+                    # always one three-axis block.
+                    source = below[(*address, slice(None),
+                                    slice(2 * top,
+                                          min(2 * bottom, below.shape[-2])),
+                                    slice(2 * left,
+                                          min(2 * right, below.shape[-1])))]
+                    self.accounting["last_bake_zarr_ops"] += 1
+                    evened = np.pad(
+                        source,
+                        ((0, 0), (0, 2 * wanted[0] - source.shape[-2]),
+                         (0, 2 * wanted[1] - source.shape[-1])),
+                        mode="edge")
+                    above[(*address, slice(None), slice(top, bottom),
+                           slice(left, right))] = (
+                        evened.reshape(deep, wanted[0], 2, wanted[1], 2)
+                        .mean(axis=(2, 4)).round().astype(above.dtype))
+                    self.accounting["last_bake_zarr_ops"] += 1
+        planes = -(-deep // int(above.chunks[-3]))
+        # Only the frames that were just re-halved are moved (or removed
+        # where the halving left all-fill); an unpatched frame's staged
+        # file is absent because nothing was written, and its real file
+        # must be LEFT, not unlinked -- it is still true.
         for row, column in pieces:
-            for plane in range(planes):
-                staged = staging / "c" / str(plane) / str(row) / str(column)
-                real = (self._shown / str(level) / "c" / str(plane)
-                        / str(row) / str(column))
-                if staged.is_file():
-                    real.parent.mkdir(parents=True, exist_ok=True)
-                    _after_a_windows_reader(os.replace, staged, real)
-                elif real.is_file():
-                    _after_a_windows_reader(os.unlink, real)
+            for address in frames:
+                parts = tuple(str(one) for one in address)
+                for plane in range(planes):
+                    staged = staging.joinpath("c", *parts, str(plane),
+                                              str(row), str(column))
+                    real = self._shown.joinpath(str(level), "c", *parts,
+                                                str(plane), str(row),
+                                                str(column))
+                    if staged.is_file():
+                        real.parent.mkdir(parents=True, exist_ok=True)
+                        _after_a_windows_reader(os.replace, staged, real)
+                    elif real.is_file():
+                        _after_a_windows_reader(os.unlink, real)
         # The staging folder stays, empty of chunks -- every staged file was
         # just moved out or was never written -- so the next landing reuses
         # it instead of paying to rebuild it. See the docstring above.
@@ -1025,7 +1123,10 @@ class GovernedRun:
         means the encoding is not the one this repository's declare writes
         (little-endian raw bytes then zstd, one z-plane per chunk, pieces
         the size of chunks), and the caller must take the general array-API
-        path instead: correct for any encoding, merely slower.
+        path instead: correct for any encoding, merely slower. A GROWN
+        run's extended levels are five-axis (their chunk shape is five
+        long), so they land on the general path by this same check -- the
+        direct recipe only ever speaks for the flat three-axis form.
         """
         found = self._bake_recipes.get(level, False)
         if found is not False:

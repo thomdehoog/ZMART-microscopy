@@ -870,9 +870,11 @@ class Composer:
         everything downstream sees one kind of slab whichever way it came.
         """
         depth = self.slab_depth(level)
-        # Baked files exist only for the flat frame today, so what is read
-        # back installs as frame (0, 0) -- the same six-part key every slab
-        # carries.
+        # The warm reads back frame (0, 0) -- the same frame the composing
+        # warm builds -- so what is lifted installs under the six-part key
+        # every slab carries. A grown run's baked array leads with its
+        # (t, c) axes, which is what the leading zeros index away; other
+        # frames' files still answer the door directly, unwarmed.
         key = (0, 0, level, low_z, row, column)
         with self._guard:
             if key in self._pinned or key in self._slabs:
@@ -880,9 +882,12 @@ class Composer:
         deep, height, width = self.mosaic.shape(level)
         high_z = min(low_z + depth, deep)
         top, left = row * self.piece, column * self.piece
-        lifted = np.asarray(baked[low_z:high_z,
-                                  top:min(top + self.piece, height),
-                                  left:min(left + self.piece, width)])
+        lifted = np.asarray(baked[(0,) * (baked.ndim - 3)
+                                  + (slice(low_z, high_z),
+                                     slice(top, min(top + self.piece,
+                                                    height)),
+                                     slice(left, min(left + self.piece,
+                                                     width)))])
         slab = np.zeros((high_z - low_z, self.piece, self.piece),
                         self.mosaic.dtype)
         slab[:, :lifted.shape[1], :lifted.shape[2]] = lifted
