@@ -1390,6 +1390,52 @@ class _Handler(SimpleHTTPRequestHandler):
             return
         self._send_json(self._config())
 
+    def _the_scene_behind_a_plate(self, target: Path) -> Path | None:
+        """The laid-out scene to open instead, when the target is a plate.
+
+        A plate store handed straight to the library draws every well at
+        the origin, stacked on one another: the wells' places live in the
+        plate's own row and column indices, and only the plate layout in
+        mosaic.py knows that arithmetic. So the plain door builds the very
+        scene the build tab would, beside the plate, and opens THAT -- the
+        laid-out plate reaches the screen whichever tab opened it. A scene
+        already built from this plate's folder is reused exactly as it
+        stands, baked ground and all, because declaring again without the
+        bake deliberately removes baked files the operator paid for once.
+
+        ``None`` means the target is not a plate, and the door carries on
+        exactly as it always has. The description reader is the mosaic's
+        own -- the one reader of both metadata generations -- for the same
+        one-truth reason the governed module imports the gateway's.
+        """
+        if not target.is_dir():
+            return None
+        from mosaic import _the_description_of
+
+        try:
+            described, _ = _the_description_of(target)
+        except ValueError:
+            return None
+        if not isinstance(described.get("plate"), dict):
+            return None
+        folder = target.parent
+        scene = folder / "scenes" / f"{folder.name}.ome.zarr"
+        try:
+            built_from = json.loads(
+                (scene / "zarr.json").read_text(encoding="utf-8")
+            )["attributes"]["zmart"]["built_from"]
+            if Path(built_from).resolve() == folder.resolve():
+                return scene
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        from declare import declare_a_built_picture
+
+        # Declared without the bake, synchronously: the description is a
+        # few kilobytes and the operator just asked to look. The hard copy
+        # stays a deliberate choice on the build tab.
+        return declare_a_built_picture(folder / "scenes", folder,
+                                       name=folder.name)
+
     def _serve_open(self, payload: object) -> None:
         """Open a folder of images and answer with the viewer's new contents."""
         path = payload.get("path") if isinstance(payload, dict) else None
@@ -1397,6 +1443,16 @@ class _Handler(SimpleHTTPRequestHandler):
             self._send_json({"error": "a folder path is needed"}, HTTPStatus.BAD_REQUEST)
             return
         target = Path(path.strip()).expanduser()
+        try:
+            scene = self._the_scene_behind_a_plate(target)
+        except ValueError as why:
+            # A plate the layout must refuse -- two plates in one folder,
+            # a plate beside loose images -- refuses here in the same
+            # plain words.
+            self._send_json({"error": str(why)}, HTTPStatus.BAD_REQUEST)
+            return
+        if scene is not None:
+            target = scene
         homeless = self._a_relink_needed(target)
         if homeless is not None:
             # Opening would succeed and every piece would then fail one
@@ -1413,7 +1469,7 @@ class _Handler(SimpleHTTPRequestHandler):
             }, HTTPStatus.CONFLICT)
             return
         try:
-            self._library.open(path.strip())
+            self._library.open(str(target))
         except FileNotFoundError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
             return

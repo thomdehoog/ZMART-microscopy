@@ -74,10 +74,16 @@ What the table says:
   stopped replay keeps what landed, which is a real run that still opens.
   The window offers Stop beside the progress bar and on the other tab
   while a replay runs. Pinned by the abuse battery and two browser gates.
-- **A plate store selected on the view/other tab** opens through the plain
-  library door rather than the plate layout; the build tab handles plates
-  properly (select the folder holding the plate). Open; rung 2 of the
-  plate chapter.
+- **A plate store selected on the view/other tab** opened through the
+  plain library door rather than the plate layout, drawing every well at
+  the origin. FIXED with plate rung 2: the open door notices a plate,
+  builds (or reuses, baked ground and all) the scene beside it exactly as
+  the build tab would, and serves that -- the laid-out plate reaches the
+  screen whichever tab opened it. The same chapter taught the layout to
+  keep the places a writer recorded for its fields (squarest grid only as
+  the fallback), to space wells by their actual extent, and to treat
+  local and global field translations identically by anchoring each
+  well's content at its own cell. Screenshot-inspected both ways.
 
 The `settled` column of the raw run (five seconds at every rung) is a
 fixed four-second wait inside the instrument plus readiness, kept out of
