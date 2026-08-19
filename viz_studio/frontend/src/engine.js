@@ -1301,7 +1301,23 @@ function whenTheSourcesHaveSettled(viewer, ready, act) {
 }
 
 export function chooseScaleWhenTheImagesAreMeasured(viewer) {
-  return whenTheSourcesHaveSettled(viewer, () => true, () => {
+  // The whole-picture fit divides the picture's extent by the panel's size
+  // in screen pixels, so it cannot run before the panel has been laid out.
+  // A first load never hit this -- the network is slower than the layout --
+  // but a reload finds every answer already in the browser's cache, the
+  // sources settle before the panel has a size, and the fit quietly became
+  // the engine's default zoom: the same picture opened at one magnification
+  // cold and at half that on F5, stable both ways (measured 2026-08-19 on
+  // the workstation, the scale bar reading 50 um warm against 100 um
+  // fresh). The settling watch glances every quarter second, so waiting for
+  // the layout here delays the fit by at most one glance.
+  const panelLaidOut = () =>
+    [...(viewer.display?.panels ?? [])].some(
+      (panel) => "sliceView" in panel
+        && (panel.renderViewport?.logicalWidth ?? 0) > 0
+        && (panel.renderViewport?.logicalHeight ?? 0) > 0,
+    );
+  return whenTheSourcesHaveSettled(viewer, panelLaidOut, () => {
     // Which axes are drawn is settled first, because how far to zoom is worked
     // out from what is being drawn. Choosing the zoom and then changing the axes
     // leaves the view scaled for a picture nobody is looking at.

@@ -183,7 +183,14 @@ def test_the_viewer_reads_it_from_where_it_was_written(tile, transfer, built_dis
     page = browser.new_page(viewport={"width": 1200, "height": 900})
     try:
         page.goto(base, wait_until="domcontentloaded")
-        page.wait_for_function("() => window.zmartViewer !== undefined", timeout=30_000)
+        # The page is not up until the server has answered "what is open",
+        # and that answer measures the store's brightness -- pixels read off
+        # the network share, cold. On the workstation that took longer than
+        # the 30 s this wait used to allow, while the chunk-reading below was
+        # given 180 s for exactly that kind of time (2026-08-19). One
+        # patience for both.
+        page.wait_for_function("() => window.zmartViewer !== undefined",
+                               timeout=180_000)
         page.evaluate(
             """([src, low, high]) => window.zmartViewer.state.restoreState({
                  layers: [{type: 'image', name: 'meso', source: src,
