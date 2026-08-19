@@ -678,7 +678,6 @@ class TestTheLoadWindow:
         stop and the gate says so instead of guessing.
         """
         import pytest
-
         from test_a_dataset_is_relived_as_a_live_run import _a_grid_scan
 
         first = tmp_path / "overview"
