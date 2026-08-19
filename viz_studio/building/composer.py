@@ -972,6 +972,32 @@ class Composer:
             self._encoders.array = held
         return held
 
+    def values_for(self, level: int, plane: int, row: int, column: int,
+                   moment: int = 0, channel: int = 0):
+        """One piece of the picture as its numbers, for measuring, not serving.
+
+        The same piece :meth:`bytes_for` would encode, handed back as the
+        array itself. A brightness measurement needs values rather than an
+        encoded chunk, and a built picture holds no files to read them from
+        -- its pixels are one ask away, here.
+
+        ``None`` for the same absences ``bytes_for`` answers with ``None``.
+        """
+        with self._guard:
+            self._answering += 1
+        try:
+            covering = self._tiles_in_each_piece(level).get((row, column), ())
+            if not any(_tile_has_the_frame(tile, level, moment, channel)
+                       for tile, _ in covering):
+                return None
+            slab = self._slab_for(level, plane, row, column, moment, channel)
+            depth = self.slab_depth(level)
+            piece = slab[plane - (plane // depth) * depth]
+            return piece if piece.any() else None
+        finally:
+            with self._guard:
+                self._answering -= 1
+
     def bytes_for(self, level: int, plane: int, row: int, column: int,
                   moment: int = 0, channel: int = 0) -> bytes | None:
         """One piece of the picture, encoded exactly as its description promises.

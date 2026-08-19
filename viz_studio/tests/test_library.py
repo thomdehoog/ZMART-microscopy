@@ -315,6 +315,13 @@ class TestChoosingAFolder:
             thread.join(timeout=5)
         assert status == 200
         assert answer["path"] == str(friday)
+        # The parent comes along, said by Python rather than worked out by
+        # the page: a page slicing the path at "/" mangled every Windows
+        # path (the chooser's answer lost its last letter and the listing
+        # showed nothing), found on the workstation 2026-08-19. The window
+        # lands on the parent so the picked folder sits in the list as an
+        # ordinary row.
+        assert answer["parent"] == str(friday.parent)
 
     def test_pressing_cancel_is_an_ordinary_outcome(self, two_runs):
         monday, _, parent = two_runs

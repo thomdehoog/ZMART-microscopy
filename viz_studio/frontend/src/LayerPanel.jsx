@@ -480,6 +480,18 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
     !!autoWindow &&
     Math.abs(window_.low - autoWindow.low) < 0.5 &&
     Math.abs(window_.high - autoWindow.high) < 0.5;
+  // What clicking the lit light puts back: the window the run itself
+  // declared -- and only when that is genuinely a different window. A run
+  // that declared nothing is served the measured window as its window, so
+  // without this test the lit button offered a toggle between two equal
+  // values and clicking it visibly did nothing (found with a real plate,
+  // 2026-08-19). With nothing to restore, the button says so and rests.
+  const declared =
+    layer.window && autoWindow &&
+    (Math.abs(layer.window.low - autoWindow.low) >= 0.5 ||
+     Math.abs(layer.window.high - autoWindow.high) >= 0.5)
+      ? layer.window
+      : null;
 
   return (
     <div style={styles.controls} aria-label="channel controls">
@@ -519,16 +531,16 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
                 onClick={() =>
                   onWindow(
                     index,
-                    following
-                      ? layer.window || autoWindow
-                      : autoWindow || layer.window,
+                    following ? declared : autoWindow || layer.window,
                   )
                 }
-                disabled={!autoWindow && !layer.window}
+                disabled={following ? !declared : !autoWindow && !layer.window}
                 aria-label={`auto contrast ${layer.name}`}
                 aria-pressed={following}
                 title={following
-                  ? "The window is the measured one; click to put back the window this run was written with"
+                  ? (declared
+                    ? "The window is the measured one; click to put back the window this run was written with"
+                    : "The window is the measured one, and this run declared no other. Drag a handle to choose your own")
                   : "Set the window from the brightness measured in this channel"}
                 style={{ ...styles.autoButton, ...(following ? styles.autoButtonOn : null) }}
               >

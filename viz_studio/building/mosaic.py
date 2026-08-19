@@ -555,8 +555,22 @@ def _the_plate_in(folder: Path) -> tuple[Path, dict] | None:
     high-content-screening shape, wells of fields with no stage translations.
     Two plates side by side, or a plate beside loose images, would need a
     combined layout nobody declared, so both are refused in plain words.
+
+    The folder itself may BE the plate: the operator points the open door
+    at the plate store, and a real plate lives beside the rest of the
+    day's work, so the answer can never depend on the parent folder. Real
+    plates are also named ``something.zarr`` rather than
+    ``something.ome.zarr`` (a real 336-well ``HA-1a_Plate_4561.zarr``,
+    2026-08-19), so candidates inside a folder are matched on the wider
+    suffix and the description decides, not the name.
     """
-    stores = sorted(one for one in folder.glob(f"*{IMAGE_SUFFIX}")
+    try:
+        described, _ = _the_description_of(folder)
+    except ValueError:
+        described = {}
+    if isinstance(described.get("plate"), dict):
+        return folder, described["plate"]
+    stores = sorted(one for one in folder.glob("*.zarr")
                     if one.is_dir())
     plates, plain = [], []
     for store in stores:

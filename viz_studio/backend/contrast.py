@@ -375,7 +375,36 @@ def _samples(store: Path, *, channel: int | None = None):
         followed = _samples(member, channel=channel)
         if followed is not None:
             return attrs, followed[1], False
+
+    # A built picture is hollow the same way -- every piece is composed from
+    # the raw tiles when asked -- and without this it opened at the camera's
+    # full range: a real 336-well plate as a near-black grid with an empty
+    # histogram and a dead Auto. Its pixels are one ask away, through its own
+    # composer; ground nobody imaged reads back as zero there and is dropped
+    # from the measurement the same way a fill value is above.
+    composed = _a_built_pictures_sample(store, channel=channel)
+    if composed is not None:
+        values = np.asarray(composed, dtype=np.float64).ravel()
+        values = values[np.isfinite(values)]
+        imaged = values[values != 0.0]
+        if imaged.size:
+            values = imaged
+        if values.size:
+            return attrs, values, False
     return None
+
+
+def _a_built_pictures_sample(store: str | Path, channel: int | None):
+    """The composer's own sample of a built picture, or None outside one.
+
+    Imported lazily from the building shelf: a checkout without it simply
+    has no built pictures to measure, exactly as the server treats it.
+    """
+    try:
+        from served import a_sample_behind
+    except ImportError:
+        return None
+    return a_sample_behind(Path(store), channel=channel or 0)
 
 
 def _the_members_behind(store: str | Path) -> list[Path]:

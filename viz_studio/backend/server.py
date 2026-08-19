@@ -70,6 +70,7 @@ from library import Library
 from live_config import LiveRegistry, capture_live_state, live_rows
 from stores import (
     DESCRIPTION_FILES,
+    _read_attrs_at,
     axis_names,
     channel_color,
     channel_of,
@@ -1114,8 +1115,14 @@ class _Handler(SimpleHTTPRequestHandler):
             )
             return
         # Nothing chosen is a perfectly ordinary outcome: the operator changed
-        # their mind and pressed cancel.
-        self._send_json({"path": chosen} if chosen else {"cancelled": True})
+        # their mind and pressed cancel. The parent is answered alongside the
+        # path because the page wants to land the listing there, with the
+        # picked folder as an ordinary row -- and a page slicing the path at
+        # "/" mangled every Windows path, so the arithmetic stays here where
+        # the machine's own path rules apply.
+        self._send_json(
+            {"path": chosen, "parent": str(Path(chosen).parent)}
+            if chosen else {"cancelled": True})
 
     def _serve_list_folders(self, payload: object) -> None:
         """List the folders at a path, for the in-page load window.
@@ -1143,7 +1150,17 @@ class _Handler(SimpleHTTPRequestHandler):
                 opens = None
                 try:
                     inside = [child.name for child in entry.iterdir()]
-                    if any(name in described for name in inside):
+                    # A description file directly inside makes a "store" only
+                    # when it declares one picture the viewer draws whole: an
+                    # image, or a plate whose layout the open door builds
+                    # behind it. A bare group wrapping position stores -- the
+                    # shape a real exported survey and our own live writer's
+                    # containers both take -- is raw data, and calling it a
+                    # store hid the build tab's second step from the operator
+                    # (found with a real 6-tile survey, 2026-08-19).
+                    told = _read_attrs_at(entry)
+                    if (any(name in described for name in inside)
+                            and (told.get("multiscales") or told.get("plate"))):
                         opens = "store"
                     elif any((entry / name / stamp).exists()
                              for name in inside for stamp in described):
@@ -1182,11 +1199,17 @@ class _Handler(SimpleHTTPRequestHandler):
         if not built_from:
             return None
         # "Not there any more" is judged the way the transfer reader judges
-        # it: the folder must still hold tiles. A folder that exists but has
-        # been emptied -- the tiles moved elsewhere, the views left behind --
-        # is just as disconnected as one that is gone.
+        # presence: the folder is still a data source if it is itself a
+        # store (a plate's scene is built from the plate, whose own
+        # description sits directly inside) or if it still holds tile
+        # stores -- matched on the wider ``*.zarr``, because real tiles are
+        # not all named ``*.ome.zarr``. A folder that exists but has been
+        # emptied -- the tiles moved elsewhere, the views left behind -- is
+        # just as disconnected as one that is gone.
         was = Path(built_from)
-        if was.is_dir() and any(one.is_dir() for one in was.glob("*.ome.zarr")):
+        if was.is_dir() and (
+                any((was / name).is_file() for name in DESCRIPTION_FILES)
+                or any(one.is_dir() for one in was.glob("*.zarr"))):
             return None
         return {"store": str(store), "was": str(built_from),
                 "name": store.name.removesuffix(".ome.zarr"),
@@ -1242,7 +1265,7 @@ class _Handler(SimpleHTTPRequestHandler):
             self._send_json({"error": f"there is no folder at {data_path}"},
                             HTTPStatus.NOT_FOUND)
             return
-        from declare import declare_a_built_picture
+        from declare import declare_a_built_picture, the_scene_folder_name
 
         bake = bool(asked.get("bake"))
         name = asked.get("name") if isinstance(asked.get("name"), str) else None
@@ -1284,7 +1307,7 @@ class _Handler(SimpleHTTPRequestHandler):
                 # it would let a half-made folder be quietly picked up
                 # later. Building again is the way to have it.
                 shutil.rmtree(
-                    viewer_path / f"{name or data_path.name}.ome.zarr",
+                    viewer_path / the_scene_folder_name(name or data_path.name),
                     ignore_errors=True)
                 job.update({"state": "cancelled"})
             except Exception as why:  # noqa: BLE001 -- shown to the operator whole
@@ -1399,9 +1422,14 @@ class _Handler(SimpleHTTPRequestHandler):
         mosaic.py knows that arithmetic. So the plain door builds the very
         scene the build tab would, beside the plate, and opens THAT -- the
         laid-out plate reaches the screen whichever tab opened it. A scene
-        already built from this plate's folder is reused exactly as it
-        stands, baked ground and all, because declaring again without the
-        bake deliberately removes baked files the operator paid for once.
+        already built from this plate is reused exactly as it stands,
+        baked ground and all, because declaring again without the bake
+        deliberately removes baked files the operator paid for once.
+
+        The scene is declared over the PLATE, never over the folder around
+        it: a real plate lives beside the rest of the day's work -- other
+        plates, a survey, loose images -- and a layout that went looking
+        in the parent refused a real 336-well plate outright (2026-08-19).
 
         ``None`` means the target is not a plate, and the door carries on
         exactly as it always has. The description reader is the mosaic's
@@ -1418,23 +1446,22 @@ class _Handler(SimpleHTTPRequestHandler):
             return None
         if not isinstance(described.get("plate"), dict):
             return None
-        folder = target.parent
-        scene = folder / "scenes" / f"{folder.name}.ome.zarr"
+        from declare import declare_a_built_picture, the_scene_folder_name
+
+        scenes = target.parent / "scenes"
+        scene = scenes / the_scene_folder_name(target.name)
         try:
             built_from = json.loads(
                 (scene / "zarr.json").read_text(encoding="utf-8")
             )["attributes"]["zmart"]["built_from"]
-            if Path(built_from).resolve() == folder.resolve():
+            if Path(built_from).resolve() == target.resolve():
                 return scene
         except (OSError, ValueError, KeyError, TypeError):
             pass
-        from declare import declare_a_built_picture
-
         # Declared without the bake, synchronously: the description is a
         # few kilobytes and the operator just asked to look. The hard copy
         # stays a deliberate choice on the build tab.
-        return declare_a_built_picture(folder / "scenes", folder,
-                                       name=folder.name)
+        return declare_a_built_picture(scenes, target, name=target.name)
 
     def _serve_open(self, payload: object) -> None:
         """Open a folder of images and answer with the viewer's new contents."""
@@ -1468,8 +1495,22 @@ class _Handler(SimpleHTTPRequestHandler):
                 "relink": homeless,
             }, HTTPStatus.CONFLICT)
             return
+        # A live run's root -- a replay's or the microscope's own, data
+        # beside views and no image directly inside -- is opened with its
+        # served view named, exactly as the replay door opens the run it
+        # starts: the live registry binds it, the time slider offers only
+        # the moments already written, and the view follows the front.
+        # Handed to the library bare it answered "no OME-Zarr image was
+        # found", which cost every finished replay its promised reopening
+        # (found on the workstation, 2026-08-19).
+        served_view = None
+        if (target / "views" / "live" / "live.ome.zarr").is_dir():
+            served_view = ["views/live/live.ome.zarr"]
         try:
-            self._library.open(str(target))
+            if served_view is not None:
+                self._library.open(str(target), names=served_view)
+            else:
+                self._library.open(str(target))
         except FileNotFoundError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
             return

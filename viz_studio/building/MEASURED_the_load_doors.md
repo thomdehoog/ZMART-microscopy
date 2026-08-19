@@ -85,6 +85,179 @@ What the table says:
   local and global field translations identically by anchoring each
   well's content at its own cell. Screenshot-inspected both ways.
 
+## Quirks found with real data at the workstation, 2026-08-19
+
+The doors met their first real datasets: a six-tile 25x Thy1 survey
+(291 planes of 5056 x 2960 each), a 336-well two-channel HCS plate, and
+an 18-channel fused overview plate. Two defects fell out before any
+picture was on screen, both fixed at the cause the same day:
+
+- **A real exported survey could not be built at all.** The Thy1 run is
+  one OME-Zarr group -- a plain group file at the top, one store per
+  position inside, exactly the shape our own live writer's containers
+  take. The folder listing called anything with a description file
+  directly inside a "store", so the build tab fell silent when the run
+  was selected: the row highlighted and nothing else happened, no second
+  step, no message. The backend's construct door built the very same
+  folder without complaint, so the misclassification was the whole
+  refusal. FIXED in the listing: "store" now means the description
+  declares one picture the viewer draws whole (an image's multiscales,
+  or a plate); a bare wrapper group falls through to the ordinary
+  position-stores check and answers "folder", which is what it is.
+  Pinned red-first by test_the_list_door_tells_raw_from_image.py.
+- **Choosing a folder with the system chooser broke on Windows paths.**
+  The page landed the listing on the picked folder's parent by slicing
+  the path at its last "/" -- a Windows path has none, so the slice cut
+  the last letter off the path instead, the listing showed a folder that
+  does not exist, and the picked run never appeared as a row. Four gates
+  in test_open_and_close.py were red on this machine and green in the
+  Linux container because of exactly this. FIXED at the cause: the
+  browse door answers the parent alongside the path (Python's own path
+  rules, never the page's), and the page navigates to the server's word.
+  Pinned in test_library.py::TestChoosingAFolder. A wrapper in App.jsx
+  (tryNativeChooser) was quietly dropping every key but ``path`` from
+  the door's answer -- worth remembering when the door learns new words.
+
+With the listing fixed, the real survey built through the window with the
+hard copy in 8.5 s (six tiles of 291 x 5056 x 2960), opened in 0.14 s, and
+drew real neurons at its true stage coordinates (thy1_8_framed.png in the
+session's D:/zmart-realdata-validation). Two more findings from the same
+build:
+
+- **The scene wore its suffix twice.** The scene folder is named
+  ``<name>.ome.zarr`` and the real run is itself called
+  ``Thy1_Mag25x_Ch561.ome.zarr``, so the scene landed as
+  ``...ome.zarr.ome.zarr``. FIXED: one rule, ``the_scene_folder_name`` in
+  declare.py, now composes every scene folder name and every lookup of
+  one (the plate reuse, the cancelled build's cleanup), wearing the
+  suffix exactly once. Pinned in test_a_transfer_is_built_into_one_picture.
+- **OPEN -- Show leaves the camera where it was.** A shown scene at real
+  stage coordinates (here 15 mm from the origin, z translated -15.6 mm)
+  stays black: the view is parked at the origin and the focal plane is
+  outside the stack. Overview recentres x and y but never z, so even the
+  operator's natural recovery ends on blackness between acquisitions.
+  The replay chapter answered this for replays (watchTheReplay: an
+  explicit ask to watch is followed by the camera) -- Show and Open
+  through the window are the same ask, but the whole-picture framing the
+  replay uses would frame the VOID when a far acquisition is also open
+  (hidden layers still count in the global bounds). The honest fix frames
+  what was just opened -- per-layer extents said by the server, aimed by
+  the engine -- and that interacts with replay framing and
+  multi-acquisition semantics, so it is a designed chapter with a review,
+  not a patch. Until then: open the window, close what you are done
+  with, Show, press Overview, and bring Z inside the stack by hand.
+
+The real plate (336 wells, 16 x 24, two channels of 4096 x 4096 fields)
+found three more, the first two fixed the same day:
+
+- **A real plate could not open at all.** The open door declared the
+  plate's scene over the plate's PARENT folder, and a real plate lives
+  beside the rest of the day's work -- here two plates, a survey and
+  loose images -- so discovery refused the folder outright. Real plates
+  are also named ``something.zarr``, which the ``*.ome.zarr`` suffix
+  globs never matched. FIXED at the cause: the layout reader recognises
+  a folder that is itself a plate (its own description says so, the
+  name and the parent say nothing), the open door declares the scene
+  over the plate and names it after the plate, candidates inside a
+  folder are matched on the wider ``*.zarr``, and the relink judgment
+  follows the same rule. Pinned in test_a_plate_lays_itself_out.py.
+  With the fix the plate opened through the window in 3 s.
+- **An unbaked scene opened at the camera's full range** -- a near-black
+  grid, an empty histogram, a dead Auto, and no remedy but typing
+  numbers. The open door declares every plate's scene without the hard
+  copy, so this was every real plate's first look. FIXED the way live
+  pictures were: the measurement follows the picture's own composer
+  (``values_for`` on the composer, ``a_sample_behind`` in served,
+  contrast's hollow-picture fallback), sampling the coarsest level's
+  central pieces in milliseconds. Pinned red-first by
+  test_an_unbaked_scene_opens_at_a_measured_window. With both fixes the
+  real plate draws every well's monolayer at a measured 129-298 window.
+- **What the unbaked plate costs, measured.** The composed scene keeps
+  only the five levels its fields carry (4096 down to 256 per field),
+  so its coarsest level is still 3850 x 6615 -- a whole-plate look is
+  ~104 pieces of 512 composed on the fly, per channel, and the
+  picture's own coarser levels above the fields' exist only when the
+  hard copy is baked. Measured here: 1.2 s cold for one channel's 104
+  pieces, 0.43 s warm -- tolerable on this workstation's local disk,
+  paid again every session, and the reason the hard copy stays the
+  recommendation for big formats. The remedy was then measured on the
+  same plate (under concurrent test-suite load, so upper bounds):
+  linking 0.52 s, baking the hard copy 6.2 s once (583 files, 125 MB,
+  a fraction of a percent of the plate), opening the baked scene
+  0.10 s, opening the plate itself with the baked scene reused 0.11 s.
+  Six seconds once against a per-session compose is the info line's
+  recommendation, confirmed on real data.
+- **OPEN -- a heterogeneous plate is unioned in silence.** This real
+  plate holds two kinds of acquisition: 268 fields of (c, y, x) with two
+  channels and 134 fields of (t, c, z, y, x) with four. The composer
+  quietly took the union -- one heading, four channels, the two-channel
+  wells simply dark in channels 3 and 4. The viewer's own principle
+  (an overview and a target scan are two pictures, each its own
+  heading) suggests a plate of two kinds should split or refuse loudly;
+  either is plate rung 3 design work, not a patch. The channel rows
+  also wear generic names ("channel 1") and grey swatches -- the wells'
+  own channel descriptions are not consulted.
+
+The replay and stop doors, exercised the same day:
+
+- **The replay door refused the real survey exactly as declared.** Fed
+  the six-tile Thy1 run from the other tab, it answered in the window:
+  "this dataset's frames are 5056 by 2960 pixels, and the replay of
+  rectangular frames is its own chapter. Replay a square-framed dataset,
+  or open this one instead." Nothing written, nothing crashed. The
+  rectangular-frames chapter stays open work; no real timelapse (t > 1)
+  exists on this workstation's data disk, so the growing-slider replay
+  was exercised on a synthetic timelapse: the slider grew from one
+  moment to two as sweep two began, and the value followed the front.
+- **Stopping holds on real data.** The real Thy1 bake stopped at 25%
+  through the window: state "cancelled", the half-made scene removed
+  whole. A timelapse replay stopped mid-sweep kept its numbered run,
+  one position finishing whole after the click.
+- **A finished replay could not be opened again.** The window promises
+  the replay writes "a real run ... so it can be opened again later",
+  and later never came: the run root holds ``data`` beside ``views``
+  and no image directly inside, so the plain door answered "no OME-Zarr
+  image was found". The old gate checked the files were kept and never
+  reopened them. FIXED: the plain door recognises a live run's root and
+  opens it the way the replay door itself does -- served view named, so
+  the registry binds it and the slider offers exactly the landed
+  moments. Pinned red-first by
+  test_a_finished_replay_opens_again_later.
+
+Looking at the served plate with operator's hands (2026-08-19 evening)
+found three more, one fixed:
+
+- **OPEN -- only the topmost channel of a stack is visible.** The flat
+  shader's transparency answers "was this spot imaged" (the coverage
+  design scene.js documents), so on a four-channel plate the top
+  channel is opaque over every imaged spot and the three beneath do not
+  reach the screen at all. Measured decisively: recolouring channels 1,
+  2 or 3 changed not one pixel of the blend; recolouring channel 4
+  turned the picture green. This is why "changing the LUT does
+  nothing": the recoloured channel was covered. Additive blending was
+  rejected in scene.js for a real reason -- overlapping TILES within a
+  row would sum into bright seams -- but that objection does not reach
+  rows that pick their channel out of one shared store (a composed
+  picture's rows have one source and no seams). Whether channels of one
+  picture should sum like light while separate acquisitions keep
+  covering each other is a compositing design chapter with a review,
+  not a patch. Until then the operator's remedy is the eye: hide the
+  channels above the one being looked at.
+- **The lit Auto button could not be un-clicked.** The light means "the
+  window is the measured one" and clicking it puts back the window the
+  run declared -- and a run that declared nothing is served the
+  measured window AS its window, so the button toggled between two
+  equal values and visibly did nothing. FIXED in the panel: with
+  nothing to restore, the lit button rests disabled and its tooltip
+  says the run declared no other window. Pinned red-first in
+  test_layer_panel.py::test_a_lit_auto_with_nothing_to_restore_says_so.
+- **The contrast sliders' reach was checked and is honest.** On the
+  served plate the MIN and MAX tracks span each channel's own measured
+  range plus a fifth of headroom (channel 1: 0 to 313 for a window of
+  10 to 225), not the camera's 65,535. The full-range track the
+  operator saw belonged to a page served before the plate had its
+  measured window.
+
 The `settled` column of the raw run (five seconds at every rung) is a
 fixed four-second wait inside the instrument plus readiness, kept out of
 the table above because it measures the harness, not the viewer.
