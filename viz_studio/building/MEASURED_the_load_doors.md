@@ -258,6 +258,33 @@ found three more, one fixed:
   operator saw belonged to a page served before the plate had its
   measured window.
 
+The full suite then ran on this workstation: 1,591 passed and three
+stood red -- all three present at bd5f5c39 before this session touched
+anything, all three run to ground the same evening:
+
+- **The opening zoom raced the panel's layout.** The whole-picture fit
+  divides the picture's extent by the panel's size in pixels; a reload
+  finds every answer in the browser's cache, the sources settle before
+  the panel has a size, and the fit quietly became the engine's default
+  zoom. Measured stable both ways: the same grown picture opened at a
+  50 um scale bar warm and 100 um after F5, fourteen seconds steady
+  each. FIXED in chooseScaleWhenTheImagesAreMeasured: the fit also
+  waits for a laid-out slice panel (the settling watch already glances
+  every quarter second). A first load never hit this because the
+  network is slower than the layout -- which is why the container
+  stayed green while the workstation went red.
+- **The claim gate trusted the wrong pid.** On Windows a virtual
+  environment's python.exe is a launcher that starts the real
+  interpreter as its own child, so Popen.pid named the launcher while
+  the claim file honestly named the interpreter. The refusal was
+  correct all along; the GATE now compares against the pid the child
+  itself reports.
+- **The real-share mesoSPIM gate gave the page 30 s to boot** while
+  booting includes the server measuring a cold store over the Z:
+  share -- the very reading the gate's own chunk-waiting budgets 180 s
+  for. One patience for both now; the suite's end-to-end read off the
+  real share passes in ~90 s here.
+
 The `settled` column of the raw run (five seconds at every rung) is a
 fixed four-second wait inside the instrument plus readiness, kept out of
 the table above because it measures the harness, not the viewer.

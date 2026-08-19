@@ -431,6 +431,7 @@ def test_a_name_that_reaches_into_another_folder_is_refused(tmp_path):
 # run that has every right to start.
 
 _A_SECOND_PROGRAM = """
+import os
 import sys
 sys.path.insert(0, {root!r})
 from zmart_storage.canvas import Channel, TileCanvases
@@ -441,7 +442,7 @@ canvases = TileCanvases.create(
     voxel_size_um=(2.0, 0.35, 0.35), channels=[Channel("488")],
     levels=2, chunk=64,
 )
-print("declared", flush=True)
+print("declared", os.getpid(), flush=True)
 # Wait to be told to finish, so that the test can try to declare these same
 # images while this program still has them.
 sys.stdin.readline()
@@ -463,10 +464,16 @@ def _another_program_declaring(folder: Path):
          _A_SECOND_PROGRAM.format(root=root, folder=str(folder))],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
     )
-    said = other.stdout.readline().strip()
-    assert said == "declared", (
+    said = other.stdout.readline().strip().split()
+    assert said[:1] == ["declared"], (
         f"the second program did not get as far as declaring the images: {said!r}"
     )
+    # The claim names the pid the child itself reports, and that is not always
+    # ``Popen.pid``: on Windows a virtual environment's python.exe is a small
+    # launcher that starts the real interpreter as its own child, so the
+    # launcher's pid is one number and the writer of the claim is another
+    # (found on the workstation, 2026-08-19).
+    other.interpreter_pid = int(said[1])
     return other
 
 
@@ -500,7 +507,7 @@ def test_the_refusal_names_what_is_in_the_way(tmp_path):
             _canvases(tmp_path)
         said = str(complaint.value)
         assert "overview.writing" in said
-        assert str(other.pid) in said, (
+        assert str(other.interpreter_pid) in said, (
             "the refusal does not say which program is holding the images"
         )
         assert "a folder of its own" in said
