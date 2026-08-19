@@ -188,3 +188,78 @@ def test_the_slider_ranges_over_written_moments_and_grows(
         finally:
             page.close()
     print(f"screenshots kept at {shots}")
+
+
+def test_a_landing_moves_a_watcher_on_the_front_to_the_new_moment(
+    browser, built_dist, tmp_path
+):
+    """Watching the front means seeing each moment as it lands.
+
+    An operator sitting on the NEWEST written moment is watching the run
+    happen; when the next moment commits, the view advances to it on its
+    own, so the frame that just landed is the frame on screen. An operator
+    who stepped BACK in time is comparing something and is not moved -- a
+    landing that yanked the view forward mid-comparison would be the same
+    class of fault as the stale restore this file's first gate killed.
+    """
+    run = a_timelapse(tmp_path)
+    run.write_and_publish("posA", a_moment(800), timepoint=0)
+    run.write_and_publish("posB", a_moment(800), timepoint=0)
+    run.write_and_publish("posA", a_moment(2600), timepoint=1)
+    run.write_and_publish("posB", a_moment(2600), timepoint=1)
+
+    def moment_on_screen(page):
+        return page.evaluate("""() => {
+          const p = window.zmartViewer.navigationState.position;
+          const names = p.coordinateSpace.value.names;
+          const i = names.indexOf('t');
+          const lower = p.coordinateSpace.value.bounds.lowerBounds[i];
+          return p.value[i] - Math.ceil(lower);
+        }""")
+
+    with _serving(built_dist, run) as address:
+        page = browser.new_page(viewport={"width": 1200, "height": 900})
+        try:
+            _open(page, address, 4)
+            _wait_for_picture(page)
+            _settle(page)
+            slider = page.get_by_label("t position", exact=True)
+            # On the front: the newest written moment.
+            slider.fill("1")
+            _settle(page)
+            assert abs(moment_on_screen(page) - 1) <= 0.5
+
+            run.write_and_publish("posA", a_moment(4000), timepoint=2)
+            run.write_and_publish("posB", a_moment(4000), timepoint=2)
+            _wait_for_revision(page, 6)
+            page.wait_for_function("""() => {
+              const p = window.zmartViewer.navigationState.position;
+              const names = p.coordinateSpace.value.names;
+              const i = names.indexOf('t');
+              const lower = p.coordinateSpace.value.bounds.lowerBounds[i];
+              return Math.abs(p.value[i] - Math.ceil(lower) - 2) <= 0.5;
+            }""", timeout=15_000)
+            reading = page.get_by_label("t position value").text_content()
+            assert reading.startswith("3 / 3"), (
+                f"the watcher was on the front but reads {reading!r} after "
+                "the landing -- the slider did not follow"
+            )
+
+            # Stepped back in time: a landing must NOT move the view.
+            slider = page.get_by_label("t position", exact=True)
+            slider.fill("0")
+            _settle(page)
+            run.write_and_publish("posA", a_moment(6000), timepoint=3)
+            run.write_and_publish("posB", a_moment(6000), timepoint=3)
+            _wait_for_revision(page, 8)
+            page.wait_for_function(
+                """() => document.querySelector(
+                     'input[aria-label="t position"]')?.max === '3'""",
+                timeout=15_000,
+            )
+            assert abs(moment_on_screen(page)) <= 0.5, (
+                "the operator had stepped back to moment 0 and a landing "
+                "dragged them to the front"
+            )
+        finally:
+            page.close()

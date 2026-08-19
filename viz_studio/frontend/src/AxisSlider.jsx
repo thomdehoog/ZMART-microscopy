@@ -119,6 +119,27 @@ export default function AxisSlider({
     viewer.navigationState.position.value = moved;
   }, [viewer, axis, committedMoments]);
 
+  // A landing follows the watcher, never the other way round. An operator
+  // sitting on the NEWEST written moment is watching the run happen, so
+  // when the next moment commits the view advances to it -- the frame that
+  // just landed is the frame on screen. An operator who stepped back in
+  // time is comparing something and is not moved: dragging them forward
+  // mid-comparison would be the same class of fault as the stale restore
+  // the written-moments gate killed. "On the front" is within half a
+  // frame, the engine's own way of saying "on it".
+  const front = React.useRef(null);
+  React.useEffect(() => {
+    if (!viewer || !axis || !committedMoments?.length) return;
+    const newest = committedMoments[committedMoments.length - 1];
+    const was = front.current;
+    front.current = newest;
+    if (was == null || newest <= was) return;
+    if (Math.abs(axis.value - (axis.min + was)) > 0.5) return;
+    const moved = Float32Array.from(viewer.navigationState.position.value);
+    moved[axis.index] = axis.min + newest;
+    viewer.navigationState.position.value = moved;
+  }, [viewer, axis, committedMoments]);
+
   if (!axis) return null;
   // Never offer more steps than there is data for. A store is given its full
   // length in time when it is created, long before the run has produced that many
