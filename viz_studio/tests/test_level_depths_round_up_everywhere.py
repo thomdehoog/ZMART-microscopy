@@ -92,8 +92,11 @@ def test_the_writer_and_the_world_frame_agree_on_the_ceiling(
         "the writer sizes the whole overview by flooring the odd depth"
     )
 
-    # The viewer's world frame over the very same layout and profile.
-    frame = TheWorldFrame([], run.layout, run.profile)
+    # The viewer's world frame over the very same layout and profile. The
+    # run folder names WHICH run the remembered geometry belongs to (the
+    # cache-poisoning fix of 2026-08-19); the geometry itself still comes
+    # from the layout and profile alone.
+    frame = TheWorldFrame([], run.layout, run.profile, run=run.folder)
     assert frame.shape(1) == ceiling, (
         "the world frame disagrees with the ceiling rule"
     )
