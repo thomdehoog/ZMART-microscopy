@@ -588,12 +588,17 @@ def _the_plate_in(folder: Path) -> tuple[Path, dict] | None:
 def _read_the_plate(store: Path, plate: dict) -> list[Tile]:
     """Every field of every well, laid out from the plate's own indices.
 
-    A plate carries no stage translations: where a field belongs follows
-    from the well's row and column indices and the field's place in its
-    well. The fields of one well sit side by side in a square sub-grid;
-    wells step by their own extent plus a small gap. Each field is read by
-    the ordinary tile reader and then moved to its place, so past this
-    point a plate is just tiles.
+    Where a WELL belongs follows from the plate's row and column indices.
+    Where a FIELD belongs inside its well has two answers, and the writer
+    decides which: when the fields carry their own translations (their
+    corners differ), those places are kept exactly -- the microscope put
+    them there -- with the shared offset normalised away so the well's
+    content starts at its own cell. When the writer said nothing (every
+    corner alike, usually all zero), the fields go side by side in a
+    sub-grid as close to square as possible. Wells then step by the
+    largest well's actual extent plus a small gap, whichever way their
+    fields were placed. Each field is read by the ordinary tile reader
+    and moved to its place, so past this point a plate is just tiles.
     """
     wells = plate.get("wells") or []
     if not wells:
@@ -631,18 +636,51 @@ def _read_the_plate(store: Path, plate: dict) -> list[Tile]:
     field_h = sample.shape[-2] * sample.voxel_um[-2]
     field_w = sample.shape[-1] * sample.voxel_um[-1]
     across = math.ceil(math.sqrt(max(len(fields) for *_, fields in read)))
-    pitch_y = across * field_h * PLATE_WELL_GAP
-    pitch_x = across * field_w * PLATE_WELL_GAP
+
+    # Where each field sits WITHIN its well, and how much room the well
+    # needs. Recorded places win (see the docstring); the squarest grid is
+    # the fallback for wells whose corners are all alike.
+    def _the_well_laid_out(fields):
+        corners = [tuple(float(one) for one in tile.copies[0].corner_um[-2:])
+                   for tile in fields]
+        if len(set(corners)) > 1:
+            base_y = min(y for y, _ in corners)
+            base_x = min(x for _, x in corners)
+            offsets = [(y - base_y, x - base_x) for y, x in corners]
+        else:
+            offsets = [(down * field_h, along * field_w)
+                       for down, along in (divmod(number, across)
+                                           for number in range(len(fields)))]
+        height = max(off_y + tile.copies[0].shape[-2]
+                     * tile.copies[0].voxel_um[-2]
+                     for (off_y, _), tile in zip(offsets, fields,
+                                                 strict=True))
+        width = max(off_x + tile.copies[0].shape[-1]
+                    * tile.copies[0].voxel_um[-1]
+                    for (_, off_x), tile in zip(offsets, fields,
+                                                strict=True))
+        return offsets, height, width
+
+    laid = [(row, column, well_name, fields, *_the_well_laid_out(fields))
+            for row, column, well_name, fields in read]
+    # Wells step by the LARGEST well's extent plus a visible gap, per axis,
+    # so every well fits its cell whichever way its fields were placed.
+    pitch_y = max(height for *_, height, _ in laid) * PLATE_WELL_GAP
+    pitch_x = max(width for *_, width in laid) * PLATE_WELL_GAP
 
     tiles = []
-    for row, column, well_name, fields in read:
-        for number, tile in enumerate(fields):
-            down, along = divmod(number, across)
+    for row, column, well_name, fields, offsets, _, _ in laid:
+        for number, (tile, (off_y, off_x)) in enumerate(
+                zip(fields, offsets, strict=True)):
             tile.name = f"{well_name}-{number}"
+            # Moved by the same amount at every level: the target is where
+            # the FIRST copy must land, and the finer-to-coarser corner
+            # relationships each field already carries ride along.
+            move_y = row * pitch_y + off_y - tile.copies[0].corner_um[-2]
+            move_x = column * pitch_x + off_x - tile.copies[0].corner_um[-1]
             for copy in tile.copies:
                 z, y, x = copy.corner_um
-                copy.corner_um = (z, y + row * pitch_y + down * field_h,
-                                  x + column * pitch_x + along * field_w)
+                copy.corner_um = (z, y + move_y, x + move_x)
             tiles.append(tile)
     return tiles
 
