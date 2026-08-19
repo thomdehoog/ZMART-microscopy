@@ -113,9 +113,8 @@ def main() -> None:
     parsed.add_argument("--fixtures", type=Path, default=Path("/tmp"))
     arguments = parsed.parse_args()
 
-    from playwright.sync_api import sync_playwright
-
     from conftest import find_a_chromium
+    from playwright.sync_api import sync_playwright
 
     built = HERE.parent / "frontend" / "dist"
     print("| positions | offered s | followed s | worst followed s |")
