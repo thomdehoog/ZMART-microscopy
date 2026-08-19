@@ -269,13 +269,18 @@ class TestTheSpiralWithColoursAndMoments:
             "the grown description must carry the profile's (t, c) room"
         )
 
-        # The bake stays flat-only until the per-(t, c) bake lands, and
-        # says so rather than freezing one frame over every other.
+        # The bake takes the grown room too, one file per (moment, channel)
+        # frame -- this used to be a refusal, retired when the per-(t, c)
+        # bake landed (its own gates live in
+        # test_a_grown_run_is_baked_per_commit; here we only pin that the
+        # door is open and leaves the stamp of a finished bake).
         run.write_and_publish(f"p{0:0{width}d}{0:0{width}d}",
                               self.coloured_frame(1000), timepoint=0)
-        with pytest.raises(Exception, match="bake"):
-            declare_a_governed_picture(run.folder / "views" / "baked",
-                                       run.folder, name="live", bake=True)
+        baked = declare_a_governed_picture(run.folder / "views" / "baked",
+                                           run.folder, name="live", bake=True)
+        assert (baked / "baked.json").is_file(), (
+            "a grown run's bake must finish and stamp itself like a flat one"
+        )
 
 
 # ---------------------------------------------------------------------------
