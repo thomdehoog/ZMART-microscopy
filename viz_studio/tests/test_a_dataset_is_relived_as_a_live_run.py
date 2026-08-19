@@ -426,6 +426,76 @@ def test_a_replay_is_watchable_without_any_clicks(browser, built_dist,
         thread.join(timeout=5)
 
 
+def test_a_replay_can_be_stopped_from_the_window(browser, built_dist,
+                                                 tmp_path):
+    """The other tab offers Stop while a replay runs, and it works.
+
+    The window closes when a replay starts (the operator is watching the
+    tiles land), so the stop lives where they would go looking: reopening
+    the window on the other tab shows that a replay is running, how far it
+    is, and a Stop button. Pressing it ends the landings after the
+    position in flight; what landed stays on screen. The Replay button is
+    held disabled meanwhile, saying why a second replay must wait.
+    """
+    first = tmp_path / "overview"
+    first.mkdir()
+    from test_open_and_close import _store
+    _store(first / "overview_pos001.ome.zarr", channels=1)
+    scan = _a_grid_scan(tmp_path / "rehearsal", across=4)
+    server = make_server(port=0, data_dir=first, site_dir=built_dist,
+                         store="overview_pos001.ome.zarr")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1300, "height": 1000})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                  wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined",
+                               timeout=30_000)
+        page.get_by_label("open images").click()
+        window = page.get_by_role("dialog", name="load data")
+        window.wait_for(timeout=10_000)
+        page.get_by_label("other", exact=True).click()
+        box = page.get_by_label("folder path")
+        box.fill(str(tmp_path))
+        box.press("Enter")
+        window.get_by_label("rehearsal", exact=True).wait_for(timeout=10_000)
+        window.get_by_label("rehearsal", exact=True).click()
+        page.get_by_label("replay as a live run").click()
+        page.wait_for_function(
+            "() => window.zmartConfig.groups.includes('rehearsal replay')",
+            timeout=30_000)
+        # The window closed itself; the operator goes back for the stop.
+        page.get_by_label("open images").click()
+        window.wait_for(timeout=10_000)
+        page.get_by_label("other", exact=True).click()
+        stop = page.get_by_label("stop the replay")
+        stop.wait_for(timeout=10_000)
+        assert page.get_by_label("replay as a live run").is_disabled(), (
+            "while a replay runs, starting another must wait"
+        )
+        stop.click()
+        page.wait_for_function("""async () => {
+            const r = await fetch('/api/stores/replay-status',
+                {method: 'POST',
+                 headers: {'Content-Type': 'application/json'}, body: '{}'});
+            const told = await r.json();
+            return told.state === 'cancelled';
+        }""", timeout=30_000)
+        landed = [one for one
+                  in (scan / "replays" / "replay-1" / "data"
+                      / "survey.ome.zarr").iterdir()
+                  if one.is_dir() and one.name.startswith("pos")]
+        assert 1 <= len(landed) < 16, (
+            f"a stopped replay should hold some but not all positions; "
+            f"found {len(landed)}"
+        )
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def _post(address: str, route: str, payload: dict) -> tuple[int, dict]:
     """One JSON request straight to the server, no browser in between."""
     import urllib.error

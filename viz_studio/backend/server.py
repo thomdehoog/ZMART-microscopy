@@ -37,6 +37,7 @@ import math
 import os
 import queue
 import re
+import shutil
 import socket
 import sys
 import tempfile
@@ -180,6 +181,16 @@ def group_labels(datasets) -> dict[int, str]:
 # viewer asks for several quite different things down one address — the page, the
 # image, and a handful of short questions in JSON — and its own sections say which
 # is which.
+
+
+class _StoppedByTheOperator(Exception):
+    """Raised inside a build or replay loop when the operator asked to stop.
+
+    Raised from the progress callback -- the one place both loops already
+    visit between steps -- so the step in flight always finishes whole and
+    the unwinding reaches the door, which knows what a stopped job of its
+    kind leaves behind.
+    """
 
 
 class _Handler(SimpleHTTPRequestHandler):
@@ -1004,8 +1015,10 @@ class _Handler(SimpleHTTPRequestHandler):
             "/api/stores/list",
             "/api/stores/construct",
             "/api/stores/construct-status",
+            "/api/stores/construct-cancel",
             "/api/stores/replay",
             "/api/stores/replay-status",
+            "/api/stores/replay-cancel",
             "/api/annotations",
             "/api/announce",
         }:
@@ -1017,8 +1030,10 @@ class _Handler(SimpleHTTPRequestHandler):
         # answerable either way -- it is the doorway a smart-microscopy
         # workflow uses to say what should be shown, button or no button.
         if route in ("/api/stores/list", "/api/stores/construct",
-                     "/api/stores/construct-status", "/api/stores/replay",
-                     "/api/stores/replay-status") and not self._allow_open:
+                     "/api/stores/construct-status",
+                     "/api/stores/construct-cancel", "/api/stores/replay",
+                     "/api/stores/replay-status",
+                     "/api/stores/replay-cancel") and not self._allow_open:
             self._send_json({"error": "opening by hand is switched off here"},
                             HTTPStatus.NOT_FOUND)
             return
@@ -1040,10 +1055,14 @@ class _Handler(SimpleHTTPRequestHandler):
             self._serve_construct(payload)
         elif route == "/api/stores/construct-status":
             self._send_json(dict(self._bake_job) or {"state": "idle"})
+        elif route == "/api/stores/construct-cancel":
+            self._serve_cancel(self._bake_job)
         elif route == "/api/stores/replay":
             self._serve_replay(payload)
         elif route == "/api/stores/replay-status":
             self._send_json(dict(self._replay_job) or {"state": "idle"})
+        elif route == "/api/stores/replay-cancel":
+            self._serve_cancel(self._replay_job)
         elif route == "/api/announce":
             self._serve_announcement(payload)
         else:
@@ -1173,6 +1192,20 @@ class _Handler(SimpleHTTPRequestHandler):
                 "name": store.name.removesuffix(".ome.zarr"),
                 "baked": bool(ours.get("baked"))}
 
+    def _serve_cancel(self, job: dict) -> None:
+        """Ask the running build or replay to stop at its next step.
+
+        Cooperative, never forceful: the flag is read between rows of a
+        bake and between positions of a replay, so the step in flight
+        finishes whole and no file is torn mid-write. Stopping when
+        nothing runs is not an error -- the operator's wish is already
+        true, and the answer says so plainly.
+        """
+        running = job.get("state") == "running"
+        if running:
+            job["stop"] = True
+        self._send_json({"stopping": running})
+
     def _serve_construct(self, payload: object) -> None:
         """Construct a viewer over raw data, in the background, then open it.
 
@@ -1229,6 +1262,8 @@ class _Handler(SimpleHTTPRequestHandler):
         viewer_path = Path(viewer.strip()).expanduser()
 
         def told(done, total):
+            if job.get("stop"):
+                raise _StoppedByTheOperator()
             job["fraction"] = round(done / max(total, 1), 4)
 
         def work():
@@ -1242,6 +1277,16 @@ class _Handler(SimpleHTTPRequestHandler):
                 # the ordinary way to prepare.
                 job.update({"state": "done", "fraction": 1.0,
                             "store": str(store)})
+            except _StoppedByTheOperator:
+                # A stopped build keeps nothing: the scene's description is
+                # written after its bake, so what exists at this point is
+                # pieces without a description -- not a scene, and leaving
+                # it would let a half-made folder be quietly picked up
+                # later. Building again is the way to have it.
+                shutil.rmtree(
+                    viewer_path / f"{name or data_path.name}.ome.zarr",
+                    ignore_errors=True)
+                job.update({"state": "cancelled"})
             except Exception as why:  # noqa: BLE001 -- shown to the operator whole
                 job.update({"state": "error", "error": str(why)})
 
@@ -1300,6 +1345,8 @@ class _Handler(SimpleHTTPRequestHandler):
             job["done"], job["total"] = done, total
             if done >= 1:
                 first_landed.set()
+            if job.get("stop"):
+                raise _StoppedByTheOperator()
 
         def work():
             try:
@@ -1308,6 +1355,12 @@ class _Handler(SimpleHTTPRequestHandler):
                     announce=lambda: announcements.say_something_changed(
                         image_written_in_place=True))
                 job.update({"state": "done", "view": str(view)})
+            except _StoppedByTheOperator:
+                # What landed stays: the replay's run is a real run and its
+                # committed positions are already whole on disk, so stopping
+                # simply ends the landings. The numbered folder is kept, and
+                # a later replay takes the next number.
+                job.update({"state": "cancelled"})
             except Exception as why:  # noqa: BLE001 -- shown to the operator whole
                 job.update({"state": "error", "error": str(why)})
             finally:

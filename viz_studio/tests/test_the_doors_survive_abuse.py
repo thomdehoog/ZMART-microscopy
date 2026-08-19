@@ -182,6 +182,107 @@ class TestTheOpenDoor:
 
 
 class TestTheDoorsTogether:
+    def test_stopping_when_nothing_runs_is_not_an_error(self, door):
+        """A stop with nothing running is already true, not a fault."""
+        address, _ = door
+        for route in ("/api/stores/construct-cancel",
+                      "/api/stores/replay-cancel"):
+            status, answer = _post(address, route, {})
+            assert status == 200, (route, status, answer)
+            assert answer == {"stopping": False}
+
+    def test_a_replay_stopped_mid_flight_leaves_a_run_that_opens(self, door):
+        """Stopping a replay keeps what landed, and it still opens cleanly.
+
+        The stop is cooperative -- the position in flight finishes -- so
+        the run on disk is a real run whose committed positions are all
+        whole. The gate opens the stopped run's live view through the
+        ordinary door and then starts a second replay, which must take its
+        own numbered folder rather than trip over the stopped one.
+        """
+        address, folder = door
+        scan = _a_grid_scan(folder / "unhurried", across=4)
+        status, _ = _post(address, "/api/stores/replay",
+                          {"path": str(scan), "every": 0.5})
+        assert status == 200
+        status, answer = _post(address, "/api/stores/replay-cancel", {})
+        assert status == 200 and answer == {"stopping": True}
+        for _ in range(100):
+            _, told = _post(address, "/api/stores/replay-status", {})
+            if told.get("state") != "running":
+                break
+            time.sleep(0.1)
+        assert told["state"] == "cancelled", told
+        assert 1 <= told["done"] < 16, told
+        status, _ = _post(address, "/api/stores/open", {
+            "path": str(scan / "replays" / "replay-1" / "views" / "live"
+                        / "live.ome.zarr")})
+        assert status == 200, "the stopped run's view must open cleanly"
+        status, _ = _post(address, "/api/stores/replay",
+                          {"path": str(scan), "every": 0.0})
+        assert status == 200, "a stopped replay must not block the next one"
+        for _ in range(300):
+            _, told = _post(address, "/api/stores/replay-status", {})
+            if told.get("state") != "running":
+                break
+            time.sleep(0.1)
+        assert told["state"] == "done"
+        assert (scan / "replays" / "replay-2").is_dir()
+
+    def test_a_build_stopped_mid_bake_keeps_nothing(self, door):
+        """Stopping a build removes the half-made scene, whole.
+
+        The scene's description is written after its bake, so a stopped
+        build's folder holds pieces without a description -- not a scene,
+        and leaving it would let it be quietly picked up later. It goes,
+        and the door is immediately free for a fresh build.
+        """
+        address, folder = door
+        scan = _a_grid_scan(folder / "big", across=8)
+        status, _ = _post(address, "/api/stores/construct",
+                          {"path": str(scan),
+                           "viewer_folder": str(folder / "scenes"),
+                           "bake": True})
+        assert status == 200
+        caught_running = False
+        for _ in range(2000):
+            _, told = _post(address, "/api/stores/construct-status", {})
+            if (told.get("state") == "running"
+                    and 0 < told.get("fraction", 0) < 1):
+                caught_running = True
+                status, answer = _post(address,
+                                       "/api/stores/construct-cancel", {})
+                assert status == 200 and answer == {"stopping": True}
+                break
+            if told.get("state") in ("done", "error"):
+                break
+            time.sleep(0.005)
+        if not caught_running:
+            pytest.skip("the bake finished before a stop could land, so "
+                        "there was nothing to stop on this machine")
+        for _ in range(200):
+            _, told = _post(address, "/api/stores/construct-status", {})
+            if told.get("state") != "running":
+                break
+            time.sleep(0.05)
+        assert told["state"] == "cancelled", told
+        assert not (folder / "scenes" / "big.ome.zarr").exists(), (
+            "a stopped build must keep nothing -- pieces without a "
+            "description are not a scene"
+        )
+        status, _ = _post(address, "/api/stores/construct",
+                          {"path": str(scan),
+                           "viewer_folder": str(folder / "scenes"),
+                           "bake": False})
+        assert status == 200, "a stopped build must not block the next one"
+        for _ in range(300):
+            _, told = _post(address, "/api/stores/construct-status", {})
+            if told.get("state") != "running":
+                break
+            time.sleep(0.1)
+        assert told["state"] == "done"
+        assert (folder / "scenes" / "big.ome.zarr" / "zarr.json").is_file()
+
     def test_a_build_and_a_replay_can_run_at_once(self, door):
         """The two jobs are separate machines and must not trip each other."""
         address, folder = door

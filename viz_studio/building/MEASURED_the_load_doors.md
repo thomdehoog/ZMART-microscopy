@@ -67,7 +67,13 @@ What the table says:
   hands-off gate: press Replay, touch nothing, and a healthy share of the
   canvas must light up with the landing tiles.
 - **A running build or replay cannot be cancelled** from the window; the
-  only path is waiting it out. Open.
+  only path was waiting it out. FIXED with the stop chapter: both doors
+  take a cooperative stop (`construct-cancel` / `replay-cancel`), read
+  between steps so nothing is torn mid-write. A stopped build removes its
+  half-made scene whole (pieces without a description are not a scene); a
+  stopped replay keeps what landed, which is a real run that still opens.
+  The window offers Stop beside the progress bar and on the other tab
+  while a replay runs. Pinned by the abuse battery and two browser gates.
 - **A plate store selected on the view/other tab** opens through the plain
   library door rather than the plate layout; the build tab handles plates
   properly (select the folder holding the plate). Open; rung 2 of the

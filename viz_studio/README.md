@@ -123,7 +123,9 @@ folder…** button opens the system's chooser where one is available.
   acquired, every position of one moment and then the next, so the time
   slider grows on screen and the view follows each new moment as it lands.
   The replay writes a real run into a `replays` folder beside the dataset,
-  so it can be opened again later.
+  so it can be opened again later. A running build or replay can be
+  stopped from this window: a stopped build keeps nothing, and a stopped
+  replay keeps what landed.
 - **Put the controls on the left** with `--panel-side left`, if that side is easier
   to reach at your microscope.
 - **Show the selection list** with `--select` if you want to mark places.
