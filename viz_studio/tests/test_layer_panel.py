@@ -317,53 +317,36 @@ def test_the_bars_on_screen_are_the_brightness_the_server_measured(two_channel_p
     ], "the empty bins on screen are not the ones the measurement found empty"
 
 
-def test_the_contrast_handles_travel_over_the_brightness_that_is_really_there(
-    two_channel_page,
-):
-    """The min and max sliders must be usable, not merely present.
+def test_the_contrast_axis_runs_to_the_cameras_whole_range(two_channel_page):
+    """The histogram and the handles run to the camera's full range.
 
-    This is the one control in the panel that is judged by feel rather than by
-    whether it works, and it is worth a test because "works" and "usable" came
-    apart badly here once. The handles used to travel over the whole range a
-    16-bit camera can produce, nought to 65535. Every one of them still moved, and
-    every window still reached the engine — so nothing in the suite noticed. But a
-    real acquisition occupies a narrow band of that range, a few hundred counts of
-    background with the signal just above, and across a track a few centimetres
-    wide the whole useful part was about two pixels of travel. One pixel of
-    movement jumped the brightness by hundreds of counts. In practice the only
-    control anybody could use was the Auto button.
-
-    So the track is taken from the spread of brightness the server measured, with
-    room to spare at each end. What is checked here is that it really is: the
-    distance the handles may travel has to be of the order of the measured spread
-    rather than of the camera's whole range.
-
-    The demo volume sits in a few thousand counts, so a track that still ran to
-    65535 would be more than ten times too wide — which is why a generous factor
-    of four is enough to tell the two apart, and keeps this from being a test about
-    the exact amount of room left at the ends.
+    This reverses an earlier decision, and both were the same operator's.
+    The track was once pinned to the measured spread, because a narrow
+    signal on a 65,535-count track left two pixels of useful travel and
+    only the Auto button was usable. At the workstation (2026-08-19) the
+    same operator asked for the full range back: where the data sits
+    inside the camera's range is the headroom-before-saturation reading a
+    histogram exists to give, and the Log axis now spreads the dim end
+    out, which is what makes the wide track workable. The server says the
+    range (the store's own number type), so a float store without a
+    natural ceiling keeps the measured span.
     """
-    measured = two_channel_page.evaluate(
-        "() => window.zmartConfig.layers[0].histogram"
+    told = two_channel_page.evaluate(
+        "() => window.zmartConfig.layers[0].range"
     )
-    spread = measured["high"] - measured["low"]
-    assert spread > 0, "the demo volume must have some spread to measure"
-
+    assert told == {"low": 0.0, "high": 65535.0}, (
+        "the server must say the camera's range for a uint16 store"
+    )
     track = two_channel_page.evaluate(
         """() => {
           const handle = document.querySelector("[aria-label='min Ch488']");
           return { min: Number(handle.min), max: Number(handle.max) };
         }"""
     )
-    room = track["max"] - track["min"]
-    assert room < spread * 4, (
-        f"the handles travel over {room:.0f} counts while the brightness in this "
-        f"channel spans {spread:.0f}, so the useful part of the track is a few "
-        "pixels wide and only the Auto button is any use"
-    )
-    assert room >= spread, (
-        f"the handles travel over only {room:.0f} counts while the brightness "
-        f"spans {spread:.0f}, so part of the measured range cannot be reached"
+    assert track["min"] == 0
+    assert track["max"] >= 65535, (
+        f"the handles travel to {track['max']} while the camera can write "
+        "65,535 -- the headroom before saturation is off the axis"
     )
 
 
@@ -399,11 +382,21 @@ def test_the_saturation_bars_in_the_histogram_can_be_dragged(two_channel_page):
     before = _window_in_engine(page)
     box = page.locator("[aria-label='histogram Ch488']").bounding_box()
     middle = box["y"] + box["height"] / 2
+    # The box spans the camera's whole range now, not the window, so where a
+    # bar sits on screen follows from its value's place on that axis.
+    axis = page.evaluate(
+        "() => Number(document.querySelector(\"[aria-label='min Ch488']\").max)"
+    )
+    def across(value):
+        return box["x"] + box["width"] * (value / axis)
+
+    low0, high0 = before
+    reach = (high0 - low0) * 0.3
 
     # Take hold near the left bar and pull right: the floor rises.
-    page.mouse.move(box["x"] + box["width"] * 0.05, middle)
+    page.mouse.move(across(low0 + reach * 0.05), middle)
     page.mouse.down()
-    page.mouse.move(box["x"] + box["width"] * 0.4, middle, steps=6)
+    page.mouse.move(across(low0 + reach), middle, steps=6)
     page.mouse.up()
     page.wait_for_timeout(600)
     lifted = _window_in_engine(page)
@@ -415,9 +408,9 @@ def test_the_saturation_bars_in_the_histogram_can_be_dragged(two_channel_page):
     )
 
     # And the other side: take hold near the right bar and pull left.
-    page.mouse.move(box["x"] + box["width"] * 0.95, middle)
+    page.mouse.move(across(high0 - reach * 0.05), middle)
     page.mouse.down()
-    page.mouse.move(box["x"] + box["width"] * 0.6, middle, steps=6)
+    page.mouse.move(across(high0 - reach), middle, steps=6)
     page.mouse.up()
     page.wait_for_timeout(600)
     lowered = _window_in_engine(page)
@@ -440,12 +433,20 @@ def test_the_histogram_dims_the_brightness_outside_the_window(two_channel_page):
     """
     page = two_channel_page
     # Push the black point well into the distribution, so bars exist on both
-    # sides of it.
+    # sides of it. The box spans the camera's whole range, so the drag's
+    # coordinates come from values, not from fractions of the box.
     box = page.locator("[aria-label='histogram Ch488']").bounding_box()
     middle = box["y"] + box["height"] / 2
-    page.mouse.move(box["x"] + box["width"] * 0.05, middle)
+    axis = page.evaluate(
+        "() => Number(document.querySelector(\"[aria-label='min Ch488']\").max)"
+    )
+    hist = page.evaluate("() => window.zmartConfig.layers[0].histogram")
+    low0 = _window_in_engine(page)[0]
+    def across(value):
+        return box["x"] + box["width"] * (value / axis)
+    page.mouse.move(across(low0 + (hist["high"] - low0) * 0.02), middle)
     page.mouse.down()
-    page.mouse.move(box["x"] + box["width"] * 0.5, middle, steps=6)
+    page.mouse.move(across((hist["low"] + hist["high"]) / 2), middle, steps=6)
     page.mouse.up()
     page.wait_for_timeout(600)
 
@@ -505,13 +506,25 @@ def test_the_histogram_axis_can_be_switched_between_linear_and_log(two_channel_p
     )
 
     # The bars still drag correctly under the warped axis: the engine's
-    # window moves, through the log mapping and back.
+    # window moves, through the log mapping and back. The box spans the
+    # camera's whole range, so where a value sits follows the log warp.
+    import math
+
     before = _window_in_engine(page)
     box = page.locator("[aria-label='histogram Ch488']").bounding_box()
     middle = box["y"] + box["height"] / 2
-    page.mouse.move(box["x"] + box["width"] * 0.05, middle)
+    # The axis comes from the server's word, not from the slider element: on
+    # the log scale the element counts a thousand warped steps, and reading
+    # its max as brightness put the drag outside the box entirely.
+    axis = page.evaluate("() => window.zmartConfig.layers[0].range.high")
+    hist = page.evaluate("() => window.zmartConfig.layers[0].histogram")
+    def warped(value):
+        return box["x"] + box["width"] * (
+            math.log1p(max(0.0, value)) / math.log1p(axis))
+    page.mouse.move(warped(before[0] + (hist["high"] - before[0]) * 0.02), middle)
     page.mouse.down()
-    page.mouse.move(box["x"] + box["width"] * 0.5, middle, steps=6)
+    page.mouse.move(warped(before[0] + (hist["high"] - before[0]) * 0.5),
+                    middle, steps=6)
     page.mouse.up()
     page.wait_for_timeout(600)
     assert _window_in_engine(page)[0] > before[0]
@@ -553,18 +566,19 @@ def test_the_numbers_beside_the_sliders_can_be_typed_into(two_channel_page):
     assert box.input_value() != "1234", "sliding must update the number box"
 
 
-def test_a_lit_auto_with_nothing_to_restore_says_so(browser, built_dist,
-                                                    tmp_path):
-    """A run that declared no window rests on the measured one, Auto lit.
+def test_a_lit_auto_turns_off_to_the_cameras_whole_range(browser, built_dist,
+                                                         tmp_path):
+    """A run that declared no window rests on the measured one, Auto lit --
+    and clicking the lit light spreads the window over the camera's range.
 
-    The lit light means "the window is the measured one", and clicking it
-    puts back the window the run itself declared. A run that declared
-    nothing is SERVED the measured window as its window, so the lit button
-    used to offer a toggle between two equal values: clicking it visibly
-    did nothing, and the operator reasonably reported a button that cannot
-    be un-clicked (found with a real 336-well plate, 2026-08-19). With
-    nothing to restore the button now rests disabled, and its tooltip says
-    the run declared no other window.
+    The light means "the window is the measured one". Clicking it off puts
+    back the window the run declared; a run that declared nothing has no
+    such window, and for a while the button then rested disabled -- which
+    the operator met as a button that cannot be un-clicked. Off now means
+    what it does everywhere else in microscopy: everything shown, nothing
+    clipped, the window spread over the whole range the camera can write
+    (asked for at the workstation, 2026-08-19). Auto lights again on the
+    next click, so the two states genuinely toggle.
     """
     import json
 
@@ -608,12 +622,97 @@ def test_a_lit_auto_with_nothing_to_restore_says_so(browser, built_dist,
             "with no declared window the channel rests on the measured one, "
             "so the light must be on"
         )
-        assert auto.is_disabled(), (
-            "lit with nothing to restore, the button must rest rather than "
-            "offer a toggle between two equal windows"
+        assert auto.is_enabled(), (
+            "the lit light must offer its off state: the camera's whole range"
         )
-        assert "declared no other" in (auto.get_attribute("title") or ""), (
-            "the tooltip must say why there is nothing to click"
+        auto.click()
+        page.wait_for_timeout(600)
+        spread = page.evaluate("() => window.zmartLayerState[0].window")
+        assert spread == {"low": 0, "high": 65535}, (
+            f"Auto off must spread the window over the camera's range, "
+            f"not {spread}"
+        )
+        assert auto.get_attribute("aria-pressed") == "false", (
+            "spread over the camera's range, the window is no longer the "
+            "measured one, so the light goes out"
+        )
+        auto.click()
+        page.wait_for_timeout(600)
+        assert auto.get_attribute("aria-pressed") == "true", (
+            "clicking again re-applies the measurement: a true toggle"
+        )
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_channels_of_one_picture_blend_like_light(browser, built_dist,
+                                                  tmp_path):
+    """Channel rows of one picture sum additively; stitched rows still cover.
+
+    On a real four-channel plate the top channel's coverage alpha hid the
+    other three completely -- recolouring them changed not one pixel -- so
+    the operator asked for the merge every fluorescence viewer does:
+    channels sum like light (2026-08-19). Additive is safe exactly when a
+    row has ONE source. The engine blends each source as its own pass, so
+    a row stitched from many tiles would sum its overlaps into bright
+    seams -- the recorded reason additive was once rejected -- and such
+    rows must keep the covering rule, including a live row that started
+    as one source and grew.
+    """
+    from test_a_dataset_is_relived_as_a_live_run import _post
+    from test_open_and_close import _store
+
+    channels = tmp_path / "twochannel"
+    channels.mkdir()
+    _store(channels / "overview_pos001.ome.zarr", channels=2)
+    stitched = tmp_path / "stitched"
+    stitched.mkdir()
+    _store(stitched / "overview_pos001.ome.zarr", channels=1)
+    _store(stitched / "overview_pos002.ome.zarr", channels=1)
+    server = make_server(port=0, data_dir=channels, site_dir=built_dist,
+                         store="overview_pos001.ome.zarr")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1200, "height": 900})
+    try:
+        address = f"http://127.0.0.1:{server.server_address[1]}"
+        page.goto(address, wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined",
+                               timeout=30_000)
+        status, _ = _post(address, "/api/stores/open", {"path": str(stitched)})
+        assert status == 200
+        page.wait_for_function(
+            "() => window.zmartConfig.groups.includes('stitched')",
+            timeout=30_000)
+        page.wait_for_timeout(800)
+        blends = page.evaluate("""() => {
+            const said = {};
+            for (const m of window.zmartViewer.layerManager.managedLayers) {
+              if (m.layer?.type !== 'image') continue;
+              const sources = (m.layer.dataSources || []).length;
+              said[m.name] = {sources, blend: m.layer.blendMode.value};
+            }
+            return said;
+        }""")
+        # BLEND_MODES: 0 is the covering default, 1 is additive.
+        for name, told in blends.items():
+            if told["sources"] == 1:
+                assert told["blend"] == 1, (
+                    f"{name} is one source and must blend additively, so "
+                    "every channel of the picture reaches the screen"
+                )
+            else:
+                assert told["blend"] == 0, (
+                    f"{name} is stitched from {told['sources']} sources and "
+                    "must keep the covering rule, or tile overlaps sum into "
+                    "bright seams"
+                )
+        kinds = {told["sources"] > 1 for told in blends.values()}
+        assert kinds == {True, False}, (
+            f"the gate needs both a single-source and a stitched row to "
+            f"mean anything; saw {blends}"
         )
     finally:
         page.close()

@@ -308,6 +308,17 @@ export function layersFor(config, mode, layerState, groupState, groupOrder,
       return layer;
     }
     layer.shader = shaderFor(color, volumetric, lut);
+    // Channels of one composed picture sum like light -- the additive merge
+    // every fluorescence viewer does -- so recolouring any channel shows,
+    // not only the topmost (on a real four-channel plate the top channel's
+    // coverage alpha hid the other three completely, 2026-08-19). Additive
+    // is safe exactly when a row has ONE source: the engine blends each
+    // source as its own pass, so a row stitched from many tiles would sum
+    // its overlaps into bright seams -- the recorded reason additive was
+    // once rejected -- and such rows keep the covering rule.
+    if ((spec.sources || [spec.source]).length === 1) {
+      layer.blend = "additive";
+    }
     const controls = shaderControlsFor(displayWindow, volumetric, opacity,
                                        volume.attenuation ?? 0);
     if (controls) layer.shaderControls = controls;

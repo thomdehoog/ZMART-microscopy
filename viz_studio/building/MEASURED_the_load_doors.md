@@ -285,6 +285,40 @@ anything, all three run to ground the same evening:
   for. One patience for both now; the suite's end-to-end read off the
   real share passes in ~90 s here.
 
+The operator then drove the served plate and asked for three changes,
+all landed the same night (the fourth finding was the browser page's
+folder chooser):
+
+- **Channels of one picture sum like light.** The compositing chapter
+  closed the day it opened: the operator confirmed the additive merge
+  every fluorescence viewer does is what they expect. Additive is set
+  exactly where it is safe -- rows with ONE source, which is every
+  composed picture -- and rows stitched from many tiles keep the
+  covering rule (their overlaps would sum into bright seams, the
+  recorded reason additive was once rejected). The blend travels with
+  every settings write, so a live row that grows past one source falls
+  back to covering. Seen on the real plate: green monolayer, nuclei
+  white-pink where the magenta channel adds, and with all four white
+  channels visible the sum honestly clips -- windows are the remedy,
+  as in napari. Pinned by test_channels_of_one_picture_blend_like_light.
+- **The brightness axis runs to the camera's whole range.** This
+  reverses the handles-stay-near-the-data rule, and both decisions were
+  the same operator's: the headroom-before-saturation reading is what a
+  histogram is for, and the Log axis now makes the wide track workable.
+  The server says each layer's range from the store's own number type
+  (contrast.camera_range); floats keep the measured span. The histogram
+  draws its measured bins at their true place on the wider axis.
+- **Auto is a true toggle.** Off spreads the window over the camera's
+  whole range -- everything shown, nothing clipped -- unless the run
+  declared its own window, which then comes back. Verified on the real
+  plate: off to (0, 65535), light out; on re-applies the measurement.
+- **A browser-served page gets a real folder chooser.** The viewer
+  binds to localhost, so whoever sees the page sits at this machine --
+  and ask_this_machine_for_a_folder opens the desktop's own dialog for
+  it (the launcher's no-native-window fallback uses it too). Before,
+  the page asked the operator to type paths by hand, which read as a
+  viewer with mock capabilities.
+
 The `settled` column of the raw run (five seconds at every rung) is a
 fixed four-second wait inside the instrument plus readiness, kept out of
 the table above because it measures the harness, not the viewer.
