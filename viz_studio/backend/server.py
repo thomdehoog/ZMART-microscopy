@@ -1322,8 +1322,15 @@ class _Handler(SimpleHTTPRequestHandler):
             # Named after the dataset, not after the view's own file -- a
             # heading saying "live" tells the operator nothing about WHAT is
             # being relived, and two replays side by side would collide.
+            # Opened at the RUN root so the live registry binds it and the
+            # replay is served exactly as an acquisition would be: the
+            # governed picture, a time slider that offers only the moments
+            # already written, and the view following the front as they
+            # land. Opening the view's own store instead would serve it as
+            # an ordinary folder, and a timelapse replay would offer its
+            # whole declared time room before any of it had landed.
             self._library.open(
-                str(run_folder / "views" / "live" / "live.ome.zarr"),
+                str(run_folder), names=["views/live/live.ome.zarr"],
                 name=f"{data_path.name} replay")
         except (FileNotFoundError, ValueError, OSError) as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
