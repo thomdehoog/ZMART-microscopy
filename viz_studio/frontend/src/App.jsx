@@ -103,7 +103,9 @@ async function tryNativeChooser() {
     const response = await fetch("/api/browse", { method: "POST" });
     const answer = await response.json().catch(() => null);
     if (answer?.cancelled) return { cancelled: true };
-    if (response.ok && answer?.path) return { path: answer.path };
+    if (response.ok && answer?.path) {
+      return { path: answer.path, parent: answer.parent };
+    }
   } catch {
     // fall through to the in-page window
   }
@@ -501,8 +503,9 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
               if (chosen.path) {
                 // Land on the parent: the picked folder then sits in the
                 // list as an ordinary row, wearing its own Open button.
-                const path = chosen.path.replace(/\/+$/, "");
-                navigate(path.slice(0, path.lastIndexOf("/")) || "/");
+                // The parent is the server's word, never worked out here:
+                // slicing at "/" mangled every Windows path.
+                navigate(chosen.parent || chosen.path);
               } else if (chosen.window) {
                 setOpenError(
                   "no system folder chooser here — type a path above or walk the folders below");

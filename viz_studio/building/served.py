@@ -392,6 +392,47 @@ def the_bytes_behind(store: Path, inside: str) -> bytes | None:
         ) from problem
 
 
+def a_sample_behind(store: Path, channel: int = 0):
+    """A built picture's pixels for measuring: the composer's own coarsest ground.
+
+    A built picture holds no files a brightness measurement could read, and
+    it used to open at the camera's full range -- a real 336-well plate as a
+    near-black grid. Its pixels are one ask away: the composer makes the
+    coarsest level's pieces in milliseconds, and the pieces nearest the
+    middle of the field are asked first, until one holds specimen. One piece
+    is an honest sample, the same standing a live picture's member sample
+    has; the caller marks it as one to take again.
+
+    Returns the piece's values, or ``None`` when this is not a built picture
+    or nothing composed holds specimen at this channel.
+    """
+    held = _composer_for(Path(store))
+    if held is None:
+        return None
+    try:
+        composer = (held.composer()
+                    if GovernedRun is not None and isinstance(held, GovernedRun)
+                    else held)
+        level = composer.mosaic.levels - 1
+        deep, down, across = composer.grid(level)
+        moments, channels = composer.mosaic.frame_room
+        if not 0 <= channel < channels:
+            return None
+        middle = (down // 2, across // 2)
+        nearby = sorted(
+            ((row, column) for row in range(down) for column in range(across)),
+            key=lambda at: abs(at[0] - middle[0]) + abs(at[1] - middle[1]))
+        for row, column in nearby[:9]:
+            piece = composer.values_for(level, deep // 2, row, column,
+                                        moment=0, channel=channel)
+            if piece is not None:
+                return piece
+    except Exception:
+        log.exception("the picture behind %s could not be sampled for "
+                      "measuring; it will open unmeasured", store)
+    return None
+
+
 def forget(store: Path) -> None:
     """Let go of a built picture, closing the tiles it was holding open.
 

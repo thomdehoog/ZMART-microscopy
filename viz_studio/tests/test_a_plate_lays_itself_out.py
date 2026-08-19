@@ -108,6 +108,26 @@ def test_a_plate_lays_its_wells_on_the_plate_grid(tmp_path):
     assert b1_y > field_h, "well B1 must clear the whole of well A1"
 
 
+def test_a_folder_that_is_itself_a_plate_lays_out_its_wells(tmp_path):
+    """Pointed at the plate store itself, the layout still follows.
+
+    A real plate lives beside other data -- other plates, a survey, loose
+    images -- so the answer to "is this a plate?" can never come from the
+    parent folder or from the folder's name. The plate's own description
+    says what it is, and that is the whole of what is read. Found on the
+    workstation 2026-08-19 with a real 336-well plate named
+    ``HA-1a_Plate_4561.zarr``: opened through the window it was refused,
+    because the layout went looking in the mixed folder above it for
+    stores named ``*.ome.zarr``.
+    """
+    plate = a_small_plate(tmp_path) / "plate.ome.zarr"
+    mosaic = read_the_transfer(plate)
+    assert len(mosaic.tiles) == 6
+    corners = {tile.name: tile.copies[0].corner_um[1:] for tile in mosaic.tiles}
+    assert corners["A1-0"] == (0.0, 0.0)
+    assert corners["A2-0"][1] > 2 * FIELD[2] * VOXEL_UM[2]
+
+
 def test_a_plate_builds_and_each_field_serves_its_own_pixels(tmp_path):
     """The built plate is an ordinary picture; wells answer as themselves."""
     folder = a_small_plate(tmp_path)
@@ -414,18 +434,81 @@ def test_a_plate_store_opened_directly_lays_itself_out(door):
     status, answer = _post(address, "/api/stores/open",
                            {"path": str(screen / "plate.ome.zarr")})
     assert status == 200, answer
-    scene = screen / "scenes" / "screenday.ome.zarr"
+    scene = screen / "scenes" / "plate.ome.zarr"
     described = json.loads((scene / "zarr.json").read_text(encoding="utf-8"))
     assert described["attributes"]["zmart"]["built_from"] == (
-        screen.as_posix()), "the scene must say which plate it was built from"
-    told = json.dumps(answer.get("layers", []))
-    assert "screenday.ome.zarr" in told, (
-        "the served rows must draw the laid-out scene"
-    )
-    assert "plate.ome.zarr" not in told, (
-        "the raw plate store must not be served directly -- that is the "
+        (screen / "plate.ome.zarr").as_posix()), (
+        "the scene must say which plate it was built from")
+    composed = [one for one in answer.get("layers", [])
+                if one.get("kind") == "image" and one.get("group") == "plate"]
+    assert len(composed) == 1, (
+        "the laid-out scene is ONE composed picture; several rows means the "
+        "raw plate's fields were served directly -- the "
         "wells-stacked-at-the-origin picture"
     )
+
+
+def test_a_real_plate_lives_beside_other_data(door, tmp_path):
+    """A plate is opened for what it is, wherever it stands.
+
+    The real folder a plate arrives in also holds the rest of the day's
+    work -- another plate, a survey, loose images -- and real plates are
+    named ``something.zarr``, not ``something.ome.zarr``. Neither fact may
+    cost the operator the plate: the door reads the plate's own
+    description and builds the scene beside it, from it alone.
+    """
+    from test_a_dataset_is_relived_as_a_live_run import _post
+    from test_open_and_close import _store
+
+    address, _ = door
+    bench = tmp_path / "benchday"
+    a_small_plate(bench)
+    (bench / "plate.ome.zarr").rename(bench / "HA_plate.zarr")
+    _store(bench / "loose_pos001.ome.zarr", channels=1)
+    status, answer = _post(address, "/api/stores/open",
+                           {"path": str(bench / "HA_plate.zarr")})
+    assert status == 200, answer
+    scene = bench / "scenes" / "HA_plate.ome.zarr"
+    described = json.loads((scene / "zarr.json").read_text(encoding="utf-8"))
+    assert described["attributes"]["zmart"]["built_from"] == (
+        (bench / "HA_plate.zarr").as_posix()), (
+        "the scene must say it was built from the plate itself"
+    )
+    composed = [one for one in answer.get("layers", [])
+                if one.get("kind") == "image"
+                and one.get("group") == "HA_plate"]
+    assert len(composed) == 1, (
+        "the served rows must draw the one composed scene, never the raw "
+        "plate's fields"
+    )
+
+
+def test_an_unbaked_scene_opens_at_a_measured_window(door):
+    """A scene with no baked ground still opens seeable.
+
+    The open door declares a plate's scene without the hard copy, so its
+    level folders hold no pixels to measure -- and the answer used to be
+    the camera's full range: a real 336-well plate opened as a near-black
+    grid with an empty histogram and a dead Auto (workstation,
+    2026-08-19). A built picture's pixels are one ask away -- its own
+    composer makes any piece in milliseconds -- so the measurement follows
+    the composer, exactly as a live picture's follows its members.
+    """
+    from test_a_dataset_is_relived_as_a_live_run import _post
+
+    address, screen = door
+    status, answer = _post(address, "/api/stores/open",
+                           {"path": str(screen / "plate.ome.zarr")})
+    assert status == 200, answer
+    layer = next(one for one in answer["layers"]
+                 if one.get("kind") == "image" and one.get("group") == "plate")
+    window = layer["window"]
+    assert (window["low"], window["high"]) != (0.0, 65535.0), (
+        "the unbaked scene opened at the camera's full range -- nothing "
+        "was measured, and the operator sees a black plate"
+    )
+    counts = (layer.get("histogram") or {}).get("counts") or []
+    assert sum(counts) > 0, "the histogram must be measured, not empty"
 
 
 def test_a_scene_already_built_for_the_plate_is_reused(door):
@@ -439,8 +522,9 @@ def test_a_scene_already_built_for_the_plate_is_reused(door):
     from test_a_dataset_is_relived_as_a_live_run import _post
 
     address, screen = door
-    scene = declare_a_built_picture(screen / "scenes", screen,
-                                    name="screenday", piece=32, bake=True)
+    scene = declare_a_built_picture(screen / "scenes",
+                                    screen / "plate.ome.zarr",
+                                    name="plate", piece=32, bake=True)
     baked = sorted(str(one.relative_to(scene))
                    for one in scene.rglob("*") if one.is_file())
     status, answer = _post(address, "/api/stores/open",

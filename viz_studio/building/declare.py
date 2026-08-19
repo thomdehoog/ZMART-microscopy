@@ -116,6 +116,19 @@ def _bake_one_stripe(store: Path, level: int, rows: tuple[int, ...]) -> int:
     return written
 
 
+def the_scene_folder_name(name: str) -> str:
+    """The scene folder's name: the given name wearing ``.ome.zarr`` once.
+
+    Scenes are usually named after the raw run they are built from, and a
+    real exported run is itself often called ``something.ome.zarr`` -- so
+    appending the suffix blindly dressed a real survey's scene as
+    ``Thy1_Mag25x_Ch561.ome.zarr.ome.zarr``. Everything that composes or
+    looks up a scene folder goes through this one rule, so a scene built
+    and a scene looked for can never disagree about the name.
+    """
+    return f"{name.removesuffix('.zarr').removesuffix('.ome')}.ome.zarr"
+
+
 def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
                             name: str = "built", piece: int = PIECE,
                             bake: bool = False, workers: int = 1,
@@ -146,7 +159,7 @@ def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
     mosaic = read_the_transfer(transfer)
     composer = Composer(mosaic, piece=piece, workers=workers)
 
-    store = where / f"{name}.ome.zarr"
+    store = where / the_scene_folder_name(name)
     store.mkdir(parents=True, exist_ok=True)
 
     # Declaring says everything the picture is, so anything baked by an earlier
@@ -255,7 +268,7 @@ def declare_a_governed_picture(where: str | Path, run: str | Path, *,
         tail = governed._run._last_folded_revision
         revision = governed._run._geometry()[0].revision
 
-        store = where / f"{name}.ome.zarr"
+        store = where / the_scene_folder_name(name)
         store.mkdir(parents=True, exist_ok=True)
         for kept in sorted(store.glob("[0-9]*")):
             # An earlier declaration's baked ground goes first, or declaring

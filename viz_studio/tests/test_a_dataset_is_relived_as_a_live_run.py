@@ -532,6 +532,40 @@ def serving(built_dist, tmp_path):
 class TestTheReplayRoutes:
     """The server's own rules for the door, asked without a browser."""
 
+    def test_a_finished_replay_opens_again_later(self, serving):
+        """The run a replay wrote is a real run, and the plain door opens it.
+
+        The window promises the replay "writes a real run into a replays
+        folder beside the dataset, so it can be opened again later" -- and
+        until this gate, later never came: the run's root holds ``data``
+        beside ``views`` and no image directly inside, so the plain door
+        answered "no OME-Zarr image was found" (workstation, 2026-08-19).
+        The root is opened the way the replay door itself opens it, served
+        view named, so the live registry binds it and the time slider
+        offers exactly the moments that landed.
+        """
+        address, folder = serving
+        scan = _a_grid_scan(folder / "yesterdayscan")
+        status, _ = _post(address, "/api/stores/replay",
+                          {"path": str(scan), "every": 0.0})
+        assert status == 200
+        for _ in range(100):
+            _, told = _post(address, "/api/stores/replay-status", {})
+            if told.get("state") != "running":
+                break
+            time.sleep(0.2)
+        assert told.get("state") == "done"
+        kept = scan / "replays" / "replay-1"
+        status, answer = _post(address, "/api/stores/open",
+                               {"path": str(kept)})
+        assert status == 200, answer
+        served_rows = [one for one in answer.get("layers", [])
+                       if one.get("kind") == "image"
+                       and one.get("group") == "replay-1"]
+        assert served_rows, (
+            "the reopened run must serve its live view as its own group"
+        )
+
     def test_one_replay_at_a_time(self, serving):
         """A second ask while one runs is refused, not queued.
 

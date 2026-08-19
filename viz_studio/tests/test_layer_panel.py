@@ -551,3 +551,71 @@ def test_the_numbers_beside_the_sliders_can_be_typed_into(two_channel_page):
     )
     page.wait_for_timeout(600)
     assert box.input_value() != "1234", "sliding must update the number box"
+
+
+def test_a_lit_auto_with_nothing_to_restore_says_so(browser, built_dist,
+                                                    tmp_path):
+    """A run that declared no window rests on the measured one, Auto lit.
+
+    The lit light means "the window is the measured one", and clicking it
+    puts back the window the run itself declared. A run that declared
+    nothing is SERVED the measured window as its window, so the lit button
+    used to offer a toggle between two equal values: clicking it visibly
+    did nothing, and the operator reasonably reported a button that cannot
+    be un-clicked (found with a real 336-well plate, 2026-08-19). With
+    nothing to restore the button now rests disabled, and its tooltip says
+    the run declared no other window.
+    """
+    import json
+
+    import numpy as np
+    import zarr
+
+    quiet = tmp_path / "unspoken"
+    quiet.mkdir()
+    store = quiet / "overview_pos001.ome.zarr"
+    store.mkdir()
+    group = zarr.open_group(str(store), mode="w", zarr_format=2)
+    values = (np.random.default_rng(7).integers(90, 400, (1, 4, 64, 64))
+              .astype(np.uint16))
+    group.create_array("0", shape=values.shape, chunks=(1, 1, 64, 64),
+                       dtype="uint16")[:] = values
+    (store / ".zattrs").write_text(json.dumps({
+        "multiscales": [{
+            "version": "0.4",
+            "axes": [{"name": "c", "type": "channel"},
+                     {"name": "z", "type": "space", "unit": "micrometer"},
+                     {"name": "y", "type": "space", "unit": "micrometer"},
+                     {"name": "x", "type": "space", "unit": "micrometer"}],
+            "datasets": [{"path": "0", "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 2.0, 0.35, 0.35]}]}],
+        }],
+        "omero": {"channels": [{"label": "ch0", "color": "00FF66"}]},
+    }), encoding="utf-8")
+    server = make_server(port=0, data_dir=quiet, site_dir=built_dist,
+                         store="overview_pos001.ome.zarr")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1200, "height": 900})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                  wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined",
+                               timeout=30_000)
+        auto = page.locator("[aria-label='auto contrast ch0']")
+        auto.wait_for(timeout=10_000)
+        assert auto.get_attribute("aria-pressed") == "true", (
+            "with no declared window the channel rests on the measured one, "
+            "so the light must be on"
+        )
+        assert auto.is_disabled(), (
+            "lit with nothing to restore, the button must rest rather than "
+            "offer a toggle between two equal windows"
+        )
+        assert "declared no other" in (auto.get_attribute("title") or ""), (
+            "the tooltip must say why there is nothing to click"
+        )
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
