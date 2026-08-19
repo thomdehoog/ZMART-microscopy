@@ -50,15 +50,22 @@ What the table says:
   `handle_one_request` but the constructor's final flush escapes it.
   FIXED the same day: `finish()` now carries the same tolerance
   (`server.py`), citing this run.
-- **A replayed channel opens on the full-range window**, so a replay looks
-  black until Auto is pressed. Open; polish candidate. (Since the
-  timelapse-replay chapter a replay is served as a LIVE run -- the run
-  root is opened and bound, so the time slider offers only the written
-  moments and follows the front; the contrast quirk is unchanged.)
-- **A replay does not frame itself** — the view stays where it was, and
-  the operator presses Overview to see the landing tiles. Same behaviour
-  as any second acquisition; open by design, worth revisiting for the
-  replay specifically.
+- **A replayed channel opens on the full-range window**, so a replay looked
+  black until Auto was pressed. FIXED with the watchable-replay chapter:
+  the writer's full-camera-range window is its way of declaring ignorance,
+  so the reader now treats exactly that as "no window asked for" and every
+  layer rests at the measured window instead (`restingWindow` in
+  scene.js, shared with the panel's sliders). Any run written without a
+  window benefits, not just replays. (Since the timelapse-replay chapter a
+  replay is served as a LIVE run -- the run root is opened and bound, so
+  the time slider offers only the written moments and follows the front.)
+- **A replay does not frame itself** — the view stayed where it was, and
+  the operator pressed Overview to see the landing tiles. FIXED the same
+  day: starting a replay is an explicit ask to watch something, so once
+  its images answer, the view steps to the first plane and moment and
+  frames the whole picture (`watchTheReplay` in engine.js). Pinned by the
+  hands-off gate: press Replay, touch nothing, and a healthy share of the
+  canvas must light up with the landing tiles.
 - **A running build or replay cannot be cancelled** from the window; the
   only path is waiting it out. Open.
 - **A plate store selected on the view/other tab** opens through the plain

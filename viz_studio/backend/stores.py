@@ -638,6 +638,15 @@ def _the_window_asked_for(channel: dict) -> dict | None:
         return None
     if high <= low:
         return None
+    # A start and end that merely restate the camera's whole range are the
+    # writer declaring ignorance, not a run asking for anything: our own live
+    # writer always records a complete window (strict readers refuse a block
+    # without one) and puts the camera's range there when the run said
+    # nothing. Taken at face value it opened every such run nearly black --
+    # the specimen sits in the bottom few per cent of the range -- so it is
+    # treated as unspoken, and the viewer measures a window from the pixels.
+    if low == window.get("min") and high == window.get("max"):
+        return None
     return {"low": float(low), "high": float(high)}
 
 

@@ -6,6 +6,7 @@ import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/a
 import {
   showTheWholePicture,
   chooseScaleWhenTheImagesAreMeasured,
+  watchTheReplay,
   letGoOfDecodedPieces,
   lettingGo,
   sourceRefreshing,
@@ -188,7 +189,8 @@ const LOAD_KINDS = [
     said: "anything else the viewer can read — demo data, test runs — opened directly, or replayed as a live run" },
 ];
 
-function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) {
+function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
+                      onReplayStarted }) {
   const [busy, setBusy] = React.useState(false);
   const [openError, setOpenError] = React.useState(null);
   // Which tab is chosen. Loading an existing view is the commonest thing
@@ -510,8 +512,10 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel }) 
                   setBusy(true);
                   const result = await startReplay(`${listing.path}/${selected.name}`);
                   setBusy(false);
-                  if (result.config) onOpened(result.config);
-                  else setOpenError(result.error);
+                  if (result.config) {
+                    onOpened(result.config);
+                    onReplayStarted?.(result.config);
+                  } else setOpenError(result.error);
                 }}
                 disabled={busy || !selected || selected.opens !== "folder"}
                 aria-label="replay as a live run"
@@ -1577,6 +1581,17 @@ export default function App() {
           onOpened={(config) => {
             applyConfig(config);
             setLoadListing(null);
+          }}
+          onReplayStarted={(config) => {
+            // Starting a replay is an explicit ask to watch something, so the
+            // camera goes to the show once the replay's images have answered
+            // -- first plane, first moment, whole picture. The count says how
+            // many image rows the fresh config carries, which is what keeps
+            // the move from firing before those rows reach the engine.
+            if (viewer) {
+              watchTheReplay(viewer, (config.layers || []).filter(
+                (one) => one.kind !== "segmentation").length);
+            }
           }}
           onConstructed={async () => {
             const config = await fetchConfig();
