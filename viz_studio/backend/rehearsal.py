@@ -15,8 +15,11 @@ below reads the dataset's geometry (through the same mosaic reader the scene
 builder uses), works out the spacing the tiles actually sit at, and asks the
 live planner for a profile with exactly that spacing. A dataset whose tiles
 sit at uneven offsets cannot be placed on any grid and is refused in plain
-words; so is one holding several moments in time. Both are their own later
-chapters -- the refusals name them.
+words -- that is its own later chapter, and the refusal names it.
+
+A timelapse replays the way it was acquired: every position of the first
+moment, then every position of the next, sweep after sweep, so the time
+slider grows on screen exactly as it would during the experiment.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import zarr
-from mosaic import read_the_transfer
+from mosaic import read_the_transfer, the_front_axes
 
 from zmart_live.coordinator import LivePublisher
 from zmart_live.model import GridCell
@@ -46,8 +49,9 @@ class ReplayPlan:
     geometry: object
     #: Which grid square each position occupies, by position name.
     cells: dict
-    #: The positions in the order they will land: (name, level-0 array path,
-    #: whether the tile's own axes carry a channel axis).
+    #: The publications in the order they will land: (name, level-0 array
+    #: path, the store's own front axes, the moment to publish). A timelapse
+    #: sweeps the whole grid once per moment.
     beats: list
     z_planes: int
     channel_count: int
@@ -85,23 +89,18 @@ def plan_a_replay(transfer: str | Path) -> ReplayPlan:
     be published: top row first, left to right, the way a stage scans.
     """
     mosaic = read_the_transfer(Path(transfer))
-    moments, _ = mosaic.frame_room
-    if moments > 1:
-        raise ValueError(
-            f"this dataset keeps room for {moments} moments in time, and the "
-            "replay of a timelapse is its own ordered chapter. Replay a "
-            "single-moment dataset, or open this one instead."
-        )
-
-    has_channels = "c" in mosaic.axes
+    # How many moments and channels the dataset keeps, from the same rule
+    # every reader of a store's front axes uses. The tile's own front axes
+    # say how its array must be sliced per beat.
+    moments, channel_count = mosaic.frame_room
     first = mosaic.tiles[0].copies[0]
+    front = the_front_axes(first.outer_shape)
     # The spatial extent of one tile, by axis name rather than position, so a
-    # tile with or without a channel axis reads the same way.
+    # tile with or without front axes reads the same way.
     spatial = dict(zip(("z", "y", "x"), first.shape[-3:], strict=True))
     voxel = dict(zip(("z", "y", "x"), first.voxel_um[-3:], strict=True))
     z_planes = spatial["z"]
     frame = (spatial["y"], spatial["x"])
-    channel_count = first.shape[0] if has_channels else 1
     if frame[0] != frame[1]:
         raise ValueError(
             f"this dataset's frames are {frame[0]} by {frame[1]} pixels, and "
@@ -141,7 +140,8 @@ def plan_a_replay(transfer: str | Path) -> ReplayPlan:
     channels = tuple(f"channel {index}" for index in range(channel_count))
     profile, geometry = plan_the_writing(
         "overview", frame=frame, dtype=mosaic.dtype, z_planes=z_planes,
-        channels=channels, voxel_size=(voxel["z"], voxel["y"], voxel["x"]),
+        timepoints=moments, channels=channels,
+        voxel_size=(voxel["z"], voxel["y"], voxel["x"]),
         readable_prefix="replay", defaults=defaults,
     )
     if step_px is not None and geometry.step_shape != (round(step_px),) * 2:
@@ -154,7 +154,7 @@ def plan_a_replay(transfer: str | Path) -> ReplayPlan:
         )
 
     step_for_cells = step_px if step_px is not None else float(frame[0])
-    beats, cells = [], {}
+    ordered, cells = [], {}
     for tile in sorted(mosaic.tiles, key=lambda t: corners[t.name]):
         name = tile.name.removesuffix(".ome.zarr")
         corner = corners[tile.name]
@@ -169,8 +169,14 @@ def plan_a_replay(transfer: str | Path) -> ReplayPlan:
                 "in the wrong place. Open the dataset instead."
             )
         cells[cell] = name
-        beats.append((name, tile.copies[0].held_in, has_channels))
+        ordered.append((name, tile.copies[0].held_in))
 
+    # A timelapse sweeps the whole grid once per moment, walking the same
+    # path each sweep -- the way a stage revisits its positions -- so the
+    # time slider grows on screen exactly as it did during the experiment.
+    beats = [(name, held_in, front, moment)
+             for moment in range(moments)
+             for name, held_in in ordered]
     return ReplayPlan(profile=profile, geometry=geometry, cells=cells,
                       beats=beats, z_planes=z_planes,
                       channel_count=channel_count)
@@ -197,13 +203,18 @@ def replay_the_dataset(transfer: str | Path, folder: str | Path, *,
     plan = plan_a_replay(transfer)
     publisher = LivePublisher(Path(folder), plan.profile,
                               run_id=Path(transfer).name, cells=plan.cells)
-    for number, (name, held_in, has_channels) in enumerate(plan.beats):
+    for number, (name, held_in, front, moment) in enumerate(plan.beats):
         if number and every_s:
             time.sleep(every_s)
-        pixels = zarr.open_array(str(held_in), mode="r")[:]
-        if not has_channels:
+        # One beat is one (position, moment): the moment's own pixels are
+        # read from the store -- sliced off the time axis when the store
+        # keeps one -- and given a channel axis when it does not, which is
+        # the shape the live writer takes.
+        held = zarr.open_array(str(held_in), mode="r")
+        pixels = held[moment] if "t" in front else held[:]
+        if "c" not in front:
             pixels = pixels[None]
-        publisher.write_and_publish(name, pixels, timepoint=0)
+        publisher.write_and_publish(name, pixels, timepoint=moment)
         if told:
             told(number + 1, plan.total)
         if announce:

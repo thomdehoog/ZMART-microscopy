@@ -51,7 +51,10 @@ What the table says:
   FIXED the same day: `finish()` now carries the same tolerance
   (`server.py`), citing this run.
 - **A replayed channel opens on the full-range window**, so a replay looks
-  black until Auto is pressed. Open; polish candidate.
+  black until Auto is pressed. Open; polish candidate. (Since the
+  timelapse-replay chapter a replay is served as a LIVE run -- the run
+  root is opened and bound, so the time slider offers only the written
+  moments and follows the front; the contrast quirk is unchanged.)
 - **A replay does not frame itself** — the view stays where it was, and
   the operator presses Overview to see the landing tiles. Same behaviour
   as any second acquisition; open by design, worth revisiting for the

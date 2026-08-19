@@ -10,9 +10,10 @@ the room.
 
 The dataset must be one whose tiles sit on a regular grid the live writer can
 reproduce. Overlapping is fine -- real stage scans overlap -- as long as the
-overlap is even; a transfer whose tiles sit at irregular offsets, or one that
-holds several moments in time, is refused in plain words. Both of those are
-their own later chapters.
+overlap is even; a transfer whose tiles sit at irregular offsets is refused
+in plain words. A timelapse replays the way it was acquired: every position
+of the first moment, then every position of the next, sweep after sweep, so
+the time slider grows on screen exactly as it would during the experiment.
 """
 
 import json
@@ -144,6 +145,203 @@ class TestPlanningAReplay:
             assert np.array_equal(published, source), (
                 f"{position} was published with pixels that are not its own"
             )
+
+
+MOMENTS = 2
+CHANNELS = 2
+
+
+def _write_a_timelapse_tile(store: Path, number: int,
+                            at_um: tuple[float, float]) -> None:
+    """One position of a timelapse scan: two moments, two channels.
+
+    Every (moment, channel) frame carries its own value, so a replay that
+    fed one moment's pixels to another's slot would be caught by a single
+    comparison rather than slip by as "some bright square landed".
+    """
+    store.mkdir(parents=True)
+    picture = np.empty((MOMENTS, CHANNELS, PLANES, FRAME, FRAME), "uint16")
+    for moment in range(MOMENTS):
+        for channel in range(CHANNELS):
+            picture[moment, channel] = (1000 + number * 100
+                                        + moment * 3000 + channel * 400)
+    datasets = []
+    for level in range(2):
+        shrink = 2 ** level
+        array = zarr.create_array(
+            store=str(store / str(level)),
+            shape=(MOMENTS, CHANNELS, PLANES, FRAME // shrink,
+                   FRAME // shrink),
+            chunks=(1, 1, PLANES, FRAME // shrink, FRAME // shrink),
+            dtype="uint16", zarr_format=3,
+            dimension_names=["t", "c", "z", "y", "x"], overwrite=True,
+        )
+        array[:] = picture[..., ::shrink, ::shrink]
+        datasets.append({
+            "path": str(level),
+            "coordinateTransformations": [
+                {"type": "scale",
+                 "scale": [1.0, 1.0, 1.0, 1.0 * shrink, 1.0 * shrink]},
+                {"type": "translation",
+                 "translation": [0.0, 0.0, 0.0, at_um[0], at_um[1]]},
+            ],
+        })
+    (store / "zarr.json").write_text(json.dumps({
+        "attributes": {"ome": {
+            "version": "0.5",
+            "multiscales": [{
+                "name": store.name, "type": "nearest",
+                "axes": [{"name": "t", "type": "time", "unit": "second"},
+                         {"name": "c", "type": "channel"}]
+                + [{"name": one, "type": "space", "unit": "micrometer"}
+                   for one in ("z", "y", "x")],
+                "datasets": datasets,
+            }],
+        }},
+        "zarr_format": 3, "node_type": "group",
+    }), encoding="utf-8")
+
+
+def _a_timelapse_scan(folder: Path, *, across: int = 2) -> Path:
+    """A raw timelapse of ``across``-squared positions on a regular grid."""
+    folder.mkdir(parents=True)
+    number = 0
+    for row in range(across):
+        for column in range(across):
+            _write_a_timelapse_tile(folder / f"pos{number:02d}.ome.zarr",
+                                    number, (row * STEP_UM, column * STEP_UM))
+            number += 1
+    return folder
+
+
+class TestReplayingATimelapse:
+    """A timelapse replays sweep by sweep, every frame with its own pixels."""
+
+    def test_the_plan_sweeps_the_grid_once_per_moment(self, tmp_path):
+        plan = plan_a_replay(_a_timelapse_scan(tmp_path / "scan"))
+        assert plan.total == 4 * MOMENTS
+        assert plan.profile.timepoints == MOMENTS
+        moments = [beat[-1] for beat in plan.beats]
+        assert moments == [0] * 4 + [1] * 4, (
+            "a timelapse replays the way it was acquired: every position of "
+            "one moment, then every position of the next"
+        )
+        # Within each sweep the positions land in scan order, and both
+        # sweeps walk the same path -- a stage revisits its grid the same
+        # way each time.
+        names = [beat[0] for beat in plan.beats]
+        assert names[:4] == names[4:]
+
+    def test_every_moment_lands_with_its_own_pixels(self, tmp_path):
+        scan = _a_timelapse_scan(tmp_path / "scan")
+        beats = []
+        view = replay_the_dataset(
+            scan, tmp_path / "run", every_s=0.0,
+            told=lambda done, total: beats.append((done, total)),
+        )
+        assert beats[-1] == (4 * MOMENTS, 4 * MOMENTS)
+        assert view.exists()
+        survey = tmp_path / "run" / "data" / "survey.ome.zarr"
+        for position in ("pos00", "pos01", "pos02", "pos03"):
+            published = np.asarray(
+                zarr.open_group(str(survey / position), mode="r")["0"])
+            source = np.asarray(zarr.open_array(
+                str(scan / f"{position}.ome.zarr" / "0"), mode="r"))
+            assert published.shape == source.shape, (
+                f"{position} was published into a different (t, c) room "
+                f"than the source keeps: {published.shape} against "
+                f"{source.shape}"
+            )
+            assert np.array_equal(published, source), (
+                f"{position} was published with pixels that are not its own "
+                "-- a moment or channel landed in the wrong slot"
+            )
+
+
+    def test_a_watcher_sees_the_slider_grow_and_follow(
+            self, browser, built_dist, tmp_path):
+        """On a held page, each sweep offers its moment and the view follows.
+
+        This is the whole point of replaying a timelapse: the time slider
+        must offer moment 0 alone while the first sweep lands, grow when
+        the second sweep begins, and the view -- left standing on the
+        front -- must move to the new moment on its own, exactly as it
+        would during the experiment.
+        """
+        first = tmp_path / "overview"
+        first.mkdir()
+        from test_open_and_close import _store
+        _store(first / "overview_pos001.ome.zarr", channels=1)
+        _a_timelapse_scan(tmp_path / "sweeps")
+        server = make_server(port=0, data_dir=first, site_dir=built_dist,
+                             store="overview_pos001.ome.zarr")
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        page = browser.new_page(viewport={"width": 1300, "height": 1000})
+        try:
+            page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                      wait_until="domcontentloaded")
+            page.wait_for_function("() => window.zmartConfig !== undefined",
+                                   timeout=30_000)
+            page.get_by_label("open images").click()
+            window = page.get_by_role("dialog", name="load data")
+            window.wait_for(timeout=10_000)
+            page.get_by_label("other", exact=True).click()
+            box = page.get_by_label("folder path")
+            box.fill(str(tmp_path))
+            box.press("Enter")
+            window.get_by_label("sweeps", exact=True).wait_for(timeout=10_000)
+            window.get_by_label("sweeps", exact=True).click()
+            page.get_by_label("replay as a live run").click()
+            page.wait_for_function(
+                "() => window.zmartConfig.groups.includes('sweeps replay')",
+                timeout=30_000)
+            slider = "document.querySelector('input[aria-label=\"t position\"]')"
+            # While the first sweep lands, only moment 0 is on offer: the
+            # committed ranges stop at 1, and there is nothing to slide yet
+            # (a slider already reaching moment 1 would mean the replay is
+            # being served as a finished folder, whole room and all).
+            page.wait_for_function(f"""() => {{
+                const rows = (window.zmartConfig?.layers || []).filter(
+                    one => one.group === 'sweeps replay');
+                if (!rows.length) return false;
+                const ranges = rows[0].committedTimeRanges || [];
+                const held = {slider};
+                return ranges.length === 1 && ranges[0].start === 0
+                    && ranges[0].stop === 1
+                    && (!held || held.max === '0');
+            }}""", timeout=30_000)
+            # The second sweep begins: the slider grows...
+            page.wait_for_function(f"() => {slider}?.max === '1'",
+                                   timeout=60_000)
+            # ...and the watcher, standing on the front, is carried onto
+            # the moment that just landed.
+            page.wait_for_function("""() => {
+                const p = window.zmartViewer.navigationState.position;
+                const names = p.coordinateSpace.value.names;
+                const i = names.indexOf('t');
+                if (i < 0) return false;
+                const lower = p.coordinateSpace.value.bounds.lowerBounds[i];
+                return Math.abs(p.value[i] - Math.ceil(lower) - 1) <= 0.5;
+            }""", timeout=60_000)
+            for _ in range(200):
+                answer = page.evaluate("""async () => {
+                    const r = await fetch('/api/stores/replay-status',
+                        {method: 'POST',
+                         headers: {'Content-Type': 'application/json'},
+                         body: '{}'});
+                    return r.json();
+                }""")
+                if answer.get("state") == "done":
+                    break
+                page.wait_for_timeout(150)
+            assert answer.get("state") == "done"
+            assert answer.get("done") == 4 * MOMENTS
+            page.screenshot(path=str(tmp_path / "a_timelapse_replay.png"))
+        finally:
+            page.close()
+            server.shutdown()
+            thread.join(timeout=5)
 
 
 def _post(address: str, route: str, payload: dict) -> tuple[int, dict]:
