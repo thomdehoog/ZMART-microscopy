@@ -665,6 +665,76 @@ class TestTheLoadWindow:
             server.shutdown()
             thread.join(timeout=5)
 
+    def test_a_build_can_be_stopped_from_the_window(
+        self, browser, built_dist, tmp_path
+    ):
+        """A Stop button stands beside a running build, and pressing it works.
+
+        The build ends at its next step, the half-made scene is removed
+        whole (pieces without a description are not a scene), a calm note
+        says so, and the Build button is free again. The dataset here is
+        large enough that the stop lands mid-bake on any machine we have
+        met; where a machine finishes first anyway, there was nothing to
+        stop and the gate says so instead of guessing.
+        """
+        import pytest
+
+        from test_a_dataset_is_relived_as_a_live_run import _a_grid_scan
+
+        first = tmp_path / "overview"
+        first.mkdir()
+        _store(first / "overview_pos001.ome.zarr", channels=1)
+        _a_grid_scan(tmp_path / "big", across=8)
+        server = make_server(port=0, data_dir=first, site_dir=built_dist,
+                             store="overview_pos001.ome.zarr")
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        page = browser.new_page(viewport={"width": 1300, "height": 1000})
+        try:
+            page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                      wait_until="domcontentloaded")
+            page.wait_for_function("() => window.zmartConfig !== undefined",
+                                   timeout=30_000)
+            page.get_by_label("open images").click()
+            page.get_by_role("dialog", name="load data").wait_for(
+                timeout=10_000)
+            page.get_by_label("build new scene", exact=True).click()
+            box = page.get_by_label("folder path")
+            box.fill(str(tmp_path))
+            box.press("Enter")
+            window = page.get_by_role("dialog", name="load data")
+            window.get_by_label("big", exact=True).wait_for(timeout=10_000)
+            window.get_by_label("big", exact=True).click()
+            page.get_by_label("scene folder").wait_for(timeout=10_000)
+            page.get_by_label(
+                "include a hard copy of the low-resolution overview").check()
+            page.get_by_label("build the scene").click()
+            stop = page.get_by_label("stop the build")
+            try:
+                stop.wait_for(timeout=10_000)
+                stop.click()
+            except Exception:
+                if page.get_by_label("show the scene").count():
+                    pytest.skip("the build finished before a stop could "
+                                "land on this machine")
+                raise
+            # Scoped to the window: the page has other status text (the z
+            # slider's reading among them).
+            note = window.get_by_role("status")
+            note.wait_for(timeout=30_000)
+            assert "stopped" in note.inner_text()
+            assert not (tmp_path / "big" / "scenes"
+                        / "big.ome.zarr").exists(), (
+                "a stopped build must keep nothing"
+            )
+            assert page.get_by_label("build the scene").is_enabled(), (
+                "after a stop, building again must be one click away"
+            )
+        finally:
+            page.close()
+            server.shutdown()
+            thread.join(timeout=5)
+
     def test_a_typed_path_navigates(self, no_chooser):
         page, first, second = no_chooser
         page.get_by_label("open images").click()

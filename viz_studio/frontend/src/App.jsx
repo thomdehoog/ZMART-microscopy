@@ -157,6 +157,26 @@ async function startReplay(path) {
   return { config: answer };
 }
 
+async function replayStatus() {
+  const response = await fetch("/api/stores/replay-status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  return response.json().catch(() => ({ state: "error", error: "unreadable answer" }));
+}
+
+// Ask the running build or replay to stop at its next step. Cooperative:
+// the step in flight finishes whole, so a stopped replay's landed positions
+// stay a real run, and a stopped build removes its half-made scene.
+async function askToStop(what) {
+  await fetch(`/api/stores/${what}-cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  }).catch(() => null);
+}
+
 async function listFolders(path) {
   const response = await fetch("/api/stores/list", {
     method: "POST",
@@ -204,6 +224,24 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
   // the Open button below the list acts on. Cleared when the folder or the
   // tab changes, because the list under it has changed.
   const [selected, setSelected] = React.useState(null);
+  // What the running replay reports, while the "other" tab is showing: how
+  // far it is and whether it runs at all, so the tab can offer Stop and say
+  // why a second Replay must wait. Polled only while that tab is open.
+  const [replaying, setReplaying] = React.useState(null);
+  React.useEffect(() => {
+    if (kind !== "other") return undefined;
+    let watching = true;
+    const look = async () => {
+      const status = await replayStatus();
+      if (watching) setReplaying(status);
+    };
+    look();
+    const ticking = setInterval(look, 700);
+    return () => {
+      watching = false;
+      clearInterval(ticking);
+    };
+  }, [kind]);
   const polling = React.useRef(null);
 
   const navigate = (path) => {
@@ -237,7 +275,8 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
 
   const start = async () => {
     const { data, destination, bake, relink, name } = constructing;
-    setConstructing((current) => ({ ...current, running: true, fraction: 0, error: null }));
+    setConstructing((current) => ({ ...current, running: true, fraction: 0,
+                                    error: null, stopped: false }));
     const begun = await startConstruction(data, destination, bake,
                                           relink ? name : undefined);
     if (begun.error) {
@@ -253,6 +292,9 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
         if (status.state === "done") {
           setConstructing((current) => current &&
             { ...current, running: false, built: status.store });
+        } else if (status.state === "cancelled") {
+          setConstructing((current) => current &&
+            { ...current, running: false, fraction: 0, stopped: true });
         } else {
           setConstructing((current) => current &&
             { ...current, running: false, error: status.error || "the build failed" });
@@ -342,7 +384,19 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
           >
             {constructing.running ? "building…" : "Build"}
           </button>
-        ) : (
+        ) : null}
+        {constructing.running && (
+          <button
+            type="button"
+            onClick={() => askToStop("construct")}
+            aria-label="stop the build"
+            title="Stop the build at its next step. Nothing half-made is kept; building again starts fresh"
+            style={{ ...styles.loadCancel, marginLeft: 8 }}
+          >
+            Stop
+          </button>
+        )}
+        {constructing.built ? (
           <button
             type="button"
             onClick={() => openStore(constructing.built)}
@@ -352,8 +406,13 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
           >
             Show
           </button>
-        )}
+        ) : null}
       </div>
+      {constructing.stopped && !constructing.running && (
+        <div style={styles.loadEmptyNote} role="status">
+          the build was stopped, and nothing half-made was kept
+        </div>
+      )}
       {/* The bar stays once the build is done, standing full: a finished
           build should look finished, not vanish. */}
       {(constructing.running || constructing.built) && (
@@ -505,6 +564,24 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
         </div>
         {kind !== "raw" && !constructing && (
           <div style={styles.loadActions}>
+            {kind === "other" && replaying?.state === "running" && (
+              <>
+                <span style={{ ...styles.loadEmptyNote, marginRight: 8 }}
+                      role="status">
+                  {`a replay is running · ${replaying.done ?? 0} of `
+                    + `${replaying.total ?? "…"} positions`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => askToStop("replay")}
+                  aria-label="stop the replay"
+                  title="Stop the replay after the position now landing. What has landed stays on screen as a real run"
+                  style={{ ...styles.loadCancel, marginRight: 8 }}
+                >
+                  Stop
+                </button>
+              </>
+            )}
             {kind === "other" && (
               <button
                 type="button"
@@ -517,7 +594,8 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                     onReplayStarted?.(result.config);
                   } else setOpenError(result.error);
                 }}
-                disabled={busy || !selected || selected.opens !== "folder"}
+                disabled={busy || !selected || selected.opens !== "folder"
+                  || replaying?.state === "running"}
                 aria-label="replay as a live run"
                 title="Relive this dataset as a live run: the positions land on screen one at a time, through the same doorway the microscope uses. A dress rehearsal for smart microscopy, on data already on disk"
                 style={{ ...styles.loadOpen, marginRight: 8 }}
