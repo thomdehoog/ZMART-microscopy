@@ -344,6 +344,88 @@ class TestReplayingATimelapse:
             thread.join(timeout=5)
 
 
+def test_a_replay_is_watchable_without_any_clicks(browser, built_dist,
+                                                  tmp_path):
+    """Starting a replay must show the landing tiles, hands off the mouse.
+
+    Three separate small things used to leave the canvas black until the
+    operator intervened: the new layers opened on the camera's full
+    brightness range (the pixels sit in its bottom few per cent), the view
+    stayed wherever the operator last looked, and the focal plane could
+    sit at a depth the replay does not have. This gate presses Replay and
+    then touches NOTHING -- no Auto, no Overview, no sliders -- and
+    demands that a healthy share of the canvas lights up with the landing
+    tiles. Any one of the three old failures keeps that share near zero,
+    so one measurement guards all three. The acquisition that was already
+    open is hidden first, so the light being measured can only be the
+    replay's own.
+    """
+    import io
+
+    from PIL import Image
+
+    first = tmp_path / "overview"
+    first.mkdir()
+    from test_open_and_close import _store
+    _store(first / "overview_pos001.ome.zarr", channels=1)
+    _a_grid_scan(tmp_path / "rehearsal")
+    server = make_server(port=0, data_dir=first, site_dir=built_dist,
+                         store="overview_pos001.ome.zarr")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1300, "height": 1000})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                  wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined",
+                               timeout=30_000)
+        # Hide what was already on screen, so any light measured below can
+        # only be the replay's own tiles.
+        page.get_by_title("Hide this acquisition").first.click()
+        page.get_by_label("open images").click()
+        window = page.get_by_role("dialog", name="load data")
+        window.wait_for(timeout=10_000)
+        page.get_by_label("other", exact=True).click()
+        box = page.get_by_label("folder path")
+        box.fill(str(tmp_path))
+        box.press("Enter")
+        window.get_by_label("rehearsal", exact=True).wait_for(timeout=10_000)
+        window.get_by_label("rehearsal", exact=True).click()
+        page.get_by_label("replay as a live run").click()
+        page.wait_for_function(
+            "() => window.zmartConfig.groups.includes('rehearsal replay')",
+            timeout=30_000)
+        for _ in range(300):
+            answer = page.evaluate("""async () => {
+                const r = await fetch('/api/stores/replay-status',
+                    {method: 'POST',
+                     headers: {'Content-Type': 'application/json'},
+                     body: '{}'});
+                return r.json();
+            }""")
+            if answer.get("state") == "done":
+                break
+            page.wait_for_timeout(150)
+        assert answer.get("state") == "done"
+        # Let the engine finish fetching and drawing what the replay left.
+        page.wait_for_timeout(5_000)
+        page.screenshot(path=str(tmp_path / "a_replay_hands_off.png"))
+        shot = page.locator("canvas").first
+        clipped = shot.bounding_box()
+        photographed = page.screenshot(clip=clipped)
+        pixels = np.array(Image.open(io.BytesIO(photographed)).convert("L"))
+        lit = float((pixels > 80).mean())
+        assert lit > 0.25, (
+            f"after a hands-off replay only {lit:.0%} of the canvas is lit; "
+            "the operator is still looking at blackness -- a dark window, an "
+            "unmoved view, or a focal plane the replay does not have"
+        )
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def _post(address: str, route: str, payload: dict) -> tuple[int, dict]:
     """One JSON request straight to the server, no browser in between."""
     import urllib.error

@@ -1,5 +1,7 @@
 import React from "react";
 
+import { restingWindow } from "./scene.js";
+
 // A small, deliberately limited palette. Green and magenta lead because that is
 // the pairing that reads best on a dark background and stays legible to a
 // colour-blind viewer, unlike red/green.
@@ -442,8 +444,10 @@ function stretchedUnevenly(displayScales, mode) {
 
 function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity,
                           onColor, onLut, displayScales = { x: 1, y: 1, z: 1 } }) {
-  const measuredWindow = mode === "volume" ? layer.volumeWindow || layer.window : layer.window;
-  const window_ = entry.window || measuredWindow || { low: 0, high: 65535 };
+  // The same resting window the canvas draws with (see scene.js): the run's
+  // recorded window, or the measured one when the run said nothing.
+  const window_ = entry.window || restingWindow(layer, mode === "volume")
+    || { low: 0, high: 65535 };
   const { min, max } = contrastRange(layer, window_);
   // The two handles are kept at least one count apart. A window of no width makes
   // every value in the image land on the same shade, so the picture goes flat and

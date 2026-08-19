@@ -1042,24 +1042,44 @@ function pinTheAxesThatMeasureDistance(viewer) {
  * This runs once, as the image is opened. Afterwards the operator is in charge of
  * where in time they are, and nothing here moves them again.
  */
-function startTimeAtTheFirstMoment(viewer) {
-  const { position } = viewer.navigationState;
-  const space = position.coordinateSpace.value;
-  if (!space?.names || !space.units) return;
-  const at = Array.from(space.units).indexOf("s");
-  if (at < 0) return;
+function firstStepAlong(space, at) {
   // The engine describes an axis by the extent the data covers, and says
-  // separately whether a moment sits *on* a whole number or half way between two.
-  // Both conventions occur, and the first moment has to be worked out for the one
-  // in use or the view lands between two frames. This is the same reading the time
-  // slider does -- see AxisSlider.jsx, where it is set out at length.
+  // separately whether a step sits *on* a whole number or half way between two.
+  // Both conventions occur, and the first step has to be worked out for the one
+  // in use or the view lands between two frames. This is the same reading the
+  // time slider does -- see AxisSlider.jsx, where it is set out at length.
   const onWholeNumbers = space.bounds.voxelCenterAtIntegerCoordinates[at];
   const lower = space.bounds.lowerBounds[at];
-  const first = onWholeNumbers ? Math.ceil(lower) : Math.ceil(lower - 0.5) + 0.5;
+  return onWholeNumbers ? Math.ceil(lower) : Math.ceil(lower - 0.5) + 0.5;
+}
+
+function startAxisAtItsFirstStep(viewer, at) {
+  const { position } = viewer.navigationState;
+  const space = position.coordinateSpace.value;
+  const first = firstStepAlong(space, at);
   if (!Number.isFinite(first) || position.value[at] === first) return;
   const moved = Float32Array.from(position.value);
   moved[at] = first;
   position.value = moved;
+}
+
+function startTimeAtTheFirstMoment(viewer) {
+  const space = viewer.navigationState.position.coordinateSpace.value;
+  if (!space?.names || !space.units) return;
+  const at = Array.from(space.units).indexOf("s");
+  if (at < 0) return;
+  startAxisAtItsFirstStep(viewer, at);
+}
+
+function startDepthAtTheFirstPlane(viewer) {
+  // The first plane is the one depth every acquisition is sure to have, which
+  // is what makes it the safe landing for a view that may be parked deeper
+  // than the picture being moved to reaches.
+  const space = viewer.navigationState.position.coordinateSpace.value;
+  if (!space?.names) return;
+  const at = Array.from(space.names).indexOf("z");
+  if (at < 0) return;
+  startAxisAtItsFirstStep(viewer, at);
 }
 
 /**
@@ -1215,7 +1235,7 @@ export function showTheWholePicture(viewer) {
   return true;
 }
 
-export function chooseScaleWhenTheImagesAreMeasured(viewer) {
+function whenTheSourcesHaveSettled(viewer, ready, act) {
   const { position } = viewer.navigationState;
   // Axes, not images: a space with no axes is the placeholder described above.
   // The moment it has any, the engine knows how big a voxel is.
@@ -1227,8 +1247,12 @@ export function chooseScaleWhenTheImagesAreMeasured(viewer) {
   // tile of many. Every store the page asked for has to have been handed over
   // and answered -- "answered" in the sense whenTheseHaveBeenRead uses, an
   // unreadable store having been dealt with as much as a perfect one -- before
-  // the bounds are worth fitting to.
+  // the bounds are worth fitting to. ``ready`` guards the other direction:
+  // a caller waiting for layers that have not even been HANDED OVER yet (a
+  // replay whose config just arrived) says so, or a look between the answer
+  // and the hand-over would find everything old settled and act too early.
   const settled = () =>
+    ready() &&
     measured() &&
     sourcesStillWaiting(viewer) === 0 &&
     viewer.layerManager.managedLayers.every((managed) =>
@@ -1255,21 +1279,7 @@ export function chooseScaleWhenTheImagesAreMeasured(viewer) {
       }
     }
     if (!settled()) return;
-    // Which axes are drawn is settled first, because how far to zoom is worked
-    // out from what is being drawn. Choosing the zoom and then changing the axes
-    // leaves the view scaled for a picture nobody is looking at.
-    pinTheAxesThatMeasureDistance(viewer);
-    // And then where in time to start, which is the beginning rather than the
-    // middle the engine would otherwise choose.
-    startTimeAtTheFirstMoment(viewer);
-    // Open on the overview: the whole picture, centred and sized to the window
-    // with the overview's own margin, exactly as if the button had been
-    // pressed. This used to clear the zoom to the engine's default instead, on
-    // the argument that an operator who knew neuroglancer would expect it; the
-    // operator at the actual microscope met a 12,800-position survey at an
-    // arbitrary magnification and asked for this. One function serves the
-    // button and the opening, so the two can never disagree.
-    showTheWholePicture(viewer);
+    act();
     stop();
     stop = () => {};
   };
@@ -1288,6 +1298,57 @@ export function chooseScaleWhenTheImagesAreMeasured(viewer) {
   // folder, say, where the descriptions are still in hand.
   check();
   return () => stop();
+}
+
+export function chooseScaleWhenTheImagesAreMeasured(viewer) {
+  return whenTheSourcesHaveSettled(viewer, () => true, () => {
+    // Which axes are drawn is settled first, because how far to zoom is worked
+    // out from what is being drawn. Choosing the zoom and then changing the axes
+    // leaves the view scaled for a picture nobody is looking at.
+    pinTheAxesThatMeasureDistance(viewer);
+    // And then where in time to start, which is the beginning rather than the
+    // middle the engine would otherwise choose.
+    startTimeAtTheFirstMoment(viewer);
+    // Open on the overview: the whole picture, centred and sized to the window
+    // with the overview's own margin, exactly as if the button had been
+    // pressed. This used to clear the zoom to the engine's default instead, on
+    // the argument that an operator who knew neuroglancer would expect it; the
+    // operator at the actual microscope met a 12,800-position survey at an
+    // arbitrary magnification and asked for this. One function serves the
+    // button and the opening, so the two can never disagree.
+    showTheWholePicture(viewer);
+  });
+}
+
+/**
+ * Move the view to a replay that just started, once its images have answered.
+ *
+ * Starting a replay is an explicit ask to WATCH something, so unlike an
+ * acquisition appearing on its own, the camera goes to the show: the focal
+ * plane steps to the first plane (a depth every acquisition has -- the view
+ * may have been parked at a depth the replay does not reach), time steps to
+ * the first moment (where the replay begins writing), and the picture is
+ * framed whole, exactly as the Overview button would. ``layersExpected`` is
+ * how many image rows the fresh config carries; waiting for that many IMAGE
+ * layers keeps this from firing on the already-settled sources before the
+ * replay's own layers have even been handed to the engine. Image layers
+ * only, counted on both sides: the engine also manages the targets
+ * annotation layer, and counting it once made the expected number arrive
+ * a layer early -- the move then framed the picture as it was BEFORE the
+ * replay, deep in whatever the operator had been looking at.
+ */
+export function watchTheReplay(viewer, layersExpected = 0) {
+  return whenTheSourcesHaveSettled(
+    viewer,
+    () => viewer.layerManager.managedLayers.filter(
+      (managed) => managed.layer?.type === "image",
+    ).length >= layersExpected,
+    () => {
+      startDepthAtTheFirstPlane(viewer);
+      startTimeAtTheFirstMoment(viewer);
+      showTheWholePicture(viewer);
+    },
+  );
 }
 
 // -- the parts of the view that are not layers --------------------------------

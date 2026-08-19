@@ -229,6 +229,24 @@ export function engineName(spec) {
  * used to multiply in here was removed with its slider (2026-08-18): two
  * opacities acting on one channel read as a control that does nothing.
  */
+/**
+ * The brightness window a layer rests at before the operator touches anything.
+ *
+ * The run's own recorded window comes first: that is what the microscopist
+ * asked for, and it stays authoritative. Where the run recorded nothing, the
+ * window measured from the pixels (the same one the Auto button applies) is
+ * used instead of the camera's whole range -- a real specimen sits in the
+ * bottom few per cent of that range, so the whole range showed a picture that
+ * was very nearly black until somebody pressed Auto. Watched on every replay
+ * before this fallback existed. Both the canvas and the panel's sliders read
+ * the window through here, so they can never disagree about where a fresh
+ * layer starts.
+ */
+export function restingWindow(spec, volumetric) {
+  const asked = volumetric ? spec.volumeWindow || spec.window : spec.window;
+  return asked || spec.histogram?.autoWindow || null;
+}
+
 export function layersFor(config, mode, layerState, groupState, groupOrder,
                           volumeMode = "max", volume = {}) {
   const volumetric = mode === "volume";
@@ -244,8 +262,7 @@ export function layersFor(config, mode, layerState, groupState, groupOrder,
   return all.map(({ spec, index }) => {
     const { visible, color, opacity, lut, window: windowOverride } = layerState[index];
     const group = groupState[spec.group || ""] || { visible: true };
-    const displayWindow =
-      windowOverride || (volumetric ? spec.volumeWindow || spec.window : spec.window);
+    const displayWindow = windowOverride || restingWindow(spec, volumetric);
     // A segmentation mask is drawn by a different kind of layer: the engine gives
     // every object its own colour and lets one be picked out, which is what a mask
     // is for. Brightness and contrast mean nothing on an identity number, so none
