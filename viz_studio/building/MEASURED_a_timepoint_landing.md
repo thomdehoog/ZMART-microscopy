@@ -25,6 +25,19 @@ the survey's size.** The path is the announcement, the catch-up, and the
 follow, none of which walk the positions, which is why 256 costs what 16
 costs. The follow itself adds almost nothing over the offer.
 
+Re-measured the day the grown per-commit bake landed (a timelapse run's
+live picture is now BAKED, so every landing also patches the touched
+baked files across the frame room):
+
+| positions | offered s | followed s | worst followed s |
+|---|---|---|---|
+| 16 | 0.99 | 1.04 | 1.25 |
+| 64 | 1.13 | 1.13 | 1.99 |
+
+Still about one second; the per-commit patch adds at most a fraction of
+a second at these sizes, and in exchange the run's cold opens read files
+instead of composing the coarse ground.
+
 ## Found by this instrument, run to ground the same night
 
 Running two rungs of DIFFERENT sizes in one process left the second rung's

@@ -177,9 +177,9 @@ def test_a_timelapse_run_binds_and_serves_its_grown_picture(tmp_path):
     A timelapse run was refused at this door from the day the truncation
     was caught until the combined-axes oracle and the browser gate both
     stood (the c-and-t plan's own condition). Now it binds: the registry
-    declares a GROWN picture — five axes, compose-on-request (the flat
-    run keeps its bake; the per-(t, c) bake is ordered work) — and the
-    served description carries the time axis a browser steers.
+    declares a GROWN picture — five axes, one baked file per (t, c) frame
+    now that the per-frame bake has landed — and the served description
+    carries the time axis a browser steers.
     """
     import json
 
@@ -200,6 +200,12 @@ def test_a_timelapse_run_binds_and_serves_its_grown_picture(tmp_path):
             described["attributes"]["ome"]["multiscales"][0]["axes"]]
     assert axes == ["t", "c", "z", "y", "x"], (
         "the live picture of a timelapse run must declare the grown axes"
+    )
+    assert (run.folder / LIVE_PICTURE / "baked.json").is_file(), (
+        "a grown live picture bakes like a flat one now -- the stamp is the "
+        "durable mark of a finished bake, and its absence means the run's "
+        "cold opens would compose every coarse piece in front of the "
+        "operator"
     )
 
 

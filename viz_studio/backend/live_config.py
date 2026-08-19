@@ -55,12 +55,12 @@ _DECLARE_RETRY_S = 2.0
 def the_live_picture_declared(run_root: Path) -> Path:
     """The governed picture this run is served by, declared if needed.
 
-    A flat run is declared with the bake, so its cold open reads files and
+    Every run is declared with the bake, so its cold open reads files and
     every commit patches its own footprint -- the one live path the
-    2026-08-13 decision settles on. A run grown along (t, c) is declared
-    WITHOUT the bake for now: the bake writes one file per flat piece, and
-    the per-(t, c) bake is ordered work (the c-and-t plan's lazy per-moment
-    patch); its cold opens compose on request instead.
+    2026-08-13 decision settles on. A run grown along (t, c) bakes one
+    file per (moment, channel) frame, kept true per commit exactly as a
+    flat run's files are; the last bake refusal retired with
+    ``test_a_grown_run_is_baked_per_commit``.
 
     Declaring can take seconds to minutes at scale, so it happens once, on
     the binding's first creation: a store already declared FROM THIS RUN in
@@ -79,11 +79,11 @@ def the_live_picture_declared(run_root: Path) -> Path:
         )
     began = time.perf_counter()
     made = declare_a_governed_picture(
-        run_root / "views" / "live", run_root, name="picture", bake=not grown
+        run_root / "views" / "live", run_root, name="picture", bake=True
     )
     print(
-        f"declared the {'grown, compose-on-request' if grown else 'baked'} "
-        f"live picture {made} in {time.perf_counter() - began:.1f} s",
+        f"declared the {'grown, ' if grown else ''}baked live picture "
+        f"{made} in {time.perf_counter() - began:.1f} s",
         flush=True,
     )
     return made
@@ -96,7 +96,8 @@ def _the_run_is_grown(run_root: Path) -> bool:
     time room entered it. Runs sealed BEFORE then declared their room only
     in the arrays, so the first member's array gets a say too -- the same
     whichever-declares-more rule the world frame applies -- or exactly
-    those runs would try to bake as flat pictures and be refused forever.
+    those runs would be declared flat and silently truncate every moment
+    after the first.
     """
     from zmart_live.gateway import _LiveRun
 
@@ -118,11 +119,12 @@ def _already_this_runs_picture(store: Path, run_root: Path,
                                grown: bool) -> bool:
     """Whether the store already is this run's picture, in today's shape.
 
-    For a flat run the durable mark is ``baked.json`` -- written only by a
-    finished bake. A grown picture bakes nothing, so its mark is its own
-    description: five axes, declared from this run. The shape has to match
-    what the run needs TODAY: a picture declared flat before its run grew
-    axes would silently truncate every later moment, so it is re-declared
+    The durable mark is ``baked.json`` -- written only by a finished bake,
+    flat and grown alike. A grown picture declared in the days it composed
+    on request carries no stamp, so it is quietly re-declared with its
+    bake the first time it binds. The shape has to match what the run
+    needs TODAY as well: a picture declared flat before its run grew axes
+    would silently truncate every later moment, so it is re-declared
     instead. Anything unreadable answers ``False`` -- the re-declaration
     overwrites cleanly, which is the fail-closed direction.
     """
