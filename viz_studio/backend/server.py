@@ -65,7 +65,12 @@ try:
     import served as building
 except ImportError:  # pragma: no cover - a checkout without the building module
     building = None
-from contrast import coarsest_level_is_written, intensity_histogram, measure
+from contrast import (
+    camera_range,
+    coarsest_level_is_written,
+    intensity_histogram,
+    measure,
+)
 from library import Library
 from live_config import LiveRegistry, capture_live_state, live_rows
 from stores import (
@@ -1640,6 +1645,43 @@ class _Handler(SimpleHTTPRequestHandler):
 # broken up; `NEXT_STEPS.md` says what that would take.
 
 
+# One folder dialog at a time: two request threads each building a Tk root
+# is how tkinter crashes, and two dialogs at once would confuse the operator
+# anyway.
+_ONE_DIALOG_AT_A_TIME = threading.Lock()
+
+
+def ask_this_machine_for_a_folder() -> str | None:
+    """Open this machine's own folder chooser, for a page in a plain browser.
+
+    The viewer answers on this machine only (the server binds to localhost),
+    so whoever is looking at the page is sitting at this desktop -- and the
+    dialog opens right there, exactly as the desktop window's own chooser
+    would. Without this, a browser-served page told the operator to type
+    paths by hand, which read as a viewer with mock capabilities
+    (2026-08-19). Pass it as ``browse=`` to :func:`make_server` when the
+    page will be looked at in a browser; the desktop window keeps its own.
+
+    ``None`` when the operator cancels. Raises where no display or no
+    tkinter exists, and the browse door then answers its ordinary "type a
+    path instead", so a headless machine loses nothing.
+    """
+    import tkinter
+    from tkinter import filedialog
+
+    with _ONE_DIALOG_AT_A_TIME:
+        root = tkinter.Tk()
+        root.withdraw()
+        # In front of the browser, or the operator sees nothing happen.
+        root.attributes("-topmost", True)
+        try:
+            chosen = filedialog.askdirectory(
+                parent=root, title="Choose the folder holding the images")
+        finally:
+            root.destroy()
+    return chosen or None
+
+
 def make_server(
     port: int = 8848,
     *,
@@ -1959,6 +2001,13 @@ def make_server(
             "color": list(color) if color else None,
             "histogram": found["histogram"],
         }
+        # The whole range the camera's number type can hold. The panel draws
+        # its brightness axis over this rather than over the brightest pixel
+        # found, so the histogram says how much headroom is left before
+        # saturation -- absent for numbers with no natural ceiling.
+        held = camera_range(root / name)
+        if held is not None:
+            described["range"] = {"low": held[0], "high": held[1]}
         # A store can be met before any of its image has been written -- the viewer
         # is built to notice one the instant its description lands, which is the
         # earliest possible moment. Measuring then gives a window covering the whole

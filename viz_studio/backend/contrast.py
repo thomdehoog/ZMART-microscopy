@@ -426,6 +426,50 @@ def _the_members_behind(store: str | Path) -> list[Path]:
     return [collection / member for member in members]
 
 
+def camera_range(store: str | Path) -> tuple[float, float] | None:
+    """The whole range the camera's number type can hold, or None without one.
+
+    A microscopist reads a histogram against the camera's full range: where
+    the data sits inside it says how much headroom is left before saturation,
+    which no stretch of the data alone can show. The panel's brightness axis
+    therefore runs to this rather than to the brightest pixel found (asked
+    for by the operator at the workstation, 2026-08-19; the Log axis is what
+    keeps a narrow signal readable on so wide a track). ``None`` for numbers
+    with no natural ceiling — floating point — and the panel then keeps the
+    measured span.
+    """
+    import json
+
+    import numpy as np
+
+    store = Path(store)
+    try:
+        level = _coarsest_level_path(_read_attrs_at(store))
+    except (OSError, KeyError, ValueError):
+        return None
+    if level is None:
+        return None
+    for name in (".zarray", "zarr.json"):
+        described = store / level / name
+        try:
+            said = json.loads(described.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        declared = said.get("dtype") or said.get("data_type")
+        if not declared:
+            continue
+        try:
+            kind = np.dtype(declared)
+        except TypeError:
+            return None
+        if kind.kind == "u":
+            return 0.0, float(np.iinfo(kind).max)
+        if kind.kind == "i":
+            return float(np.iinfo(kind).min), float(np.iinfo(kind).max)
+        return None
+    return None
+
+
 def coarsest_level_is_written(store: str | Path) -> bool:
     """Has the smallest, whole-field copy of this image been written yet?
 

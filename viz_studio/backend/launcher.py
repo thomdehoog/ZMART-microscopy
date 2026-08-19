@@ -87,13 +87,18 @@ def open_window(
     # The viewer's "open" button needs a folder chooser, and only Python can show
     # one: a page in a browser cannot be handed a path on the machine. This hands
     # the server a way to ask for one. It is filled in below once the window
-    # exists, and stays empty in the browser fallback, where the interface asks
-    # the operator to type a path instead.
+    # exists; in the browser fallback the machine's own dialog stands in, since
+    # the server answers on this machine only and whoever is looking at the page
+    # is sitting at this desktop.
     chooser: dict = {}
 
     def browse():
         show = chooser.get("show")
-        return show() if show else None
+        if show:
+            return show()
+        from server import ask_this_machine_for_a_folder
+
+        return ask_this_machine_for_a_folder()
 
     kwargs = {
         "store": store,

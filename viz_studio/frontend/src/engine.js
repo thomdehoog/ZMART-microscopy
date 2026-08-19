@@ -732,6 +732,11 @@ function applySettings(managed, spec) {
     // text it already holds is ignored by the engine, so this is free whenever
     // the colour has not changed -- which is nearly always.
     if (spec.shader != null) layer.fragmentMain.value = spec.shader;
+    // How this row blends with what is beneath travels with the spec rather
+    // than being set once: a live row that starts as one source may gain
+    // tiles as the run grows, and the covering rule must come back with
+    // them -- left additive, their overlaps would sum into bright seams.
+    layer.blendMode.restoreState(spec.blend ?? "default");
     // The contrast window and the 3-D opacity travel separately, as values for
     // controls the program declares. Sent this way they reach a program that is
     // already compiled, so dragging a contrast handle costs the graphics card

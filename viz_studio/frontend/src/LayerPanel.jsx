@@ -83,6 +83,20 @@ const LOG_SLIDER_STEPS = 1000;
  * widens the track rather than leaving a handle stranded off the end of it.
  */
 function contrastRange(layer, window_) {
+  // The brightness axis runs over the camera's whole range -- histogram and
+  // handles alike -- so where the data sits inside it says how much headroom
+  // is left before saturation. The track once stopped at the measured spread
+  // instead, chosen by the operator when a narrow signal left two pixels of
+  // useful travel; the same operator reversed it at the workstation
+  // (2026-08-19) once the Log axis could spread the dim end back out. A
+  // store whose numbers have no natural ceiling keeps the measured span.
+  const camera = layer.range;
+  if (camera && Number.isFinite(camera.high)) {
+    return {
+      min: Math.min(Math.floor(camera.low ?? 0), Math.floor(window_.low)),
+      max: Math.max(Math.ceil(camera.high), Math.ceil(window_.high)),
+    };
+  }
   const measured = layer.histogram;
   let min = 0;
   let max = 65535;
@@ -113,21 +127,25 @@ function contrastRange(layer, window_) {
  * where the drag begins is the one taken hold of, which makes the bars easy
  * to grab even when the window is pushed against an edge.
  */
-function Histogram({ layer, window_, color, onWindow, scale = "linear" }) {
+function Histogram({ layer, window_, color, onWindow, scale = "linear", axis = null }) {
   const dragging = React.useRef(null);
   const counts = layer.histogram?.counts;
   if (!counts?.length) return null;
   const peak = Math.max(...counts, 1);
   const measured = layer.histogram;
-  // The bars are drawn across the range the server measured; the marks have to
-  // be placed on that same scale, or they would sit under the wrong bars. On
-  // the log axis the same mapping warps bars and marks together.
-  const span = measured.high - measured.low || 1;
+  // The box spans the AXIS -- the camera's whole range when the store's
+  // numbers have one -- and the bars sit at the brightness they were
+  // measured at inside it, so the empty stretch up to saturation is honest
+  // headroom on show. Marks, bars and the pointer all share one mapping, or
+  // they would sit under the wrong values; on the log axis it warps them
+  // together.
+  const low = axis ? axis.min : measured.low;
+  const span = (axis ? axis.max - axis.min : measured.high - measured.low) || 1;
   const at = (value) => {
     const fraction =
       scale === "log"
-        ? logFraction(value, measured.low, span)
-        : Math.min(Math.max((value - measured.low) / span, 0), 1);
+        ? logFraction(value, low, span)
+        : Math.min(Math.max((value - low) / span, 0), 1);
     return fraction * counts.length;
   };
   const left = at(window_.low);
@@ -138,8 +156,8 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear" }) {
     const box = event.currentTarget.getBoundingClientRect();
     const fraction = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
     return scale === "log"
-      ? valueAtLogFraction(fraction, measured.low, span)
-      : measured.low + fraction * span;
+      ? valueAtLogFraction(fraction, low, span)
+      : low + fraction * span;
   };
   const takeHold = (event) => {
     if (!onWindow) return;
@@ -182,10 +200,14 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear" }) {
           One glance says which pixels are being looked at. */}
       {counts.map((count, index) => {
         const height = (Math.log1p(count) / Math.log1p(peak)) * 22;
-        const centre = measured.low + ((index + 0.5) * span) / counts.length;
+        // The bins live in MEASURED brightness -- that is what the server
+        // counted -- and only their places are mapped through the axis, which
+        // may run far past them to the camera's ceiling.
+        const bins = measured.high - measured.low || 1;
+        const centre = measured.low + ((index + 0.5) * bins) / counts.length;
         const shown = centre >= window_.low && centre <= window_.high;
-        const starts = at(measured.low + (index * span) / counts.length);
-        const ends = at(measured.low + ((index + 1) * span) / counts.length);
+        const starts = at(measured.low + (index * bins) / counts.length);
+        const ends = at(measured.low + ((index + 1) * bins) / counts.length);
         return (
           <rect
             key={index}
@@ -481,17 +503,23 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
     Math.abs(window_.low - autoWindow.low) < 0.5 &&
     Math.abs(window_.high - autoWindow.high) < 0.5;
   // What clicking the lit light puts back: the window the run itself
-  // declared -- and only when that is genuinely a different window. A run
-  // that declared nothing is served the measured window as its window, so
-  // without this test the lit button offered a toggle between two equal
-  // values and clicking it visibly did nothing (found with a real plate,
-  // 2026-08-19). With nothing to restore, the button says so and rests.
+  // declared when that is genuinely a different window, and otherwise the
+  // camera's whole range -- everything shown, nothing clipped, the state
+  // before anyone chose anything. A run that declared nothing is served the
+  // measured window AS its window, so without the difference test the lit
+  // button offered a toggle between two equal values and clicking it
+  // visibly did nothing (found with a real plate, 2026-08-19; the full-range
+  // off state is what the operator asked for the same evening).
   const declared =
     layer.window && autoWindow &&
     (Math.abs(layer.window.low - autoWindow.low) >= 0.5 ||
      Math.abs(layer.window.high - autoWindow.high) >= 0.5)
       ? layer.window
       : null;
+  const camera = layer.range && Number.isFinite(layer.range.high)
+    ? { low: layer.range.low ?? 0, high: layer.range.high }
+    : null;
+  const unlit = declared || camera;
 
   return (
     <div style={styles.controls} aria-label="channel controls">
@@ -517,6 +545,7 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               color={css(entry.color)}
               onWindow={(next) => onWindow(index, next)}
               scale={scale}
+              axis={{ min, max }}
             />
             {/* Auto is a light as much as a button: lit while the window is
                 the measured one. Clicking it on applies that measurement;
@@ -531,16 +560,16 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
                 onClick={() =>
                   onWindow(
                     index,
-                    following ? declared : autoWindow || layer.window,
+                    following ? unlit : autoWindow || layer.window,
                   )
                 }
-                disabled={following ? !declared : !autoWindow && !layer.window}
+                disabled={following ? !unlit : !autoWindow && !layer.window}
                 aria-label={`auto contrast ${layer.name}`}
                 aria-pressed={following}
                 title={following
                   ? (declared
                     ? "The window is the measured one; click to put back the window this run was written with"
-                    : "The window is the measured one, and this run declared no other. Drag a handle to choose your own")
+                    : "The window is the measured one; click to spread it over the camera's whole range")
                   : "Set the window from the brightness measured in this channel"}
                 style={{ ...styles.autoButton, ...(following ? styles.autoButtonOn : null) }}
               >
