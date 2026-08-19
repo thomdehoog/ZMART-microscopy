@@ -1,13 +1,11 @@
 # Measured: a timepoint landing, from the commit to the frame on screen
 
 > Measured 2026-08-19 by `measure_a_timepoint_landing.py` on a Linux
-> container drawing in software. Shapes over absolutes, as always. Each
-> rung ran in its own browser and, because of the finding below, its own
-> process:
+> container drawing in software. Shapes over absolutes, as always. One
+> process and one browser serve every rung, which is itself the
+> regression gate for the finding below:
 >
->     python viz_studio/building/measure_a_timepoint_landing.py --rungs 16
->     python viz_studio/building/measure_a_timepoint_landing.py --rungs 64
->     python viz_studio/building/measure_a_timepoint_landing.py --rungs 256
+>     python viz_studio/building/measure_a_timepoint_landing.py
 
 The survey ladders measure a POSITION landing; this measures the other
 growth: a run already showing its positions gains a new MOMENT, committed
@@ -30,9 +28,9 @@ costs. The follow itself adds almost nothing over the offer.
 ## Found by this instrument, run to ground the same night
 
 Running two rungs of DIFFERENT sizes in one process left the second rung's
-page waiting forever on coarse pieces answering 503 -- a real defect in
-the grown serving path, not in this instrument. The whole ledger, the
-mechanism hypothesis and the 30-second reproducer live in
-`FINDING_grown_slab_windows_race_the_warm.md`; it is why the table above
-was measured one process per rung, and it gates the grown per-commit bake
-chapter.
+page waiting forever on coarse pieces answering 503 -- a real defect, run
+fully to ground and FIXED: the world frame's remembered geometry was keyed
+without the run's folder, so a second run of the same name read the first
+run's extent. `FINDING_grown_slab_windows_race_the_warm.md` holds the
+whole story; `test_two_runs_share_one_process.py` pins it, and this
+instrument's multi-rung mode doubles as the end-to-end regression.

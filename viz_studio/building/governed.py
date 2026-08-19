@@ -235,8 +235,17 @@ class TheWorldFrame(Mosaic):
     # recomputing, per commit, a number the immutable layout fixed at declare.
     _shapes: dict[tuple, tuple[int, int, int]] = {}
 
-    def __init__(self, tiles, layout, profile):
-        named = (layout.run_id, layout.revision, profile.profile_id)
+    def __init__(self, tiles, layout, profile, *, run: Path):
+        # The RUN FOLDER is part of every remembered key, and load-bearing:
+        # a viewer process outlives one acquisition, and the same script run
+        # again into a fresh folder carries the same run name, the same
+        # sealed profile and a layout starting from the same revision
+        # number. Keyed without the folder, the second run read the first
+        # run's origin and extent -- a 64-position survey served inside a
+        # 16-position frame, its outer tiles composing negative windows and
+        # answering 503 for ever (FINDING_grown_slab_windows_race_the_warm,
+        # 2026-08-19, and test_two_runs_share_one_process pins it).
+        named = (run, layout.run_id, layout.revision, profile.profile_id)
         remembered = TheWorldFrame._origins.get(named)
         if remembered is None:
             remembered = tuple(
@@ -262,6 +271,7 @@ class TheWorldFrame(Mosaic):
         )
         self._layout = layout
         self._profile = profile
+        self._run_folder = run
 
     def voxel_um(self, level: int) -> tuple[float, float, float]:
         """From the profile, so it exists before any position does."""
@@ -276,8 +286,8 @@ class TheWorldFrame(Mosaic):
         """The layout's extent: every planned position, arrived or not."""
         found = self._shape.get(level)
         if found is None:
-            named = (self._layout.run_id, self._layout.revision,
-                     self._profile.profile_id, level)
+            named = (self._run_folder, self._layout.run_id,
+                     self._layout.revision, self._profile.profile_id, level)
             found = TheWorldFrame._shapes.get(named)
             if found is None:
                 rung = self._profile.level(level)
@@ -1210,7 +1220,8 @@ class GovernedRun:
         # the per-position moment gathering above.
         self.accounting["last_snapshot_swept"] = (
             2 * len(published) + len(order) + 2 * len(drawing))
-        return (Composer(TheWorldFrame(ordered, layout, profile),
+        return (Composer(TheWorldFrame(ordered, layout, profile,
+                                       run=self.folder),
                          piece=self._piece), drawing, tiles)
 
     def _the_pattern_read_and_checked(self, position_id: str, generation: int,

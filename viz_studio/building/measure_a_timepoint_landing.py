@@ -121,23 +121,22 @@ def main() -> None:
     print("|---|---|---|---|")
     with sync_playwright() as pw:
         args = ["--use-gl=angle", "--use-angle=swiftshader"]
+        try:
+            browser = pw.chromium.launch(args=args)
+        except Exception:
+            browser = pw.chromium.launch(executable_path=find_a_chromium(),
+                                         args=args)
+        # This loop is itself a regression gate: every rung reuses one
+        # process AND one run name, which is exactly the shape that poisoned
+        # the world frame's remembered geometry the first time this
+        # instrument ran (FINDING_grown_slab_windows_race_the_warm, closed
+        # 2026-08-19, pinned by test_two_runs_share_one_process).
         for positions in arguments.rungs:
-            # One browser per rung. A browser carried across rungs left the
-            # second rung's page timing out on waits the first rung answered
-            # easily -- an instrument-side puzzle (the test suite shares one
-            # browser across many servers without trouble), noted in the
-            # MEASURED file and side-stepped here so every rung measures
-            # from the same clean start.
-            try:
-                browser = pw.chromium.launch(args=args)
-            except Exception:
-                browser = pw.chromium.launch(executable_path=find_a_chromium(),
-                                             args=args)
             told = _one_rung(browser, built, positions, arguments.fixtures)
             print(f"| {told['positions']} | {told['offered_s']:.2f} |"
                   f" {told['followed_s']:.2f} |"
                   f" {told['worst_followed_s']:.2f} |", flush=True)
-            browser.close()
+        browser.close()
 
 
 if __name__ == "__main__":

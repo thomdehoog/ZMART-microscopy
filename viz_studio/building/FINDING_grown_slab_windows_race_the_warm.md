@@ -1,75 +1,59 @@
-# Finding: grown coarse slabs can compose a negative window under the warm
+# Finding: grown slab windows went negative — CLOSED 2026-08-19
 
-> Found 2026-08-19 by the timepoint-landing instrument
-> (`measure_a_timepoint_landing.py`), run to ground the same night as far
-> as one session honestly could. Status: OPEN. The crash is loud and
-> fail-closed (a 503, never wrong pixels), which is the correct behaviour
-> until the mechanism falls -- do NOT silence it with an emptiness check,
-> because a tile the index claims overlaps a piece SHOULD overlap it, and
-> skipping one silently would draw missing ground with nothing on screen
-> to say so.
+> Found by the timepoint-landing instrument on 2026-08-19, bisected the
+> same night, and run fully to ground the next session. Fixed in
+> `governed.py`; pinned by `test_two_runs_share_one_process.py`.
 
 ## The symptom
 
-Serving a grown (t, c) live run of 64 positions, some coarse pieces
-(level 1 and up) answer **503 forever**: `composer._read_from` computes
-`np.empty(high - low)` with a **negative extent** and every retry fails the
-same way. The composer's own warm thread dies on the same error. A page
-opening the run then waits on chunks that never come -- the picture never
-paints.
+Serving a grown (t, c) live run of 64 positions in a process that had
+already served a 16-position run of the same name, some coarse pieces
+answered **503 forever**: `composer._read_from` computed
+`np.empty(high - low)` with a negative extent, and the composer's warm
+thread died on the same error. The page never painted.
 
-## The bisect ledger (all in one Python process, fresh otherwise)
+## The mechanism, caught red-handed
 
-| sequence | outcome |
+Not a race at all, in the end — the "race" was scheduling noise around a
+deterministic poisoning. `TheWorldFrame` (the governed run's mosaic,
+whose geometry is the layout's) remembered its origin and per-level
+extent in **class-level caches keyed by (run_id, layout revision,
+profile)** — on the assumption that the triple names one layout. It does
+not: a viewer process outlives one acquisition, and the same script run
+again into a fresh folder carries the same run name, the same sealed
+profile, and a layout starting from the same revision number.
+
+The second run then read the FIRST run's remembered frame. The probe
+caught the inconsistency whole: a mosaic whose index placed 64 tiles out
+to x = 1152 while its cached shape said 672 — the 16-position run's
+extent. Every tile beyond the remembered frame clamps its slab window to
+`to < from`: the negative dimension, the dead warm, the eternal 503s.
+The loud crash was the RIGHT behaviour — the same poisoning with extents
+that happened to fit would have placed tiles silently wrong.
+
+## The fix
+
+The run's **folder** — the identity that actually distinguishes two runs
+— is now part of both remembered keys (`_origins` and `_shapes` in
+`TheWorldFrame`). Within one folder the layout revision genuinely names
+the layout, so the caches keep the per-commit saving they exist for.
+
+## The gates
+
+- `test_two_runs_share_one_process.py`: two grown runs, same name, same
+  profile, small first — every placement of the second must sit inside
+  its own frame at every level, and every coarse piece must compose. Red
+  before the fix with the poisoned numbers (a tile reaching 1664 in a
+  frame remembered as 1344); green after.
+- `measure_a_timepoint_landing.py` multi-rung is the end-to-end
+  regression: every rung reuses one process and one run name by design.
+
+## The bisect ledger that led here (kept for the method)
+
+| sequence (one process) | outcome |
 |---|---|
-| 16-position run alone | fine |
-| 64-position run alone, served over HTTP | piece answers 200, **but the warm thread still crashed** (the request won because the warm had already pinned that slab before dying) |
-| 16 then 64 | 64's page never paints; five pieces 503 forever |
-| 16 then 16 | fine |
-| 64 then 64 | fine |
-| 16 then 64, first run's folder kept (no deletion, no inode reuse) | still fails -- not a filesystem-identity effect |
-| 64-run, warm run SYNCHRONOUSLY on a fresh composer | clean, all slabs |
-| 64-run, every level-1 piece composed on a fresh composer, warm off | clean |
-
-So the negative window needs the warm running CONCURRENTLY with request
-serving (or with itself under load); the same addresses compose cleanly
-single-threaded. It is a race, not an arithmetic error in any one input.
-
-## Where the arithmetic can go negative
-
-In `_build_slab` (composer.py), the depth overlap of tile and slab is
-checked and skipped when empty, but the y and x windows are clamped and
-**not** checked:
-
-    from_y, to_y = max(top, at[1]), min(bottom, at[1] + held[1])
-    from_x, to_x = max(left, at[2]), min(right, at[2] + held[2])
-
-A tile handed to a piece it does not overlap makes `to < from` there. The
-per-piece index only lists overlapping tiles *for the geometry it was
-built from* -- so the working hypothesis is that under concurrency the
-slab bounds and the placements/index are read from **two different
-geometry states** (a governed run's mosaic is a snapshot that derives
-afresh; `_indexed` is a composer-held cache). The next session's first
-move: log, at the moment of the negative window, the identity of
-`self.mosaic`, the index's build time, and the slab bounds' source, and
-diff them.
-
-## The 30-second reproducer (no browser)
-
-    # one process: write a 16-cell grown run, serve one piece of it,
-    # then write a 64-cell grown run and serve piece 1/c/0/0/0/1/1 of it
-    # over HTTP (make_server, store="views/live/live.ome.zarr", live=True)
-    # -> 503, with the ValueError above in the server log.
-    # Both runs: plan_the_writing("overview", frame=384, z_planes=1,
-    # timepoints=8), all positions committed at moment 0 before serving.
-
-`measure_a_timepoint_landing.py --rungs 16 64` reproduces it end to end.
-
-## Why it matters, and what it blocks
-
-- A long-lived viewer process serving successive acquisitions of the same
-  profile but different survey sizes hits this on the second run.
-- The warm thread dying quietly means the cold-open warmth promise fails
-  for grown runs at this size even when requests happen to win the race.
-- The grown per-commit bake chapter builds directly on this slab path, so
-  this finding gates it: the race falls first.
+| 16 alone / 64 alone / 16→16 / 64→64 | fine |
+| 16 → 64 | second run never paints |
+| 16 → 64, first folder kept (no inode reuse) | still fails |
+| 64-run, warm run synchronously, fresh composer | clean |
+| 64-run after 16, probe dumping state at the crash | index at x≤1152, shape 672: the smoking gun |
