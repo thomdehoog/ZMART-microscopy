@@ -106,6 +106,18 @@ wheel, sum-normalised weights, open with a handful visible.
   without the Log axis on by default it recreates the
   two-pixels-of-useful-travel problem the old rule existed to prevent.
 
+## The owner's model, which the design serves
+
+Channels go into neuroglancer as layers, and everything about the mixing is
+handed to it through neuroglancer's own API as layer state. The engine's
+layer API takes, per layer: a drawing program, adjustable controls for it
+(the brightness window already travels this way), a blend mode, and an
+opacity. Today's one violation of that model is the colour, written into
+the program text instead of handed over as a control -- the plan ends it.
+The just-reach-white scaling also fits without anything special: the panel
+computes the scaled values and delivers them as ordinary colour settings
+through the same API. No engine modification anywhere.
+
 ## The design
 
 **Converge on stock neuroglancer's multichannel shape, plus one addition it
@@ -148,6 +160,38 @@ dense four-channel picture opens unclipped, that opacity fades linearly,
 and that a stitched multichannel row says on the panel why it cannot mix.
 The trapping comment blocks listed in the review are rewritten to state
 their conditions.
+
+## Building it
+
+- **Stage 0 -- the gates, red first.** A dense multichannel picture opens
+  unclipped (a bounded share of pure-white pixels, and every channel's
+  recolour visibly changes the canvas); opacity fades linearly (half
+  opacity measures half brightness, not a quarter); recolouring leaves the
+  drawing program's text untouched (the colour arrives as a control); a
+  stitched multichannel row keeps covering and the panel says why; the Log
+  axis is on by itself when the camera range dwarfs the measured spread.
+  The existing blend, palette and channel gates move to the new ownership.
+- **Stage 1 -- the program and the API state** (`scene.js`, a little of
+  `engine.js`). One shared drawing program for flat channel rows (window
+  and colour as controls, emit colour x value); the coverage term leaves
+  channel rows; blend chosen by row kind; opacity carried once, in
+  `layer.opacity`. The 3D program takes its colour as a control the same
+  way.
+- **Stage 2 -- ownership moves** (`stores.py`, panel). The server reports
+  only colours a run declared; the panel assigns palette turns to
+  colourless channels and scales the visible set to just-reach-white,
+  rescaling when eyes toggle; the duplicate palette leaves the server.
+- **Stage 3 -- the axis default** (`LayerPanel.jsx`). Log turns on when
+  the camera's range dwarfs the measured spread; the toggle still
+  overrides.
+- **Stage 4 -- the comments.** The five trapping blocks named by the
+  review are rewritten to state their conditions, so the next reader
+  inherits facts instead of lore.
+- **Stage 5 -- proof on the real plate.** A screenshot gauntlet looked at
+  with eyes: fresh open coloured and unclipped, recolour works on every
+  channel, toggles rebalance, Auto toggles, 3D and 2D mix alike. Then the
+  full suite once, the ledger updated, pushed, the served viewer
+  restarted.
 
 ## One pending detail
 
