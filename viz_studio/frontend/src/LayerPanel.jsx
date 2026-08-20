@@ -1272,7 +1272,12 @@ const styles = {
     display: "grid",
     gridTemplateColumns: "1fr 60px",
     gap: 6,
-    marginBottom: 4,
+    // The same side padding the histogram row carries, so the two grids
+
+    // resolve to the same columns. Measured 2026-08-20: without it the boxes
+    // sat twelve pixels left of the picture and ten past its right edge,
+    // because an unpadded row is 24 pixels wider and divides differently.
+    padding: "0 12px 4px",
   },
   axisEnds: {
     display: "flex",
