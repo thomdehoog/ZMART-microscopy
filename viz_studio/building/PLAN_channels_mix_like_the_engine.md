@@ -121,47 +121,73 @@ through the same API. No engine modification anywhere.
 
 ## The design
 
-**Converge on stock neuroglancer's multichannel shape, plus one addition it
-lacks: sum-normalised channel weights.** Concretely:
+**One picture is one layer, and its channels mix inside one drawing
+program.** This replaces an earlier draft of this plan, which spread the
+channels over one layer each and added them. That draft was the best that
+model allows and it is not good enough: because every channel is drawn in
+its own pass, no program ever sees the total, so the only way to stop the
+sum overflowing is to scale every channel down in advance -- which dims
+the whole picture as channels are added, even where a single channel is
+alone with its signal.
 
-1. **One shared program for all flat channel rows.** Colour (and weight)
-   become dials, exactly like the window. `scene.js` stops writing colours
-   into program text; recolouring becomes free.
-2. **Channel rows always add, bottom included; opacity has one carrier**
-   (`layer.opacity`); the coverage transparency term disappears from
-   channel rows. This deletes the opacity-squared defect and the
-   only-the-top-channel-shows defect at their root.
-3. **Rows stitched from many files keep the covering rule**, stated plainly
-   as a stitching regime, chosen by row KIND — not by counting sources —
-   and marked in the panel as not colour-mixable. It retires when the
-   server serves every row as one composed picture (already the direction
-   of travel).
-4. **Sum-normalised weights**: scale the visible channels' colours so
-   together they can only just reach white. All-bright reads as white
-   honestly; any imbalance reads as colour; hiding channels brightens the
-   rest automatically; a single channel is untouched. This is the entire
-   white-plate fix, and it is one multiplication on a dial the engine
-   already owns. Stated deviation from stock — stock clips this data too.
-   The final reference survey verified this mechanism is absent from
-   EVERY reference tool (their escapes are categorical max, a single-hue
-   luminance sum, or showing few channels) — so it is a genuine
-   departure, chosen deliberately, and the review should weigh it as
-   one.
-5. **Defaults owned once.** The server reports colours a run DECLARED, or
+The engine offers the better road itself. A brightness control can be
+bound to a named channel of the data
+(`#uicontrol invlerp ch0(channel=[0])`, verified in
+`webgl/shader_ui_controls.js`), so ONE program can read every channel of
+a picture, mix them where the total is visible, and hand back a colour
+that fits the screen:
+
+```
+    sum = colour0 x ch0() + colour1 x ch1() + ...
+    peak = the strongest of the sum's three components
+    shown = peak > 1 ? sum / peak : sum
+    emit shown, with "any channel has data here" as the coverage
+```
+
+Dividing all three components by one number keeps their ratios, so the
+mixture's COLOUR survives where clipping would have destroyed it; nothing
+can ever clip; and a channel alone in its region keeps full brightness,
+because there is nothing to scale back. This is what Viv does in one pass,
+reached with stock neuroglancer and no engine modification.
+
+It also dissolves the blend fork this plan used to need. Inside one layer
+each position still draws as its own pass and covers the one before it --
+correct stitching -- while the channels mix inside each pass. Channel
+mixing and position stitching stop competing for the same switch.
+
+The rest of the design stands:
+
+1. **Colour and brightness are dials, never program text.** Recolouring
+   costs a number, not a rebuild. The program's text depends only on how
+   many channels the picture has, so it is rebuilt when a picture is
+   opened and never while an operator works.
+2. **Opacity has one carrier** and the coverage term means coverage only:
+   whether anything was imaged there, for stacking one acquisition over
+   another.
+3. **Defaults owned once.** The server reports colours a run DECLARED, or
    nothing; the default palette lives in exactly one place (the panel).
-   Keep green/magenta first (the colour-blind-safest pair) — with
-   normalisation, any palette is safe from clipping, so the stock
-   red/green/blue argument loses its force.
+   Hues turn around the wheel for any number of channels.
+4. **A picture whose channels live in separate files** -- an older
+   run, a folder of per-channel stores -- keeps a layer per channel and
+   the engine's plain additive mixing, which clips as every tool does.
+   The cure is the composed picture the server already builds, not a
+   second compositing system.
+5. **How many channels at once.** One program samples a bounded number of
+   channels (Viv stops at ten; every reference tool opens with about four
+   showing). A picture with more offers them all in the panel and shows
+   the first few, as the field does.
 6. **The Log brightness axis turns on by itself** when the camera's range
-   dwarfs the measured spread, so the full-range histogram stays usable.
-7. The per-channel windows stay the server's measured 1–99 percentile: it
-   also draws the histogram, works before the graphics card has read a
-   pixel, and is reproducible. Barely a deviation at all, it turns out:
-   stock neuroglancer's own auto-contrast computes the same 1st/99th
-   percentiles, on the GPU; only where the measuring happens differs.
+   dwarfs the measured spread.
+7. **The measured 1-99 window stays** the server's: it also draws the
+   histogram and works before the graphics card has read a pixel. Barely
+   a deviation at all, it turns out -- stock neuroglancer's own
+   auto-contrast computes the same percentiles, on the GPU; only where
+   the measuring happens differs.
 
-Touches: `scene.js` (the program and the layer settings), a little of
-`engine.js` and `LayerPanel.jsx`, removal of the palette from `stores.py`.
+Touches: `scene.js` (one layer per picture, the mixing program, the
+controls), `engine.js` (rows become one layer with per-channel controls
+rather than one layer each), `LayerPanel.jsx` (a channel row now drives a
+control, and owns the palette), `stores.py` (the palette leaves).
 Gates: the existing blend/panel gates updated, plus red-first gates that a
 dense four-channel picture opens unclipped, that opacity fades linearly,
 and that a stitched multichannel row says on the panel why it cannot mix.
@@ -170,35 +196,37 @@ their conditions.
 
 ## Building it
 
-- **Stage 0 -- the gates, red first.** A dense multichannel picture opens
-  unclipped (a bounded share of pure-white pixels, and every channel's
-  recolour visibly changes the canvas); opacity fades linearly (half
-  opacity measures half brightness, not a quarter); recolouring leaves the
-  drawing program's text untouched (the colour arrives as a control); a
-  stitched multichannel row keeps covering and the panel says why; the Log
-  axis is on by itself when the camera range dwarfs the measured spread.
-  The existing blend, palette and channel gates move to the new ownership.
-- **Stage 1 -- the program and the API state** (`scene.js`, a little of
-  `engine.js`). One shared drawing program for flat channel rows (window
-  and colour as controls, emit colour x value); the coverage term leaves
-  channel rows; blend chosen by row kind; opacity carried once, in
-  `layer.opacity`. The 3D program takes its colour as a control the same
-  way.
-- **Stage 2 -- ownership moves** (`stores.py`, panel). The server reports
-  only colours a run declared; the panel assigns palette turns to
-  colourless channels and scales the visible set to just-reach-white,
-  rescaling when eyes toggle; the duplicate palette leaves the server.
-- **Stage 3 -- the axis default** (`LayerPanel.jsx`). Log turns on when
-  the camera's range dwarfs the measured spread; the toggle still
-  overrides.
-- **Stage 4 -- the comments.** The five trapping blocks named by the
-  review are rewritten to state their conditions, so the next reader
-  inherits facts instead of lore.
-- **Stage 5 -- proof on the real plate.** A screenshot gauntlet looked at
+- **Stage 0 -- the gates, red first.** A dense four-channel picture opens
+  with colour and no clipped white; every channel's recolour visibly
+  changes the canvas; a channel alone in its region draws at full
+  brightness however many channels are open (the test the old weights
+  design would have failed); opacity fades linearly; recolouring leaves
+  the program's text untouched; positions of one picture still cover each
+  other without seams; the Log axis is on by itself when the camera range
+  dwarfs the measured spread. The existing blend, palette and channel
+  gates move to the new ownership.
+- **Stage 1 -- one picture, one layer, one mixing program** (`scene.js`,
+  `engine.js`). A picture's channels stop being separate layers and become
+  bound brightness controls of one layer; the program mixes them and
+  scales the sum back only where it would overflow; coverage means
+  coverage. The 3D program mixes the same way, so both views agree.
+- **Stage 2 -- ownership moves** (`stores.py`, `LayerPanel.jsx`). The
+  server reports only colours a run declared; the panel assigns hues
+  around the wheel to the rest and owns the palette alone; a channel row
+  drives a control rather than a layer, and its eye is a weight.
+- **Stage 3 -- the many-channel convention.** A picture with more channels
+  than one program samples offers them all in the panel and shows the
+  first few, as every reference tool does.
+- **Stage 4 -- the axis default** (`LayerPanel.jsx`). Log turns on when the
+  camera's range dwarfs the measured spread; the toggle still overrides.
+- **Stage 5 -- the comments.** The trapping blocks named by the review are
+  rewritten to state their conditions, so the next reader inherits facts
+  instead of lore.
+- **Stage 6 -- proof on the real plate.** A screenshot gauntlet looked at
   with eyes: fresh open coloured and unclipped, recolour works on every
-  channel, toggles rebalance, Auto toggles, 3D and 2D mix alike. Then the
-  full suite once, the ledger updated, pushed, the served viewer
-  restarted.
+  channel, toggles rebalance nothing they should not, Auto toggles, 3D and
+  2D mix alike, a stitched survey still has no seams. Then the full suite
+  once, the ledger updated, pushed, the served viewer restarted.
 
 ## Closed pending detail
 

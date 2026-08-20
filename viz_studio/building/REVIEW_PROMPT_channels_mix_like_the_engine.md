@@ -19,17 +19,23 @@ evidence in the source.
 
 Attack these specifically:
 
-1. **The sum-normalised weights.** Weigh these hardest: the reference
-   survey verified the mechanism exists in NO reference tool -- it is a
-   deliberate novelty, so it gets no benefit of convention. They are computed panel-side over the
-   VISIBLE channels and delivered as scaled colour control values. Find the
-   failure modes: what happens to a channel the operator recoloured by hand
-   when another channel's eye toggles (does their chosen colour silently
-   change brightness)? Does rescaling on toggle fight the engine's own
-   colour control state or the panel's remembered layer state? What should
-   the swatch show — the chosen hue or the scaled value? Is per-component
-   normalisation (exact) worth it over one shared scale (simple)?
-2. **Row kind.** The plan chooses blend by row KIND (channel-of-one-picture
+1. **The one-layer mixing program.** A picture's channels become bound
+   brightness controls (`invlerp ch0(channel=[0])`) of ONE layer, mixed in
+   the program, with the sum scaled back only where it would overflow.
+   Attack it: how many channels can one program sample before the engine's
+   uniform or texture limits bite, and what happens at the boundary? The
+   program's text depends on the channel count -- when exactly is it
+   rebuilt, and can that rebuild land while an operator drags a slider?
+   Does the scale-back read as a brightness ceiling an operator will
+   misread as saturation, and is the plain divide-by-peak the right curve?
+   Does binding a control to a channel cost a rebuild when the panel
+   changes which channels show?
+2. **Positions inside one layer.** The plan claims channel mixing and
+   position stitching stop competing: channels mix inside a pass, positions
+   cover each other across passes. Verify against the engine's draw order
+   that this holds for a growing live picture, and say what the coverage
+   term must be when some channels have data at a pixel and others do not.
+3. **Row kind, if any remains.** The earlier draft chose blend by row KIND (channel-of-one-picture
    vs stitched-from-files) instead of counting sources. Pin down the exact
    predicate: where does the scene learn the kind, what happens to a live
    row that starts single-source and grows, and can a row change kind while
