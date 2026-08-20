@@ -429,6 +429,33 @@ def browser(_playwright):
 
 
 @pytest.fixture(scope="session")
+def counting_browser(_playwright):
+    """A Chromium drawing in software on purpose, for counting frames.
+
+    Everything else draws on the card, because that is what an operator's
+    screen does. Counting frames is the one thing a card makes impossible to
+    read: it draws whatever is asked of it inside a frame and then waits for
+    the display, so 20 positions and 200 positions both come back at the
+    refresh rate and a cost that is genuinely there measures as nothing. On
+    this machine the two arms of the comparison came back 181 frames against
+    180 -- not "the cost is gone", but "the clock ran out before the work
+    did" (measured 2026-08-20, when the gates moved onto the card).
+
+    Software rendering has no such ceiling: every frame costs what it costs,
+    which is exactly what a per-position cost has to be weighed against.
+    """
+    try:
+        launched = _launch_chromium(_playwright, _IN_SOFTWARE)
+    except Exception as exc:
+        _give_up_on_the_picture(
+            f"no usable Chromium on this machine: {_in_a_few_words(exc)}")
+    try:
+        yield launched
+    finally:
+        launched.close()
+
+
+@pytest.fixture(scope="session")
 def gpu_browser(_playwright):
     """A Chromium left to use the machine's real graphics stack, not forced to
     software — so a test can tell whether a GPU is actually present. Shares the

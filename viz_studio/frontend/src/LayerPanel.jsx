@@ -5,7 +5,13 @@ import { restingWindow } from "./scene.js";
 // A small, deliberately limited palette. Green and magenta lead because that is
 // the pairing that reads best on a dark background and stays legible to a
 // colour-blind viewer, unlike red/green.
-export const PALETTE = [
+export // One block for every small control in the display settings: the boxes an
+// operator types into and the buttons beside them. Named rather than repeated
+// so the row cannot drift apart the next time one of them is restyled.
+const ROW_ITEM = 54;
+const ROW_HEIGHT = 24;
+
+const PALETTE = [
   { name: "green", rgb: [0.0, 1.0, 0.4] },
   { name: "magenta", rgb: [1.0, 0.2, 1.0] },
   { name: "cyan", rgb: [0.2, 0.8, 1.0] },
@@ -238,7 +244,7 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear", axis = n
  * is not a number is quietly dropped and the real value comes back. So box
  * and slider always describe the same setting, whichever one moved last.
  */
-function ValueBox({ value, onCommit, label, suffix = "" }) {
+function ValueBox({ value, onCommit, label, suffix = "", align = "right" }) {
   const [draft, setDraft] = React.useState(null);
   const commit = () => {
     if (draft !== null) {
@@ -259,7 +265,7 @@ function ValueBox({ value, onCommit, label, suffix = "" }) {
         if (event.key === "Enter") event.currentTarget.blur();
       }}
       aria-label={label}
-      style={styles.valueBox}
+      style={{ ...styles.valueBox, textAlign: align }}
     />
   );
 }
@@ -560,7 +566,13 @@ function ColormapChooser({ layer, entry, names, onPick }) {
 
 
 function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity,
-                          onColor, onLut, displayScales = { x: 1, y: 1, z: 1 } }) {
+                          onColor, onLut, onMeasureHere = null,
+                          displayScales = { x: 1, y: 1, z: 1 } }) {
+  // The brightness of the part of the picture on screen, once Auto has asked
+  // for it. Kept here rather than pushed into the layer because it describes
+  // where the operator was looking at one moment, not the channel: pan away
+  // and the old reading is no longer about anything.
+  const [here, setHere] = React.useState(null);
   // The same resting window the canvas draws with (see scene.js): the run's
   // recorded window, or the measured one when the run said nothing.
   const window_ = entry.window || restingWindow(layer, mode === "volume")
@@ -570,7 +582,12 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   // otherwise, and their answer is kept per channel for as long as the panel
   // is showing it.
   const [shown, setShown] = React.useState(null);
-  const { min, max } = contrastRange(layer, window_, shown);
+  // The channel as measured: the same layer, but wearing the reading Auto
+  // last took where the operator was looking. Substituted whole so that the
+  // axis, the bars and the Auto light all describe one measurement instead
+  // of disagreeing about which picture they are talking about.
+  const seen = here ? { ...layer, histogram: here } : layer;
+  const { min, max } = contrastRange(seen, window_, shown);
   // The two handles are kept at least one count apart. A window of no width makes
   // every value in the image land on the same shade, so the picture goes flat and
   // it is not obvious why.
@@ -596,32 +613,11 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   // the help.
   const [scale, setScale] = React.useState("linear");
 
-  // The Auto light is derived, not stored: it is on exactly while the window
-  // equals the measured one, so dragging any handle away turns it off by
-  // itself and switching channels always shows the truth.
-  const autoWindow = layer.histogram?.autoWindow;
-  const following =
-    !!autoWindow &&
-    Math.abs(window_.low - autoWindow.low) < 0.5 &&
-    Math.abs(window_.high - autoWindow.high) < 0.5;
-  // What clicking the lit light puts back: the window the run itself
-  // declared when that is genuinely a different window, and otherwise the
-  // camera's whole range -- everything shown, nothing clipped, the state
-  // before anyone chose anything. A run that declared nothing is served the
-  // measured window AS its window, so without the difference test the lit
-  // button offered a toggle between two equal values and clicking it
-  // visibly did nothing (found with a real plate, 2026-08-19; the full-range
-  // off state is what the operator asked for the same evening).
-  const declared =
-    layer.window && autoWindow &&
-    (Math.abs(layer.window.low - autoWindow.low) >= 0.5 ||
-     Math.abs(layer.window.high - autoWindow.high) >= 0.5)
-      ? layer.window
-      : null;
-  const camera = layer.range && Number.isFinite(layer.range.high)
-    ? { low: layer.range.low ?? 0, high: layer.range.high }
-    : null;
-  const unlit = declared || camera;
+  // The measurement Auto falls back on: the whole picture's, taken once when
+  // the run was opened. It is what the button can still offer in the moment
+  // before the view can be asked -- an unlaid-out panel, a volume turned in
+  // three dimensions -- and nothing more than that.
+  const autoWindow = seen.histogram?.autoWindow;
 
   return (
     <div style={styles.controls} aria-label="channel controls">
@@ -640,40 +636,68 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
         <div style={styles.maskNote}>objects, each in its own colour</div>
       ) : (
         <>
+          {/* The brightness of this channel, drawn across the panel. It
+              takes the whole width now: the two buttons that used to sit
+              beside it stole a sixth of the picture to say four letters
+              each, and they read just as well under it. */}
           <div style={styles.histogramRow}>
             <Histogram
-              layer={layer}
+              layer={seen}
               window_={window_}
               color={css(entry.color)}
               onWindow={(next) => onWindow(index, next)}
               scale={scale}
               axis={{ min, max }}
             />
-            {/* Auto is a light as much as a button: lit while the window is
-                the measured one. Clicking it on applies that measurement;
-                clicking it off puts back the window the run itself declared,
-                which is what the old Reset button did -- and moving any
-                handle by hand turns the light off on its own, because the
-                light only ever reports whether window and measurement agree.
-                Log warps the brightness axis, histogram and sliders alike. */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          </div>
+          {/* Under the picture, in one row: what stretch of brightness it
+              draws -- the two boxes, at its two ends, where they label the
+              ends they set -- and between them the two things one can ask
+              of it.
+
+              Auto is a plain press, not a state: it reads the brightness of
+              what is on screen and sets the window to it, and that is all.
+              It was briefly a light that stayed on while the window matched
+              its reading, with a second press that undid it -- but nobody
+              presses Auto to undo it, and a button that means one thing on
+              the way in and another on the way out is a button an operator
+              has to remember rather than read (2026-08-20). Every handle,
+              box and slider below stays free afterwards.
+
+              Log is the one thing in this row that IS a state: it lifts the
+              quiet bins and stays lifted until pressed again. */}
+          <div style={styles.axisRow}>
+            <span style={styles.axisBox}>
+              <ValueBox
+                value={Math.round(min)}
+                onCommit={(asked) => setShown({
+                  low: asked,
+                  high: Math.max(asked + 1, shown ? shown.high : max),
+                })}
+                label={`axis from ${layer.name}`}
+                align="left"
+              />
+            </span>
+            <span style={styles.axisButtons}>
               <button
                 type="button"
-                onClick={() =>
-                  onWindow(
-                    index,
-                    following ? unlit : autoWindow || layer.window,
-                  )
-                }
-                disabled={following ? !unlit : !autoWindow && !layer.window}
+                onClick={async () => {
+                  // What Auto is for: the brightness of what is in front of
+                  // the operator, read afresh on every press -- on a plate,
+                  // the whole picture's reading and one well's are worlds
+                  // apart. The whole picture's is the fallback for the moment
+                  // the view cannot be asked.
+                  const answer = onMeasureHere ? await onMeasureHere(index) : null;
+                  if (answer?.histogram) {
+                    setHere(answer.histogram);
+                    return;
+                  }
+                  onWindow(index, autoWindow || layer.window);
+                }}
+                disabled={!onMeasureHere && !autoWindow && !layer.window}
                 aria-label={`auto contrast ${layer.name}`}
-                aria-pressed={following}
-                title={following
-                  ? (declared
-                    ? "The window is the measured one; click to put back the window this run was written with"
-                    : "The window is the measured one; click to spread it over the camera's whole range")
-                  : "Set the window from the brightness measured in this channel"}
-                style={{ ...styles.autoButton, ...(following ? styles.autoButtonOn : null) }}
+                title="Set the window from the brightness of what is on screen, leaving out the ground nobody imaged"
+                style={styles.autoButton}
               >
                 Auto
               </button>
@@ -687,35 +711,17 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               >
                 Log
               </button>
-            </div>
-          </div>
-          {/* What part of the brightness axis the histogram above draws, and
-              with it how far the handles below can travel. Beneath the
-              picture and no wider than it, because the pair belong to the
-              picture rather than to the window. */}
-          <div style={styles.axisRow}>
-            <div style={styles.axisEnds}>
-              <span style={styles.axisBox}>
-                <ValueBox
-                  value={Math.round(min)}
-                  onCommit={(asked) => setShown({
-                    low: asked,
-                    high: Math.max(asked + 1, shown ? shown.high : max),
-                  })}
-                  label={`axis from ${layer.name}`}
-                />
-              </span>
-              <span style={styles.axisBox}>
-                <ValueBox
-                  value={Math.round(max)}
-                  onCommit={(asked) => setShown({
-                    low: Math.min(asked - 1, shown ? shown.low : min),
-                    high: asked,
-                  })}
-                  label={`axis to ${layer.name}`}
-                />
-              </span>
-            </div>
+            </span>
+            <span style={styles.axisBox}>
+              <ValueBox
+                value={Math.round(max)}
+                onCommit={(asked) => setShown({
+                  low: Math.min(asked - 1, shown ? shown.low : min),
+                  high: asked,
+                })}
+                label={`axis to ${layer.name}`}
+              />
+            </span>
           </div>
           <label style={styles.control}>
             <span style={styles.controlLabel} title="Anything dimmer than this is shown as black">
@@ -873,6 +879,7 @@ export default function LayerPanel({
   onColor,
   onOpacity,
   onWindow,
+  onMeasureHere,
   onLut,
   volumeMode = "max",
   onVolumeMode,
@@ -1046,6 +1053,7 @@ export default function LayerPanel({
           mode={mode}
           lookupTables={lookupTables}
           onWindow={onWindow}
+          onMeasureHere={onMeasureHere}
           onOpacity={onOpacity}
           onColor={onColor}
           onLut={onLut}
@@ -1268,26 +1276,34 @@ const styles = {
   // so the ends of the axis sit under the ends of the picture they describe.
   // Written as the same template rather than as a padding that happens to
   // come out near it, because the two would drift the moment either changed.
+  // The same side padding the histogram carries, so the row's two ends sit
+  // exactly under the two ends of the picture they describe. The generous
+  // space beneath is deliberate: it closes the group -- picture, its two
+  // ends, and what one can ask of it -- and separates it from the window
+  // controls below, which are a different subject. Four pixels left the two
+  // groups reading as one long list.
   axisRow: {
-    display: "grid",
-    gridTemplateColumns: "1fr 60px",
-    gap: 6,
-    // The same side padding the histogram row carries, so the two grids
-
-    // resolve to the same columns. Measured 2026-08-20: without it the boxes
-    // sat twelve pixels left of the picture and ten past its right edge,
-    // because an unpadded row is 24 pixels wider and divides differently.
-    padding: "0 12px 4px",
-  },
-  axisEnds: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 6,
+    padding: "0 12px 14px",
   },
-  // Narrow: these hold a brightness apiece, not a sentence, and a box wider
-  // than its number reads as room for something that never arrives.
-  axisBox: { width: 52, flexShrink: 0 },
+  // Between the two ends, side by side and close: Auto and Log are a pair,
+  // and the four pixels between them against the nineteen on either side of
+  // the pair is what says so. Equal gaps would read as four unrelated
+  // controls in a line.
+  axisButtons: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+  },
+  // One width for all four things in the row under the histogram -- these two
+  // boxes and the two buttons between them -- and the same width again for
+  // the value boxes in the slider rows, so the right-hand box stands in
+  // their column. An edge that does not quite line up reads as a mistake
+  // even when nobody can say which pixel is wrong (2026-08-20).
+  axisBox: { width: ROW_ITEM, flexShrink: 0 },
   chooser: { position: "relative", flex: 1, minWidth: 0 },
   chooserButton: {
     width: "100%",
@@ -1368,23 +1384,17 @@ const styles = {
     cursor: "pointer",
   },
   name: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  // The histogram spans the panel: left edge with the control labels, right
+  // edge with the end of every slider's track below it.
   histogramRow: {
-    display: "grid",
-    // The histogram takes the row's width, starting at the labels' left
-    // edge. The button column and gap match the value column of the control
-    // rows below exactly, so the histogram's right edge lines up with the
-    // end of every slider's track.
-    gridTemplateColumns: "1fr 60px",
-    alignItems: "end",
-    gap: 6,
     padding: "1px 12px 4px",
   },
   histogram: {
     display: "block",
     width: "100%",
-    // Sized so the two buttons beside it, stacked with their gap, stand
-    // exactly as tall: top and bottom edges line up.
-    height: 54,
+    // Tall enough to read a distribution in, now that nothing stands beside
+    // it setting the height. It used to be sized to two stacked buttons.
+    height: 60,
     // Near-white: the full-light bars between the window's marks must read
     // as "this is what you are seeing", against the dimmed rest.
     color: "#dde5ee",
@@ -1393,27 +1403,34 @@ const styles = {
     borderRadius: 3,
   },
   autoButton: {
-    // Full column width with the text centred, so the word keeps even air
-    // on both sides however narrow the column. Two of these stacked, with
-    // their gap, stand exactly as tall as the histogram beside them.
-    width: "100%",
-    // Exact height: two of these plus the 4px gap equal the histogram's
-    // rendered 56px (54 content + its border), so tops and bottoms meet.
-    height: 26,
+    width: ROW_ITEM,
+    flexShrink: 0,
+    // Built to the same block as the two value boxes it sits between: same
+    // width, same height, same corner, same border thickness, so the four
+    // read as one row of equals rather than four sizes in a line.
+    height: ROW_HEIGHT,
+    boxSizing: "border-box",
     padding: 0,
     textAlign: "center",
     border: "1px solid #303a46",
-    borderRadius: 4,
+    borderRadius: 3,
     background: "#1b222b",
     color: "#aab4c0",
-    font: "600 11px/24px system-ui, sans-serif",
+    font: "600 11px/22px system-ui, sans-serif",
     cursor: "pointer",
   },
   control: {
     display: "grid",
-    // The label column is sized to the longest label (BRIGHTNESS); anything
-    // narrower lets the text run underneath the slider beside it.
-    gridTemplateColumns: "68px 1fr 60px",
+    // The label column is sized to the longest label now in it (COLORMAP,
+    // measured at 56px); anything narrower lets the text run underneath the
+    // control beside it. It was 68 to hold BRIGHTNESS, a slider that no
+    // longer exists, and those twelve pixels were costing every slider,
+    // the colour well and the colormap list their left-hand reach.
+    // 58 either side. The right-hand column is four pixels wider than the box
+    // that sits in it, on purpose: that is what makes the slider track start
+    // and stop exactly where Auto and Log do in the row above, so the middle
+    // of the panel reads as one column rather than two that nearly agree.
+    gridTemplateColumns: "58px 1fr 58px",
     alignItems: "center",
     gap: 6,
     padding: "2px 12px",
@@ -1424,12 +1441,25 @@ const styles = {
   // A toggle that is on: the same blue the sliders carry, so "lit" reads as
   // "active" without a legend.
   autoButtonOn: { background: "#1f3a5f", borderColor: "#2f81f7", color: "#dbe6f3" },
-  range: { width: "100%", accentColor: "#2f81f7", cursor: "pointer" },
+  // margin: 0 because the browser gives a range input two pixels of its own,
+  // which pushed every track two to the right of the column it lives in --
+  // and so two off the buttons above it that share that column.
+  range: {
+    width: "100%",
+    margin: 0,
+    accentColor: "#2f81f7",
+    cursor: "pointer",
+  },
   value: { color: "#aab4c0", textAlign: "right", fontVariantNumeric: "tabular-nums" },
   // The typed twin of the value read-out: same column, same right-aligned
   // numerals, with just enough of a border to say "you may type here".
   valueBox: {
-    width: "100%",
+    // The same block as everything else in this panel, held to the right of
+    // its slightly wider column so its edge stays in the column the boxes
+    // above it make.
+    width: ROW_ITEM,
+    justifySelf: "end",
+    height: ROW_HEIGHT,
     // Padding and border inside the width, or the box overflows its column
     // by their sum and stops lining up with the buttons above it.
     boxSizing: "border-box",

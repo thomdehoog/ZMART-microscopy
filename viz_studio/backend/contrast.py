@@ -394,6 +394,20 @@ def _samples(store: Path, *, channel: int | None = None):
     return None
 
 
+def _a_built_pictures_values(store: str | Path, level: int, box,
+                             channel: int | None):
+    """A built picture's pixels inside the share of it on screen, or None.
+
+    Imported lazily from the building shelf, like the whole-picture sample
+    beside it: a checkout without it has no built pictures to measure.
+    """
+    try:
+        from served import the_values_inside
+    except ImportError:
+        return None
+    return the_values_inside(Path(store), level, box, channel=channel or 0)
+
+
 def _a_built_pictures_sample(store: str | Path, channel: int | None):
     """The composer's own sample of a built picture, or None outside one.
 
@@ -574,6 +588,173 @@ def measure(
         "volumeWindow": _window(values, volumetric=True),
         "histogram": _histogram(values, bins=bins),
         "settled": settled,
+    }
+
+
+# What the box has to cover on a copy of the picture before that copy is worth
+# a percentile: a 64x64 patch. Below this the answer says more about which
+# handful of pixels the box happened to land on than about the specimen.
+ENOUGH_TO_MEASURE = 4096
+# And the most any one press will read. Percentiles do not get better with
+# millions of samples, and this is a button an operator holds down.
+AS_MUCH_AS_NEEDED = 262_144
+
+
+def _the_box_on(array, axes: list[str], box, channel: int | None):
+    """Where a share of the picture falls on one copy of it, as slices.
+
+    ``None`` where the box lands outside the picture entirely, which is not
+    the same as landing on ground nobody imaged.
+    """
+    import numpy as np
+
+    shape = tuple(int(n) for n in array.shape)
+    (top, left), (bottom, right) = box
+    taken: list = [slice(None)] * len(shape)
+    for name, low, high in (("y", top, bottom), ("x", left, right)):
+        if name not in axes:
+            continue
+        at = axes.index(name)
+        length = shape[at]
+        first = max(0, min(length, int(np.floor(low * length))))
+        last = max(0, min(length, int(np.ceil(high * length))))
+        if last <= first:
+            return None
+        taken[at] = slice(first, last)
+    if channel is not None and "c" in axes:
+        taken[axes.index("c")] = slice(channel, channel + 1)
+    return taken
+
+
+def _how_many(shape, taken) -> int:
+    """How many numbers a read of these slices would hand back."""
+    total = 1
+    for length, part in zip(shape, taken):
+        total *= len(range(*part.indices(int(length))))
+    return total
+
+
+def _thinned(shape, taken, most: int):
+    """The same slices, stepped so they hand back no more than ``most``.
+
+    Every axis is stepped by the same amount, so a thinned read is the
+    picture on a coarser grid rather than a picture squashed along one side.
+    """
+    held = _how_many(shape, taken)
+    if held <= most:
+        return taken
+    spread = sum(1 for length, part in zip(shape, taken)
+                 if len(range(*part.indices(int(length)))) > 1) or 1
+    step = max(2, int(round((held / most) ** (1.0 / spread))))
+    return [slice(part.start, part.stop, (part.step or 1) * step)
+            if len(range(*part.indices(int(length)))) > 1 else part
+            for length, part in zip(shape, taken)]
+
+
+def measure_here(store: str | Path, *, channel: int | None = None,
+                 box=((0.0, 0.0), (1.0, 1.0)),
+                 bins: int = HISTOGRAM_BINS) -> dict | None:
+    """The brightness of the part of a picture an operator is looking at.
+
+    :func:`measure` answers for the whole picture, which is the right question
+    when it is first opened and the wrong one from then on. Zoomed into one
+    well of a plate, a window taken from the whole plate has almost nothing to
+    do with what is on screen; and most of a survey is ground nobody imaged,
+    so counting that black drags the black point to nought and leaves the
+    specimen flat and dim at the top of the ramp.
+
+    Args:
+        channel: which channel to look at, where the store keeps several.
+        box: the part of the picture on screen, as fractions of its height and
+            width -- ``((top, left), (bottom, right))``. Fractions rather than
+            voxels because the panel knows where it is looking as a share of
+            the picture's own bounds and would otherwise have to redo the
+            engine's arithmetic to say it in voxels.
+
+    Returns the window and the histogram of the imaged pixels inside that box,
+    or ``None`` where the box holds no imaged pixels at all -- panned onto
+    empty ground, or off the picture entirely. ``None`` rather than a window
+    measured from nothing, because moving an operator's picture in answer to
+    a press that had nothing to measure is worse than declining it.
+    """
+    import numpy as np
+    import zarr
+
+    store = Path(store)
+    attrs = _read_attrs_at(store)
+    levels = _level_paths(attrs)
+    if not levels:
+        return None
+    axes = [axis.get("name", "") for axis
+            in (attrs.get("multiscales") or [{}])[0].get("axes") or []]
+    try:
+        group = zarr.open_group(str(store), mode="r")
+    except (OSError, KeyError, ValueError):
+        return None
+
+    # Which copy of the picture to read. Coarsest first, taking the first one
+    # on which the box still covers enough pixels to be worth a percentile.
+    #
+    # It used to be simply the coarsest copy that held anything, so that a
+    # button pressed by hand read as little as possible. That is right while
+    # the whole picture is on screen and wrong the moment anyone zooms: the
+    # coarsest copy of a plate is a few hundred pixels across for the whole
+    # tray, so a box around one nucleus covered ONE of them, and the 1st and
+    # 99th percentile of a single number are the same number. The window came
+    # back with no width and the picture went to two colours (2026-08-20).
+    #
+    # Where no copy is fine enough -- zoomed past the last level that was
+    # actually written, which a composed picture reaches early because its
+    # finest levels are declared but empty -- the finest that holds anything
+    # is the whole of what there is to say.
+    chosen = None
+    for at, level in reversed(list(enumerate(levels))):
+        try:
+            array = group[level]
+        except (OSError, KeyError, ValueError):
+            continue
+        held = _the_box_on(array, axes, box, channel)
+        if held is None:
+            return None
+        if not _level_holds_pixels(store / level):
+            # Declared but never written -- which for a built picture is every
+            # level past the baked ones, exactly where an operator zooms. Its
+            # pixels are made on ask, by the same door the browser draws from.
+            made = _a_built_pictures_values(store, at, box, channel)
+            if made is None:
+                continue
+            chosen = (None, made)
+        else:
+            chosen = (array, held)
+        if _how_many(array.shape, held) >= ENOUGH_TO_MEASURE:
+            break
+    if chosen is None:
+        return None
+    array, taken = chosen
+
+    if array is None:
+        values = np.asarray(taken, dtype=np.float64).ravel()
+    else:
+        # However the box turns out, no press reads more than a sample. A
+        # picture whose only written copy is the full-resolution one would
+        # otherwise be read whole, which is gigabytes for a survey.
+        taken = _thinned(array.shape, taken, AS_MUCH_AS_NEEDED)
+        try:
+            values = np.asarray(array[tuple(taken)], dtype=np.float64).ravel()
+        except (OSError, ValueError, IndexError, MemoryError):
+            return None
+    values = values[np.isfinite(values)]
+    # Ground nobody imaged reads back as the fill value, and it is not part of
+    # the specimen. Counted in, it wins the vote wherever a picture has gaps.
+    fill = getattr(array, "fill_value", 0)
+    if fill is not None and np.isfinite(float(fill)):
+        values = values[values != float(fill)]
+    if values.size == 0:
+        return None
+    return {
+        "window": _window(values, volumetric=False),
+        "volumeWindow": _window(values, volumetric=True),
+        "histogram": _histogram(values, bins=bins),
     }
 
 

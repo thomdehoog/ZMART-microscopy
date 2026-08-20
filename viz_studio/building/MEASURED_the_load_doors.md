@@ -405,3 +405,124 @@ without indices take their place from the plate's rows and columns lists,
 and the per-frame bake gate was sabotaged once as evidence — two baked
 channels swapped on disk — and went red, proving the gate can see the
 failure it guards.
+
+## Auto measures the part of the picture on screen (2026-08-20)
+
+Auto used to answer with the whole picture's window, computed once at load.
+On a 336-well plate that is a reading of the whole plate: press it while
+looking at one well and the numbers had almost nothing to do with what was
+in front of the operator. Auto now takes a fresh reading of the region in
+view, every press.
+
+**Where the work is split.** The panel knows *where* it is looking; only the
+server has the pixels. So the panel sends the region as fractions of the
+picture's own bounds -- `[[top, left], [bottom, right]]` -- and the server
+reads there. Fractions rather than voxels, so the engine's arithmetic about
+zoom and canonical voxel factors lives in exactly one place
+(`whatIsOnScreen` in `engine.js`), and the server needs to know nothing
+about how the view is arranged.
+
+**Unimaged ground gets no vote.** `measure_here` drops every value equal to
+the array's fill value before taking percentiles, so a view half off the
+edge of a survey is windowed by the imaged half. A view holding *no* imaged
+pixels answers `{"empty": true}` and the picture is left exactly as it is:
+a press that measured nothing has nothing to say, and moving the operator's
+window in answer to it would be worse than doing nothing.
+
+**The light now says something narrower.** It used to be on at rest, because
+a run that declares no window is served the measured one AS its window and
+the two matched -- so the operator's first press was a press of a lit
+button, which turns Auto *off*. The light now means "this window is the
+brightness of what you are looking at, because you asked for it": off at
+rest, on after a press, off again on the second press (which spreads the
+window over the camera's whole range, or restores the window the run itself
+declared).
+
+**Measured on the real plate** (`HA-1a_Plate_4561`, 4 channels): whole-plate
+window 10-900 with the histogram a single spike at the dim end; zoomed into
+six wells and pressed, 10-218 with the cells' own distribution filling the
+axis. Server side the reading costs one coarse-level read -- the plate's L8
+chunk comes off the door in under 20 ms.
+
+### Two traps that cost an hour, both in the harness rather than the viewer
+
+- **`vite build` alone is not the build.** The script is
+  `precompile-workers.mjs && patch_neuroglancer.mjs && vite build &&
+  copy-async-worker.mjs`. Skip the last step and `async_computation.bundle.js`
+  is missing from `dist/`: chunks arrive with 200s, nothing decodes, and the
+  canvas is black with no console error, because the failure is inside a
+  worker. It reads exactly like slow composition. Two quick tells: a 404 on
+  `/async_computation.bundle.js`, or timing a coarse chunk straight off the
+  HTTP door (which answered in milliseconds throughout).
+- **A canvas read from JS is always black.** Neuroglancer does not preserve
+  its drawing buffer, so `drawImage` into a scratch 2D canvas returns black
+  even while the picture is plainly on screen. Waiting on such a readback
+  just hangs; only `page.screenshot()` sees the picture.
+
+## One Overview, and the histogram takes the panel (2026-08-20, same evening)
+
+**Reset is gone; Overview does what it did.** The pair differed only after a
+volume had been tilted: in 2-D they were the same press, so one face meant
+two things depending on where the operator was. Overview now puts the whole
+view back -- straight, centred, sized to the window -- in both views, and
+still leaves the plane and the moment alone. The three gates that drove
+Reset now drive Overview; `putTheViewBack` is the one function behind it.
+
+**The histogram spans the panel.** Auto and Log used to stand in a 60-pixel
+column beside it, taking a sixth of the picture to say four letters each.
+They now sit under it, between the two boxes that set the drawn stretch of
+brightness: `[from] Auto Log [to]`. Measured after the move -- picture 242 px
+wide (was 176), its ends and the two boxes' outer edges within 2 px of each
+other.
+
+## Auto reads a copy of the picture that can still answer (2026-08-20, late)
+
+Zoomed onto one nucleus and pressed, Auto turned the picture into two
+colours: everything either black or saturated. The window it set was
+157-175 on a plate whose pixels there run 114-213.
+
+**Two faults, one behind the other.**
+
+*It read the coarsest copy that held pixels.* That was deliberate -- a
+button pressed by hand should read as little as possible -- and it is right
+exactly while the whole picture is on screen. The coarsest copy of the
+HA-1a plate is 241x414 for the whole tray, so a box around one nucleus
+covered ONE pixel of it, and the 1st and 99th percentile of a single number
+are the same number. The copy is now chosen by what the box covers on it:
+coarsest first, taking the first one where the box still holds a 64x64
+patch, and never reading more than 262,144 numbers per press.
+
+*And the copy it needed holds no files.* A composed plate carries only its
+baked levels as pixels -- here 4 through 8; levels 0-3 are declared and made
+on ask, which is how the browser draws detail the folder does not hold. So
+the measurement now asks the same door the browser asks: `the_values_inside`
+builds the pieces overlapping the box (at most four, nearest the middle) and
+crops them to the box.
+
+**Measured on the plate afterwards**, box centred on one nucleus: 6,572
+level-0 values, their 1st/99th percentile 122/176 -- and `measure_here`
+answers 122/176. At the operator's own zoom the window came back 130-250,
+the histogram filled its axis, and the nuclei showed their internal
+structure against dark-but-not-crushed ground.
+
+**The button is a plain press now**, not a light. It was briefly a toggle:
+lit while the window matched its reading, a second press putting back the
+run's window or the camera's whole range. Nobody presses Auto to undo it,
+and a button meaning one thing on the way in and another on the way out has
+to be remembered rather than read.
+
+### Counting frames on a card measures the card, not the viewer
+
+Moving the browser gates onto the machine's card (the operator's ask: draw
+where an operator draws) quietly broke the two gates that count frames. A
+card draws whatever is asked of it inside one frame and then waits for the
+display, so both arms of the comparison came back at the refresh rate: 200
+positions as separate stores drew 181 frames, the same positions as one
+picture drew 180. That reads as "the per-position cost is gone" and is
+actually "the clock ran out before the work did" -- and it turned the
+standing xfail about that cost into a strict XPASS.
+
+Both now take a `counting_browser`: software rendering on purpose, where
+every frame costs what it costs. Everything else still draws on the card.
+Proved not to be today's frontend work by rebuilding from HEAD and running
+the pair again -- identical failures.

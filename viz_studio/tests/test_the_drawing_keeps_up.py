@@ -147,7 +147,7 @@ def frames_drawn_with(browser, built_dist, folder, count: int) -> int:
 
 
 @pytest.fixture(scope="module")
-def how_much_it_keeps(browser, built_dist, tmp_path_factory) -> float:
+def how_much_it_keeps(counting_browser, built_dist, tmp_path_factory) -> float:
     """The share of its own drawing rate the viewer keeps at ten times the positions.
 
     Measured once for the whole file. Both tests below ask the same question of the
@@ -157,8 +157,8 @@ def how_much_it_keeps(browser, built_dist, tmp_path_factory) -> float:
     folder = tmp_path_factory.mktemp("drawing_cost")
     write_folder(folder, MANY)
 
-    few = frames_drawn_with(browser, built_dist, folder, FEW)
-    many = frames_drawn_with(browser, built_dist, folder, MANY)
+    few = frames_drawn_with(counting_browser, built_dist, folder, FEW)
+    many = frames_drawn_with(counting_browser, built_dist, folder, MANY)
     assert few > 0, (
         "no frames were counted even with a handful of positions open, so this "
         "measurement is not working and says nothing at all about the viewer"

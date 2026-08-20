@@ -67,6 +67,7 @@ except ImportError:  # pragma: no cover - a checkout without the building module
     building = None
 from contrast import (
     camera_range,
+    measure_here,
     coarsest_level_is_written,
     intensity_histogram,
     measure,
@@ -913,6 +914,64 @@ class _Handler(SimpleHTTPRequestHandler):
         finally:
             self._announcements.stop_listening(waiting)
 
+    def _serve_measurement(self, payload: object) -> None:
+        """Measure the brightness of the part of a picture on screen.
+
+        The panel cannot do this for itself: it has the picture drawn but not
+        the pixels behind it, and what is on the canvas has already been
+        windowed and coloured. So it says which channel of which store it is
+        looking at, and what share of that picture is in view, and this reads
+        the pixels there.
+
+        The share is given as fractions of the picture's own height and width,
+        because the panel knows where it is looking as a proportion of the
+        bounds the engine reports. Asking it for voxels instead would mean
+        redoing the engine's own arithmetic in two places.
+
+        Answers ``{"window": ..., "histogram": ...}``, or ``{"empty": true}``
+        where the view holds no imaged pixels at all -- panned onto bare
+        ground, or off the picture entirely. That is not an error: the button
+        simply has nothing to offer, and moving an operator's picture in
+        answer to a press that measured nothing would be worse.
+        """
+        asked = payload if isinstance(payload, dict) else {}
+        source = asked.get("source")
+        if not isinstance(source, str) or not source.strip():
+            self._send_json({"error": "which picture to measure is needed"},
+                            HTTPStatus.BAD_REQUEST)
+            return
+        # The address a layer draws from, as the page holds it:
+        # ``/data/<number>/<store>/|zarr2:``. The store is whatever the
+        # library resolved that number to, so a page cannot ask about a
+        # folder nobody opened.
+        rel = source.split("/data/", 1)[-1].split("|", 1)[0].strip("/")
+        store = self._library.resolve(rel)
+        if store is None or not store.is_dir():
+            self._send_json({"error": "that picture is not open here"},
+                            HTTPStatus.NOT_FOUND)
+            return
+        box = asked.get("box")
+        try:
+            (top, left), (bottom, right) = box
+            corners = ((float(top), float(left)), (float(bottom), float(right)))
+        except (TypeError, ValueError):
+            self._send_json(
+                {"error": "the part of the picture in view is needed, as "
+                          "fractions: [[top, left], [bottom, right]]"},
+                HTTPStatus.BAD_REQUEST)
+            return
+        channel = asked.get("channel")
+        channel = channel if isinstance(channel, int) else None
+        found = measure_here(store, channel=channel, box=corners)
+        if found is None:
+            self._send_json({"empty": True})
+            return
+        low, high = found["window"]
+        self._send_json({
+            "window": {"low": low, "high": high},
+            "histogram": found["histogram"],
+        })
+
     def _serve_announcement(self, payload: object) -> None:
         """Accept the legacy optional hint used by generic live folders.
 
@@ -1025,6 +1084,7 @@ class _Handler(SimpleHTTPRequestHandler):
             "/api/stores/replay",
             "/api/stores/replay-status",
             "/api/stores/replay-cancel",
+            "/api/measure",
             "/api/annotations",
             "/api/announce",
         }:
@@ -1069,6 +1129,8 @@ class _Handler(SimpleHTTPRequestHandler):
             self._send_json(dict(self._replay_job) or {"state": "idle"})
         elif route == "/api/stores/replay-cancel":
             self._serve_cancel(self._replay_job)
+        elif route == "/api/measure":
+            self._serve_measurement(payload)
         elif route == "/api/announce":
             self._serve_announcement(payload)
         else:

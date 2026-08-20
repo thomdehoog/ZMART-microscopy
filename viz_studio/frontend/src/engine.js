@@ -1131,9 +1131,8 @@ function startDepthAtTheFirstPlane(viewer) {
  * offers is its right button, which centres on the point clicked -- and once an
  * operator has panned far enough that no part of the specimen is on screen,
  * there is nothing left to click on. The picture is still there, correctly
- * placed, and unreachable. The one button labelled Reset puts back the
- * brightness window and does not move the view, so pressing it in that state
- * changes the contrast of a picture nobody can see.
+ * placed, and unreachable. Nothing in the display settings helps: those move
+ * the brightness of a picture nobody can see.
  *
  * **Only the axes being drawn are moved.** Where the operator is in depth or in
  * time is theirs, and losing your place in a stack because you asked to see the
@@ -1177,18 +1176,70 @@ function startDepthAtTheFirstPlane(viewer) {
 const OVERVIEW_MARGIN = 1.2;
 
 /**
+ * Which part of the picture is on screen, as fractions of its own bounds.
+ *
+ * Given as fractions rather than as voxels because that is the form the
+ * server can use without knowing anything about how the view is arranged:
+ * the panel asks "measure the brightness of this share of the picture", and
+ * the share is the same number whatever the zoom happens to be expressed in.
+ *
+ * Worked out from what the engine already holds. How many of the picture's
+ * own units a screen pixel covers is the zoom divided by the engine's factor
+ * for that axis -- the same arithmetic the scale bar and the whole-picture
+ * fit both use -- so half the panel's width in units is half its pixels times
+ * that. The two axes drawn on screen are the ones this answers for.
+ *
+ * ``null`` where the picture has not said how big it is yet, or where the
+ * view is not a flat one: a volume is turned in three dimensions and the
+ * question "which rectangle is on screen" has no honest answer there.
+ */
+export function whatIsOnScreen(viewer) {
+  const { position } = viewer.navigationState;
+  const space = position.coordinateSpace.value;
+  if (!space?.rank) return null;
+  const render = viewer.navigationState.pose.displayDimensionRenderInfo.value;
+  const drawn = Array.from(render?.displayDimensionIndices ?? []).slice(0, 2);
+  if (drawn.length < 2) return null;
+  let panel = null;
+  for (const one of viewer.display?.panels ?? []) {
+    if ("sliceView" in one) panel = one.renderViewport;
+  }
+  if (!panel?.logicalWidth || !panel?.logicalHeight) return null;
+
+  const zoom = viewer.navigationState.zoomFactor.value;
+  const { lowerBounds, upperBounds } = space.bounds;
+  const centre = position.value;
+  const names = Array.from(space.names);
+  const share = {};
+  drawn.forEach((axis, slot) => {
+    const factor = render.canonicalVoxelFactors[slot] || 1;
+    const pixels = slot === 0 ? panel.logicalWidth : panel.logicalHeight;
+    const half = (pixels / 2) * (zoom / factor);
+    const low = lowerBounds[axis];
+    const high = upperBounds[axis];
+    if (!Number.isFinite(low) || !Number.isFinite(high) || high <= low) return;
+    share[names[axis]] = [
+      (centre[axis] - half - low) / (high - low),
+      (centre[axis] + half - low) / (high - low),
+    ];
+  });
+  if (!share.y || !share.x) return null;
+  return [[share.y[0], share.x[0]], [share.y[1], share.x[1]]];
+}
+
+/**
  * Put the whole view back to how it opened: straight, centred and fitted.
  *
- * Overview beside it answers the narrower question — bring the picture back
- * into the window — and deliberately leaves it turned as it is, because an
- * operator who has tilted a volume to see something usually wants to keep
- * that tilt. This is the other half: a way out of any arrangement at all,
- * without reopening the data.
+ * This is what Overview does, in both views. It briefly shared the corner
+ * with a second button that only fitted, leaving the turn alone; the two
+ * differed only once a volume had been tilted, so the same face meant two
+ * things depending on where the operator was, and the pair was folded into
+ * one (2026-08-20).
  *
  * What it does NOT touch is where the operator is in depth or in time. That
  * is which picture they are looking at rather than how they are looking at
  * it, and losing your plane because you asked for the view to be put straight
- * would be its own small betrayal — the same reason Overview leaves it alone.
+ * would be its own small betrayal.
  */
 export function putTheViewBack(viewer) {
   // Turned back first, because which axes are on screen follows from it and
