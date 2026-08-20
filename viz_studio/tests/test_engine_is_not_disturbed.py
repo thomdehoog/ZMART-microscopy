@@ -30,6 +30,7 @@ import numpy as np
 import pytest
 import zarr
 from server import make_server
+from driving import pick_colormap  # noqa: E402
 
 CHANNELS, DEPTH, SIDE, CHUNK, LEVELS = 2, 16, 1024, 256, 3
 
@@ -281,7 +282,7 @@ class TestChangingHowSomethingLooks:
         """A colour map is a shader; the pixels behind it do not change."""
         page, watcher, _ = quiet_page
         mark = watcher.mark
-        page.get_by_label("lookup table ch0").select_option("viridis")
+        pick_colormap(page, "ch0", "viridis")
         page.wait_for_timeout(2500)
         assert watcher.since(mark) == 0
 

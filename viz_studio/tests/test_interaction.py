@@ -488,16 +488,18 @@ def _turn_and_wander(page):
     page.wait_for_timeout(600)
 
 
-def test_reset_puts_the_whole_view_back(viewer_page):
+def test_overview_puts_the_whole_view_back(viewer_page):
     """One press undoes every wandering: the turn, the zoom and the place.
 
-    Overview beside it answers a narrower question -- bring the picture back
-    into the window -- and deliberately leaves the picture turned as it is,
-    because an operator who has tilted a volume to see it usually wants to
-    keep that. Reset is the other half: put everything about the VIEW back to
-    how it opened, so there is a way out of any arrangement without reopening
-    the data. What it must not touch is where the operator is in depth or in
-    time: that is which picture they are looking at, not how.
+    Overview means the same thing in both views: put everything about the
+    VIEW back to how it opened, so there is a way out of any arrangement
+    without reopening the data. It briefly shared the top-left corner with a
+    Reset that did the straightening while Overview only fitted -- a split
+    that showed up as one button behaving differently in 2-D and in 3-D, and
+    that is not a distinction two button faces can carry (2026-08-20).
+
+    What it must not touch is where the operator is in depth or in time: that
+    is which picture they are looking at, not how.
     """
     page = viewer_page
     opening = page.evaluate(_THE_VIEW)
@@ -507,7 +509,7 @@ def test_reset_puts_the_whole_view_back(viewer_page):
         "the harness failed to turn the picture, so this proves nothing"
     )
 
-    page.get_by_role("button", name="Reset", exact=True).click()
+    page.get_by_role("button", name="Overview", exact=True).click()
     page.wait_for_timeout(900)
     back = page.evaluate(_THE_VIEW)
 
@@ -524,14 +526,14 @@ def test_reset_puts_the_whole_view_back(viewer_page):
     )
 
 
-def test_reset_puts_the_volume_back_too(viewer_page):
+def test_overview_puts_the_volume_back_too(viewer_page):
     """The same press, in the view where turning is the whole point."""
     page = viewer_page
     page.click("text=3D")
     page.wait_for_timeout(1500)
     opening = page.evaluate(_THE_VIEW)
     _turn_and_wander(page)
-    page.get_by_role("button", name="Reset", exact=True).click()
+    page.get_by_role("button", name="Overview", exact=True).click()
     page.wait_for_timeout(900)
     back = page.evaluate(_THE_VIEW)
 
@@ -544,12 +546,11 @@ def test_reset_puts_the_volume_back_too(viewer_page):
     )
 
 
-def test_reset_leaves_the_plane_and_the_moment_alone(viewer_page):
+def test_overview_leaves_the_plane_and_the_moment_alone(viewer_page):
     """Where you are in the stack is not a view setting.
 
     Losing your place in depth because you asked for the view to be put
-    straight would be its own small betrayal -- the same reason Overview
-    leaves it alone.
+    straight would be its own small betrayal.
     """
     page = viewer_page
     names = page.evaluate(
@@ -565,7 +566,7 @@ def test_reset_leaves_the_plane_and_the_moment_alone(viewer_page):
     }""", at)
     page.wait_for_timeout(400)
     deep = page.evaluate(_THE_VIEW)["position"][at]
-    page.get_by_role("button", name="Reset", exact=True).click()
+    page.get_by_role("button", name="Overview", exact=True).click()
     page.wait_for_timeout(900)
     assert page.evaluate(_THE_VIEW)["position"][at] == pytest.approx(deep, abs=0.01), (
         "putting the view straight moved the operator to a different plane"

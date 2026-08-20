@@ -109,7 +109,7 @@ MUST_STAY_FLAT = 0.40
 
 
 @pytest.fixture(scope="module")
-def counted(browser, built_dist, tmp_path_factory) -> dict[str, int]:
+def counted(counting_browser, built_dist, tmp_path_factory) -> dict[str, int]:
     """Frames drawn by the same tiles opened as many stores and as one picture.
 
     Measured once for the whole file. Both tests below ask different questions of
@@ -145,10 +145,10 @@ def counted(browser, built_dist, tmp_path_factory) -> dict[str, int]:
 
     names = sorted(p.name for p in folder.glob("tile*.ome.zarr"))
     return {
-        "separate": frames_counted(browser, built_dist, folder, names[:MANY], MANY),
-        "linked": frames_counted(browser, built_dist, folder, "linked.ome.zarr", 1),
+        "separate": frames_counted(counting_browser, built_dist, folder, names[:MANY], MANY),
+        "linked": frames_counted(counting_browser, built_dist, folder, "linked.ome.zarr", 1),
         "linked_few": frames_counted(
-            browser, built_dist, folder, "linkedfew.ome.zarr", 1
+            counting_browser, built_dist, folder, "linkedfew.ome.zarr", 1
         ),
     }
 

@@ -20,6 +20,7 @@ from zmart_live.model import GridCell
 from zmart_live.profiles import plan_the_writing
 from zmart_live.tests.test_coordinator import FRAME, some_specimen
 from zmart_live.tests.test_gateway import a_live_run, prepare_without_publishing
+from driving import pick_colormap  # noqa: E402
 
 _SETTLED = """() => {
   const v = window.zmartViewer;
@@ -125,8 +126,12 @@ def _operator_state(page):
           opacity: Number(document.querySelector(
             '[aria-label="opacity live (linked) channel 0"]').value),
           group: window.zmartConfig.groups[0],
+          // What the chooser says the channel is painted with. It reads its
+          // face rather than a form value because the chooser is a list of
+          // colours now, not a dropdown of words.
           lut: document.querySelector(
-            '[aria-label="lookup table live (linked) channel 0"]').value,
+            '[aria-label="colormap live (linked) channel 0"]')
+            .textContent.replace(/▾/g, '').trim(),
         })"""
     )
 
@@ -138,7 +143,7 @@ def _tune(page):
     _set_range(page, "min live (linked) channel 0", 100)
     _set_range(page, "max live (linked) channel 0", 3500)
     _set_range(page, "opacity live (linked) channel 0", 0.83)
-    page.get_by_label("lookup table live (linked) channel 0").select_option("viridis")
+    pick_colormap(page, "live (linked) channel 0", "viridis")
     page.wait_for_function("() => window.zmartAnnotationSource !== undefined")
     page.evaluate(
         """() => {

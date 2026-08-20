@@ -13,6 +13,7 @@ import threading
 
 import pytest
 from server import make_server
+from driving import colormap_now, pick_colormap  # noqa: E402
 
 # What the engine ended up holding, read back from the engine itself rather than
 # from the panel. The contrast window is deliberately *not* part of the shader
@@ -26,24 +27,6 @@ _ENGINE_LAYERS = """() => window.zmartViewer.state.toJSON().layers.map(l => ({
   shader: l.shader || '',
   controls: l.shaderControls || {},
 }))"""
-
-
-def _pick_colormap(page, channel, name):
-    """Choose what a channel is painted with, the way an operator does.
-
-    The chooser is a small list rather than a dropdown, because every entry
-    shows its own colour beside its name and a dropdown can only offer words.
-    So this opens it and presses an entry.
-    """
-    page.locator(f"[aria-label='colormap {channel}']").click()
-    page.wait_for_timeout(200)
-    page.locator(f"[aria-label='{name} for {channel}']").click()
-    page.wait_for_timeout(600)
-
-
-def _colormap_now(page, channel):
-    """What the chooser says the channel is painted with."""
-    return page.locator(f"[aria-label='colormap {channel}']").inner_text().strip()
 
 
 def _window_in_engine(page, layer=0):
@@ -148,7 +131,7 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
     change it, every place reflecting it.
     """
     before = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
-    _pick_colormap(two_channel_page, "Ch488", "cyan")
+    pick_colormap(two_channel_page, "Ch488", "cyan")
     layer = two_channel_page.evaluate(_ENGINE_LAYERS)[0]
     assert layer["controls"]["color"] == "#33ccff"
     assert layer["shader"] == before, (
@@ -159,7 +142,7 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
 
 def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
     """The swatch beside the channel's name follows the palette."""
-    _pick_colormap(two_channel_page, "Ch488", "cyan")
+    pick_colormap(two_channel_page, "Ch488", "cyan")
     swatch = two_channel_page.locator("[aria-label='colour Ch488']")
     background = swatch.evaluate("(el) => getComputedStyle(el).backgroundColor")
     assert background == "rgb(51, 204, 255)", (
@@ -171,7 +154,7 @@ def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
     )
     # And a chosen colour MAP shows on the swatch too, as its own gradient --
     # the swatch always mirrors the one lookup-table control.
-    _pick_colormap(two_channel_page, "Ch488", "viridis")
+    pick_colormap(two_channel_page, "Ch488", "viridis")
     background = swatch.evaluate("(el) => getComputedStyle(el).backgroundImage")
     assert "gradient" in background, (
         f"the swatch shows {background!r}, not the chosen colour map"
@@ -180,7 +163,7 @@ def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
 
 def test_colour_survives_the_three_d_toggle(two_channel_page):
     """Mode switching rebuilds the shaders; a chosen colour must not be lost."""
-    _pick_colormap(two_channel_page, "Ch488", "cyan")
+    pick_colormap(two_channel_page, "Ch488", "cyan")
     two_channel_page.click("text=3D")
     two_channel_page.wait_for_timeout(1500)
     layer = two_channel_page.evaluate(_ENGINE_LAYERS)[0]
@@ -508,19 +491,20 @@ def test_the_numbers_beside_the_sliders_can_be_typed_into(two_channel_page):
     assert box.input_value() != "1234", "sliding must update the number box"
 
 
-def test_a_lit_auto_turns_off_to_the_cameras_whole_range(browser, built_dist,
-                                                         tmp_path):
-    """A run that declared no window rests on the measured one, Auto lit --
-    and clicking the lit light spreads the window over the camera's range.
+def test_auto_is_a_plain_press_that_leaves_nothing_switched_on(
+        browser, built_dist, tmp_path):
+    """Auto sets the window from what is on screen. It does not stay on.
 
-    The light means "the window is the measured one". Clicking it off puts
-    back the window the run declared; a run that declared nothing has no
-    such window, and for a while the button then rested disabled -- which
-    the operator met as a button that cannot be un-clicked. Off now means
-    what it does everywhere else in microscopy: everything shown, nothing
-    clipped, the window spread over the whole range the camera can write
-    (asked for at the workstation, 2026-08-19). Auto lights again on the
-    next click, so the two states genuinely toggle.
+    It was briefly a light: on while the window matched its reading, and a
+    second press undid it -- back to the window the run declared, or the
+    camera's whole range. Nobody presses Auto to undo it, and a button that
+    means one thing on the way in and another on the way out has to be
+    remembered rather than read, so it is a plain press again (asked for at
+    the workstation, 2026-08-20).
+
+    Two things follow, and both are checked here: the button carries no
+    pressed state at all, and pressing it twice leaves the same window rather
+    than toggling away from it.
     """
     import json
 
@@ -560,28 +544,30 @@ def test_a_lit_auto_turns_off_to_the_cameras_whole_range(browser, built_dist,
                                timeout=30_000)
         auto = page.locator("[aria-label='auto contrast ch0']")
         auto.wait_for(timeout=10_000)
-        assert auto.get_attribute("aria-pressed") == "true", (
-            "with no declared window the channel rests on the measured one, "
-            "so the light must be on"
+        assert auto.get_attribute("aria-pressed") is None, (
+            "Auto is a press, not a state: it must not report itself pressed"
         )
         assert auto.is_enabled(), (
-            "the lit light must offer its off state: the camera's whole range"
+            "Auto must be pressable at rest: that press is the whole point"
         )
         auto.click()
-        page.wait_for_timeout(600)
-        spread = page.evaluate("() => window.zmartLayerState[0].window")
-        assert spread == {"low": 0, "high": 65535}, (
-            f"Auto off must spread the window over the camera's range, "
-            f"not {spread}"
+        page.wait_for_timeout(1_200)
+        once = page.evaluate("() => window.zmartLayerState[0].window")
+        assert once and once != {"low": 0, "high": 65535}, (
+            f"Auto left the window at {once}, which is the camera's whole "
+            "range rather than a measurement"
         )
-        assert auto.get_attribute("aria-pressed") == "false", (
-            "spread over the camera's range, the window is no longer the "
-            "measured one, so the light goes out"
+        assert auto.get_attribute("aria-pressed") is None, (
+            "Auto lit itself up after the press"
         )
+
         auto.click()
-        page.wait_for_timeout(600)
-        assert auto.get_attribute("aria-pressed") == "true", (
-            "clicking again re-applies the measurement: a true toggle"
+        page.wait_for_timeout(1_200)
+        twice = page.evaluate("() => window.zmartLayerState[0].window")
+        assert (abs(twice["low"] - once["low"]) < 0.5
+                and abs(twice["high"] - once["high"]) < 0.5), (
+            f"the second press moved the window from {once} to {twice}, so "
+            "Auto is still a toggle"
         )
     finally:
         page.close()
@@ -715,7 +701,7 @@ def test_picking_a_colour_puts_aside_the_colour_map(two_channel_page):
     one question.
     """
     page = two_channel_page
-    _pick_colormap(page, "Ch488", "viridis")
+    pick_colormap(page, "Ch488", "viridis")
     assert "zmartLut" in page.evaluate(_ENGINE_LAYERS)[0]["shader"]
     page.locator("[aria-label='choose a colour for Ch488']").evaluate("""(element) => {
       const setter = Object.getOwnPropertyDescriptor(
@@ -757,7 +743,7 @@ def test_a_picked_colour_is_never_shown_under_a_name_it_is_not(two_channel_page)
       element.dispatchEvent(new Event('change', { bubbles: true }));
     }""")
     page.wait_for_timeout(800)
-    assert _colormap_now(page, "Ch488").startswith("picked"), (
+    assert colormap_now(page, "Ch488").startswith("picked"), (
         "the chooser is showing a named colour for a colour picked by hand"
     )
     assert page.evaluate(_ENGINE_LAYERS)[0]["controls"]["color"] == "#ff3b30"
@@ -894,4 +880,91 @@ def test_log_stretches_the_bars_upward_not_sideways(two_channel_page):
     assert lifted > quiet, (
         f"the quietest bar reads {lifted} on the log scale against {quiet} "
         "plain, so the bins an operator cannot see are still invisible"
+    )
+
+
+def test_the_row_under_the_histogram_lines_up_with_it(two_channel_page):
+    """The four controls under the picture sit on one line, inside its width.
+
+    The row reads as one thing -- "this is the stretch of brightness drawn
+    above, and here is what you can ask of it" -- and that only holds if the
+    four line up. It has come apart twice: once when the boxes were laid out
+    on a grid that resolved to different columns than the picture's, and once
+    when Auto and Log kept the 26-pixel height they had been given to stand
+    beside the histogram, two pixels taller than the boxes they now sit
+    between (both found by looking at the panel, 2026-08-20).
+
+    Measured rather than eyeballed, and against the picture itself rather
+    than against numbers written here, so the gate keeps holding when the
+    panel is restyled.
+    """
+    page = two_channel_page
+    _choose(page, "Ch488")
+    page.wait_for_timeout(400)
+    picture = page.get_by_label("histogram Ch488").bounding_box()
+    row = [page.get_by_label(label).bounding_box() for label in (
+        "axis from Ch488", "auto contrast Ch488", "logarithmic counts",
+        "axis to Ch488")]
+
+    tops = {round(box["y"]) for box in row}
+    bottoms = {round(box["y"] + box["height"]) for box in row}
+    assert len(tops) == 1 and len(bottoms) == 1, (
+        f"the row is not on one line: tops {sorted(tops)}, "
+        f"bottoms {sorted(bottoms)}"
+    )
+    # Two pixels of tolerance: the histogram carries a one-pixel frame on
+    # each side, and its own edge is the outside of that frame.
+    assert abs(row[0]["x"] - picture["x"]) <= 2, (
+        f"the row starts at {row[0]['x']}, the picture at {picture['x']}"
+    )
+    ends = row[-1]["x"] + row[-1]["width"]
+    assert abs(ends - (picture["x"] + picture["width"])) <= 2, (
+        f"the row ends at {ends}, the picture at "
+        f"{picture['x'] + picture['width']}"
+    )
+
+    # And the right-hand box stands in the column the value boxes below it
+    # make, not merely flush with their right edge: a box eight pixels
+    # narrower than the ones under it reads as a mistake even when both end
+    # in the same place.
+    below = page.get_by_label("min value Ch488").bounding_box()
+    assert abs(row[-1]["x"] - below["x"]) <= 1, (
+        f"the axis box starts at {row[-1]['x']}, the value boxes below it at "
+        f"{below['x']}"
+    )
+    assert abs(row[-1]["width"] - below["width"]) <= 1, (
+        f"the axis box is {row[-1]['width']} wide, the value boxes below it "
+        f"{below['width']}"
+    )
+
+    # All four are built to one block. Four sizes in a line reads as four
+    # unrelated controls that happen to share a row.
+    widths = {round(box["width"]) for box in row}
+    heights = {round(box["height"]) for box in row}
+    assert len(widths) == 1 and len(heights) == 1, (
+        f"the row is not one block: widths {sorted(widths)}, "
+        f"heights {sorted(heights)}"
+    )
+
+    # And the grouping is carried by the gaps: Auto and Log are a pair, so
+    # they sit closer to each other than to the boxes at the ends.
+    gaps = [round(nxt["x"] - (box["x"] + box["width"]))
+            for box, nxt in zip(row, row[1:])]
+    assert gaps[1] < gaps[0] and gaps[1] < gaps[2], (
+        f"Auto and Log are {gaps[1]}px apart against {gaps[0]} and {gaps[2]} "
+        "to the boxes, so the row reads as four unrelated controls"
+    )
+
+    # The pair stands in the column the sliders make: Auto starts where a
+    # track starts and Log ends where it ends. Two controls that nearly share
+    # a column look like a mistake; sharing it exactly is what makes the
+    # middle of the panel read as one thing.
+    track = page.get_by_label("min Ch488").bounding_box()
+    assert abs(row[1]["x"] - track["x"]) <= 1, (
+        f"Auto starts at {row[1]['x']}, the slider track at {track['x']}"
+    )
+    pair_ends = row[2]["x"] + row[2]["width"]
+    assert abs(pair_ends - (track["x"] + track["width"])) <= 1, (
+        f"Log ends at {pair_ends}, the slider track at "
+        f"{track['x'] + track['width']}"
     )

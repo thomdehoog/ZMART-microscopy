@@ -17,6 +17,7 @@ import pytest
 import zarr
 from pixels import colour_spread, image_middle
 from server import make_server
+from driving import pick_colormap  # noqa: E402
 
 
 def _image(path, *, channels=2, frames=1, written=None):
@@ -249,7 +250,7 @@ class TestLookupTables:
             """() => window.zmartViewer.layerManager.getLayerByName('overview · ch0')
                  .layer.fragmentMain.value"""
         )
-        masked_page.get_by_label("lookup table ch0").select_option("viridis")
+        pick_colormap(masked_page, "ch0", "viridis")
         masked_page.wait_for_function(
             """() => window.zmartViewer.layerManager.getLayerByName('overview · ch0')
                  .layer.fragmentMain.value.includes('zmartLut')""",
@@ -263,9 +264,9 @@ class TestLookupTables:
         assert "zmartLut" in after
 
     def test_it_can_be_put_back_to_a_flat_colour(self, masked_page):
-        masked_page.get_by_label("lookup table ch0").select_option("magma")
+        pick_colormap(masked_page, "ch0", "magma")
         masked_page.wait_for_timeout(600)
-        masked_page.get_by_label("lookup table ch0").select_option("flat:green")
+        pick_colormap(masked_page, "ch0", "green")
         masked_page.wait_for_function(
             """() => !window.zmartViewer.layerManager.getLayerByName('overview · ch0')
                  .layer.fragmentMain.value.includes('zmartLut')""",
@@ -273,7 +274,7 @@ class TestLookupTables:
         )
 
     def test_one_channel_keeps_its_own_choice(self, masked_page):
-        masked_page.get_by_label("lookup table ch0").select_option("fire")
+        pick_colormap(masked_page, "ch0", "fire")
         masked_page.wait_for_timeout(800)
         other = masked_page.evaluate(
             """() => window.zmartViewer.layerManager.getLayerByName('overview · ch1')

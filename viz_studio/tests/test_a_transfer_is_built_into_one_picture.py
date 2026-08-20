@@ -942,3 +942,44 @@ def test_a_grown_picture_bakes_one_file_per_frame(tmp_path: Path):
         for tile in sorted(folder.glob("*.ome.zarr")):
             (tile / "zarr.json.walked-away").rename(tile / "zarr.json")
         served.forget(store)
+
+
+def test_a_built_picture_is_measured_where_the_operator_is_looking(
+        a_transfer: Path, tmp_path: Path):
+    """Auto zoomed in must read the built picture, not its baked thumbnail.
+
+    A built picture carries only its coarse levels as files; the fine ones
+    are declared and made on demand, which is how the browser gets detail
+    the folder does not hold. The brightness measurement read files only, so
+    at any zoom past the baked levels it fell back to the coarsest thumbnail
+    -- one pixel of it, for a box around one cell -- and answered with a
+    window of almost no width. Everything on screen then went black or
+    saturated (seen on the HA-1a plate, 2026-08-20).
+
+    So it asks the same door the browser asks. Measured against the tiles
+    themselves: the corner of every tile in this fixture is written to the
+    type's brightest value, and a box on that corner must come back holding
+    it. A thumbnail cannot: three pixels of white averaged into a coarse
+    piece are gone.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+    from contrast import measure_here  # noqa: PLC0415
+
+    # Unbaked on purpose: then NOTHING in the folder holds pixels, which is
+    # what every level past the baked ones looks like on a real plate.
+    store = declare_a_built_picture(tmp_path / "views", a_transfer,
+                                    name="built", piece=PIECE, bake=False)
+    served.forget(store)
+
+    # The top-left corner of the picture, which is the top-left corner of
+    # Tile0: three rows and three columns of the brightest value the type
+    # holds, against a flat 500 elsewhere.
+    corner = ((0.0, 0.0), (0.06, 0.06))
+    found = measure_here(store, channel=0, box=corner)
+    assert found is not None, "the corner of the picture measured as nothing"
+    low, high = found["window"]
+    assert high > 60_000, (
+        f"the window came back {low:.0f}-{high:.0f}, so the white edge of "
+        "Tile0 was never read: this is a thumbnail's answer, not the "
+        "picture's"
+    )

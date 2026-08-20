@@ -433,6 +433,82 @@ def a_sample_behind(store: Path, channel: int = 0):
     return None
 
 
+def the_values_inside(store: Path, level: int, box, *, channel: int = 0,
+                      pieces: int = 4):
+    """A built picture's pixels inside a share of itself, for measuring.
+
+    :func:`a_sample_behind` answers "how bright is this picture", which is the
+    right question when it is first opened. This answers "how bright is the
+    part of it on screen", which is the question Auto asks from then on -- and
+    it cannot be answered from the folder, because a built picture's fine
+    levels hold no files at all. Its pixels are one ask away, the same ask the
+    browser makes when it draws them.
+
+    Args:
+        level: which resolution to read, 0 being full.
+        box: the share of the picture, as fractions of its height and width --
+            ``((top, left), (bottom, right))``.
+        pieces: how many pieces at most to build for the answer. A press of a
+            button should not build a plate; the pieces nearest the middle of
+            the box are the ones taken, and percentiles do not improve with
+            more of them.
+
+    Returns the values as one flat array, or ``None`` where this is not a
+    built picture, or where nothing inside the box is covered by a tile.
+    """
+    import numpy as np
+
+    held = _composer_for(Path(store))
+    if held is None:
+        return None
+    try:
+        composer = (held.composer()
+                    if GovernedRun is not None and isinstance(held, GovernedRun)
+                    else held)
+        depth, height, width = composer.mosaic.shape(level)
+        moments, channels = composer.mosaic.frame_room
+        if not 0 <= channel < channels or not height or not width:
+            return None
+        (top, left), (bottom, right) = box
+        first_row = max(0, min(height - 1, int(top * height)))
+        last_row = max(first_row, min(height - 1, int(bottom * height) - 1))
+        first_column = max(0, min(width - 1, int(left * width)))
+        last_column = max(first_column, min(width - 1, int(right * width) - 1))
+        wanted = [
+            (row, column)
+            for row in range(first_row // composer.piece,
+                             last_row // composer.piece + 1)
+            for column in range(first_column // composer.piece,
+                                last_column // composer.piece + 1)
+        ]
+        middle = ((first_row + last_row) / 2 / composer.piece,
+                  (first_column + last_column) / 2 / composer.piece)
+        wanted.sort(key=lambda at: abs(at[0] - middle[0]) + abs(at[1] - middle[1]))
+
+        taken = []
+        for row, column in wanted[:max(1, pieces)]:
+            piece = composer.values_for(level, depth // 2, row, column,
+                                        moment=0, channel=channel)
+            if piece is None:
+                continue
+            # Only the part of the piece the box actually covers: at deep zoom
+            # the box is a fraction of one piece, and measuring the whole piece
+            # would be measuring the neighbourhood again.
+            block = np.asarray(piece)
+            rows = slice(max(0, first_row - row * composer.piece),
+                         max(1, last_row + 1 - row * composer.piece))
+            columns = slice(max(0, first_column - column * composer.piece),
+                            max(1, last_column + 1 - column * composer.piece))
+            taken.append(block[..., rows, columns].ravel())
+        if not taken:
+            return None
+        return np.concatenate(taken)
+    except Exception:
+        log.exception("the picture behind %s could not be measured where it "
+                      "is being looked at", store)
+        return None
+
+
 def forget(store: Path) -> None:
     """Let go of a built picture, closing the tiles it was holding open.
 

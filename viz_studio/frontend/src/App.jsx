@@ -5,7 +5,7 @@ import TargetsPanel from "./TargetsPanel.jsx";
 import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/annotations.js";
 import {
   putTheViewBack,
-  showTheWholePicture,
+  whatIsOnScreen,
   chooseScaleWhenTheImagesAreMeasured,
   watchTheReplay,
   letGoOfDecodedPieces,
@@ -111,6 +111,22 @@ async function tryNativeChooser() {
     // fall through to the in-page window
   }
   return { window: true };
+}
+
+async function measureHere(asked) {
+  try {
+    const response = await fetch("/api/measure", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(asked),
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    // A measurement that cannot be taken leaves the picture as it is, which
+    // is the honest answer to a button that had nothing to read.
+    return null;
+  }
 }
 
 async function openPath(path) {
@@ -720,46 +736,31 @@ function ModeToggle({ mode, onChange }) {
  * The way back to the whole picture, from wherever the operator has wandered.
  *
  * One press centres the picture and zooms so all of it fits the window --
- * panned off the screen, lost deep in detail, or both. It sits beside the
- * 2-D/3-D toggle rather than in the panel because it is needed at exactly the
- * moment the panel is no use: the operator cannot see the picture, and the
- * control that would bring it back must be visible without anything being
- * opened first. It is deliberately not called Reset -- the panel already has
- * one of those and it puts back the brightness window.
+ * panned off the screen, lost deep in detail, turned onto its side, or all
+ * three. It sits beside the 2-D/3-D toggle rather than in the panel because
+ * it is needed at exactly the moment the panel is no use: the operator
+ * cannot see the picture, and the control that would bring it back must be
+ * visible without anything being opened first.
+ *
+ * It puts the whole view back -- straight, centred, sized to the window --
+ * and so it means the same thing in both views. There was briefly a second
+ * button, Reset, that did the straightening while this one only fitted; one
+ * control that behaves the same way everywhere is what an operator can
+ * actually rely on, and two that differ only in 3-D is a distinction the
+ * button faces cannot carry (2026-08-20).
+ *
+ * What it does not touch is where the operator is in depth or in time. That
+ * is which picture they are looking at, not how they are looking at it.
  */
 function BringItBack({ viewer }) {
   if (!viewer) return null;
   return (
     <button
-      onClick={() => showTheWholePicture(viewer)}
-      style={{ ...styles.button, ...styles.bringItBack }}
-      title="Zoom out to the whole picture, sized to the window; the plane and the moment stay where they are"
-    >
-      Overview
-    </button>
-  );
-}
-
-/**
- * The way back to how the view opened, however far it has been turned.
- *
- * Overview beside this one brings a lost picture back into the window and
- * leaves it turned as it is, which is what an operator tilting a volume
- * wants. This puts everything about the view back at once -- straight,
- * centred, fitted -- and it sits beside Overview for the same reason that one
- * does: it is needed exactly when the panel is no use, because the operator
- * cannot see the picture. It works the same in both views, and it leaves the
- * plane and the moment where they are.
- */
-function PutItStraight({ viewer }) {
-  if (!viewer) return null;
-  return (
-    <button
       onClick={() => putTheViewBack(viewer)}
-      style={{ ...styles.button, ...styles.putItStraight }}
+      style={{ ...styles.button, ...styles.bringItBack }}
       title="Put the view back as it opened: straight, centred and sized to the window. The plane and the moment stay where they are"
     >
-      Reset
+      Overview
     </button>
   );
 }
@@ -1567,7 +1568,6 @@ export default function App() {
         <NeuroglancerView onViewer={setViewer} />
         <ModeToggle mode={mode} onChange={setMode} />
         <BringItBack viewer={viewer} />
-        <PutItStraight viewer={viewer} />
         <ScaleBar viewer={viewer} />
         {/* The two sliders are placed to match the directions they move in, which
             makes them quicker to reach for without reading the labels. Depth runs
@@ -1651,6 +1651,29 @@ export default function App() {
               onColor={(i, color) => setLayer(i, { color })}
               onOpacity={(i, opacity) => setLayer(i, { opacity })}
               onWindow={(i, window) => setLayer(i, { window })}
+              onMeasureHere={async (i) => {
+                // What Auto answers with: the brightness of the pixels an
+                // operator is actually looking at, with the ground nobody
+                // imaged left out of the vote. The panel has the picture
+                // drawn but not the pixels behind it -- and what is on the
+                // canvas has already been windowed and coloured -- so the
+                // reading is asked of the server, which has the store.
+                const spec = config?.layers?.[i];
+                const box = viewer && whatIsOnScreen(viewer);
+                if (!spec || !box) return null;
+                const answer = await measureHere({
+                  source: (spec.sources || [spec.source])[0],
+                  channel: spec.channelIndex ?? null,
+                  box,
+                });
+                if (!answer || answer.empty || !answer.window) return null;
+                // The window belongs to the picture, so it goes to the layer;
+                // the histogram belongs to the panel that drew it, so it goes
+                // back as the answer. An empty view moves nothing: a press
+                // that measured no imaged pixels has nothing to say.
+                setLayer(i, { window: answer.window });
+                return answer;
+              }}
               onLut={(i, lut) => setLayer(i, { lut })}
               volumeMode={volumeMode}
               onVolumeMode={setVolumeMode}
@@ -1930,15 +1953,6 @@ const styles = {
     position: "absolute",
     top: 12,
     left: 108,
-    zIndex: 10,
-    borderRadius: 6,
-    border: "1px solid #2c333d",
-    boxShadow: "0 1px 4px rgba(0,0,0,.5)",
-  },
-  putItStraight: {
-    position: "absolute",
-    top: 12,
-    left: 186,
     zIndex: 10,
     borderRadius: 6,
     border: "1px solid #2c333d",
