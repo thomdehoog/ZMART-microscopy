@@ -1,11 +1,13 @@
 # Review prompt: attack the channel-mixing plan before it is built
 
 You are reviewing `PLAN_channels_mix_like_the_engine.md` in this folder,
-adversarially, before a line of it is implemented. The plan converges the
-viewer's channel display on stock neuroglancer's own multichannel shape
-(one shared shader, colour and window as controls, additive for every
-channel layer, opacity carried once) plus one stated deviation:
-sum-normalised channel weights so a dense plate cannot clip to white.
+adversarially, before a line of it is implemented. The plan keeps stock
+neuroglancer's idioms (colour, window and weight as controls; nothing
+operator-adjustable in the program text) but departs from its layer
+arrangement: instead of one layer per channel added together, ONE layer
+holds a picture and its channels mix inside one drawing program, where the
+total is visible and can be scaled back exactly where it would overflow
+instead of clipping. The operator turns a hue rather than a colour triple.
 
 Ground rules for this review, learned the hard way this week: the
 codebase's comments are HISTORY, not law — verify any constraint you lean
@@ -60,10 +62,12 @@ Attack these specifically:
    silently different (MIP volume rendering vs slice blending), and that
    the 2D/3D parity the operator observed inverted (3D mixed, 2D covered)
    truly converges under the plan.
-7. **Auto and windows under additive.** The Auto light compares the window
-   to the measured one per channel. With weights rescaling on visibility
-   toggles, can the picture change while every Auto light stays lit —
-   and is that acceptable to an operator?
+7. **Auto and windows under the mixing program.** The Auto light compares
+   a channel's window to the measured one. Under mixing, the scale-back
+   means a channel's contribution can change without its window moving --
+   so the picture changes while every Auto light stays lit. Is that
+   acceptable to an operator, and does the histogram still describe what
+   is on screen?
 8. **The stitched-regime label.** The plan promises the panel says why a
    stitched multichannel row cannot colour-mix. Where exactly, in whose
    words, and is the claim even true after the server-side composition path
