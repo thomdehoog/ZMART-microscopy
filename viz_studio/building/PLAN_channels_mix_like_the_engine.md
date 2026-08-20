@@ -88,15 +88,14 @@ views mix the same way.
 
 A screen has three primaries, so five or more channels are always a
 projection down to three numbers per pixel. Choosing each channel's colour
-as a HUE is what scales: named colours run out (which is why the reference
-tools stop at eight, or four) while hues simply divide the wheel. With the
-mixing done inside one program, no channel count can clip -- the sum is
-scaled back wherever it overshoots, and that scaling preserves the hue, so
-overlaps read as a blend of two hues rather than as white. What does bound
-the count is how many channels one program can sample (Viv stops at ten),
-which is why every reference tool shows a few of a high-plex picture at a
-time. For our 18-channel plate: hues around the wheel, every channel
-listed in the panel, the first few showing.
+as a HUE is what scales -- named colours run out (which is why the
+reference tools stop at eight, or four) while hues simply divide the
+wheel -- and that is the next chapter's interface rather than this one's.
+What bounds the count here is how many channels one program can sample
+(Viv stops at ten), which is why every reference tool shows a few of a
+high-plex picture at a time. For our 18-channel plate: every channel
+listed in the panel, the first few showing, and the operator's own white
+points deciding how the shown ones sit together.
 
 ### Honest verdicts on yesterday's three changes
 
@@ -126,38 +125,43 @@ engine modification anywhere.
 ## The design
 
 **One picture is one layer, and its channels mix inside one drawing
-program.** This replaces an earlier draft of this plan, which spread the
-channels over one layer each and added them. That draft was the best that
-model allows and it is not good enough: because every channel is drawn in
-its own pass, no program ever sees the total, so the only way to stop the
-sum overflowing is to scale every channel down in advance -- which dims
-the whole picture as channels are added, even where a single channel is
-alone with its signal.
-
-The engine offers the better road itself. A brightness control can be
-bound to a named channel of the data
-(`#uicontrol invlerp ch0(channel=[0])`, verified in
-`webgl/shader_ui_controls.js`), so ONE program can read every channel of
-a picture, mix them where the total is visible, and hand back a colour
-that fits the screen:
+program.** A brightness control can be bound to a named channel of the
+data (`#uicontrol invlerp ch0(channel=[0])`, verified in
+`webgl/shader_ui_controls.js`), so ONE program reads every channel of a
+picture and adds them:
 
 ```
     sum = colour0 x ch0() + colour1 x ch1() + ...
-    peak = the strongest of the sum's three components
-    shown = peak > 1 ? sum / peak : sum
-    emit shown, with "any channel has data here" as the coverage
+    emit sum, with "anything was imaged here" as the coverage
 ```
 
-Dividing all three components by one number keeps their ratios, so the
-mixture's COLOUR survives where clipping would have destroyed it; nothing
-can ever clip; and a channel alone in its region keeps full brightness,
-because there is nothing to scale back. This is what Viv does in one pass,
-reached with stock neuroglancer and no engine modification.
+**The sum is not scaled back, and nothing is normalised.** An earlier
+draft of this plan divided the sum down wherever it would overflow, so a
+dense plate could never clip. The operator refused it, and the reason is
+the one that decides this chapter:
 
-It also dissolves the blend fork this plan used to need. Inside one layer
-each position still draws as its own pass and covers the one before it --
-correct stitching -- while the channels mix inside each pass. Channel
-mixing and position stitching stop competing for the same switch.
+> The display is a fact about the data and about the dials the operator
+> set. Rescaling makes it a fact about which channels happen to be
+> switched on: hide one channel and the others silently brighten. Setting
+> a channel's black and white points must mean the same thing however
+> many other channels are showing.
+
+So the mix clips when it overflows, exactly as ImageJ, napari, OMERO,
+vizarr and stock neuroglancer all clip, and the remedy is the operator's
+own: bring a channel's white point down until the picture reads. Removing
+a channel then changes the picture only by removing that channel's
+contribution, which is what should happen. This also retires the one
+mechanism in the design that no reference tool had -- the novelty is
+gone, and with it the risk it carried.
+
+**Why one layer, then, if not to see the total?** Because it is the only
+arrangement where channels mix AND positions still cover each other.
+Inside one layer each position draws as its own pass and covers the one
+before it -- correct stitching, no summed overlaps -- while the channels
+mix within each pass. Per-channel layers cannot do both: additive there
+sums the overlaps of a stitched run into bright seams, which is why the
+first attempt had to fork on the number of files a row came from and left
+tiled multichannel runs unable to colour at all.
 
 The rest of the design stands:
 
@@ -168,82 +172,50 @@ The rest of the design stands:
 2. **Opacity has one carrier** and the coverage term means coverage only:
    whether anything was imaged there, for stacking one acquisition over
    another.
-3. **A channel's colour is chosen as a hue, not as a red-green-blue
-   triple.** The engine's dial takes red, green and blue, and the panel
-   hands it those -- but what the OPERATOR turns is a hue, with saturation
-   beside it. The reason is that a hue is a dial where a triple is a list:
-   named colours run out (which is why the reference tools stop at eight,
-   or four), while hues simply divide the wheel, so eighteen channels are
-   no harder to tell apart than four. It also matches the other end of the
-   pipeline exactly: the mixing rule above divides the three components by
-   one number, which leaves their ratios -- the hue -- untouched, so two
-   overlapping channels read as a true blend of their two hues instead of
-   washing towards white. Saturation earns its place as the second dial:
-   full for channels to tell apart, pulled towards grey for one meant to
-   sit underneath as plain structure. The engine ships the conversion both
-   in JavaScript and as shader code (`hsvToRgb`, `glsl_hsvToRgb`) and uses
-   it itself to colour segments, so nothing here is invented.
-
-   Worth knowing when the defaults are written: equal steps of hue are not
-   equally distinguishable -- green covers a wide band, blue and yellow
-   narrow ones. Spacing the default hues in a perceptual space (OKLCH) and
-   converting to red-green-blue in the panel makes channels look evenly
-   separated rather than merely be evenly numbered. A refinement, not a
-   requirement, and entirely on our side of the engine.
-
+3. **Colour is chosen where it is chosen today** -- the lookup-table
+   control in the display settings, a flat colour or a colour map. Turning
+   a hue instead of picking from a list is the natural next step for
+   pictures of many channels, and it is deliberately NOT part of this
+   build.
 4. **Defaults owned once.** The server reports colours a run DECLARED, or
-   nothing; the default hues live in exactly one place (the panel).
-5. **A picture whose channels live in separate files** -- an older
-   run, a folder of per-channel stores -- keeps a layer per channel and
-   the engine's plain additive mixing, which clips as every tool does.
-   The cure is the composed picture the server already builds, not a
-   second compositing system.
-6. **Nothing an operator turns costs a rebuild or a re-read.** Verified
-   in the engine's control layer: a colour and a plain slider are
-   uniforms (`getBuilderValue: () => null`), so they reach a program that
-   is already compiled; a brightness window travels as a uniform too
-   (only WHICH channel a control reads is part of the program's identity).
-   The image cache is keyed by the store and the piece, so display
-   settings never touch it: turning a hue or dragging brightness is one
-   number handed to the card, with nothing re-fetched and nothing decoded
-   again. The program's text is rebuilt only when a picture is opened with
-   a different number of channels, and even that keeps every piece already
-   in hand.
-
-   One detail follows from the same source and is worth building in from
-   the start: the engine's checkbox control IS part of a program's
-   identity, while a float slider is not. So a channel's eye should carry
-   a WEIGHT (nought to one) rather than a checkbox -- then showing and
-   hiding a channel is as free as recolouring it, and it fades rather
-   than snaps.
-
-   The trade this design does make is not about caching but about volume:
-   because one program samples every channel, every channel of what is on
-   screen has to be in hand, so hiding a channel no longer saves its
-   reading (today, hiding a layer does). That is the real reason the field
-   shows a few channels of a high-plex picture at a time, and the reason
-   the point below is part of the design rather than a nicety.
-
+   nothing; the default colours live in exactly one place (the panel), and
+   several channels never open the same colour.
+5. **A picture whose channels live in separate files** -- an older run, a
+   folder of per-channel stores -- keeps a layer per channel and the
+   engine's plain additive mixing. The cure is the composed picture the
+   server already builds, not a second compositing system.
+6. **Nothing an operator turns costs a rebuild or a re-read.** Verified in
+   the engine's control layer: a colour and a plain slider are uniforms
+   (`getBuilderValue: () => null`), and the image cache is keyed by the
+   store and the piece, so display settings never touch it. The engine's
+   checkbox control IS part of a program's identity while a float slider
+   is not, so a channel's eye carries a weight rather than a checkbox --
+   showing and hiding a channel is then as free as recolouring it. The
+   trade the design does make is volume, not caching: one program samples
+   every channel, so every channel of what is on screen has to be in hand.
 7. **How many channels at once.** One program samples a bounded number of
    channels (Viv stops at ten; every reference tool opens with about four
    showing). A picture with more offers them all in the panel and shows
-   the first few, as the field does.
+   the first few.
 8. **The Log brightness axis turns on by itself** when the camera's range
-   dwarfs the measured spread.
+   dwarfs the measured spread, so the full-range histogram stays usable --
+   which matters more now that narrowing a white point by hand is the
+   operator's remedy for a crowded mix.
 9. **The measured 1-99 window stays** the server's: it also draws the
    histogram and works before the graphics card has read a pixel. Barely
-   a deviation at all, it turns out -- stock neuroglancer's own
-   auto-contrast computes the same percentiles, on the GPU; only where
-   the measuring happens differs.
+   a deviation at all -- stock neuroglancer's own auto-contrast computes
+   the same percentiles, on the GPU; only where the measuring happens
+   differs.
 
 Touches: `scene.js` (one layer per picture, the mixing program, the
 controls), `engine.js` (rows become one layer with per-channel controls
 rather than one layer each), `LayerPanel.jsx` (a channel row now drives a
 control, carries the hue dial, and owns the defaults), `stores.py` (the palette leaves).
-Gates: the existing blend/panel gates updated, plus red-first gates that a
-dense four-channel picture opens unclipped, that opacity fades linearly,
-that a lone channel keeps full brightness however many are open, and
-that hues divide the wheel for any channel count.
+Gates: the existing blend/panel gates updated, plus red-first gates that
+every channel of a picture reaches the screen and answers a recolour,
+that a channel's own brightness on screen does not change when another
+channel is hidden or shown, that opacity fades linearly, and that the
+positions of a stitched picture still cover each other without seams.
 The trapping comment blocks listed in the review are rewritten to state
 their conditions.
 
