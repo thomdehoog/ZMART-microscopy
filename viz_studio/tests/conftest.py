@@ -83,6 +83,17 @@ def _in_a_few_words(exc: Exception) -> str:
     return str(exc).strip().splitlines()[0].strip()
 
 
+def _tell_the_summary(note: str) -> None:
+    """Keep something worth saying about how the pictures were drawn.
+
+    Said once at the end of the run rather than per test: which renderer drew,
+    or which browser was found, is a property of the whole run and repeating it
+    a hundred times would bury it.
+    """
+    if note not in _the_browser_we_found:
+        _the_browser_we_found.append(note)
+
+
 def _give_up_on_the_picture(reason: str) -> None:
     """Skip a test that needs a drawn picture, and remember why for the summary.
 
@@ -289,8 +300,7 @@ def _launch_chromium(playwright, args: list[str]):
             f"({_in_a_few_words(playwright_could_not)}), so the picture tests used the "
             f"Chromium already on this machine, at {already_here}."
         )
-        if note not in _the_browser_we_found:
-            _the_browser_we_found.append(note)
+        _tell_the_summary(note)
         return browser
 
 
@@ -314,32 +324,104 @@ def _playwright():
         yield pw
 
 
+# What a renderer calls itself when there is no card behind it.
+SOFTWARE_RENDERERS = ("swiftshader", "llvmpipe", "software", "microsoft basic")
+
+# Ask a page which renderer WebGL is actually using. The unmasked name is the
+# honest one: a browser falling back to software still answers "WebGL 2" to
+# everything else.
+RENDERER_JS = """() => {
+  const c = document.createElement('canvas');
+  const gl = c.getContext('webgl2') || c.getContext('webgl');
+  if (!gl) return null;
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+}"""
+
+_ON_THE_CARD = ["--ignore-gpu-blocklist", "--enable-gpu"]
+_IN_SOFTWARE = ["--use-gl=angle", "--use-angle=swiftshader",
+                "--ignore-gpu-blocklist"]
+
+
+def drawn_in_software(renderer: str | None) -> bool:
+    """Whether a renderer's own name says there is no card behind it."""
+    return not renderer or any(
+        name in renderer.lower() for name in SOFTWARE_RENDERERS)
+
+
+def _the_renderer_of(browser) -> str | None:
+    """What this browser will actually draw with, asked before anything is drawn."""
+    page = browser.new_page()
+    try:
+        page.set_content("<canvas></canvas>")
+        return page.evaluate(RENDERER_JS)
+    except Exception:
+        return None
+    finally:
+        page.close()
+
+
 @pytest.fixture(scope="session")
 def browser(_playwright):
-    """A headless Chromium with software GL, or skip if none is usable.
+    """A headless Chromium on this machine's own graphics, software if it has none.
 
-    Software GL is the default because neuroglancer needs WebGL2 and CI
-    machines have no GPU. On a machine that HAS one — the workstation pass —
-    set ``ZMART_REAL_GPU=1`` and the same fixture launches against the real
-    graphics stack instead, so every browser gate measures the hardware the
-    operator will actually use. Without the variable, a workstation would
-    silently run the gates on software rendering and call it a GPU pass.
+    The gates measure what an operator will actually see, so they draw on the
+    card when there is one: the microscope PC has a card, and a viewer judged
+    on software rendering is judged on a machine nobody uses. Where there is no
+    card — a CI runner, a laptop with the browser boxed in — the same fixture
+    falls back to software rendering, because a skipped picture test tells
+    nobody anything.
 
-    A machine whose policy blocks the downloaded browser fails at launch
-    rather than at import, so both are treated as "cannot run here" — but
-    only after we have looked for a Chromium the machine already has.
+    **The fallback is never silent.** Which renderer drew is asked before any
+    test runs and said at the end of the run, so a software pass can never be
+    read as a pass on hardware. That confusion is the reason the card used to
+    be opt-in, and saying so plainly is the better answer than making the
+    common case awkward.
+
+    ``ZMART_REAL_GPU=1`` refuses the fallback: on a machine that is supposed to
+    draw, falling back quietly is exactly the failure worth stopping for.
+    ``ZMART_SOFTWARE_GL=1`` forces software, for a run that has to be identical
+    everywhere.
+
+    A machine whose policy blocks the downloaded browser fails at launch rather
+    than at import, so both are treated as "cannot run here" — but only after we
+    have looked for a Chromium the machine already has.
     """
-    if os.environ.get("ZMART_REAL_GPU"):
-        gl_args = ["--ignore-gpu-blocklist", "--enable-gpu"]
-    else:
-        gl_args = ["--use-gl=angle", "--use-angle=swiftshader",
-                   "--ignore-gpu-blocklist"]
-    try:
-        launched = _launch_chromium(_playwright, gl_args)
-    except Exception as exc:
-        _give_up_on_the_picture(
-            f"no usable Chromium on this machine: {_in_a_few_words(exc)}"
-        )
+    wants_software = bool(os.environ.get("ZMART_SOFTWARE_GL"))
+    must_have_card = bool(os.environ.get("ZMART_REAL_GPU"))
+    launched = None
+    if not wants_software:
+        try:
+            launched = _launch_chromium(_playwright, _ON_THE_CARD)
+        except Exception as exc:
+            if must_have_card:
+                _give_up_on_the_picture(
+                    f"no usable Chromium on this machine: {_in_a_few_words(exc)}")
+            launched = None
+        if launched is not None:
+            renderer = _the_renderer_of(launched)
+            if drawn_in_software(renderer):
+                launched.close()
+                launched = None
+                if must_have_card:
+                    _give_up_on_the_picture(
+                        "ZMART_REAL_GPU asks for this machine's card, and WebGL "
+                        f"reports {renderer or 'no renderer at all'} -- the run "
+                        "would have measured software rendering and called it a "
+                        "pass on hardware")
+            else:
+                _tell_the_summary(f"the pictures were drawn on {renderer}.")
+    if launched is None:
+        try:
+            launched = _launch_chromium(_playwright, _IN_SOFTWARE)
+        except Exception as exc:
+            _give_up_on_the_picture(
+                f"no usable Chromium on this machine: {_in_a_few_words(exc)}"
+            )
+        _tell_the_summary(
+            "the pictures were drawn in software (no card was usable here), so "
+            "what they measure is this machine's arithmetic rather than an "
+            "operator's screen.")
     try:
         yield launched
     finally:

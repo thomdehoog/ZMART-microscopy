@@ -37,7 +37,7 @@ DIM = 1000
 WINDOW = (0, 8000)
 
 
-def _a_picture(path, values, colours):
+def _a_picture(path, values, colours, declare=None):
     """One store of several channels, each filled with its own flat value.
 
     A flat value per channel makes what reaches the screen arithmetic rather
@@ -67,8 +67,11 @@ def _a_picture(path, values, colours):
              # A window the run asked for, so these gates do not also depend
              # on what a measurement of a flat picture happens to return.
              "window": {"min": 0, "max": 65535,
-                        "start": WINDOW[0], "end": WINDOW[1]}}
-            for name, colour in zip(_names(len(values)), colours, strict=True)
+                        "start": WINDOW[0], "end": WINDOW[1]},
+             # Anything else this particular run declares about the channel.
+             **((declare or [{}] * len(values))[index])}
+            for index, (name, colour)
+            in enumerate(zip(_names(len(values)), colours, strict=True))
         ]},
     }), encoding="utf-8")
     return path
@@ -118,7 +121,7 @@ def _choose(page, channel):
 
 def _recolour(page, channel, colour):
     _choose(page, channel)
-    page.get_by_label(f"lookup table {channel}").select_option(f"flat:{colour}")
+    page.get_by_label(f"colormap {channel}").select_option(f"flat:{colour}")
     page.wait_for_timeout(900)
 
 
@@ -382,4 +385,78 @@ def test_each_channel_draws_its_own_data(four_channels):
     )
     assert 2.7 < blue / red < 3.3, (
         f"blue stands at {blue / red:.2f} times red, not three times"
+    )
+
+
+@pytest.fixture
+def as_the_run_declared(browser, built_dist, tmp_path):
+    """A picture whose run wrote down how it wants to be shown."""
+    folder = tmp_path / "declared"
+    folder.mkdir()
+    _a_picture(
+        folder / "overview_pos001.ome.zarr",
+        [DIM, 2 * DIM],
+        ["FF0000", "00FF00"],
+        declare=[
+            # Twelve bits of camera written into sixteen-bit files, which is
+            # the ordinary case and not what the number type would say. The
+            # window sits inside that range, as a real run's does.
+            {"window": {"min": 0, "max": 4095, "start": 0, "end": 3000}},
+            {"window": {"min": 0, "max": 4095, "start": 0, "end": 3000},
+             "active": False},
+        ],
+    )
+    page, server, thread = _serve(folder, built_dist, browser,
+                                  "overview_pos001.ome.zarr")
+    try:
+        yield page
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_the_brightness_axis_is_the_range_the_run_declared(as_the_run_declared):
+    """A twelve-bit camera gets a twelve-bit axis, not a sixteen-bit one.
+
+    The axis runs to the whole range the numbers live in, so that the room
+    left before saturation can be read off it. Which range that is belongs to
+    the run: cameras are commonly read out at fewer bits than the file can
+    hold, and taking the file's word for it draws four times as much headroom
+    as exists and crushes the specimen into the first sixteenth of the track.
+    """
+    page = as_the_run_declared
+    told = page.evaluate("() => window.zmartConfig.layers[0].range")
+    assert told == {"low": 0, "high": 4095}, (
+        f"the viewer was served a range of {told}; the run declared 0 to 4095"
+    )
+    _choose(page, "chA")
+    # Read on the plain axis: on the logarithmic one the element counts steps
+    # along the warp rather than brightness, so its own maximum is a step count
+    # and says nothing about how far the handle can travel.
+    page.get_by_label("linear brightness axis").click()
+    page.wait_for_timeout(400)
+    reach = page.locator("[aria-label='max chA']").evaluate(
+        "(element) => Number(element.max)")
+    assert 4000 < reach < 4200, (
+        f"the brightness handles travel to {reach}, not to the 4095 the run "
+        "declared its numbers live in"
+    )
+
+
+def test_a_channel_the_run_switched_off_opens_switched_off(as_the_run_declared):
+    """What the microscopist had showing is what the viewer opens showing.
+
+    A run that says a channel was off is a run whose operator turned it off,
+    and opening it anyway is the viewer overruling them -- on an 18-channel
+    plate that is the difference between a picture and a glare. The channel is
+    still listed, and one press brings it back.
+    """
+    page = as_the_run_declared
+    shown = page.evaluate("() => window.zmartLayerState.map((s) => s.visible)")
+    assert shown == [True, False], (
+        f"the channels opened {shown}; the run declared the second one off"
+    )
+    assert page.locator("[aria-label='toggle chB']").count() == 1, (
+        "a channel switched off is still listed, so it can be brought back"
     )

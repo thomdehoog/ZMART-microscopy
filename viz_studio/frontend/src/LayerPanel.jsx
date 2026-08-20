@@ -11,8 +11,22 @@ export const PALETTE = [
   { name: "cyan", rgb: [0.2, 0.8, 1.0] },
   { name: "amber", rgb: [1.0, 0.75, 0.1] },
   { name: "blue", rgb: [0.3, 0.45, 1.0] },
+  { name: "red", rgb: [1.0, 0.15, 0.15] },
   { name: "grey", rgb: null },
 ];
+
+// A colour as the browser's own picker spells it, and back again. The picker
+// hands over "#rrggbb"; everything else here keeps colours as three fractions,
+// which is what the shader is given.
+const hexOf = (rgb) =>
+  rgb
+    ? `#${rgb.map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255)
+        .toString(16).padStart(2, "0")).join("")}`
+    : "#ffffff";
+const rgbOf = (hex) => {
+  const value = parseInt(hex.replace("#", ""), 16);
+  return [(value >> 16 & 255) / 255, (value >> 8 & 255) / 255, (value & 255) / 255];
+};
 
 // A word or two saying what each colour map looks like. The names are the ones
 // everybody uses, but they mean nothing until you have seen one, and a biologist
@@ -36,9 +50,10 @@ const LUT_GRADIENTS = {
 };
 
 // The palette entry a stored rgb corresponds to, for showing which flat
-// colour the lookup table currently holds.
+// flat colour the colormap chooser currently holds, or nothing at all when
+// a colour was picked by hand and matches no named entry.
 const paletteNameOf = (rgb) =>
-  (PALETTE.find((entry) => css(entry.rgb) === css(rgb)) || { name: "grey" }).name;
+  (PALETTE.find((entry) => css(entry.rgb) === css(rgb)) || { name: null }).name;
 
 const css = (rgb) =>
   rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
@@ -697,44 +712,88 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
           label={`opacity value ${layer.name}`}
         />
       </label>
-      {/* ONE control decides how the channel is painted: the first entries
-          are single colours, the rest are colour maps. Choosing here is what
-          the swatch on the layer row reflects. */}
+      {/* How the channel is painted, in one row: what it looks like now, a
+          way to choose any colour at all, and the named colours and maps.
+          The preview is the choice made visible -- a flat colour as a block,
+          a map as its own run of colours -- and it is also the button that
+          opens the colour picker, so an operator can see what they have while
+          they change it rather than only afterwards. */}
         <label style={styles.control}>
           <span
             style={styles.controlLabel}
-            title="Lookup table: paint this channel in one flat colour, or in a run of colours that shows more detail"
+            title="How this channel is painted: one flat colour, or a run of colours that shows more detail"
           >
-            lut
+            colormap
           </span>
-          <select
-            value={entry.lut || `flat:${paletteNameOf(entry.color)}`}
-            onChange={(event) => {
-              const asked = event.target.value;
-              if (asked.startsWith("flat:")) {
-                onLut?.(index, null);
-                const name = asked.slice("flat:".length);
-                onColor(index, (PALETTE.find((choice) => choice.name === name)
-                                || { rgb: null }).rgb);
-              } else {
-                onLut?.(index, asked);
-              }
-            }}
-            aria-label={`lookup table ${layer.name}`}
-            title="Lookup table: the first entries are single colours, the rest paint the brightness in a run of colours"
-            style={{ ...styles.select, gridColumn: "2 / -1" }}
-          >
-            {PALETTE.map((choice) => (
-              <option key={choice.name} value={`flat:${choice.name}`}>
-                {choice.name}
-              </option>
-            ))}
-            {lookupTables.map((name) => (
-              <option key={name} value={name}>
-                {name} {LUT_DESCRIPTIONS[name] || ""}
-              </option>
-            ))}
-          </select>
+          <span style={{ ...styles.colourRow, gridColumn: "2 / -1" }}>
+            <span
+              style={{
+                ...styles.preview,
+                background: (entry.lut && LUT_GRADIENTS[entry.lut])
+                  || css(entry.color),
+              }}
+              title="What this channel is painted with. Press to choose any colour"
+            >
+              <input
+                type="color"
+                value={hexOf(entry.color)}
+                onChange={(event) => {
+                  // A colour chosen by hand is a flat colour, so whatever map
+                  // was on gives way to it -- the preview would otherwise go on
+                  // showing a run of colours the channel is no longer painted in.
+                  onLut?.(index, null);
+                  onColor(index, rgbOf(event.target.value));
+                }}
+                aria-label={`choose a colour for ${layer.name}`}
+                style={styles.hiddenPicker}
+              />
+            </span>
+            <select
+              // A colour picked by hand belongs to no named entry, and a
+              // select whose value matches none of its options quietly shows
+              // the first one instead -- so a hand-picked red read as "green"
+              // until this said "picked" out loud (seen on the plate,
+              // 2026-08-20).
+              value={entry.lut
+                || (paletteNameOf(entry.color)
+                  ? `flat:${paletteNameOf(entry.color)}`
+                  : "picked")}
+              onChange={(event) => {
+                const asked = event.target.value;
+                // "picked" is a read-out rather than a choice: it is already
+                // what the channel is painted with.
+                if (asked === "picked") return;
+                if (asked.startsWith("flat:")) {
+                  onLut?.(index, null);
+                  const name = asked.slice("flat:".length);
+                  onColor(index, (PALETTE.find((choice) => choice.name === name)
+                                  || { rgb: null }).rgb);
+                } else {
+                  onLut?.(index, asked);
+                }
+              }}
+              aria-label={`colormap ${layer.name}`}
+              title="The named colours come first, then the maps that paint the brightness in a run of colours"
+              style={{ ...styles.select, flex: 1 }}
+            >
+              {PALETTE.map((choice) => (
+                <option key={choice.name} value={`flat:${choice.name}`}>
+                  {choice.name}
+                </option>
+              ))}
+              {/* A colour picked by hand belongs to no named entry, so the
+                  chooser says so rather than showing the nearest name and
+                  quietly claiming the operator chose it. */}
+              {!entry.lut && paletteNameOf(entry.color) === null && (
+                <option value="picked">picked</option>
+              )}
+              {lookupTables.map((name) => (
+                <option key={name} value={name}>
+                  {name} {LUT_DESCRIPTIONS[name] || ""}
+                </option>
+              ))}
+            </select>
+          </span>
         </label>
     </div>
   );
@@ -1147,6 +1206,33 @@ const styles = {
   row: { position: "relative", display: "flex", alignItems: "center", gap: 8, padding: "5px 12px" },
   eye: { background: "none", border: "none", color: "#c9d1d9", cursor: "pointer", fontSize: 13, padding: 0 },
   swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid #39424e", display: "inline-block", flexShrink: 0 },
+  // The colour row: what the channel is painted with, then how to change it.
+  colourRow: { display: "flex", alignItems: "center", gap: 5, minWidth: 0 },
+  // Bigger than the row swatch, because this one has to show a whole run of
+  // colours legibly rather than just say which one is chosen.
+  preview: {
+    position: "relative",
+    width: 30,
+    height: 16,
+    borderRadius: 3,
+    border: "1px solid #39424e",
+    flexShrink: 0,
+    cursor: "pointer",
+    overflow: "hidden",
+  },
+  // The picker itself is invisible and fills the preview, so the preview IS
+  // the button: the browser's own colour dialog opens on it, which is the one
+  // an operator already knows and needs no widget of ours to maintain.
+  hiddenPicker: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    opacity: 0,
+    padding: 0,
+    border: 0,
+    cursor: "pointer",
+  },
   name: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   histogramRow: {
     display: "grid",

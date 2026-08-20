@@ -426,8 +426,16 @@ def _the_members_behind(store: str | Path) -> list[Path]:
     return [collection / member for member in members]
 
 
-def camera_range(store: str | Path) -> tuple[float, float] | None:
-    """The whole range the camera's number type can hold, or None without one.
+def camera_range(store: str | Path,
+                 declared: dict | None = None) -> tuple[float, float] | None:
+    """The whole range this channel's numbers live in, or None where nothing says.
+
+    ``declared`` is what the run itself wrote down (the ``min`` and ``max``
+    beside a channel's window). It wins outright: a camera read out at twelve
+    bits and written into sixteen-bit files says 0 to 4095, and taking the
+    number type's word instead would draw four times as much headroom as
+    exists and crush the specimen into the first sixteenth of the axis. Only
+    where the run says nothing does the number type answer, below.
 
     A microscopist reads a histogram against the camera's full range: where
     the data sits inside it says how much headroom is left before saturation,
@@ -442,6 +450,8 @@ def camera_range(store: str | Path) -> tuple[float, float] | None:
 
     import numpy as np
 
+    if declared:
+        return float(declared["low"]), float(declared["high"])
     store = Path(store)
     try:
         level = _coarsest_level_path(_read_attrs_at(store))
