@@ -694,25 +694,28 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               picture and no wider than it, because the pair belong to the
               picture rather than to the window. */}
           <div style={styles.axisRow}>
-            <ValueBox
-              value={Math.round(min)}
-              onCommit={(asked) => setShown({
-                low: asked,
-                high: Math.max(asked + 1, shown ? shown.high : max),
-              })}
-              label={`axis from ${layer.name}`}
-            />
-            <span style={styles.axisNote} title="The stretch of brightness the histogram draws, and how far the handles below can travel">
-              shown
-            </span>
-            <ValueBox
-              value={Math.round(max)}
-              onCommit={(asked) => setShown({
-                low: Math.min(asked - 1, shown ? shown.low : min),
-                high: asked,
-              })}
-              label={`axis to ${layer.name}`}
-            />
+            <div style={styles.axisEnds}>
+              <span style={styles.axisBox}>
+                <ValueBox
+                  value={Math.round(min)}
+                  onCommit={(asked) => setShown({
+                    low: asked,
+                    high: Math.max(asked + 1, shown ? shown.high : max),
+                  })}
+                  label={`axis from ${layer.name}`}
+                />
+              </span>
+              <span style={styles.axisBox}>
+                <ValueBox
+                  value={Math.round(max)}
+                  onCommit={(asked) => setShown({
+                    low: Math.min(asked - 1, shown ? shown.low : min),
+                    high: asked,
+                  })}
+                  label={`axis to ${layer.name}`}
+                />
+              </span>
+            </div>
           </div>
           <label style={styles.control}>
             <span style={styles.controlLabel} title="Anything dimmer than this is shown as black">
@@ -1261,22 +1264,25 @@ const styles = {
   swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid #39424e", display: "inline-block", flexShrink: 0 },
   // The colour row: what the channel is painted with, then how to change it.
   colourRow: { display: "flex", alignItems: "center", gap: 5, minWidth: 0 },
-  // Under the histogram and no wider: the two ends of what it draws, with a
-  // quiet word between them saying what they are.
+  // Under the histogram and exactly as wide: the same grid as the row above,
+  // so the ends of the axis sit under the ends of the picture they describe.
+  // Written as the same template rather than as a padding that happens to
+  // come out near it, because the two would drift the moment either changed.
   axisRow: {
+    display: "grid",
+    gridTemplateColumns: "1fr 60px",
+    gap: 6,
+    marginBottom: 4,
+  },
+  axisEnds: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 6,
-    marginBottom: 4,
-    paddingRight: 62,
   },
-  axisNote: {
-    font: "9px system-ui, sans-serif",
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: "#6b7684",
-  },
+  // Narrow: these hold a brightness apiece, not a sentence, and a box wider
+  // than its number reads as room for something that never arrives.
+  axisBox: { width: 52, flexShrink: 0 },
   chooser: { position: "relative", flex: 1, minWidth: 0 },
   chooserButton: {
     width: "100%",
