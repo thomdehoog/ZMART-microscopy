@@ -18,7 +18,7 @@
 
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
-  centres, emptyVolume, withBound,
+  centres, depthMm,
 } from "../lib/carriers.js";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -60,11 +60,6 @@ const ICONS = {
     g.append(svgEl("rect", { x: 5.5, y: 10, width: 7, height: 8, rx: 1, fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
     g.append(svgEl("rect", { x: 15.5, y: 10, width: 7, height: 8, rx: 1, fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
   },
-  // a cube seen from the corner: the one carrier with depth
-  volume: (g) => {
-    g.append(svgEl("path", { d: "M14 3 L24 8 L24 19 L14 25 L4 19 L4 8 Z", fill: "none", stroke: "currentColor", "stroke-width": 1.5, "stroke-linejoin": "round" }));
-    g.append(svgEl("path", { d: "M4 8 L14 13 L24 8 M14 13 L14 25", fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
-  },
 };
 
 const typeIcon = (id) => {
@@ -76,6 +71,59 @@ const typeIcon = (id) => {
 /* Millimetres are the carrier's unit and micrometres are the stage's. This is
    the only place the two meet. */
 const MM_UM = 1000;
+
+/**
+ * Which way a millimetre of depth runs across the stage view, and how far.
+ *
+ * The canvas looks straight down at the stage, so depth has no direction of
+ * its own there and has to be borrowed. This is the cabinet projection, which
+ * draughtsmen use for exactly this situation: the third axis runs off at an
+ * angle at a fraction of its true length, because a full-length oblique axis
+ * reads as longer than it is.
+ *
+ * A third of the length rather than the usual half, and thirty degrees rather
+ * than the usual forty-five. The vessels here are deep — a cuvette is four and
+ * a half times deeper than it is wide — and at the usual figures the box
+ * climbs so far up the picture that it reads as the subject of it rather than
+ * as one carrier standing on a stage. Flatter and shorter, it says the same
+ * thing more quietly, and what it says is still true: the face the depth is
+ * measured *from* is untouched by either number, which matters because that
+ * face is the footprint every position in the run is placed inside.
+ */
+const DEPTH_RUNS = 1 / 3;
+const DEPTH_ANGLE = Math.PI / 6;
+const DEPTH_ACROSS = DEPTH_RUNS * Math.cos(DEPTH_ANGLE);
+const DEPTH_UP = DEPTH_RUNS * Math.sin(DEPTH_ANGLE);
+
+/**
+ * The two faces of a box a viewer standing over the stage would see besides
+ * its top, drawn behind the footprint so that the footprint itself is left
+ * exactly where it is.
+ *
+ * Two rather than three: the far face is behind the sample and an opaque box
+ * hides it, so drawing it would only put lines through the sample. The top
+ * face is drawn a shade stronger than the side, which is the whole of the
+ * shading — enough for the eye to read a solid, and nothing that pretends to
+ * know where the light is.
+ */
+function drawTheDepthBehind(ctx, x, y, w, h, dx, dy, fill) {
+  const faces = [
+    [0.55, [[x, y], [x + w, y], [x + w + dx, y - dy], [x + dx, y - dy]]],
+    [0.35, [[x + w, y], [x + w, y + h], [x + w + dx, y + h - dy], [x + w + dx, y - dy]]],
+  ];
+  const was = ctx.globalAlpha;
+  for (const [shade, corners] of faces) {
+    ctx.beginPath();
+    for (const [px, py] of corners) ctx.lineTo(px, py);
+    ctx.closePath();
+    if (fill) {
+      ctx.globalAlpha = was * shade;
+      ctx.fill();
+      ctx.globalAlpha = was;
+    }
+    ctx.stroke();
+  }
+}
 
 export default {
   id: "carrier",
@@ -104,6 +152,7 @@ export default {
     const ah = config.h * MM_UM * scale;
     if (aw < 1.5 || ah < 1.5) return;
     const rad = Math.min(g.corner * MM_UM * scale, aw / 2, ah / 2);
+    const depth = depthMm(config) * MM_UM * scale;
     ctx.save();
     ctx.fillStyle = fill;
     ctx.strokeStyle = colour;
@@ -113,6 +162,15 @@ export default {
     // so the drawing and the positions cannot land in different places
     for (const a of centres(config)) {
       const [x, y] = toScreen((a.x - config.w / 2) * MM_UM, (a.y - config.h / 2) * MM_UM);
+      /* A carrier with depth drawn flat is an area with a number attached:
+         the one thing that makes it deep is the one thing the picture leaves
+         out. So the depth is put on the stage as a box behind the footprint —
+         no carrier on offer declares one at the moment, and this is what will
+         draw the next one that does. */
+      if (depth > 0) {
+        drawTheDepthBehind(ctx, x, y, aw, ah,
+          depth * DEPTH_ACROSS, depth * DEPTH_UP, fill);
+      }
       ctx.beginPath();
       ctx.roundRect(x, y, aw, ah, rad);
       if (fill) ctx.fill();
@@ -152,26 +210,33 @@ export default {
       b.disabled = locked;
       b.append(typeIcon(t.id), el("span", null, t.label));
       b.addEventListener("click", () => {
-        /* A volume is not a catalogue part: it starts unknown and is
-           constructed by recording its bounds, so choosing it opens the
-           recorder rather than a preset. */
-        const next = t.id === "volume"
-          ? emptyVolume()
-          : fromPreset(t.id, carrierType(t.id).presets[0]);
+        const next = fromPreset(t.id, carrierType(t.id).presets[0]);
         link = { grid: next.rows === next.cols, size: next.w === next.h, gap: true };
         commit(next);
-        if (t.id !== "volume") presets.replaceChildren(...presetOptions(t.id));
+        presets.replaceChildren(...presetOptions(t.id));
       });
       types.append(b);
     }
     controls.append(types);
 
-    /* Two bodies under the one type row: the designer for the catalogue
-       carriers, the bounds recorder for a volume. sync() shows whichever the
-       chosen type is about. */
+    /* One body under the type row: every carrier is designed in the same
+       panel, and what differs between them is which groups of it are on
+       screen. */
     const designer = el("div", "carrier-designer");
-    const volumeBox = el("div", "carrier-volume");
-    controls.append(designer, volumeBox);
+    controls.append(designer);
+
+    /* Which groups a type is about, filled as the groups are built and read
+       by sync(). A group and the rule for showing it are written in the same
+       breath here, which is the only arrangement in which the two cannot
+       drift apart. */
+    const groups = [];
+    const showWhen = (node, when) => { groups.push([node, when]); return node; };
+
+    /* How each row of numbers narrows itself to the carrier on screen. Kept
+       beside the list of groups because the two answer the same question at
+       different sizes: which groups this carrier is about, and which boxes
+       within them. */
+    const fits = [];
 
     const presetOptions = (typeId) => [
       ...carrierType(typeId).presets.map((p, i) => new Option(p.label, String(i))),
@@ -184,102 +249,238 @@ export default {
     presets.addEventListener("change", () => {
       const i = Number(presets.value);
       if (i < 0) return;
-      const next = fromPreset(cfg.type, carrierType(cfg.type).presets[i]);
+      take(fromPreset(cfg.type, carrierType(cfg.type).presets[i]));
+    });
+    const take = (next) => {
       link = { grid: next.rows === next.cols, size: next.w === next.h, gap: true };
       commit(next);
+    };
+
+    /* Three things to do with a whole carrier, under the catalogue it is
+       chosen from, because all three are about the configuration rather than
+       about any one number in it.
+
+       Save and load are a file and not a list kept somewhere. A carrier that
+       is not in the catalogue is one this lab made up, and what is wanted for
+       one of those is to hand it to the next person and to the machine in the
+       next room — which a list living in this browser cannot do. */
+    const fileRow = el("div", "carrier-files");
+
+    const load = el("button", "carrier-reset", "Load");
+    load.type = "button";
+    const picker = document.createElement("input");
+    picker.type = "file";
+    picker.accept = "application/json,.json";
+    picker.hidden = true;
+    picker.addEventListener("change", async () => {
+      const file = picker.files?.[0];
+      picker.value = "";
+      if (!file) return;
+      try {
+        const read = JSON.parse(await file.text());
+        /* Read as a carrier and not as whatever the file happened to hold: a
+           configuration is the fields this panel edits, and anything else in
+           there is somebody else's. An unreadable file leaves the carrier
+           alone rather than half-replacing it. */
+        if (!carrierType(read.type)) return;
+        take({
+          type: read.type,
+          rows: Math.max(1, Math.round(read.rows ?? 1)),
+          cols: Math.max(1, Math.round(read.cols ?? 1)),
+          w: read.w, h: read.h, d: read.d ?? 0,
+          gapX: read.gapX ?? 0, gapY: read.gapY ?? 0,
+          cornerRatio: read.cornerRatio ?? 0,
+        });
+      } catch { /* not a carrier; the one on screen stands */ }
     });
+    load.addEventListener("click", () => picker.click());
+
+    const save = el("button", "carrier-reset", "Save");
+    save.type = "button";
+    save.addEventListener("click", () => {
+      const file = new Blob([`${JSON.stringify(cfg, null, 2)}\n`],
+        { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(file);
+      a.download = `carrier-${cfg.type}-${cfg.cols}x${cfg.rows}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
     const reset = el("button", "carrier-reset", "Reset");
     reset.type = "button";
-    reset.addEventListener("click", () => {
-      const next = fromPreset(cfg.type, carrierType(cfg.type).presets[0]);
-      link = { grid: next.rows === next.cols, size: next.w === next.h, gap: true };
-      commit(next);
-    });
-    presetGroup.append(presets, reset);
+    reset.addEventListener("click", () =>
+      take(fromPreset(cfg.type, carrierType(cfg.type).presets[0])));
+
+    fileRow.append(load, save, reset, picker);
+    presetGroup.append(presets, fileRow);
     designer.append(presetGroup);
 
-    /* Three pairs, one shape: two numbers that may be tied together. Written
-       once because a row of boxes that behaved slightly differently in each
-       group would be three things to learn instead of one. */
-    function pair({ label1, label2, get1, get2, set1, set2, min1, min2, max, step, decimals, key }) {
+    /**
+     * A row of numbers, with the button that ties two of them at the end.
+     *
+     * One builder for every row of fields in this panel, because a row of
+     * boxes that behaved slightly differently in each group would be several
+     * things to learn instead of one. How many boxes is the carrier's
+     * business and not the row's: a deep carrier's size is three numbers, an
+     * area's is two and a dish's is one, so the row is told how many to show
+     * rather than being written out three times over.
+     *
+     * A row with nothing to tie has no tie column either, and its boxes run
+     * the full width of the group. That is the alignment that reads: a dish
+     * has no other row of numbers to line up with, so a box stopping thirty
+     * pixels short of the edge lines up with nothing and merely looks short
+     * of the buttons above it.
+     */
+    function numbers({ fields, key, step, decimals, max }) {
       const group = el("div", "carrier-group");
-      const grid = el("div", "carrier-pair");
-      grid.append(el("span", "carrier-label", label1), el("span", "carrier-label", label2), el("span"));
-
-      const mk = (get, set, min) => {
+      const grid = el("div", "carrier-nums");
+      const cells = fields.map((f) => {
         const i = document.createElement("input");
         i.type = "number";
         i.className = "carrier-num";
+        /* What the box is of, said on the box. The row it is in and the order
+           it stands in are layout and change with the carrier; what it edits
+           does not, so that is what anything looking for it should go by. */
+        i.dataset.field = f.name;
         i.step = String(step);
         if (max != null) i.max = String(max);
         i.addEventListener("input", () => {
           const v = parseFloat(i.value);
           if (i.value === "" || Number.isNaN(v)) return;
-          set(v);
+          f.set(v);
         });
         /* Clamping while typing fights the operator — "1" on its way to "12"
            is below a minimum of 6 and would be corrected out from under them.
            So the floor is applied when the field is left, not as it is used. */
         i.addEventListener("blur", () => {
           const v = parseFloat(i.value);
-          set(Number.isNaN(v) ? min() : Math.max(min(), v));
+          f.set(Number.isNaN(v) ? f.min() : Math.max(f.min(), v));
           sync();
         });
-        inputs.push({ i, get, decimals });
-        return i;
-      };
-
-      const a = mk(get1, set1, min1);
-      const b = mk(get2, set2, min2);
-      const tie = el("button", "carrier-link");
-      tie.type = "button";
-      tie.dataset.key = key;
-      tie.title = "Move both together";
-      tie.addEventListener("click", () => {
-        link[key] = !link[key];
-        if (link[key]) set2(get1());
-        commit({});
+        inputs.push({ i, get: f.get, decimals });
+        return { ...f, label: el("span", "carrier-label", f.label), i };
       });
-      grid.append(a, b, tie);
+
+      let tie = null;
+      if (key) {
+        tie = el("button", "carrier-link");
+        tie.type = "button";
+        tie.dataset.key = key;
+        tie.title = "Move both together";
+        tie.addEventListener("click", () => {
+          link[key] = !link[key];
+          if (link[key]) cells[1].set(cells[0].get());
+          commit({});
+        });
+      }
+
+      // labels on the first line, boxes on the second, one column each
+      if (!tie) grid.classList.add("no-tie");
+      grid.append(...cells.map((c) => c.label));
+      if (tie) grid.append(el("span"));
+      grid.append(...cells.map((c) => c.i));
+      if (tie) grid.append(tie);
       group.append(grid);
       designer.append(group);
-      return { tie };
+
+      /* How many columns the row is drawn in follows what is in it, so a
+         field that is not this carrier's business takes its column with it
+         rather than leaving a gap where it used to be. */
+      const fit = () => {
+        let shown = 0;
+        for (const c of cells) {
+          const on = !c.when || c.when(carrierType(cfg.type));
+          c.label.hidden = c.i.hidden = !on;
+          if (on) shown += 1;
+        }
+        grid.style.setProperty("--cols", String(shown));
+      };
+      fits.push(fit);
+      return { group, tie };
     }
 
     const ties = {};
-    ties.grid = pair({
-      label1: "ROWS", label2: "COLUMNS", key: "grid", step: 1, max: 50, decimals: 0,
-      get1: () => cfg.rows, get2: () => cfg.cols, min1: () => 1, min2: () => 1,
-      set1: (v) => commit(link.grid ? { rows: Math.round(v), cols: Math.round(v) } : { rows: Math.round(v) }),
-      set2: (v) => commit(link.grid ? { rows: Math.round(v), cols: Math.round(v) } : { cols: Math.round(v) }),
-    }).tie;
+    const gridRow = numbers({
+      key: "grid", step: 1, max: 50, decimals: 0,
+      fields: [
+        {
+          name: "rows", label: "ROWS", get: () => cfg.rows, min: () => 1,
+          set: (v) => commit(link.grid ? { rows: Math.round(v), cols: Math.round(v) } : { rows: Math.round(v) }),
+        },
+        {
+          name: "cols", label: "COLUMNS", get: () => cfg.cols, min: () => 1,
+          set: (v) => commit(link.grid ? { rows: Math.round(v), cols: Math.round(v) } : { cols: Math.round(v) }),
+        },
+      ],
+    });
+    // an area and a dish are one area; a row of ones says nothing
+    showWhen(gridRow.group, (t) => t.grid);
+    ties.grid = gridRow.tie;
 
-    ties.size = pair({
-      label1: "WIDTH (mm)", label2: "HEIGHT (mm)", key: "size", step: 0.1, decimals: 2,
-      get1: () => cfg.w, get2: () => cfg.h, min1: () => 0.1, min2: () => 0.1,
-      set1: (v) => commit(link.size ? { w: v, h: v } : { w: v }),
-      set2: (v) => commit(link.size ? { w: v, h: v } : { h: v }),
-    }).tie;
+    /* The size, which is two numbers or three. Depth is in this row rather
+       than in one of its own because it is the same kind of statement as the
+       other two — how big the thing is — and a carrier's size read across one
+       line is one fact rather than a fact and a footnote. The tie stays about
+       the width and the height: a cuvette is square across and deep, and
+       tying its depth to its width would describe a different vessel. */
+    const sizeRow = numbers({
+      key: "size", step: 0.1, decimals: 2,
+      fields: [
+        {
+          name: "w", label: "WIDTH (mm)", get: () => cfg.w, min: () => 0.1,
+          set: (v) => commit(link.size ? { w: v, h: v } : { w: v }),
+        },
+        {
+          name: "h", label: "HEIGHT (mm)", get: () => cfg.h, min: () => 0.1,
+          set: (v) => commit(link.size ? { w: v, h: v } : { h: v }),
+        },
+        {
+          name: "d", label: "DEPTH (mm)", get: () => cfg.d, min: () => 0.1,
+          when: (t) => t.deep, set: (v) => commit({ d: v }),
+        },
+      ],
+    });
+    showWhen(sizeRow.group, (t) => !t.round);
+    ties.size = sizeRow.tie;
+
+    /* A round area has one measurement, and offering a width beside a height
+       invites the operator to make it an ellipse it cannot be. */
+    showWhen(numbers({
+      step: 0.1, decimals: 2,
+      fields: [{
+        name: "diameter", label: "DIAMETER (mm)", get: () => cfg.w, min: () => 0.1,
+        set: (v) => commit({ w: v, h: v }),
+      }],
+    }).group, (t) => t.round);
 
     /* Pitch is centre to centre, which is what a plate's datasheet quotes and
        what the stage will be told. The gap is what is stored, because it is
        what stays meaningful when the area is resized. */
-    ties.gap = pair({
-      label1: "COLUMN PITCH (mm)", label2: "ROW PITCH (mm)", key: "gap", step: 0.1, decimals: 2,
-      get1: () => cfg.w + cfg.gapX, get2: () => cfg.h + cfg.gapY,
-      min1: () => cfg.w, min2: () => cfg.h,
-      set1: (v) => {
-        const g = Math.max(0, v - cfg.w);
-        commit(link.gap ? { gapX: g, gapY: g } : { gapX: g });
-      },
-      set2: (v) => {
-        const g = Math.max(0, v - cfg.h);
-        commit(link.gap ? { gapX: g, gapY: g } : { gapY: g });
-      },
-    }).tie;
+    const pitchRow = numbers({
+      key: "gap", step: 0.1, decimals: 2,
+      fields: [
+        {
+          name: "columnPitch", label: "COLUMN PITCH (mm)", get: () => cfg.w + cfg.gapX, min: () => cfg.w,
+          set: (v) => {
+            const g = Math.max(0, v - cfg.w);
+            commit(link.gap ? { gapX: g, gapY: g } : { gapX: g });
+          },
+        },
+        {
+          name: "rowPitch", label: "ROW PITCH (mm)", get: () => cfg.h + cfg.gapY, min: () => cfg.h,
+          set: (v) => {
+            const g = Math.max(0, v - cfg.h);
+            commit(link.gap ? { gapX: g, gapY: g } : { gapY: g });
+          },
+        },
+      ],
+    });
+    showWhen(pitchRow.group, (t) => t.grid);
+    ties.gap = pitchRow.tie;
 
     const shapeGroup = el("div", "carrier-group");
-    const shapeGrid = el("div", "carrier-pair");
+    const shapeGrid = el("div", "carrier-nums");
     shapeGrid.append(
       el("span", "carrier-label", "CORNER RADIUS (mm)"),
       el("span", "carrier-label", "AREA (mm²)"),
@@ -288,6 +489,7 @@ export default {
     const cornerIn = document.createElement("input");
     cornerIn.type = "number";
     cornerIn.className = "carrier-num";
+    cornerIn.dataset.field = "corner";
     cornerIn.step = "0.01";
     cornerIn.min = "0";
     cornerIn.addEventListener("input", () => {
@@ -299,6 +501,7 @@ export default {
     const areaIn = document.createElement("input");
     areaIn.type = "number";
     areaIn.className = "carrier-num";
+    areaIn.dataset.field = "area";
     areaIn.step = "0.01";
     areaIn.addEventListener("input", () => {
       const v = parseFloat(areaIn.value);
@@ -320,6 +523,12 @@ export default {
     shapeGrid.append(cornerIn, areaIn, shapeBtn);
     shapeGroup.append(shapeGrid);
     designer.append(shapeGroup);
+    /* A corner belongs to a carrier whose areas are compartments — a well is
+       round, a chamber's corners are moulded, and both are worth saying. A
+       single free-standing area is a rectangle of the size just given, and a
+       corner and an area restated from that size are two more numbers that
+       only say it again. */
+    showWhen(shapeGroup, (t) => t.grid);
 
     /* Where the run's own button goes: at the end of the numbers that decide
        it, so applying reads as the end of the editing.
@@ -332,42 +541,10 @@ export default {
        about itself. */
     card.append(el("div", "carrier-action"));
 
-    /* The volume recorder: drive the stage to each extreme of the sample and
-       record the bound — six readings, and the volume is what they enclose.
-       The mock hands back a plausible position; a real driver reads the
-       stage. Rebuilt on every sync, which is safe here: it holds buttons and
-       readings, never a field being typed into. */
-    const DEMO_STAGE = { x: [37.5, 52.5], y: [25.0, 39.0], z: [2.6, 7.4] };
-    function renderVolume() {
-      volumeBox.textContent = "";
-      volumeBox.append(el("div", "carrier-vol-why",
-        "Drive the stage to each edge of the sample and record the bound."));
-      for (const axis of ["x", "y", "z"]) {
-        const [lo, hi] = cfg.bounds?.[axis] ?? [null, null];
-        const fmt = (v) => (v == null ? "—" : `${v.toFixed(1)}`);
-        const row = el("div", "carrier-vol-row");
-        row.append(el("span", "carrier-label", axis.toUpperCase()));
-        row.append(el("span", "carrier-vol-span", `${fmt(lo)} – ${fmt(hi)} mm`));
-        for (const [which, name] of [[0, "Set min"], [1, "Set max"]]) {
-          const b = el("button", "ghost tiny", name);
-          b.type = "button";
-          b.disabled = locked;
-          b.addEventListener("click", () => {
-            cfg = withBound(cfg, axis, which, DEMO_STAGE[axis][which]);
-            onChange(cfg);
-            sync();
-          });
-          row.append(b);
-        }
-        volumeBox.append(row);
-      }
-    }
-
     function sync() {
-      const isVolume = cfg.type === "volume";
-      designer.hidden = isVolume;
-      volumeBox.hidden = !isVolume;
-      if (isVolume) renderVolume();
+      const type = carrierType(cfg.type);
+      for (const [node, when] of groups) node.hidden = !when(type);
+      for (const fit of fits) fit();
       for (const { i, get, decimals } of inputs) {
         if (document.activeElement === i) continue;
         const v = get();

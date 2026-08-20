@@ -14,26 +14,41 @@
  * dimension moved.
  */
 
+/* Each type declares three things about itself, and the panel is built from
+   them rather than from a list of its own about which type is which:
+
+   `grid`    whether the carrier is more than one area — rows, columns and the
+             pitch between them. An area and a dish are one area, and a row of
+             controls saying so is a row of ones to read past.
+   `round`   whether an area is a circle, which makes it one diameter rather
+             than a width and a height, and leaves no corner to choose.
+   `deep`    whether the carrier has a depth as well as a width and a height.
+             One vessel does, and it is the only one the stage travels through
+             rather than across.
+
+   Add a vessel by describing it here and the controls follow. */
 export const CARRIER_TYPES = [
   {
     id: "slide",
     label: "Area",
+    grid: false,
+    round: false,
+    deep: false,
     presets: [
-      { label: "Standard (75 × 25 mm)", rows: 1, cols: 1, shape: "rect", w: 75, h: 25, gap: 0, corner: 0.5 },
-      { label: "Large (76 × 52 mm)", rows: 1, cols: 1, shape: "rect", w: 76, h: 52, gap: 0, corner: 0.5 },
+      /* Square-cornered: an area is a rectangle of sample, and the soft corner
+         a glass slide happens to have is not part of what can be imaged in
+         it — carried here it pulled the imageable rectangle in at every edge
+         for a shape nobody was working to. */
+      { label: "Standard (75 × 25 mm)", rows: 1, cols: 1, shape: "rect", w: 75, h: 25, gap: 0, corner: 0 },
+      { label: "Large (76 × 52 mm)", rows: 1, cols: 1, shape: "rect", w: 76, h: 52, gap: 0, corner: 0 },
     ],
-  },
-  {
-    id: "volume",
-    label: "Volume",
-    /* Not a catalogue part: a volume is constructed by recording its bounds
-       off the stage — drive to each extreme of the sample and record x, y
-       and z, min and max. No presets, because the sample is the preset. */
-    presets: [],
   },
   {
     id: "dish",
     label: "Dish",
+    grid: false,
+    round: true,
+    deep: false,
     presets: [
       { label: "35 mm dish", rows: 1, cols: 1, shape: "round", w: 35, h: 35, gap: 0, corner: 0 },
       { label: "60 mm dish", rows: 1, cols: 1, shape: "round", w: 60, h: 60, gap: 0, corner: 0 },
@@ -43,6 +58,9 @@ export const CARRIER_TYPES = [
   {
     id: "chamber",
     label: "Chamber",
+    grid: true,
+    round: false,
+    deep: false,
     presets: [
       { label: "1-chamber (ibidi)", rows: 1, cols: 1, shape: "rect", w: 48, h: 24, gap: 0, corner: 2 },
       { label: "2-chamber (ibidi)", rows: 1, cols: 2, shape: "rect", w: 21.3, h: 17.6, gap: 4.8, corner: 1.5 },
@@ -53,6 +71,9 @@ export const CARRIER_TYPES = [
   {
     id: "wellplate",
     label: "Wellplate",
+    grid: true,
+    round: false,
+    deep: false,
     presets: [
       { label: "6-well", rows: 2, cols: 3, shape: "round", w: 34.8, h: 34.8, gap: 4.4, corner: 0 },
       { label: "12-well", rows: 3, cols: 4, shape: "round", w: 22.1, h: 22.1, gap: 3.9, corner: 0 },
@@ -94,6 +115,10 @@ export function fromPreset(typeId, preset) {
     cols: preset.cols,
     w: preset.w,
     h: preset.h,
+    /* Depth is a size like the other two and is carried by every carrier, so
+       that nothing downstream has to ask what type it is holding before it can
+       read one. It is zero for everything that is an area on a stage. */
+    d: preset.depth ?? 0,
     gapX: preset.gap,
     gapY: preset.gap,
     cornerRatio: maxR > 0 ? Math.min(corner / maxR, 1) : 0,
@@ -101,40 +126,27 @@ export function fromPreset(typeId, preset) {
 }
 
 /**
- * What a run starts on: the plate this lab runs most. Named rather than
- * indexed, so adding a preset above it does not quietly change what every
- * fresh run begins with.
+ * What a run starts on: one plain area, the simplest thing a sample can be
+ * mounted on and the one that assumes least about what is being run. A plate
+ * was the default for a while, and a plate is a strong claim — eight by twelve
+ * wells laid across the stage before the operator has said anything — where an
+ * area is the claim that there is a sample somewhere.
+ *
+ * Named rather than indexed, so adding a preset above it does not quietly
+ * change what every fresh run begins with.
  */
 export const DEFAULT_CARRIER = fromPreset(
-  "wellplate",
-  carrierType("wellplate").presets.find((p) => p.label.startsWith("96-well")),
+  "slide",
+  carrierType("slide").presets.find((p) => p.label.startsWith("Standard")),
 );
 
 /**
- * A volume starts unknown: six bounds, recorded one at a time off the stage.
- * It carries the same grid fields as every other carrier — one area whose
- * width and height follow from the recorded x and y — so everything
- * downstream (centres, tiles, the drawing) reads it unchanged; z is the
- * volume's own, for the depth the run will image.
+ * How deep the carrier is, in millimetres. Zero for every carrier that is an
+ * area on a stage — the drawing asks this rather than asking what type it has
+ * been handed, so a vessel that gains a depth gains a drawing with no further
+ * help.
  */
-export const emptyVolume = () => ({
-  type: "volume", rows: 1, cols: 1,
-  w: 0.1, h: 0.1, gapX: 0, gapY: 0, cornerRatio: 0,
-  bounds: { x: [null, null], y: [null, null], z: [null, null] },
-});
-
-/** Whether every bound has been recorded. True for any non-volume carrier. */
-export const volumeComplete = (c) => c.type !== "volume"
-  || ["x", "y", "z"].every((a) => c.bounds[a][0] != null && c.bounds[a][1] != null);
-
-/** One recorded bound lands; width and height follow from x and y. */
-export function withBound(c, axis, which, value) {
-  const bounds = { ...c.bounds, [axis]: [...c.bounds[axis]] };
-  bounds[axis][which] = value;
-  const span = (a) => (bounds[a][0] != null && bounds[a][1] != null
-    ? Math.max(Math.abs(bounds[a][1] - bounds[a][0]), 0.1) : null);
-  return { ...c, bounds, w: span("x") ?? c.w, h: span("y") ?? c.h };
-}
+export const depthMm = (config) => (carrierType(config.type).deep ? config.d : 0);
 
 const close = (a, b) => Math.abs(a - b) < 0.005;
 
@@ -151,6 +163,7 @@ export function matchingPreset(config) {
       : 0;
     return p.rows === config.rows && p.cols === config.cols
       && close(p.w, config.w) && close(p.h, config.h)
+      && close(p.depth ?? 0, config.d ?? 0)
       && close(p.gap, config.gapX) && close(p.gap, config.gapY)
       && close(ratio, config.cornerRatio);
   });
@@ -186,25 +199,103 @@ export function geometry(config) {
  * carrier's width evenly would land them off by half a gap at every edge.
  */
 export function centres(config) {
-  const { rows, cols, w, h } = config;
-  const { pitchX, pitchY } = geometry(config);
+  const { rows, cols } = config;
   const out = [];
   for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      out.push({ row, col, x: col * pitchX + w / 2, y: row * pitchY + h / 2 });
-    }
+    for (let col = 0; col < cols; col++) out.push(centreOf(config, row, col));
   }
   return out;
+}
+
+/** Where one area sits. The one place the answer is worked out. */
+function centreOf(config, row, col) {
+  const { w, h } = config;
+  const { pitchX, pitchY } = geometry(config);
+  return { row, col, x: col * pitchX + w / 2, y: row * pitchY + h / 2 };
+}
+
+/**
+ * The area nearest a point, whether or not the point is in it. Rounded to the
+ * grid rather than searched, so a plate of a thousand wells costs what one
+ * does, and clamped to the plate so a point off the edge belongs to the area
+ * at that edge.
+ */
+export function nearestArea(config, x, y) {
+  const { rows, cols, w, h } = config;
+  const { pitchX, pitchY } = geometry(config);
+  const col = Math.min(cols - 1, Math.max(0, Math.round((x - w / 2) / pitchX)));
+  const row = Math.min(rows - 1, Math.max(0, Math.round((y - h / 2) / pitchY)));
+  return centreOf(config, row, col);
+}
+
+/**
+ * The rectangle inside an area that a run actually images — square-cornered,
+ * whatever shape the area is.
+ *
+ * A well is round and a plan is not. Tiles laid to the edge of a circle come
+ * out as a rounded blob: an outline nobody drew, no two rows the same length,
+ * and a picture whose shape says something about the plastic rather than about
+ * the sample. What an operator means by "this well" is the square of it that
+ * can be imaged, so that square is what the plan is held to.
+ *
+ * It is the area's own rectangle with the corner arcs cut back to their
+ * chords: exact at both ends of the range, giving the whole rectangle when
+ * there is no corner to cut and the inscribed square when the area is a
+ * circle.
+ */
+export function scanBox(config) {
+  const { w, h } = config;
+  const { corner } = geometry(config);
+  const cut = corner - corner / Math.SQRT2;
+  return { halfW: w / 2 - cut, halfH: h / 2 - cut };
+}
+
+/** Whether a point is over the imageable square of an area. */
+export function insideArea(config, x, y) {
+  const a = nearestArea(config, x, y);
+  const { halfW, halfH } = scanBox(config);
+  return Math.abs(x - a.x) <= halfW && Math.abs(y - a.y) <= halfH;
+}
+
+/**
+ * Whether a frame that wide, centred there, lies wholly inside one area.
+ *
+ * This is the rule the whole plan is held to: what the objective sees is a
+ * square of sample, and a square that hangs over the edge of the imageable
+ * square is a square of plastic.
+ */
+export function frameFitsArea(config, x, y, frame) {
+  const a = nearestArea(config, x, y);
+  const { halfW, halfH } = scanBox(config);
+  const half = frame / 2;
+  return Math.abs(x - a.x) + half <= halfW && Math.abs(y - a.y) + half <= halfH;
+}
+
+/**
+ * The nearest place that frame can sit, moving straight in towards the middle
+ * of the area it is nearest — null when it cannot sit there at all, which is
+ * what a frame wider than the well itself means.
+ *
+ * Straight in rather than to the closest edge point, because a position that
+ * would not fit where it was put should end up in the middle of the well the
+ * operator was aiming at, not skating along its rim.
+ */
+export function frameSeat(config, x, y, frame) {
+  if (frameFitsArea(config, x, y, frame)) return { x, y };
+  const a = nearestArea(config, x, y);
+  if (!frameFitsArea(config, a.x, a.y, frame)) return null;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 24; i++) {
+    const t = (lo + hi) / 2;
+    if (frameFitsArea(config, x + (a.x - x) * t, y + (a.y - y) * t, frame)) hi = t;
+    else lo = t;
+  }
+  return { x: x + (a.x - x) * hi, y: y + (a.y - y) * hi };
 }
 
 /** One line for the run: what was configured, without opening the panel. */
 export const describeCarrier = (config) => {
   const g = geometry(config);
-  if (config.type === "volume") {
-    const [zLo, zHi] = config.bounds.z;
-    const depth = zLo != null && zHi != null ? Math.abs(zHi - zLo) : 0;
-    return `Volume · ${g.width.toFixed(1)} × ${g.height.toFixed(1)} × ${depth.toFixed(1)} mm`;
-  }
   const preset = matchingPreset(config);
   const name = preset >= 0
     ? carrierType(config.type).presets[preset].label

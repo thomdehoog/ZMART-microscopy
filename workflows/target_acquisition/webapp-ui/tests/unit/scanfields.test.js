@@ -1,9 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
   block, bounds, boxesOverlap, centroid, contains, edges, handles, isPointLike,
-  normalise, rotatePoint, segmentHitsBox, tiles, topCentre, withoutTrailingDuplicate,
+  normalise, rotatePoint, segmentHitsBox, snapSpan, tiles, topCentre,
+  withoutTrailingDuplicate,
 } from "../../src/lib/scanfields.js";
-import { centres, DEFAULT_CARRIER, geometry } from "../../src/lib/carriers.js";
+import { carrierType, centres, fromPreset, geometry } from "../../src/lib/carriers.js";
+
+/* The plate, named rather than taken from whatever a fresh run happens to
+   start on: these are about a grid of areas with gaps between them, which is
+   what a plate is and what the default carrier is not. */
+const PLATE = fromPreset("wellplate",
+  carrierType("wellplate").presets.find((p) => p.label.startsWith("96-well")));
 
 const rect = (x, y, w, h, rotation = 0) => ({ type: "rectangle", x, y, w, h, rotation });
 
@@ -104,20 +111,20 @@ describe("the grid block is centred on what it is given", () => {
   });
 
   it("takes its centres from the carrier, gaps and all", () => {
-    const areas = centres(DEFAULT_CARRIER);
-    const g = geometry(DEFAULT_CARRIER);
+    const areas = centres(PLATE);
+    const g = geometry(PLATE);
     expect(areas).toHaveLength(96);
     // the first well's centre is half a well in from the carrier's zero, and
     // the next is one pitch along — not the carrier width divided by columns,
     // which would ignore the gap and drift by a third of a well at the edge
-    expect(areas[0].x).toBeCloseTo(DEFAULT_CARRIER.w / 2, 6);
+    expect(areas[0].x).toBeCloseTo(PLATE.w / 2, 6);
     expect(areas[1].x - areas[0].x).toBeCloseTo(g.pitchX, 6);
-    const evenly = g.width / DEFAULT_CARRIER.cols;
+    const evenly = g.width / PLATE.cols;
     expect(Math.abs(areas[11].x - (11.5 * evenly))).toBeGreaterThan(1);
   });
 
   it("puts one block in every area the carrier declares", () => {
-    const made = centres(DEFAULT_CARRIER)
+    const made = centres(PLATE)
       .flatMap((a) => block({ x: a.x * 1000, y: a.y * 1000 }, 3, 3, 2662, 2662));
     expect(made).toHaveLength(96 * 9);
   });
@@ -179,5 +186,44 @@ describe("the pieces the editor leans on", () => {
     const pts = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 3 }, { x: 5, y: 3.5 }];
     expect(withoutTrailingDuplicate(pts, 1)).toHaveLength(3);
     expect(withoutTrailingDuplicate(pts, 0.1)).toHaveLength(4);
+  });
+});
+
+
+describe("a region is sized in whole frames", () => {
+  const FRAME = 1331;
+
+  it("takes the frames that fit inside what was drawn, and no more", () => {
+    // 2.9 frames drawn comes back as 2: the third would reach past the hand
+    expect(snapSpan(FRAME * 2.9, FRAME)).toBeCloseTo(FRAME * 2, 6);
+    expect(snapSpan(FRAME * 3.01, FRAME)).toBeCloseTo(FRAME * 3, 6);
+  });
+
+  it("leaves a size that is already whole frames exactly where it is", () => {
+    expect(snapSpan(FRAME * 4, FRAME)).toBeCloseTo(FRAME * 4, 6);
+  });
+
+  it("never goes below one frame, however small the drag", () => {
+    expect(snapSpan(10, FRAME)).toBe(FRAME);
+    expect(snapSpan(0, FRAME)).toBe(FRAME);
+  });
+
+  it("counts in steps when the frames overlap, since that is what is stepped", () => {
+    /* At 50% overlap a frame advances half its width, so three frames span
+       two: 2 comes back whole, and 1.4 comes back as the single frame that
+       fits — a second would reach 1.5, past the hand. */
+    expect(snapSpan(FRAME * 2, FRAME, 50)).toBeCloseTo(FRAME * 2, 6);
+    expect(snapSpan(FRAME * 1.4, FRAME, 50)).toBeCloseTo(FRAME, 6);
+  });
+
+  it("is what the tiles then fill, edge to edge", () => {
+    const w = snapSpan(9000, FRAME), h = snapSpan(6000, FRAME);
+    const f = { id: "f", type: "rectangle", rotation: 0, x: 4000, y: 3000, w, h };
+    const laid = tiles(f, FRAME, 0);
+    const half = FRAME / 2;
+    expect(Math.min(...laid.map((t) => t.x)) - half).toBeCloseTo(f.x, 6);
+    expect(Math.max(...laid.map((t) => t.x)) + half).toBeCloseTo(f.x + w, 6);
+    expect(Math.min(...laid.map((t) => t.y)) - half).toBeCloseTo(f.y, 6);
+    expect(Math.max(...laid.map((t) => t.y)) + half).toBeCloseTo(f.y + h, 6);
   });
 });

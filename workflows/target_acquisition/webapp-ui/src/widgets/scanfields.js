@@ -12,22 +12,33 @@
  * being drawn) belongs to standing on the step, so it is drawn by the handle
  * `render` returns and disappears with it.
  *
- * Two ways to make fields, because they answer different questions. Geometry
- * is for a sample you are looking at: draw round what is there. Grid is for a
+ * Two ways to make fields, because they answer different questions. Drawing is
+ * for a sample you are looking at: draw round what is there. The grid is for a
  * carrier you already know: every area gets the same block of positions, taken
  * from the carrier rather than typed, so changing the plate changes the plan.
+ *
+ * Both are on screen at once. They used to be a mode, one or the other, and
+ * the mode was a lie about them: a grid laid in every well is a perfectly good
+ * thing to then draw a region on top of, and the panel made that a decision to
+ * be undone rather than a thing to do next. Two groups in a column, the tools
+ * and then the block that fills every compartment, is the same two answers
+ * without the question in front of them.
  */
 
-import { centres, geometry } from "../lib/carriers.js";
 import {
-  block, bounds, boxesOverlap, centroid, contains, edges, handles, isPointLike,
-  normalise, rotatePoint, tiles, topCentre, withoutTrailingDuplicate,
+  centres, geometry, frameFitsArea, frameSeat, insideArea, nearestArea, scanBox,
+} from "../lib/carriers.js";
+import {
+  block, bounds, boxesOverlap, centroid, contains, covers, edges, handles,
+  isPointLike, normalise, rotatePoint, snapSpan, tiles, topCentre,
+  withoutTrailingDuplicate,
 } from "../lib/scanfields.js";
 
 const MM_UM = 1000;
 
-/* Distinct hues rather than a ramp: a preset is a name, not a quantity, and
-   two fields taken with different presets have to be told apart at a glance. */
+/* Distinct hues rather than a ramp: a preset is a name, not a quantity. The
+   plan is drawn in the active preset colour, so activating another one shows
+   on the stage and not only in the readout. */
 const PRESET_INK = ["#0284c7", "#b91c1c", "#16a34a", "#b45309", "#7c3aed", "#0e7490"];
 
 /* A regular pentagon is the one polygon nobody draws round a sample. The glyph
@@ -43,11 +54,6 @@ const TOOLS = [
   { id: "triangle", key: "t", glyph: "△", label: "Triangle", why: "Drag a triangular region" },
   { id: "ellipse", key: "e", glyph: "◯", label: "Ellipse", why: "Drag to draw · Shift for a circle" },
   { id: "polygon", key: "p", path: POLYGON_GLYPH, label: "Polygon", why: "Click to add points · double-click to finish" },
-];
-
-const MODES = [
-  { id: "geometry", glyph: "▭", label: "DRAW", why: "Draw regions over what is there" },
-  { id: "grid", glyph: "⊞", label: "GRID", why: "The same block of positions in every area" },
 ];
 
 /* How a field is drawn, and how it says it is being talked about. Twice the
@@ -167,27 +173,108 @@ const glyphOf = (tool) => {
 let uid = 0;
 const nextId = () => `f${++uid}`;
 
-export const presetInk = (presets, id) => {
-  const i = presets.findIndex((p) => p.id === id);
-  return PRESET_INK[(i < 0 ? 0 : i) % PRESET_INK.length];
-};
+/** The colour the nth recorded preset is drawn in, in the order recorded. */
+export const presetInk = (i) => PRESET_INK[(i < 0 ? 0 : i) % PRESET_INK.length];
 
-/** Every tile the plan visits, per field, with the preset that takes it. */
-export function plan(fields, presets) {
+/**
+ * Every tile the plan visits, per field, taken with the active preset.
+ *
+ * One preset for the whole plan, not one per field: activating a preset takes
+ * everything with it. A field that kept a preset of its own would mean the
+ * plan had to be read field by field to know what it covers, and half of it
+ * could go on being taken with optics that are no longer in the light path.
+ *
+ * What the objective sees is a square of sample, and a square hanging over the
+ * edge of a well is a square of plastic — imaging it costs the same as imaging
+ * sample and returns nothing. So the frame stays inside an area, in two
+ * different ways for the two kinds of field:
+ *
+ * A **position** is a place somebody chose. Its frame either fits where it was
+ * put or the position is not in the plan, which is why a block of positions is
+ * only as big as a well can hold.
+ *
+ * A **region** is an outline drawn around something, and its tiles are only
+ * the means of covering it. They are laid as one lattice at the preset's step,
+ * and where that lattice runs over the edge of the area the *whole* lattice is
+ * pushed back in until it fits. Moving the tiles one at a time would fill the
+ * corner too, but it would change the overlap between the edge tile and its
+ * neighbour — and the overlap is a number the operator set, not slack for the
+ * plan to spend. Moved together, every tile keeps the step it was given and
+ * the outline is still covered into its corners. A tile whose middle is off
+ * the area covers nothing and is dropped, and so is one still hanging over
+ * the edge after the lattice has moved — a region wider than the well cannot
+ * be pushed into it.
+ *
+ * And a field is imaged in **one** area: the one it covers most. A rectangle
+ * drawn over the gap between two wells reaches into both, and covering both
+ * is almost never what was meant — it is one sample, in one well, and the
+ * drawing was loose at the edge. Splitting it would quietly turn one field
+ * into two acquisitions of two different samples, so the larger share wins
+ * and the rest of the outline images nothing.
+ */
+export function plan(fields, preset, carrier) {
+  if (!preset) return [];
+  const frame = preset.frameUm / MM_UM;
   const out = [];
   for (const f of fields) {
-    const preset = presets.find((p) => p.id === f.presetId) ?? presets[0];
-    if (!preset) continue;
-    for (const t of tiles(f, preset.frameUm, f.overlap ?? 0)) {
-      out.push({ ...t, frameUm: preset.frameUm, presetId: preset.id, fieldId: f.id });
+    const chosen = isPointLike(f.type);
+    const laid = tiles(f, preset.frameUm, f.overlap ?? 0);
+
+    /* Which area this field is imaged in: the one most of its tiles are over.
+       Ties go to the first, which is the top-left of the ones tied, since the
+       tiles come row-major and the answer should be the same every time it is
+       asked. */
+    const byArea = new Map();
+    for (const t of laid) {
+      const x = t.x / MM_UM, y = t.y / MM_UM;
+      const keep = chosen ? frameFitsArea(carrier, x, y, frame) : insideArea(carrier, x, y);
+      if (!keep) continue;
+      const a = nearestArea(carrier, x, y);
+      const key = `${a.row}.${a.col}`;
+      if (!byArea.has(key)) byArea.set(key, { area: a, over: 0 });
+      byArea.get(key).over += 1;
+    }
+    let best = null;
+    for (const held of byArea.values()) if (!best || held.over > best.over) best = held;
+    if (!best) continue;
+
+    /* Laid again, this time inside the one area it is being imaged in: the
+       run is narrowed to what the area can hold and pushed flush against the
+       edge it was clipped by. Laid once and moved afterwards, a field mostly
+       over the rim came back as a crescent — the lattice slid off the outline
+       it was drawn for and covered whatever it happened to land on. */
+    if (chosen) {
+      for (const t of laid) {
+        if (frameFitsArea(carrier, t.x / MM_UM, t.y / MM_UM, frame)) {
+          out.push({ x: t.x, y: t.y, frameUm: preset.frameUm, fieldId: f.id });
+        }
+      }
+      continue;
+    }
+    /* No second opinion on whether these fit: they were laid inside the area,
+       and asking again in different arithmetic threw away the tile lying
+       exactly on the border — the one the whole rule is about. */
+    for (const t of tiles(f, preset.frameUm, f.overlap ?? 0, limitOf(best.area, carrier))) {
+      out.push({ x: t.x, y: t.y, frameUm: preset.frameUm, fieldId: f.id });
     }
   }
   return out;
 }
 
+/** The edges a frame may not cross, in micrometres: one area's imageable square. */
+function limitOf(area, carrier) {
+  const box = scanBox(carrier);
+  return {
+    xMin: (area.x - box.halfW) * MM_UM,
+    xMax: (area.x + box.halfW) * MM_UM,
+    yMin: (area.y - box.halfH) * MM_UM,
+    yMax: (area.y + box.halfH) * MM_UM,
+  };
+}
+
 export default {
   id: "scanfields",
-  label: "Initial scanfields",
+  label: "Overview scan settings",
 
   plan,
 
@@ -201,9 +288,10 @@ export default {
    * in rather than drawn over the top afterwards so that one place decides how
    * a field looks; two would disagree about a fill the moment either changed.
    */
-  drawOn(ctx, { fields, presets, toScreen, scale, marked = null, dim = false }) {
+  drawOn(ctx, { fields, preset, carrier, toScreen, scale, marked = null, dim = false }) {
     if (!fields?.length) return;
     const on = (id) => !!marked?.has(id);
+    const ink = preset?.ink ?? PRESET_INK[0];
     const base = dim ? 0.45 : 1;
     ctx.save();
     ctx.globalAlpha = base;
@@ -211,10 +299,9 @@ export default {
     /* The tiles carry the marking too, and for a grid position they are all of
        it — its own drawing is nothing, because the tile already says where it
        is and how much it takes in. */
-    for (const t of plan(fields, presets)) {
+    for (const t of plan(fields, preset, carrier)) {
       const [x, y] = toScreen(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
       const s = t.frameUm * scale;
-      const ink = presetInk(presets, t.presetId);
       const hot = on(t.fieldId);
       /* A frame smaller than a pixel is not a square any more. Drawing it as
          one would be a lie about how much it covers, and drawing nothing loses
@@ -239,12 +326,10 @@ export default {
     }
 
     for (const f of fields) {
-      const ink = presetInk(presets, f.presetId);
       const hot = on(f.id);
       if (isPointLike(f.type)) {
         drawPoint(ctx, f, {
-          ink, toScreen, scale, marked: hot,
-          frameUm: presets.find((p) => p.id === f.presetId)?.frameUm ?? 0,
+          ink, toScreen, scale, marked: hot, frameUm: preset?.frameUm ?? 0,
         });
         continue;
       }
@@ -262,10 +347,11 @@ export default {
    * Mount the channel. Returns the handle the frame keeps while the step is
    * selected: what to draw on top of the plan, and where the pointer went.
    */
-  render(host, { fields, carrier, presets, locked, onChange, redraw }) {
+  render(host, {
+    fields, carrier, preset, presetSlot, locked, onChange, redraw,
+  }) {
     const ed = {
       tool: "pointer",
-      mode: "geometry",
       fields: fields.map(normalise),
       selected: new Set(),
       drag: null,
@@ -278,7 +364,11 @@ export default {
       shift: false,
       past: [],
       future: [],
-      presetId: presets[0]?.id ?? null,
+      /* The preset the whole plan is taken with. The run owns it — it is
+         activated in the recording rows the slot draws and handed here — and
+         the editor only reads it, for the frame a field covers and the colour
+         the plan is drawn in. */
+      preset,
       rows: 3,
       cols: 3,
       spacingX: 0,
@@ -291,8 +381,7 @@ export default {
        operator means by leaving it. */
     let clipboard = [];
 
-    const preset = () => presets.find((p) => p.id === ed.presetId) ?? presets[0];
-    const frameUm = () => preset()?.frameUm ?? 1000;
+    const frameUm = () => ed.preset?.frameUm ?? 1000;
     // spacing is a floor, not a free number: positions may be spread apart,
     // never overlapped, so the frame is what it cannot go below
     const pitch = () => [
@@ -312,6 +401,43 @@ export default {
       const [w, h] = extentUm();
       return { x: Math.min(Math.max(x, 0), w), y: Math.min(Math.max(y, 0), h) };
     };
+    /* A position is seated where the objective can see it: dropped on the
+       plastic between wells it slides into the well it was nearest, so
+       dragging one across a plate steps from well to well rather than resting
+       anywhere the run could not image. A position is one frame and nothing
+       else — somewhere it cannot be imaged, it is nothing at all.
+
+       A region is not moved, ever. It is an outline somebody drew around
+       something they were looking at, and the plan reads it rather than obeys
+       it: what it covers is the tiles that fit inside the one area it covers
+       most. Sliding it would move the statement instead of answering it, and
+       an outline drawn a little wide at the edge of a well would jump away
+       from the thing it was drawn around. */
+    const seated = (f) => {
+      if (!isPointLike(f.type)) return f;
+      const seat = frameSeat(carrier, f.x / MM_UM, f.y / MM_UM, frameUm() / MM_UM);
+      if (!seat) return f;
+      const x = seat.x * MM_UM, y = seat.y * MM_UM;
+      return x === f.x && y === f.y ? f : { ...f, x, y };
+    };
+
+    /* The same rule the drawing and the grips follow, applied to a region
+       that already exists: its size in whole frames of the preset now active.
+       Where it sits is not touched — that is the operator's statement. */
+    const refit = (f) => {
+      const frame = frameUm(), over = f.overlap ?? 0;
+      if (f.type === "rectangle") {
+        const w = snapSpan(f.w, frame, over), h = snapSpan(f.h, frame, over);
+        return w === f.w && h === f.h ? f : { ...f, w, h };
+      }
+      if (f.type === "ellipse") {
+        const rx = snapSpan(f.rx * 2, frame, over) / 2;
+        const ry = snapSpan(f.ry * 2, frame, over) / 2;
+        return rx === f.rx && ry === f.ry ? f : { ...f, rx, ry };
+      }
+      return f;
+    };
+
     /* Pushed back whole rather than trimmed. The shape somebody drew is the
        statement; clipping it would quietly change what gets imaged, where
        sliding it says plainly that it does not fit where it was put. */
@@ -323,7 +449,7 @@ export default {
       else if (b.xMax > w) dx = w - b.xMax;
       if (b.yMin < 0) dy = -b.yMin;
       else if (b.yMax > h) dy = h - b.yMax;
-      return dx || dy ? move(f, dx, dy) : f;
+      return seated(dx || dy ? move(f, dx, dy) : f);
     };
 
     const commit = (next, { history = true } = {}) => {
@@ -341,36 +467,49 @@ export default {
     card.append(controls);
     host.append(card);
 
-    /* Which of the two ways to say it, before anything else, because it
-       decides what the rest of the column is for. */
-    const modeRow = el("div", "sf-modes");
-    for (const m of MODES) {
-      const b = el("button", "sf-mode");
-      b.type = "button";
-      b.dataset.mode = m.id;
-      b.title = m.why;
-      b.append(el("span", "sf-mode-icon", m.glyph), el("span", "sf-mode-label", m.label));
-      b.addEventListener("click", () => {
-        ed.mode = m.id;
-        if (m.id !== "geometry") { ed.tool = "pointer"; ed.poly = []; ed.drawing = null; }
-        sync();
-      });
-      modeRow.append(b);
-    }
-    controls.append(modeRow);
-
     const group = (title) => {
-      const g = el("div", "sf-group");
-      g.append(el("div", "sf-group-title", title));
+      const g = el("div", "side-group");
+      if (title) g.append(el("div", "side-group-title", title));
       controls.append(g);
       return g;
     };
 
-    /* Select is one of them. It is where the panel returns after every shape,
-       which is exactly why it needs showing: without it the row goes blank
-       between shapes and there is nothing on screen saying what the next press
-       will do. Armed is a state, and a state wants somewhere to live. */
-    const geomGroup = group("Geometries");
+    /* The preset leads the column, because everything under it is taken with
+       it: a field names a preset and takes its frame from that one, so there
+       is nothing to lay until there is one to lay it under.
+
+       The recording itself lives in this group rather than in a box of its own
+       above. It used to be two boxes — one that recorded the preset, one that
+       listed it back so it could be chosen — and with one preset recorded that
+       was the same sentence written twice, once as a heading and once as a
+       row. The heading the recording brings with it is this group's heading,
+       and the row is gone. */
+    const presetGroup = group(null);
+    if (presetSlot) presetGroup.append(presetSlot);
+
+    /* No list of presets of its own and nothing to apply: the recordings above
+       are the list, and activating one there takes the whole plan with it.
+       Applying to a selection was a way of running half a plan through optics
+       that are no longer in the light path, and the buttons that offered it
+       are gone. */
+
+    /* Select sits in the row of things to add without being one of them, and
+       it earns its place there twice over: it is where the row returns after
+       every shape, so without it the row goes blank between shapes and nothing
+       on screen says what the next press will do; and it is the way back out
+       of adding, which belongs beside what it is a way out of. Armed is a
+       state, and a state wants somewhere to live. */
+    /* Both ways of making fields in one box, under a title apiece. They are
+       two answers to the same question — what to image — and the operator
+       moves between them without leaving anything, so one continuous white
+       box says more about them than a gap between two would.
+
+       The box is only there once something has been recorded to lay fields
+       under. It used to stand greyed, on the argument that a step showing
+       what it is going to be beats an empty column; with the recording above
+       it saying plainly what it is waiting for, the greyed copy of the whole
+       editor underneath was a second answer to a question already answered. */
+    const makeGroup = group("Draw scanfields");
     const toolRow = el("div", "sf-tools");
     for (const t of TOOLS) {
       const b = el("button", "sf-tool");
@@ -391,11 +530,11 @@ export default {
       });
       toolRow.append(b);
     }
-    geomGroup.append(toolRow);
+    makeGroup.append(toolRow);
 
-    const gridGroup = group("Positions per compartment");
+    makeGroup.append(el("div", "side-group-title", "Place scanfield on a grid"));
     const gridPair = el("div", "sf-pair");
-    gridGroup.append(gridPair);
+    makeGroup.append(gridPair);
     const num = (label, get, set, min) => {
       const wrap = el("div", "sf-num");
       wrap.append(el("span", "sf-num-label", label));
@@ -421,17 +560,24 @@ export default {
       num("SPACING X (µm)", () => pitch()[0], (v) => { ed.spacingX = v; }, frameUm),
       num("SPACING Y (µm)", () => pitch()[1], (v) => { ed.spacingY = v; }, frameUm),
     ];
-    const applyGrid = el("button", "sf-flat sf-apply-grid", "Apply");
+    /* The verb lives on the button, so the titles above are the nouns they
+       name: what is added is a grid, and this is what adds it. */
+    const applyGrid = el("button", "sf-flat sf-apply-grid", "Add grid");
     applyGrid.type = "button";
     applyGrid.addEventListener("click", () => {
       const [px, py] = pitch();
+    /* Only what the well can hold. A block wider than the area it is laid in
+       used to put its outer positions on the plastic — nine positions of which
+       four saw the edge of the well — so the ones whose frame does not fit are
+       not laid at all. The block thins from the outside in as the frame grows,
+       which is what changing the objective actually does to a plate. */
+      const frame = frameUm() / MM_UM;
       const made = [];
       for (const area of centres(carrier)) {
         for (const p of block({ x: area.x * MM_UM, y: area.y * MM_UM }, ed.rows, ed.cols, px, py)) {
-          made.push({
-            id: nextId(), type: "point", presetId: ed.presetId, source: "grid",
-            ...inside(p.x, p.y),
-          });
+          const at = inside(p.x, p.y);
+          if (!frameFitsArea(carrier, at.x / MM_UM, at.y / MM_UM, frame)) continue;
+          made.push({ id: nextId(), type: "point", source: "grid", ...at });
         }
       }
       /* Applying replaces what the last Apply made rather than stacking on it.
@@ -440,40 +586,7 @@ export default {
       commit([...ed.fields.filter((f) => f.source !== "grid"), ...made]);
       ed.selected = new Set();
     });
-    gridGroup.append(el("div", "sf-row").appendChild(applyGrid).parentElement);
-
-    /* Every preset the run recorded, as the list it is — one press says what
-       the next field is taken with, and the dot is the colour it will be drawn
-       in, so the canvas and this column agree without a legend. */
-    const presetGroup = group("Acquisition preset");
-    const presetList = el("div", "sf-presets");
-    presetGroup.append(presetList);
-    const presetRows = presets.map((p) => {
-      const b = el("button", "sf-preset");
-      b.type = "button";
-      b.dataset.preset = p.id;
-      const dot = el("span", "sf-dot");
-      dot.style.background = presetInk(presets, p.id);
-      b.append(dot, el("span", "sf-preset-name", p.name),
-        el("span", "sf-preset-frame", `${p.frameUm} µm`));
-      b.addEventListener("click", () => { ed.presetId = p.id; sync(); });
-      presetList.append(b);
-      return b;
-    });
-    const applyRow = el("div", "sf-row");
-    const applyTo = (which) => {
-      const ids = which === "all" ? new Set(ed.fields.map((f) => f.id)) : ed.selected;
-      if (!ids.size) return;
-      commit(ed.fields.map((f) => (ids.has(f.id) ? { ...f, presetId: ed.presetId } : f)));
-    };
-    const applySel = el("button", "sf-flat", "Apply to selected");
-    applySel.type = "button";
-    applySel.addEventListener("click", () => applyTo("selection"));
-    const applyAll = el("button", "sf-flat", "Apply to all");
-    applyAll.type = "button";
-    applyAll.addEventListener("click", () => applyTo("all"));
-    applyRow.append(applySel, applyAll);
-    presetGroup.append(applyRow);
+    makeGroup.append(el("div", "sf-row").appendChild(applyGrid).parentElement);
 
     /* Folded away, because the shortcuts are reference rather than workflow —
        and where a control has no button, this is the only place it is said. */
@@ -559,22 +672,25 @@ export default {
     }
 
     function sync({ keep = null } = {}) {
-      for (const b of modeRow.children) b.classList.toggle("on", b.dataset.mode === ed.mode);
       for (const b of toolRow.children) b.classList.toggle("on", b.dataset.tool === ed.tool);
-      geomGroup.hidden = ed.mode !== "geometry";
-      gridGroup.hidden = ed.mode !== "grid";
-      for (const b of presetRows) b.classList.toggle("on", b.dataset.preset === ed.presetId);
       for (const { i, get } of gridInputs) {
         if (i !== keep && document.activeElement !== i) i.value = String(Math.round(get()));
       }
-      applySel.disabled = locked || !ed.selected.size;
-      applyAll.disabled = locked || !ed.fields.length;
       applyGrid.disabled = locked;
+      /* Nothing to lay fields under, nothing to lay them with: the ways of
+         making them are not there until a preset is, and go again with the
+         last one forgotten. */
+      makeGroup.hidden = !ed.preset;
+      keysBox.hidden = !ed.preset;
+      /* Everything is dead while the step is locked, except the recording
+         itself: it is what the lock is waiting for when there is no preset
+         yet, and the frame decides on its own whether it may be touched once
+         there is. */
       for (const c of card.querySelectorAll("button, select, input")) {
-        if (locked) c.disabled = true;
+        if (locked && !c.closest("#sf-preset")) c.disabled = true;
       }
 
-      const positions = plan(ed.fields, presets).length;
+      const positions = plan(ed.fields, ed.preset, carrier).length;
       const regions = ed.fields.filter((f) => !isPointLike(f.type)).length;
       const points = ed.fields.length - regions;
       readout.textContent = ed.fields.length
@@ -612,7 +728,7 @@ export default {
         redraw();
         return;
       }
-      if (ed.mode === "geometry" && !e.ctrlKey && !e.metaKey) {
+      if (!e.ctrlKey && !e.metaKey) {
         const t = TOOLS.find((x) => x.key === (e.key === "." ? "." : k));
         if (t) { ed.tool = t.id; ed.poly = []; sync(); redraw(); return; }
       }
@@ -631,6 +747,23 @@ export default {
     sync();
 
     return {
+      /* The preset the plan is taken with, told by the run when another
+         recording is activated. Written in rather than rebuilt: a rebuild
+         would throw away the selection, the undo history and whatever is half
+         drawn, none of which the active preset has anything to do with. */
+      setPreset(next) {
+        if (next?.id === ed.preset?.id) return;
+        ed.preset = next;
+        /* The regions were drawn in the old preset's frames and have to be in
+           the new one's, or the outlines and the tiles stop agreeing the
+           moment another recording is activated. Only the sizes change; where
+           each one sits is the operator's statement and is left alone. */
+        const resized = ed.fields.map(refit);
+        if (resized.some((f, i) => f !== ed.fields[i])) commit(resized);
+        sync();
+        redraw();
+      },
+
       destroy() {
         window.removeEventListener("keydown", keydown);
         window.removeEventListener("keyup", keyup);
@@ -657,7 +790,7 @@ export default {
         if (only && !isPointLike(only.type)) {
           /* The grips wear the field's own colour rather than one editor blue,
              so which shape they belong to survives two overlapping regions. */
-          const ink = presetInk(presets, only.presetId);
+          const ink = ed.preset?.ink ?? PRESET_INK[0];
           const rot = only.rotation || 0, c = centroid(only);
           /* Hollow at rest, filled under the pointer. Which grip has been
              found is worth saying outright, because grips are small, several
@@ -714,7 +847,7 @@ export default {
         }
 
         if (ed.drawing) {
-          const g = previewOf(ed.drawing, armed(), ed.shift);
+          const g = previewOf(ed.drawing, armed(), ed.shift, frameUm());
           if (g) {
             ctx.strokeStyle = BLUE; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
             traceField(ctx, g, toScreen, scale);
@@ -841,7 +974,7 @@ export default {
        so a `const` never gets initialised and the first press throws on the
        dead zone — twice now. Declarations hoist; nothing else here does. */
     function armed() {
-      return ed.mode === "geometry" ? ed.tool : "pointer";
+      return ed.tool;
     }
 
     /* The cursor answers what the next press does, and nothing else. Over a
@@ -874,7 +1007,17 @@ export default {
     /* The anchor is where the press landed and stays there for the whole drag;
        dx/dy are how far the fields have been carried from it so far. */
     function startMove(x, y) {
-      ed.drag = { kind: "move", ox: x, oy: y, dx: 0, dy: 0 };
+      /* What is being dragged, as it was when the drag began. Every move is
+         worked out from these rather than from where the fields have got to,
+         because where they have got to is not where the pointer put them: a
+         field is seated in the area it is over, so applying the next step to
+         the seated position would measure the drag from a place the hand
+         never asked for. Done that way a position dragged across a plate
+         never leaves its well — each small step is pulled back to the middle
+         before the next one is added, and the pointer walks off without it. */
+      const held = new Map();
+      for (const f of ed.fields) if (ed.selected.has(f.id) && movable(f)) held.set(f.id, f);
+      ed.drag = { kind: "move", ox: x, oy: y, held };
       pushHistory();
     }
 
@@ -891,7 +1034,9 @@ export default {
       ed.poly = [];
       ed.tool = "pointer";
       if (points.length < 3) { sync(); return true; }
-      const f = { id: nextId(), type: "polygon", presetId: ed.presetId, points, rotation: 0 };
+      // seated on the way in, like anything else placed: a shape drawn where
+      // the objective cannot see slides to the area it was nearest
+      const f = clamped({ id: nextId(), type: "polygon", points, rotation: 0 });
       commit([...ed.fields, f]);
       ed.selected = new Set([f.id]);
       sync();
@@ -930,7 +1075,7 @@ export default {
 
       if (tool === "point") {
         // stays armed: placing positions is something done several times over
-        const f = { id: nextId(), type: "point", presetId: ed.presetId, ...inside(x, y) };
+        const f = clamped({ id: nextId(), type: "point", ...inside(x, y) });
         commit([...ed.fields, f]);
         ed.selected = new Set([f.id]);
         return true;
@@ -1013,12 +1158,10 @@ export default {
            would jitter between them instead of holding one. */
         let dx = x - ed.drag.ox, dy = y - ed.drag.oy;
         if (ed.shift) (Math.abs(dx) > Math.abs(dy) ? (dy = 0) : (dx = 0));
-        const stepX = dx - ed.drag.dx, stepY = dy - ed.drag.dy;
-        ed.drag = { ...ed.drag, dx, dy };
-        if (!stepX && !stepY) return true;
-        commit(ed.fields.map((f) =>
-          (ed.selected.has(f.id) && movable(f) ? clamped(move(f, stepX, stepY)) : f)),
-        { history: false });
+        commit(ed.fields.map((f) => {
+          const from = ed.drag.held.get(f.id);
+          return from ? clamped(move(from, dx, dy)) : f;
+        }), { history: false });
         return true;
       }
       if (ed.drag.kind === "rotate") {
@@ -1034,7 +1177,8 @@ export default {
            the carrier simply stops there, where clamping afterwards would slide
            the whole field sideways and move the edge nobody was holding. */
         const s = inside(x, y);
-        commit(ed.fields.map((f) => (f.id === ed.drag.id ? resize(f, ed.drag, s.x, s.y, ed.shift) : f)), { history: false });
+        commit(ed.fields.map((f) => (f.id === ed.drag.id
+          ? resize(f, ed.drag, s.x, s.y, ed.shift, frameUm()) : f)), { history: false });
         return true;
       }
       return false;
@@ -1058,10 +1202,10 @@ export default {
         return true;
       }
       if (ed.drawing) {
-        const g = previewOf(ed.drawing, armed(), ed.shift);
+        const g = previewOf(ed.drawing, armed(), ed.shift, frameUm());
         ed.drawing = null;
         if (g) {
-          const f = { ...g, id: nextId(), presetId: ed.presetId };
+          const f = clamped({ ...g, id: nextId() });
           commit([...ed.fields, f]);
           ed.selected = new Set([f.id]);
           ed.tool = "pointer";
@@ -1138,16 +1282,21 @@ function traceField(ctx, f, toScreen, scale) {
   ctx.closePath();
 }
 
-function previewOf(d, tool, shift) {
+function previewOf(d, tool, shift, frameUm) {
   let { sx, sy, cx, cy } = d;
   if (shift) {
     const span = Math.max(Math.abs(cx - sx), Math.abs(cy - sy));
     cx = sx + Math.sign(cx - sx) * span;
     cy = sy + Math.sign(cy - sy) * span;
   }
-  const x = Math.min(sx, cx), y = Math.min(sy, cy);
-  const w = Math.abs(cx - sx), h = Math.abs(cy - sy);
+  let w = Math.abs(cx - sx), h = Math.abs(cy - sy);
   if (w < MIN_DRAG_UM || h < MIN_DRAG_UM) return null;
+  /* In whole frames, from the corner the drag started at — so the outline
+     under the hand is already the outline that will be laid. */
+  w = snapSpan(w, frameUm);
+  h = snapSpan(h, frameUm);
+  const x = cx >= sx ? sx : sx - w;
+  const y = cy >= sy ? sy : sy - h;
   if (tool === "rectangle") return { type: "rectangle", x, y, w, h, rotation: 0 };
   if (tool === "triangle") {
     return {
@@ -1167,7 +1316,7 @@ function move(f, dx, dy) {
   return { ...f, x: f.x + dx, y: f.y + dy };
 }
 
-function resize(f, drag, x, y, shift) {
+function resize(f, drag, x, y, shift, frameUm) {
   const start = drag.start;
 
   if (drag.index !== undefined && f.points) {
@@ -1196,6 +1345,9 @@ function resize(f, drag, x, y, shift) {
     if (drag.handle === "l" || drag.handle === "r") rx = Math.abs(local.x - f.cx);
     if (drag.handle === "t" || drag.handle === "b") ry = Math.abs(local.y - f.cy);
     if (shift) { const r = Math.max(rx, ry); rx = r; ry = r; }
+    // in whole frames, like every other way a region gets its size
+    rx = snapSpan(rx * 2, frameUm, f.overlap ?? 0) / 2;
+    ry = snapSpan(ry * 2, frameUm, f.overlap ?? 0) / 2;
     return { ...f, rx: Math.max(MIN_DRAG_UM / 2, rx), ry: Math.max(MIN_DRAG_UM / 2, ry) };
   }
 
@@ -1225,6 +1377,18 @@ function resize(f, drag, x, y, shift) {
     if (w < 0) { nx += w; w = -w; }
     if (h < 0) { ny += h; h = -h; }
     w = Math.max(MIN_DRAG_UM, w); h = Math.max(MIN_DRAG_UM, h);
+    /* Snapped from the edge that is not being dragged: the grip quantises to
+       whole frames while the far edge stays exactly where it was. */
+    if (id.includes("l") || id.includes("r")) {
+      const snapW = snapSpan(w, frameUm, f.overlap ?? 0);
+      if (id.includes("l")) nx += w - snapW;
+      w = snapW;
+    }
+    if (id.includes("t") || id.includes("b")) {
+      const snapH = snapSpan(h, frameUm, f.overlap ?? 0);
+      if (id.includes("t")) ny += h - snapH;
+      h = snapH;
+    }
 
     if (rot) {
       const c1 = { x: nx + w / 2, y: ny + h / 2 };
