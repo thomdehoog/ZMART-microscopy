@@ -28,6 +28,24 @@ _ENGINE_LAYERS = """() => window.zmartViewer.state.toJSON().layers.map(l => ({
 }))"""
 
 
+def _pick_colormap(page, channel, name):
+    """Choose what a channel is painted with, the way an operator does.
+
+    The chooser is a small list rather than a dropdown, because every entry
+    shows its own colour beside its name and a dropdown can only offer words.
+    So this opens it and presses an entry.
+    """
+    page.locator(f"[aria-label='colormap {channel}']").click()
+    page.wait_for_timeout(200)
+    page.locator(f"[aria-label='{name} for {channel}']").click()
+    page.wait_for_timeout(600)
+
+
+def _colormap_now(page, channel):
+    """What the chooser says the channel is painted with."""
+    return page.locator(f"[aria-label='colormap {channel}']").inner_text().strip()
+
+
 def _window_in_engine(page, layer=0):
     """The contrast window the engine is actually drawing that layer with."""
     return page.evaluate(_ENGINE_LAYERS)[layer]["controls"]["normalized"]["range"]
@@ -130,8 +148,7 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
     change it, every place reflecting it.
     """
     before = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
-    two_channel_page.get_by_label("colormap Ch488").select_option("flat:cyan")
-    two_channel_page.wait_for_timeout(800)
+    _pick_colormap(two_channel_page, "Ch488", "cyan")
     layer = two_channel_page.evaluate(_ENGINE_LAYERS)[0]
     assert layer["controls"]["color"] == "#33ccff"
     assert layer["shader"] == before, (
@@ -142,8 +159,7 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
 
 def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
     """The swatch beside the channel's name follows the palette."""
-    two_channel_page.get_by_label("colormap Ch488").select_option("flat:cyan")
-    two_channel_page.wait_for_timeout(500)
+    _pick_colormap(two_channel_page, "Ch488", "cyan")
     swatch = two_channel_page.locator("[aria-label='colour Ch488']")
     background = swatch.evaluate("(el) => getComputedStyle(el).backgroundColor")
     assert background == "rgb(51, 204, 255)", (
@@ -155,8 +171,7 @@ def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
     )
     # And a chosen colour MAP shows on the swatch too, as its own gradient --
     # the swatch always mirrors the one lookup-table control.
-    two_channel_page.get_by_label("colormap Ch488").select_option("viridis")
-    two_channel_page.wait_for_timeout(500)
+    _pick_colormap(two_channel_page, "Ch488", "viridis")
     background = swatch.evaluate("(el) => getComputedStyle(el).backgroundImage")
     assert "gradient" in background, (
         f"the swatch shows {background!r}, not the chosen colour map"
@@ -165,8 +180,7 @@ def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
 
 def test_colour_survives_the_three_d_toggle(two_channel_page):
     """Mode switching rebuilds the shaders; a chosen colour must not be lost."""
-    two_channel_page.get_by_label("colormap Ch488").select_option("flat:cyan")
-    two_channel_page.wait_for_timeout(500)
+    _pick_colormap(two_channel_page, "Ch488", "cyan")
     two_channel_page.click("text=3D")
     two_channel_page.wait_for_timeout(1500)
     layer = two_channel_page.evaluate(_ENGINE_LAYERS)[0]
@@ -870,8 +884,7 @@ def test_picking_a_colour_puts_aside_the_colour_map(two_channel_page):
     one question.
     """
     page = two_channel_page
-    page.get_by_label("colormap Ch488").select_option("viridis")
-    page.wait_for_timeout(500)
+    _pick_colormap(page, "Ch488", "viridis")
     assert "zmartLut" in page.evaluate(_ENGINE_LAYERS)[0]["shader"]
     page.locator("[aria-label='choose a colour for Ch488']").evaluate("""(element) => {
       const setter = Object.getOwnPropertyDescriptor(
@@ -888,9 +901,12 @@ def test_picking_a_colour_puts_aside_the_colour_map(two_channel_page):
 
 def test_red_is_among_the_named_colours(two_channel_page):
     """The colour a microscopist reaches for first was not on the list."""
-    named = two_channel_page.get_by_label("colormap Ch488").evaluate(
-        "(select) => Array.from(select.options).map((one) => one.value)")
-    assert "flat:red" in named, f"red is not offered: {named}"
+    page = two_channel_page
+    page.locator("[aria-label='colormap Ch488']").click()
+    page.wait_for_timeout(200)
+    assert page.locator("[aria-label='red for Ch488']").count() == 1, (
+        "red is not among the colours a channel can be painted"
+    )
 
 
 def test_a_picked_colour_is_never_shown_under_a_name_it_is_not(two_channel_page):
@@ -910,7 +926,33 @@ def test_a_picked_colour_is_never_shown_under_a_name_it_is_not(two_channel_page)
       element.dispatchEvent(new Event('change', { bubbles: true }));
     }""")
     page.wait_for_timeout(800)
-    assert page.get_by_label("colormap Ch488").input_value() == "picked", (
+    assert _colormap_now(page, "Ch488").startswith("picked"), (
         "the chooser is showing a named colour for a colour picked by hand"
     )
     assert page.evaluate(_ENGINE_LAYERS)[0]["controls"]["color"] == "#ff3b30"
+
+
+def test_every_entry_shows_the_colour_it_would_paint(two_channel_page):
+    """A colour beside every name, so the choice is made by eye.
+
+    The names of the colour maps mean nothing until you have seen one, which
+    is why they used to carry a sentence apiece -- "magma (black to purple to
+    cream)". Showing each map as itself says it better and in less room, and
+    it is the only way to choose a colour without trying it first.
+    """
+    page = two_channel_page
+    page.locator("[aria-label='colormap Ch488']").click()
+    page.wait_for_timeout(250)
+    for name in ("green", "red", "viridis", "magma"):
+        entry = page.locator(f"[aria-label='{name} for Ch488']")
+        assert entry.count() == 1, f"{name} is not offered"
+        painted = entry.locator("span").first.evaluate(
+            "(el) => getComputedStyle(el).backgroundImage + '|' + "
+            "getComputedStyle(el).backgroundColor")
+        assert "gradient" in painted or "rgb" in painted, (
+            f"the entry for {name} shows no colour of its own: {painted}"
+        )
+    # And the explanations that stood in for those colours are gone.
+    assert page.locator("text=black → purple").count() == 0, (
+        "a colour map is still explaining itself in words beside its swatch"
+    )

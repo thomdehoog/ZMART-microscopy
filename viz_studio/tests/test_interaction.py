@@ -456,3 +456,117 @@ def test_z_slider_hides_in_three_d_and_returns_with_position(viewer_page):
     viewer_page.wait_for_timeout(1000)
     restored = float(viewer_page.locator("[aria-label='z position']").input_value())
     assert restored == pytest.approx(target)
+
+
+_THE_VIEW = """() => {
+  const v = window.zmartViewer;
+  return {
+    flatZoom: v.navigationState.zoomFactor.value,
+    volumeZoom: v.perspectiveNavigationState.zoomFactor.value,
+    flatTurn: Array.from(v.navigationState.pose.orientation.orientation),
+    volumeTurn: Array.from(v.perspectiveNavigationState.pose.orientation.orientation),
+    position: Array.from(v.navigationState.position.value),
+  };
+}"""
+
+
+def _turn_and_wander(page):
+    """Rotate the picture, zoom into it and pan off it, as an operator does."""
+    page.evaluate("""() => {
+      const v = window.zmartViewer;
+      v.navigationState.pose.orientation.restoreState([0.2, 0.1, 0.3, 0.9]);
+      v.perspectiveNavigationState.pose.orientation.restoreState([0.3, 0.2, 0.1, 0.9]);
+      v.navigationState.zoomFactor.value = v.navigationState.zoomFactor.value / 8;
+      v.perspectiveNavigationState.zoomFactor.value =
+        v.perspectiveNavigationState.zoomFactor.value / 8;
+      const p = v.navigationState.position;
+      const moved = Float32Array.from(p.value);
+      moved[moved.length - 1] += 400;
+      moved[moved.length - 2] += 400;
+      p.value = moved;
+    }""")
+    page.wait_for_timeout(600)
+
+
+def test_reset_puts_the_whole_view_back(viewer_page):
+    """One press undoes every wandering: the turn, the zoom and the place.
+
+    Overview beside it answers a narrower question -- bring the picture back
+    into the window -- and deliberately leaves the picture turned as it is,
+    because an operator who has tilted a volume to see it usually wants to
+    keep that. Reset is the other half: put everything about the VIEW back to
+    how it opened, so there is a way out of any arrangement without reopening
+    the data. What it must not touch is where the operator is in depth or in
+    time: that is which picture they are looking at, not how.
+    """
+    page = viewer_page
+    opening = page.evaluate(_THE_VIEW)
+    _turn_and_wander(page)
+    disturbed = page.evaluate(_THE_VIEW)
+    assert disturbed["flatTurn"] != opening["flatTurn"], (
+        "the harness failed to turn the picture, so this proves nothing"
+    )
+
+    page.get_by_role("button", name="Reset", exact=True).click()
+    page.wait_for_timeout(900)
+    back = page.evaluate(_THE_VIEW)
+
+    assert back["flatTurn"] == pytest.approx(opening["flatTurn"], abs=1e-4), (
+        f"the picture is still turned: {back['flatTurn']}"
+    )
+    assert back["flatZoom"] == pytest.approx(opening["flatZoom"], rel=0.02), (
+        f"the magnification is {back['flatZoom']}, not the {opening['flatZoom']} "
+        "it opened at"
+    )
+    on_screen = back["position"][-2:]
+    assert on_screen == pytest.approx(opening["position"][-2:], abs=1.0), (
+        "the view did not come back to the middle of the picture"
+    )
+
+
+def test_reset_puts_the_volume_back_too(viewer_page):
+    """The same press, in the view where turning is the whole point."""
+    page = viewer_page
+    page.click("text=3D")
+    page.wait_for_timeout(1500)
+    opening = page.evaluate(_THE_VIEW)
+    _turn_and_wander(page)
+    page.get_by_role("button", name="Reset", exact=True).click()
+    page.wait_for_timeout(900)
+    back = page.evaluate(_THE_VIEW)
+
+    assert back["volumeTurn"] == pytest.approx(opening["volumeTurn"], abs=1e-4), (
+        f"the volume is still turned: {back['volumeTurn']}"
+    )
+    assert back["volumeZoom"] == pytest.approx(opening["volumeZoom"], rel=0.02), (
+        f"the volume sits at {back['volumeZoom']}, not the {opening['volumeZoom']} "
+        "it opened at"
+    )
+
+
+def test_reset_leaves_the_plane_and_the_moment_alone(viewer_page):
+    """Where you are in the stack is not a view setting.
+
+    Losing your place in depth because you asked for the view to be put
+    straight would be its own small betrayal -- the same reason Overview
+    leaves it alone.
+    """
+    page = viewer_page
+    names = page.evaluate(
+        "() => Array.from(window.zmartViewer.coordinateSpace.value.names)")
+    if "z" not in names:
+        pytest.skip("this demo volume has no depth to keep a place in")
+    at = names.index("z")
+    page.evaluate("""(axis) => {
+      const p = window.zmartViewer.navigationState.position;
+      const moved = Float32Array.from(p.value);
+      moved[axis] = moved[axis] + 2;
+      p.value = moved;
+    }""", at)
+    page.wait_for_timeout(400)
+    deep = page.evaluate(_THE_VIEW)["position"][at]
+    page.get_by_role("button", name="Reset", exact=True).click()
+    page.wait_for_timeout(900)
+    assert page.evaluate(_THE_VIEW)["position"][at] == pytest.approx(deep, abs=0.01), (
+        "putting the view straight moved the operator to a different plane"
+    )

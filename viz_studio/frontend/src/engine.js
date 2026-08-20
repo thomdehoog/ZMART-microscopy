@@ -1176,6 +1176,28 @@ function startDepthAtTheFirstPlane(viewer) {
 // then that the first margin wanted doubling.
 const OVERVIEW_MARGIN = 1.2;
 
+/**
+ * Put the whole view back to how it opened: straight, centred and fitted.
+ *
+ * Overview beside it answers the narrower question — bring the picture back
+ * into the window — and deliberately leaves it turned as it is, because an
+ * operator who has tilted a volume to see something usually wants to keep
+ * that tilt. This is the other half: a way out of any arrangement at all,
+ * without reopening the data.
+ *
+ * What it does NOT touch is where the operator is in depth or in time. That
+ * is which picture they are looking at rather than how they are looking at
+ * it, and losing your plane because you asked for the view to be put straight
+ * would be its own small betrayal — the same reason Overview leaves it alone.
+ */
+export function putTheViewBack(viewer) {
+  // Turned back first, because which axes are on screen follows from it and
+  // the fitting below measures what is on screen.
+  viewer.navigationState.pose.orientation.reset();
+  viewer.perspectiveNavigationState.pose.orientation.reset();
+  return showTheWholePicture(viewer);
+}
+
 export function showTheWholePicture(viewer) {
   const { position } = viewer.navigationState;
   const space = position.coordinateSpace.value;

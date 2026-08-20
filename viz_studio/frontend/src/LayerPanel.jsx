@@ -28,20 +28,11 @@ const rgbOf = (hex) => {
   return [(value >> 16 & 255) / 255, (value >> 8 & 255) / 255, (value & 255) / 255];
 };
 
-// A word or two saying what each colour map looks like. The names are the ones
-// everybody uses, but they mean nothing until you have seen one, and a biologist
-// meeting this panel for the first time should not have to try all four to find
-// out.
-const LUT_DESCRIPTIONS = {
-  viridis: "(blue → green → yellow)",
-  magma: "(black → purple → cream)",
-  fire: "(black → red → white)",
-  ice: "(black → blue → white)",
-};
-
-// What each colour map roughly looks like, as a little gradient -- drawn on a
-// channel's row swatch when that map is chosen, so the swatch always mirrors
-// the one lookup-table control.
+// What each colour map roughly looks like, as a little gradient. Drawn beside
+// its name in the chooser and on the channel's row, so a map is chosen and
+// recognised by eye. It used to be explained in words instead -- "magma"
+// means nothing until you have seen one -- and showing the thing itself says
+// it better than a sentence could.
 const LUT_GRADIENTS = {
   viridis: "linear-gradient(90deg, #440154, #21918c, #fde725)",
   magma: "linear-gradient(90deg, #000004, #b73779, #fcfdbf)",
@@ -49,8 +40,8 @@ const LUT_GRADIENTS = {
   ice: "linear-gradient(90deg, #000000, #3a6fd8, #ffffff)",
 };
 
-// The palette entry a stored rgb corresponds to, for showing which flat
-// flat colour the colormap chooser currently holds, or nothing at all when
+// The palette entry a stored rgb corresponds to: which flat colour the
+// colormap chooser currently holds, or nothing at all when
 // a colour was picked by hand and matches no named entry.
 const paletteNameOf = (rgb) =>
   (PALETTE.find((entry) => css(entry.rgb) === css(rgb)) || { name: null }).name;
@@ -479,6 +470,100 @@ function stretchedUnevenly(displayScales, mode) {
   return onScreen.some((factor) => factor !== onScreen[0]);
 }
 
+/**
+ * Choosing what a channel is painted with, showing each choice as it looks.
+ *
+ * A plain dropdown can only offer words, and the word "magma" tells a
+ * microscopist meeting it nothing at all -- which is why the old one had to
+ * spell out "(black -> purple -> cream)" beside every map and still left an
+ * operator picking by trial. Here every entry carries its own colour beside
+ * it, a block for a flat colour and the run of colours for a map, so the
+ * choice is made by eye. With that on show the explanations are not needed
+ * and are gone.
+ *
+ * It is a list of buttons rather than a select because a select cannot draw
+ * anything but text. That costs the keyboard nothing: each entry is a real
+ * button, so tabbing walks them and Enter picks, and Escape closes the list.
+ */
+function ColormapChooser({ layer, entry, names, onPick }) {
+  const [open, setOpen] = React.useState(false);
+  const choices = [
+    ...PALETTE.map((one) => ({
+      key: `flat:${one.name}`,
+      name: one.name,
+      rgb: one.rgb,
+      lut: null,
+      look: css(one.rgb),
+    })),
+    ...names.map((name) => ({
+      key: name,
+      name,
+      lut: name,
+      look: LUT_GRADIENTS[name] || "#d8dee6",
+    })),
+  ];
+  const chosen = entry.lut
+    ? choices.find((one) => one.lut === entry.lut)
+    : choices.find((one) => !one.lut && css(one.rgb) === css(entry.color));
+  // A colour picked by hand belongs to no entry in the list, and saying the
+  // nearest name would tell the operator they chose something they did not.
+  const naming = chosen ? chosen.name : "picked";
+  return (
+    <span style={styles.chooser}>
+      <button
+        type="button"
+        onClick={() => setOpen((was) => !was)}
+        onBlur={(event) => {
+          // Closed when the focus leaves the whole chooser, not merely this
+          // button -- otherwise pressing an entry closes the list before the
+          // press lands on it.
+          if (!event.currentTarget.parentElement.contains(event.relatedTarget)) {
+            setOpen(false);
+          }
+        }}
+        aria-label={`colormap ${layer.name}`}
+        aria-expanded={open}
+        title="What this channel is painted with"
+        style={styles.chooserButton}
+      >
+        <span style={styles.chooserName}>{naming}</span>
+        <span aria-hidden="true" style={styles.chooserCaret}>▾</span>
+      </button>
+      {open && (
+        <span role="listbox" style={styles.chooserList}>
+          {choices.map((choice) => (
+            <button
+              key={choice.key}
+              type="button"
+              role="option"
+              aria-selected={chosen?.key === choice.key}
+              aria-label={`${choice.name} for ${layer.name}`}
+              onBlur={(event) => {
+                if (!event.currentTarget.parentElement.parentElement
+                  .contains(event.relatedTarget)) {
+                  setOpen(false);
+                }
+              }}
+              onClick={() => {
+                onPick(choice);
+                setOpen(false);
+              }}
+              style={{
+                ...styles.chooserEntry,
+                ...(chosen?.key === choice.key ? styles.chooserEntryOn : null),
+              }}
+            >
+              <span style={{ ...styles.chooserSwatch, background: choice.look }} />
+              {choice.name}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
+
 function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity,
                           onColor, onLut, displayScales = { x: 1, y: 1, z: 1 } }) {
   // The same resting window the canvas draws with (see scene.js): the run's
@@ -748,51 +833,19 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
                 style={styles.hiddenPicker}
               />
             </span>
-            <select
-              // A colour picked by hand belongs to no named entry, and a
-              // select whose value matches none of its options quietly shows
-              // the first one instead -- so a hand-picked red read as "green"
-              // until this said "picked" out loud (seen on the plate,
-              // 2026-08-20).
-              value={entry.lut
-                || (paletteNameOf(entry.color)
-                  ? `flat:${paletteNameOf(entry.color)}`
-                  : "picked")}
-              onChange={(event) => {
-                const asked = event.target.value;
-                // "picked" is a read-out rather than a choice: it is already
-                // what the channel is painted with.
-                if (asked === "picked") return;
-                if (asked.startsWith("flat:")) {
-                  onLut?.(index, null);
-                  const name = asked.slice("flat:".length);
-                  onColor(index, (PALETTE.find((choice) => choice.name === name)
-                                  || { rgb: null }).rgb);
+            <ColormapChooser
+              layer={layer}
+              entry={entry}
+              names={lookupTables}
+              onPick={(choice) => {
+                if (choice.lut) {
+                  onLut?.(index, choice.lut);
                 } else {
-                  onLut?.(index, asked);
+                  onLut?.(index, null);
+                  onColor(index, choice.rgb);
                 }
               }}
-              aria-label={`colormap ${layer.name}`}
-              title="The named colours come first, then the maps that paint the brightness in a run of colours"
-              style={{ ...styles.select, flex: 1 }}
-            >
-              {PALETTE.map((choice) => (
-                <option key={choice.name} value={`flat:${choice.name}`}>
-                  {choice.name}
-                </option>
-              ))}
-              {/* A colour picked by hand belongs to no named entry, so the
-                  chooser says so rather than showing the nearest name and
-                  quietly claiming the operator chose it. */}
-              {!entry.lut && paletteNameOf(entry.color) === null && (
-                <option value="picked">picked</option>
-              )}
-              {lookupTables.map((name) => (
-                <option key={name} value={name}>
-                  {name} {LUT_DESCRIPTIONS[name] || ""}
-                </option>
-              ))}
-            </select>
+            />
           </span>
         </label>
     </div>
@@ -1208,6 +1261,60 @@ const styles = {
   swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid #39424e", display: "inline-block", flexShrink: 0 },
   // The colour row: what the channel is painted with, then how to change it.
   colourRow: { display: "flex", alignItems: "center", gap: 5, minWidth: 0 },
+  chooser: { position: "relative", flex: 1, minWidth: 0 },
+  chooserButton: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 4,
+    background: "#1b222b",
+    color: "#aab4c0",
+    border: "1px solid #303a46",
+    borderRadius: 3,
+    font: "10px system-ui, sans-serif",
+    padding: "3px 4px",
+    cursor: "pointer",
+  },
+  chooserName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  chooserCaret: { opacity: 0.7, flexShrink: 0 },
+  // Above everything else in the panel, and scrolling once the list is longer
+  // than the room beneath it.
+  chooserList: {
+    position: "absolute",
+    top: "calc(100% + 2px)",
+    left: 0,
+    right: 0,
+    zIndex: 40,
+    display: "flex",
+    flexDirection: "column",
+    background: "#141a22",
+    border: "1px solid #303a46",
+    borderRadius: 3,
+    boxShadow: "0 6px 18px rgba(0, 0, 0, 0.5)",
+    maxHeight: 220,
+    overflowY: "auto",
+  },
+  chooserEntry: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    background: "transparent",
+    color: "#aab4c0",
+    border: 0,
+    font: "10px system-ui, sans-serif",
+    padding: "4px 6px",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  chooserEntryOn: { background: "#243040", color: "#e8edf3" },
+  chooserSwatch: {
+    width: 22,
+    height: 11,
+    borderRadius: 2,
+    border: "1px solid #39424e",
+    flexShrink: 0,
+  },
   // Bigger than the row swatch, because this one has to show a whole run of
   // colours legibly rather than just say which one is chosen.
   preview: {

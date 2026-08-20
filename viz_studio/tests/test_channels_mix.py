@@ -120,8 +120,11 @@ def _choose(page, channel):
 
 
 def _recolour(page, channel, colour):
+    """Paint a channel a named colour, through the chooser an operator uses."""
     _choose(page, channel)
-    page.get_by_label(f"colormap {channel}").select_option(f"flat:{colour}")
+    page.locator(f"[aria-label='colormap {channel}']").click()
+    page.wait_for_timeout(200)
+    page.locator(f"[aria-label='{colour} for {channel}']").click()
     page.wait_for_timeout(900)
 
 

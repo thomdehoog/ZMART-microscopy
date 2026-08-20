@@ -4,6 +4,7 @@ import LayerPanel from "./LayerPanel.jsx";
 import TargetsPanel from "./TargetsPanel.jsx";
 import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/annotations.js";
 import {
+  putTheViewBack,
   showTheWholePicture,
   chooseScaleWhenTheImagesAreMeasured,
   watchTheReplay,
@@ -735,6 +736,30 @@ function BringItBack({ viewer }) {
       title="Zoom out to the whole picture, sized to the window; the plane and the moment stay where they are"
     >
       Overview
+    </button>
+  );
+}
+
+/**
+ * The way back to how the view opened, however far it has been turned.
+ *
+ * Overview beside this one brings a lost picture back into the window and
+ * leaves it turned as it is, which is what an operator tilting a volume
+ * wants. This puts everything about the view back at once -- straight,
+ * centred, fitted -- and it sits beside Overview for the same reason that one
+ * does: it is needed exactly when the panel is no use, because the operator
+ * cannot see the picture. It works the same in both views, and it leaves the
+ * plane and the moment where they are.
+ */
+function PutItStraight({ viewer }) {
+  if (!viewer) return null;
+  return (
+    <button
+      onClick={() => putTheViewBack(viewer)}
+      style={{ ...styles.button, ...styles.putItStraight }}
+      title="Put the view back as it opened: straight, centred and sized to the window. The plane and the moment stay where they are"
+    >
+      Reset
     </button>
   );
 }
@@ -1542,6 +1567,7 @@ export default function App() {
         <NeuroglancerView onViewer={setViewer} />
         <ModeToggle mode={mode} onChange={setMode} />
         <BringItBack viewer={viewer} />
+        <PutItStraight viewer={viewer} />
         <ScaleBar viewer={viewer} />
         {/* The two sliders are placed to match the directions they move in, which
             makes them quicker to reach for without reading the labels. Depth runs
@@ -1904,6 +1930,15 @@ const styles = {
     position: "absolute",
     top: 12,
     left: 108,
+    zIndex: 10,
+    borderRadius: 6,
+    border: "1px solid #2c333d",
+    boxShadow: "0 1px 4px rgba(0,0,0,.5)",
+  },
+  putItStraight: {
+    position: "absolute",
+    top: 12,
+    left: 186,
     zIndex: 10,
     borderRadius: 6,
     border: "1px solid #2c333d",
