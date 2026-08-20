@@ -1887,7 +1887,7 @@ def make_server(
 
     def describe(
         root_number: int, root: Path, name: str, label: str, coloured: bool,
-        channel: int | None = None,
+        channel: int | None = None, declared_range: dict | None = None,
     ) -> dict:
         # The channel belongs in the key. A store holding several channels is
         # measured once per channel, because one window covering all of them
@@ -1911,7 +1911,8 @@ def make_server(
             remembered = measured.get(key)
             if remembered is not None and key not in provisional:
                 return {**remembered, "name": label}
-            return _measure(key, root_number, root, name, label, coloured, channel)
+            return _measure(key, root_number, root, name, label, coloured,
+                            channel, declared_range)
 
     def _worth_measuring_again(store: Path) -> bool:
         """Has the store gained the whole-field copy it was missing?
@@ -1941,7 +1942,8 @@ def make_server(
             return None
         return described[at].get("window")
 
-    def _measure(key, root_number, root, name, label, coloured, channel=None) -> dict:
+    def _measure(key, root_number, root, name, label, coloured, channel=None,
+                 declared_range=None) -> dict:
         """Read one store's pixels and work out how it should first be shown.
 
         This is the expensive part of answering "what is open" — everything else
@@ -2001,11 +2003,13 @@ def make_server(
             "color": list(color) if color else None,
             "histogram": found["histogram"],
         }
-        # The whole range the camera's number type can hold. The panel draws
-        # its brightness axis over this rather than over the brightest pixel
-        # found, so the histogram says how much headroom is left before
-        # saturation -- absent for numbers with no natural ceiling.
-        held = camera_range(root / name)
+        # The whole range this channel's numbers live in. The panel draws its
+        # brightness axis over this rather than over the brightest pixel found,
+        # so the histogram says how much headroom is left before saturation.
+        # What the RUN declared wins over what the number type could hold -- a
+        # twelve-bit camera in sixteen-bit files is the ordinary case -- and
+        # absent both, there is no axis to draw and the panel measures one.
+        held = camera_range(root / name, declared_range)
         if held is not None:
             described["range"] = {"low": held[0], "high": held[1]}
         # A store can be met before any of its image has been written -- the viewer
@@ -2127,7 +2131,8 @@ def make_server(
             address = f"/data/{root_number}/{name}/|{zarr_scheme(store_path)}:"
             if "c" in axis_names(store_path):
                 found = [
-                    (index, channel["name"], channel["color"])
+                    (index, channel["name"], channel["color"],
+                     channel.get("range"), channel.get("active", True))
                     for index, channel in enumerate(channels(store_path))
                 ]
             else:
@@ -2136,10 +2141,14 @@ def make_server(
                 # falling back to the label where there is no wavelength to read.
                 wavelength = channel_of(name)
                 colour = channel_color(name) if len(present) > 1 else None
-                found = [(None, f"Ch{wavelength}" if wavelength else label, colour)]
+                # A channel written as its own file says nothing about a
+                # range or about being switched off; both are questions only a
+                # channel INSIDE a store can be asked.
+                found = [(None, f"Ch{wavelength}" if wavelength else label,
+                          colour, None, True)]
 
             frames = written_timepoints(store_path)
-            for index, channel_name, color in found:
+            for index, channel_name, color, declared_range, active in found:
                 # The folder is part of what makes a row a row. Without it, two
                 # runs open side by side would each contribute their "overview" to
                 # the *same* row, and one experiment would be drawn on top of the
@@ -2167,6 +2176,7 @@ def make_server(
                     base = describe(
                         root_number, root, name, label,
                         coloured=len(present) > 1, channel=index,
+                        declared_range=declared_range,
                     )
                     merged[key] = {
                         **base,
@@ -2201,6 +2211,10 @@ def make_server(
                         # above, that used to be thrown away in the merge.
                         "frameCounts": [frames],
                         "color": list(color) if color else None,
+                        # Said only when the run switched a channel OFF, so an
+                        # ordinary row is not carrying a field that means
+                        # "nothing was said" on every answer.
+                        **({} if active else {"active": False}),
                     }
                 else:
                     # Another position of the same picture: add where to read it,

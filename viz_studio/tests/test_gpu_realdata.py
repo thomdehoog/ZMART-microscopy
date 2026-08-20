@@ -28,16 +28,11 @@ from stores import declared_channels, discover
 REAL_STORE_ENV = "ZMART_TEST_STORE"
 
 # Substrings that mark a *software* WebGL backend rather than a real GPU.
-_SOFTWARE_RENDERERS = ("swiftshader", "llvmpipe", "software", "microsoft basic")
-
-# Ask the page which renderer WebGL is actually using.
-_RENDERER_JS = """() => {
-  const c = document.createElement('canvas');
-  const gl = c.getContext('webgl2') || c.getContext('webgl');
-  if (!gl) return null;
-  const ext = gl.getExtension('WEBGL_debug_renderer_info');
-  return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
-}"""
+# Both of these live in conftest, where the browser fixture uses them to decide
+# whether it is drawing on this machine's card; kept in one place so a renderer
+# this suite learns to recognise is recognised by the fixture too.
+from conftest import RENDERER_JS as _RENDERER_JS  # noqa: E402
+from conftest import SOFTWARE_RENDERERS as _SOFTWARE_RENDERERS  # noqa: E402
 
 # Per-layer chunk progress, the same signal the demo acceptance test uses:
 # "chunks available, and demand met" is what tells a real render from a page

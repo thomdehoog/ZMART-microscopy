@@ -623,6 +623,17 @@ def channels(store: Path) -> list[dict]:
             "name": str(label),
             "color": _hex_to_rgb(entry.get("color")),
             "window": _the_window_asked_for(entry),
+            # The range those numbers live in, as the run states it. A camera
+            # is often read out at fewer bits than the file can hold -- twelve
+            # into sixteen is the ordinary case -- so believing the file's
+            # number type puts the specimen in the first sixteenth of the
+            # brightness axis and leaves the rest as headroom that does not
+            # exist. Where the run says nothing this stays None and the axis
+            # falls back to what the number type can hold.
+            "range": _the_range_declared_by(entry),
+            # Which channels the run had switched on. Absent means on: a run
+            # that never mentioned a channel has not switched it off.
+            "active": entry.get("active") is not False,
         })
     # Channels of one picture sum like light on screen, and several channels
     # all opening white summed a real plate to pure clipping -- every well
@@ -639,6 +650,30 @@ def channels(store: Path) -> list[dict]:
                     turn % len(_DEFAULT_CHANNEL_TURNS)]
                 turn += 1
     return out
+
+
+def _the_range_declared_by(channel: dict) -> dict | None:
+    """The whole range this channel's numbers live in, if the run says.
+
+    This is the ``min`` and ``max`` beside the window's ``start`` and ``end``:
+    not what to show, but what the values could be. It is the honest axis for
+    a histogram, and it is frequently NOT the number type's own -- a twelve-bit
+    camera written into sixteen-bit files says 0 to 4095 here, and an axis
+    drawn to 65535 instead would leave the specimen crushed into the first
+    sixteenth of the track under four times as much headroom as exists.
+
+    Returns ``None`` where the run says nothing, or where what it says makes no
+    range, and the caller then falls back to the number type.
+    """
+    window = channel.get("window")
+    if not isinstance(window, dict):
+        return None
+    low, high = window.get("min"), window.get("max")
+    if not isinstance(low, (int, float)) or not isinstance(high, (int, float)):
+        return None
+    if high <= low:
+        return None
+    return {"low": float(low), "high": float(high)}
 
 
 def _the_window_asked_for(channel: dict) -> dict | None:

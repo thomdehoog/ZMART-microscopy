@@ -228,3 +228,87 @@ def test_channels_with_no_declared_colours_open_distinct(tmp_path):
     assert channels(lonely)[0]["color"] is None, (
         "one channel alone keeps its honest greyscale"
     )
+
+
+def test_a_run_that_declares_its_display_settings_is_believed(tmp_path):
+    """Colour, window, range and whether a channel starts shown all come from the run.
+
+    A microscope that has already been set up writes what it chose into the
+    file: which colour each channel is, the black and white points it is to
+    be shown between, the range those numbers live in, and which channels
+    were on. Measuring instead of reading is the viewer second-guessing an
+    operator who has already answered -- so where the run says, the run wins,
+    and the measurement is only for what it left unsaid.
+    """
+    from stores import channels
+
+    store = tmp_path / "declared_pos001.ome.zarr"
+    store.mkdir()
+    (store / ".zattrs").write_text(json.dumps({
+        "multiscales": [{
+            "version": "0.4",
+            "axes": [{"name": "c", "type": "channel"},
+                     {"name": "y", "type": "space", "unit": "micrometer"},
+                     {"name": "x", "type": "space", "unit": "micrometer"}],
+            "datasets": [{"path": "0", "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 0.35, 0.35]}]}],
+        }],
+        "omero": {"channels": [
+            {"label": "DAPI", "color": "0000FF", "active": True,
+             "window": {"min": 0, "max": 4095, "start": 100, "end": 900}},
+            {"label": "GFP", "color": "00FF00", "active": False,
+             "window": {"min": 0, "max": 4095, "start": 50, "end": 700}},
+        ]},
+    }), encoding="utf-8")
+    level = store / "0"
+    level.mkdir()
+    (level / ".zarray").write_text(json.dumps({
+        "zarr_format": 2, "shape": [2, 8, 8], "chunks": [1, 8, 8],
+        "dtype": "<u2", "compressor": None, "fill_value": 0,
+        "filters": None, "order": "C",
+    }), encoding="utf-8")
+
+    told = channels(store)
+    assert [one["name"] for one in told] == ["DAPI", "GFP"]
+    assert told[0]["color"] == (0.0, 0.0, 1.0)
+    assert told[0]["window"] == {"low": 100.0, "high": 900.0}
+    assert told[0]["range"] == {"low": 0.0, "high": 4095.0}, (
+        "the run said its numbers live in 0 to 4095, so the brightness axis "
+        "is that and not whatever the number type could hold"
+    )
+    assert told[0]["active"] is True
+    assert told[1]["active"] is False, (
+        "a channel the run switched off must open switched off"
+    )
+
+
+def test_a_channel_that_says_nothing_keeps_its_own_answers(tmp_path):
+    """Silence is not a setting: what a run leaves unsaid is still measured."""
+    from stores import channels
+
+    store = tmp_path / "quiet_pos001.ome.zarr"
+    store.mkdir()
+    (store / ".zattrs").write_text(json.dumps({
+        "multiscales": [{
+            "version": "0.4",
+            "axes": [{"name": "c", "type": "channel"},
+                     {"name": "y", "type": "space", "unit": "micrometer"},
+                     {"name": "x", "type": "space", "unit": "micrometer"}],
+            "datasets": [{"path": "0", "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 0.35, 0.35]}]}],
+        }],
+    }), encoding="utf-8")
+    level = store / "0"
+    level.mkdir()
+    (level / ".zarray").write_text(json.dumps({
+        "zarr_format": 2, "shape": [2, 8, 8], "chunks": [1, 8, 8],
+        "dtype": "<u2", "compressor": None, "fill_value": 0,
+        "filters": None, "order": "C",
+    }), encoding="utf-8")
+
+    told = channels(store)
+    assert all(one["window"] is None for one in told)
+    assert all(one["range"] is None for one in told)
+    assert all(one["active"] is True for one in told), (
+        "a run that never mentioned a channel has not switched it off"
+    )

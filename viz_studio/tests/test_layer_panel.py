@@ -130,7 +130,7 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
     change it, every place reflecting it.
     """
     before = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
-    two_channel_page.get_by_label("lookup table Ch488").select_option("flat:cyan")
+    two_channel_page.get_by_label("colormap Ch488").select_option("flat:cyan")
     two_channel_page.wait_for_timeout(800)
     layer = two_channel_page.evaluate(_ENGINE_LAYERS)[0]
     assert layer["controls"]["color"] == "#33ccff"
@@ -142,7 +142,7 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
 
 def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
     """The swatch beside the channel's name follows the palette."""
-    two_channel_page.get_by_label("lookup table Ch488").select_option("flat:cyan")
+    two_channel_page.get_by_label("colormap Ch488").select_option("flat:cyan")
     two_channel_page.wait_for_timeout(500)
     swatch = two_channel_page.locator("[aria-label='colour Ch488']")
     background = swatch.evaluate("(el) => getComputedStyle(el).backgroundColor")
@@ -155,7 +155,7 @@ def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
     )
     # And a chosen colour MAP shows on the swatch too, as its own gradient --
     # the swatch always mirrors the one lookup-table control.
-    two_channel_page.get_by_label("lookup table Ch488").select_option("viridis")
+    two_channel_page.get_by_label("colormap Ch488").select_option("viridis")
     two_channel_page.wait_for_timeout(500)
     background = swatch.evaluate("(el) => getComputedStyle(el).backgroundImage")
     assert "gradient" in background, (
@@ -165,7 +165,7 @@ def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
 
 def test_colour_survives_the_three_d_toggle(two_channel_page):
     """Mode switching rebuilds the shaders; a chosen colour must not be lost."""
-    two_channel_page.get_by_label("lookup table Ch488").select_option("flat:cyan")
+    two_channel_page.get_by_label("colormap Ch488").select_option("flat:cyan")
     two_channel_page.wait_for_timeout(500)
     two_channel_page.click("text=3D")
     two_channel_page.wait_for_timeout(1500)
@@ -815,3 +815,102 @@ def test_a_signal_that_fills_its_range_stays_linear(two_channel_page):
         "the demo volume spans a good part of its camera's range, so nothing "
         "needs spreading out and the axis should still be the linear one"
     )
+
+
+def test_the_colour_control_is_called_a_colormap(two_channel_page):
+    """The control says what a microscopist calls it.
+
+    "Lookup table" is what the graphics literature calls it and what nobody at
+    a microscope says. The word an operator uses is colormap, and a control
+    named for the implementation is a control they have to translate before
+    they can use it.
+    """
+    page = two_channel_page
+    assert page.locator("[aria-label='colormap Ch488']").count() == 1
+    # Spelled out of one piece so that a later sweep renaming the control
+    # cannot quietly rewrite the very name this line exists to forbid.
+    old_name = " ".join(["lookup", "table", "Ch488"])
+    assert page.locator(f"[aria-label='{old_name}']").count() == 0, (
+        "the old name is still on the page, so there are two names for one thing"
+    )
+    assert "colormap" in page.locator("text=colormap").first.inner_text().lower()
+
+
+def test_a_channel_can_be_painted_any_colour_at_all(two_channel_page):
+    """A colour picker beside the chooser, so the named list is not the limit.
+
+    Six named colours are a quick pick, not the whole of what a specimen might
+    need -- and on a picture of many channels the named list runs out long
+    before the channels do. The preview beside the chooser is the button: it
+    shows what the channel is painted with now, and opens the picker.
+    """
+    page = two_channel_page
+    picker = page.locator("[aria-label='choose a colour for Ch488']")
+    assert picker.count() == 1, "there is no way to choose a colour of one's own"
+    picker.evaluate("""(element) => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype, 'value').set;
+      setter.call(element, '#ff8800');
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+    }""")
+    page.wait_for_timeout(800)
+    held = page.evaluate(_ENGINE_LAYERS)[0]["controls"]["color"]
+    assert held == "#ff8800", (
+        f"the channel is painted {held}, not the colour that was picked"
+    )
+
+
+def test_picking_a_colour_puts_aside_the_colour_map(two_channel_page):
+    """A colour chosen by hand replaces a map, rather than fighting it.
+
+    A channel painted through a map has no flat colour, so a picked colour has
+    to end the map -- otherwise the preview goes on showing a run of colours
+    the channel is no longer painted in, and the operator has two answers to
+    one question.
+    """
+    page = two_channel_page
+    page.get_by_label("colormap Ch488").select_option("viridis")
+    page.wait_for_timeout(500)
+    assert "zmartLut" in page.evaluate(_ENGINE_LAYERS)[0]["shader"]
+    page.locator("[aria-label='choose a colour for Ch488']").evaluate("""(element) => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype, 'value').set;
+      setter.call(element, '#22ddaa');
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+    }""")
+    page.wait_for_timeout(800)
+    layer = page.evaluate(_ENGINE_LAYERS)[0]
+    assert "zmartLut" not in layer["shader"], "the colour map is still painting"
+    assert layer["controls"]["color"] == "#22ddaa"
+
+
+def test_red_is_among_the_named_colours(two_channel_page):
+    """The colour a microscopist reaches for first was not on the list."""
+    named = two_channel_page.get_by_label("colormap Ch488").evaluate(
+        "(select) => Array.from(select.options).map((one) => one.value)")
+    assert "flat:red" in named, f"red is not offered: {named}"
+
+
+def test_a_picked_colour_is_never_shown_under_a_name_it_is_not(two_channel_page):
+    """The chooser says "picked", rather than the nearest name in its list.
+
+    A select whose value matches none of its options shows the FIRST one, so a
+    channel painted a hand-picked red read as "green" while being red -- seen
+    on the plate, 2026-08-20. The panel may not tell an operator they chose
+    something they did not.
+    """
+    page = two_channel_page
+    page.locator("[aria-label='choose a colour for Ch488']").evaluate("""(element) => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype, 'value').set;
+      setter.call(element, '#ff3b30');
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+    }""")
+    page.wait_for_timeout(800)
+    assert page.get_by_label("colormap Ch488").input_value() == "picked", (
+        "the chooser is showing a named colour for a colour picked by hand"
+    )
+    assert page.evaluate(_ENGINE_LAYERS)[0]["controls"]["color"] == "#ff3b30"

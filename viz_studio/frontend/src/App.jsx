@@ -920,7 +920,12 @@ export default function App() {
         const was = before.get(layerKey(spec));
         if (was != null && current[was]) return current[was];
         return {
-          visible: true,
+          // Showing, unless the run itself says this channel was switched off.
+          // What the microscopist had on at the instrument is what the viewer
+          // opens with; on a picture of many channels that is the difference
+          // between something to read and a glare. The row is still listed and
+          // one press brings it back.
+          visible: spec.active !== false,
           color: spec.color,
           // No colour map to begin with: a channel opens in the flat colour the
           // store asked for, and a lookup table is something you choose.
