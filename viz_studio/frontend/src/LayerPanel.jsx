@@ -49,21 +49,9 @@ const paletteNameOf = (rgb) =>
 const css = (rgb) =>
   rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
 
-// The logarithmic brightness axis, anchored at the bottom of whatever band it
-// is drawn over. Fluorescence often piles most of its values near background
-// with a long bright tail; on this axis the dim end spreads out and the tail
-// compresses, so the part an operator actually adjusts gets the room. log1p
-// rather than log so a band starting at zero needs no special case. One pair
-// of functions, used by the histogram's bars, the drag on its marks, and the
-// MIN and MAX sliders alike -- so all three always agree about where a
-// brightness sits on screen.
-const logFraction = (value, low, span) =>
-  Math.log1p(Math.min(Math.max(value - low, 0), span)) / Math.log1p(span);
-const valueAtLogFraction = (fraction, low, span) =>
-  low + Math.expm1(fraction * Math.log1p(span));
-// How finely a log slider is stepped: the element counts these, the numbers
-// shown are always real brightness values.
-const LOG_SLIDER_STEPS = 1000;
+// Log used to warp the brightness axis itself, which moved every bar and
+// every handle sideways; it lifts the histogram's counts now instead, and the
+// arithmetic for a warped axis went with it.
 
 // -- the pieces the panel is drawn from ---------------------------------------
 //
@@ -75,41 +63,42 @@ const LOG_SLIDER_STEPS = 1000;
 /**
  * How far the black and white handles are allowed to travel.
  *
- * This used to be the full range of the numbers a camera can produce — nought to
- * 65535 — and that made the sliders very nearly unusable on real data. A real
- * acquisition sits in a narrow band of that range, often a few hundred counts of
- * background with the signal just above; across a track a few centimetres wide,
- * the whole useful part was about two pixels of travel, and a single pixel of
- * movement jumped the brightness by hundreds of counts. In practice the only
- * usable control was the Auto button.
+ * From the dimmest pixel in the channel to the brightest, and no further. An
+ * axis drawn to what the camera COULD have written instead puts a real
+ * specimen in the first few per cent of the track -- a few hundred counts of
+ * background inside sixty-five thousand -- and leaves the rest as headroom
+ * nothing occupies, so a whole slider becomes two pixels of useful travel.
+ * That was tried both ways within a day: measured-span, then the camera's
+ * range with a logarithmic axis to make it usable, and now the data again
+ * with the axis SAID rather than guessed. Which part of it is drawn is the
+ * operator's to set, in the two boxes beneath the histogram, and ``shown``
+ * carries their answer when they have given one.
  *
- * So the travel is taken from the spread of brightness the server measured — the
- * same measurement the histogram above the sliders is drawn from — with room to
- * spare at each end. The window in use is always included, so pressing "full"
- * widens the track rather than leaving a handle stranded off the end of it.
+ * The window in use is always included, so a window wider than the pixels --
+ * one the run itself declared, say -- widens the track rather than leaving a
+ * handle stranded off the end of it.
+ *
+ * And where a run declares the range its numbers live in, that is as far as
+ * the boxes may be pushed: a twelve-bit camera cannot produce 5000, so an
+ * axis drawn to it would be room that can never hold anything.
  */
-function contrastRange(layer, window_) {
-  // The brightness axis runs over the camera's whole range -- histogram and
-  // handles alike -- so where the data sits inside it says how much headroom
-  // is left before saturation. The track once stopped at the measured spread
-  // instead, chosen by the operator when a narrow signal left two pixels of
-  // useful travel; the same operator reversed it at the workstation
-  // (2026-08-19) once the Log axis could spread the dim end back out. A
-  // store whose numbers have no natural ceiling keeps the measured span.
-  const camera = layer.range;
-  if (camera && Number.isFinite(camera.high)) {
-    return {
-      min: Math.min(Math.floor(camera.low ?? 0), Math.floor(window_.low)),
-      max: Math.max(Math.ceil(camera.high), Math.ceil(window_.high)),
-    };
-  }
+function contrastRange(layer, window_, shown = null) {
   const measured = layer.histogram;
+  const declared = layer.range;
   let min = 0;
   let max = 65535;
   if (measured && Number.isFinite(measured.low) && measured.high > measured.low) {
-    const room = (measured.high - measured.low) * 0.2;
-    min = Math.max(0, Math.floor(measured.low - room));
-    max = Math.ceil(measured.high + room);
+    min = Math.floor(measured.low);
+    max = Math.ceil(measured.high);
+  }
+  if (shown && Number.isFinite(shown.low) && shown.high > shown.low) {
+    if (declared && Number.isFinite(declared.high)) {
+      return {
+        min: Math.max(shown.low, declared.low ?? 0),
+        max: Math.min(shown.high, declared.high),
+      };
+    }
+    return { min: shown.low, max: shown.high };
   }
   return {
     min: Math.min(min, Math.floor(window_.low)),
@@ -147,13 +136,14 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear", axis = n
   // together.
   const low = axis ? axis.min : measured.low;
   const span = (axis ? axis.max - axis.min : measured.high - measured.low) || 1;
-  const at = (value) => {
-    const fraction =
-      scale === "log"
-        ? logFraction(value, low, span)
-        : Math.min(Math.max((value - low) / span, 0), 1);
-    return fraction * counts.length;
-  };
+  // Brightness runs along the box evenly, always. It once ran logarithmically
+  // when Log was on, which moved every bar sideways and dragged the handles
+  // with them, so a window an operator had set stopped sitting where they put
+  // it. Log now lifts the bars instead (see their height below), which is the
+  // thing that actually needs it: fluorescence piles almost every pixel into
+  // the dim bins and leaves the interesting tail one pixel high.
+  const at = (value) =>
+    Math.min(Math.max((value - low) / span, 0), 1) * counts.length;
   const left = at(window_.low);
   const right = at(window_.high);
 
@@ -161,9 +151,7 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear", axis = n
   const valueUnder = (event) => {
     const box = event.currentTarget.getBoundingClientRect();
     const fraction = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
-    return scale === "log"
-      ? valueAtLogFraction(fraction, low, span)
-      : low + fraction * span;
+    return low + fraction * span;
   };
   const takeHold = (event) => {
     if (!onWindow) return;
@@ -205,7 +193,14 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear", axis = n
           dimmed to a quarter: that brightness saturates to black or white.
           One glance says which pixels are being looked at. */}
       {counts.map((count, index) => {
-        const height = (Math.log1p(count) / Math.log1p(peak)) * 22;
+        // How many pixels this bin holds, against the fullest bin. On the
+        // plain scale that is the honest proportion; on the log scale the
+        // quiet bins are lifted until they can be seen at all, which is the
+        // whole reason a microscopist asks for it.
+        const share = scale === "log"
+          ? Math.log1p(count) / Math.log1p(peak)
+          : count / peak;
+        const height = share * 22;
         // The bins live in MEASURED brightness -- that is what the server
         // counted -- and only their places are mapped through the axis, which
         // may run far past them to the camera's ceiling.
@@ -570,7 +565,12 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   // recorded window, or the measured one when the run said nothing.
   const window_ = entry.window || restingWindow(layer, mode === "volume")
     || { low: 0, high: 65535 };
-  const { min, max } = contrastRange(layer, window_);
+  // Which part of the brightness axis is drawn. Nothing said means the data's
+  // own span; the two boxes under the histogram are where an operator says
+  // otherwise, and their answer is kept per channel for as long as the panel
+  // is showing it.
+  const [shown, setShown] = React.useState(null);
+  const { min, max } = contrastRange(layer, window_, shown);
   // The two handles are kept at least one count apart. A window of no width makes
   // every value in the image land on the same shade, so the picture goes flat and
   // it is not obvious why.
@@ -588,27 +588,13 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   // else when they do not.
   const isMask = layer.kind === "segmentation";
 
-  // Linear or logarithmic brightness axis, for the histogram AND the MIN and
-  // MAX sliders together -- they describe the same scale, so they warp
-  // together or the marks would stop sitting where the handles say.
-  //
-  // Nothing chosen means "whichever suits this channel", and the answer turns
-  // on how much of the camera's range the specimen actually fills. The axis
-  // runs to the whole range so that the headroom before saturation is on show,
-  // and on a real specimen -- a plate whose signal sits in the first few
-  // hundred of sixty-five thousand -- that leaves the handles the two pixels of
-  // useful travel the wide axis was supposed to cure. The logarithmic axis
-  // spreads that dim end back out, so it starts on exactly where it is needed.
-  // One press still settles it either way: a choice, once made, is kept.
-  const [chosen, setChosen] = React.useState(null);
-  const wholeRange = layer.range;
-  const spread = Math.max(
-    1, (layer.histogram?.high ?? 0) - (layer.histogram?.low ?? 0));
-  const crowded = !!wholeRange && Number.isFinite(wholeRange.high)
-    && (wholeRange.high - (wholeRange.low ?? 0)) > 20 * spread;
-  const scale = chosen ?? (crowded ? "log" : "linear");
-  const setScale = setChosen;
-  const travel = Math.max(1, max - min);
+  // Whether the histogram's counts are drawn plainly or lifted. It starts
+  // plain: with the brightness axis now the data's own span, the picture is
+  // readable as it stands, and Log is there for the channel whose dim bins
+  // dwarf everything else. It was briefly turned on by itself for such
+  // channels, back when the axis ran to the camera's whole range and needed
+  // the help.
+  const [scale, setScale] = React.useState("linear");
 
   // The Auto light is derived, not stored: it is on exactly while the window
   // equals the measured one, so dragging any handle away turns it off by
@@ -694,37 +680,56 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               <button
                 type="button"
                 onClick={() => setScale(scale === "log" ? "linear" : "log")}
-                aria-label={scale === "log"
-                  ? "linear brightness axis"
-                  : "logarithmic brightness axis"}
+                aria-label={scale === "log" ? "plain counts" : "logarithmic counts"}
                 aria-pressed={scale === "log"}
-                title="Spread the dim end of the brightness axis out. Helpful when most of a channel sits just above background with a long bright tail"
+                title="Lift the quiet bins of the histogram into view. Fluorescence piles almost every pixel into the dim bins, which leaves the interesting tail one pixel high"
                 style={{ ...styles.autoButton, ...(scale === "log" ? styles.autoButtonOn : null) }}
               >
                 Log
               </button>
             </div>
           </div>
+          {/* What part of the brightness axis the histogram above draws, and
+              with it how far the handles below can travel. Beneath the
+              picture and no wider than it, because the pair belong to the
+              picture rather than to the window. */}
+          <div style={styles.axisRow}>
+            <ValueBox
+              value={Math.round(min)}
+              onCommit={(asked) => setShown({
+                low: asked,
+                high: Math.max(asked + 1, shown ? shown.high : max),
+              })}
+              label={`axis from ${layer.name}`}
+            />
+            <span style={styles.axisNote} title="The stretch of brightness the histogram draws, and how far the handles below can travel">
+              shown
+            </span>
+            <ValueBox
+              value={Math.round(max)}
+              onCommit={(asked) => setShown({
+                low: Math.min(asked - 1, shown ? shown.low : min),
+                high: asked,
+              })}
+              label={`axis to ${layer.name}`}
+            />
+          </div>
           <label style={styles.control}>
             <span style={styles.controlLabel} title="Anything dimmer than this is shown as black">
               min
             </span>
-            {/* On the log axis the element counts steps along the warped
-                scale, so equal thumb travel means equal movement on the
-                histogram above rather than equal counts; the readout beside
-                it is always the real brightness value. */}
+            {/* The handle travels over brightness itself, evenly, and over
+                exactly the stretch the histogram above it draws -- so a mark
+                on the picture and a handle beneath it always mean the same
+                number. It used to count steps along a warped scale whenever
+                Log was on, which moved the two apart. */}
             <input
               type="range"
-              min={scale === "log" ? 0 : min}
-              max={scale === "log" ? LOG_SLIDER_STEPS : max}
+              min={min}
+              max={max}
               step="1"
-              value={scale === "log"
-                ? Math.round(logFraction(window_.low, min, travel) * LOG_SLIDER_STEPS)
-                : window_.low}
-              onChange={(event) =>
-                setLow(scale === "log"
-                  ? valueAtLogFraction(Number(event.target.value) / LOG_SLIDER_STEPS, min, travel)
-                  : Number(event.target.value))}
+              value={window_.low}
+              onChange={(event) => setLow(Number(event.target.value))}
               aria-label={`min ${layer.name}`}
               title="Anything dimmer than this is shown as black"
               style={styles.range}
@@ -741,16 +746,11 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
             </span>
             <input
               type="range"
-              min={scale === "log" ? 0 : min}
-              max={scale === "log" ? LOG_SLIDER_STEPS : max}
+              min={min}
+              max={max}
               step="1"
-              value={scale === "log"
-                ? Math.round(logFraction(window_.high, min, travel) * LOG_SLIDER_STEPS)
-                : window_.high}
-              onChange={(event) =>
-                setHigh(scale === "log"
-                  ? valueAtLogFraction(Number(event.target.value) / LOG_SLIDER_STEPS, min, travel)
-                  : Number(event.target.value))}
+              value={window_.high}
+              onChange={(event) => setHigh(Number(event.target.value))}
               aria-label={`max ${layer.name}`}
               title="Anything brighter than this is shown as white"
               style={styles.range}
@@ -1261,6 +1261,22 @@ const styles = {
   swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid #39424e", display: "inline-block", flexShrink: 0 },
   // The colour row: what the channel is painted with, then how to change it.
   colourRow: { display: "flex", alignItems: "center", gap: 5, minWidth: 0 },
+  // Under the histogram and no wider: the two ends of what it draws, with a
+  // quiet word between them saying what they are.
+  axisRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+    marginBottom: 4,
+    paddingRight: 62,
+  },
+  axisNote: {
+    font: "9px system-ui, sans-serif",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: "#6b7684",
+  },
   chooser: { position: "relative", flex: 1, minWidth: 0 },
   chooserButton: {
     width: "100%",

@@ -419,14 +419,14 @@ def as_the_run_declared(browser, built_dist, tmp_path):
         thread.join(timeout=5)
 
 
-def test_the_brightness_axis_is_the_range_the_run_declared(as_the_run_declared):
-    """A twelve-bit camera gets a twelve-bit axis, not a sixteen-bit one.
+def test_the_range_a_run_declares_bounds_how_far_the_axis_goes(as_the_run_declared):
+    """A twelve-bit camera cannot produce 9000, so the axis may not go there.
 
-    The axis runs to the whole range the numbers live in, so that the room
-    left before saturation can be read off it. Which range that is belongs to
-    the run: cameras are commonly read out at fewer bits than the file can
-    hold, and taking the file's word for it draws four times as much headroom
-    as exists and crushes the specimen into the first sixteenth of the track.
+    The brightness axis opens on the pixels that are actually present, and the
+    two boxes beneath the histogram widen it when an operator wants more room.
+    How much more is the run's to bound: cameras are commonly read out at
+    fewer bits than the file can hold, and room past what the camera can write
+    is room nothing will ever occupy.
     """
     page = as_the_run_declared
     told = page.evaluate("() => window.zmartConfig.layers[0].range")
@@ -434,16 +434,18 @@ def test_the_brightness_axis_is_the_range_the_run_declared(as_the_run_declared):
         f"the viewer was served a range of {told}; the run declared 0 to 4095"
     )
     _choose(page, "chA")
-    # Read on the plain axis: on the logarithmic one the element counts steps
-    # along the warp rather than brightness, so its own maximum is a step count
-    # and says nothing about how far the handle can travel.
-    page.get_by_label("linear brightness axis").click()
-    page.wait_for_timeout(400)
+    # The axis OPENS on the pixels present; the boxes beneath the histogram
+    # widen it, and the run says how far that may go.
+    box = page.get_by_label("axis to chA")
+    box.click()
+    box.fill("9000")
+    box.press("Enter")
+    page.wait_for_timeout(500)
     reach = page.locator("[aria-label='max chA']").evaluate(
         "(element) => Number(element.max)")
     assert 4000 < reach < 4200, (
-        f"the brightness handles travel to {reach}, not to the 4095 the run "
-        "declared its numbers live in"
+        f"the axis was pushed to {reach}, past the 4095 the run says its "
+        "numbers live in"
     )
 
 

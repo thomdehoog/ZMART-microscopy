@@ -354,39 +354,6 @@ def test_the_bars_on_screen_are_the_brightness_the_server_measured(two_channel_p
     ], "the empty bins on screen are not the ones the measurement found empty"
 
 
-def test_the_contrast_axis_runs_to_the_cameras_whole_range(two_channel_page):
-    """The histogram and the handles run to the camera's full range.
-
-    This reverses an earlier decision, and both were the same operator's.
-    The track was once pinned to the measured spread, because a narrow
-    signal on a 65,535-count track left two pixels of useful travel and
-    only the Auto button was usable. At the workstation (2026-08-19) the
-    same operator asked for the full range back: where the data sits
-    inside the camera's range is the headroom-before-saturation reading a
-    histogram exists to give, and the Log axis now spreads the dim end
-    out, which is what makes the wide track workable. The server says the
-    range (the store's own number type), so a float store without a
-    natural ceiling keeps the measured span.
-    """
-    told = two_channel_page.evaluate(
-        "() => window.zmartConfig.layers[0].range"
-    )
-    assert told == {"low": 0.0, "high": 65535.0}, (
-        "the server must say the camera's range for a uint16 store"
-    )
-    track = two_channel_page.evaluate(
-        """() => {
-          const handle = document.querySelector("[aria-label='min Ch488']");
-          return { min: Number(handle.min), max: Number(handle.max) };
-        }"""
-    )
-    assert track["min"] == 0
-    assert track["max"] >= 65535, (
-        f"the handles travel to {track['max']} while the camera can write "
-        "65,535 -- the headroom before saturation is off the axis"
-    )
-
-
 def test_auto_contrast_restores_the_measured_window(two_channel_page):
     _choose(two_channel_page, "Ch488")
     _set_range(two_channel_page, "min Ch488", 1200)
@@ -508,68 +475,6 @@ def test_the_histogram_dims_the_brightness_outside_the_window(two_channel_page):
         "the full-brightness stretch must be contiguous -- it is the window"
     )
     assert first > 0, "bars below the black point must be dimmed"
-
-
-def test_the_histogram_axis_can_be_switched_between_linear_and_log(two_channel_page):
-    """A skewed channel can spread its dim end out; the choice is explicit.
-
-    Fluorescence often piles most of its brightness near background with a
-    long tail, and on a linear axis that reads as everything bunched left.
-    The log axis stretches the dim end and compresses the tail. It is a
-    visible toggle rather than a rule guessed from bit depth, because the
-    skew is a property of the specimen's distribution, not of the container
-    the camera writes.
-
-    On the linear axis every bin is drawn one unit wide; on the log axis the
-    dim bins widen and the bright ones narrow, so the drawing itself is what
-    is checked, before and after and back again.
-    """
-    page = two_channel_page
-    widths = lambda: page.evaluate(  # noqa: E731 -- a tiny page probe
-        """() => Array.from(
-          document.querySelector('[aria-label="histogram Ch488"]')
-            .querySelectorAll('rect'),
-        ).filter((bar) => bar.getAttribute('fill') === 'currentColor')
-         .map((bar) => Number(bar.getAttribute('width')))"""
-    )
-    linear = widths()
-    assert max(linear) - min(linear) < 1e-6, "the linear axis draws equal bins"
-
-    page.get_by_label("logarithmic brightness axis").click()
-    page.wait_for_timeout(300)
-    logged = widths()
-    assert logged[0] > logged[-1], (
-        "on the log axis the dim bins must widen and the bright ones narrow"
-    )
-
-    # The bars still drag correctly under the warped axis: the engine's
-    # window moves, through the log mapping and back. The box spans the
-    # camera's whole range, so where a value sits follows the log warp.
-    import math
-
-    before = _window_in_engine(page)
-    box = page.locator("[aria-label='histogram Ch488']").bounding_box()
-    middle = box["y"] + box["height"] / 2
-    # The axis comes from the server's word, not from the slider element: on
-    # the log scale the element counts a thousand warped steps, and reading
-    # its max as brightness put the drag outside the box entirely.
-    axis = page.evaluate("() => window.zmartConfig.layers[0].range.high")
-    hist = page.evaluate("() => window.zmartConfig.layers[0].histogram")
-    def warped(value):
-        return box["x"] + box["width"] * (
-            math.log1p(max(0.0, value)) / math.log1p(axis))
-    page.mouse.move(warped(before[0] + (hist["high"] - before[0]) * 0.02), middle)
-    page.mouse.down()
-    page.mouse.move(warped(before[0] + (hist["high"] - before[0]) * 0.5),
-                    middle, steps=6)
-    page.mouse.up()
-    page.wait_for_timeout(600)
-    assert _window_in_engine(page)[0] > before[0]
-
-    page.get_by_label("linear brightness axis").click()
-    page.wait_for_timeout(300)
-    back = widths()
-    assert max(back) - min(back) < 1e-6, "switching back restores equal bins"
 
 
 def test_the_numbers_beside_the_sliders_can_be_typed_into(two_channel_page):
@@ -757,80 +662,6 @@ def test_channels_of_one_picture_blend_like_light(browser, built_dist,
         thread.join(timeout=5)
 
 
-def _a_narrow_store(path, low=100, high=900):
-    """A store whose signal fills a sliver of what its camera could write."""
-    import json
-
-    import numpy as np
-    import zarr
-
-    path.mkdir(parents=True)
-    group = zarr.open_group(str(path), mode="w", zarr_format=2)
-    values = np.random.default_rng(3).integers(low, high, (1, 2, 64, 64))
-    group.create_array("0", shape=values.shape, chunks=(1, 1, 64, 64),
-                       dtype="uint16")[:] = values.astype(np.uint16)
-    (path / ".zattrs").write_text(json.dumps({
-        "multiscales": [{
-            "version": "0.4",
-            "axes": [{"name": "c", "type": "channel"},
-                     {"name": "z", "type": "space", "unit": "micrometer"},
-                     {"name": "y", "type": "space", "unit": "micrometer"},
-                     {"name": "x", "type": "space", "unit": "micrometer"}],
-            "datasets": [{"path": "0", "coordinateTransformations": [
-                {"type": "scale", "scale": [1.0, 2.0, 0.35, 0.35]}]}],
-        }],
-        "omero": {"channels": [{"label": "ch0", "color": "00FF66"}]},
-    }), encoding="utf-8")
-    return path
-
-
-def test_a_narrow_signal_opens_on_the_logarithmic_axis(browser, built_dist,
-                                                       tmp_path):
-    """Where the camera's range dwarfs the signal, the dim end is spread out.
-
-    The brightness axis runs to the whole range the camera can write, so that
-    the headroom before saturation is on show. On a real specimen that leaves
-    the signal in the first per cent of the track, and the handles are back to
-    the two pixels of useful travel the axis was widened away from -- unless
-    the logarithmic axis is already on, which is what makes the wide track
-    workable. So it starts on by itself exactly when it is needed, and the
-    toggle still has the last word.
-    """
-    folder = tmp_path / "narrow"
-    folder.mkdir()
-    _a_narrow_store(folder / "overview_pos001.ome.zarr")
-    server = make_server(port=0, data_dir=folder, site_dir=built_dist,
-                         store="overview_pos001.ome.zarr")
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    page = browser.new_page(viewport={"width": 1200, "height": 900})
-    try:
-        page.goto(f"http://127.0.0.1:{server.server_address[1]}",
-                  wait_until="domcontentloaded")
-        page.wait_for_function("() => window.zmartConfig !== undefined",
-                               timeout=30_000)
-        page.wait_for_timeout(1_500)
-        axis = page.locator("[aria-label='linear brightness axis']")
-        assert axis.count() == 1, (
-            "a signal filling a hundredth of the camera's range must open on "
-            "the logarithmic axis, whose button offers the linear one back"
-        )
-        assert axis.get_attribute("aria-pressed") == "true"
-    finally:
-        page.close()
-        server.shutdown()
-        thread.join(timeout=5)
-
-
-def test_a_signal_that_fills_its_range_stays_linear(two_channel_page):
-    """And where the signal fills the range, the plain axis is left alone."""
-    axis = two_channel_page.locator("[aria-label='logarithmic brightness axis']")
-    assert axis.count() == 1, (
-        "the demo volume spans a good part of its camera's range, so nothing "
-        "needs spreading out and the axis should still be the linear one"
-    )
-
-
 def test_the_colour_control_is_called_a_colormap(two_channel_page):
     """The control says what a microscopist calls it.
 
@@ -955,4 +786,112 @@ def test_every_entry_shows_the_colour_it_would_paint(two_channel_page):
     # And the explanations that stood in for those colours are gone.
     assert page.locator("text=black → purple").count() == 0, (
         "a colour map is still explaining itself in words beside its swatch"
+    )
+
+
+_BARS = """() => Array.from(
+  document.querySelector('[aria-label="histogram Ch488"]').querySelectorAll('rect'),
+).filter((bar) => bar.getAttribute('fill') === 'currentColor')
+ .map((bar) => ({
+   x: Number(bar.getAttribute('x')),
+   width: Number(bar.getAttribute('width')),
+   height: Number(bar.getAttribute('height')),
+ }))"""
+
+
+def test_the_brightness_axis_opens_on_the_data(two_channel_page):
+    """From the dimmest pixel present to the brightest, and no further.
+
+    An axis drawn to what the camera COULD have written puts a real specimen
+    in the first few per cent of the track and leaves the rest as headroom
+    nothing occupies. The pixels that are actually there are what an operator
+    is adjusting, so that is the axis they get, and anything wider is theirs
+    to ask for in the boxes beneath it.
+    """
+    page = two_channel_page
+    measured = page.evaluate("() => window.zmartConfig.layers[0].histogram")
+    _choose(page, "Ch488")
+    window_ = _window_in_engine(page)
+    reach = page.locator("[aria-label='max Ch488']").evaluate(
+        "(element) => ({ min: Number(element.min), max: Number(element.max) })")
+    # The data's own span, widened only by whatever window is in use -- a run
+    # may declare a window wider than its brightest pixel, and a handle
+    # stranded past the end of its track is worse than a little slack.
+    wanted = max(measured["high"], window_[1])
+    assert reach["max"] == pytest.approx(wanted, rel=0.02), (
+        f"the handles travel to {reach['max']}, not to the {wanted} that the "
+        "channel's pixels and window between them ask for"
+    )
+    assert reach["max"] < 65535, (
+        "the axis is drawn to what the camera could have written, which is "
+        "mostly headroom nothing occupies"
+    )
+    assert reach["min"] == pytest.approx(min(measured["low"], window_[0]), abs=1.0), (
+        f"the handles start at {reach['min']}, not at the dimmest pixel "
+        f"({measured['low']})"
+    )
+
+
+def test_two_boxes_say_how_much_of_the_axis_to_show(two_channel_page):
+    """Under the histogram, the part of the brightness scale on show.
+
+    The axis opens on the data, and what an operator wants next is often
+    narrower still -- a dim channel with one bright speck spends the whole
+    track on the speck. These two say where the drawing starts and ends, and
+    the handles beneath them travel over exactly that.
+    """
+    page = two_channel_page
+    _choose(page, "Ch488")
+    low = page.locator("[aria-label='axis from Ch488']")
+    high = page.locator("[aria-label='axis to Ch488']")
+    assert low.count() == 1 and high.count() == 1, (
+        "there is no way to say which part of the brightness axis to draw"
+    )
+    for box, value in ((low, 400), (high, 2200)):
+        box.click()
+        box.fill(str(value))
+        box.press("Enter")
+        page.wait_for_timeout(400)
+    reach = page.locator("[aria-label='max Ch488']").evaluate(
+        "(element) => ({ min: Number(element.min), max: Number(element.max) })")
+    assert reach == pytest.approx({"min": 400, "max": 2200}, rel=0.01), (
+        f"the handles travel over {reach}, not the 400 to 2200 that was asked for"
+    )
+
+
+def test_log_stretches_the_bars_upward_not_sideways(two_channel_page):
+    """Log is about how many, not about how bright.
+
+    A logarithmic BRIGHTNESS axis moves every bar sideways and drags the
+    handles with it, so a window an operator set stops sitting where they put
+    it. What actually needs the log is the count: fluorescence piles almost
+    every pixel into the dim bins and leaves the interesting tail one pixel
+    high, invisible beside them. So the bars keep their places and grow
+    taller.
+    """
+    page = two_channel_page
+    _choose(page, "Ch488")
+    plain = page.evaluate(_BARS)
+    page.get_by_label("logarithmic counts").click()
+    page.wait_for_timeout(400)
+    logged = page.evaluate(_BARS)
+
+    assert [bar["x"] for bar in logged] == pytest.approx(
+        [bar["x"] for bar in plain], abs=1e-6), (
+        "the bars moved sideways, so Log is still warping the brightness axis"
+    )
+    assert [bar["width"] for bar in logged] == pytest.approx(
+        [bar["width"] for bar in plain], abs=1e-6), (
+        "the bars changed width, so Log is still warping the brightness axis"
+    )
+    assert [bar["height"] for bar in logged] != pytest.approx(
+        [bar["height"] for bar in plain], abs=1e-6), (
+        "nothing about the bars changed, so Log did nothing at all"
+    )
+    # The point of it: the small counts are lifted into view.
+    quiet = min((bar["height"] for bar in plain if bar["height"] > 0), default=0)
+    lifted = min((bar["height"] for bar in logged if bar["height"] > 0), default=0)
+    assert lifted > quiet, (
+        f"the quietest bar reads {lifted} on the log scale against {quiet} "
+        "plain, so the bins an operator cannot see are still invisible"
     )
