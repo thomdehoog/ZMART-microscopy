@@ -33,7 +33,7 @@ export const LOOKUP_TABLE_NAMES = Object.keys(LOOKUP_TABLES);
 // Turn a table of colour stops into the few lines of shader that walk between
 // them. Straight-line blending between neighbouring stops is enough: the stops are
 // chosen so that is faithful, and it keeps the generated program small.
-export function lutShader(stops) {
+export function lutShader(stops, name = "zmartLut") {
   const literal = (c) => `vec3(${c.map((v) => v.toFixed(4)).join(",")})`;
   let body = `  vec3 c = ${literal(stops[0])};\n`;
   const step = 1.0 / (stops.length - 1);
@@ -41,158 +41,105 @@ export function lutShader(stops) {
     const lo = ((i - 1) * step).toFixed(4);
     body += `  c = mix(c, ${literal(stops[i])}, clamp((v - ${lo}) / ${step.toFixed(4)}, 0.0, 1.0));\n`;
   }
-  return `vec3 zmartLut(float v) {\n${body}  return c;\n}\n`;
+  return `vec3 ${name}(float v) {\n${body}  return c;\n}\n`;
 }
+
+// A colour as the engine's own control expects it. The engine parses the same
+// specifications a stylesheet does and keeps the value as a uniform, so this is
+// simply how a colour is spelled on the way over.
+export function hexColour(rgb) {
+  if (!rgb) return "#ffffff";
+  const part = (value) =>
+    Math.round(Math.min(1, Math.max(0, value)) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${part(rgb[0])}${part(rgb[1])}${part(rgb[2])}`;
+}
+
 
 // Real acquisitions occupy a narrow band of the 16-bit range, so without an
 // explicit window they render black. In 3-D the intensity drives opacity as
 // well, or every background voxel along the ray adds haze and the specimen is
 // lost in fog.
 //
-// Note what is *not* written into the text below: the contrast window itself, and
-// the 3-D opacity. Both are declared as controls with no particular value, and
-// the values are sent separately (see `shaderControlsFor`). The reason is worth
-// knowing. This little program runs on the graphics card, and the engine has to
-// compile it before it can draw. Writing the numbers into the text means a
-// different program every time a contrast handle moves — so dragging one would
-// recompile the program for every layer, several times a second. Declared as
-// controls, the numbers are sent to a program already compiled, which is what
-// makes dragging smooth however much data is open.
-export function shaderFor(color, volumetric, lut = null) {
-  let source = "#uicontrol invlerp normalized\n";
+// **What is not written into the text below**: the window, the colour and the
+// weight. Every one of them is declared as a control and sent as a number to a
+// program the engine has already compiled, so choosing a colour or dragging a
+// handle costs one number handed to the graphics card -- no rebuild, and
+// nothing re-read from disk, since what has been downloaded is keyed by the
+// store and the piece and knows nothing of how it is being shown. The colour
+// used to be written into the text, which compiled a fresh program per colour
+// and gave every channel a program of its own; the engine's own multichannel
+// display has always used a control (`#uicontrol vec3 color`) and so does this.
+//
+// **Channels are separate layers, and that is the engine's arrangement rather
+// than ours.** A brightness control can be bound to a named channel of the data
+// -- but only where the data declares CHANNEL dimensions, and an OME-Zarr `c`
+// axis arrives as a LOCAL dimension instead (measured 2026-08-20: the layer
+// reports `c\'` local and a channel rank of nought, so `channel=[1]` will not
+// even parse). A local dimension is pinned to one position per layer, so no
+// single program can read two channels of it. This is exactly why neuroglancer
+// splits a multichannel volume into one layer per channel too, and why the
+// channels are added by the engine between layers rather than by a program
+// within one.
+export function shaderFor(volumetric, lut = null) {
   const stops = lut ? LOOKUP_TABLES[lut] : null;
-  if (stops) source += lutShader(stops);
-  // Declared in both views, and the flat one is the interesting case -- see the
-  // long note further down about why an opacity that reaches the picture only
-  // through the alpha cannot dim the bottom-most row.
-  source += "#uicontrol float opacity slider(min=0, max=1, default=1)\n";
+  const declared = [
+    "#uicontrol invlerp normalized",
+    "#uicontrol float weight slider(min=0, max=1, default=1)",
+  ];
+  if (!stops) declared.push('#uicontrol vec3 color color(default="white")');
+  if (volumetric) {
+    declared.push("#uicontrol float attenuation slider(min=0, max=8, default=0)");
+  }
+  const lines = [...declared];
+  if (stops) lines.push(lutShader(stops));
+  lines.push("void main() {", "  float v = normalized();");
+  // A colour map already carries the brightness in its colour, which is what a
+  // colour map is; a flat colour has to be multiplied by it.
+  lines.push(stops
+    ? "  vec3 shown = zmartLut(v) * weight;"
+    : "  vec3 shown = color * (v * weight);");
   if (volumetric) {
     // Fading the far side of the specimen away, which the engine does not offer
-    // and napari calls an attenuated projection. Everything along a line of sight
-    // otherwise arrives with equal weight, so a deep specimen reads as one flat
-    // sheet with no telling front from back. `depthAtRayPosition` is declared by
-    // the engine immediately above this program and set afresh at every step
-    // along the ray, so all that is needed here is to weigh by it.
-    //
-    // Nought means no fading at all, which is exactly the old behaviour, so this
-    // changes nothing until somebody asks for it.
-    source += "#uicontrol float attenuation slider(min=0, max=8, default=0)\n";
-    const faded = "exp(-attenuation * depthAtRayPosition)";
-    // `emitIntensity` is what decides the contest in a projection: the engine
-    // keeps whichever voxel along the ray reports the largest value, and only
-    // then asks for its colour. Fading the colour alone -- which is all
-    // `emitRGBA` can do -- dims a distant winner without letting a nearer, dimmer
-    // voxel win, so it reads as shading rather than as depth. Fading the
-    // *intensity* is what napari means by an attenuated projection.
-    //
-    // Safe in both modes. Where there is no projection the engine declares
-    // `void emitIntensity(float value) {}` and the call costs nothing, and at no
-    // fading `exp(0)` is 1, so the picture is exactly what it was before.
-    const chooses = `emitIntensity(v * ${faded});`;
-    if (stops) {
-      return source + "void main() { float v = normalized();"
-        + ` ${chooses} emitRGBA(vec4(zmartLut(v), v * opacity * ${faded})); }`;
-    }
-    const [r, g, b] = color || [1, 1, 1];
-    return source
-      + "void main() { float v = normalized();"
-      + ` ${chooses} emitRGBA(vec4(${r}, ${g}, ${b}, v * opacity * ${faded})); }`;
+    // and napari calls an attenuated projection. `emitIntensity` is what decides
+    // the contest in a projection -- the engine keeps whichever voxel along the
+    // ray reports the largest value -- so the weight belongs in it as well, or a
+    // channel turned down would still win the ray and then be drawn dim.
+    lines.push(
+      "  float faded = exp(-attenuation * depthAtRayPosition);",
+      "  emitIntensity(v * weight * faded);",
+      "  emitRGBA(vec4(shown * faded, v * weight * faded));",
+      "}");
+  } else {
+    // Brightness rides in the colour and coverage rides in the transparency,
+    // and they answer two different questions: how bright is this spot, and was
+    // it imaged at all. A row that is ADDED to its neighbours needs the second
+    // one only so that ground nobody imaged contributes nothing; a row that
+    // COVERS needs it so an empty corner does not black out the picture
+    // beneath. Coverage is read from the windowed value, which is honest
+    // everywhere except at a black point raised above real but dim ground
+    // (recorded 2026-08-11) -- the engine offers no raw reader that compiles
+    // for every number type, so that limit stands, awaiting its own chapter.
+    lines.push("  emitRGBA(vec4(shown, v > 0.0 ? 1.0 : 0.0));", "}");
   }
-  // A flat picture has three things to get right at once, and they pull against
-  // each other, so it is worth setting out all three before the code. The third
-  // was added on 6 August 2026 and is at the bottom, beside `covered`.
-  //
-  // **The brightness has to reach the screen.** Turning the contrast handles is how
-  // a microscopist finds their specimen, so whatever window is chosen must change
-  // what the picture looks like. That means the *colour* the shader emits has to
-  // carry the brightness: `colour × v`, where `v` is the value after the window has
-  // been applied.
-  //
-  // **Ground nothing has been imaged on has to come out transparent, not black.**
-  // Most of a row is usually empty — a canvas is declared to the size of the stage
-  // and filled in as the run goes, so at the start it is empty everywhere. A row
-  // drawn opaque everywhere therefore blacks out every row below it, and an
-  // experiment with an overview and a target scan, or simply two channels, shows
-  // only whichever happens to be on top. Both rows load, both hold their data, and
-  // one of them is invisible. That means the *transparency* has to say whether this
-  // spot was imaged at all — and nothing else.
-  //
-  // So brightness goes in the colour and coverage goes in the transparency. They are
-  // two separate questions and each gets its own channel.
-  //
-  // This corrects an earlier attempt that put the brightness into the transparency
-  // instead, on the belief that the engine multiplies colour by transparency before
-  // drawing. It does not, for the bottom-most picture on screen: there it switches
-  // blending off altogether and writes the colour straight out, using transparency
-  // only as a yes-or-no test for "is this background?". A window chosen by the
-  // operator therefore never reached the picture — every window drew the same flat
-  // white shape — which is the fault this shape fixes.
-  //
-  // Two temptations to record, because both are wrong in ways that are hard to see.
-  // Writing `vec4(colour * v, v)` fixes the bottom picture and quietly darkens every
-  // picture above it twice over, because the engine's ordinary blending is
-  // *straight* transparency rather than the pre-multiplied kind and so multiplies by
-  // `v` a second time. And asking for additive blending fixes the brightness by
-  // making overlapping tiles sum into bright seams, which breaks the property the
-  // several-images arrangement exists to provide: where tiles overlap, one picture is
-  // simply drawn over the other and the result looks as it would have if a single
-  // image had been used.
-  const covered = "v > 0.0 ? 1.0 : 0.0";
-  // **And the opacity goes in the colour, not only in the alpha.** This is the
-  // third thing the flat shader has to get right, and it was missing until
-  // 6 August 2026, when the slider was found to be doing nothing whatsoever.
-  //
-  // The engine draws the **bottom-most** image of a slice view with blending
-  // switched off -- `image_renderlayer.js:setGLBlendMode` enables it only for
-  // `renderLayerNum > 0`. Nothing then reads that row's alpha except the
-  // composite, which asks `sampledColor.a == 0.0` and paints the background where
-  // that is true. So alpha is a yes-or-no answer to "was this spot imaged", and an
-  // opacity of 0.4 is just as much a yes as 1.0. Measured on one open channel, the
-  // picture came out 18.61 grey levels at 1.0, at 0.5 and at 0.1 -- the same
-  // number, not merely a similar one. Handing the opacity to `layer.opacity` or
-  // declaring it as a shader control and putting it in the alpha are the same
-  // thing arriving by two roads, and both were measured to change nothing at all.
-  //
-  // The colour is the only part of the bottom row's drawing that survives, so that
-  // is where the opacity goes. `layer.opacity` still carries it into the alpha as
-  // well (see `layersFor`), and that half is what a row **above** the bottom one
-  // needs: without it a fading row would blacken whatever is beneath it instead of
-  // revealing it, which was measured too -- the row underneath went from 0.90 grey
-  // levels to 0.00.
-  //
-  // The price, which is real and is why this is written out at length: a row that
-  // is not the bottom one now has the opacity applied twice, once to its colour
-  // and once as the alpha it is blended with, so it fades as opacity *squared*.
-  // Measured on a second channel, a half reads 1.74 where it used to read 3.50,
-  // while what shows through underneath is unchanged. The endpoints are exact and
-  // the fade is smooth. No single program can avoid it: the bottom row can only be
-  // dimmed through its colour, a row above it can only reveal what is beneath
-  // through its alpha, and a shader cannot know which of the two it is.
-  if (stops) {
-    // A lookup table already carries the brightness in its colour, since that is
-    // what a lookup table is, so the brightness needs no saying here -- only the
-    // dimming and the coverage.
-    return source + "void main() { float v = normalized();"
-      + ` emitRGBA(vec4(zmartLut(v) * opacity, ${covered})); }`;
-  }
-  // White is the honest default for a single channel with no colour of its own:
-  // there is nothing to distinguish it from, so a colour would be an invention.
-  const [r, g, b] = color || [1, 1, 1];
-  return source + "void main() { float v = normalized();"
-    + ` emitRGBA(vec4(vec3(${r}, ${g}, ${b}) * v * opacity, ${covered})); }`;
+  return `${lines.join("\n")}\n`;
 }
 
 // The values for the controls declared above. These reach the graphics card
 // without the program being touched, which is why contrast is smooth to drag.
-export function shaderControlsFor(window_, volumetric, opacity, attenuation = 0) {
+export function shaderControlsFor(window_, volumetric, weight, colour,
+                                  lut = null, attenuation = 0) {
   if (!window_) return undefined;
   const controls = { normalized: { range: [window_.low, window_.high] } };
-  // Sent in both views. In the volume it is the alpha the ray accumulates; in the
-  // flat view it dims the colour, which is the only way to fade the bottom-most
-  // row -- see the note in `shaderFor`. Sent as a control rather than written into
-  // the program, so that dragging the slider does not recompile a shader per layer
-  // on every step, exactly as the contrast window is.
-  controls.opacity = opacity;
+  // The weight is what an eye and an opacity slider both come to: nought hides
+  // the channel, one shows it whole, and everything between fades it. Sent as a
+  // number rather than as a switch on purpose -- the engine treats a checkbox as
+  // part of a program's identity and would recompile on every glance, while a
+  // number reaches the program already running.
+  controls.weight = weight;
+  // A channel painted through a colour map has no flat colour to send.
+  if (!lut) controls.color = hexColour(colour);
   if (volumetric) controls.attenuation = attenuation;
   return controls;
 }
@@ -307,20 +254,21 @@ export function layersFor(config, mode, layerState, groupState, groupOrder,
       layer.notSelectedAlpha = opacity;
       return layer;
     }
-    layer.shader = shaderFor(color, volumetric, lut);
-    // Channels of one composed picture sum like light -- the additive merge
-    // every fluorescence viewer does -- so recolouring any channel shows,
-    // not only the topmost (on a real four-channel plate the top channel's
-    // coverage alpha hid the other three completely, 2026-08-19). Additive
-    // is safe exactly when a row has ONE source: the engine blends each
-    // source as its own pass, so a row stitched from many tiles would sum
-    // its overlaps into bright seams -- the recorded reason additive was
-    // once rejected -- and such rows keep the covering rule.
+    layer.shader = shaderFor(volumetric, lut);
+    // A row that got here is a channel a microscope wrote as its own file, so
+    // the engine has to add it to its neighbours from outside -- there is no
+    // one program holding both. Adding is safe only while the row is fed by a
+    // single store: the engine draws each store as its own pass, so a row
+    // stitched from overlapping tiles would sum them into a bright seam along
+    // every join, and such a row keeps the covering rule instead (and with it
+    // the old fault, where only the topmost channel is seen). The cure is not
+    // a cleverer rule here but the composed picture the server already builds,
+    // whose channels live together and mix in one program.
     if ((spec.sources || [spec.source]).length === 1) {
       layer.blend = "additive";
     }
     const controls = shaderControlsFor(displayWindow, volumetric, opacity,
-                                       volume.attenuation ?? 0);
+                                       color, lut, volume.attenuation ?? 0);
     if (controls) layer.shaderControls = controls;
     if (volumetric) {
       // Which way the ray is turned into a colour, and it is not a detail.
@@ -349,13 +297,19 @@ export function layersFor(config, mode, layerState, groupState, groupOrder,
       // engine raises it to a power, so nought is unchanged.
       layer.volumeRenderingGain = volume.gain ?? 0;
     } else {
-      // The same number the shader was just given, and deliberately not instead
-      // of it. This one is the alpha the engine blends a row with, which is what
-      // lets a row above another fade and reveal it; the shader's copy dims the
-      // colour, which is the only thing that reaches the bottom-most row's
-      // drawing. Two carriers because they are read in two different places by
-      // two different regimes -- see the note in `shaderFor`.
-      layer.opacity = opacity;
+      // Which of the two places a weight is read from depends on how this row
+      // meets the rows beneath it, and it must be read from exactly one of
+      // them or a channel fades as its own setting SQUARED -- measured on this
+      // viewer, a half reading a quarter.
+      //
+      // A row the engine ADDS contributes precisely the colour its program
+      // emits, and the weight is already in that colour, so this stays at one.
+      // A row that COVERS is the other case: there the engine reads this
+      // number to let a faded row reveal what lies beneath it, which the
+      // colour alone cannot do, and the old squared fade is the price. No one
+      // program can avoid it while a single number has to both dim a row and
+      // reveal what it is covering.
+      layer.opacity = layer.blend === "additive" ? 1 : opacity;
     }
     return layer;
   });

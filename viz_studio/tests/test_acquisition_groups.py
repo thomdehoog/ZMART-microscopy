@@ -69,7 +69,16 @@ class TestReadingChannels:
         assert len(channels(store)) == 2
 
     def test_channels_with_no_description_are_numbered_not_dropped(self, tmp_path):
-        """A channel we cannot name is far better shown than quietly lost."""
+        """A channel we cannot name is far better shown than quietly lost.
+
+        Unnamed channels used to stay greyscale, on the principle that a
+        colour nobody asked for is an invention. Channels of one picture are
+        now ADDED to each other on screen, and several white channels add to
+        white -- the specimen disappears into a flat glare and no amount of
+        recolouring one of them helps, because they are all the same colour.
+        So where there are several, each takes its own; where there is one,
+        the old principle stands and it is left plain.
+        """
         store = _write_store(
             tmp_path / "overview_pos001.ome.zarr",
             axes=["c", "z", "y", "x"],
@@ -77,7 +86,19 @@ class TestReadingChannels:
         )
         found = channels(store)
         assert [c["name"] for c in found] == ["channel 1", "channel 2", "channel 3"]
-        assert all(c["color"] is None for c in found), "unnamed channels stay greyscale"
+        colours = [tuple(c["color"]) for c in found]
+        assert len(set(colours)) == 3, (
+            f"channels that are added together must not open alike: {colours}"
+        )
+
+    def test_a_lone_unnamed_channel_is_left_plain(self, tmp_path):
+        """With nothing to tell it apart from, a colour would be an invention."""
+        store = _write_store(
+            tmp_path / "lonely_pos001.ome.zarr",
+            axes=["c", "z", "y", "x"],
+            shape=[1, 8, 64, 64],
+        )
+        assert channels(store)[0]["color"] is None
 
     def test_a_store_with_no_channel_axis_is_one_layer(self, tmp_path):
         store = _write_store(

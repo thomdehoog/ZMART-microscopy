@@ -73,6 +73,14 @@ CARRIED_BY_HAND = {
         "(managed) => managed.layer.opacity.value",
         "(managed) => { managed.layer.opacity.value = 0.123; }",
     ),
+    # How a row meets the rows beneath it: added to them, or covering them.
+    # Neuroglancer numbers these DEFAULT 0 and ADDITIVE 1, so this lands on
+    # whichever the panel did not ask for.
+    "blend": (
+        "(managed) => managed.layer.blendMode.value",
+        "(managed) => managed.layer.blendMode.restoreState("
+        "managed.layer.blendMode.value === 1 ? 'default' : 'additive')",
+    ),
     "volumeRendering": (
         "(managed) => managed.layer.volumeRenderingMode.value",
         # Neuroglancer numbers these OFF 0, ON 1, MAX 2, MIN 3, so this lands on

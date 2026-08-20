@@ -491,7 +491,23 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   // Linear or logarithmic brightness axis, for the histogram AND the MIN and
   // MAX sliders together -- they describe the same scale, so they warp
   // together or the marks would stop sitting where the handles say.
-  const [scale, setScale] = React.useState("linear");
+  //
+  // Nothing chosen means "whichever suits this channel", and the answer turns
+  // on how much of the camera's range the specimen actually fills. The axis
+  // runs to the whole range so that the headroom before saturation is on show,
+  // and on a real specimen -- a plate whose signal sits in the first few
+  // hundred of sixty-five thousand -- that leaves the handles the two pixels of
+  // useful travel the wide axis was supposed to cure. The logarithmic axis
+  // spreads that dim end back out, so it starts on exactly where it is needed.
+  // One press still settles it either way: a choice, once made, is kept.
+  const [chosen, setChosen] = React.useState(null);
+  const wholeRange = layer.range;
+  const spread = Math.max(
+    1, (layer.histogram?.high ?? 0) - (layer.histogram?.low ?? 0));
+  const crowded = !!wholeRange && Number.isFinite(wholeRange.high)
+    && (wholeRange.high - (wholeRange.low ?? 0)) > 20 * spread;
+  const scale = chosen ?? (crowded ? "log" : "linear");
+  const setScale = setChosen;
   const travel = Math.max(1, max - min);
 
   // The Auto light is derived, not stored: it is on exactly while the window

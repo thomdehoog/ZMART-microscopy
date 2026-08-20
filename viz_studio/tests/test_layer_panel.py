@@ -94,9 +94,16 @@ def test_the_panel_lists_every_layer(two_channel_page):
 
 
 def test_channels_arrive_green_and_magenta(two_channel_page):
-    shaders = [layer["shader"] for layer in two_channel_page.evaluate(_ENGINE_LAYERS)]
-    assert "0, 1, 0.4" in shaders[0], "488 should be green"
-    assert "1, 0.2, 1" in shaders[1], "647 should be magenta"
+    """The wavelength decides the colour, and the colour travels as a value.
+
+    Read from the controls rather than from the program's text: a colour is a
+    number handed to a program the engine has already compiled, exactly as the
+    contrast window is, so nothing about a channel's colour appears in the
+    text at all.
+    """
+    held = [layer["controls"] for layer in two_channel_page.evaluate(_ENGINE_LAYERS)]
+    assert held[0]["color"] == "#00ff66", "488 should be green"
+    assert held[1]["color"] == "#ff33ff", "647 should be magenta"
 
 
 def test_hiding_a_layer_hides_it_in_the_engine(two_channel_page):
@@ -122,10 +129,15 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
     the little swatch on the row only *shows* the choice. One place to
     change it, every place reflecting it.
     """
+    before = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
     two_channel_page.get_by_label("lookup table Ch488").select_option("flat:cyan")
     two_channel_page.wait_for_timeout(800)
-    shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
-    assert "0.2, 0.8, 1" in shader
+    layer = two_channel_page.evaluate(_ENGINE_LAYERS)[0]
+    assert layer["controls"]["color"] == "#33ccff"
+    assert layer["shader"] == before, (
+        "a colour is a number sent to the program, so choosing one must not "
+        "rewrite the program"
+    )
 
 
 def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
@@ -157,9 +169,9 @@ def test_colour_survives_the_three_d_toggle(two_channel_page):
     two_channel_page.wait_for_timeout(500)
     two_channel_page.click("text=3D")
     two_channel_page.wait_for_timeout(1500)
-    shader = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
-    assert "emitRGBA" in shader
-    assert "0.2, 0.8, 1" in shader
+    layer = two_channel_page.evaluate(_ENGINE_LAYERS)[0]
+    assert "emitRGBA" in layer["shader"]
+    assert layer["controls"]["color"] == "#33ccff"
 
 
 def test_visibility_survives_the_three_d_toggle(two_channel_page):
@@ -232,10 +244,21 @@ def test_contrast_survives_the_three_d_toggle(two_channel_page):
 
 
 def test_opacity_reaches_the_plane_layer(two_channel_page):
+    """The channel's own weight carries the fade, and carries it once.
+
+    Channels of one picture are ADDED to each other, and an added row
+    contributes exactly the colour its program emits -- so the weight belongs
+    in that colour and the transparency the engine blends with stays at one.
+    Carried in both, as it once was, a channel faded as its own setting
+    squared: a half read a quarter.
+    """
     _set_range(two_channel_page, "opacity Ch488", 0.37)
     two_channel_page.wait_for_timeout(800)
-    opacity = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["opacity"]
-    assert opacity == pytest.approx(0.37)
+    layer = two_channel_page.evaluate(_ENGINE_LAYERS)[0]
+    assert layer["controls"]["weight"] == pytest.approx(0.37)
+    assert layer["opacity"] == pytest.approx(1.0), (
+        "an added row must not fade a second time through its transparency"
+    )
 
 
 def test_opacity_survives_the_three_d_toggle(two_channel_page):
@@ -248,8 +271,8 @@ def test_opacity_survives_the_three_d_toggle(two_channel_page):
     # the shader computes -- but its value, like the contrast window, is sent as a
     # control rather than written into the program.
     assert "float v = normalized();" in layer["shader"]
-    assert "v * opacity" in layer["shader"]
-    assert layer["controls"]["opacity"] == pytest.approx(0.42)
+    assert "v * weight" in layer["shader"]
+    assert layer["controls"]["weight"] == pytest.approx(0.42)
 
 
 def test_the_histogram_of_the_chosen_channel_is_the_one_on_screen(two_channel_page):
@@ -718,3 +741,77 @@ def test_channels_of_one_picture_blend_like_light(browser, built_dist,
         page.close()
         server.shutdown()
         thread.join(timeout=5)
+
+
+def _a_narrow_store(path, low=100, high=900):
+    """A store whose signal fills a sliver of what its camera could write."""
+    import json
+
+    import numpy as np
+    import zarr
+
+    path.mkdir(parents=True)
+    group = zarr.open_group(str(path), mode="w", zarr_format=2)
+    values = np.random.default_rng(3).integers(low, high, (1, 2, 64, 64))
+    group.create_array("0", shape=values.shape, chunks=(1, 1, 64, 64),
+                       dtype="uint16")[:] = values.astype(np.uint16)
+    (path / ".zattrs").write_text(json.dumps({
+        "multiscales": [{
+            "version": "0.4",
+            "axes": [{"name": "c", "type": "channel"},
+                     {"name": "z", "type": "space", "unit": "micrometer"},
+                     {"name": "y", "type": "space", "unit": "micrometer"},
+                     {"name": "x", "type": "space", "unit": "micrometer"}],
+            "datasets": [{"path": "0", "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 2.0, 0.35, 0.35]}]}],
+        }],
+        "omero": {"channels": [{"label": "ch0", "color": "00FF66"}]},
+    }), encoding="utf-8")
+    return path
+
+
+def test_a_narrow_signal_opens_on_the_logarithmic_axis(browser, built_dist,
+                                                       tmp_path):
+    """Where the camera's range dwarfs the signal, the dim end is spread out.
+
+    The brightness axis runs to the whole range the camera can write, so that
+    the headroom before saturation is on show. On a real specimen that leaves
+    the signal in the first per cent of the track, and the handles are back to
+    the two pixels of useful travel the axis was widened away from -- unless
+    the logarithmic axis is already on, which is what makes the wide track
+    workable. So it starts on by itself exactly when it is needed, and the
+    toggle still has the last word.
+    """
+    folder = tmp_path / "narrow"
+    folder.mkdir()
+    _a_narrow_store(folder / "overview_pos001.ome.zarr")
+    server = make_server(port=0, data_dir=folder, site_dir=built_dist,
+                         store="overview_pos001.ome.zarr")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1200, "height": 900})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                  wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined",
+                               timeout=30_000)
+        page.wait_for_timeout(1_500)
+        axis = page.locator("[aria-label='linear brightness axis']")
+        assert axis.count() == 1, (
+            "a signal filling a hundredth of the camera's range must open on "
+            "the logarithmic axis, whose button offers the linear one back"
+        )
+        assert axis.get_attribute("aria-pressed") == "true"
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_a_signal_that_fills_its_range_stays_linear(two_channel_page):
+    """And where the signal fills the range, the plain axis is left alone."""
+    axis = two_channel_page.locator("[aria-label='logarithmic brightness axis']")
+    assert axis.count() == 1, (
+        "the demo volume spans a good part of its camera's range, so nothing "
+        "needs spreading out and the axis should still be the linear one"
+    )
