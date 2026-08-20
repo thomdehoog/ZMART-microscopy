@@ -87,13 +87,16 @@ views mix the same way.
 ### Five channels and more
 
 A screen has three primaries, so five or more channels are always a
-projection down to three numbers per pixel. The workable shapes: hues
-around the colour wheel for any count; **weights scaled so the visible
-channels can only just reach white** (then no count ever clips, and
-all-bright honestly reads as white); winner-takes-the-pixel for very high
-counts (10–40-plex); and the stock convention that channels beyond the
-first few open hidden. For our 18-channel plate: palette turns around the
-wheel, sum-normalised weights, open with a handful visible.
+projection down to three numbers per pixel. Choosing each channel's colour
+as a HUE is what scales: named colours run out (which is why the reference
+tools stop at eight, or four) while hues simply divide the wheel. With the
+mixing done inside one program, no channel count can clip -- the sum is
+scaled back wherever it overshoots, and that scaling preserves the hue, so
+overlaps read as a blend of two hues rather than as white. What does bound
+the count is how many channels one program can sample (Viv stops at ten),
+which is why every reference tool shows a few of a high-plex picture at a
+time. For our 18-channel plate: hues around the wheel, every channel
+listed in the panel, the first few showing.
 
 ### Honest verdicts on yesterday's three changes
 
@@ -115,9 +118,10 @@ layer API takes, per layer: a drawing program, adjustable controls for it
 (the brightness window already travels this way), a blend mode, and an
 opacity. Today's one violation of that model is the colour, written into
 the program text instead of handed over as a control -- the plan ends it.
-The just-reach-white scaling also fits without anything special: the panel
-computes the scaled values and delivers them as ordinary colour settings
-through the same API. No engine modification anywhere.
+Everything else the design asks for is layer state too: which channel a
+brightness control reads, each channel's colour and weight, and the
+mixing itself, which lives in the program text the layer is given. No
+engine modification anywhere.
 
 ## The design
 
@@ -164,21 +168,43 @@ The rest of the design stands:
 2. **Opacity has one carrier** and the coverage term means coverage only:
    whether anything was imaged there, for stacking one acquisition over
    another.
-3. **Defaults owned once.** The server reports colours a run DECLARED, or
-   nothing; the default palette lives in exactly one place (the panel).
-   Hues turn around the wheel for any number of channels.
-4. **A picture whose channels live in separate files** -- an older
+3. **A channel's colour is chosen as a hue, not as a red-green-blue
+   triple.** The engine's dial takes red, green and blue, and the panel
+   hands it those -- but what the OPERATOR turns is a hue, with saturation
+   beside it. The reason is that a hue is a dial where a triple is a list:
+   named colours run out (which is why the reference tools stop at eight,
+   or four), while hues simply divide the wheel, so eighteen channels are
+   no harder to tell apart than four. It also matches the other end of the
+   pipeline exactly: the mixing rule above divides the three components by
+   one number, which leaves their ratios -- the hue -- untouched, so two
+   overlapping channels read as a true blend of their two hues instead of
+   washing towards white. Saturation earns its place as the second dial:
+   full for channels to tell apart, pulled towards grey for one meant to
+   sit underneath as plain structure. The engine ships the conversion both
+   in JavaScript and as shader code (`hsvToRgb`, `glsl_hsvToRgb`) and uses
+   it itself to colour segments, so nothing here is invented.
+
+   Worth knowing when the defaults are written: equal steps of hue are not
+   equally distinguishable -- green covers a wide band, blue and yellow
+   narrow ones. Spacing the default hues in a perceptual space (OKLCH) and
+   converting to red-green-blue in the panel makes channels look evenly
+   separated rather than merely be evenly numbered. A refinement, not a
+   requirement, and entirely on our side of the engine.
+
+4. **Defaults owned once.** The server reports colours a run DECLARED, or
+   nothing; the default hues live in exactly one place (the panel).
+5. **A picture whose channels live in separate files** -- an older
    run, a folder of per-channel stores -- keeps a layer per channel and
    the engine's plain additive mixing, which clips as every tool does.
    The cure is the composed picture the server already builds, not a
    second compositing system.
-5. **How many channels at once.** One program samples a bounded number of
+6. **How many channels at once.** One program samples a bounded number of
    channels (Viv stops at ten; every reference tool opens with about four
    showing). A picture with more offers them all in the panel and shows
    the first few, as the field does.
-6. **The Log brightness axis turns on by itself** when the camera's range
+7. **The Log brightness axis turns on by itself** when the camera's range
    dwarfs the measured spread.
-7. **The measured 1-99 window stays** the server's: it also draws the
+8. **The measured 1-99 window stays** the server's: it also draws the
    histogram and works before the graphics card has read a pixel. Barely
    a deviation at all, it turns out -- stock neuroglancer's own
    auto-contrast computes the same percentiles, on the GPU; only where
@@ -187,10 +213,11 @@ The rest of the design stands:
 Touches: `scene.js` (one layer per picture, the mixing program, the
 controls), `engine.js` (rows become one layer with per-channel controls
 rather than one layer each), `LayerPanel.jsx` (a channel row now drives a
-control, and owns the palette), `stores.py` (the palette leaves).
+control, carries the hue dial, and owns the defaults), `stores.py` (the palette leaves).
 Gates: the existing blend/panel gates updated, plus red-first gates that a
 dense four-channel picture opens unclipped, that opacity fades linearly,
-and that a stitched multichannel row says on the panel why it cannot mix.
+that a lone channel keeps full brightness however many are open, and
+that hues divide the wheel for any channel count.
 The trapping comment blocks listed in the review are rewritten to state
 their conditions.
 
@@ -211,9 +238,10 @@ their conditions.
   scales the sum back only where it would overflow; coverage means
   coverage. The 3D program mixes the same way, so both views agree.
 - **Stage 2 -- ownership moves** (`stores.py`, `LayerPanel.jsx`). The
-  server reports only colours a run declared; the panel assigns hues
-  around the wheel to the rest and owns the palette alone; a channel row
-  drives a control rather than a layer, and its eye is a weight.
+  server reports only colours a run declared; the panel turns a hue dial
+  for each channel, spaces the defaults around the wheel and owns them
+  alone; a channel row drives a control rather than a layer, and its eye
+  is a weight.
 - **Stage 3 -- the many-channel convention.** A picture with more channels
   than one program samples offers them all in the panel and shows the
   first few, as every reference tool does.
