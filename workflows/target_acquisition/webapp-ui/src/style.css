@@ -21,6 +21,11 @@
   --mark-gated: #0284c7;
   --mark-acquired: #16a34a;
   --mark-context: #94a3b8;
+  /* where the microscope is standing. The one red on the picture, and it is
+     not the red of a bad answer: a stage has no opinion about whether being
+     somewhere is good. Kept apart from --bad for that reason, so neither can
+     be changed into the other by accident. */
+  --mark-stage: #e11d48;
   /* the three sharpness metrics, as three series on one plot */
   --m-brenner: #0369a1;
   --m-dct: #7c3aed;
@@ -719,6 +724,9 @@ canvas.livecv[hidden] { display: none; }
    What the run is configured with. The cards render into the channel like
    every other step's controls; this is their margin inside it. */
 .side-pad { padding: 12px 14px 14px; }
+/* A box that brings its own padding still needs the channel's margin around
+   it, which a panel of plain markup gets from `.side-pad`. */
+.side-pad-around { margin: 14px 14px 0; }
 
 /* ---- session card ------------------------------------------------------
    The whole card reads top to bottom: what it is for, what it was opened
@@ -853,7 +861,7 @@ canvas.livecv[hidden] { display: none; }
 }
 /* Name and summary share the row's width and give way with an ellipsis, so a
    narrow channel truncates them instead of pushing the row out of its box. */
-.rec-row { grid-template-columns: var(--fold-col) minmax(80px, 1fr) minmax(0, 1fr) 26px; }
+.rec-row { grid-template-columns: var(--fold-col) minmax(0, 1fr) 26px; }
 /* The open bar carries no empty fold column. It opens with the name it is
    there to take, where a recorded row opens with its triangle, so the two
    begin on the same edge instead of the bar sitting indented behind a column
@@ -866,9 +874,8 @@ canvas.livecv[hidden] { display: none; }
 .rec-new { grid-template-columns: minmax(0, 240px) max-content 1fr; }
 
 .rec-fold, .rec-new input { grid-column: 1; }
-.rec-name { grid-column: 2; }
-.rec-state { grid-column: 3; }
-.rec-drop { grid-column: 4; }
+.rec-pick { grid-column: 2; }
+.rec-drop { grid-column: 3; }
 /* The base rule starts a button at the top of its row, which left this one
    riding above the fields. Stretched instead of centred, so it stands exactly
    as tall as the name box beside it — taken from the row rather than set to a
@@ -877,6 +884,22 @@ canvas.livecv[hidden] { display: none; }
   grid-column: 2; justify-self: start; align-self: stretch; padding: 0 14px;
 }
 
+/* The record is the button that chooses it: one press says what this step is
+   taken with. It carries no frame of its own — the box around it is the
+   object, and a border inside a border says the same thing twice. */
+.rec-pick {
+  display: grid; grid-template-columns: minmax(80px, 1fr) minmax(0, 1fr);
+  align-items: center; gap: var(--row-gap); min-width: 0;
+  padding: 0; font: inherit; text-align: left;
+  background: none; border: none; cursor: pointer;
+}
+/* The dot is the colour the preset is drawn in on the stage, so the canvas
+   needs no legend. It sits in the name's column rather than a column of its
+   own: only some kinds of recording are drawn anywhere. */
+.rec-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  display: inline-block; margin-right: 7px; vertical-align: 1px;
+}
 .rec-name {
   font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -886,6 +909,11 @@ canvas.livecv[hidden] { display: none; }
   text-align: right; font-variant-numeric: tabular-nums;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.rec-pick:hover:enabled .rec-name { color: var(--accent-deep); }
+/* Active is the whole box, not a tick inside it: what the step is taken with
+   is a property of the record, and the record is the box. */
+.setting-box.done.active { border-color: var(--accent); background: var(--accent-tint); }
+.setting-box.done.active .rec-name { color: var(--accent-deep); font-weight: 700; }
 /* The controls sit on the bar rather than in boxes of their own. A bordered
    field inside a bordered box inside a bordered group is three edges saying
    the same thing, and it made the one thing being filled in the hardest part
@@ -930,6 +958,21 @@ canvas.livecv[hidden] { display: none; }
    looked and its contents rode high in the box. */
 .session-hint:empty { display: none; }
 
+/* Three readings tall, and scrolling after that. A slot that kept growing
+   would push the rest of the step off the bottom of the channel, and a fourth
+   reading is not worth more than the controls it would shove away. The height
+   is counted in rows rather than typed: a row is its content plus the box's
+   padding, and the gaps between them. */
+.rec-list {
+  --rec-row-h: 40px;
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: calc(3 * var(--rec-row-h) + 2 * 6px);
+  overflow-y: auto; scrollbar-gutter: stable;
+  /* So a row's offset is measured from this list and not from some ancestor
+     further out: that offset is what scrolls the active reading into sight. */
+  position: relative;
+}
+
 /* Settings of one kind sit close; one kind and the next stand apart. */
 .setting-group { display: flex; flex-direction: column; gap: 6px; }
 .setting-group + .setting-group { margin-top: 16px; }
@@ -966,20 +1009,11 @@ canvas.livecv[hidden] { display: none; }
 
 .carrier-types { display: flex; gap: 5px; }
 
-/* The two bodies under the type row: the designer for catalogue carriers,
-   the bounds recorder for a volume. display beats the [hidden] attribute's
-   browser rule, so the one not in use is put away explicitly. */
-.carrier-designer, .carrier-volume { display: flex; flex-direction: column; gap: 8px; }
-.carrier-designer[hidden], .carrier-volume[hidden] { display: none; }
-
-/* The volume recorder: bounds are read off the stage, not typed. */
-.carrier-vol-why { font-size: 12px; color: var(--ink-3); line-height: 1.4; }
-.carrier-vol-row { display: flex; align-items: center; gap: 6px; }
-.carrier-vol-row .carrier-label { width: 14px; flex: none; }
-.carrier-vol-span {
-  flex: 1; font-family: var(--mono); font-size: 12px; color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-}
+/* The one body under the type row. Which of its groups are on screen is what
+   a carrier type decides; display beats the [hidden] attribute's browser rule,
+   so a group the type is not about is put away explicitly. */
+.carrier-designer { display: flex; flex-direction: column; gap: 8px; }
+.carrier-designer[hidden], .carrier-group[hidden] { display: none; }
 .carrier-type {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
   padding: 8px 4px 6px; font: inherit; font-size: 10px; font-weight: 500;
@@ -996,12 +1030,16 @@ canvas.livecv[hidden] { display: none; }
   background: var(--screen); border: 1px solid var(--line);
   border-radius: 9px; padding: 10px 12px;
 }
-/* Two numbers and the button that ties them, in one shape for all three pairs
-   so a row of boxes means the same thing wherever it appears. */
-.carrier-pair {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px;
+/* A row of numbers with the tie button at the end of it, in one shape
+   wherever it appears. How many numbers is set per row, because a carrier's
+   size is one, two or three of them and all of them have to line up under the
+   same button. */
+.carrier-nums {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)) 30px;
   gap: 4px 6px; align-items: center; width: 100%;
 }
+.carrier-nums.no-tie { grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); }
 /* One line each: a label that wraps takes its box with it and the two halves
    of a pair stop standing level. */
 .carrier-label {
@@ -1011,7 +1049,12 @@ canvas.livecv[hidden] { display: none; }
 .carrier-num, .carrier-preset {
   font: inherit; font-size: 12px; font-family: var(--mono); color: var(--ink);
   background: var(--surface-2); border: 1px solid var(--line-strong);
-  border-radius: 6px; padding: 5px 7px; width: 100%; min-width: 0;
+  border-radius: 6px; padding: 5px 7px; width: 100%;
+  /* Four digits, the point, and the two decimals these fields carry — the
+     widest number this panel can put in one, which is what decides whether
+     three of them fit across the column rather than the column deciding how
+     much of a number can be seen. */
+  min-width: calc(7ch + 16px);
 }
 .carrier-num:focus, .carrier-preset:focus { outline: none; }
 .carrier-preset { flex: 1; font-family: inherit; }
@@ -1026,6 +1069,12 @@ canvas.livecv[hidden] { display: none; }
 .carrier-link { width: 30px; }
 .carrier-shape { width: 30px; }
 .carrier-reset { padding: 0 12px; }
+/* The catalogue on one line and what can be done with a whole carrier on the
+   next, in equal thirds: none of the three is the one usually wanted, so none
+   of them is given the room that would say so. */
+.carrier-group:has(.carrier-files) { flex-direction: column; }
+.carrier-files { display: flex; gap: 6px; }
+.carrier-files .carrier-reset { flex: 1; padding: 0; }
 .carrier-link:hover:enabled, .carrier-shape:hover:enabled, .carrier-reset:hover:enabled {
   border-color: var(--accent); color: var(--accent);
 }
@@ -1046,31 +1095,35 @@ canvas.livecv[hidden] { display: none; }
 .sf-card { display: flex; flex-direction: column; height: 100%; }
 .sf-controls { display: flex; flex-direction: column; gap: 10px; padding: 16px 14px; }
 
-.sf-modes { display: flex; gap: 6px; }
-.sf-mode {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;
-  padding: 10px 6px 8px; cursor: pointer;
-  border: 1.5px solid transparent; border-radius: 10px;
-  background: transparent; color: var(--ink-3); font: inherit;
-}
-.sf-mode:hover { border-color: var(--line); color: var(--ink-2); }
-.sf-mode.on { border-color: var(--accent); background: var(--accent-tint); color: var(--accent-deep); }
-.sf-mode-icon { font-size: 17px; line-height: 20px; }
-.sf-mode-label {
-  font-size: 10px; font-family: var(--mono); font-weight: 500; letter-spacing: 0.04em;
-}
-.sf-mode.on .sf-mode-label { font-weight: 700; }
 
-.sf-group {
+/* A box of controls in the channel, wherever the channel is: the scan fields
+   use it, and so does the autofocus preset in the focus step, because a
+   recording taken there is the same kind of thing as one taken here and
+   should not arrive looking like another.
+
+   On the screen colour, like the carrier's groups: both are boxes of controls
+   in the same channel, and two greys down one column read as two kinds of
+   thing when they are one. */
+.side-group {
   display: flex; flex-direction: column; gap: 10px;
   padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
-  background: var(--surface-3);
+  background: var(--screen);
 }
-.sf-group[hidden] { display: none; }
-.sf-group-title {
-  font-size: 11px; font-family: var(--mono); font-weight: 700;
-  color: var(--ink); letter-spacing: 0.03em;
+.side-group[hidden] { display: none; }
+/* The same heading as the recording brings with it, because they are headings
+   of the same kind: each names what the box under it is for. Two shapes of
+   heading down one column reads as two kinds of thing, which these are not. */
+.side-group-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--ink);
 }
+/* A second title inside the same box stands well off from what came before
+   it, so the two ways of making fields read as two without being boxed apart.
+   The gap does the work the box edge used to do, so it is bigger than the one
+   between a title and the controls it heads — otherwise the title floats
+   between the two and belongs to neither. */
+.side-group-title:not(:first-child) { margin-top: 14px; }
+
 
 .sf-tools { display: flex; gap: 6px; }
 .sf-tool {
@@ -1104,23 +1157,6 @@ canvas.livecv[hidden] { display: none; }
 }
 .sf-num input:focus { outline: none; }
 
-/* One press says what the next field is taken with. The dot is the colour it
-   is drawn in, so the canvas needs no legend. */
-.sf-presets { display: flex; flex-direction: column; gap: 6px; }
-.sf-preset {
-  display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px;
-  background: var(--screen); border: 1px solid var(--line-strong);
-  border-radius: 6px; cursor: pointer; font: inherit;
-}
-.sf-preset.on { border-color: var(--accent); background: var(--accent-tint); }
-.sf-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.sf-preset-name {
-  flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis;
-  font-size: 11px; font-family: var(--mono); font-weight: 500; color: var(--ink-2);
-}
-.sf-preset.on .sf-preset-name { font-weight: 700; color: var(--accent-deep); }
-.sf-preset-frame { font-size: 9.5px; font-family: var(--mono); color: var(--ink-3); }
-
 .sf-row { display: flex; gap: 6px; }
 .sf-flat {
   flex: 1; height: 30px; padding: 0 8px;
@@ -1131,11 +1167,17 @@ canvas.livecv[hidden] { display: none; }
 }
 .sf-flat:hover:enabled { border-color: var(--accent); color: var(--accent-deep); }
 .sf-flat:disabled { opacity: 0.55; cursor: not-allowed; }
+/* Greyed while the step is locked — the plan is fixed once the overview has
+   been scanned, and the controls say so by staying where they are. */
+.sf-tool:disabled, .sf-num input:disabled {
+  opacity: 0.55; cursor: not-allowed;
+}
 
 .sf-keys {
   border: 1px solid var(--line); border-radius: 10px;
-  background: var(--surface-3); overflow: hidden;
+  background: var(--screen); overflow: hidden;
 }
+.sf-keys[hidden] { display: none; }
 .sf-keys-head {
   width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 14px;
   background: transparent; border: none; cursor: pointer; text-align: left;

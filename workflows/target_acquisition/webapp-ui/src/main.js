@@ -10,9 +10,13 @@ import {
   describeSession, describeConnection, CONNECT_CHECKS,
   sampleReading, STAGE_LIMITS_MM,
 } from "./lib/microscopes.js";
-import { centres, DEFAULT_CARRIER, describeCarrier, volumeComplete } from "./lib/carriers.js";
+import { centres, DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
+import {
+  emptySlot, hasRecording, withRecording, withoutRecording, withActive,
+  activeRecording, nextReadingIndex,
+} from "./lib/recordings.js";
 import carrierWidget from "./widgets/carrier.js";
-import scanfieldsWidget from "./widgets/scanfields.js";
+import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
 
 (() => {
   "use strict";
@@ -64,7 +68,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      what there is to find. A cell remembers which tile it was imaged in, so
      tuning detection on one tile is a question the sample can answer. */
   function rebuildSample() {
-    state.plan = scanfieldsWidget.plan(state.fields, recordedPresets());
+    state.plan = scanfieldsWidget.plan(state.fields, activePreset(), state.carrier);
     sample = { tissue: tissueFor(state.carrier), cells: [], bounds: null };
     if (!state.plan.length) return;
 
@@ -156,8 +160,6 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      There is no presets step: each recording lives in the step that uses it —
      the overview preset with the scan fields, the autofocus preset with the
      focus strategy, the acquisition type with the targets. */
-  const newRecording = (type) => ({ type, name: "" });
-
   /* Which workflow to open on — `?workflow=canvas_layers`.
    *
    * For pointing this page at a run and looking at it, which is what somebody
@@ -176,10 +178,13 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
   const state = {
     session: { ...DEFAULT_SESSION },
-    recordings: [],
-    overviewPreset: newRecording("acquisition"),
-    focusPreset: newRecording("autofocus"),
-    targetType: newRecording("acquisition"),
+    overviewPreset: emptySlot("acquisition"),
+    focusPreset: emptySlot("autofocus"),
+    /* Read from further along the instrument's list than the overview: what
+       the targets are taken with is a different setting from what found them,
+       and a mock that answered with the same one twice would let a plan that
+       never switched objectives look right. */
+    targetType: emptySlot("acquisition", 1),
     carrier: { ...DEFAULT_CARRIER },
     fields: [],
     plan: [],
@@ -242,10 +247,9 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   function resetRun() {
     Object.assign(state, {
       activeIdx: 0, done: new Set(), running: null, notes: {},
-      recordings: [],
-      overviewPreset: newRecording("acquisition"),
-      focusPreset: newRecording("autofocus"),
-      targetType: newRecording("acquisition"),
+      overviewPreset: emptySlot("acquisition"),
+      focusPreset: emptySlot("autofocus"),
+      targetType: emptySlot("acquisition", 1),
       carrier: { ...DEFAULT_CARRIER }, fields: [], plan: [], checks: [],
       tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
       detect: newDetect(), detected: new Set(),
@@ -322,6 +326,10 @@ import scanfieldsWidget from "./widgets/scanfields.js";
        rest fall back to the bar under the panel they are looking at. */
     const host = document.querySelector(`.${s.id}-action`) ?? el(`foot-${shown}`);
     if (!host || s.ownButton || !s.btn) return;
+    /* Some steps have nothing to run under the state they are in — a focus
+       step working with a hardware autofocus is finished by the recording
+       itself. A step says so for itself; the frame only asks. */
+    if (s.acts && !s.acts(state)) return;
 
     const done = state.done.has(s.id);
     const running = state.running === s.id;
@@ -670,41 +678,86 @@ import scanfieldsWidget from "./widgets/scanfields.js";
   }
 
   const indexOfStep = (id) => steps().findIndex((s) => s.id === id);
-  /* One bar per recording, and the bar is the recording.
+  /* One slot per step, and the rows in it are the recordings.
    *
-   * It starts as a name and a Record button. Recording reads the state off
-   * the instrument and the bar becomes that record — the fields give way
-   * to what was captured, in place. Nothing jumps to a list somewhere else,
-   * and nothing is typed in twice, so nothing can disagree with the
-   * instrument. */
+   * The bar at the top takes the next reading; what has been read stands under
+   * it, a row apiece. Readings accumulate rather than replace, because the
+   * optics get changed in the middle of a session and both settings stay worth
+   * having — an overview taken dry at 5x and a detail taken at 63x in oil are
+   * one run. One row is marked as the one the step is taken with, so switching
+   * between them is a click rather than a second reading. */
+
+  /* Which recording is unfolded, per slot. One at a time: unfolding is asking
+     to read what was recorded, and two records open at once is two columns of
+     detail to compare down a channel too narrow to hold either. Here rather
+     than on the record itself — it is a fact about this screen, not about what
+     the instrument reported, and the rows are redrawn from the run's state
+     whenever anything around them moves. */
+  const unfolded = {};
+
+  /* The name being typed for the next reading, per slot, for the same reason.
+     A name half typed has to survive a field being laid beside it. */
+  const draftNames = {};
 
   /* The summary is the headline; the detail is what the controller actually
      read. Folded away by default, because a recording should stay a line —
      but one click from view, because "trust me" is not a good answer when
-     the run depends on it. The bar draws whatever recording it is handed;
-     `opts` says what forgetting it does and what to redraw. */
-  function renderRecordedBar(bar, { rerender, dropped, locked = false }) {
+     the run depends on it.
+
+     `active` is whether this is the one the step is taken with and `choose`
+     makes it so; `ink` is the colour it is drawn in wherever the step draws
+     it. */
+  function renderRecordedBar(record, {
+    rerender, dropped, choose, hostId, locked = false, active = false, ink = null,
+  }) {
     const wrap = document.createDocumentFragment();
 
     const row = document.createElement("div");
     row.className = "rec-row";
     // no kind cell: the group above names it, so the name starts at the left
     row.innerHTML = '<button type="button" class="rec-fold"></button>'
-      + '<span class="rec-name"></span><span class="rec-state"></span>'
+      + '<button type="button" class="rec-pick">'
+      + '<span class="rec-name"></span><span class="rec-state"></span></button>'
       + '<button type="button" class="rec-drop">✕</button>';
-    row.querySelector(".rec-name").textContent = bar.name;
-    row.querySelector(".rec-state").textContent = bar.state;
+    row.querySelector(".rec-name").textContent = record.name;
+    row.querySelector(".rec-state").textContent = record.summary;
 
+    /* The row activates the recording, and activating is the whole of using
+       it: everything the step produces is taken with the active one. A list of
+       recordings beside a list of buttons for choosing between them was the
+       same list written twice, and the copy is the one that goes stale. */
+    const pick = row.querySelector(".rec-pick");
+    pick.setAttribute("aria-pressed", String(active));
+    pick.title = active
+      ? "active — this step is taken with it"
+      : "activate: this step, and everything already planned, is taken with it";
+    pick.disabled = !!state.running;
+    pick.addEventListener("click", choose);
+    if (ink) {
+      const dot = document.createElement("span");
+      dot.className = "rec-dot";
+      dot.style.background = ink;
+      /* Inside the name rather than beside it: the row is two columns, the
+         name and what was read, and a dot given a column of its own pushed the
+         summary onto a second line. */
+      row.querySelector(".rec-name").prepend(dot);
+    }
+
+    const expanded = unfolded[hostId] === record.id;
     const fold = row.querySelector(".rec-fold");
     fold.textContent = "▸";
-    fold.title = bar.expanded ? "fold away" : "show everything recorded";
-    fold.setAttribute("aria-expanded", String(!!bar.expanded));
-    fold.classList.toggle("open", !!bar.expanded);
+    fold.title = expanded ? "fold away" : "show everything recorded";
+    fold.setAttribute("aria-expanded", String(expanded));
+    fold.classList.toggle("open", expanded);
     fold.addEventListener("click", () => {
-      bar.expanded = !bar.expanded;
+      // opening one closes the other: one recording is unfolded at a time
+      unfolded[hostId] = expanded ? null : record.id;
       rerender();
     });
 
+    /* Forgotten, whatever is taken with it: nothing names a recording except
+       the step itself, so what is left to be active takes over and the plan
+       follows it. */
     const drop = row.querySelector(".rec-drop");
     drop.title = "forget this preset";
     drop.disabled = !!state.running || locked;
@@ -712,10 +765,10 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
     wrap.append(row);
 
-    if (bar.expanded && bar.detail) {
+    if (expanded && record.detail) {
       const detail = document.createElement("dl");
       detail.className = "rec-detail";
-      for (const [label, value] of bar.detail) {
+      for (const [label, value] of record.detail) {
         const dt = document.createElement("dt");
         dt.textContent = label;
         const dd = document.createElement("dd");
@@ -727,59 +780,67 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     return wrap;
   }
 
-  /* Like the recorded bar, this draws whichever recording-to-be it is handed:
-     `opts.recorded` is what to do once the instrument has been read, and
-     `opts.nth` which of the mock's readings this slot comes back with. */
-  function renderOpenBar(bar, opts) {
+  /* The bar that takes the next reading: a name and a button. What it reads
+     goes to `recorded` rather than into a record of its own — the slot below
+     owns what has been recorded — and the name it is carrying goes to `onName`
+     as it is typed, so a redraw finds it again. */
+  function renderOpenBar({ type, nth, name, onName, recorded }) {
     const row = document.createElement("div");
     row.className = "rec-new";
 
-    const name = document.createElement("input");
-    name.type = "text";
-    name.placeholder = "Name of this preset";
-    name.value = bar.name;
-    name.setAttribute("aria-label", "name for this preset");
+    const box = document.createElement("input");
+    box.type = "text";
+    // one word: the box is narrow, and a placeholder that has to be truncated
+    // to fit says less than the short one it was truncated from
+    box.placeholder = "Name";
+    box.value = name;
+    box.setAttribute("aria-label", "name for this preset");
 
     const go = document.createElement("button");
     go.className = "run";
     go.type = "button";
     go.textContent = "Record Microscope State";
 
-    const capitalised = (v) => (v ? v[0].toUpperCase() + v.slice(1) : v);
+    /* The name is not what makes a recording worth taking: what makes it worth
+       taking is that the instrument is set the way it is set, now, and that is
+       what the button reads. So the button is always live and an unnamed
+       recording gets a name of its own — the operator can rename it, and a
+       recording that happened beats one that was refused over a blank field.
 
-    // typing must not rebuild the row, or the field loses focus every keystroke
+       Typing must not rebuild the row, or the field loses focus every
+       keystroke. */
     const check = () => {
-      bar.name = name.value;
-      go.disabled = !name.value.trim() || !!state.running;
+      onName(box.value);
+      go.disabled = !!state.running;
     };
-    name.addEventListener("input", check);
+    box.addEventListener("input", check);
     check();
 
     go.addEventListener("click", () => {
       go.disabled = true;
       go.textContent = "reading…";
       // a controller round-trip, not an instant assignment
-      setTimeout(() => {
-        const reading = sampleReading(bar.type, opts.nth ?? 0);
-        bar.name = capitalised(name.value.trim());
-        bar.state = reading.summary;
-        bar.detail = reading.detail;
-        bar.frameUm = reading.frameUm;
-        opts.recorded();
-      }, 480);
+      setTimeout(() => recorded(box.value, sampleReading(type, nth)), 480);
     });
 
     /* The name leads, the way it leads a recorded row: it is the thing being
        filled in. The kind is said once by the heading above, not by the bar. */
-    row.append(name, go);
+    row.append(box, go);
     return row;
   }
 
-  /* One recording, drawn the way a preset always was: a bold heading, an
-     open bar until the instrument has been read, the record in place after.
-     Each of the three lives in the step that uses it, so the state is tested
-     where it matters. */
-  function renderRecordingSlot(hostId, { label, key, nth, changed, locked = false }) {
+  /* A slot: a bold heading, the bar that takes the next reading, and a row for
+     each reading taken. Each of the three lives in the step that uses it, so
+     the state is tested where it matters.
+
+     `ink` colours a record wherever the step draws it. `changed` is what the
+     run does when the slot's contents change; `activated` when the contents
+     stand and another record becomes the one in use — a lighter answer,
+     because nothing has to be built again to say so. */
+  function renderRecordingSlot(hostId, opts) {
+    const {
+      label, key, changed, activated = changed, locked = false, ink = null,
+    } = opts;
     const host = el(hostId);
     if (!host) return;
     host.textContent = "";
@@ -792,25 +853,85 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     group.append(head);
 
     const slot = state[key];
-    const rerender = () => renderRecordingSlot(hostId, { label, key, nth, changed, locked });
+    const rerender = () => renderRecordingSlot(hostId, opts);
+
+    /* The bar that takes a reading leads, and what it has taken stands under
+       it. Both, always: the bar used to be replaced by what it recorded, which
+       said the reading was a thing done once — and it is not. The optics get
+       changed in the middle of a session, and when they do the operator wants
+       to say so here rather than throwing the preset away to get the bar back.
+
+       It leads rather than follows because it is the control and the rows
+       below are the answers. A control that moves down the panel as answers
+       accumulate is a control the hand has to go looking for. */
     const box = document.createElement("div");
-    box.className = `setting-box ${slot.state ? "done" : "open"}`;
-    box.append(slot.state
-      ? renderRecordedBar(slot, {
-        rerender,
-        locked,
+    box.className = "setting-box open";
+    box.append(renderOpenBar({
+      type: slot.type,
+      nth: nextReadingIndex(slot),
+      name: draftNames[hostId] ?? "",
+      onName: (v) => { draftNames[hostId] = v; },
+      recorded: (name, reading) => {
+        state[key] = withRecording(slot, { name, reading });
+        draftNames[hostId] = "";
+        rerender();
+        changed();
+      },
+    }));
+    group.append(box);
+
+    /* The readings stand in a list of their own, which stops growing at three
+       and scrolls after that. A slot that kept getting taller would push the
+       rest of the step off the bottom of the channel, and the fourth reading
+       is not more important than the controls it would shove away. */
+    const list = document.createElement("div");
+    list.className = "rec-list";
+
+    for (const record of slot.records) {
+      const active = record.id === slot.active;
+      const done = document.createElement("div");
+      done.className = active ? "setting-box done active" : "setting-box done";
+      done.append(renderRecordedBar(record, {
+        rerender, locked, active, hostId,
+        ink: ink ? ink(record.id) : null,
+        choose: () => {
+          state[key] = withActive(slot, record.id);
+          rerender();
+          activated();
+        },
         dropped: () => {
-          state[key] = newRecording(slot.type);
+          state[key] = withoutRecording(slot, record.id);
+          if (unfolded[hostId] === record.id) unfolded[hostId] = null;
           rerender();
           changed();
         },
-      })
-      : renderOpenBar(slot, {
-        nth,
-        recorded: () => { rerender(); changed(); },
       }));
-    group.append(box);
+      list.append(done);
+    }
+    if (slot.records.length) group.append(list);
+
     host.append(group);
+
+    /* The one in use is kept in sight. A reading just taken is the active one,
+       and a list that scrolled it out of view would answer a press by showing
+       nothing at all.
+
+       After the frame, because the slot is often built before the channel it
+       goes in is on screen, and a list with no height yet cannot be scrolled
+       anywhere. */
+    const activeBox = list.querySelector(".setting-box.active");
+    if (activeBox) {
+      requestAnimationFrame(() => {
+        if (!list.clientHeight) return;
+        const top = activeBox.offsetTop;
+        const bottom = top + activeBox.offsetHeight;
+        // one unfolded is taller than the list: show it from its name down,
+        // or the box fills with detail belonging to a row nobody can see
+        if (activeBox.offsetHeight > list.clientHeight) list.scrollTop = top;
+        else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+        else if (top < list.scrollTop) list.scrollTop = top;
+      });
+    }
   }
 
   /* The carrier is what the canvas is drawing, so its controls sit beside the
@@ -827,18 +948,26 @@ import scanfieldsWidget from "./widgets/scanfields.js";
 
      It stays editable until something has been done inside the frame, at which
      point changing it would invalidate what was done. */
-  /* A volume is the one carrier that is not settled by standing: it starts
-     unknown, and the step is done when its six bounds have been recorded —
-     and undone again if the type is changed back to an unfinished volume. */
   function carrierSettled() {
     if (indexOfStep("carrier") < 0) return;
-    if (volumeComplete(state.carrier)) {
-      state.done.add("carrier");
-      state.notes.carrier = describeCarrier(state.carrier);
-    } else {
-      state.done.delete("carrier");
-      delete state.notes.carrier;
+    state.done.add("carrier");
+    state.notes.carrier = describeCarrier(state.carrier);
+  }
+
+  /* A hardware autofocus settles the focus step by being recorded: there is
+     nothing further to do, so waiting for a press would be waiting for the
+     operator to confirm what the stand already does. A software one settles
+     the way it always has, by the strategy being applied. */
+  function focusSettled() {
+    const kind = activeRecording(state.focusPreset)?.kind;
+    if (kind === "hardware") {
+      state.done.add("focus");
+      state.notes.focus = "held by the stand";
+      return;
     }
+    if (state.focus.applied) return;
+    state.done.delete("focus");
+    delete state.notes.focus;
   }
 
   const carrierLocked = () => {
@@ -859,20 +988,34 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      what it is called, and that it can be mounted. */
   const focusWidget = {
     id: "focus",
-    label: "Focus strategy",
+    label: "Autofocus settings",
     mount(host) {
       /* The autofocus preset is recorded here, where the sweeps that will be
-         measured with it are chosen. */
+         measured with it are chosen — in the same box the acquisition preset
+         is recorded in on the scan-fields step, since it is the same kind of
+         thing being done. */
+      const box = document.createElement("div");
+      box.className = "side-group side-pad-around";
       const rec = document.createElement("div");
-      rec.className = "side-pad";
       rec.id = "focus-preset";
-      host.append(rec);
+      box.append(rec);
+      host.append(box);
+      /* Everything below the recording waits for it, the way the ways of
+         laying fields wait for the acquisition preset — and a hardware
+         autofocus leaves nothing to show at all: the stand holds focus off
+         the coverslip, so there is no map to lay points on and no sweep to
+         measure. A focus map belongs to a software autofocus alone. */
+      const showTheRest = () => {
+        focusControls.hidden = activeRecording(state.focusPreset)?.kind !== "software";
+        focusSettled();
+      };
       renderRecordingSlot("focus-preset", {
-        label: "Record autofocus preset", key: "focusPreset", nth: 0,
+        label: "Autofocus preset", key: "focusPreset",
         locked: state.focus.applied,
-        changed: () => renderActionBar(),
+        changed: () => { showTheRest(); renderRail(); renderActionBar(); },
+        activated: () => { showTheRest(); renderRail(); renderActionBar(); },
       });
-      focusControls.hidden = false;
+      showTheRest();
       host.append(focusControls);
       renderPointList();
       drawTrace();
@@ -925,7 +1068,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       galleryControls.hidden = false;
       host.append(galleryControls);
       renderRecordingSlot("target-type", {
-        label: "Record acquisition type", key: "targetType", nth: 1,
+        label: "Record acquisition type", key: "targetType",
         changed: () => renderActionBar(),
       });
       buildGallery();
@@ -992,8 +1135,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
         locked,
         onChange: (next) => {
           state.carrier = next;
-          // an edit can settle the step (a volume's last bound) or unsettle
-          // it (switching to an unfinished volume); the same rule says which
+          // the note in the rail says what the carrier now is
           carrierSettled();
           // the tissue is spread over the plate, so a different plate is a
           // different sample even before the plan moves
@@ -1008,37 +1150,56 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     }
 
     /* The overview's preset is recorded here, where the fields that will be
-       taken with it are laid — and until it exists there is nothing to lay,
-       because a field takes its frame from the preset. Recording or
-       forgetting it remounts the channel, so the editor appears and
-       disappears with the preset it depends on. */
-    {
-      const rec = document.createElement("div");
-      rec.className = "side-pad";
-      rec.id = "sf-preset";
-      host.append(rec);
-      renderRecordingSlot("sf-preset", {
-        label: "Record acquisition preset", key: "overviewPreset", nth: 0, locked,
-        changed: () => {
-          state.sideMounted = null;
-          scanfieldsSettled();
-          renderAll();
-        },
-      });
-      if (!state.overviewPreset.state) {
-        const wait = document.createElement("div");
-        wait.className = "side-note";
-        wait.textContent = "The fields take their frame from the preset, so it is recorded before they are laid.";
-        host.append(wait);
-        return;
-      }
-    }
+       taken with it are laid, because a field takes its frame from it.
+
+       Until it exists there is nothing to lay — but the ways of laying are on
+       screen anyway, greyed. They used to be absent, and an empty step is a
+       worse answer than a disabled one: the operator arrives, sees a single
+       box, and has no way to tell whether this step is about recording a
+       preset or whether the rest of it is still loading. Greyed, the step
+       shows what it is going to be, and that the open bar at the top of it is
+       what the rest is waiting on — which is a sentence the panel no longer
+       has to carry, because the picture of it says the same thing. */
+    const rec = document.createElement("div");
+    rec.id = "sf-preset";
+    host.append(rec);
+    const presetSlot = {
+      label: "Acquisition preset", key: "overviewPreset", locked,
+      ink: (id) => recordedPresets().find((p) => p.id === id)?.ink ?? null,
+      /* A recording taken or forgotten changes what there is to be taken with,
+         so the run is asked again from the top. Activating another one changes
+         what the plan covers without changing the plan: the editor is told,
+         the tiles are worked out again, and every field stays where the
+         operator put it. */
+      changed: () => {
+        /* The last recording forgotten takes the plan with it. A region or a
+           grid position is a statement about what to image and with what, and
+           with no preset left there is no with — keeping the outlines would
+           leave the operator a picture of a plan the run could not run, and
+           the next preset recorded would silently adopt shapes drawn for
+           optics nobody can see any more. */
+        if (!hasRecording(state.overviewPreset)) state.fields = [];
+        state.sideMounted = null;
+        scanfieldsSettled();
+        renderAll();
+      },
+      activated: () => {
+        state.editor?.setPreset(activePreset());
+        scanfieldsSettled();
+        drawStage();
+        renderRail();
+      },
+    };
+    renderRecordingSlot("sf-preset", presetSlot);
 
     state.editor = widget.render(host, {
       fields: state.fields,
       carrier: state.carrier,
-      presets: recordedPresets(),
-      locked,
+      preset: activePreset(),
+      presetSlot: el("sf-preset"),
+      /* Locked by the run having moved past this step, and locked until the
+         preset the plan would be taken with exists. */
+      locked: locked || !hasRecording(state.overviewPreset),
       onChange: (next) => {
         state.fields = next;
         scanfieldsSettled();
@@ -1083,19 +1244,23 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     divider.addEventListener("pointercancel", settle);
   }
 
-  /* What a scan field is taken with: the one preset recorded beside the
-     fields. Still a list, because the widget names presets and colours by
-     them — a field names one rather than carrying a frame of its own, so
-     re-recording the preset changes what the plan covers. */
-  const recordedPresets = () => (state.overviewPreset.state
-    ? [{
-      id: "preset0",
-      kind: "acquisition",
-      name: state.overviewPreset.name,
-      summary: state.overviewPreset.state,
-      frameUm: state.overviewPreset.frameUm,
-    }]
-    : []);
+  /* Every preset recorded beside the fields, in the order taken — which is
+     the order their colours come in, so the row and the tiles it lays are the
+     same fact seen twice. */
+  const recordedPresets = () => state.overviewPreset.records.map((r, i) => ({
+    id: r.id,
+    kind: "acquisition",
+    name: r.name,
+    summary: r.summary,
+    frameUm: r.frameUm,
+    ink: presetInk(i),
+  }));
+
+  /* What the whole plan is taken with. One preset, not one per field:
+     activating another one re-takes everything, which is the only reading of
+     it that stays true when the objective in the light path has changed. */
+  const activePreset = () =>
+    recordedPresets().find((p) => p.id === state.overviewPreset.active) ?? null;
 
   /* Drawing fields is the work, the way recording and configuring are: the
      step is done once there is something to scan, and undone again if the last
@@ -1523,6 +1688,141 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     view.fitted = true;
   }
 
+  /* Where the microscope is, in stage micrometres.
+   *
+   * Worked out rather than stored. It is wherever the run last drove to — the
+   * position of the tile the scan has just taken — and the middle of the
+   * travel before it has driven anywhere, which is where a stage sits when
+   * nothing has asked it to be anywhere else. A stored copy would be a second
+   * answer to keep right, and would be wrong the first time a step forgot to
+   * write to it.
+   */
+  /* Where the stage is parked before the run has driven it anywhere, as a
+     fraction of the travel. In the corner rather than the middle, and far
+     enough into the corner to be off the carrier as well as off the middle of
+     it: a carrier is mounted centred, so the margin around it is the only part
+     of the travel where a mark is on the picture without being on top of a
+     well. A real driver replaces this with the position it reads. */
+  const PARKED = [0.04, 0.04];
+
+  function whereTheStageIs() {
+    const [ox, oy] = carrierOriginUm();
+    const taken = state.plan[Math.min(state.tilesShown, state.plan.length) - 1];
+    const [cx, cy] = taken
+      ? [taken.x, taken.y]
+      : [STAGE_UM[0] * PARKED[0] - ox, STAGE_UM[1] * PARKED[1] - oy];
+    /* The height is the sample's, because that is what the objective is on
+       when it is anywhere at all. Before a focus strategy has been applied it
+       is what the surface would be if it were measured there, which is the
+       same claim the rest of the mock makes about the sample. */
+    return { x: cx + ox, y: cy + oy, z: trueZ(cx, cy) };
+  }
+
+  /* Where the microscope is standing, over everything else on the picture.
+   *
+   * A crosshair rather than a dot, and a crosshair with a hole in the middle:
+   * the arms reach out of whatever is under them, and the gap leaves the exact
+   * position visible instead of covering the one pixel the mark is about. Its
+   * size is in screen pixels and not in micrometres, because it is not a thing
+   * on the stage that can be zoomed into — it is a statement about the stage,
+   * and it has to stay the same size to keep being read as one.
+   *
+   * The numbers are beside it because the mark alone answers "where on this
+   * picture", and the question is where on the stage. */
+  /* The mark: a crosshair with a hole in the middle. The gap is the point of
+     it — the arms reach out of whatever is behind them and the centre stays
+     clear, so the mark shows a position rather than covering it. */
+  function crosshair(ctx, x, y, arm, gap, dot) {
+    ctx.beginPath();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      ctx.moveTo(x + dx * gap, y + dy * gap);
+      ctx.lineTo(x + dx * arm, y + dy * arm);
+    }
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, dot, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /* Whether the pointer is on the mark. Kept here rather than worked out while
+     drawing, because it is the pointer that decides it and the drawing happens
+     for many other reasons than the pointer having moved. */
+  let stageMarkHot = false;
+
+  /* How close the pointer has to be to count as on it, in screen pixels. A
+     little wider than the mark itself: it is a cross made of thin lines, and
+     asking for the exact pixel of one of them is asking for a fight. */
+  const STAGE_MARK_REACH = 15;
+
+  /** Where the mark is on screen, for the pointer to be measured against. */
+  const stageMarkAt = () => {
+    const at = whereTheStageIs();
+    return toScreen(at.x, at.y);
+  };
+
+  /* Where the microscope is standing, drawn on the stage.
+   *
+   * Through the same projection as everything else on the canvas, so it is
+   * registered to the stage rather than to the screen: pan the picture and it
+   * travels with the carrier, zoom in and it stays over the same micrometre.
+   * That is the whole point of it — a mark that sat still while the picture
+   * moved would be decoration.
+   *
+   * Its size is the one thing not in stage units. It is in screen pixels,
+   * because the mark is not a thing on the stage that can be zoomed into — it
+   * is a statement about the stage, and it has to stay the same size to keep
+   * being read as one.
+   *
+   * It says where and not what. The three numbers behind it are worth having
+   * and are not worth having on screen at all times: a permanent readout in
+   * the corner is three figures to read past on every step, when the question
+   * they answer is only ever asked about this one mark. So they arrive on
+   * hover, and the mark thickens to say it is the thing being asked about. */
+  function drawWhereTheStageIs(ctx) {
+    const [x, y] = stageMarkAt();
+    ctx.save();
+    ctx.strokeStyle = css("--mark-stage");
+    ctx.fillStyle = css("--mark-stage");
+    ctx.lineWidth = stageMarkHot ? 2.5 : 1.5;
+    crosshair(ctx, x, y, 12, 4, stageMarkHot ? 2.2 : 1.6);
+    ctx.restore();
+  }
+
+  /**
+   * Point the tip at the mark, or say that it is not on it.
+   *
+   * The tip is the page's own hover panel — the one the cells use — so where a
+   * hover answer appears is one decision made once, rather than this mark
+   * inventing a second place for the same kind of answer to show up in.
+   *
+   * Millimetres across and micrometres down, because that is what the rest of
+   * the page says: a stage is driven in millimetres and focused in micrometres.
+   */
+  function tipTheStageMark(e) {
+    const [mx, my] = stageMarkAt();
+    const hot = Math.hypot(e.offsetX - mx, e.offsetY - my) <= STAGE_MARK_REACH;
+    if (hot !== stageMarkHot) { stageMarkHot = hot; drawStage(); }
+    if (!hot) return false;
+    const at = whereTheStageIs();
+    stageTip.classList.add("on");
+    stageTip.innerHTML =
+      `<b>stage</b><br><b>x</b> ${(at.x / 1000).toFixed(2)} mm`
+      + `<br><b>y</b> ${(at.y / 1000).toFixed(2)} mm`
+      + `<br><b>z</b> ${at.z.toFixed(0)} µm`;
+    stageTip.style.left = `${Math.min(e.offsetX + 14, stageCv.cssW - 130)}px`;
+    stageTip.style.top = `${Math.max(6, e.offsetY - 66)}px`;
+    return true;
+  }
+
+  /* What goes over everything, however far the run has got: how big the
+     picture is, and where the microscope is standing in it. Both are true of
+     the stage rather than of anything the run has produced, so they are drawn
+     from the one place instead of at each of the points the drawing can stop. */
+  function drawOverEverything(ctx, w, h) {
+    drawWhereTheStageIs(ctx);
+    drawScaleBar(ctx, w, h);
+  }
+
   /* Where the stage ends. Drawn first and faintly: it is the edge of what any
      of this can reach, which is context for everything else rather than a
      thing in its own right. */
@@ -1579,7 +1879,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     const [ox, oy] = carrierOriginUm();
     const place = (x, y) => toScreen(x + ox, y + oy);
 
-    if (!state.done.has("carrier")) { drawScaleBar(ctx, w, h, view.scale); return; }
+    if (!state.done.has("carrier")) { drawOverEverything(ctx, w, h); return; }
 
     /* Grey, not the accent: the carrier is the room the run happens in, not a
        thing the run produced. Dark enough to read against the stage behind it,
@@ -1701,7 +2001,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
        them where they were. */
     if (state.activeIdx >= indexOfStep("scanfields")) {
       scanfieldsWidget.drawOn(ctx, {
-        fields: state.fields, presets: recordedPresets(),
+        fields: state.fields, preset: activePreset(), carrier: state.carrier,
         toScreen: place, scale: view.scale, dim: shown > 0,
         marked: editing?.marked(),
       });
@@ -1729,7 +2029,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
       stageCv.style.cursor = "";
     }
 
-    drawScaleBar(ctx, w, h);
+    drawOverEverything(ctx, w, h);
   }
 
   /* Carrier coordinates for the editor: it places fields inside the carrier,
@@ -1826,6 +2126,10 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     el("stage-readout").textContent =
       `x ${wx.toFixed(0)} µm · y ${wy.toFixed(0)} µm · ${(view.scale * 1000).toFixed(1)} px/mm`;
 
+    /* The mark first: it is drawn over everything, so it answers for the
+       pointer before anything underneath it does. */
+    if (tipTheStageMark(e)) return;
+
     // hover the nearest visible cell
     let hit = null;
     if (state.cellsShown && el("lay-cells").checked) {
@@ -1872,6 +2176,8 @@ import scanfieldsWidget from "./widgets/scanfields.js";
     editorTook("leave", e);
     endDrag(e);
     stageTip.classList.remove("on");
+    // the pointer is off the canvas, so it is off the mark whatever it was on
+    if (stageMarkHot) { stageMarkHot = false; drawStage(); }
   });
 
   stageCv.addEventListener("wheel", (e) => {

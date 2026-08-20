@@ -183,7 +183,7 @@ export const boxesOverlap = (a, b) =>
  * crossing it. The last test is what keeps a sliver or a sharp vertex, which
  * sampling centres alone silently drops.
  */
-export function tiles(field, frameUm, overlapPct = 0) {
+export function tiles(field, frameUm, overlapPct = 0, limit = null) {
   if (isPointLike(field.type)) return [{ x: field.x, y: field.y }];
   if (!frameUm || frameUm <= 0) return [];
   const step = frameUm * (1 - overlapPct / 100);
@@ -192,31 +192,101 @@ export function tiles(field, frameUm, overlapPct = 0) {
   const bb = bounds(field);
   if (!Number.isFinite(bb.xMin)) return [];
 
+  const run = (min, max, lo, hi) => raster(min, max, frameUm, step, lo, hi);
+  const xs = run(bb.xMin, bb.xMax, limit?.xMin ?? null, limit?.xMax ?? null);
+  const ys = run(bb.yMin, bb.yMax, limit?.yMin ?? null, limit?.yMax ?? null);
+  const outline = edges(field);
+
+  const out = [];
+  for (const ty of ys) {
+    for (const tx of xs) if (covers(field, tx, ty, frameUm, outline)) out.push({ x: tx, y: ty });
+  }
+  return out;
+}
+
+/**
+ * Where the frames go along one axis: their centres, evenly stepped.
+ *
+ * `lo` and `hi` are the edges a frame may not cross — the imageable square of
+ * the area the field is in — and null when nothing is in the way. What is
+ * covered is the field's own span narrowed to that, and the run is laid over
+ * exactly that much:
+ *
+ * * The step never changes. It is the overlap the operator asked for, and a
+ *   run that spent it to make the ends come out even would be answering a
+ *   question nobody asked.
+ * * Clipped at one end, the run starts flush against that edge, so the plan
+ *   fills right into the corner instead of leaving a bare margin.
+ * * Clipped at neither, the run sits centred on the field, which is where a
+ *   plan with nothing in its way has always been laid.
+ * * A run that will not fit between the edges is cut to what does fit, from
+ *   the near edge out.
+ */
+function raster(min, max, frameUm, step, lo, hi) {
   const half = frameUm / 2;
-  const cx = (bb.xMin + bb.xMax) / 2, cy = (bb.yMin + bb.yMax) / 2;
+  const from = lo === null ? min : Math.max(min, lo);
+  const to = hi === null ? max : Math.min(max, hi);
+  if (to - from < 0) return [];
+
   /* One tile already covers its own frame, so only what is left over needs
      stepping: n − 1 steps plus one frame reaches the far edge exactly. Counting
      the whole span in steps and adding one buys a row and a column nothing is
      in — invisible on a big region, and a 2 × 2 cover of a field smaller than
      a single frame. */
-  const span = (extent) => Math.max(1, Math.ceil((extent - frameUm) / step) + 1);
-  const nx = span(bb.xMax - bb.xMin);
-  const ny = span(bb.yMax - bb.yMin);
-  const x0 = cx - ((nx - 1) / 2) * step, y0 = cy - ((ny - 1) / 2) * step;
-  const outline = edges(field);
+  let n = Math.max(1, Math.ceil((to - from - frameUm) / step) + 1);
+  const cLo = lo === null ? -Infinity : lo + half;
+  const cHi = hi === null ? Infinity : hi - half;
+  if (cHi < cLo) return [];
+  // as many as the edges leave room for, when they leave room for fewer
+  n = Math.min(n, Math.floor((cHi - cLo) / step) + 1);
 
-  const out = [];
-  for (let iy = 0; iy < ny; iy++) {
-    for (let ix = 0; ix < nx; ix++) {
-      const tx = x0 + ix * step, ty = y0 + iy * step;
-      const covers = contains(tx, ty, field)
-        || contains(tx - half, ty - half, field) || contains(tx + half, ty - half, field)
-        || contains(tx - half, ty + half, field) || contains(tx + half, ty + half, field)
-        || outline.some((e) => segmentHitsBox(e[0], e[1], e[2], e[3], tx - half, ty - half, frameUm, frameUm));
-      if (covers) out.push({ x: tx, y: ty });
-    }
-  }
-  return out;
+  /* Flush against whichever edge did the clipping, so the plan fills right up
+     to the border rather than sitting a fraction of a frame short of it. Only
+     a run with nothing in its way is centred on the field, which is where a
+     plan has always been laid when the area is not the limit. */
+  const clippedLow = lo !== null && min < lo;
+  const clippedHigh = hi !== null && max > hi;
+  const centred = (from + to) / 2 - ((n - 1) / 2) * step;
+  const start = clippedLow || !clippedHigh
+    ? Math.min(Math.max(centred, cLo), cHi - (n - 1) * step)
+    : cHi - (n - 1) * step;
+  return Array.from({ length: n }, (_, i) => start + i * step);
+}
+
+/**
+ * The span a whole number of frames covers, without reaching past `size`.
+ *
+ * A region is drawn in frames, so that its edge and the tiles inside it land
+ * on the same line: no strip of it left unimaged, and nothing imaged outside
+ * it. Rounded down rather than up — the shape shrinks to what fits inside what
+ * was drawn — except that one frame is the floor, since there is no such thing
+ * as imaging less than the objective sees at once.
+ */
+export function snapSpan(size, frameUm, overlapPct = 0) {
+  const step = frameUm * (1 - overlapPct / 100);
+  if (!(frameUm > 0) || step <= 0) return size;
+  // a hair of tolerance, or a size that is exactly n frames comes back n − 1
+  const n = Math.max(1, Math.floor((size - frameUm) / step + 1e-9) + 1);
+  return (n - 1) * step + frameUm;
+}
+
+/**
+ * Whether a frame centred there takes in any part of the field.
+ *
+ * Asked once per tile while a plan is laid, and again by anything that moves a
+ * lattice afterwards: a tile that has been slid off the shape it was laid for
+ * is imaging something nobody drew, and it is this question that says so.
+ *
+ * `outline` is the field's edges, which the caller may already have; the
+ * corners of the frame catch a field bigger than the frame, and the edge test
+ * catches one smaller that passes between them.
+ */
+export function covers(field, x, y, frameUm, outline = edges(field)) {
+  const half = frameUm / 2;
+  return contains(x, y, field)
+    || contains(x - half, y - half, field) || contains(x + half, y - half, field)
+    || contains(x - half, y + half, field) || contains(x + half, y + half, field)
+    || outline.some((e) => segmentHitsBox(e[0], e[1], e[2], e[3], x - half, y - half, frameUm, frameUm));
 }
 
 /**

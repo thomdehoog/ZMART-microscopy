@@ -82,11 +82,32 @@ const acquisition = ({ summary, objective, pixelUm, framePx, channels, zStack })
 /* An autofocus runs through an objective like anything else, so it reports the
    same summary and the same frame an acquisition does. Its detail carries the
    sweep instead of a stack. */
-const autofocus = ({ summary, objective, pixelUm, framePx, channel, metric, range, steps }) => {
+/**
+ * An autofocus is one of two things, and which one it is decides the rest of
+ * what it reports.
+ *
+ * **Software** focuses by looking: it takes a short stack, scores each plane by
+ * a sharpness metric and keeps the best one. It costs frames and time, it can
+ * be fooled by a field with nothing in it, and it is described by its metric,
+ * how far it sweeps and in what steps.
+ *
+ * **Hardware** focuses by measuring: a beam off the coverslip tells the stand
+ * how far the glass is, and it holds that distance. It costs almost nothing
+ * and never looks at the sample, so it is described by the offset from the
+ * glass at which the sample sits — and it can hold nothing at all if there is
+ * no coverslip to bounce off.
+ *
+ * Written out as two builders rather than one with a flag, because a hardware
+ * autofocus has no metric, no sweep and no steps: filling those in as blanks
+ * would be a form pretending the two are the same kind of thing.
+ */
+const softwareAutofocus = ({ objective, pixelUm, framePx, channel, metric, range, steps }) => {
   const frameUm = Math.round(framePx * pixelUm);
   return {
-    summary, pixelUm, framePx, frameUm,
+    summary: `Software · ${short(objective)}`,
+    kind: "software", pixelUm, framePx, frameUm,
     detail: [
+      ["Autofocus", "Software · sharpness of the image"],
       ["Objective", objective],
       ["Channel", channel],
       ["Frame", `${framePx} × ${framePx} px · ${frameUm} × ${frameUm} µm`],
@@ -96,6 +117,31 @@ const autofocus = ({ summary, objective, pixelUm, framePx, channel, metric, rang
     ],
   };
 };
+
+const hardwareAutofocus = ({ objective, pixelUm, framePx, source, offset, hold }) => {
+  const frameUm = Math.round(framePx * pixelUm);
+  return {
+    summary: `Hardware · ${short(objective)}`,
+    kind: "hardware", pixelUm, framePx, frameUm,
+    detail: [
+      ["Autofocus", "Hardware · reflection off the coverslip"],
+      ["Objective", objective],
+      ["Source", source],
+      ["Frame", `${framePx} × ${framePx} px · ${frameUm} × ${frameUm} µm`],
+      ["Offset", offset],
+      ["Hold", hold],
+    ],
+  };
+};
+
+/**
+ * The short way an objective is said when it shares a line with something —
+ * its magnification and nothing else. The row an autofocus is read on is a
+ * column of a narrow channel, and what an operator picks between there is
+ * software or hardware and through which lens; the rest of it is one fold
+ * away.
+ */
+const short = (objective) => objective.match(/\d+x/)?.[0] ?? objective;
 
 export const SETTING_TYPES = [
   {
@@ -140,26 +186,31 @@ export const SETTING_TYPES = [
     key: "autofocus",
     label: "Autofocus",
     readings: [
-      autofocus({
-        summary: "10x / 0.40 NA dry · 1 channel",
+      softwareAutofocus({
         objective: "HC PL APO 10x / 0.40 NA dry",
         pixelUm: 0.65, framePx: 2048,
         channel: "GFP · 488 nm · 20 ms · gain 1.0",
         metric: "Brenner gradient", range: "±30 µm", steps: "61 · 1.0 µm apart",
       }),
-      autofocus({
-        summary: "5x / 0.15 NA dry · 1 channel",
+      hardwareAutofocus({
+        objective: "HC PL APO 20x / 0.75 NA dry",
+        pixelUm: 0.33, framePx: 2048,
+        source: "785 nm · off the coverslip",
+        offset: "12.4 µm above the glass",
+        hold: "continuous, while the stage moves",
+      }),
+      softwareAutofocus({
         objective: "HC PL FLUOTAR 5x / 0.15 NA dry",
         pixelUm: 1.30, framePx: 2048,
         channel: "GFP · 488 nm · 30 ms · gain 1.0",
         metric: "DCT energy", range: "±60 µm", steps: "41 · 3.0 µm apart",
       }),
-      autofocus({
-        summary: "20x / 0.75 NA dry · 1 channel",
-        objective: "HC PL APO 20x / 0.75 NA dry",
-        pixelUm: 0.33, framePx: 2048,
-        channel: "DAPI · 405 nm · 15 ms · gain 1.0",
-        metric: "Brenner gradient", range: "±15 µm", steps: "31 · 1.0 µm apart",
+      hardwareAutofocus({
+        objective: "HC PL APO 63x / 1.40 NA oil",
+        pixelUm: 0.10, framePx: 1024,
+        source: "785 nm · off the coverslip",
+        offset: "3.0 µm above the glass",
+        hold: "on arrival at each position",
       }),
     ],
   },

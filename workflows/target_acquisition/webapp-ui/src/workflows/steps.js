@@ -54,6 +54,13 @@
  * already done.
  */
 
+/* Whether a step has what it needs is asked of the slot itself: a step waits
+   for a reading to have been taken, not for a particular field on a record. */
+import { activeRecording, hasRecording } from "../lib/recordings.js";
+
+/** Which kind of autofocus the step is working with, if any. */
+const autofocusKind = (slot) => activeRecording(slot)?.kind ?? null;
+
 export const connect = {
   id: "connect",
   title: "Connect",
@@ -77,23 +84,20 @@ export const carrierConfiguration = {
   mode: "carrier",
 };
 
-/* A placeholder: registering the mounted carrier against the stage will live
-   here. Empty for now, and it holds nothing up — the run walks past it until
-   there is something to do. */
-export const registerCarrier = {
-  id: "register",
-  title: "Register Carrier",
-  why: "Say where the defined carrier actually sits on the stage. Nothing here yet.",
-  panels: [],
-  nothingWaitsOnThis: true,
-};
+/* Registering the carrier — saying where the thing described here actually
+   sits on the stage — belongs in the step above and will be built into it.
+   It had a step of its own for a while, empty and declared a placeholder, and
+   an empty step in the rail is a promise the run keeps failing to keep: the
+   operator counts it, walks to it, finds nothing, and walks on. What it will
+   be is another part of describing the carrier, which is what that step is
+   for, so it will arrive there rather than here. */
 
 /* The preset the overview is taken with is recorded here, not in a step of
    its own: the fields take their frame from it, so it is tested where it
    matters. */
 export const initialScanfields = {
   id: "scanfields",
-  title: "Initial scanfields",
+  title: "Overview scan settings",
   why: "Record the preset the overview is taken with, then say where on the carrier it is taken.",
   panels: [],
   mode: "scanfields",
@@ -103,7 +107,7 @@ export const initialScanfields = {
    measure the surface are taken with it. */
 export const focusStrategy = {
   id: "focus",
-  title: "Focus strategy",
+  title: "Autofocus settings",
   why: "Record the autofocus preset, then choose how this run keeps every image sharp across the sample.",
   btn: "Apply strategy",
   panels: [],
@@ -115,10 +119,19 @@ export const focusStrategy = {
      position and reusing an earlier surface each have everything they need the
      moment they are chosen. */
   ready: ({ focus, focusPreset }) =>
-    (!focusPreset?.state ? "record the autofocus preset first"
-      : focus.strategy === "plane" && focus.points.length < 3
-        ? "place at least 3 points"
-        : null),
+    (!hasRecording(focusPreset) ? "record the autofocus preset first"
+      : autofocusKind(focusPreset) === "hardware" ? null
+        : focus.strategy === "plane" && focus.points.length < 3
+          ? "place at least 3 points"
+          : null),
+
+  /* A hardware autofocus is not something the run performs. The stand holds
+     focus itself, off the coverslip, at every position it is sent to — so
+     there is no surface to measure and nothing to press, and the step is
+     finished the moment such a reading is the active one. Only a software
+     autofocus, which focuses by taking a short stack and scoring it, leaves
+     the run anything to do. */
+  acts: ({ focusPreset }) => autofocusKind(focusPreset) !== "hardware",
 };
 
 /* The count is the smaller half of what this step reports. The other half is
@@ -181,7 +194,7 @@ export const acquireAndCurate = {
      instrument in this step's own channel, the way an optics preset is. */
   ready: ({ gated, targetType }) =>
     (gated.size === 0 ? "nothing gated yet"
-      : targetType?.state ? null : "record the acquisition type first"),
+      : hasRecording(targetType) ? null : "record the acquisition type first"),
 };
 
 export const saveRun = {

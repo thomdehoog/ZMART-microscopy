@@ -106,13 +106,12 @@ export async function walkToTheScan(page) {
   // Standing on the carrier step settles it; the scan fields need a grid.
   await gotoStep("Define Carrier");
   await page.waitForTimeout(200);
-  await gotoStep("Initial scanfields");
-  await page.locator(".sf-mode[data-mode='grid']").click();
+  await gotoStep("Overview scan settings");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(300);
 
   // The focus strategy wants points before it will run.
-  await gotoStep("Focus strategy");
+  await gotoStep("Autofocus settings");
   const box = await page.locator("#focus-canvas").boundingBox();
   for (const [fx, fy] of [[0.3, 0.3], [0.68, 0.28], [0.5, 0.5], [0.32, 0.7], [0.7, 0.68]]) {
     await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
