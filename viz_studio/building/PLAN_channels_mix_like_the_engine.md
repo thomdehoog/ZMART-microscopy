@@ -73,6 +73,16 @@ screen's red/green/blue budget about 2.75×, so clipping begins at 40%
 brightness wherever channels overlap. Distinct hues cannot fix this:
 distinctness is a hue property, clipping is a component-sum property.
 
+### The operator's cross-check: 3D mixed, 2D did not
+
+Colours DID mix in the 3D view while the flat view showed only the top
+channel -- the same root cause seen from the other side. The 3D drawing
+carries brightness in its transparency, so dim voxels are see-through and
+channels below shine through; the flat drawing carried a hard yes/no "was
+this spot imaged" -- fully opaque over any data -- so the top channel
+occluded everything. Removing that yes/no term from channel rows makes both
+views mix the same way.
+
 ### Five channels and more
 
 A screen has three primaries, so five or more channels are always a
