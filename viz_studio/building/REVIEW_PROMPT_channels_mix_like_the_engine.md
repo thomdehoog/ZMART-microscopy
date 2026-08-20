@@ -19,7 +19,9 @@ evidence in the source.
 
 Attack these specifically:
 
-1. **The sum-normalised weights.** They are computed panel-side over the
+1. **The sum-normalised weights.** Weigh these hardest: the reference
+   survey verified the mechanism exists in NO reference tool -- it is a
+   deliberate novelty, so it gets no benefit of convention. They are computed panel-side over the
    VISIBLE channels and delivered as scaled colour control values. Find the
    failure modes: what happens to a channel the operator recoloured by hand
    when another channel's eye toggles (does their chosen colour silently
