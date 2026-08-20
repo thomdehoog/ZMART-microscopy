@@ -198,13 +198,39 @@ The rest of the design stands:
    the engine's plain additive mixing, which clips as every tool does.
    The cure is the composed picture the server already builds, not a
    second compositing system.
-6. **How many channels at once.** One program samples a bounded number of
+6. **Nothing an operator turns costs a rebuild or a re-read.** Verified
+   in the engine's control layer: a colour and a plain slider are
+   uniforms (`getBuilderValue: () => null`), so they reach a program that
+   is already compiled; a brightness window travels as a uniform too
+   (only WHICH channel a control reads is part of the program's identity).
+   The image cache is keyed by the store and the piece, so display
+   settings never touch it: turning a hue or dragging brightness is one
+   number handed to the card, with nothing re-fetched and nothing decoded
+   again. The program's text is rebuilt only when a picture is opened with
+   a different number of channels, and even that keeps every piece already
+   in hand.
+
+   One detail follows from the same source and is worth building in from
+   the start: the engine's checkbox control IS part of a program's
+   identity, while a float slider is not. So a channel's eye should carry
+   a WEIGHT (nought to one) rather than a checkbox -- then showing and
+   hiding a channel is as free as recolouring it, and it fades rather
+   than snaps.
+
+   The trade this design does make is not about caching but about volume:
+   because one program samples every channel, every channel of what is on
+   screen has to be in hand, so hiding a channel no longer saves its
+   reading (today, hiding a layer does). That is the real reason the field
+   shows a few channels of a high-plex picture at a time, and the reason
+   the point below is part of the design rather than a nicety.
+
+7. **How many channels at once.** One program samples a bounded number of
    channels (Viv stops at ten; every reference tool opens with about four
    showing). A picture with more offers them all in the panel and shows
    the first few, as the field does.
-7. **The Log brightness axis turns on by itself** when the camera's range
+8. **The Log brightness axis turns on by itself** when the camera's range
    dwarfs the measured spread.
-8. **The measured 1-99 window stays** the server's: it also draws the
+9. **The measured 1-99 window stays** the server's: it also draws the
    histogram and works before the graphics card has read a pixel. Barely
    a deviation at all, it turns out -- stock neuroglancer's own
    auto-contrast computes the same percentiles, on the GPU; only where

@@ -31,7 +31,11 @@ Attack these specifically:
    Does the scale-back read as a brightness ceiling an operator will
    misread as saturation, and is the plain divide-by-peak the right curve?
    Does binding a control to a channel cost a rebuild when the panel
-   changes which channels show?
+   changes which channels show? And the volume question: with one
+   program sampling every channel, must every channel of the visible
+   area be resident even when its weight is nought -- and if so, what
+   does that cost on the 18-channel plate against today's one-layer-
+   per-channel arrangement, where hiding a channel stops its reading?
 2. **Colour chosen as a hue.** The operator turns a hue (with saturation
    beside it) and the panel hands the engine red-green-blue. Attack it:
    does anything downstream need the triple back (a run that DECLARED a
