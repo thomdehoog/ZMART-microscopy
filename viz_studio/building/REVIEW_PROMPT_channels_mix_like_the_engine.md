@@ -6,8 +6,10 @@ neuroglancer's idioms (colour, window and weight as controls; nothing
 operator-adjustable in the program text) but departs from its layer
 arrangement: instead of one layer per channel added together, ONE layer
 holds a picture and its channels mix inside one drawing program, where the
-total is visible and can be scaled back exactly where it would overflow
-instead of clipping. The operator turns a hue rather than a colour triple.
+total is visible. The sum is NOT rescaled: it clips when it overflows, as
+every reference viewer clips, because rescaling would make a channel's own
+appearance depend on which other channels happen to be switched on. The
+colour interface is unchanged in this build.
 
 Ground rules for this review, learned the hard way this week: the
 codebase's comments are HISTORY, not law — verify any constraint you lean
@@ -28,23 +30,18 @@ Attack these specifically:
    uniform or texture limits bite, and what happens at the boundary? The
    program's text depends on the channel count -- when exactly is it
    rebuilt, and can that rebuild land while an operator drags a slider?
-   Does the scale-back read as a brightness ceiling an operator will
-   misread as saturation, and is the plain divide-by-peak the right curve?
    Does binding a control to a channel cost a rebuild when the panel
    changes which channels show? And the volume question: with one
    program sampling every channel, must every channel of the visible
    area be resident even when its weight is nought -- and if so, what
    does that cost on the 18-channel plate against today's one-layer-
    per-channel arrangement, where hiding a channel stops its reading?
-2. **Colour chosen as a hue.** The operator turns a hue (with saturation
-   beside it) and the panel hands the engine red-green-blue. Attack it:
-   does anything downstream need the triple back (a run that DECLARED a
-   colour, a saved scene, the row swatch, annotations)? Is a hue-only
-   interface a loss for the operator who wants an exact colour, and what
-   is the escape hatch? Are equal hue steps good enough for eighteen
-   channels, or does the perceptual spacing (OKLCH) need to be in the
-   first build rather than a later refinement? Where does the hue live
-   when a scene is saved and reopened?
+2. **Clipping as the accepted outcome.** With no rescaling, a dense
+   many-channel picture opens clipped until the operator brings white
+   points down. Attack it: is the remedy discoverable from the panel, does
+   the histogram tell the operator which channel to turn, and should the
+   opening windows be gentler when a picture has many channels -- or would
+   that be the same hidden adjustment under another name?
 3. **Positions inside one layer.** The plan claims channel mixing and
    position stitching stop competing: channels mix inside a pass, positions
    cover each other across passes. Verify against the engine's draw order
@@ -66,12 +63,10 @@ Attack these specifically:
    silently different (MIP volume rendering vs slice blending), and that
    the 2D/3D parity the operator observed inverted (3D mixed, 2D covered)
    truly converges under the plan.
-7. **Auto and windows under the mixing program.** The Auto light compares
-   a channel's window to the measured one. Under mixing, the scale-back
-   means a channel's contribution can change without its window moving --
-   so the picture changes while every Auto light stays lit. Is that
-   acceptable to an operator, and does the histogram still describe what
-   is on screen?
+7. **Auto and windows under the mixing program.** Check the invariant the
+   design turns on: a channel's contribution must depend only on its own
+   window, colour and weight -- never on which other channels are showing.
+   Find any path that breaks it.
 8. **The stitched-regime label.** The plan promises the panel says why a
    stitched multichannel row cannot colour-mix. Where exactly, in whose
    words, and is the claim even true after the server-side composition path
