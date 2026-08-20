@@ -319,6 +319,68 @@ folder chooser):
   the page asked the operator to type paths by hand, which read as a
   viewer with mock capabilities.
 
+## Channels mix, 2026-08-20
+
+The four-channel plate showed one channel: the top one covered the rest, so
+recolouring any other changed not a pixel. Two reviews were run with orders
+to treat the code's comments as history rather than law, and the design was
+rebuilt against the engine's own source. What was found and done:
+
+- **The engine's own multichannel display contradicted most of our commented
+  rules** (`layer/multi_channel_setup.js`, sitting in node_modules all
+  along): additive for every channel layer including the bottom one, colour
+  carried as a control, no coverage transparency, opacity pinned at one. The
+  viewer had reasoned its way to the opposite of each, at length, and the
+  prose was persuasive enough that every later change bent around it.
+- **One program cannot read two channels of our data.** The plan's better
+  arrangement -- one layer per picture, channels mixed inside -- died on a
+  measurement: a brightness control binds to a CHANNEL dimension, and an
+  OME-Zarr `c` axis arrives as a LOCAL one (channel rank nought,
+  `channel=[1]` refuses to parse). This is why neuroglancer splits channels
+  into layers too.
+- **Built: stock neuroglancer's shape.** Channels add between layers;
+  colour, weight and window all travel as controls to one shared program;
+  the weight is carried once, which retired a fade that squared its own
+  setting (measured at a half reading a third).
+- **Nothing is scaled to fit, by the operator's own rule**: the display must
+  be a fact about the data and the dials that were set, so hiding a channel
+  may not brighten the others. The mix clips and white points are the
+  remedy -- as ImageJ, napari, OMERO and vizarr all do. Photographed on the
+  real plate: four dense channels at their measured windows are pure white;
+  each white point raised about fourfold and the same wells read as a true
+  composite.
+- **The Log brightness axis now turns on by itself** where the camera's
+  range dwarfs the measured spread, which is what keeps the full-range axis
+  usable while a white point is being brought down.
+- **Three older gates moved to the new ownership, and one fell to the
+  meta-gate.** `test_no_setting_is_dropped_on_the_way_to_the_engine` caught
+  the blend a row is drawn with being added to a description with no line in
+  the engine to carry it -- exactly the dead-control fault it exists for, and
+  it found it the first time it ran. Unnamed channels no longer all open
+  white (several white channels add to a flat glare, and recolouring one
+  cannot help when they are all alike); a lone unnamed channel is still left
+  plain. And the reveal-beneath property was restated for a regime that adds:
+  while channels covered one another, fading the upper one had to BRIGHTEN
+  some colour band, and now nothing can brighten -- what a fade must not do
+  is eat into what the channel beneath contributes.
+
+- **The spiral-growth gate is load-sensitive, and it cost an hour of wrong
+  diagnosis.** `test_the_spiral_growth_is_visible` failed in the full suite
+  and again in an isolated rerun, and the isolated rerun looked like proof
+  the mixing chapter had caused it -- until the comparison was checked: the
+  supposed baseline ran on a quiet machine while the supposed culprit ran
+  beside another browser suite. Measured properly afterwards: 3 of 3 passes
+  on a quiet machine WITH the chapter, 0 of 2 under concurrent load, and the
+  gate polls for growth against a 30-second deadline with a 2-percent
+  regression threshold. It is timing, not the change. Anyone bisecting a
+  browser gate here should hold the machine's load constant across both
+  sides, which this session did not.
+
+- **OPEN, held as a strict expected failure:** a picture written as
+  overlapping positions still cannot mix its channels, because adding is a
+  property of a layer and a layer fed by several stores would sum their
+  overlaps into seams. The cure is the composed picture the server builds.
+
 The `settled` column of the raw run (five seconds at every rung) is a
 fixed four-second wait inside the instrument plus readiness, kept out of
 the table above because it measures the harness, not the viewer.

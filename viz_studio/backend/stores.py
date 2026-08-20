@@ -32,6 +32,17 @@ _CHANNEL_COLORS = {
 }
 _CHANNEL_PATTERN = re.compile(r"Ch(\d{3})")
 
+# What several channels wear when the run declared no colours at all: the
+# panel's own palette, in its own order, so a channel opened by default and a
+# channel picked by hand read as the same choices. Green and magenta first
+# because they are the pair colour-blind operators tell apart best.
+_DEFAULT_CHANNEL_TURNS = (
+    (0.00, 1.00, 0.40),  # green
+    (1.00, 0.20, 1.00),  # magenta
+    (0.20, 0.80, 1.00),  # cyan
+    (1.00, 0.75, 0.10),  # amber
+)
+
 # The small files a zarr store writes to describe itself rather than to hold any
 # of its picture: what the axes are, how large the image is, how its pieces are
 # named. Version 2 uses the three beginning with a dot, version 3 uses the last
@@ -613,6 +624,20 @@ def channels(store: Path) -> list[dict]:
             "color": _hex_to_rgb(entry.get("color")),
             "window": _the_window_asked_for(entry),
         })
+    # Channels of one picture sum like light on screen, and several channels
+    # all opening white summed a real plate to pure clipping -- every well
+    # white, no structure, no colour. Where the run declared nothing, the
+    # channels take distinct colours in turn (the panel's own palette order,
+    # the convention napari opens multichannel images with). One channel
+    # alone keeps its greyscale: with nothing to distinguish it from, a
+    # colour would be an invention.
+    if count > 1:
+        turn = 0
+        for channel in out:
+            if channel["color"] is None:
+                channel["color"] = _DEFAULT_CHANNEL_TURNS[
+                    turn % len(_DEFAULT_CHANNEL_TURNS)]
+                turn += 1
     return out
 
 

@@ -126,14 +126,17 @@ def test_turning_the_only_channel_down_fades_the_picture(viewer_page):
     )
 
 
-def test_turning_a_channel_down_still_lets_the_one_beneath_show_through(viewer_page):
-    """The property the fix must not cost, since one shader serves both regimes.
+def test_turning_a_channel_down_never_darkens_the_one_beneath(viewer_page):
+    """The property the fade must not cost, restated for a regime that adds.
 
-    Dimming the colour is what makes the bottom row work. Done on its own it would
-    make every row above simply fade to black over whatever is beneath, which is
-    the opposite of what an operator asks an opacity slider for. The alpha has to
-    go on saying how much of what is underneath to let through, and this is the
-    check that it does.
+    While channels covered one another, turning the upper one down had to
+    REVEAL the lower -- some colour band had to brighten, or the upper row was
+    simply fading to black over it, which is the opposite of what an operator
+    asks an opacity slider for. Channels are added now, so the lower one was
+    never hidden and nothing can brighten; the same danger takes a different
+    shape. A fade must not eat into what the channel beneath contributes: at
+    the very bottom of its travel, the picture may not be dimmer than that
+    channel drawn on its own.
     """
     page = viewer_page
     channels = _channels(page)
@@ -141,21 +144,27 @@ def test_turning_a_channel_down_still_lets_the_one_beneath_show_through(viewer_p
         page.click(f"[aria-label='toggle {hidden}']")
     page.wait_for_timeout(1500)
 
-    upper = channels[1]
+    upper, lower = channels[1], channels[0]
     _choose(page, upper)
     _set_range(page, f"opacity {upper}", 1.0)
-    covered = image_middle(page)
+    both = image_middle(page).mean()
     _set_range(page, f"opacity {upper}", 0.1)
-    revealed = image_middle(page)
+    faded = image_middle(page).mean()
 
-    # The channels are drawn in different colours, so what the row underneath
-    # contributes can be read off the picture without hiding anything: the band
-    # the upper row does not paint in belongs to the lower one alone.
-    beneath = [band for band in range(3)
-               if revealed[:, :, band].mean() > covered[:, :, band].mean() + 1.0]
-    assert beneath, (
-        "turning the upper channel down did not brighten any colour band, so "
-        "nothing of the channel beneath it came through -- the alpha has stopped "
-        "saying how much to let past and the upper row is simply fading to black "
-        f"over it (covered {covered.mean():.2f}, revealed {revealed.mean():.2f})"
+    # What the lower channel contributes on its own, measured by putting the
+    # upper one away entirely.
+    page.click(f"[aria-label='toggle {upper}']")
+    page.wait_for_timeout(1200)
+    alone = image_middle(page).mean()
+
+    assert faded < both - 1.0, (
+        f"turning the upper channel down did not dim the picture at all "
+        f"({both:.2f} to {faded:.2f}) -- the fade is not reaching the colour"
     )
+    assert faded >= alone - 1.0, (
+        f"with the upper channel turned down the picture reads {faded:.2f}, "
+        f"below the {alone:.2f} the channel beneath draws on its own -- the "
+        "fading row is eating into what is underneath instead of adding less "
+        "and less to it"
+    )
+    assert alone > 1.0, "the lower channel must be visible for this to mean anything"

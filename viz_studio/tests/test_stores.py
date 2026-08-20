@@ -173,3 +173,58 @@ def test_an_unknown_channel_is_left_uncoloured(tmp_path):
     """Better plain than a colour that claims a wavelength it does not know."""
     assert channel_color("Tile0_Ch999_x.ome.zarr") is None
     assert channel_color("demo.zarr") is None
+
+
+def test_channels_with_no_declared_colours_open_distinct(tmp_path):
+    """Several unnamed channels each get their own colour, not four whites.
+
+    Channels of one picture now sum like light, and four channels opening
+    white summed to a plate of pure white: every well clipped, no structure,
+    no colour ("everything is white", the operator, 2026-08-20). Where a
+    run declares nothing, the channels take the panel's palette in turn --
+    the same convention napari opens multichannel images with. One channel
+    alone keeps its honest greyscale: with nothing to distinguish it from,
+    a colour would be an invention.
+    """
+    from stores import channels
+
+    store = tmp_path / "plate_field.ome.zarr"
+    store.mkdir()
+    (store / ".zattrs").write_text(json.dumps({
+        "multiscales": [{
+            "version": "0.4",
+            "axes": [{"name": "c", "type": "channel"},
+                     {"name": "y", "type": "space", "unit": "micrometer"},
+                     {"name": "x", "type": "space", "unit": "micrometer"}],
+            "datasets": [{"path": "0", "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 0.35, 0.35]}]}],
+        }],
+    }), encoding="utf-8")
+    level = store / "0"
+    level.mkdir()
+    (level / ".zarray").write_text(json.dumps({
+        "zarr_format": 2, "shape": [4, 8, 8], "chunks": [1, 8, 8],
+        "dtype": "<u2", "compressor": None, "fill_value": 0,
+        "filters": None, "order": "C",
+    }), encoding="utf-8")
+    told = channels(store)
+    colours = [tuple(one["color"]) for one in told if one["color"]]
+    assert len(colours) == 4, (
+        f"every channel of several must wear a colour; got {told}"
+    )
+    assert len(set(colours)) == 4, f"the colours must be distinct: {colours}"
+
+    lonely = tmp_path / "single.ome.zarr"
+    lonely.mkdir()
+    (lonely / ".zattrs").write_text(
+        (store / ".zattrs").read_text(encoding="utf-8"), encoding="utf-8")
+    single = lonely / "0"
+    single.mkdir()
+    (single / ".zarray").write_text(json.dumps({
+        "zarr_format": 2, "shape": [1, 8, 8], "chunks": [1, 8, 8],
+        "dtype": "<u2", "compressor": None, "fill_value": 0,
+        "filters": None, "order": "C",
+    }), encoding="utf-8")
+    assert channels(lonely)[0]["color"] is None, (
+        "one channel alone keeps its honest greyscale"
+    )

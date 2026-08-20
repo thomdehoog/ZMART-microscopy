@@ -122,90 +122,53 @@ brightness control reads, each channel's colour and weight, and the
 mixing itself, which lives in the program text the layer is given. No
 engine modification anywhere.
 
-## The design
+## The design, and what the engine allowed
 
-**One picture is one layer, and its channels mix inside one drawing
-program.** A brightness control can be bound to a named channel of the
-data (`#uicontrol invlerp ch0(channel=[0])`, verified in
-`webgl/shader_ui_controls.js`), so ONE program reads every channel of a
-picture and adds them:
+**BUILT 2026-08-20.** The plan as written wanted one layer per picture, its
+channels mixed inside one drawing program. The engine refused, for a reason
+worth writing down because it is invisible from the outside: a brightness
+control can be bound to a named CHANNEL dimension, and an OME-Zarr `c` axis
+does not arrive as one. Measured on a real store: the layer reports its `c`
+as a LOCAL dimension (`c'`) and a channel rank of nought, so
+`invlerp ch1(channel=[1])` will not even parse. A local dimension is pinned
+to one position per layer, so no single program can read two channels of it.
 
-```
-    sum = colour0 x ch0() + colour1 x ch1() + ...
-    emit sum, with "anything was imaged here" as the coverage
-```
+That is exactly why neuroglancer splits a multichannel volume into one layer
+per channel, and the built design is therefore stock neuroglancer's own:
 
-**The sum is not scaled back, and nothing is normalised.** An earlier
-draft of this plan divided the sum down wherever it would overflow, so a
-dense plate could never clip. The operator refused it, and the reason is
-the one that decides this chapter:
+1. **One layer per channel, added by the engine.** The adding is a property
+   of a layer (`blendMode = ADDITIVE`), so channels of one picture mix on the
+   graphics card between layers rather than inside a program. Every channel
+   reaches the screen; recolouring any of them shows.
+2. **Colour, weight and window are controls, never program text.** One
+   program is now shared by every flat channel, and choosing a colour costs
+   one number handed to a program already compiled -- no rebuild, nothing
+   re-read. The colour used to be written into the text, which compiled a
+   fresh program per colour and gave every channel one of its own.
+3. **The weight is carried once.** An added row contributes exactly the
+   colour its program emits, so its weight lives there and the transparency
+   the engine blends with stays at one; a covering row still reads the
+   transparency, because that is what lets a faded row reveal what lies
+   beneath. Carried in both, as it was, a channel faded as its own setting
+   SQUARED -- measured at a half reading a third.
+4. **Nothing is scaled to fit.** The sum clips when it overflows, as every
+   reference viewer clips, and the operator's own white points are the
+   remedy. Proven on the real plate: four dense channels at their measured
+   windows add to white, and with each white point raised about fourfold the
+   same wells read as a true composite -- green monolayer, pink nuclei, teal
+   specks.
+5. **The Log brightness axis turns on by itself** when the camera's range
+   dwarfs the measured spread, which is what makes the full-range axis
+   workable while an operator is bringing a white point down.
 
-> The display is a fact about the data and about the dials the operator
-> set. Rescaling makes it a fact about which channels happen to be
-> switched on: hide one channel and the others silently brighten. Setting
-> a channel's black and white points must mean the same thing however
-> many other channels are showing.
-
-So the mix clips when it overflows, exactly as ImageJ, napari, OMERO,
-vizarr and stock neuroglancer all clip, and the remedy is the operator's
-own: bring a channel's white point down until the picture reads. Removing
-a channel then changes the picture only by removing that channel's
-contribution, which is what should happen. This also retires the one
-mechanism in the design that no reference tool had -- the novelty is
-gone, and with it the risk it carried.
-
-**Why one layer, then, if not to see the total?** Because it is the only
-arrangement where channels mix AND positions still cover each other.
-Inside one layer each position draws as its own pass and covers the one
-before it -- correct stitching, no summed overlaps -- while the channels
-mix within each pass. Per-channel layers cannot do both: additive there
-sums the overlaps of a stitched run into bright seams, which is why the
-first attempt had to fork on the number of files a row came from and left
-tiled multichannel runs unable to colour at all.
-
-The rest of the design stands:
-
-1. **Colour and brightness are dials, never program text.** Recolouring
-   costs a number, not a rebuild. The program's text depends only on how
-   many channels the picture has, so it is rebuilt when a picture is
-   opened and never while an operator works.
-2. **Opacity has one carrier** and the coverage term means coverage only:
-   whether anything was imaged there, for stacking one acquisition over
-   another.
-3. **Colour is chosen where it is chosen today** -- the lookup-table
-   control in the display settings, a flat colour or a colour map. Turning
-   a hue instead of picking from a list is the natural next step for
-   pictures of many channels, and it is deliberately NOT part of this
-   build.
-4. **Defaults owned once.** The server reports colours a run DECLARED, or
-   nothing; the default colours live in exactly one place (the panel), and
-   several channels never open the same colour.
-5. **A picture whose channels live in separate files** -- an older run, a
-   folder of per-channel stores -- keeps a layer per channel and the
-   engine's plain additive mixing. The cure is the composed picture the
-   server already builds, not a second compositing system.
-6. **Nothing an operator turns costs a rebuild or a re-read.** Verified in
-   the engine's control layer: a colour and a plain slider are uniforms
-   (`getBuilderValue: () => null`), and the image cache is keyed by the
-   store and the piece, so display settings never touch it. The engine's
-   checkbox control IS part of a program's identity while a float slider
-   is not, so a channel's eye carries a weight rather than a checkbox --
-   showing and hiding a channel is then as free as recolouring it. The
-   trade the design does make is volume, not caching: one program samples
-   every channel, so every channel of what is on screen has to be in hand.
-7. **How many channels at once.** One program samples a bounded number of
-   channels (Viv stops at ten; every reference tool opens with about four
-   showing). A picture with more offers them all in the panel and shows
-   the first few.
-8. **The Log brightness axis turns on by itself** when the camera's range
-   dwarfs the measured spread, so the full-range histogram stays usable --
-   which matters more now that narrowing a white point by hand is the
-   operator's remedy for a crowded mix.
-9. **The measured 1-99 window stays** the server's: it also draws the
-   histogram and works before the graphics card has read a pixel. Barely
-   a deviation at all -- stock neuroglancer's own auto-contrast computes
-   the same percentiles, on the GPU; only where the measuring happens
-   differs.
+**The limit that remains, pinned as a measurement rather than a paragraph.**
+A picture written as overlapping positions cannot mix its channels: adding
+belongs to a layer, so a layer fed by several stores would add those stores
+to each other and draw a bright seam along every join. Such a picture keeps
+the covering rule and shows only its topmost channel. The cure is the
+composed picture the server already builds -- one store, one source per
+channel row, and the mixing works. `test_channels_mix.py` holds that limit as
+a strict expected failure, so the day it lifts is not missed.
 
 Touches: `scene.js` (one layer per picture, the mixing program, the
 controls), `engine.js` (rows become one layer with per-channel controls
