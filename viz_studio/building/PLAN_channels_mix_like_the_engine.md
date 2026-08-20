@@ -56,8 +56,9 @@ verified in the installed source:
   in source; composite display caps at 8 channels).
 - **vizarr (Viv)** — installed in our own node_modules from the
   pluggable-engine days: all channels sampled in ONE drawing pass and
-  summed, per-channel colour and limits as dials, a channel-count ceiling
-  of about six per layer.
+  summed, per-channel colour and limits as dials, a ceiling of ten
+  channels per layer (verified in the installed source), and its own
+  viewer opens with only the first four turned on.
 - **Every one of them clips dense-in-every-channel data to white.** There
   is no hidden mechanism anywhere; fluorescence usually escapes because
   each channel is mostly dark, and stock's red/green/blue defaults cannot
@@ -141,6 +142,11 @@ lacks: sum-normalised channel weights.** Concretely:
    rest automatically; a single channel is untouched. This is the entire
    white-plate fix, and it is one multiplication on a dial the engine
    already owns. Stated deviation from stock — stock clips this data too.
+   The final reference survey verified this mechanism is absent from
+   EVERY reference tool (their escapes are categorical max, a single-hue
+   luminance sum, or showing few channels) — so it is a genuine
+   departure, chosen deliberately, and the review should weigh it as
+   one.
 5. **Defaults owned once.** The server reports colours a run DECLARED, or
    nothing; the default palette lives in exactly one place (the panel).
    Keep green/magenta first (the colour-blind-safest pair) — with
@@ -150,8 +156,9 @@ lacks: sum-normalised channel weights.** Concretely:
    dwarfs the measured spread, so the full-range histogram stays usable.
 7. The per-channel windows stay the server's measured 1–99 percentile: it
    also draws the histogram, works before the graphics card has read a
-   pixel, and is reproducible. Stated deviation from stock's on-the-fly
-   guess.
+   pixel, and is reproducible. Barely a deviation at all, it turns out:
+   stock neuroglancer's own auto-contrast computes the same 1st/99th
+   percentiles, on the GPU; only where the measuring happens differs.
 
 Touches: `scene.js` (the program and the layer settings), a little of
 `engine.js` and `LayerPanel.jsx`, removal of the palette from `stores.py`.
@@ -193,7 +200,11 @@ their conditions.
   full suite once, the ledger updated, pushed, the served viewer
   restarted.
 
-## One pending detail
+## Closed pending detail
 
-Fiji's exact opening display ranges are still being confirmed; nothing in
-the design turns on them.
+Fiji's exact opening display ranges could not be verified by the survey's
+sub-check and remain unknown; nothing in the design turns on them. The
+survey's other corrections are folded in above (Viv's ten-channel ceiling,
+napari's first-channel special case, stock's own 1-99 percentile
+auto-contrast, and the field-wide open-with-few-visible pattern for
+high-plex data that the 18-channel plan point follows).
