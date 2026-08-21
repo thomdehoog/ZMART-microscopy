@@ -91,6 +91,33 @@ def _playwright():
         pw.stop()
 
 
+def _open_step(page, step):
+    """Make sure one step's section is expanded, however the page left it.
+
+    Two things make this less obvious than clicking the heading. The page
+    keeps the sections whose panel stays useful — the map, the cell explorer,
+    the gallery — open as the run moves along, so a section may already be
+    expanded, and clicking it then folds it away instead of revealing it. And
+    the page may still be restoring a run in the background, which opens
+    sections a moment after the page first appears; a click aimed at a closed
+    section can land just after that restore opened it, and close it again.
+
+    So wait for the restore to finish, then look before clicking, and check
+    the section really ended up open.
+    """
+    # The demo banner is unhidden as the very last act of applying a state
+    # snapshot, which makes it a reliable "the page has settled" sign.
+    page.wait_for_selector("#demo-banner", state="visible", timeout=30_000)
+    page.wait_for_selector(f"#step-{step}", state="attached", timeout=30_000)
+    is_open = f"() => document.querySelector('#step-{step}')?.open === true"
+    for _ in range(5):
+        if page.evaluate(is_open):
+            return
+        page.locator(f"#step-{step} > summary").click()
+        page.wait_for_timeout(250)
+    page.wait_for_function(is_open, timeout=10_000)
+
+
 def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path):
     base, hub, flow = demo_server
     with _playwright() as pw:
@@ -117,7 +144,7 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         focus.locator('button:has-text("Measure focus")').first.click(timeout=30_000)
         page.wait_for_selector('#widget-focus :text("focus surface fitted")', timeout=60_000)
 
-        page.locator("#step-run_overview > summary").click()
+        _open_step(page, "run_overview")
         page.click('button[data-step="run_overview"]')
         page.wait_for_selector("#note-run_overview.ok", timeout=120_000)
         # The live map really shows tiles, streamed as binary and mounted
@@ -140,12 +167,12 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         assert images.evaluate_all("els => els.map((el) => el.src)") == previous_sources
         page.unroute("**/buffer/*")
 
-        page.locator("#step-discover_targets > summary").click()
+        _open_step(page, "discover_targets")
         page.click('button[data-step="discover_targets"]')
         page.wait_for_selector("#note-discover_targets.ok", timeout=120_000)
         page.wait_for_selector("#widget-explorer svg", timeout=30_000)
 
-        page.locator("#step-gallery > summary").click()
+        _open_step(page, "gallery")
         gallery = page.locator("#widget-gallery")
         gallery.locator("input").first.fill("2")
         gallery.locator('button:has-text("Acquire")').first.click()
@@ -154,7 +181,7 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         )  # 2 pairs
         gallery.locator('button:has-text("✓")').first.click()
 
-        page.locator("#step-save_results > summary").click()
+        _open_step(page, "save_results")
         page.click('button[data-step="save_results"]')
         page.wait_for_selector("#note-save_results.ok", timeout=60_000)
         page.click('button[data-step="disconnect"]')
@@ -302,6 +329,44 @@ def test_failed_first_snapshot_retries_and_unwedges_the_page(demo_server):
         browser.close()
 
 
+def test_restoring_a_run_keeps_the_panels_worth_reading_open(demo_server):
+    """Opening the page mid-run must not fold the map and the cell plot away.
+
+    The page catches up on a run in progress by asking the server for the
+    whole state — which also happens on a refresh, and whenever a widget is
+    created part-way through a run. Steps that are only a button fold away
+    once they are done, but the steps holding a panel the operator reads (the
+    overview map, the cell explorer, the acquisition gallery) are meant to
+    stay open. Closing those would take the cell plot off the screen at the
+    very moment discovery finished making it.
+    """
+    base, hub, flow = demo_server
+    for step in _STEP_ORDER:
+        flow.run_step(step)
+    hub.drain(60)
+    hub.dispatch_message("focus", {"type": "measure"})
+    flow.run_step("run_overview")
+    flow.run_step("discover_targets")
+    hub.drain(120)
+
+    with _playwright() as pw:
+        browser = _launch_browser(pw)
+        page = browser.new_page()
+        page.goto(base, wait_until="domcontentloaded")
+        page.wait_for_selector("#demo-banner", state="visible", timeout=30_000)
+
+        def is_open(step):
+            return page.evaluate(f"() => document.querySelector('#step-{step}')?.open === true")
+
+        # Nothing is clicked here on purpose: this is the page's own doing.
+        assert is_open("run_overview"), "the overview map was folded away"
+        assert is_open("discover_targets"), "the cell explorer was folded away"
+        playwright_api.expect(page.locator("#widget-explorer svg")).to_be_visible(timeout=30_000)
+        # A step that is only a button has no panel to read, so it still folds.
+        assert not is_open("set_origin")
+        browser.close()
+
+
 def test_explorer_lasso_ignores_slips_and_commits_real_drags(demo_server):
     base, hub, flow = demo_server
     for step in _STEP_ORDER:
@@ -316,10 +381,15 @@ def test_explorer_lasso_ignores_slips_and_commits_real_drags(demo_server):
         browser = _launch_browser(pw)
         page = browser.new_page()
         page.goto(base, wait_until="domcontentloaded")
-        page.locator("#step-discover_targets > summary").click()
+        _open_step(page, "discover_targets")
         svg = page.locator("#widget-explorer svg")
         playwright_api.expect(svg).to_be_visible(timeout=30_000)
-        svg.scroll_into_view_if_needed()
+        # The plot is drawn larger than this window is tall, so bring its TOP
+        # to the top of the view rather than merely bringing some part of it
+        # into sight: the drag below is aimed at coordinates near the plot's
+        # upper-left corner, and those have to be somewhere the mouse can
+        # actually reach.
+        svg.evaluate("el => el.scrollIntoView({ block: 'start' })")
         box = svg.bounding_box()
         assert box is not None
         # Choose a genuine SVG-background point, away from every target dot,
@@ -335,6 +405,14 @@ def test_explorer_lasso_ignores_slips_and_commits_real_drags(demo_server):
             }"""
         )
         x, y = box["x"] + start[0], box["y"] + start[1]
+        # If the plot ever scrolls out of reach again, say so plainly instead
+        # of leaving a later wait to time out with no hint of the cause.
+        on_screen = page.evaluate(
+            "p => { const e = document.elementFromPoint(p[0], p[1]);"
+            " return e ? e.tagName : null; }",
+            [x, y],
+        )
+        assert on_screen is not None, f"the lasso start point {(x, y)} is off screen"
 
         page.mouse.move(x, y)
         page.mouse.down()
