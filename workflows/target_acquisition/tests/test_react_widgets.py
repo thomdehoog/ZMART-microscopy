@@ -1448,3 +1448,307 @@ def test_the_pictures_the_operator_judges_keep_every_pixel(tmp_path):
 
     picture = np.zeros((16, 16, 3), dtype=np.float32)
     assert png_bytes(picture)[:8] == _PNG_MAGIC
+
+
+# ---------------------------------------------------------------------------
+# The guards each panel keeps, and what it does with a message it cannot use.
+#
+# Everything a widget receives comes from the browser, so "a message that makes
+# no sense" is a normal event rather than an exceptional one — it may be an
+# older tab, a half-finished click, or something else on the machine entirely.
+# Each panel answers plainly and carries on.
+# ---------------------------------------------------------------------------
+
+
+def test_a_second_run_cannot_start_on_top_of_one_already_going(tmp_path):
+    """Two runs at once would send the stage two places at the same time.
+
+    The guard reads the widget's own private record of a run in progress, not
+    the copy the page holds — that copy is a display mirror, so a page script
+    can neither fake a run to block every real one nor hide one to slip a
+    second past the guard.
+    """
+    viewer = wreact.view_overview([_overview(tmp_path)])
+
+    ran = []
+    viewer._set_busy(True)  # as if a scan were under way
+    with pytest.raises(RuntimeError, match="a run is already in progress"):
+        viewer._hardware_run(lambda: ran.append("second run"))
+    assert ran == [], "a second run started while the first was going"
+
+    viewer._set_busy(False)
+    viewer._hardware_run(lambda: ran.append("after it finished"))
+    assert ran == ["after it finished"]
+
+
+def test_the_gate_works_on_the_upright_axis_too(tmp_path):
+    """Either axis can be thresholded, and both together narrow the gate.
+
+    Cells are gated by whichever two measurements the operator put on the
+    plot, so the upright axis has to hold its own exactly as the sideways one
+    does — and setting both must keep only the cells inside both.
+    """
+    explorer = wreact.explore_targets(_targets(6), [_overview(tmp_path)])
+    explorer.x_feature, explorer.y_feature = "x", "y"
+    everything = len(explorer.gated)
+
+    explorer.gate = {"y": [0.0, 0.0]}  # _targets gives y values of 0, 1, 2
+    only_bottom_row = len(explorer.gated)
+    assert 0 < only_bottom_row < everything
+
+    explorer.gate = {"x": [0.0, 2.0], "y": [0.0, 0.0]}
+    both = len(explorer.gated)
+    assert both <= only_bottom_row, "adding a second threshold should not widen the gate"
+
+
+def test_a_gate_made_of_nonsense_is_ignored_rather_than_obeyed(tmp_path):
+    """A threshold the page cannot mean must not quietly change the gate.
+
+    Anything may write to the gate, so a range of the wrong shape, or one that
+    is not a number at all, has to fall back to "no threshold on that axis" —
+    never to a gate that keeps nothing, which would look like a sample with no
+    cells in it.
+    """
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    everything = len(explorer.gated)
+
+    for rubbish in ({"x": "not a range"}, {"x": [1.0]}, {"x": [None, 3.0]},
+                    {"x": [float("nan"), 3.0]}, {"x": [float("inf"), float("inf")]}):
+        explorer.gate = rubbish
+        assert len(explorer.gated) == everything, f"{rubbish} narrowed the gate"
+
+
+def test_a_lasso_that_cannot_be_read_leaves_the_gate_alone(tmp_path):
+    """A drawn shape that arrives malformed is dropped, not half-applied."""
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    everything = len(explorer.gated)
+    explorer.gate = {"lasso": [["a", "b"], [1.0, 2.0], [3.0, 4.0]]}
+    assert len(explorer.gated) == everything
+
+
+def test_picking_a_cell_that_is_not_there_is_refused(tmp_path):
+    """Hand-picking names a cell by number, and the number must exist."""
+    explorer = wreact.explore_targets(_targets(3), [_overview(tmp_path)])
+    for missing in (-1, 3, 99):
+        with pytest.raises(ValueError, match="no target"):
+            explorer.toggle_pick(missing)
+    assert explorer.picked_indices == []
+
+
+def test_clearing_the_hand_picked_cells_empties_the_list(tmp_path):
+    """Starting the selection again must leave nothing behind."""
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.toggle_pick(0)
+    explorer.toggle_pick(2)
+    assert sorted(explorer.picked_indices) == [0, 2]
+
+    explorer.clear_picks()
+    assert explorer.picked_indices == []
+
+    explorer.toggle_pick(1)
+    explorer._route_message(None, {"type": "clear_picks"}, None)
+    assert explorer.picked_indices == []
+
+
+def test_a_verdict_must_be_one_of_the_three_the_gallery_offers(tmp_path):
+    """Curation records good, bad, or no verdict yet — nothing else."""
+    gallery = wreact.acquire_gallery(_AcqSession(tmp_path), _targets(3), [_overview(tmp_path)])
+    with pytest.raises(ValueError, match='"good", "bad", or None'):
+        gallery.set_verdict(0, "maybe")
+
+
+def test_asking_for_a_nonsensical_number_of_cells_never_reaches_hardware(tmp_path):
+    """How many cells to image must be a real, positive whole number."""
+    gallery = wreact.acquire_gallery(_AcqSession(tmp_path), _targets(3), [_overview(tmp_path)])
+    for bad in (0, -2):
+        with pytest.raises(ValueError, match="positive whole number"):
+            gallery.acquire(bad)
+    assert gallery.records == []
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda tmp_path: wreact.view_overview([_overview(tmp_path)]), id="overview map"),
+        pytest.param(
+            lambda tmp_path: wreact.explore_targets(_targets(3), [_overview(tmp_path)]),
+            id="cell explorer",
+        ),
+        pytest.param(
+            lambda tmp_path: wreact.acquire_gallery(
+                _AcqSession(tmp_path), _targets(3), [_overview(tmp_path)]
+            ),
+            id="acquisition gallery",
+        ),
+        pytest.param(lambda tmp_path: wreact.run_status({}), id="run checklist"),
+    ],
+)
+def test_a_message_a_panel_does_not_recognise_is_said_out_loud(build, tmp_path):
+    """An unrecognised message is reported, not silently dropped.
+
+    Saying so is what makes an older tab, or a mismatch between the page and
+    the Python it is talking to, visible instead of mysterious — the panel
+    simply stops responding otherwise, with nothing to explain why.
+    """
+    widget = build(tmp_path)
+    widget._route_message(None, {"type": "fly_to_the_moon"}, None)
+    assert "unknown message" in widget.status
+    assert "fly_to_the_moon" in widget.status
+
+
+def test_a_map_told_exactly_how_coarse_to_be_obeys(tmp_path):
+    """``view_overview(downsample=n)`` pins the display step by hand.
+
+    The map normally decides for itself how coarsely to show each tile. Being
+    able to pin it is what makes a comparison repeatable — two runs shown the
+    same way — so the setting has to actually take.
+    """
+    viewer = wreact.view_overview([_overview(tmp_path)], downsample=4)
+    assert viewer.downsample == 4
+    assert viewer._stacks[0].shape[1:] == (25, 25)  # a 100x100 tile, every 4th pixel
+
+
+def test_a_ring_clicked_with_a_nonsense_number_picks_nothing(tmp_path):
+    """Clicking a cell on the map names it by number, and it must be one.
+
+    The rings on the map are clickable, and the click arrives as a number
+    from the browser. Something that is not a number at all has to be dropped
+    rather than reaching the pick list, where it would name a cell that does
+    not exist.
+    """
+    targets = _targets(3)
+    viewer = wreact.view_overview([_overview(tmp_path)])
+    explorer = wreact.explore_targets(targets, [_overview(tmp_path)])
+    viewer.show_targets(targets, explorer)
+
+    for nonsense in ("not a number", None, [1], float("nan")):
+        viewer._route_message(None, {"type": "pick", "index": nonsense}, None)
+    assert explorer.picked_indices == [], "a nonsensical click picked a cell"
+
+    viewer._route_message(None, {"type": "pick", "index": 1}, None)
+    assert explorer.picked_indices == [1], "a real click should still pick"
+
+
+def test_a_verdict_message_that_makes_no_sense_is_dropped(tmp_path):
+    """Curation arrives from the browser, so it is checked before it is kept.
+
+    A verdict names a row by number and carries one of three answers. Neither
+    part is trusted: a row number that is not a number, or an answer that is
+    not one of the three, leaves the record exactly as it was.
+    """
+    gallery = wreact.acquire_gallery(_AcqSession(tmp_path), _targets(3), [_overview(tmp_path)])
+    gallery._route_message(None, {"type": "acquire", "count": 2}, None)
+    before = list(gallery._verdicts)
+
+    for message in (
+        {"type": "verdict", "index": "first one", "value": "good"},
+        {"type": "verdict", "index": None, "value": "good"},
+        {"type": "verdict", "index": 0, "value": "excellent"},
+        {"type": "verdict", "index": 0, "value": 7},
+    ):
+        gallery._route_message(None, message, None)
+    assert list(gallery._verdicts) == before, "a malformed verdict was recorded"
+
+    gallery._route_message(None, {"type": "verdict", "index": 0, "value": "good"}, None)
+    assert gallery._verdicts[0] == "good", "a proper verdict should still be recorded"
+
+
+def test_a_measurement_that_is_the_same_everywhere_still_draws(tmp_path):
+    """The backdrop behind the thresholds must survive a flat measurement.
+
+    The plot draws a small distribution behind each threshold so it is set
+    against the data rather than blind. If every cell shares one value — or
+    none of them has the measurement at all — there is no distribution to
+    draw, and that has to end in an empty backdrop rather than an error in
+    the middle of an update.
+    """
+    identical = _targets(4)
+    for target in identical:
+        target["x"] = 5.0
+        target["y"] = 5.0
+    explorer = wreact.explore_targets(identical, [_overview(tmp_path)])
+    explorer.x_feature, explorer.y_feature = "x", "y"
+
+    assert explorer.hist["x"] and explorer.hist["y"]
+    assert sum(explorer.hist["x"]) == pytest.approx(1.0)
+    assert len(explorer.gated) == len(identical), "a flat measurement gated cells away"
+
+    # ...and the harder case: a measurement none of the cells carries at all,
+    # whose values are therefore not numbers rather than merely equal.
+    explorer.x_feature = "a_measurement_nobody_made"
+    assert explorer.hist["x"], "a missing measurement left no backdrop at all"
+    assert sum(explorer.hist["x"]) == pytest.approx(1.0)
+
+
+def test_a_saved_display_file_that_is_not_one_is_refused(tmp_path):
+    """Channel settings are restored from a file the operator may have edited."""
+    import json
+
+    viewer = wreact.view_overview([_overview(tmp_path)])
+    wrong = tmp_path / "not-channels.json"
+    wrong.write_text(json.dumps({"channels": "in the wrong shape"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="does not hold a channel settings list"):
+        viewer.load_display(wrong)
+
+
+def test_locking_a_view_twice_is_harmless(tmp_path):
+    """Locking is a safety catch, so asking for it again must never unlock.
+
+    A view can be made read-only more than once — a second watcher opening,
+    or the same call made defensively. The second must leave the first
+    entirely alone, and above all must not restore the ability to drive
+    hardware.
+    """
+    viewer = wreact.view_overview([_overview(tmp_path)])
+    viewer.make_read_only()
+    assert viewer.read_only is True and viewer._hardware_allowed is False
+
+    viewer.make_read_only()
+    assert viewer.read_only is True, "locking again unlocked the view"
+    assert viewer._hardware_allowed is False
+
+    with pytest.raises(RuntimeError, match="read-only"):
+        viewer._hardware_run(lambda: None)
+
+
+def test_a_locked_view_puts_back_anything_a_page_changes(tmp_path):
+    """A watching view may look, but its edits are undone rather than obeyed."""
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.gate = {"x": [0.0, 1.0]}
+    narrowed = len(explorer.gated)
+    explorer.make_read_only()
+
+    explorer.gate = {}  # a page script trying to widen the gate on a locked view
+    assert len(explorer.gated) == narrowed, "a locked view accepted a gate change"
+
+
+def test_the_focus_map_says_when_a_message_means_nothing_to_it():
+    """The fifth panel answers an unrecognised message like the others do."""
+    picker = wreact.pick_focus_points(_FocusSession(), seed=False)
+    picker._route_message(None, {"type": "fly_to_the_moon"}, None)
+    assert "unknown message" in picker.status
+
+
+def test_a_single_channel_picture_encodes_as_grey():
+    """A plain two-dimensional image is shown grey, stretched over its range.
+
+    Most pictures reaching the browser are colour composites of several
+    channels, but a single plane arrives as plain numbers with no colour
+    attached. It is stretched between its own darkest and brightest values —
+    the same auto-scaling the notebooks' plots apply — so a dim image is still
+    legible rather than a black square.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+    from workflow.react._support import jpeg_bytes
+
+    plane = np.linspace(120.0, 4000.0, 32 * 32).reshape(32, 32)
+    encoded = jpeg_bytes(plane)
+    assert encoded[:3] == _JPEG_MAGIC
+    with Image.open(BytesIO(encoded)) as image:
+        assert image.mode == "L"  # grey, not a colour image pretending to be one
+        assert image.size == (32, 32)
+
+    # A completely flat image must not divide by a range of nothing.
+    assert jpeg_bytes(np.full((8, 8), 7.0))[:3] == _JPEG_MAGIC
