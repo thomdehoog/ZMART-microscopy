@@ -22,7 +22,19 @@ from pathlib import Path
 from contrast import intensity_histogram
 from stores import channels, zarr_scheme
 
-from zmart_live.gateway import live_run_holding
+# ``zmart_live`` is a package of the checkout rather than of this folder, so it
+# is reachable only when the checkout's own root is on the path. Put there here
+# because this is the module that needs it, in the same way and for the same
+# reason the backend adds the ``building`` folder a few lines below.
+#
+# Without it the viewer runs under pytest -- which puts the root on the path
+# itself -- and nowhere else. `python run_demo.py` from viz_studio, which is
+# what the README tells an operator to type, stopped at this import with
+# "No module named 'zmart_live'"; so did the launcher, and so did the shipped
+# browser check, whose gate has been saying so.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from zmart_live.gateway import live_run_holding  # noqa: E402
 from zmart_live.live_state import LiveStateSnapshot, LiveStateTracker
 from zmart_live.model import ZmartLiveError
 
