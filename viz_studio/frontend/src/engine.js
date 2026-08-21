@@ -1313,6 +1313,128 @@ export function showTheWholePicture(viewer) {
   return true;
 }
 
+/**
+ * Move the view to the acquisition that has just been opened.
+ *
+ * Opening a second acquisition used to leave the operator looking wherever
+ * they already were, which on a run whose positions sit somewhere else on the
+ * stage is a black panel and no clue that anything arrived at all. So a fresh
+ * acquisition is framed: centred, and zoomed to hold the whole of it.
+ *
+ * ``named`` is what the engine calls the layers of that one acquisition --
+ * every channel of it -- and only those are measured. That is the difference
+ * from :func:`showTheWholePicture`, which frames everything on screen: after
+ * a second acquisition is opened there are two, and framing both would put
+ * the operator somewhere between them looking at neither.
+ *
+ * **The answer is ``false`` until there is something true to say.** The
+ * caller polls, because a store's extent is the store's own and it has none
+ * to give until its description has been read. Two things have to hold: every
+ * named layer exists with all of its sources answered for, and the page has
+ * no stores left to hand over. Without the second, an acquisition of many
+ * positions would be framed around whichever one happened to be read first --
+ * reliably a single tile of many on a fast machine, which is the same trap
+ * ``whenTheSourcesHaveSettled`` documents.
+ */
+export function lookAtWhatOpened(viewer, named) {
+  const wanted = new Set(named ?? []);
+  if (!wanted.size) return false;
+  const { position } = viewer.navigationState;
+  const space = position.coordinateSpace.value;
+  if (!space?.rank) return false;
+  // Anything still queued means more of this acquisition is on its way.
+  if (sourcesStillWaiting(viewer) > 0) return false;
+
+  const found = viewer.layerManager.managedLayers.filter(
+    (managed) => wanted.has(managed.name));
+  if (found.length < wanted.size) return false;
+
+  // How far this acquisition reaches along each axis, gathered from the
+  // sources themselves. A source states its own extent in the shared
+  // coordinate space -- its place on the stage included -- so the axes are
+  // matched up by name rather than by number: a layer's own space carries the
+  // channel dimension the shared one does not.
+  const reach = new Map();
+  for (const managed of found) {
+    const sources = managed.layer?.dataSources ?? [];
+    if (!sources.length) return false;
+    for (const source of sources) {
+      if (source.loadState === undefined) return false;
+      const own = source.loadState.transform?.outputSpace?.value;
+      if (!own?.rank) return false;
+      const names = Array.from(own.names);
+      const { lowerBounds, upperBounds } = own.bounds;
+      names.forEach((name, axis) => {
+        const low = lowerBounds[axis];
+        const high = upperBounds[axis];
+        if (!Number.isFinite(low) || !Number.isFinite(high) || high <= low) return;
+        const already = reach.get(name);
+        reach.set(name, already
+          ? [Math.min(already[0], low), Math.max(already[1], high)]
+          : [low, high]);
+      });
+    }
+  }
+  if (!reach.size) return false;
+
+  const render = viewer.navigationState.pose.displayDimensionRenderInfo.value;
+  const drawn = Array.from(render?.displayDimensionIndices ?? []);
+  if (drawn.length < 2) return false;
+  const names = Array.from(space.names);
+  const spanOf = (axis) => reach.get(names[axis]) ?? null;
+
+  const middle = Float32Array.from(position.value);
+  drawn.slice(0, 2).forEach((axis) => {
+    const span = spanOf(axis);
+    if (span) middle[axis] = (span[0] + span[1]) / 2;
+  });
+  // Depth is moved only when the plane the operator is on lies outside what
+  // just opened. Their plane is which picture they are looking at rather than
+  // how they are looking at it, and taking it from them is the small betrayal
+  // putTheViewBack refuses to commit -- but a jump that lands on a plane this
+  // acquisition does not occupy shows a black panel, which fails at the one
+  // thing this is for. So it is left alone wherever it already works.
+  const deep = drawn[2];
+  if (deep !== undefined) {
+    const span = spanOf(deep);
+    const at = middle[deep];
+    if (span && (at < span[0] || at > span[1])) middle[deep] = (span[0] + span[1]) / 2;
+  }
+  position.value = middle;
+
+  let flat = null;
+  let volume = null;
+  for (const panel of viewer.display?.panels ?? []) {
+    if ("sliceView" in panel) flat = panel.renderViewport;
+    else if ("sliceViews" in panel) volume = panel.renderViewport;
+  }
+
+  let fit = 0;
+  drawn.slice(0, 2).forEach((axis, slot) => {
+    const span = spanOf(axis);
+    const pixels = slot === 0 ? flat?.logicalWidth : flat?.logicalHeight;
+    if (!span || !pixels) return;
+    fit = Math.max(fit, ((span[1] - span[0]) * render.canonicalVoxelFactors[slot]) / pixels);
+  });
+  if (fit > 0) viewer.navigationState.zoomFactor.value = fit * OVERVIEW_MARGIN;
+
+  let boxFit = 0;
+  const smaller = Math.min(volume?.logicalWidth ?? 0, volume?.logicalHeight ?? 0);
+  drawn.slice(0, 3).forEach((axis, slot) => {
+    const span = spanOf(axis);
+    if (!span || !smaller) return;
+    boxFit = Math.max(
+      boxFit,
+      ((span[1] - span[0]) * render.canonicalVoxelFactors[slot] * volume.logicalHeight)
+        / smaller,
+    );
+  });
+  if (boxFit > 0) {
+    viewer.perspectiveNavigationState.zoomFactor.value = boxFit * OVERVIEW_MARGIN;
+  }
+  return true;
+}
+
 function whenTheSourcesHaveSettled(viewer, ready, act) {
   const { position } = viewer.navigationState;
   // Axes, not images: a space with no axes is the placeholder described above.
