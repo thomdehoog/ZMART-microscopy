@@ -213,6 +213,18 @@ class Mosaic:
     # says so.
     averaged: bool = False
 
+    # What the tiles call their own channels: the ``omero`` block of the first
+    # tile that has one, carried through to the composed picture unchanged.
+    #
+    # Without this the picture a run is composed into declares no channels at
+    # all, and the panel falls back to numbering them -- so a microscopist who
+    # opened a run of Ch488 and Ch647 was shown "channel 1" and "channel 2",
+    # and lost the colours and brightness windows the run had recorded with
+    # them. The tiles of one acquisition were imaged in the same channels by
+    # definition, which is why the first tile to say can answer for all of
+    # them.
+    omero: dict | None = None
+
     # Where every tile lands, and how large the picture is, worked out once per
     # resolution and kept.
     #
@@ -795,12 +807,22 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
     corner = tuple(
         min(tile.copies[0].corner_um[axis] for tile in tiles) for axis in range(3)
     )
+    said = None
+    for tile in tiles:
+        try:
+            described, _ = _the_description_of(tile.store)
+        except ValueError:
+            continue
+        if isinstance(described.get("omero"), dict):
+            said = described["omero"]
+            break
     return Mosaic(
         tiles=tiles,
         levels=tiles[0].keeps,
         axes=tuple(axes[-3:]),  # type: ignore[arg-type]
         dtype=kind,
         corner_um=corner,  # type: ignore[arg-type]
+        omero=said,
     )
 
 
@@ -823,6 +845,9 @@ def the_mosaic_written_down(mosaic: Mosaic) -> dict:
         "axes": list(mosaic.axes),
         "dtype": mosaic.dtype,
         "corner_um": list(mosaic.corner_um),
+        # Only where the tiles said something. A picture whose tiles named no
+        # channels writes no key, exactly as it did before this was carried.
+        **({"omero": mosaic.omero} if mosaic.omero else {}),
         "tiles": [
             {
                 "name": tile.name,
@@ -888,4 +913,5 @@ def read_the_mosaic_as_written(held: dict) -> Mosaic:
         axes=tuple(held["axes"]),
         dtype=held["dtype"],
         corner_um=tuple(held["corner_um"]),
+        omero=held.get("omero"),
     )
