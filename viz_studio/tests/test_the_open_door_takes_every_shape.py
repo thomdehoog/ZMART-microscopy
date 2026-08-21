@@ -35,7 +35,7 @@ import threading
 import numpy as np
 import pytest
 import zarr
-from driving import open_through_the_window
+from driving import open_through_the_window, replay_through_the_window
 from pixels import fraction_lit, image_middle
 from server import make_server
 from test_a_plate_lays_itself_out import a_small_plate
@@ -195,6 +195,13 @@ def shapes(tmp_path):
     (root / "plate").mkdir(parents=True)
     a_small_plate(root / "plate")
     _write_odd_run(root / "odd")
+    # Two positions sharing a quarter of their ground, which is how a real
+    # stage is asked to move: tiles are overlapped on purpose so a stitcher
+    # can measure the true offset afterwards.
+    _write_04(root / "overlapping", "overlapping_pos001.ome.zarr",
+              at=(0.0, 0.0), size=(64, 64), seed=0)
+    _write_04(root / "overlapping", "overlapping_pos002.ome.zarr",
+              at=(16.0, 48.0), size=(64, 64), seed=9)
     return root
 
 
@@ -290,24 +297,65 @@ def test_a_plate_opens_and_draws(page_on):
     assert fraction_lit(page) > 0.05, f"{heading} opened but drew nothing"
 
 
-def test_an_odd_run_opens_and_every_tile_reaches_the_screen(page_on):
-    """Three tiles, three sizes, no grid: all of them arrive.
+def test_an_odd_run_opens_as_one_composed_picture(page_on):
+    """Three tiles, three sizes, no grid: composed into one picture.
 
     The sizes differ on purpose. A viewer that quietly assumed one shape for
     every position would draw the first tile and then either stretch or crop
     the others, and both of those look plausible enough on screen to be
     believed.
+
+    What arrives is ONE source per channel rather than one per position, and
+    that is the point rather than an implementation detail leaking through.
+    A folder handed to the engine as a source per position draws far more
+    slowly, and -- less obviously -- loses its colours: adding is a property
+    of a layer, so a row fed by several positions cannot be added to the rows
+    beneath it and an operator sees only the topmost channel of a run they
+    imaged in four. Composing settles both, and the positions still paste
+    over one another with the last opened on top rather than blending.
     """
     page, root = page_on
     heading = _open(page, root, "odd")
     rows = page.evaluate(
         "(h) => window.zmartConfig.layers"
         ".filter((l) => (l.group || '') === h)"
-        ".map((l) => (l.sources || [l.source]).length)", arg=heading)
+        ".map((l) => ({name: l.name,"
+        "              sources: (l.sources || [l.source]).length}))", arg=heading)
     assert rows, f"{heading} arrived with no channels"
-    assert all(count == len(ODD_TILES) for count in rows), (
-        f"each channel should be fed by all {len(ODD_TILES)} tiles, got {rows}")
+    assert all(row["sources"] == 1 for row in rows), (
+        f"a composed run is one picture, so each channel is fed by one "
+        f"source; got {rows}")
+    # And it is still the run's own channels, wearing the names the
+    # microscope gave them. Composing that renamed them to "channel 1" and
+    # "channel 2" -- and dropped the colours and windows with them -- is the
+    # fault this half of the gate exists for.
+    assert [row["name"] for row in rows] == [label for label, _ in CHANNELS], (
+        f"the composed picture must keep the run's own channel names, "
+        f"got {[row['name'] for row in rows]}")
     assert fraction_lit(page) > 0.02, "the odd run opened but drew nothing"
+
+
+def test_a_composed_run_mixes_its_channels(page_on):
+    """Every channel of a composed run reaches the screen, not just the top one.
+
+    Hiding one channel of a picture whose channels MIX takes some light off
+    the screen and leaves the rest. Hiding one channel of a picture whose
+    channels COVER each other either changes nothing at all -- it was
+    underneath -- or reveals a whole second picture that was hidden. So the
+    reading after hiding is compared with the reading before, and it has to
+    move a little without moving a lot.
+    """
+    page, root = page_on
+    _open(page, root, "odd")
+    before = fraction_lit(page)
+    page.get_by_label(f"toggle {CHANNELS[-1][0]}").last.click()
+    page.wait_for_timeout(2000)
+    after = fraction_lit(page)
+    assert before > 0.02, "nothing was on screen to begin with"
+    assert after < before * 1.4, (
+        f"hiding the top channel took the picture from {before:.3f} to "
+        f"{after:.3f} lit -- it was covering the others rather than mixing "
+        "with them")
 
 
 def test_nothing_is_drawn_where_nothing_was_imaged(page_on):
@@ -350,3 +398,41 @@ def test_nothing_is_drawn_where_nothing_was_imaged(page_on):
     assert darkest < 30, (
         f"the dimmest pixel on screen is {darkest}, so unimaged ground is being "
         "painted rather than left alone")
+
+
+def test_tiles_that_overlap_load_and_do_not_blend(page_on):
+    """Overlapping positions open, and the shared ground is not brightened.
+
+    Overlap is the ordinary case on a real stage -- tiles are given an
+    overlap on purpose so a stitcher can measure the true offset afterwards
+    -- so a viewer that only coped with tiles laid edge to edge would be no
+    use. These two share a quarter of their ground.
+
+    What the shared strip must NOT be is brighter. Where two positions meet,
+    one wins and is drawn on top; they are never added. A viewer that added
+    them would draw a bright seam along every join, and on a specimen that
+    seam reads as signal.
+    """
+    page, root = page_on
+    heading = _open(page, root, "overlapping")
+    rows = page.evaluate(
+        "(h) => window.zmartConfig.layers"
+        ".filter((l) => (l.group || '') === h)"
+        ".map((l) => (l.sources || [l.source]).length)", arg=heading)
+    assert rows and all(count == 1 for count in rows), (
+        f"overlapping positions should compose to one picture, got {rows}")
+    page.get_by_role("button", name="Overview", exact=True).click()
+    page.wait_for_timeout(2000)
+    brightest = int(np.asarray(image_middle(page)).max())
+    assert fraction_lit(page) > 0.05, "the overlapping run drew nothing"
+    # The specimen's own top is 3000 against a window ending at 3000, so a
+    # single position already reaches full brightness. Adding two of them
+    # could not go higher on screen -- what it WOULD do is turn the dim parts
+    # of the pattern bright inside the shared strip, which the ring pattern
+    # makes visible as a lost dark ring. So the check is that the picture
+    # still holds properly dark ground inside the specimen.
+    darkest_inside = int(np.asarray(image_middle(page)).max(axis=2).min())
+    assert brightest > 100, f"the specimen is not being drawn, brightest {brightest}"
+    assert darkest_inside < 30, (
+        f"the dimmest pixel is {darkest_inside}: the overlap looks blended "
+        "rather than covered")

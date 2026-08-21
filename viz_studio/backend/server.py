@@ -75,6 +75,7 @@ from contrast import (
 from library import Library
 from live_config import LiveRegistry, capture_live_state, live_rows
 from stores import (
+    is_store,
     DESCRIPTION_FILES,
     _read_attrs_at,
     axis_names,
@@ -235,6 +236,7 @@ class _Handler(SimpleHTTPRequestHandler):
         browse=None,
         bake_job=None,
         replay_job=None,
+        scratch=None,
         allow_open: bool = True,
         live: bool = True,
         announcements=None,
@@ -252,6 +254,9 @@ class _Handler(SimpleHTTPRequestHandler):
         # One replay at a time, for the same reason: "how far along?" must
         # mean one thing. See _serve_replay.
         self._replay_job = replay_job if replay_job is not None else {}
+        # Where this viewer puts the pictures it composes for itself, shared
+        # by every request it answers. See _the_scene_behind_a_run.
+        self._scratch = scratch if scratch is not None else {}
         self._site_dir = site_dir  # the built page, served as the base directory
         self._live = live  # is the data still being written? decides what may be kept
         # How open pages are told that something has changed. See announcements.py.
@@ -1554,6 +1559,90 @@ class _Handler(SimpleHTTPRequestHandler):
         # stays a deliberate choice on the build tab.
         return declare_a_built_picture(scenes, target, name=target.name)
 
+    def _scenes_of_this_session(self) -> Path:
+        """The folder this viewer composes into, made the first time it is wanted.
+
+        Inside ``~/.zmart-viewer``, which is where anything of the viewer's own
+        belongs -- named and in one place rather than scattered through the
+        system's temporary folders, so that an operator can find it, and so
+        that anything a crash leaves behind is somewhere obvious to delete.
+
+        It is emptied when the viewer closes. What is in it is a few kilobytes
+        of description per run opened, never pixels: composing writes what the
+        picture IS, and every piece of it is made when the browser asks. Only
+        a bake writes pixels, and only a bake asks the operator where to put
+        them.
+        """
+        folder = self._scratch.get("scenes")
+        if folder is None:
+            home = Path.home() / ".zmart-viewer" / "scenes"
+            home.mkdir(parents=True, exist_ok=True)
+            folder = Path(tempfile.mkdtemp(prefix="session-", dir=home))
+            self._scratch["scenes"] = folder
+        return folder
+
+    def _the_scene_behind_a_run(self, target: Path) -> Path | None:
+        """The composed picture to open instead, when the target is a run of positions.
+
+        A folder of positions handed to the engine as one source per position
+        costs twice over. It draws far more slowly than a single picture --
+        which is why raw data has always been opened through a composed one --
+        and, less obviously, its channels stop working: adding is a property of
+        a LAYER, so a row fed by several positions cannot be added to the rows
+        beneath it, and an operator sees only the topmost channel of a run they
+        imaged in four.
+
+        Composing settles both at once. One picture, whose positions paste over
+        one another with the last one opened on top -- never blended, so no
+        seam is drawn where two meet -- and whose channels then mix inside one
+        program, exactly as they do for a single image.
+
+        Nothing on the operator's disk is touched. The description goes in this
+        viewer's own folder and is thrown away when it closes, because nobody
+        was asked where to put it. A smart-microscopy run is different and never
+        reaches here: it sets its own view folder beside its data. And a bake,
+        which writes real pixels, is asked for on the build tab, where the
+        operator says where they should live.
+
+        ``None`` means there is nothing to compose -- a single image, or a
+        folder the mosaic cannot read as a run -- and the door then carries on
+        exactly as it did before.
+        """
+        if not target.is_dir():
+            return None
+        try:
+            inside = [one for one in sorted(target.iterdir())
+                      if one.is_dir() and is_store(one)]
+        except OSError:
+            return None
+        if len(inside) < 2:
+            # One image is already one picture. Composing it would add a
+            # description and a layer of indirection and change nothing.
+            return None
+
+        from declare import declare_a_built_picture, the_scene_folder_name
+
+        scenes = self._scenes_of_this_session()
+        scene = scenes / the_scene_folder_name(target.name)
+        try:
+            built_from = json.loads(
+                (scene / "zarr.json").read_text(encoding="utf-8")
+            )["attributes"]["zmart"]["built_from"]
+            if Path(built_from).resolve() == target.resolve():
+                return scene
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        try:
+            return declare_a_built_picture(scenes, target, name=target.name)
+        except Exception:
+            # A folder the mosaic cannot make one picture of still has to
+            # open. Before composing was tried here it opened as separate
+            # positions and drew correctly, so that is what it falls back
+            # to rather than becoming unopenable on the way past.
+            log.exception("could not compose %s; opening its positions instead",
+                          target)
+            return None
+
     def _serve_open(self, payload: object) -> None:
         """Open a folder of images and answer with the viewer's new contents."""
         path = payload.get("path") if isinstance(payload, dict) else None
@@ -1569,6 +1658,10 @@ class _Handler(SimpleHTTPRequestHandler):
             # plain words.
             self._send_json({"error": str(why)}, HTTPStatus.BAD_REQUEST)
             return
+        if scene is None:
+            # Not a plate. A folder of positions is composed instead, for the
+            # reasons in _the_scene_behind_a_run; anything else is unchanged.
+            scene = self._the_scene_behind_a_run(target)
         if scene is not None:
             target = scene
         homeless = self._a_relink_needed(target)
@@ -2380,6 +2473,11 @@ def make_server(
             **({"liveState": live_document} if live_bindings else {}),
         }
 
+    # Where this viewer composes the pictures it makes for itself, and what
+    # the shutdown below empties. Held here rather than per request so that
+    # one run opened twice is composed once.
+    scratch: dict = {}
+
     class _Server(ThreadingHTTPServer):
         # The engine opens several connections at once and asks for pieces in
         # parallel. The standard library lets only five wait to be accepted, and
@@ -2418,10 +2516,17 @@ def make_server(
             told.close()
             for watcher in watchers:
                 watcher.stop()
+            # The pictures this viewer composed for itself go with it. They are
+            # descriptions rather than pixels and cost a moment to make again;
+            # what would be worse is a folder of them growing quietly for ever.
+            composed = scratch.pop("scenes", None)
+            if composed is not None:
+                shutil.rmtree(composed, ignore_errors=True)
             super().shutdown()
 
     handler = functools.partial(
         _Handler,
+        scratch=scratch,
         data_dir=data_dir,
         site_dir=Path(site_dir).resolve(),
         config=config_now,

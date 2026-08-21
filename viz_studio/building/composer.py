@@ -1104,6 +1104,13 @@ class Composer:
                         "axes": axes,
                         "datasets": datasets,
                     }],
+                    # What the tiles call their channels, passed through
+                    # unchanged. A composed picture is the same acquisition as
+                    # the tiles it was composed from, so it must arrive on
+                    # screen wearing the same names, colours and brightness
+                    # windows the run recorded -- otherwise composing quietly
+                    # costs the operator everything their microscope said.
+                    **({"omero": self.mosaic.omero} if self.mosaic.omero else {}),
                 }
             },
             "zarr_format": 3,
