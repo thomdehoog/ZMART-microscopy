@@ -91,10 +91,39 @@ Deferring it deletes `contrast.py`, its server-side measurement cache and the in
 around it, and — because a GPU histogram measures what is actually loaded — it removes the
 empty-canvas failure rather than working around it.
 
-**Verify before committing to it:** the engine's histogram covers loaded chunks at the
-current resolution, so an automatic window would shift as the operator navigates. That is
-arguably the more honest behaviour, but it is a change, and it needs looking at on 16-bit
-data where the interesting range is a narrow band well above zero.
+**Verified 2026-08-21, and the verification changed the estimate.** Two things came
+back, one better than expected and one worse.
+
+*Better.* The engine's own auto-range is already written and shipped:
+`widget/invlerp_range_finder.js` computes percentiles from the GPU histogram and — this
+is the part that answers the 16-bit worry — **iterates**, narrowing the window and
+recomputing until the range settles. A narrow band well above zero is exactly the case
+that needs that, and the engine already does it. So the concern this paragraph used to
+raise is met by code that exists.
+
+*Worse.* The sentence above, that switching off the interface "cost us the widget, not
+the computation", is **not right**, and the correction matters. The histogram is
+demand-driven: `HistogramSpecifications.visibleHistograms` returns nought unless
+something has registered visibility, the render layers gate the whole computation on it
+(`sliceview/renderlayer.js`, `volume_rendering/volume_render_layer.js`), and the only
+thing that registers is the engine's own invlerp widget
+(`widget/invlerp.js` — `histogramSpecifications.visibility.add(this.visibility)`).
+
+We create the viewer with `showUIControls: false`, so that widget never exists. **No
+histogram is being computed today.** Switching the interface off cost us both.
+
+That does not sink the plan, but it resizes it. Deferring contrast means: register
+visibility on the layer's `histogramSpecifications` so the engine computes it; read it
+back with `copyHistogramToCPU` at the right point in the frame, which must happen with
+the histogram framebuffer bound; and either reuse `computePercentilesFromEmpiricalHistogram`
+or stand up an `AutoRangeFinder` against an object shaped like the widget it expects
+(`trackable`, `dataType`, `display`, `histogramSpecifications`, `histogramIndex`).
+
+So it is a piece of display-path work against engine internals, not the reading of a
+number already sitting there. Worth doing — it still deletes `contrast.py`, its cache and
+its invalidation, and still removes the empty-canvas failure rather than working around
+it — but it wants its own afternoon, and a gate that photographs a 16-bit specimen
+before and after.
 
 ### What the rule strikes from the roadmap
 
