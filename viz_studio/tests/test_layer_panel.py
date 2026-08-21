@@ -590,15 +590,25 @@ def test_channels_of_one_picture_blend_like_light(browser, built_dist,
     as one source and grew.
     """
     from test_a_dataset_is_relived_as_a_live_run import _post
+    from test_a_run_arriving import ANNOUNCE
     from test_open_and_close import _store
 
     channels = tmp_path / "twochannel"
     channels.mkdir()
     _store(channels / "overview_pos001.ome.zarr", channels=2)
+    # A stitched row is made the way one is now actually made: a folder
+    # opened while it holds ONE position, which then gains another.
+    #
+    # It used to be written with both positions already there, and that no
+    # longer produces one -- a folder of several positions is composed into a
+    # single picture when it is opened, so its rows have one source each. What
+    # a row fed by several stores now IS, is a live acquisition watched from
+    # the moment it began: it opened as one position and grew, and there was
+    # nothing to compose at the time. Which is the case the rule was written
+    # for, and the case the docstring above already names.
     stitched = tmp_path / "stitched"
     stitched.mkdir()
     _store(stitched / "overview_pos001.ome.zarr", channels=1)
-    _store(stitched / "overview_pos002.ome.zarr", channels=1)
     server = make_server(port=0, data_dir=channels, site_dir=built_dist,
                          store="overview_pos001.ome.zarr")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -613,6 +623,14 @@ def test_channels_of_one_picture_blend_like_light(browser, built_dist,
         assert status == 200
         page.wait_for_function(
             "() => window.zmartConfig.groups.includes('stitched')",
+            timeout=30_000)
+        # And now it grows, as an acquisition does.
+        _store(stitched / "overview_pos002.ome.zarr", channels=1)
+        page.evaluate(ANNOUNCE)
+        page.wait_for_function(
+            """() => window.zmartViewer.layerManager.managedLayers.some(
+                 (m) => m.name.startsWith('stitched')
+                        && (m.layer?.dataSources || []).length > 1)""",
             timeout=30_000)
         page.wait_for_timeout(800)
         blends = page.evaluate("""() => {
