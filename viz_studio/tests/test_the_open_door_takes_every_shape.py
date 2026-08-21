@@ -436,3 +436,68 @@ def test_tiles_that_overlap_load_and_do_not_blend(page_on):
     assert darkest_inside < 30, (
         f"the dimmest pixel is {darkest_inside}: the overlap looks blended "
         "rather than covered")
+
+
+def _photograph_a_scene(browser, built_dist, root, scene_folder):
+    """Open one already-declared picture and bring back what reached the screen."""
+    server = make_server(port=0, data_dir=scene_folder.parent,
+                         site_dir=built_dist, store=scene_folder.name)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1300, "height": 1000})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                  wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined",
+                               timeout=30_000)
+        heading = page.evaluate("() => window.zmartConfig.groups")[0]
+        _wait_until_drawn(page, heading)
+        page.get_by_role("button", name="Overview", exact=True).click()
+        page.wait_for_timeout(2000)
+        return np.asarray(image_middle(page)).astype(float)
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_a_bake_changes_how_fast_the_picture_arrives_and_nothing_else(
+        browser, built_dist, shapes, tmp_path):
+    """The same run, declared without a bake and with one, has to look the same.
+
+    A bake computes the coarse ground now and keeps it as real files instead
+    of making each piece when the browser asks. That is a promise about
+    *speed* and about nothing else: the pixels a baked picture serves are the
+    pixels an unbaked one would have made, so the two must be the same
+    picture on screen.
+
+    They are photographed and compared rather than reasoned about, because
+    the ways a bake could quietly differ -- a level built from the wrong
+    copy, a piece written with the fill value where a tile reaches, an
+    off-by-one in the pyramid -- all produce a picture that looks entirely
+    plausible on its own and only shows up beside the other one.
+
+    The awkward run is the one used, deliberately. A bake over tiles laid on
+    a tidy grid is the easy case; these three sit at fractional offsets, at
+    three different sizes, with unimaged ground between them.
+    """
+    from declare import declare_a_built_picture
+
+    plain = declare_a_built_picture(tmp_path / "unbaked", shapes / "odd",
+                                    name="odd", bake=False)
+    baked = declare_a_built_picture(tmp_path / "baked", shapes / "odd",
+                                    name="odd", bake=True)
+    without = _photograph_a_scene(browser, built_dist, shapes, plain)
+    with_it = _photograph_a_scene(browser, built_dist, shapes, baked)
+
+    assert without.shape == with_it.shape, (
+        f"the two pictures are different sizes: {without.shape} against "
+        f"{with_it.shape}")
+    assert float(without.max()) > 40, (
+        "the unbaked picture drew nothing, so there is nothing to compare")
+    assert float(with_it.max()) > 40, "the baked picture drew nothing"
+    apart = float(np.abs(without - with_it).mean())
+    assert apart < 2.0, (
+        f"baked and unbaked differ by {apart:.2f} levels per pixel on "
+        "average -- a bake must change how fast the picture arrives and "
+        "nothing about what it shows")
