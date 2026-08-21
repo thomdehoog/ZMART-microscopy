@@ -30,7 +30,7 @@ import numpy as np
 import pytest
 import zarr
 from server import make_server
-from driving import pick_colormap  # noqa: E402
+from driving import open_through_the_window, pick_colormap  # noqa: E402
 
 CHANNELS, DEPTH, SIDE, CHUNK, LEVELS = 2, 16, 1024, 256, 3
 
@@ -494,14 +494,7 @@ class TestOpeningSomethingElse:
             page.wait_for_timeout(2500)
 
             before = list(watcher.urls)
-            page.get_by_label("open images").click()
-            window = page.get_by_role("dialog", name="load data")
-            window.wait_for(timeout=10_000)
-            page.get_by_label("other", exact=True).click()
-            page.get_by_label("choose a folder").click()
-            window.get_by_label("targetscan", exact=True).wait_for(timeout=10_000)
-            window.get_by_label("targetscan", exact=True).click()
-            page.get_by_label("open targetscan", exact=True).click()
+            open_through_the_window(page, "targetscan")
             page.wait_for_function(
                 "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
             )
