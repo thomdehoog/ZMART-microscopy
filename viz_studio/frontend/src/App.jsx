@@ -4,6 +4,7 @@ import LayerPanel from "./LayerPanel.jsx";
 import TargetsPanel from "./TargetsPanel.jsx";
 import { PlacePointTool, PlaceBoundingBoxTool } from "neuroglancer/unstable/ui/annotations.js";
 import {
+  lookAtWhatOpened,
   putTheViewBack,
   whatIsOnScreen,
   chooseScaleWhenTheImagesAreMeasured,
@@ -18,7 +19,7 @@ import {
 } from "./engine.js";
 import ScaleBar from "./ScaleBar.jsx";
 import AxisSlider from "./AxisSlider.jsx";
-import { LOOKUP_TABLE_NAMES, layerKey, layersFor } from "./scene.js";
+import { LOOKUP_TABLE_NAMES, engineName, layerKey, layersFor } from "./scene.js";
 import { liveStateProblem } from "./live-refresh.js";
 
 // The two ways of looking at a volume, and the only thing the operator has to
@@ -165,11 +166,18 @@ async function constructionStatus() {
   return response.json().catch(() => ({ state: "error", error: "unreadable answer" }));
 }
 
-async function startReplay(path) {
+async function startReplay(path, perSecond) {
   const response = await fetch("/api/stores/replay", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
+    // The server counts the pause between positions; the window asks in
+    // positions per second, which is how anybody watching describes it. At
+    // the top of the range there is no pause at all: the replay goes as fast
+    // as the writer can commit, which is the honest meaning of "maximum".
+    body: JSON.stringify({
+      path,
+      every: perSecond >= AS_FAST_AS_IT_CAN ? 0 : 1 / perSecond,
+    }),
   });
   const answer = await response.json().catch(() => null);
   if (!response.ok) return { error: answer?.error || "the replay could not start" };
@@ -219,6 +227,14 @@ async function listFolders(path) {
  */
 // Step one of loading: what kind of thing is being opened. Each door decides
 // what the folder walk below it offers to open, and what happens after.
+// How fast the positions of a replay may land, in positions per second, and
+// the mark at which the pace is dropped altogether. Twenty a second is past
+// the point where an eye can follow one landing from the next; asking for
+// more is asking for "no waiting", so that is what the top of the range
+// means.
+const AS_FAST_AS_IT_CAN = 20;
+const REPLAY_PACES = [0.5, 1, 2, 5, 10, AS_FAST_AS_IT_CAN];
+
 const LOAD_KINDS = [
   { key: "view", label: "load existing scene",
     said: "a scene built earlier — opens as it was" },
@@ -229,6 +245,7 @@ const LOAD_KINDS = [
 ];
 
 function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
+                     onArriving,
                       onReplayStarted }) {
   const [busy, setBusy] = React.useState(false);
   const [openError, setOpenError] = React.useState(null);
@@ -247,6 +264,10 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
   // far it is and whether it runs at all, so the tab can offer Stop and say
   // why a second Replay must wait. Polled only while that tab is open.
   const [replaying, setReplaying] = React.useState(null);
+  // How fast a replay should land its positions. Kept here rather than in the
+  // server's answer because it is a wish about the next replay, not a fact
+  // about the running one.
+  const [pace, setPace] = React.useState(1.4);
   React.useEffect(() => {
     if (kind !== "other") return undefined;
     let watching = true;
@@ -603,35 +624,61 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
               </>
             )}
             {kind === "other" && (
-              <button
-                type="button"
-                onClick={async () => {
-                  setBusy(true);
-                  const result = await startReplay(`${listing.path}/${selected.name}`);
-                  setBusy(false);
-                  if (result.config) {
-                    onOpened(result.config);
-                    onReplayStarted?.(result.config);
-                  } else setOpenError(result.error);
-                }}
-                disabled={busy || !selected || selected.opens !== "folder"
-                  || replaying?.state === "running"}
-                aria-label="replay as a live run"
-                title="Relive this dataset as a live run: the positions land on screen one at a time, through the same doorway the microscope uses. A dress rehearsal for smart microscopy, on data already on disk"
-                style={{ ...styles.loadOpen, marginRight: 8 }}
-              >
-                Replay
-              </button>
+              <label style={styles.paceRow}
+                     title="How fast the positions land while the replay runs. They land top row first, left to right, the way a stage scans">
+                <span style={styles.paceLabel}>per second</span>
+                <select
+                  value={pace}
+                  onChange={(event) => setPace(Number(event.target.value))}
+                  aria-label="positions per second"
+                  style={styles.paceChoice}
+                >
+                  {REPLAY_PACES.map((rate) => (
+                    <option key={rate} value={rate}>
+                      {rate >= AS_FAST_AS_IT_CAN ? "as fast as it can" : rate}
+                    </option>
+                  ))}
+                </select>
+              </label>
             )}
             <button
               type="button"
-              onClick={() => openStore(`${listing.path}/${selected.name}`)}
+              onClick={async () => {
+                // On this tab, opening shows the dataset arriving: it is
+                // opened as one acquisition and its positions appear one at a
+                // time, at the pace beside this button. Nothing is copied --
+                // every position is already on disk and already placed, so
+                // this works for a light-sheet mosaic and a 336-well plate as
+                // readily as for a handful of tiles (the operator's call,
+                // 2026-08-21).
+                const where = `${listing.path}/${selected.name}`;
+                if (kind !== "other") {
+                  openStore(where);
+                  return;
+                }
+                setBusy(true);
+                const result = await openPath(where);
+                setBusy(false);
+                if (!result.config) {
+                  setOpenError(result.error || "that folder could not be opened");
+                  return;
+                }
+                onOpened(result.config);
+                onArriving?.(result.config, pace);
+              }}
               disabled={busy || !selected
-                        || (kind === "view" && selected.opens !== "store")}
-              aria-label={selected ? `open ${selected.name}` : "open the selection"}
+                        || (kind === "view" && selected.opens !== "store")
+                        || (kind === "other" && replaying?.state === "running")}
+              aria-label={kind === "other"
+                ? "open as a live run"
+                : (selected ? `open ${selected.name}` : "open the selection")}
               title={kind === "view"
                 ? "Open the selected scene: it becomes one acquisition in the image data"
-                : "Open whatever the selected folder holds, directly"}
+                : kind === "other"
+                  ? "Relive this dataset as a live run: its positions land on "
+                    + "screen one at a time, through the same doorway the "
+                    + "microscope uses, at the pace beside this button"
+                  : "Open whatever the selected folder holds, directly"}
               style={styles.loadOpen}
             >
               {busy ? "…" : "Open"}
@@ -829,6 +876,9 @@ function anyStoreGainedItsFirstImage(previous, loaded) {
  */
 export default function App() {
   const [viewer, setViewer] = React.useState(null);
+  // Bumped when an acquisition is closed, which builds the engine again. See
+  // the note in NeuroglancerView.
+  const [engineGeneration, setEngineGeneration] = React.useState(0);
   // The same engine, reachable without waiting for a re-render. applyConfig below
   // runs while answering the server and needs it there and then; a piece of state
   // would only reach it on the next pass, which is too late to be any use.
@@ -1228,11 +1278,69 @@ export default function App() {
   // depend on: the list of drawn targets. Those live in the engine once their
   // layer exists, and the list beside the image is a reflection of them — so
   // drawing one must not send the whole scene back through here.
+  // An acquisition being shown position by position: which group, how many of
+  // its stores are on screen, and how fast the rest should follow. Nothing is
+  // written for this -- every position is already on disk and already placed;
+  // the row is simply drawn from a growing number of them.
+  const [revealing, setRevealing] = React.useState(null);
+  // The acquisition the view should be pointed at, once its pieces are on
+  // screen. Opening used to leave the camera where it was, which on a machine
+  // holding one picture at the stage's coordinates and another at zero means
+  // opening the second and seeing black (2026-08-21).
+  const [lookAt, setLookAt] = React.useState(null);
+  const groupsBefore = React.useRef(null);
+  React.useEffect(() => {
+    if (!config) return;
+    const groups = config.groups || [];
+    const before = groupsBefore.current;
+    groupsBefore.current = groups;
+    if (before === null) return;           // the first look is fitted already
+    const fresh = groups.filter((one) => !before.includes(one));
+    if (fresh.length) setLookAt(fresh[fresh.length - 1]);
+  }, [config]);
+  React.useEffect(() => {
+    if (!viewer || !lookAt || !config) return undefined;
+    const named = config.layers
+      .filter((spec) => (spec.group || "") === lookAt)
+      .map((spec) => engineName(spec));
+    if (!named.length) return undefined;
+    // Given a moment for the engine to take the new sources on: the bounds
+    // this reads are the sources' own, and they are not there until they are.
+    // Tried again while the answer is "not yet": the bounds this reads are
+    // the sources' own, and a source that has not arrived has none to give.
+    const soon = window.setInterval(() => {
+      if (lookAtWhatOpened(viewer, named)) setLookAt(null);
+    }, 900);
+    return () => window.clearInterval(soon);
+    // Deliberately not depending on the scene: this effect is declared above
+    // it, and naming it here reaches a constant before it exists -- which
+    // took the whole page down with "Cannot access 'scene' before
+    // initialization" (2026-08-21).
+  }, [viewer, lookAt, config]);
+  React.useEffect(() => {
+    if (!revealing || !config) return undefined;
+    // How many pieces this acquisition has to arrive: the stores of its one
+    // row, or its rows, whichever way the dataset opened.
+    const rows = config.layers.filter(
+      (spec) => (spec.group || "") === revealing.group);
+    const all = rows.length > 1
+      ? rows.length
+      : (rows[0]?.sources || []).length;
+    if (!all || revealing.count >= all) return undefined;
+    const wait = revealing.perSecond > 0 ? 1000 / revealing.perSecond : 0;
+    const soon = window.setTimeout(
+      () => setRevealing((now) => (now && now.group === revealing.group
+        ? { ...now, count: now.count + 1 } : now)),
+      wait);
+    return () => window.clearTimeout(soon);
+  }, [revealing, config]);
+
   const scene = React.useMemo(() => {
     if (!config || layerState.length !== config.layers.length) return null;
     const layers = layersFor(config, mode, layerState, groupState, groupOrder, volumeMode,
                               { gain: volumeGain, attenuation: volumeAttenuation,
-                                depthSamples });
+                                depthSamples },
+                              revealing);
     // The layer holding drawn targets is added once the saved ones have been read
     // back, so whatever was saved is present from the moment the layer exists.
     if (targetsLoaded) {
@@ -1243,6 +1351,7 @@ export default function App() {
     config,
     mode,
     layerState,
+    revealing,
     groupState,
     groupOrder,
     volumeMode,
@@ -1500,6 +1609,22 @@ export default function App() {
       current.map((entry, i) => (i === index ? { ...entry, ...change } : entry)),
     );
 
+  /**
+   * Set a channel's window only if the operator has not set one themselves.
+   *
+   * The reading a channel opens with is asked over the network and answers a
+   * second or so later. By then an operator may already have moved a handle,
+   * and a measurement landing on top of that takes their work away for no
+   * reason they can see. Decided here rather than by the panel because this
+   * is where the current answer lives: the panel would be deciding from a
+   * copy of the state as it was when the question was asked.
+   */
+  const setWindowIfUnset = (index, window) =>
+    setLayerState((current) =>
+      current.map((entry, i) =>
+        (i === index && !entry.window ? { ...entry, window } : entry)),
+    );
+
   const source = () => annotationSource.current;
   const deleteTarget = (id) => {
     const reference = source()?.getReference(id);
@@ -1565,7 +1690,7 @@ export default function App() {
       }}
     >
       <main style={styles.stage}>
-        <NeuroglancerView onViewer={setViewer} />
+        <NeuroglancerView onViewer={setViewer} generation={engineGeneration} />
         <ModeToggle mode={mode} onChange={setMode} />
         <BringItBack viewer={viewer} />
         <ScaleBar viewer={viewer} />
@@ -1645,33 +1770,62 @@ export default function App() {
                 const result = await closeGroup(group);
                 if (result.config) applyConfig(result.config);
                 if (result.error) setStoreNotice(result.error);
+                // The engine is built again, and what was closed goes with
+                // it. Removing the layer alone did not: whatever was opened
+                // NEXT came up with most of its tiles unpainted, while the
+                // server sent the same description, the browser fetched the
+                // same pieces, and the engine reported the same sources, the
+                // same bounds and the same camera. The only thing that ever
+                // put it right was a fresh drawing context (measured
+                // 2026-08-21). Closing is a rare, deliberate act and this
+                // costs a redraw of what remains, which is the right trade
+                // against a picture that is quietly incomplete.
+                //
+                // Let go of it BEFORE it is thrown away: every effect
+                // watching the engine unsubscribes on the way, so nothing is
+                // left reading one that has been disposed -- which took the
+                // page down with "Cannot read properties of undefined".
+                setViewer(null);
+                setEngineGeneration((count) => count + 1);
                 setStoreBusy(false);
               }}
               onToggle={(i) => setLayer(i, { visible: !layerState[i].visible })}
               onColor={(i, color) => setLayer(i, { color })}
               onOpacity={(i, opacity) => setLayer(i, { opacity })}
               onWindow={(i, window) => setLayer(i, { window })}
-              onMeasureHere={async (i) => {
-                // What Auto answers with: the brightness of the pixels an
-                // operator is actually looking at, with the ground nobody
-                // imaged left out of the vote. The panel has the picture
-                // drawn but not the pixels behind it -- and what is on the
-                // canvas has already been windowed and coloured -- so the
-                // reading is asked of the server, which has the store.
+              onMeasureHere={async (i, asked = {}) => {
+                // Reading the pixels themselves, for the two things in the
+                // panel that need them. The panel has the picture drawn but
+                // not the numbers behind it -- and what is on the canvas has
+                // already been windowed and coloured -- so the reading is
+                // asked of the server, which has the store.
+                //
+                // Auto asks about the part on screen and takes the window
+                // from it. The two boxes under the histogram ask about the
+                // same pixels over a different stretch of brightness, and
+                // take only the bars: widening the axis has to show what is
+                // out there, not blank space beside a squeezed picture.
                 const spec = config?.layers?.[i];
-                const box = viewer && whatIsOnScreen(viewer);
-                if (!spec || !box) return null;
+                if (!spec) return null;
+                const box = asked.whole
+                  ? [[0, 0], [1, 1]]
+                  : viewer && whatIsOnScreen(viewer);
+                if (!box) return null;
                 const answer = await measureHere({
                   source: (spec.sources || [spec.source])[0],
                   channel: spec.channelIndex ?? null,
                   box,
+                  span: asked.span || null,
                 });
                 if (!answer || answer.empty || !answer.window) return null;
                 // The window belongs to the picture, so it goes to the layer;
                 // the histogram belongs to the panel that drew it, so it goes
                 // back as the answer. An empty view moves nothing: a press
-                // that measured no imaged pixels has nothing to say.
-                setLayer(i, { window: answer.window });
+                // that measured no imaged pixels has nothing to say. And a
+                // reading taken only to redraw the bars leaves the window
+                // exactly where the operator put it.
+                if (asked.ifUnset) setWindowIfUnset(i, answer.window);
+                else if (!asked.span) setLayer(i, { window: answer.window });
                 return answer;
               }}
               onLut={(i, lut) => setLayer(i, { lut })}
@@ -1716,6 +1870,14 @@ export default function App() {
           onOpened={(config) => {
             applyConfig(config);
             setLoadListing(null);
+          }}
+          onArriving={(loaded, perSecond) => {
+            // The acquisition just opened, shown position by position. Its
+            // group is the one the server has just added, and the first
+            // position is on screen at once -- an empty screen for the first
+            // beat says nothing about anything.
+            const group = (loaded.groups || []).at(-1) || "";
+            setRevealing({ group, count: 1, perSecond });
           }}
           onReplayStarted={(config) => {
             // Starting a replay is an explicit ask to watch something, so the
@@ -1831,6 +1993,24 @@ const styles = {
     font: "12px/1.4 system-ui, sans-serif",
     padding: "6px 10px",
     cursor: "pointer",
+  },
+  // The pace, beside the Replay button it belongs to.
+  paceRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginRight: 10,
+    color: "#8b95a3",
+    font: "11px system-ui, sans-serif",
+  },
+  paceLabel: { textTransform: "uppercase", letterSpacing: ".04em", fontSize: 10 },
+  paceChoice: {
+    background: "#0d1015",
+    border: "1px solid #303a46",
+    borderRadius: 3,
+    color: "#c9d1d9",
+    font: "11px system-ui, sans-serif",
+    padding: "2px 4px",
   },
   loadOpen: {
     flexShrink: 0,

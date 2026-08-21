@@ -45,7 +45,7 @@ import "./engine-chrome.css";
  * StrictMode's deliberate mount → dispose → mount in development, so do not be
  * surprised to see the engine built twice under `vite dev`.
  */
-export default function NeuroglancerView({ onViewer }) {
+export default function NeuroglancerView({ onViewer, generation = 0 }) {
   const containerRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -209,7 +209,15 @@ export default function NeuroglancerView({ onViewer }) {
 
     onViewer?.(viewer);
     return () => viewer.dispose();
-  }, [onViewer]);
+    // ``generation`` is how the interface asks for a *new* engine rather than
+    // a changed one. Closing an acquisition is the only thing that asks. The
+    // engine holds more than the layer it was told to delete: with the layer
+    // gone, its sources rebuilt and every piece fetched again, the next
+    // acquisition still came up with most of its tiles unpainted, and the
+    // only thing that ever put it right was a fresh drawing context
+    // (measured 2026-08-21 -- same bounds, same camera, same requests, a
+    // different picture). So a close builds one.
+  }, [onViewer, generation]);
 
   // Size the mount with width/height rather than absolute insets: neuroglancer
   // sets `position: relative` on this element itself, which would cancel any

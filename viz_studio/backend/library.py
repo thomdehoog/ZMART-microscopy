@@ -36,7 +36,7 @@ from __future__ import annotations
 import hashlib
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -234,6 +234,58 @@ class Dataset:
     # this picture or a different acquisition altogether. ``None`` means none of the
     # stores said, in which case nothing can be told apart and nothing is.
     acquisition: Acquisition | None = field(default=None)
+    # The folders outside this one that its own stores link into, found when each
+    # store is placed. See :func:`_borrowed_folders`.
+    borrows: list[Path] = field(default_factory=list)
+
+
+def _is_a_pyramid_level(folder: Path) -> bool:
+    """Whether a folder is one level of an image, rather than any other folder."""
+    try:
+        if not folder.is_dir():
+            return False
+        return (folder / "zarr.json").exists() or (folder / ".zarray").exists()
+    except OSError:
+        return False
+
+
+def _borrowed_folders(root: Path, names: Iterable[str]) -> list[Path]:
+    """The folders outside this one that its own stores link into.
+
+    A picture can be assembled out of another rather than copied from it: the Thy1
+    spiral is forty-nine blocks whose pyramid levels are junctions into a single
+    source acquisition, so a growing three-dimensional picture costs one copy of the
+    pixels instead of forty-nine.
+
+    Those links belong to the dataset -- they were written into it, and they are what
+    it is made of -- so opening it opens them with it. The alternative, which this
+    replaces, was to follow a link only into some other folder the operator had
+    already opened: that made a linked picture depend on the operator knowing which
+    second folder to open, and in which order, and drew black with nothing on screen
+    to say why when they did not (2026-08-21).
+
+    Only a link landing on a level of an image is taken. A link to a file, or to a
+    folder that is not part of an image, is not recorded and stays refused, so this
+    widens what can be read by exactly the pixels the dataset was built out of.
+    """
+    borrowed: dict[Path, None] = {}
+    for name in names:
+        store = root / name
+        try:
+            inside = list(os.scandir(store))
+        except OSError:
+            continue
+        for entry in inside:
+            here = Path(entry.path)
+            try:
+                target = here.resolve()
+            except OSError:
+                continue
+            if target == here or target == root or root in target.parents:
+                continue
+            if _is_a_pyramid_level(target):
+                borrowed[target] = None
+    return list(borrowed)
 
 
 def _one_acquisition_only(root: Path, names: list[str]) -> None:
@@ -386,6 +438,7 @@ class Library:
                 live=bool(watched),
                 watch=bool(watched),
                 acquisition=_kind_of_acquisition(root, list(chosen)),
+                borrows=_borrowed_folders(root, chosen),
             )
         return number
 
@@ -581,6 +634,11 @@ class Library:
                 continue
             if _same_acquisition(dataset.acquisition, kind):
                 dataset.stores.append(name)
+                # A position that arrives during a run brings its own links: each
+                # block of a growing linked picture points at the source itself.
+                for folder in _borrowed_folders(root, [name]):
+                    if folder not in dataset.borrows:
+                        dataset.borrows.append(folder)
                 if dataset.acquisition is None and (kind[0] or kind[1] is not None):
                     # The dataset was opened before any of its stores said what they
                     # were, which happens when a folder is opened the instant its
@@ -601,6 +659,7 @@ class Library:
             live=True,
             watch=True,
             acquisition=kind,
+            borrows=_borrowed_folders(root, [name]),
         )
 
     def _heading_for(self, root: Path, store_name: str, number: int) -> str:
@@ -743,17 +802,24 @@ class Library:
         This is the guard. The path is resolved to what it really points at before
         being checked, because that is the only way to catch a request that climbs
         out of the folder with ``..`` or through a symbolic link. A resolved target
-        that does not sit inside the folder it claims to be in is refused.
+        that does not sit inside a folder the operator has opened is refused.
+
+        Inside the folder it names, or inside a folder that folder is made out of:
+        a picture may legitimately be assembled from another by linking to it, and
+        what it links to is read when it is opened. :func:`_borrowed_folders` says
+        why, and how far that reaches. Anywhere else is refused.
         """
         number, _, rest = relative.partition("/")
         if not number.isdigit() or not rest:
             return None
         with self._lock:
             found = self._datasets.get(int(number))
+            borrows = list(found.borrows) if found else []
         if found is None:
             return None
-        root = found.root
-        target = (root / rest).resolve()
-        if root not in target.parents and target != root:
-            return None
-        return target
+        target = (found.root / rest).resolve()
+        for root in (found.root, *borrows):
+            root = root.resolve()
+            if target == root or root in target.parents:
+                return target
+        return None

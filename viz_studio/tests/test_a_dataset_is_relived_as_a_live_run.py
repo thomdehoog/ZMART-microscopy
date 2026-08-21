@@ -292,7 +292,7 @@ class TestReplayingATimelapse:
             box.press("Enter")
             window.get_by_label("sweeps", exact=True).wait_for(timeout=10_000)
             window.get_by_label("sweeps", exact=True).click()
-            page.get_by_label("replay as a live run").click()
+            page.get_by_label("open as a live run").click()
             page.wait_for_function(
                 "() => window.zmartConfig.groups.includes('sweeps replay')",
                 timeout=30_000)
@@ -391,7 +391,7 @@ def test_a_replay_is_watchable_without_any_clicks(browser, built_dist,
         box.press("Enter")
         window.get_by_label("rehearsal", exact=True).wait_for(timeout=10_000)
         window.get_by_label("rehearsal", exact=True).click()
-        page.get_by_label("replay as a live run").click()
+        page.get_by_label("open as a live run").click()
         page.wait_for_function(
             "() => window.zmartConfig.groups.includes('rehearsal replay')",
             timeout=30_000)
@@ -461,7 +461,7 @@ def test_a_replay_can_be_stopped_from_the_window(browser, built_dist,
         box.press("Enter")
         window.get_by_label("rehearsal", exact=True).wait_for(timeout=10_000)
         window.get_by_label("rehearsal", exact=True).click()
-        page.get_by_label("replay as a live run").click()
+        page.get_by_label("open as a live run").click()
         page.wait_for_function(
             "() => window.zmartConfig.groups.includes('rehearsal replay')",
             timeout=30_000)
@@ -471,7 +471,7 @@ def test_a_replay_can_be_stopped_from_the_window(browser, built_dist,
         page.get_by_label("other", exact=True).click()
         stop = page.get_by_label("stop the replay")
         stop.wait_for(timeout=10_000)
-        assert page.get_by_label("replay as a live run").is_disabled(), (
+        assert page.get_by_label("open as a live run").is_disabled(), (
             "while a replay runs, starting another must wait"
         )
         stop.click()
@@ -667,7 +667,7 @@ class TestTheReplayDoor:
             box.press("Enter")
             window.get_by_label("uneven", exact=True).wait_for(timeout=10_000)
             window.get_by_label("uneven", exact=True).click()
-            page.get_by_label("replay as a live run").click()
+            page.get_by_label("open as a live run").click()
             told = window.get_by_role("alert")
             told.wait_for(timeout=30_000)
             assert "grid" in told.inner_text()
@@ -705,7 +705,7 @@ class TestTheReplayDoor:
             box.press("Enter")
             window.get_by_label("rehearsal", exact=True).wait_for(timeout=10_000)
             window.get_by_label("rehearsal", exact=True).click()
-            page.get_by_label("replay as a live run").click()
+            page.get_by_label("open as a live run").click()
             # The first position is on screen the moment the door answers; the
             # rest land one at a time behind it. The heading names the
             # dataset being relived, not the view's own file.
@@ -784,3 +784,178 @@ def test_a_04_dataset_replays_the_same(tmp_path):
         assert published.max() == 1500 + number * 800, (
             f"pos{number:02d} relived with pixels that are not its own"
         )
+
+
+def _relive(page, folder: Path, name: str) -> None:
+    """Drive the load window the way an operator does: other, folder, open."""
+    page.get_by_label("open images").click()
+    window = page.get_by_role("dialog", name="load data")
+    window.wait_for(timeout=10_000)
+    page.get_by_label("other", exact=True).click()
+    box = page.get_by_label("folder path")
+    box.fill(str(folder))
+    box.press("Enter")
+    window.get_by_label(name, exact=True).wait_for(timeout=10_000)
+    window.get_by_label(name, exact=True).click()
+    page.get_by_label("open as a live run").click()
+    page.wait_for_timeout(4000)
+    # The way back to the whole picture, pressed the same way both times: what
+    # is compared below is what was drawn, not where the camera happened to be.
+    page.get_by_role("button", name="Overview", exact=True).click()
+
+
+def _what_is_shown(page) -> dict:
+    """The picture as an operator sees it: how much is lit, and in what colour."""
+    from pixels import fraction_lit
+    return {
+        "lit": round(fraction_lit(page), 3),
+        "colours": page.evaluate(
+            "() => (window.zmartConfig?.layers || []).map((one) => one.color)"),
+        "sources": page.evaluate(
+            "() => (window.zmartConfig?.layers || [])"
+            ".map((one) => (one.sources || []).length)"),
+    }
+
+
+def test_closing_one_acquisition_does_not_spoil_the_next(
+        browser, built_dist, tmp_path):
+    """Close one dataset, open another, and the second one is drawn in full.
+
+    Clearing the screen and loading the next thing is the ordinary rhythm of a
+    session at the microscope, and it has to leave the viewer as good as it
+    found it. It did not: after a close, whatever was opened next came up with
+    most of its tiles missing, and only reloading the page put it right -- so
+    what was wrong was what the page had kept, not the data. The server sends
+    the same description and the browser fetches the same pieces either way
+    (measured 2026-08-21).
+
+    Two different datasets rather than the same one twice, because that is the
+    case an operator meets: the second is a different size, so drawing it as
+    though it were the first is visible.
+    """
+    first = tmp_path / "overview"
+    first.mkdir()
+    from test_open_and_close import _store
+    _store(first / "overview_pos001.ome.zarr", channels=1)
+    _a_grid_scan(tmp_path / "one", across=2)
+    _a_grid_scan(tmp_path / "two", across=3)
+    server = make_server(port=0, data_dir=first, site_dir=built_dist,
+                         store="overview_pos001.ome.zarr")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1300, "height": 1000})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                  wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
+        page.get_by_title("Hide this acquisition").first.click()
+        page.wait_for_timeout(500)
+
+        _relive(page, tmp_path, "one")
+        page.wait_for_function(
+            "() => (window.zmartConfig.groups || []).some((g) => g.includes('one'))",
+            timeout=30_000)
+        page.wait_for_timeout(6000)
+        assert _what_is_shown(page)["lit"] > 0.05, "the first dataset never drew"
+
+        group = page.evaluate(
+            "() => (window.zmartConfig.groups || []).find((g) => g.includes('one'))")
+        # Marked so that the engine after the close can be told from the one
+        # before it: closing builds a new one, which is the fix for this.
+        page.evaluate("() => { window.zmartViewer.zmartMark = 'before'; }")
+        page.locator(f'[aria-label="close {group}"]').click()
+        page.wait_for_timeout(2500)
+        assert page.evaluate("() => window.zmartViewer?.zmartMark") != "before", (
+            "closing an acquisition must build the engine again: the one that "
+            "drew the closed dataset is still here"
+        )
+
+        _relive(page, tmp_path, "two")
+        page.wait_for_function(
+            "() => (window.zmartConfig.groups || []).some((g) => g.includes('two'))",
+            timeout=30_000)
+        page.wait_for_timeout(6000)
+        after = _what_is_shown(page)
+        drawn = page.evaluate(
+            "() => (window.zmartScene || []).filter("
+            "  (s) => s.type === 'image' && (s.name || '').includes('two'))"
+            ".map((s) => (s.source || []).length)")
+        assert drawn == [9], f"the second dataset is not all there: {drawn}"
+        assert after["lit"] > 0.05, (
+            "after closing the first dataset, the second one drew almost "
+            f"nothing: {after}"
+        )
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_opening_it_again_after_closing_it_shows_the_same_picture(
+        browser, built_dist, tmp_path):
+    """Close an acquisition, open it again, and it comes back as it was.
+
+    Closing is how an operator clears the screen mid-session, and opening the
+    same folder again is what they do next. The second showing has to be the
+    first one: the same tiles lit, in the same colour.
+
+    It was not. The second open drew half the tiles, in a different colour,
+    and only reloading the page put it right -- so whatever was wrong lived in
+    what the page had kept, not in the data (2026-08-21). A gate here because
+    nothing else exercises the same folder twice in one session: every other
+    test opens once and closes at the end.
+    """
+    first = tmp_path / "overview"
+    first.mkdir()
+    from test_open_and_close import _store
+    _store(first / "overview_pos001.ome.zarr", channels=1)
+    _a_grid_scan(tmp_path / "twice", across=2)
+    server = make_server(port=0, data_dir=first, site_dir=built_dist,
+                         store="overview_pos001.ome.zarr")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1300, "height": 1000})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                  wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
+        # Nothing of the starting acquisition in the measurement: what is
+        # counted below has to be the reopened dataset's own pixels.
+        page.get_by_title("Hide this acquisition").first.click()
+        page.wait_for_timeout(500)
+
+        _relive(page, tmp_path, "twice")
+        page.wait_for_function(
+            "() => (window.zmartConfig.groups || []).some((g) => g.includes('twice'))",
+            timeout=30_000)
+        page.wait_for_timeout(6000)
+        once = _what_is_shown(page)
+        assert once["lit"] > 0.05, f"nothing was drawn the first time: {once}"
+
+        group = page.evaluate(
+            "() => (window.zmartConfig.groups || []).find((g) => g.includes('twice'))")
+        page.locator(f'[aria-label="close {group}"]').click()
+        page.wait_for_timeout(2500)
+        assert _what_is_shown(page)["lit"] < 0.02, "closing it left it on screen"
+
+        _relive(page, tmp_path, "twice")
+        page.wait_for_function(
+            "() => (window.zmartConfig.groups || []).some((g) => g.includes('twice'))",
+            timeout=30_000)
+        page.wait_for_timeout(6000)
+        again = _what_is_shown(page)
+
+        assert again["colours"] == once["colours"], (
+            "the same data came back in a different colour: "
+            f"{once['colours']} first, {again['colours']} second"
+        )
+        assert again["sources"] == once["sources"], (
+            f"a different number of tiles came back: {once} then {again}")
+        assert abs(again["lit"] - once["lit"]) < 0.05, (
+            "the second showing is not the first: "
+            f"{once['lit']:.1%} of the view lit, then {again['lit']:.1%}"
+        )
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
