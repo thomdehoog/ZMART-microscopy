@@ -474,11 +474,22 @@ function showOverview() {
   document.getElementById("widget-overview").hidden = false;
 }
 
+// Open a section because the page decided to show it, rather than because the
+// operator walked into it. Only the operator entering a section folds the
+// previous one away; the page restoring a run, or moving the run on to its
+// next step, must leave the panels around it exactly as they were. Marking
+// the section visited first is what tells the folding rule to stand aside.
+function openSection(section) {
+  if (!section) return;
+  section.dataset.opened = "true";
+  section.open = true;
+}
+
 function openNextStep(step) {
   const section = document.getElementById(`step-${step}`);
   let next = section?.nextElementSibling;
   while (next && !next.classList.contains("step")) next = next.nextElementSibling;
-  if (next) next.open = true;
+  openSection(next);
 }
 
 function markDone(step, keepInteractiveOpen = true) {
@@ -494,7 +505,8 @@ function markDone(step, keepInteractiveOpen = true) {
     const label = section.querySelector(".button-label");
     if (label) label.textContent = completedLabels[step];
   }
-  section.open = keepInteractiveOpen && section.dataset.collapse !== "true";
+  if (keepInteractiveOpen && section.dataset.collapse !== "true") openSection(section);
+  else section.open = false;
 }
 
 function flowUpdate(ev) {
@@ -514,8 +526,7 @@ function flowUpdate(ev) {
   } else {
     note.textContent = ev.message;
     note.className = "step-note bad";
-    const section = document.getElementById(`step-${ev.step}`);
-    if (section) section.open = true;
+    openSection(document.getElementById(`step-${ev.step}`));
   }
   const button = document.querySelector(`button[data-step="${ev.step}"]`);
   if (button) {
@@ -579,7 +590,14 @@ async function applySnapshot() {
     }
   }
   const completed = snapshot.flow.completed || [];
-  completed.forEach((step) => markDone(step, false));
+  // Mark finished steps done under the SAME rule the live run uses, so a
+  // section keeps whatever openness it has earned. This snapshot is applied
+  // more often than a first page load: it is also how the page catches up
+  // after a refresh, and how it collects a widget that has only just been
+  // created. Folding every finished step away here would mean the cell
+  // explorer closing itself the moment discovery produced it, which is the
+  // one panel the operator opened that step to see.
+  completed.forEach((step) => markDone(step));
   const completedSet = new Set(completed);
   let firstIncomplete = [...document.querySelectorAll("details.step")]
     .find((section) => !completedSet.has(section.id.replace("step-", "")));
@@ -588,7 +606,7 @@ async function applySnapshot() {
       && !completedSet.has("run_overview")) {
     firstIncomplete = document.getElementById("step-load_positions");
   }
-  if (firstIncomplete) firstIncomplete.open = true;
+  openSection(firstIncomplete);
   const overviewStarted = completed.includes("run_overview")
     || Boolean(snapshot.widgets.overview?.status);
   document.getElementById("widget-overview").hidden = !overviewStarted;
