@@ -109,6 +109,39 @@ class TestPlanningAReplay:
         # The plan reproduces the dataset's own spacing, or it is no replay.
         assert plan.geometry.step_shape == (int(STEP_UM), int(STEP_UM))
 
+    @pytest.mark.xfail(strict=True, reason=(
+        "Being built. A position is now placed at a PLACE and the grid works "
+        "out one and delegates (zmart_live/ownership.py), but the planner "
+        "above still snaps every position to a cell, so a run off the grid is "
+        "refused before it reaches the placing. The remaining steps are in "
+        "docs/design/the-live-path-places-positions.md: the coordinator takes "
+        "placements rather than cells, and this planner plans each position "
+        "where its own description puts it. Kept strict so the day it works "
+        "is not missed."))
+    def test_positions_off_any_grid_are_planned_where_they_sit(self, tmp_path):
+        """A run whose positions sit at awkward places still plans.
+
+        The whole worth of a replay is that nothing about the live path is
+        faked: the positions go through the writer a real acquisition uses.
+        A dataset that could only be rehearsed if it happened to sit on a
+        regular grid would leave the awkward runs -- which is most data from
+        anywhere else -- with no way to exercise the live path at all.
+
+        These three sit at places no grid would put them: an extra 17 um
+        along the row, and a third that is off in both directions at once by
+        a fraction of a micrometre.
+        """
+        folder = tmp_path / "awkward"
+        folder.mkdir()
+        _write_a_grid_tile(folder / "pos00.ome.zarr", 0, (0.0, 0.0))
+        _write_a_grid_tile(folder / "pos01.ome.zarr", 1, (0.0, STEP_UM + 17.0))
+        _write_a_grid_tile(folder / "pos02.ome.zarr", 2,
+                           (9.5, STEP_UM * 2 + 3.25))
+        plan = plan_a_replay(folder)
+        assert plan.total == 3, (
+            "every position of an awkward run has to be planned, not just "
+            "the ones that happen to land on a grid")
+
     def test_uneven_spacing_is_refused_in_plain_words(self, tmp_path):
         folder = tmp_path / "uneven"
         folder.mkdir()
