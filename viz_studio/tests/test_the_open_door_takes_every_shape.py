@@ -195,6 +195,15 @@ def shapes(tmp_path):
     (root / "plate").mkdir(parents=True)
     a_small_plate(root / "plate")
     _write_odd_run(root / "odd")
+    # The same awkwardness at a size a camera could actually have. The live
+    # writer plans a pyramid over the camera's frame, and a 48-pixel frame
+    # cannot be halved four times with chunks big enough to be worth reading
+    # -- so a run that is only awkwardly PLACED needs a plausible frame to
+    # rehearse with. These three sit at fractional offsets no grid would put
+    # them at, and all record the same frame, as one camera must.
+    for number, at in enumerate(((0.0, 0.0), (17.5, 300.0), (260.25, 140.75))):
+        _write_04(root / "awkward", f"awkward_pos{number:02d}.ome.zarr",
+                  at=at, size=(384, 384), seed=number * 4)
     # Two positions sharing a quarter of their ground, which is how a real
     # stage is asked to move: tiles are overlapped on purpose so a stitcher
     # can measure the true offset afterwards.
@@ -501,3 +510,39 @@ def test_a_bake_changes_how_fast_the_picture_arrives_and_nothing_else(
         f"baked and unbaked differ by {apart:.2f} levels per pixel on "
         "average -- a bake must change how fast the picture arrives and "
         "nothing about what it shows")
+
+
+def test_the_awkward_run_rehearses_through_the_experimental_door(page_on):
+    """The same awkward fixtures go through the live path, not around it.
+
+    The experimental door is a dress rehearsal for smart microscopy, and its
+    whole worth is that nothing about the live path is faked: the positions
+    go through the live writer, its sealed profile and its manifest, one
+    commit each, exactly as they would during an acquisition. A door that
+    took a shortcut for difficult data would still draw a picture and would
+    rehearse nothing.
+
+    So the run replayed here sits at fractional offsets no grid would put it
+    at -- 17.5 micrometres down, 260.25 across. Until the live path placed
+    positions where they sit, that was refused outright: a replay could only
+    lay tiles on the writer's own grid. Rehearsing only the runs that happen
+    to be tidy is rehearsing the easy day.
+
+    Its frame is a camera's, and that is not a fudge but the other half of
+    the point. The live writer plans a pyramid over the frame the camera
+    records, so a 48-pixel toy frame is refused for a reason that has
+    nothing to do with placement. What is being rehearsed here is an awkward
+    PLACE, which is the thing that used to be impossible; an awkward frame
+    size is a property of a transfer, and belongs to the open door above.
+    """
+    page, root = page_on
+    replay_through_the_window(page, "awkward", folder=root)
+    page.wait_for_function(
+        "() => window.zmartConfig.groups.some((one) => one.includes('replay'))",
+        timeout=60_000)
+    heading = next(one for one in page.evaluate("() => window.zmartConfig.groups")
+                   if "replay" in one)
+    _wait_until_drawn(page, heading)
+    page.wait_for_timeout(3000)
+    assert fraction_lit(page) > 0.02, (
+        f"{heading} rehearsed but put nothing on screen")
