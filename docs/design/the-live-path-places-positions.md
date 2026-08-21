@@ -81,6 +81,50 @@ from its index.**
    `GRID_TOLERANCE_UM` refusal goes, along with the paragraph in its docstring
    promising it.
 
+## The one hard part, found while starting the work
+
+Placing a position anywhere is straightforward, and the picture then comes out
+right. **Analysis ownership is not**, and the existing code says so in its own
+refusal message:
+
+> Treating those missing cells as outer boundaries would make diagonal
+> neighbours own the same specimen twice. … this **box-shaped ownership format
+> cannot represent it safely**.
+
+That is the real limit, and it is worth stating precisely because it is easy to
+mistake for a bug. `analysis_core_roi` is a **box**: a low and a high along each
+axis. On a complete grid, a box can always express "my half of the strip I share
+with each neighbour", because every neighbour is squarely along one axis. In an
+arbitrary arrangement a position can share ground with another that is offset in
+*both* axes at once, and the part it should own is then an L-shape or worse —
+which no box can describe. Widening the box double-counts the corner; narrowing
+it drops specimen nobody counts.
+
+So the change splits cleanly in two, and only the first is needed for a replay
+to work:
+
+**The picture.** A position is placed where its own description says. This is
+sound for any arrangement, needs no ownership question answered, and is what
+makes an awkward run rehearse.
+
+**The counting.** For a complete grid, exactly as today. For anything else, a
+box cannot always be right, and there are three honest answers:
+
+1. **Say the whole frame counts, and say so out loud** — every position owns
+   everything it recorded, and analysis over an awkward run may count an object
+   in an overlap twice. Simple, truthful, and wrong for anybody counting cells.
+2. **Refuse the counting, not the run** — the run replays and draws, and asks
+   for analysis boundaries answer that this arrangement has none. Nothing is
+   quietly wrong; a caller that needs them finds out.
+3. **Stop using a box** — ownership becomes a region that can describe an
+   L-shape. Correct in general, and much the largest of the three: every reader
+   of `analysis_core_roi` changes with it.
+
+**This is the decision to make before building.** (2) is the smallest thing that
+is not a lie, and it keeps (3) open. (1) should not be chosen by default,
+because it is the one that produces wrong numbers with nothing on screen to say
+so — which is the fault this whole repository is most careful about.
+
 ## What it touches
 
 `zmart_live/ownership.py`, `zmart_live/model.py`, `zmart_live/coordinator.py`,
