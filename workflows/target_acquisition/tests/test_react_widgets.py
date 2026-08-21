@@ -570,6 +570,92 @@ def test_overview_auto_downsample_respects_the_pixel_budget(tmp_path):
     assert (viewer.tiles[0]["w"], viewer.tiles[0]["h"]) == (2000.0, 2000.0)
 
 
+def test_overview_pans_the_whole_map_rather_than_each_tile():
+    """Dragging the map must cost the same however many tiles are on it.
+
+    Every tile the browser shows is a picture it has to place somewhere. If
+    each one had to be given a new place on every mouse move, a map built from
+    thousands of tiles would stutter badly — and a large scan brings exactly
+    that many. Instead each tile is placed once, in micrometres, and the whole
+    layer holding them is slid and scaled as one. Dragging then rewrites a
+    single position instead of thousands.
+    """
+    esm = wreact.OverviewViewerReact._esm
+    # The layer carries the pan and zoom for everything on it.
+    assert "transform: `translate(${v.tx}px, ${v.ty}px) scale(${v.scale})`" in esm
+    assert 'transformOrigin: "0 0"' in esm
+    # A tile's own position is its place on the sample, with no zoom baked in.
+    assert "left: t.x0, top: t.y0, width: t.w, height: t.h" in esm
+    # Re-used untouched unless a tile actually arrived, so a drag rebuilds none.
+    assert "React.useMemo(" in esm and "[tiles]);" in esm
+
+
+def _big_overview_tile(tmp_path, name="big.ome.tif", size=2000):
+    """Write one large single-channel overview tile with honest OME metadata."""
+    desc = (
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+        f'<Image><Pixels DimensionOrder="XYCZT" Type="uint16" SizeX="{size}" SizeY="{size}" '
+        'SizeC="1" SizeZ="1" SizeT="1" PhysicalSizeX="1.0" PhysicalSizeY="1.0"/>'
+        "</Image></OME>"
+    )
+    path = tmp_path / name
+    tifffile.imwrite(path, np.zeros((size, size), dtype=np.uint16), description=desc)
+    return path
+
+
+def test_overview_shares_its_pixel_budget_across_a_large_map(tmp_path):
+    """A scan of thousands of tiles shows each one coarsely, so the map opens.
+
+    The browser holds every tile it displays as uncompressed pixels, so what
+    matters is the total across the map rather than any single tile. Telling
+    the viewer how many tiles are coming lets it spread its budget over them
+    from the very first one, instead of starting generously and running the
+    browser out of memory somewhere in the middle of the scan.
+    """
+    path = _big_overview_tile(tmp_path)
+
+    viewer = wreact.view_overview()
+    viewer.expect_tiles(10_000)
+    viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(path)]})
+
+    # 40 M pixels shared over 10 000 tiles is 4000 pixels each, so a 2000x2000
+    # tile is read every 32nd pixel: roughly 63x63 on screen.
+    assert viewer.downsample == 32
+    assert viewer._stacks[0].shape == (1, 63, 63)
+    # Coarse pixels never move a tile: where it sits on the sample is unchanged.
+    entry = viewer._tile_entries[0]
+    assert (entry["w"], entry["h"]) == (2000.0, 2000.0)
+
+
+def test_overview_keeps_small_maps_as_detailed_as_before(tmp_path):
+    """The usual two-dozen-tile overview is untouched by the shared budget.
+
+    Sharing the budget out only has to bite on very large scans. A small map
+    should look exactly as it always has, whether or not the tile count was
+    announced in advance.
+    """
+    path = _big_overview_tile(tmp_path)
+
+    viewer = wreact.view_overview()
+    viewer.expect_tiles(25)
+    viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(path)]})
+
+    # 4 M pixels against the unchanged 1.5 M per-tile budget -> every 2nd pixel.
+    assert viewer.downsample == 2
+    assert viewer._stacks[0].shape == (1, 1000, 1000)
+
+
+def test_overview_never_shrinks_a_tile_into_nothing():
+    """Past a point a smaller tile shows nothing, so the sharing stops there.
+
+    A map of blank squares would not be worth the memory it saved, so however
+    many tiles are announced, each one keeps roughly 64x64 pixels to show.
+    """
+    viewer = wreact.view_overview()
+    viewer.expect_tiles(10_000_000)
+    assert viewer._tile_pixel_budget() == 4_096
+
+
 def test_gallery_row_images_respect_the_pixel_budget():
     """Full-resolution target images must be shrunk before travelling."""
     from workflow.react._support import shrink_to_budget
