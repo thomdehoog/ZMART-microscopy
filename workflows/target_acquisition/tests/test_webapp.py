@@ -20,6 +20,7 @@ import json
 import queue
 import re
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -121,6 +122,95 @@ def test_reset_requires_connection_then_safely_disconnects_and_starts_fresh(tmp_
     assert flow.root != first_root
     flow.run_step("disconnect")
     hub.drain(60)
+
+
+def test_a_restart_that_gave_up_waiting_does_not_happen_later_anyway(tmp_path):
+    """Refusing a restart must mean it really did not happen.
+
+    A restart waits its turn behind whatever the microscope is already doing,
+    so it can still be queued when the wait runs out. If it were left queued
+    after the operator had been told it failed, it would go ahead later —
+    releasing the microscope and wiping the run in the middle of whatever they
+    had moved on to. Being told "no" has to be the truth.
+    """
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    flow.run_step("connect")
+    hub.drain(60)
+    session, root = flow.session, flow.root
+
+    # Occupy the worker the way a long acquisition would. This is a widget
+    # message rather than a step, so it does not show up as a pending step.
+    release = threading.Event()
+    assert hub.submit(lambda: release.wait(20))
+    for _ in range(200):  # let the worker actually pick the work up
+        if not hub._work.empty():
+            time.sleep(0.005)
+        else:
+            break
+
+    with pytest.raises(RuntimeError, match="nothing was restarted"):
+        flow.reset(timeout=0.5)
+
+    release.set()
+    hub.drain(60)
+
+    # The run carried on untouched: same session, same folder, same progress.
+    assert flow.session is session
+    assert flow.root == root
+    assert flow.completed == ["connect"]
+    assert not session.disconnected
+
+    flow.run_step("disconnect")
+    hub.drain(60)
+
+
+def test_finished_steps_the_page_offers_again_are_still_refused(tmp_path):
+    """The page invites some steps to be repeated; the run does not allow it.
+
+    Once a step is done, the page relabels its button — Connect becomes
+    "Reconnect", Set origin becomes "Change Origin", and the overview job
+    becomes "Recapture Overview Job" — so an operator who picked the wrong
+    job, or zeroed the stage in the wrong place, is invited to put it right.
+    Pressing those buttons is refused, because a finished step cannot run
+    twice.
+
+    This test records that disagreement rather than blessing it: the two
+    sides need to be brought together, either by letting these steps run
+    again (which has real consequences — moving the origin after positions
+    are loaded moves every coordinate with it) or by not offering them.
+    """
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    refusals = []
+    hub.broadcast = _recording_broadcast(hub, refusals)
+
+    for step in ("connect", "set_origin", "capture_overview_job"):
+        flow.run_step(step)
+        hub.drain(60)
+
+    for step in ("connect", "set_origin", "capture_overview_job"):
+        refusals.clear()
+        flow.run_step(step)
+        hub.drain(60)
+        failed = [e for e in refusals if e["state"] == "failed"]
+        assert failed, f"{step} was expected to refuse a second run"
+        assert "already complete" in failed[0]["message"]
+
+    flow.run_step("disconnect")
+    hub.drain(60)
+
+
+def _recording_broadcast(hub, sink):
+    """Watch the run's own progress events without disturbing them."""
+    original = hub.broadcast
+
+    def recording(event):
+        if event.get("kind") == "flow":
+            sink.append(event)
+        original(event)
+
+    return recording
 
 
 def test_steps_refuse_out_of_order_with_plain_sentences(tmp_path):
