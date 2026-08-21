@@ -89,6 +89,146 @@ def _check_the_cell_is_a_forward_grid_index(cell: GridCell) -> None:
         )
 
 
+def _shared_along(profile: AcquisitionProfile, axis: str,
+                  mine: dict[str, int], theirs: dict[str, int]) -> int:
+    """How much ground two positions share along one axis, in pixels.
+
+    Nought where they do not reach each other. Both origins are in the run's
+    own pixels, so this is plain arithmetic on two intervals.
+    """
+    frame = profile.frame_shape[axis]
+    low = max(mine[axis], theirs[axis])
+    high = min(mine[axis] + frame, theirs[axis] + frame)
+    return max(0, high - low)
+
+
+def _touching(profile: AcquisitionProfile, tiled: tuple[str, ...],
+              mine: dict[str, int], theirs: dict[str, int]) -> bool:
+    """Do these two positions actually share ground?
+
+    Every tiled axis has to overlap. Two tiles that meet along one axis while
+    sitting clear of one another along the next are not neighbours at all --
+    they share no specimen, and neither has anything to hand over.
+    """
+    return all(_shared_along(profile, axis, mine, theirs) > 0 for axis in tiled)
+
+
+def plan_one_position(
+    profile: AcquisitionProfile,
+    *,
+    position_id: str,
+    origin: dict[str, int],
+    others: dict[str, dict[str, int]],
+    component_id: str = "component-0",
+    cell: GridCell | None = None,
+) -> PositionPlacement:
+    """Work out where one position sits and which parts of it are its own.
+
+    This is the general act, and :func:`plan_one_tile` is the special case of
+    it where the place comes from a grid square. A position has a **place** --
+    ``origin``, in the run's own pixels -- and everything else follows from
+    the places the positions actually occupy rather than from any pattern they
+    may or may not form.
+
+    That distinction is the whole point. A stage doing a survey steps a fixed
+    distance and its positions do form a grid, which is why the grid road
+    exists and stays. But a dataset from anywhere else sits where it sits, and
+    a live path that could only place tiles it had itself arranged could never
+    rehearse one -- which is what a replay is for.
+
+    ``others`` is where every other position of the component sits, so that
+    neighbours are found by asking which of them actually reach this one.
+    Nothing depends on the order positions arrived in, so a run interrupted
+    and resumed plans exactly as one that finished tidily.
+    """
+    tiled = profile.tiled_axes
+    if not tiled:
+        raise ZmartLiveError(
+            f"The '{profile.acquisition_type}' plan declares no overlapping axes, "
+            f"so its positions do not form a mosaic and there is no seam to place. "
+            f"Independent positions do not use this."
+        )
+
+    looked_at: dict[str, Interval] = {}
+    counted: dict[str, Interval] = {}
+    neighbours: dict[str, str] = {}
+    outermost: dict[str, bool] = {}
+
+    beside = {name: where for name, where in others.items()
+              if name != position_id and _touching(profile, tiled, origin, where)}
+
+    for axis in tiled:
+        frame = profile.frame_shape[axis]
+
+        # Who reaches this position from each side along this axis, and how far
+        # in. Taken from where the positions are rather than from a pattern, so
+        # an arrangement nobody laid out reads the same as one somebody did.
+        before = {name: _shared_along(profile, axis, origin, where)
+                  for name, where in beside.items() if where[axis] < origin[axis]}
+        beyond = {name: _shared_along(profile, axis, origin, where)
+                  for name, where in beside.items() if where[axis] > origin[axis]}
+
+        outermost[f"{axis}_low"] = not before
+        outermost[f"{axis}_high"] = not beyond
+
+        # Which of them to name as THE neighbour on this side, when more than
+        # one reaches in. Settled rather than left to chance: the one sharing
+        # most ground, then the one squarely along this axis rather than a
+        # corner-on one, then by name. On a grid that is always the tile next
+        # door -- the diagonal one shares the same amount and would otherwise
+        # win on a coin toss, and two runs given the same mosaic have to
+        # produce the same answer.
+        def _pick(candidates: dict[str, int]) -> str:
+            def order(one: str) -> tuple:
+                askew = sum(1 for other in tiled
+                            if beside[one][other] != origin[other])
+                return (-candidates[one], askew, one)
+            return min(candidates, key=order)
+
+        if before:
+            neighbours[f"{axis}_low"] = _pick(before)
+        if beyond:
+            neighbours[f"{axis}_high"] = _pick(beyond)
+
+        # What a model is given: the whole position, overlap included. The
+        # overlap is not waste here; it is the context that lets it judge an
+        # object sitting near the edge.
+        looked_at[axis] = Interval(0, frame)
+
+        # Whose measurements count. The boundary sits in the middle of the
+        # ground actually shared, so that both sides have specimen either way.
+        # A shared strip of an odd width cannot be halved exactly, and the
+        # extra pixel always goes to the position nearer the run's origin, so
+        # that two neighbours never disagree about it.
+        share_low = max(before.values(), default=0)
+        share_high = max(beyond.values(), default=0)
+        counted[axis] = Interval(share_low // 2,
+                                 frame - (share_high - share_high // 2))
+
+    # Axes that are not tiled -- colour, depth, time -- are not divided at all.
+    # A position owns everything it recorded on those, and saying so explicitly
+    # stops anybody inferring an ownership rule where none exists.
+    whole_origin = dict(origin)
+    for axis in profile.axes:
+        if axis in tiled or axis not in profile.frame_shape:
+            continue
+        whole = Interval(0, profile.frame_shape[axis])
+        looked_at[axis] = whole
+        counted[axis] = whole
+        whole_origin[axis] = 0
+
+    return PositionPlacement(
+        position_id=position_id,
+        component_id=component_id,
+        cell=cell,
+        origin=whole_origin,
+        analysis_input_roi=Box.of(**looked_at),
+        analysis_core_roi=Box.of(**counted),
+        neighbours=neighbours,
+        on_outer_boundary=outermost,
+    )
+
+
 def plan_one_tile(
     profile: AcquisitionProfile,
     cell: GridCell,
@@ -114,75 +254,22 @@ def plan_one_tile(
             f"so its positions do not form a mosaic and there is no seam to place. "
             f"Independent positions do not use this."
         )
-
     occupied = occupied or frozenset({cell})
-    origin: dict[str, int] = {}
-    looked_at: dict[str, Interval] = {}
-    counted: dict[str, Interval] = {}
-    neighbours: dict[str, str] = {}
-    outermost: dict[str, bool] = {}
 
-    for axis in tiled:
-        frame = profile.frame_shape[axis]
-        overlap = profile.overlap_pixels.get(axis, 0)
-        step = _step_on(profile, axis)
-        index = _cell_index(cell, axis)
+    def named(one: GridCell) -> str:
+        return f"{component_id}:{one.row},{one.column}"
 
-        origin[axis] = index * step
+    def placed(one: GridCell) -> dict[str, int]:
+        return {axis: _cell_index(one, axis) * _step_on(profile, axis)
+                for axis in tiled}
 
-        # Is there a tile beyond this one on this axis? If not, this tile is on
-        # the mosaic's outer edge and there is nobody sharing that strip.
-        beyond = (
-            GridCell(cell.row + 1, cell.column)
-            if axis == "y"
-            else GridCell(cell.row, cell.column + 1)
-        )
-        before = (
-            GridCell(cell.row - 1, cell.column)
-            if axis == "y"
-            else GridCell(cell.row, cell.column - 1)
-        )
-        has_one_beyond = beyond in occupied
-        has_one_before = before in occupied
-        outermost[f"{axis}_high"] = not has_one_beyond
-        outermost[f"{axis}_low"] = not has_one_before
-        if has_one_beyond:
-            neighbours[f"{axis}_high"] = f"{component_id}:{beyond.row},{beyond.column}"
-        if has_one_before:
-            neighbours[f"{axis}_low"] = f"{component_id}:{before.row},{before.column}"
-
-        # What a model is given: the whole tile, overlap included. The overlap is
-        # the context that lets it judge an object sitting near the edge.
-        looked_at[axis] = Interval(0, frame)
-
-        # Whose measurements count. Placed in the middle of the overlap wherever
-        # there is a neighbour, so that both sides have specimen either way. An
-        # odd overlap cannot be halved exactly, and the extra pixel always goes to
-        # the lower-numbered tile so that the two neighbours never disagree.
-        half_before = overlap // 2 if has_one_before else 0
-        half_beyond = (overlap - overlap // 2) if has_one_beyond else 0
-        counted[axis] = Interval(half_before, frame - half_beyond)
-
-    # Axes that are not tiled -- colour, depth, time -- are not divided at all.
-    # A tile owns everything it recorded on those, and saying so explicitly stops
-    # anybody inferring an ownership rule where none exists.
-    for axis in profile.axes:
-        if axis in tiled or axis not in profile.frame_shape:
-            continue
-        whole = Interval(0, profile.frame_shape[axis])
-        looked_at[axis] = whole
-        counted[axis] = whole
-        origin[axis] = 0
-
-    return PositionPlacement(
-        position_id=position_id or f"{component_id}:{cell.row},{cell.column}",
+    return plan_one_position(
+        profile,
+        position_id=position_id or named(cell),
+        origin=placed(cell),
+        others={named(one): placed(one) for one in occupied if one != cell},
         component_id=component_id,
         cell=cell,
-        origin=origin,
-        analysis_input_roi=Box.of(**looked_at),
-        analysis_core_roi=Box.of(**counted),
-        neighbours=neighbours,
-        on_outer_boundary=outermost,
     )
 
 
