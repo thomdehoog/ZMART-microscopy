@@ -236,12 +236,12 @@ const AS_FAST_AS_IT_CAN = 20;
 const REPLAY_PACES = [0.5, 1, 2, 5, 10, AS_FAST_AS_IT_CAN];
 
 const LOAD_KINDS = [
-  { key: "view", label: "load existing scene",
-    said: "a scene built earlier — opens as it was" },
-  { key: "raw", label: "build new scene",
-    said: "raw positions from the microscope — a scene is built over them" },
-  { key: "other", label: "other",
-    said: "anything else the viewer can read — demo data, test runs — opened directly, or replayed as a live run" },
+  { key: "open", label: "open",
+    said: "point at what you want to see — one image, or a folder of them. The viewer works out the rest" },
+  { key: "raw", label: "build a view",
+    said: "raw positions from the microscope — a view is built over them, which then opens faster" },
+  { key: "other", label: "experimental",
+    said: "replay a finished dataset as though the microscope were running it — for testing and troubleshooting" },
 ];
 
 function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
@@ -251,7 +251,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
   const [openError, setOpenError] = React.useState(null);
   // Which tab is chosen. Loading an existing view is the commonest thing
   // to do, so the window starts there, folders already showing.
-  const [kind, setKind] = React.useState("view");
+  const [kind, setKind] = React.useState("open");
   // Raw data being constructed into a viewer: which folder, where the
   // viewer's files go, and whether the pieces are prebaked now or made on
   // the fly later. Null while the operator is still walking folders.
@@ -563,8 +563,11 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
               is looking for floats to the top; the plain folders to walk
               into follow. */}
           {[...listing.folders].sort((a, b) => {
+            // On the open tab either shape is a first-class answer -- an
+            // image, or a folder holding them -- so anything readable floats
+            // up together and only what cannot be read sinks.
             const wanted = (folder) =>
-              (kind === "raw" ? folder.opens === "folder" : folder.opens === "store") ? 0 : 1;
+              (kind === "raw" ? folder.opens === "folder" : Boolean(folder.opens)) ? 0 : 1;
             return wanted(a) - wanted(b) || a.name.localeCompare(b.name);
           }).map((folder) => (
             <button
@@ -667,13 +670,14 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 onArriving?.(result.config, pace);
               }}
               disabled={busy || !selected
-                        || (kind === "view" && selected.opens !== "store")
+                        || (kind !== "raw" && !selected.opens)
                         || (kind === "other" && replaying?.state === "running")}
               aria-label={kind === "other"
                 ? "open as a live run"
                 : (selected ? `open ${selected.name}` : "open the selection")}
-              title={kind === "view"
-                ? "Open the selected scene: it becomes one acquisition in the image data"
+              title={kind === "open"
+                ? "Open this and show it. Whatever it holds that the viewer reads "
+                  + "becomes one acquisition in the image data"
                 : kind === "other"
                   ? "Relive this dataset as a live run: its positions land on "
                     + "screen one at a time, through the same doorway the "

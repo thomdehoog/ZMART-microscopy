@@ -286,7 +286,7 @@ class TestReplayingATimelapse:
             page.get_by_label("open images").click()
             window = page.get_by_role("dialog", name="load data")
             window.wait_for(timeout=10_000)
-            page.get_by_label("other", exact=True).click()
+            page.get_by_label("experimental", exact=True).click()
             box = page.get_by_label("folder path")
             box.fill(str(tmp_path))
             box.press("Enter")
@@ -385,7 +385,7 @@ def test_a_replay_is_watchable_without_any_clicks(browser, built_dist,
         page.get_by_label("open images").click()
         window = page.get_by_role("dialog", name="load data")
         window.wait_for(timeout=10_000)
-        page.get_by_label("other", exact=True).click()
+        page.get_by_label("experimental", exact=True).click()
         box = page.get_by_label("folder path")
         box.fill(str(tmp_path))
         box.press("Enter")
@@ -455,7 +455,7 @@ def test_a_replay_can_be_stopped_from_the_window(browser, built_dist,
         page.get_by_label("open images").click()
         window = page.get_by_role("dialog", name="load data")
         window.wait_for(timeout=10_000)
-        page.get_by_label("other", exact=True).click()
+        page.get_by_label("experimental", exact=True).click()
         box = page.get_by_label("folder path")
         box.fill(str(tmp_path))
         box.press("Enter")
@@ -468,7 +468,7 @@ def test_a_replay_can_be_stopped_from_the_window(browser, built_dist,
         # The window closed itself; the operator goes back for the stop.
         page.get_by_label("open images").click()
         window.wait_for(timeout=10_000)
-        page.get_by_label("other", exact=True).click()
+        page.get_by_label("experimental", exact=True).click()
         stop = page.get_by_label("stop the replay")
         stop.wait_for(timeout=10_000)
         assert page.get_by_label("open as a live run").is_disabled(), (
@@ -661,7 +661,7 @@ class TestTheReplayDoor:
             page.get_by_label("open images").click()
             window = page.get_by_role("dialog", name="load data")
             window.wait_for(timeout=10_000)
-            page.get_by_label("other", exact=True).click()
+            page.get_by_label("experimental", exact=True).click()
             box = page.get_by_label("folder path")
             box.fill(str(tmp_path))
             box.press("Enter")
@@ -699,7 +699,7 @@ class TestTheReplayDoor:
             page.get_by_label("open images").click()
             window = page.get_by_role("dialog", name="load data")
             window.wait_for(timeout=10_000)
-            page.get_by_label("other", exact=True).click()
+            page.get_by_label("experimental", exact=True).click()
             box = page.get_by_label("folder path")
             box.fill(str(tmp_path))
             box.press("Enter")
@@ -787,11 +787,11 @@ def test_a_04_dataset_replays_the_same(tmp_path):
 
 
 def _relive(page, folder: Path, name: str) -> None:
-    """Drive the load window the way an operator does: other, folder, open."""
+    """Drive the load window the way an operator does: experimental, folder, open."""
     page.get_by_label("open images").click()
     window = page.get_by_role("dialog", name="load data")
     window.wait_for(timeout=10_000)
-    page.get_by_label("other", exact=True).click()
+    page.get_by_label("experimental", exact=True).click()
     box = page.get_by_label("folder path")
     box.fill(str(folder))
     box.press("Enter")

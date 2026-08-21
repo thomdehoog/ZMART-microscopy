@@ -14,6 +14,7 @@ import threading
 import numpy as np
 import pytest
 import zarr
+from driving import open_through_the_window
 from pixels import fraction_lit
 from server import make_server
 
@@ -101,19 +102,10 @@ def _groups(page):
 def _open_the_second_through_the_window(page):
     """Open the second run the way an operator now does.
 
-    The load window always appears; inside it the native chooser (stood in
-    for by the fixture's ``browse=``) picks the folder, the run's row is
-    selected in the list the window shows, and the window's own Open button
-    opens the selection.
+    The walk itself lives in ``driving`` so that the window can go on being
+    worked on without every gate here having to be found and edited.
     """
-    page.get_by_label("open images").click()
-    window = page.get_by_role("dialog", name="load data")
-    window.wait_for(timeout=10_000)
-    page.get_by_label("other", exact=True).click()
-    page.get_by_label("choose a folder").click()
-    window.get_by_label("targetscan", exact=True).wait_for(timeout=10_000)
-    window.get_by_label("targetscan", exact=True).click()
-    page.get_by_label("open targetscan", exact=True).click()
+    open_through_the_window(page, "targetscan")
 
 
 def test_the_viewer_starts_on_the_run_it_was_given(live):
@@ -535,23 +527,22 @@ def no_chooser(browser, built_dist, tmp_path):
 class TestTheLoadWindow:
     """Without a native chooser, choosing a folder opens a window in the page."""
 
-    def test_the_window_starts_on_loading_an_existing_view(self, no_chooser):
+    def test_the_window_starts_on_the_open_door(self, no_chooser):
         """The window opens ready: the first tab chosen, the folders showing.
 
-        "load existing view" is the commonest thing to do, so it is the tab
-        the window starts on -- no click needed before walking. A click on a
-        row selects and highlights it, the way the operating system's own
-        choosers behave, and the window's one Open button acts on the
-        selection. Each tab offers Open only on its own kind of thing: the
-        starting folder holds a store, which the view tab offers to open,
-        and switching to "build new view" withdraws that offer, since a
-        bare store is not raw positions to build over.
+        Opening something and looking at it is the commonest thing anybody
+        does, so it is the tab the window starts on -- no click needed
+        before walking. A click on a row selects and highlights it, the way
+        the operating system's own choosers behave, and the window's one
+        Open button acts on the selection. Switching to "build a view"
+        withdraws the offer to open a bare store, since a single image is
+        not raw positions to build a view over.
         """
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         window = page.get_by_role("dialog", name="load data")
         window.wait_for(timeout=10_000)
-        chosen = page.get_by_label("load existing scene", exact=True)
+        chosen = page.get_by_label("open", exact=True)
         assert chosen.get_attribute("aria-pressed") == "true"
         assert str(first) in page.get_by_label("folder path").input_value()
         row = window.get_by_label("overview_pos001.ome.zarr", exact=True)
@@ -562,15 +553,18 @@ class TestTheLoadWindow:
         )
         assert page.get_by_label(
             "open overview_pos001.ome.zarr", exact=True).count() == 1
-        page.get_by_label("build new scene", exact=True).click()
+        page.get_by_label("build a view", exact=True).click()
         assert page.get_by_label(
             "open overview_pos001.ome.zarr", exact=True).count() == 0
 
     def test_raw_data_is_opened_by_constructing_a_viewer(self, no_chooser):
-        """A folder of positions is raw data: a viewer is constructed over it.
+        """The build door constructs a view over a folder of positions.
 
         One composed picture draws far faster than many stores handed to the
-        engine separately, so raw data always goes through construction. The
+        engine separately, which is what this door is for: it is the offer of
+        a faster picture, asked for rather than imposed -- the open door
+        beside it shows the same positions straight away without writing
+        anything. The
         operator says where the viewer's files live and whether the pieces
         are prebaked now or made on the fly when looked at; on the fly is
         the default, writes only the declaration, and serves immediately.
@@ -578,7 +572,7 @@ class TestTheLoadWindow:
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-        page.get_by_label("build new scene", exact=True).click()
+        page.get_by_label("build a view", exact=True).click()
         box = page.get_by_label("folder path")
         box.fill(str(second.parent))
         box.press("Enter")
@@ -637,7 +631,7 @@ class TestTheLoadWindow:
                                    timeout=30_000)
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-            page.get_by_label("build new scene", exact=True).click()
+            page.get_by_label("build a view", exact=True).click()
             box = page.get_by_label("folder path")
             box.fill(str(run.parent))
             box.press("Enter")
@@ -697,7 +691,7 @@ class TestTheLoadWindow:
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(
                 timeout=10_000)
-            page.get_by_label("build new scene", exact=True).click()
+            page.get_by_label("build a view", exact=True).click()
             box = page.get_by_label("folder path")
             box.fill(str(tmp_path))
             box.press("Enter")
@@ -738,7 +732,7 @@ class TestTheLoadWindow:
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-        page.get_by_label("build new scene", exact=True).click()
+        page.get_by_label("build a view", exact=True).click()
         box = page.get_by_label("folder path")
         box.fill(str(second.parent))
         box.press("Enter")
@@ -749,25 +743,24 @@ class TestTheLoadWindow:
         window.get_by_label("overview", exact=True).wait_for(timeout=10_000)
         assert window.get_by_label("targetscan", exact=True).count() == 1
 
-    def test_custom_opens_anything_directly(self, no_chooser):
-        """The third door: no construction, no questions, just open it.
+    def test_the_open_door_takes_anything_the_viewer_reads(self, no_chooser):
+        """The first door: no construction, no questions, just open it.
 
-        Custom is for everything the two disciplined doors do not cover --
-        demo data, the viewer's own test runs (the spiral among them),
-        whatever the library accepts. It opens folders and stores directly,
-        the way a workflow's API call does.
+        Point it at an image, or at a folder holding them, and it opens --
+        demo data, a run of positions, the viewer's own test runs (the
+        spiral among them), whatever the library accepts. This is the
+        commonest thing anybody does with the viewer, so it is the door the
+        window opens on, and it asks nothing before showing you the data.
+
+        It was briefly lost. For one day the three doors were "a scene built
+        earlier" (which refused a folder of positions), "build a view" (which
+        insisted on writing one first) and a replay -- so the ordinary act of
+        pointing at a run and looking at it had nowhere to go. This gate is
+        what noticed, and it is why it is worth keeping pointed at a FOLDER
+        rather than at a single image: a folder is the shape that was refused.
         """
         page, first, second = no_chooser
-        page.get_by_label("open images").click()
-        page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-        page.get_by_label("other", exact=True).click()
-        box = page.get_by_label("folder path")
-        box.fill(str(second.parent))
-        box.press("Enter")
-        window = page.get_by_role("dialog", name="load data")
-        window.get_by_label("targetscan", exact=True).wait_for(timeout=10_000)
-        window.get_by_label("targetscan", exact=True).click()
-        page.get_by_label("open targetscan", exact=True).click()
+        open_through_the_window(page, "targetscan", folder=second.parent)
         page.wait_for_function(
             "() => window.zmartConfig.groups.includes('targetscan')", timeout=20_000
         )
@@ -900,7 +893,7 @@ class TestRelinking:
                                    timeout=30_000)
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-            page.get_by_label("load existing scene", exact=True).click()
+            page.get_by_label("open", exact=True).click()
             # Walk to the viewer's files and open them.
             box = page.get_by_label("folder path")
             box.fill(str(run / "views"))
