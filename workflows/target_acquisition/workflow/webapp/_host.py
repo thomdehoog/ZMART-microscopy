@@ -42,11 +42,12 @@ from traitlets import TraitError
 #: The number that matters here is a whole overview map replayed at once,
 #: which happens whenever a view reconnects or a channel colour changes.
 #: The map viewer bounds itself to roughly 40 megapixels of tiles in total
-#: (see ``_MAP_PIXEL_BUDGET`` in ``workflow/react/_widgets.py``), so about
-#: 120 MB of pixels; this cap leaves room for that replay plus the gallery
-#: rows alongside it. If a replay overran the cap, its earliest tiles would
-#: be dropped before the browser had fetched them and would come back as
-#: blank squares on the map, so the two numbers belong together.
+#: (see ``_MAP_PIXEL_BUDGET`` in ``workflow/react/_widgets.py``), which as
+#: JPEG comes to something like 35 MB for a map of ten thousand tiles. This
+#: cap holds that replay, the gallery rows alongside it, and a good deal of
+#: room to spare — deliberately, because a replay that overran it would lose
+#: its earliest tiles before the browser had fetched them, and they would
+#: come back as blank squares on the map.
 _BUFFER_CAP_BYTES = 192 * 1024 * 1024
 
 # Browser requests must not form an unbounded backlog. In particular, a local

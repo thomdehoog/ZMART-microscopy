@@ -596,8 +596,10 @@ def test_streamed_tiles_reach_a_tab_as_events_and_binary_buffers(demo_server):
         and e.get("content", {}).get("type") == "tile"
     ]
     assert len(tile_messages) == 4  # one live message per tile, as in Jupyter
-    png = _get(base, f"/buffer/{tile_messages[0]['buffers'][0]}")
-    assert png[:8] == b"\x89PNG\r\n\x1a\n"  # pixels travel as real binary
+    picture = _get(base, f"/buffer/{tile_messages[0]['buffers'][0]}")
+    # Map tiles travel as JPEG — a display copy made in its thousands.
+    assert picture[:3] == b"\xff\xd8\xff"  # pixels travel as real binary
+    assert tile_messages[0]["content"]["mime"] == "image/jpeg"
     # The focus panel widget announced itself so the page could mount it.
     assert any(e == {"kind": "widget", "widget": "focus"} for e in events)
 

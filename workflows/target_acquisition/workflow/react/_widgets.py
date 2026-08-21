@@ -35,6 +35,7 @@ from ._support import (
     CHANNEL_HEX_COLORBLIND,
     REACT_PRELUDE,
     heatmap_data_url,
+    jpeg_bytes,
     png_bytes,
     png_data_url_ranged,
     require_anywidget,
@@ -638,21 +639,24 @@ export default mount(App);
         # pixels never do. The reset + per-item buffers avoid one giant base64
         # JSON value and give the browser bounded work between messages.
         self.send({"type": "tile:reset", "preserve": True, "length": len(snapshot)})
-        self.tiles = [{**{k: v for k, v in e.items() if k != "png"}, "src": ""} for e in snapshot]
+        self.tiles = [
+            {**{k: v for k, v in e.items() if k != "image"}, "src": ""} for e in snapshot
+        ]
         for index, entry in enumerate(snapshot):
             self._send_tile(index, entry)
 
     def _send_tile(self, index: int, entry: dict) -> None:
-        """Send one tile's metadata plus its raw PNG buffer."""
-        meta = {k: v for k, v in entry.items() if k != "png"}
+        """Send one tile's metadata plus its picture, as raw bytes."""
+        meta = {k: v for k, v in entry.items() if k != "image"}
         self.send(
             {
                 "type": "tile",
                 "index": index,
                 "entry": {**meta, "src": ""},
                 "buffer_keys": ["src"],
+                "mime": "image/jpeg",
             },
-            buffers=[entry["png"]],
+            buffers=[entry["image"]],
         )
 
     def _init_channels(self, stack: Any) -> None:
@@ -717,7 +721,7 @@ export default mount(App);
         if budget_px is not None:
             composite = shrink_to_budget(composite, budget_px)
         return {
-            "png": png_bytes(composite),
+            "image": jpeg_bytes(composite),
             "x0": cx - w_um / 2.0,
             "y0": cy - h_um / 2.0,
             "w": w_um,

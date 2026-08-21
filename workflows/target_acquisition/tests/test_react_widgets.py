@@ -36,6 +36,16 @@ def _ome(path, shape=(20, 30), ps=2.0, value=200, channels=1):
     return path
 
 
+#: The first bytes of a JPEG. Map tiles travel in this form: a display copy
+#: of the sample that thousands of tiles must be made and sent in, where PNG
+#: was several times slower and larger for the very same picture.
+_JPEG_MAGIC = b"\xff\xd8\xff"
+
+#: The first bytes of a PNG, still used where a picture is shown one at a
+#: time and exactness costs nothing.
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
 def _overview(tmp_path, name="ov.tif", center=(0.0, 0.0)):
     path = tmp_path / name
     tifffile.imwrite(path, np.arange(100 * 100, dtype=np.uint16).reshape(100, 100))
@@ -128,7 +138,7 @@ def test_overview_tiles_stream_as_messages_not_trait_resends(tmp_path):
     assert len(viewer.tiles) == 2
     tile = viewer.tiles[0]
     assert tile["src"] == ""  # pixels stay out of the JSON trait
-    assert sent[3][1][0][:8] == b"\x89PNG\r\n\x1a\n"
+    assert sent[3][1][0][:3] == _JPEG_MAGIC
     assert (tile["x0"], tile["y0"], tile["w"], tile["h"]) == (-30.0, -20.0, 60.0, 40.0)
     assert viewer.tiles[1]["x0"] == 70.0
 
@@ -160,7 +170,7 @@ def test_overview_bogus_channel_contents_degrade_instead_of_raising(tmp_path):
     viewer.send = lambda content, buffers=None, **_kw: sent.append((content, buffers))
     viewer.push_snapshot()
     assert viewer.tiles[0]["src"] == ""
-    assert sent[-1][1][0][:8] == b"\x89PNG\r\n\x1a\n"
+    assert sent[-1][1][0][:3] == _JPEG_MAGIC
 
 
 def test_non_dict_messages_are_ignored(tmp_path):
@@ -349,7 +359,7 @@ def test_gallery_streams_rows_and_commits_on_success(tmp_path):
     assert len(gallery.records) == 2 == len(gallery.picked)
     assert len(gallery.rows) == 2
     assert gallery.rows[0]["low_src"] == ""
-    assert sent[-1][1][0][:8] == b"\x89PNG\r\n\x1a\n"
+    assert sent[-1][1][0][:8] == _PNG_MAGIC
     assert "same window" in gallery.rows[0]["high_title"]
     assert not gallery.busy
 
@@ -737,7 +747,7 @@ def test_react_tiles_wear_the_heatmap_colours():
 
 
 def test_stream_messages_carry_pixels_as_binary_buffers(tmp_path):
-    """Image pixels ride as raw PNG buffers, not base64 text in the JSON."""
+    """Image pixels ride as raw image bytes, not base64 text in the JSON."""
     viewer = wreact.view_overview()
     sent = []
     viewer.send = lambda content, buffers=None, **_kw: sent.append((content, buffers))
@@ -745,12 +755,13 @@ def test_stream_messages_carry_pixels_as_binary_buffers(tmp_path):
     content, buffers = sent[0]
     assert content["buffer_keys"] == ["src"]
     assert content["entry"]["src"] == ""  # no base64 in the JSON part
-    assert buffers[0][:8] == b"\x89PNG\r\n\x1a\n"  # a real PNG in the buffer
+    assert buffers[0][:3] == _JPEG_MAGIC  # a real picture in the buffer
+    assert content["mime"] == "image/jpeg"  # ...and the browser is told which kind
     viewer.push_snapshot()  # snapshot catch-up is binary too, never base64
     reset, snapshot = sent[-2:]
     assert reset[0]["type"] == "tile:reset"
     assert snapshot[0]["type"] == "tile"
-    assert snapshot[1][0][:8] == b"\x89PNG\r\n\x1a\n"
+    assert snapshot[1][0][:3] == _JPEG_MAGIC
     assert viewer.tiles[0]["src"] == ""
 
 
@@ -1390,3 +1401,50 @@ def test_colorblind_palette_is_available(tmp_path):
     viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "t.ome.tif"))]})
     assert viewer.channels[0]["color"] == CHANNEL_HEX_COLORBLIND[0]
     assert viewer.channels[0]["palette"] == list(CHANNEL_HEX_COLORBLIND)
+
+
+def test_map_tiles_are_encoded_for_quantity_not_for_exactness(tmp_path):
+    """The map's pictures are made to be looked at, in their thousands.
+
+    A channel colour or visibility change re-makes every tile on the map, and
+    that work happens on the same thread the microscope is waiting on — so how
+    long one tile takes to encode is multiplied by however many tiles the scan
+    produced. Camera noise barely compresses, so PNG was several times slower
+    and several times larger for exactly the same picture.
+
+    These are display copies only. Everything written to the run folder still
+    keeps its real pixels; nothing measured is ever read back from here.
+    """
+    path = _big_overview_tile(tmp_path)
+    viewer = wreact.view_overview()
+    viewer.expect_tiles(10_000)
+    viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(path)]})
+
+    entry = viewer._tile_entries[0]
+    assert entry["image"][:3] == _JPEG_MAGIC
+    # A coarse tile of a large map should cost single-digit kilobytes. PNG of
+    # the same picture was over eleven; the exact figure varies with the
+    # sample, so this only guards the order of magnitude.
+    assert len(entry["image"]) < 8_000
+
+    # The browser is told what it is being sent rather than left to guess.
+    sent = []
+    viewer.send = lambda content, buffers=None, **_kw: sent.append((content, buffers))
+    viewer.push_snapshot()
+    tile_messages = [c for c, _b in sent if c["type"] == "tile"]
+    assert tile_messages and all(c["mime"] == "image/jpeg" for c in tile_messages)
+
+
+def test_the_pictures_the_operator_judges_keep_every_pixel(tmp_path):
+    """Curation images are looked at one pair at a time, so they stay exact.
+
+    The gallery shows a cell before and after acquisition and asks the
+    operator to judge it. There are a handful of them rather than thousands,
+    so there is nothing to be gained by throwing detail away — and a judgement
+    should be made on the real pixels.
+    """
+    import numpy as np
+    from workflow.react._support import png_bytes
+
+    picture = np.zeros((16, 16, 3), dtype=np.float32)
+    assert png_bytes(picture)[:8] == _PNG_MAGIC

@@ -91,6 +91,41 @@ def shrink_to_budget(array: Any, budget_px: int) -> Any:
     return array[::step, ::step] if step > 1 else array
 
 
+def jpeg_bytes(array: Any, quality: int = 85) -> bytes:
+    """Encode an image array as raw JPEG bytes, for pictures shown in quantity.
+
+    A display copy is already an 8-bit picture of the data, so the question is
+    only which encoding carries it. PNG keeps every pixel exactly, which sounds
+    right for microscopy but costs dearly here: camera noise barely compresses,
+    so PNG stays large and slow — and a map of thousands of tiles pays that
+    price thousands of times over, on the same thread the microscope is waiting
+    on. JPEG is several times smaller and quicker for the same picture.
+
+    Use this only for pictures the operator LOOKS at. Never for anything
+    measured or saved: JPEG throws detail away to get its size, and the files
+    written to the run folder must always keep the real pixels.
+
+    Colour is stored at full resolution (``subsampling=0``) rather than the
+    usual JPEG shortcut, because these images are channels tinted and added
+    together, and the shortcut would smear those colours across edges.
+    """
+    import numpy as np
+    from PIL import Image
+
+    arr = np.asarray(array)
+    if arr.ndim == 2:
+        lo, hi = float(arr.min()), float(arr.max())
+        span = hi - lo if hi > lo else 1.0
+        image = Image.fromarray(
+            ((arr.astype(np.float32) - lo) / span * 255.0).astype(np.uint8), mode="L"
+        )
+    else:
+        image = Image.fromarray((np.clip(arr, 0.0, 1.0) * 255.0).astype(np.uint8), mode="RGB")
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=quality, subsampling=0)
+    return buffer.getvalue()
+
+
 def png_bytes(array: Any) -> bytes:
     """Encode an image array as raw PNG bytes (for a binary message buffer).
 
@@ -299,7 +334,10 @@ function useStream(model, traitName, messageType) {
           return;
         }
         if (old) URL.revokeObjectURL(old);
-        const url = URL.createObjectURL(new Blob([view], { type: "image/png" }));
+        // The sender says what kind of picture this is; PNG unless told
+        // otherwise, which is what every widget but the map still sends.
+        const kind = msg.mime || "image/png";
+        const url = URL.createObjectURL(new Blob([view], { type: kind }));
         urls.current.set(owner, url);
         entry[key] = url;
       });
