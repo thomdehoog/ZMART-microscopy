@@ -297,6 +297,30 @@ class _Handler(SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
 
+    def send_response(self, code, message=None):
+        """Every reply, with what the browser may keep of it.
+
+        The built page names its own code by content --
+        ``assets/index-5OLplHed.js`` -- so a rebuild produces new names and the
+        code can be kept forever. The page that names them must not be. A
+        browser holding yesterday's ``index.html`` goes on asking for a bundle
+        the folder no longer has, which is a 404; or -- worse, and what
+        actually happened -- it goes on running yesterday's viewer over
+        today's data, so a control removed the day before is still on screen
+        and every report about it is about a program nobody is running any
+        more (2026-08-21).
+
+        Image pieces and the small JSON endpoints say nothing here: those have
+        their own answers about freshness, and a growing run's pieces are the
+        whole reason for them.
+        """
+        super().send_response(code, message)
+        if not self.path.startswith(("/data/", "/api/")):
+            page = self.path in ("/", "/index.html") or self.path.endswith("/")
+            self.send_header(
+                "Cache-Control",
+                "no-store" if page else "public, max-age=31536000, immutable")
+
     # -- routing ---------------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802 (name fixed by base class)

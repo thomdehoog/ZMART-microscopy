@@ -670,3 +670,64 @@ def test_the_record_of_where_a_run_imaged_is_reachable_from_the_page(tmp_path):
     finally:
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_the_page_itself_is_never_taken_from_the_cache(tmp_path):
+    """A reload must fetch today's viewer, not the one the browser kept.
+
+    The page names its own code by content -- ``index-5OLplHed.js`` -- so the
+    code files can be cached forever and a rebuild simply produces new names.
+    That only works if the page naming them is not cached: hold on to
+    yesterday's ``index.html`` and the browser asks for a bundle that no
+    longer exists, which is a 404 and a viewer that either does not start or,
+    worse, keeps running yesterday's build with today's data.
+
+    That is not hypothetical. An operator reported settings being lost on the
+    2-D/3-D switch, and their screenshot carried a button removed from the
+    source the day before: the tab was running a bundle the folder no longer
+    held (2026-08-21).
+    """
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "index.html").write_text(
+        "<!doctype html><script src=/assets/index-abc.js></script>",
+        encoding="utf-8")
+    assets = site / "assets"
+    assets.mkdir()
+    (assets / "index-abc.js").write_text("console.log(1)", encoding="utf-8")
+    data = tmp_path / "data"
+    (data / "demo.zarr").mkdir(parents=True)
+    (data / "demo.zarr" / ".zattrs").write_text('{"multiscales": []}',
+                                                encoding="utf-8")
+
+    server = make_server(port=0, data_dir=data, site_dir=site)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    address = f"http://127.0.0.1:{server.server_address[1]}"
+    def headers_for(path: str) -> str:
+        connection = http.client.HTTPConnection("127.0.0.1",
+                                                server.server_address[1])
+        try:
+            connection.request("GET", path)
+            answer = connection.getresponse()
+            answer.read()
+            return answer.getheader("Cache-Control") or ""
+        finally:
+            connection.close()
+
+    try:
+        page = headers_for("/")
+        code = headers_for("/assets/index-abc.js")
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    assert "no-store" in page.lower(), (
+        f"the page came back with Cache-Control {page!r}, so a browser may "
+        "keep it and go on asking for a bundle that has been rebuilt away"
+    )
+    assert "no-store" not in code.lower(), (
+        f"the code came back with Cache-Control {code!r}: it is named by its "
+        "own content, so refusing to cache it makes every reload pay for the "
+        "whole viewer again"
+    )
