@@ -36,9 +36,18 @@ from typing import Any
 from traitlets import TraitError
 
 #: Keep at most this many bytes of recent image buffers for browsers to
-#: fetch. A full 25-tile + 10-row replay fits many times over; anything
-#: older has long been fetched (or belongs to a tab that went away).
-_BUFFER_CAP_BYTES = 64 * 1024 * 1024
+#: fetch. Anything older has long been fetched (or belongs to a tab that
+#: went away).
+#:
+#: The number that matters here is a whole overview map replayed at once,
+#: which happens whenever a view reconnects or a channel colour changes.
+#: The map viewer bounds itself to roughly 40 megapixels of tiles in total
+#: (see ``_MAP_PIXEL_BUDGET`` in ``workflow/react/_widgets.py``), so about
+#: 120 MB of pixels; this cap leaves room for that replay plus the gallery
+#: rows alongside it. If a replay overran the cap, its earliest tiles would
+#: be dropped before the browser had fetched them and would come back as
+#: blank squares on the map, so the two numbers belong together.
+_BUFFER_CAP_BYTES = 192 * 1024 * 1024
 
 # Browser requests must not form an unbounded backlog. In particular, a local
 # client must not be able to queue enough stale Acquire/Measure/Sync requests

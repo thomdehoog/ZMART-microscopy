@@ -69,6 +69,20 @@ _QUEUED_CLICK_WINDOW_S = 2.0
 # single update megabytes and stall the very channel the operator watches.
 _PER_IMAGE_PIXEL_BUDGET = 1_500_000
 
+# A whole overview map has a budget too, not just each tile in it. A browser
+# holds every tile it is showing as uncompressed pixels, so what it has to
+# cope with is the total across the map — and a large scan can bring thousands
+# of tiles rather than the two dozen of a small one. Sharing this budget out
+# over the expected tile count keeps a small map exactly as detailed as it has
+# always been, and lets a large one stay coarse enough to open at all: about
+# 40 megapixels of map works out near 160 MB of pixels in the browser.
+_MAP_PIXEL_BUDGET = 40_000_000
+
+# However large the scan, a tile is never shrunk below roughly 64x64. Past
+# that a tile stops showing anything at all, and a map of blank squares is
+# not worth the memory it saves.
+_MIN_TILE_PIXEL_BUDGET = 4_096
+
 # Catch-up snapshots can contain dozens of images at once. Keep their copies
 # smaller than the live, one-at-a-time stream: 250k RGB pixels is enough for
 # the 640x520 notebook viewport and bounds a 25-tile noisy snapshot to roughly
@@ -398,6 +412,21 @@ function App({ model }) {
   const setCh = (i, patch) =>
     setChannels(channels.map((c, k) => (k === i ? { ...c, ...patch } : c)));
 
+  // Each tile is placed once, in micrometres, and never moved again: panning
+  // and zooming are applied to the single layer that holds them (below). A map
+  // built from thousands of tiles would crawl if every one of them had to be
+  // repositioned on each mouse move, and it is the browser, not the
+  // microscope, that would be the slow part. Because the tile list keeps its
+  // identity between renders, this list is only rebuilt when a tile actually
+  // arrives — dragging the map re-uses it untouched.
+  const tileLayer = React.useMemo(
+    () => tiles.map((t, i) =>
+      h("img", { key: i, src: t.src, draggable: false, style: {
+        position: "absolute", left: t.x0, top: t.y0, width: t.w, height: t.h,
+        imageRendering: "pixelated" } })),
+    [tiles]);
+  const v = view.current;
+
   return h("div", { style: { ...card, display: "flex", gap: 12 } },
     h("div", {
         ref: box, onPointerDown: onDown, onPointerMove: onMove,
@@ -405,15 +434,19 @@ function App({ model }) {
         onPointerLeave: () => { drag.current = null; setCursor(null); },
         style: { width: W, height: H, background: "#000", borderRadius: 10,
                  overflow: "hidden", position: "relative", cursor: "grab", flex: "none" } },
-      tiles.map((t, i) => {
-        const v = view.current;
-        return h("img", { key: i, src: t.src, draggable: false, style: {
-          position: "absolute", left: t.x0 * v.scale + v.tx, top: t.y0 * v.scale + v.ty,
-          width: t.w * v.scale, height: t.h * v.scale, imageRendering: "pixelated" } });
-      }),
-      marks.map((m, i) => {
-        const v = view.current;
-        return h("div", { key: `m${i}`,
+      // One layer carrying the whole map. Moving or scaling it moves every
+      // tile at once, so a drag costs the same whether the map holds
+      // twenty-five tiles or ten thousand. The layer is deliberately not
+      // marked as "will change", which would ask the browser to keep a ready
+      // drawing of the whole thing: a map measured in millimetres of sample is
+      // far too large for that to be a kindness. The frame around it clips to
+      // the visible part, which is all the browser then has to draw.
+      h("div", { style: { position: "absolute", left: 0, top: 0,
+          transformOrigin: "0 0",
+          transform: `translate(${v.tx}px, ${v.ty}px) scale(${v.scale})` } },
+        tileLayer),
+      marks.map((m, i) =>
+        h("div", { key: `m${i}`,
           onMouseEnter: () => model.send({ type: "mark", index: i }),
           onClick: (e) => { e.stopPropagation(); model.send({ type: "pick", index: i }); },
           title: m.acquired ? "already acquired" : (m.picked ? "picked — click to un-pick"
@@ -425,12 +458,10 @@ function App({ model }) {
                      : `2px solid ${m.gated ? T.accent : T.dim}`,
                    background: m.acquired ? T.good
                      : (markHover.index === i ? T.accent : "transparent"),
-                   cursor: "pointer" } });
-      }),
+                   cursor: "pointer" } })),
       (() => {
         // A scale bar that keeps a nice round length as the zoom changes —
         // the first thing a microscopist looks for on any image.
-        const v = view.current;
         if (!tiles.length || !v.scale) return null;
         let um = 1;
         for (const step of [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]) {
@@ -537,6 +568,23 @@ export default mount(App);
         self.add_tile(overview)
         return overview
 
+    def _tile_pixel_budget(self) -> int:
+        """How many pixels one tile's display copy may use, given the map size.
+
+        A map of two dozen tiles can afford to show each one in detail. A scan
+        of several thousand cannot: the browser keeps every tile it displays as
+        uncompressed pixels, so the detail has to be shared out over however
+        many tiles are coming. Calling :meth:`expect_tiles` before a scan lets
+        this be right from the very first tile; without it the count so far is
+        used, which catches up as the map grows.
+
+        Small maps are unaffected — twenty-five tiles still get the full
+        per-tile budget — so this only changes what a large scan looks like.
+        """
+        expected = self._expected_tiles or max(1, len(self.overviews) + 1)
+        share = _MAP_PIXEL_BUDGET // expected
+        return int(min(_PER_IMAGE_PIXEL_BUDGET, max(_MIN_TILE_PIXEL_BUDGET, share)))
+
     def _step_for(self, overview: dict) -> int:
         """The display downsample for one tile (explicit, or budget-driven)."""
         if self._fixed_downsample is not None:
@@ -546,7 +594,7 @@ export default mount(App);
         # budget counts all of them, not just one plane.
         n_channels = len(overview.get("channel_paths") or [overview["image_path"]])
         pixels = int(h) * int(w) * max(1, n_channels)
-        return max(1, math.ceil(math.sqrt(pixels / _PER_IMAGE_PIXEL_BUDGET)))
+        return max(1, math.ceil(math.sqrt(pixels / self._tile_pixel_budget())))
 
     def add_tile(self, overview: dict) -> None:
         self.downsample = self._step_for(overview)
