@@ -100,24 +100,18 @@ def _a_grid_scan(folder: Path, *, across: int = 2) -> Path:
 class TestPlanningAReplay:
     """The plan maps the dataset onto the live writer's grid, or says why not."""
 
-    def test_a_grid_scan_is_mapped_onto_cells(self, tmp_path):
+    def test_a_grid_scan_is_placed_where_its_own_grid_puts_it(self, tmp_path):
         plan = plan_a_replay(_a_grid_scan(tmp_path / "scan"))
         assert plan.total == 4
-        cells = {tuple(cell) if not hasattr(cell, "row") else (cell.row, cell.column)
-                 for cell in plan.cells}
-        assert cells == {(0, 0), (0, 1), (1, 0), (1, 1)}
+        step = int(STEP_UM)
+        # On the grid it was imaged on -- not because a grid is imposed on it,
+        # nothing is snapped any more, but because that is where its tiles are.
+        assert {(where["y"], where["x"]) for where in plan.positions.values()} == {
+            (0, 0), (0, step), (step, 0), (step, step)
+        }
         # The plan reproduces the dataset's own spacing, or it is no replay.
         assert plan.geometry.step_shape == (int(STEP_UM), int(STEP_UM))
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "Being built. A position is now placed at a PLACE and the grid works "
-        "out one and delegates (zmart_live/ownership.py), but the planner "
-        "above still snaps every position to a cell, so a run off the grid is "
-        "refused before it reaches the placing. The remaining steps are in "
-        "docs/design/the-live-path-places-positions.md: the coordinator takes "
-        "placements rather than cells, and this planner plans each position "
-        "where its own description puts it. Kept strict so the day it works "
-        "is not missed."))
     def test_positions_off_any_grid_are_planned_where_they_sit(self, tmp_path):
         """A run whose positions sit at awkward places still plans.
 
@@ -142,14 +136,28 @@ class TestPlanningAReplay:
             "every position of an awkward run has to be planned, not just "
             "the ones that happen to land on a grid")
 
-    def test_uneven_spacing_is_refused_in_plain_words(self, tmp_path):
+    def test_uneven_spacing_is_replayed_where_it_sits(self, tmp_path):
+        """Positions that are not evenly spaced are no longer refused.
+
+        They used to be, and the refusal said so plainly: a replay could only
+        place tiles on the writer's grid, so a run whose neighbours sat 17
+        micrometres further apart than the rest had nowhere to go. A position
+        now carries its own place, so the run is replayed where it was imaged.
+
+        Kept rather than deleted with the refusal, as the record of the day
+        that limit lifted -- and because "this is not refused" is worth
+        holding in place as firmly as the refusal ever was.
+        """
         folder = tmp_path / "uneven"
         folder.mkdir()
         _write_a_grid_tile(folder / "pos00.ome.zarr", 0, (0.0, 0.0))
         _write_a_grid_tile(folder / "pos01.ome.zarr", 1, (0.0, STEP_UM))
         _write_a_grid_tile(folder / "pos02.ome.zarr", 2, (0.0, STEP_UM * 2 + 17.0))
-        with pytest.raises(ValueError, match="grid"):
-            plan_a_replay(folder)
+        plan = plan_a_replay(folder)
+        assert plan.total == 3
+        across = sorted(where["x"] for where in plan.positions.values())
+        assert across == [0, int(STEP_UM), int(STEP_UM * 2 + 17.0)], (
+            f"each position is planned where its own description puts it; got {across}")
 
     def test_the_replay_publishes_one_position_at_a_time(self, tmp_path):
         """The library-level heart: every beat lands through the live writer."""

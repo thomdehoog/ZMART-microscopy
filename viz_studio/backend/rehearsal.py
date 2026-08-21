@@ -47,8 +47,8 @@ class ReplayPlan:
 
     profile: object
     geometry: object
-    #: Which grid square each position occupies, by position name.
-    cells: dict
+    #: Where each position sits, by name, in the run's own pixels.
+    positions: dict
     #: The publications in the order they will land: (name, level-0 array
     #: path, the store's own front axes, the moment to publish). A timelapse
     #: sweeps the whole grid once per moment.
@@ -61,23 +61,32 @@ class ReplayPlan:
         return len(self.beats)
 
 
-def _spacing(offsets: list[float]) -> float | None:
-    """The one step the offsets sit at, or None when there is no second tile."""
+def _evenly_spaced(offsets: list[float]) -> bool:
+    """Do these offsets sit a single fixed step apart?
+
+    True where there is nothing to disagree about -- one distinct offset, or
+    none -- because a run that never moves along an axis is evenly spaced
+    along it in the only sense that matters.
+    """
     distinct = sorted(set(offsets))
     if len(distinct) < 2:
-        return None
+        return True
     steps = [b - a for a, b in zip(distinct, distinct[1:], strict=False)]
-    first = steps[0]
-    for step in steps:
-        if abs(step - first) > GRID_TOLERANCE_UM:
-            raise ValueError(
-                f"these positions do not sit on a regular grid: neighbouring "
-                f"offsets differ by {first:.1f} and {step:.1f} micrometres. A "
-                f"replay places tiles the way the microscope will -- a fixed "
-                f"step apart -- so an unevenly spaced dataset cannot be "
-                f"replayed. Open it instead, or rebuild it on a grid."
-            )
-    return first
+    return all(abs(step - steps[0]) <= GRID_TOLERANCE_UM for step in steps)
+
+
+def _the_one_step(offsets: list[float]) -> float | None:
+    """The single step these offsets sit at, or None when there is not one.
+
+    None covers both "there is no second tile to measure against" and "these
+    are not evenly spaced". Neither is a fault: a run without a single step is
+    replayed where its positions sit, and the step is only ever wanted to
+    reproduce a survey's own spacing.
+    """
+    distinct = sorted(set(offsets))
+    if len(distinct) < 2 or not _evenly_spaced(offsets):
+        return None
+    return distinct[1] - distinct[0]
 
 
 def plan_a_replay(transfer: str | Path) -> ReplayPlan:
@@ -109,8 +118,16 @@ def plan_a_replay(transfer: str | Path) -> ReplayPlan:
         )
 
     corners = {tile.name: tile.copies[0].corner_um[-2:] for tile in mosaic.tiles}
-    step_y = _spacing([corner[0] for corner in corners.values()])
-    step_x = _spacing([corner[1] for corner in corners.values()])
+    down = [corner[0] for corner in corners.values()]
+    across = [corner[1] for corner in corners.values()]
+    # A survey's own spacing is reproduced, so that a replay of one is the
+    # same run it was. A dataset that is NOT evenly spaced has no spacing to
+    # reproduce, and asking for one anyway is how a lone tile 9 micrometres
+    # down the specimen turned into a demand for a 97.5% overlap. So the step
+    # is taken only when both directions agree there is one.
+    on_a_grid = _evenly_spaced(down) and _evenly_spaced(across)
+    step_y = _the_one_step(down) if on_a_grid else None
+    step_x = _the_one_step(across) if on_a_grid else None
     steps = {step for step in (step_y, step_x) if step is not None}
     if len(steps) > 1:
         raise ValueError(
@@ -153,22 +170,20 @@ def plan_a_replay(transfer: str | Path) -> ReplayPlan:
             "instead."
         )
 
-    step_for_cells = step_px if step_px is not None else float(frame[0])
-    ordered, cells = [], {}
+    # Where each position sits, in the run's own pixels, taken from the
+    # position's own description. Nothing is snapped to anything: a run laid
+    # out on a grid comes out on that grid because that is where its tiles
+    # are, and a run laid out by nobody comes out where it was imaged.
+    least = (min(corner[0] for corner in corners.values()),
+             min(corner[1] for corner in corners.values()))
+    ordered, positions = [], {}
     for tile in sorted(mosaic.tiles, key=lambda t: corners[t.name]):
         name = tile.name.removesuffix(".ome.zarr")
         corner = corners[tile.name]
-        cell = GridCell(round(corner[0] / voxel["y"] / step_for_cells),
-                        round(corner[1] / voxel["x"] / step_for_cells))
-        misses = max(abs(corner[0] - cell.row * step_for_cells * voxel["y"]),
-                     abs(corner[1] - cell.column * step_for_cells * voxel["x"]))
-        if misses > GRID_TOLERANCE_UM:
-            raise ValueError(
-                f"position {tile.name} sits {misses:.1f} micrometres off the "
-                "grid the other positions define, so the replay would draw it "
-                "in the wrong place. Open the dataset instead."
-            )
-        cells[cell] = name
+        positions[name] = {
+            "y": round((corner[0] - least[0]) / voxel["y"]),
+            "x": round((corner[1] - least[1]) / voxel["x"]),
+        }
         ordered.append((name, tile.copies[0].held_in))
 
     # A timelapse sweeps the whole grid once per moment, walking the same
@@ -177,7 +192,7 @@ def plan_a_replay(transfer: str | Path) -> ReplayPlan:
     beats = [(name, held_in, front, moment)
              for moment in range(moments)
              for name, held_in in ordered]
-    return ReplayPlan(profile=profile, geometry=geometry, cells=cells,
+    return ReplayPlan(profile=profile, geometry=geometry, positions=positions,
                       beats=beats, z_planes=z_planes,
                       channel_count=channel_count)
 
@@ -202,7 +217,7 @@ def replay_the_dataset(transfer: str | Path, folder: str | Path, *,
     """
     plan = plan_a_replay(transfer)
     publisher = LivePublisher(Path(folder), plan.profile,
-                              run_id=Path(transfer).name, cells=plan.cells)
+                              run_id=Path(transfer).name, positions=plan.positions)
     for number, (name, held_in, front, moment) in enumerate(plan.beats):
         if number and every_s:
             time.sleep(every_s)

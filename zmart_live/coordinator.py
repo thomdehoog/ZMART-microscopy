@@ -50,6 +50,7 @@ from .identity import (
 )
 from .manifest import RunManifest, _write_and_replace, now_in_words
 from .model import (
+    MosaicComponent,
     AcquisitionProfile,
     CommitEvent,
     GridCell,
@@ -58,7 +59,11 @@ from .model import (
     rounded_up,
 )
 from .omezarr import describe_the_position
-from .ownership import check_the_grid_holds_together, place_the_tiles
+from .ownership import (
+    check_the_grid_holds_together,
+    place_the_positions,
+    places_on_a_grid,
+)
 from .shardlink import where_one_chunk_lives
 from .viewroute import Placed, refuse_a_view_stored_differently, route_the_view
 
@@ -180,7 +185,16 @@ class LivePublisher:
     folder: Path
     profile: AcquisitionProfile
     run_id: str
-    cells: dict[GridCell, str]
+    #: Where each position of the run sits, by name, in the run's own pixels.
+    #: This is what a run IS: a set of positions with places. Give this, or
+    #: give ``cells`` and let the grid choose the places -- one or the other,
+    #: never both.
+    positions: dict[str, dict[str, int]] | None = None
+    #: The same thing said the way a survey knows it: which grid square each
+    #: position occupies. A stage doing a survey steps a fixed distance, so
+    #: this is the natural way to describe one, and it is turned into places
+    #: at the door. Everything past that point works from the places.
+    cells: dict[GridCell, str] | None = None
     channels: tuple[str, ...] | None = None
     #: Room along time. ``None`` — the ordinary case — takes the room from the
     #: sealed profile, which is where it is declared; a value given here may
@@ -266,18 +280,47 @@ class LivePublisher:
                 "disk is current."
             )
 
-        component = check_the_grid_holds_together(
-            self.cells, profile_id=self.profile.profile_id
-        )
-        if not component.complete:
+        if (self.cells is None) == (self.positions is None):
             raise ZmartLiveError(
-                "The planned mosaic footprint is incomplete. Missing cells inside "
-                "the footprint cannot be treated as outer boundaries, because the "
-                "neighbouring tiles would then own and display the same specimen "
-                "twice. Supply the complete planned footprint before starting this "
-                "publisher."
+                "A run is a set of positions with places. Say where they are "
+                "with 'positions', or say which grid squares they occupy with "
+                "'cells' and let the grid choose the places -- one of the two, "
+                "not both and not neither."
             )
-        placements = place_the_tiles(self.profile, self.cells)
+        if self.cells is not None:
+            # A survey is laid out on a grid, and a grid can be incomplete in a
+            # way that places cannot: a square missing from inside a planned
+            # rectangle. That check belongs here with the grid, because a run
+            # nobody laid out in a rectangle has no footprint to be missing
+            # anything from.
+            component = check_the_grid_holds_together(
+                self.cells, profile_id=self.profile.profile_id
+            )
+            if not component.complete:
+                raise ZmartLiveError(
+                    "The planned mosaic footprint is incomplete. Missing cells inside "
+                    "the footprint cannot be treated as outer boundaries, because the "
+                    "neighbouring tiles would then own and display the same specimen "
+                    "twice. Supply the complete planned footprint before starting this "
+                    "publisher."
+                )
+            object.__setattr__(
+                self, "positions", places_on_a_grid(self.profile, self.cells))
+        else:
+            # A run given its places was not laid out on a grid, so it has no
+            # squares to record and no planned rectangle to be missing any
+            # from. It is one component all the same: these positions were
+            # imaged together and belong to one another, which is what a
+            # component says.
+            component = MosaicComponent(
+                component_id="component-0",
+                profile_id=self.profile.profile_id,
+                complete=True,
+            )
+        placements = place_the_positions(
+            self.profile, self.positions,
+            cells=({name: cell for cell, name in self.cells.items()}
+                   if self.cells is not None else None))
         candidate_layout = SceneLayoutRevision(
             revision=1,
             schema_version="zmart-live-layout/2",
@@ -527,11 +570,8 @@ class LivePublisher:
         """How far the whole mosaic reaches in y and x, in full-resolution pixels."""
         reach = {}
         for axis in ("y", "x"):
-            step = self.profile.grid_step(axis)
-            last = max(
-                cell.row if axis == "y" else cell.column for cell in self.cells
-            )
-            reach[axis] = last * step + self.profile.frame_shape[axis]
+            reach[axis] = max(where[axis] for where in self.positions.values())
+            reach[axis] += self.profile.frame_shape[axis]
         return reach["y"], reach["x"]
 
     # -- writing -------------------------------------------------------------
@@ -553,10 +593,10 @@ class LivePublisher:
         pixels somebody has been shown cannot quietly turn into different pixels.
         :meth:`replace_a_position` is the way to supersede them.
         """
-        if position_id not in self.cells.values():
+        if position_id not in self.positions:
             raise ZmartLiveError(
                 f"'{position_id}' is not one of this run's positions. The run holds "
-                f"{sorted(self.cells.values())}."
+                f"{sorted(self.positions)}."
             )
         if (position_id, timepoint) in self._committed_units():
             raise ZmartLiveError(

@@ -141,13 +141,14 @@ def plan_one_position(
     Nothing depends on the order positions arrived in, so a run interrupted
     and resumed plans exactly as one that finished tidily.
     """
-    tiled = profile.tiled_axes
-    if not tiled:
-        raise ZmartLiveError(
-            f"The '{profile.acquisition_type}' plan declares no overlapping axes, "
-            f"so its positions do not form a mosaic and there is no seam to place. "
-            f"Independent positions do not use this."
-        )
+    # Where this position sits is said by its origin; which axes have a SEAM to
+    # divide is a separate question, and the two were previously the same one.
+    # A run whose positions do not touch at all declares no overlap, and used to
+    # be refused here -- but it still has places, and a picture is still made of
+    # it. So placement works along whatever axes the position has a place on,
+    # and only the axes with a declared seam are ever divided.
+    laid_out = tuple(axis for axis in origin)
+    tiled = tuple(axis for axis in profile.tiled_axes if axis in laid_out)
 
     looked_at: dict[str, Interval] = {}
     counted: dict[str, Interval] = {}
@@ -155,9 +156,9 @@ def plan_one_position(
     outermost: dict[str, bool] = {}
 
     beside = {name: where for name, where in others.items()
-              if name != position_id and _touching(profile, tiled, origin, where)}
+              if name != position_id and _touching(profile, laid_out, origin, where)}
 
-    for axis in tiled:
+    for axis in laid_out:
         frame = profile.frame_shape[axis]
 
         # Who reaches this position from each side along this axis, and how far
@@ -178,9 +179,9 @@ def plan_one_position(
         # door -- the diagonal one shares the same amount and would otherwise
         # win on a coin toss, and two runs given the same mosaic have to
         # produce the same answer.
-        def _pick(candidates: dict[str, int]) -> str:
+        def _pick(candidates: dict[str, int], _axis: str = axis) -> str:
             def order(one: str) -> tuple:
-                askew = sum(1 for other in tiled
+                askew = sum(1 for other in laid_out
                             if beside[one][other] != origin[other])
                 return (-candidates[one], askew, one)
             return min(candidates, key=order)
@@ -194,6 +195,12 @@ def plan_one_position(
         # overlap is not waste here; it is the context that lets it judge an
         # object sitting near the edge.
         looked_at[axis] = Interval(0, frame)
+
+        if axis not in tiled:
+            # No seam declared along this axis, so nothing to divide: this
+            # position counts everything it recorded on it.
+            counted[axis] = Interval(0, frame)
+            continue
 
         # Whose measurements count. The boundary sits in the middle of the
         # ground actually shared, so that both sides have specimen either way.
@@ -210,7 +217,7 @@ def plan_one_position(
     # stops anybody inferring an ownership rule where none exists.
     whole_origin = dict(origin)
     for axis in profile.axes:
-        if axis in tiled or axis not in profile.frame_shape:
+        if axis in laid_out or axis not in profile.frame_shape:
             continue
         whole = Interval(0, profile.frame_shape[axis])
         looked_at[axis] = whole
@@ -273,6 +280,67 @@ def plan_one_tile(
     )
 
 
+def place_the_positions(
+    profile: AcquisitionProfile,
+    origins: dict[str, dict[str, int]],
+    *,
+    cells: dict[str, GridCell] | None = None,
+    component_id: str = "component-0",
+) -> tuple[PositionPlacement, ...]:
+    """Work out the placement of every position of one mosaic component.
+
+    ``origins`` says where each position sits, in the run's own pixels. That
+    is all this needs: an arrangement somebody laid out on a grid and one that
+    nobody arranged at all are the same problem here, and are answered the
+    same way.
+
+    ``cells`` optionally says which grid square each position occupies, which
+    a survey knows and a transfer does not. It is carried through as a label
+    and decides nothing.
+
+    The result is in a settled order -- by where each position sits, then by
+    name -- so that two runs given the same mosaic produce the same list and
+    can be compared. The order the positions happened to be acquired in never
+    enters into it, which is what makes the answer the same whether a run
+    finished tidily or was interrupted and resumed.
+    """
+    cells = cells or {}
+    ordered = sorted(
+        origins,
+        key=lambda name: (tuple(sorted(origins[name].items())), name),
+    )
+    return tuple(
+        plan_one_position(
+            profile,
+            position_id=name,
+            origin=origins[name],
+            others={other: where for other, where in origins.items()
+                    if other != name},
+            component_id=component_id,
+            cell=cells.get(name),
+        )
+        for name in ordered
+    )
+
+
+def places_on_a_grid(
+    profile: AcquisitionProfile, cells: dict[GridCell, str],
+) -> dict[str, dict[str, int]]:
+    """Where each of these grid squares puts its position, in run pixels.
+
+    This is the whole of what a grid is: a way of choosing places. A survey
+    steps a fixed distance and its squares turn into places here; everything
+    after this point works from the places and never asks how they were
+    chosen.
+    """
+    tiled = profile.tiled_axes
+    return {
+        name: {axis: _cell_index(cell, axis) * _step_on(profile, axis)
+               for axis in tiled}
+        for cell, name in cells.items()
+    }
+
+
 def place_the_tiles(
     profile: AcquisitionProfile,
     cells: dict[GridCell, str],
@@ -281,13 +349,14 @@ def place_the_tiles(
 ) -> tuple[PositionPlacement, ...]:
     """Work out the placement of every tile in one mosaic component.
 
-    ``cells`` maps each occupied grid square to the name of the position sitting
-    there. The result is in a settled order, so that two runs given the same
-    mosaic produce the same list and can be compared.
+    ``cells`` maps each occupied grid square to the name of the position
+    sitting there. The squares are turned into places and the work is done by
+    :func:`place_the_positions`, so a survey and a dataset from anywhere else
+    travel exactly the same road from here on.
 
-    The arrangement is worked out from the grid alone. The order the tiles
-    happened to be acquired in never enters into it, which is what makes the
-    answer the same whether a run finished tidily or was interrupted and resumed.
+    The completeness check stays with the grid, where it belongs: it is a
+    statement about a planned rectangular footprint, and a run that was never
+    laid out in a rectangle has no footprint to be missing anything from.
     """
     component = check_the_grid_holds_together(
         cells,
@@ -304,17 +373,11 @@ def place_the_tiles(
             "with a future explicit boundary model; this box-shaped ownership "
             "format cannot represent it safely."
         )
-
-    occupied = frozenset(cells)
-    return tuple(
-        plan_one_tile(
-            profile,
-            cell,
-            component_id=component_id,
-            position_id=cells[cell],
-            occupied=occupied,
-        )
-        for cell in sorted(cells)
+    return place_the_positions(
+        profile,
+        places_on_a_grid(profile, cells),
+        cells={name: cell for cell, name in cells.items()},
+        component_id=component_id,
     )
 
 

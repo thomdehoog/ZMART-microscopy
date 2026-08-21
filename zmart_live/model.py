@@ -1069,7 +1069,11 @@ class PositionPlacement:
 
     position_id: str
     component_id: str
-    cell: GridCell
+    #: Which grid square this position occupies, where it occupies one. A
+    #: survey is laid out on a grid and records its squares; a run placed
+    #: where its positions sit has none, and this is ``None``. The place
+    #: itself is ``origin``, which every position has.
+    cell: GridCell | None
     origin: FrozenMap
     analysis_input_roi: Box
     analysis_core_roi: Box
@@ -1116,7 +1120,10 @@ class PositionPlacement:
         return {
             "position_id": self.position_id,
             "component_id": self.component_id,
-            "cell": self.cell.to_json(),
+            # A position placed where it sits has no grid square, and says so
+            # by leaving this out rather than by inventing one. A survey's
+            # positions do have squares and go on recording them.
+            **({"cell": self.cell.to_json()} if self.cell is not None else {}),
             "origin": self.origin.as_dict(),
             "analysis_input_roi": self.analysis_input_roi.to_json(),
             "analysis_core_roi": self.analysis_core_roi.to_json(),
@@ -1134,7 +1141,8 @@ class PositionPlacement:
         return cls(
             position_id=value["position_id"],
             component_id=value["component_id"],
-            cell=GridCell.from_json(value["cell"]),
+            cell=(GridCell.from_json(value["cell"])
+                  if value.get("cell") is not None else None),
             origin=value["origin"],
             analysis_input_roi=Box.from_json(value["analysis_input_roi"]),
             analysis_core_roi=Box.from_json(value["analysis_core_roi"]),
