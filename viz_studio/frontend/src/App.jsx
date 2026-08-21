@@ -659,15 +659,28 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                   openStore(where);
                   return;
                 }
+                // The experimental door is a dress rehearsal, and its whole
+                // worth is that nothing about the live path is faked: the
+                // positions go through the live writer, its sealed profile
+                // and its manifest, one commit each, exactly as they would
+                // during an acquisition.
+                //
+                // It briefly did something else (2026-08-21): it opened the
+                // dataset like any other and then REVEALED its positions one
+                // at a time on screen. That looks the same from a chair and
+                // rehearses nothing at all -- the live path is never touched,
+                // so a fault in it cannot show up. Seven gates in
+                // test_a_dataset_is_relived_as_a_live_run.py said so by going
+                // red, which is what they are for.
                 setBusy(true);
-                const result = await openPath(where);
+                const result = await startReplay(where, pace);
                 setBusy(false);
                 if (!result.config) {
-                  setOpenError(result.error || "that folder could not be opened");
+                  setOpenError(result.error || "that folder could not be replayed");
                   return;
                 }
                 onOpened(result.config);
-                onArriving?.(result.config, pace);
+                onReplayStarted?.(result.config);
               }}
               disabled={busy || !selected
                         || (kind !== "raw" && !selected.opens)

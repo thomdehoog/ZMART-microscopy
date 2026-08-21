@@ -49,17 +49,25 @@ PLANES = 2
 STEP_UM = 320.0
 
 
-def _write_a_grid_tile(store: Path, number: int, at_um: tuple[float, float]) -> None:
-    """One position of a raw grid scan, bright enough to tell apart."""
+def _write_a_grid_tile(store: Path, number: int, at_um: tuple[float, float],
+                       *, across: int | None = None) -> None:
+    """One position of a raw grid scan, bright enough to tell apart.
+
+    ``across`` makes the frame a rectangle rather than a square, which is the
+    one shape the replay still refuses -- and so is what the gate about
+    refusals reaching the operator now uses.
+    """
     store.mkdir(parents=True)
-    picture = np.full((PLANES, FRAME, FRAME), 1500 + number * 800, "uint16")
+    picture = np.full((PLANES, FRAME, across or FRAME), 1500 + number * 800,
+                      "uint16")
     datasets = []
     for level in range(2):
         shrink = 2 ** level
+        wide = (across or FRAME) // shrink
         array = zarr.create_array(
             store=str(store / str(level)),
-            shape=(PLANES, FRAME // shrink, FRAME // shrink),
-            chunks=(PLANES, FRAME // shrink, FRAME // shrink),
+            shape=(PLANES, FRAME // shrink, wide),
+            chunks=(PLANES, FRAME // shrink, wide),
             dtype="uint16", zarr_format=3, dimension_names=["z", "y", "x"],
             overwrite=True,
         )
@@ -629,8 +637,14 @@ class TestTheReplayRoutes:
             time.sleep(0.2)
         assert told.get("state") == "done"
 
-    def test_a_dataset_off_the_grid_is_refused_with_its_reason(self, serving):
-        """The refusal crosses the wire whole, so the window can show it."""
+    def test_a_dataset_off_the_grid_is_replayed_like_any_other(self, serving):
+        """A run off the grid crosses the wire and rehearses like any other.
+
+        It used to be refused here, and the refusal was carried whole so the
+        window could show it. A position now carries its own place, so there
+        is nothing to refuse: these three sit 17 micrometres further apart
+        than a grid would put them and are replayed where they were imaged.
+        """
         address, folder = serving
         uneven = folder / "uneven"
         uneven.mkdir()
@@ -640,8 +654,8 @@ class TestTheReplayRoutes:
                            (0.0, STEP_UM * 2 + 17.0))
         status, answer = _post(address, "/api/stores/replay",
                                {"path": str(uneven)})
-        assert status == 400
-        assert "grid" in answer["error"], answer
+        assert status == 200, answer
+        assert "uneven replay" in answer.get("groups", []), answer
 
     def test_the_replay_routes_obey_the_open_gate(self, built_dist, tmp_path):
         """With opening switched off, the replay doors are not served.
@@ -674,21 +688,27 @@ class TestTheReplayDoor:
     def test_a_refusal_reaches_the_operator_in_the_window(
         self, browser, built_dist, tmp_path
     ):
-        """An off-grid dataset fails where the operator is looking.
+        """A dataset the replay cannot take fails where the operator is looking.
 
         The window stays open with the refusal's own words in its error box,
-        rather than closing on a silent nothing.
+        rather than closing on a silent nothing. That property is what this
+        gate is for, and it outlives any particular refusal.
+
+        It used to use an off-grid dataset, which is no longer refused: a
+        position carries its own place now. So it uses the refusal that does
+        still stand -- a rectangular frame, which the live writer's own
+        chapter has yet to be written.
         """
         first = tmp_path / "overview"
         first.mkdir()
         from test_open_and_close import _store
         _store(first / "overview_pos001.ome.zarr", channels=1)
-        uneven = tmp_path / "uneven"
-        uneven.mkdir()
-        _write_a_grid_tile(uneven / "pos00.ome.zarr", 0, (0.0, 0.0))
-        _write_a_grid_tile(uneven / "pos01.ome.zarr", 1, (0.0, STEP_UM))
-        _write_a_grid_tile(uneven / "pos02.ome.zarr", 2,
-                           (0.0, STEP_UM * 2 + 17.0))
+        oblong = tmp_path / "oblong"
+        oblong.mkdir()
+        _write_a_grid_tile(oblong / "pos00.ome.zarr", 0, (0.0, 0.0),
+                           across=FRAME // 2)
+        _write_a_grid_tile(oblong / "pos01.ome.zarr", 1, (0.0, STEP_UM),
+                           across=FRAME // 2)
         server = make_server(port=0, data_dir=first, site_dir=built_dist,
                              store="overview_pos001.ome.zarr")
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -706,12 +726,12 @@ class TestTheReplayDoor:
             box = page.get_by_label("folder path")
             box.fill(str(tmp_path))
             box.press("Enter")
-            window.get_by_label("uneven", exact=True).wait_for(timeout=10_000)
-            window.get_by_label("uneven", exact=True).click()
+            window.get_by_label("oblong", exact=True).wait_for(timeout=10_000)
+            window.get_by_label("oblong", exact=True).click()
             page.get_by_label("open as a live run").click()
             told = window.get_by_role("alert")
             told.wait_for(timeout=30_000)
-            assert "grid" in told.inner_text()
+            assert "rectangular" in told.inner_text(), told.inner_text()
             assert page.get_by_role("dialog", name="load data").count() == 1, (
                 "the window must stay open so the refusal can be read"
             )
@@ -921,7 +941,14 @@ def test_closing_one_acquisition_does_not_spoil_the_next(
             "() => (window.zmartScene || []).filter("
             "  (s) => s.type === 'image' && (s.name || '').includes('two'))"
             ".map((s) => (s.source || []).length)")
-        assert drawn == [9], f"the second dataset is not all there: {drawn}"
+        # One source, not nine. A replay goes through the live writer, which
+        # publishes into ONE growing picture -- so the row is fed by that one
+        # picture however many positions have landed in it. This used to read
+        # nine, back when a replay handed the engine a source per position;
+        # what the gate is really about is the line below, that the second
+        # dataset draws at all after the first was closed.
+        assert drawn and all(count == 1 for count in drawn), (
+            f"the second dataset should arrive as one live picture: {drawn}")
         assert after["lit"] > 0.05, (
             "after closing the first dataset, the second one drew almost "
             f"nothing: {after}"
