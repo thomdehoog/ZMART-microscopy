@@ -85,7 +85,10 @@ def _playwright():
     try:
         yield pw
     finally:
-        manager.stop()
+        # Shut down through the started object. Playwright used to offer this
+        # on the context manager as well, and dropped it in 1.62; asking the
+        # started Playwright to stop works on every version we support.
+        pw.stop()
 
 
 def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path):
