@@ -33,6 +33,7 @@ import pytest  # noqa: E402
 
 pytest.importorskip("anywidget")
 
+from workflow import react as wreact  # noqa: E402
 from workflow.webapp import RunFlow, WidgetHub, make_server  # noqa: E402
 
 _ORDERED_STEPS = [
@@ -967,3 +968,699 @@ def test_double_clicks_and_repeat_steps_stay_idempotent(demo_server):
     _post(base, "/action", {"step": "connect"})
     hub.drain(60)
     assert flow.session is session
+
+
+# ---------------------------------------------------------------------------
+# The host's own promises: what it turns into JSON, what it forgets, and what
+# it survives. These are the properties every widget quietly relies on.
+# ---------------------------------------------------------------------------
+
+
+def test_values_a_widget_holds_all_survive_the_trip_to_the_browser():
+    """Traits carry more than plain JSON, and none of it may stop an update.
+
+    Widget traits hold coordinate pairs as tuples and measurements as numpy
+    numbers, neither of which JSON knows. Anything that cannot be converted
+    honestly is sent as text rather than raising, because one awkward value
+    must never stop the operator's page from being told what changed.
+    """
+    import numpy as np
+    from workflow.webapp._host import _jsonable
+
+    assert _jsonable((1.0, 2.0)) == [1.0, 2.0]
+    assert _jsonable(np.float64(1.5)) == 1.5
+    assert _jsonable(np.int64(7)) == 7
+    assert _jsonable(Path("/tmp/run")) == "/tmp/run"
+
+
+def test_replacing_a_widget_stops_the_old_one_being_heard():
+    """After a restart the previous widgets must fall silent.
+
+    A restart builds fresh widgets under the same names. If the old ones kept
+    reporting their changes, a finished run could still write over the new
+    one's display — the map showing tiles from an experiment that has ended.
+    """
+    hub = WidgetHub()
+    first = wreact.run_status({})
+    second = wreact.run_status({})
+    hub.add_widget("status", first)
+    hub.add_widget("status", second)
+
+    seen = []
+    hub.broadcast = lambda event: seen.append(event)
+
+    first.status = "from the run that ended"
+    assert seen == [], "the replaced widget was still being listened to"
+
+    second.status = "from the run that is live"
+    assert [e["value"] for e in seen if e.get("kind") == "trait"] == ["from the run that is live"]
+
+
+def test_the_oldest_pictures_are_forgotten_once_the_store_is_full(monkeypatch):
+    """Image bytes are kept for the browser to fetch, but not forever.
+
+    Every picture sent to the page waits in memory until the browser collects
+    it. On a long run that would grow without end, so the oldest are dropped
+    once the store is full — they have long since been fetched. The newest is
+    always kept, because it is the one nobody has had a chance to ask for yet.
+    """
+    from workflow.webapp import _host
+
+    monkeypatch.setattr(_host, "_BUFFER_CAP_BYTES", 1000)
+    hub = WidgetHub()
+    ids = [hub._store_buffer(b"x" * 400) for _ in range(5)]
+
+    assert hub.buffer(ids[-1]) == b"x" * 400, "the newest picture must still be there"
+    assert hub.buffer(ids[0]) is None, "the oldest should have been let go"
+    assert hub._buffer_bytes <= 1000
+
+
+def test_one_failing_action_does_not_take_the_whole_page_down():
+    """A step that breaks must not stop every later step from running.
+
+    All the work runs on one thread, one thing at a time. If an unexpected
+    failure escaped and ended that thread, the page would go quiet forever and
+    the operator would have no way to disconnect the microscope.
+    """
+    hub = WidgetHub()
+    assert hub.submit(lambda: 1 / 0)
+    hub.drain(30)
+
+    afterwards = []
+    assert hub.submit(lambda: afterwards.append("still working"))
+    hub.drain(30)
+    assert afterwards == ["still working"]
+
+
+def test_messages_and_edits_for_a_widget_that_is_not_there_are_refused():
+    """The page may ask about a widget that this run has not created yet."""
+    hub = WidgetHub()
+    assert hub.dispatch_message("explorer", {"type": "sync"}) is False
+    assert hub.valid_trait_changes("explorer", {"status": "hello"}) is False
+    assert hub.dispatch_trait_changes("explorer", {"status": "hello"}) is False
+
+
+def test_only_real_traits_with_believable_values_are_accepted():
+    """The page may only write to traits that exist, with values that fit.
+
+    Everything arriving from the browser is checked before it reaches a
+    widget. A name that is not a synced trait, a private one, or a value of
+    the wrong kind is refused outright rather than being half-applied.
+    """
+    hub = WidgetHub()
+    viewer = wreact.view_overview()
+    hub.add_widget("overview", viewer)
+
+    assert hub.valid_trait_changes("overview", {"channels": []}) is True
+    assert hub.valid_trait_changes("overview", {"not_a_trait": 1}) is False
+    assert hub.valid_trait_changes("overview", {"_tile_entries": []}) is False
+    assert hub.valid_trait_changes("overview", {"channels": "not a list"}) is False
+    assert hub.valid_trait_changes("overview", "not even a mapping") is False
+
+
+# ---------------------------------------------------------------------------
+# What the operator is told when a step cannot run.
+# ---------------------------------------------------------------------------
+
+
+def test_an_unknown_action_is_simply_not_run():
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=Path("/tmp"))
+    assert flow.run_step("polish_the_objective") is False
+    assert flow.has_step("polish_the_objective") is False
+
+
+def test_an_unexpected_failure_reaches_the_operator_instead_of_vanishing(tmp_path):
+    """A step that breaks in an unforeseen way still has to say so.
+
+    Steps refuse politely when they know why. When something fails that nobody
+    anticipated, the page must still show what happened — a silent button is
+    far worse at the microscope than an ugly message.
+    """
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    events = []
+    hub.broadcast = _recording_broadcast(hub, events)
+
+    def broken() -> str:
+        raise ValueError("the stage said something unrepeatable")
+
+    flow._steps["connect"] = broken
+    flow.run_step("connect")
+    hub.drain(60)
+
+    failed = [e for e in events if e["state"] == "failed"]
+    assert failed and failed[0]["message"] == (
+        "ValueError: the stage said something unrepeatable"
+    )
+    assert flow.completed == []
+
+
+def test_after_disconnect_the_run_says_so_rather_than_half_working(tmp_path):
+    """Once the microscope is released, later steps must not pretend."""
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    events = []
+    for step in ("connect", "disconnect"):
+        flow.run_step(step)
+        hub.drain(60)
+    hub.broadcast = _recording_broadcast(hub, events)
+
+    flow.run_step("set_origin")
+    hub.drain(60)
+    failed = [e for e in events if e["state"] == "failed"]
+    assert failed and "this session is disconnected" in failed[0]["message"]
+
+
+def test_a_restart_waits_for_the_action_already_under_way(tmp_path):
+    """Restarting in the middle of a step is refused, not queued behind it."""
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    flow.run_step("connect")
+    hub.drain(60)
+
+    blocker = threading.Event()
+    assert hub.submit(blocker.wait)
+    flow.run_step("set_origin")  # now sitting in the queue behind the blocker
+    try:
+        with pytest.raises(RuntimeError, match="wait for the current workflow action"):
+            flow.reset(timeout=5)
+    finally:
+        blocker.set()
+    hub.drain(60)
+    flow.run_step("disconnect")
+    hub.drain(60)
+
+
+def test_the_two_jobs_must_actually_differ(tmp_path):
+    """Imaging targets at overview magnification would waste the whole run.
+
+    The overview job and the target job are captured separately, and the run
+    refuses to continue if they turn out to be the same — the usual cause is
+    forgetting to switch job in LAS X between the two captures.
+    """
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    events = []
+    for step in ("connect", "set_origin", "capture_overview_job"):
+        flow.run_step(step)
+        hub.drain(60)
+
+    # Stand in for an operator who never switched job in LAS X.
+    flow.session.TARGET_JOB = flow.session.OVERVIEW_JOB
+    hub.broadcast = _recording_broadcast(hub, events)
+    flow.run_step("capture_target_job")
+    hub.drain(60)
+
+    failed = [e for e in events if e["state"] == "failed"]
+    assert failed and "the overview and target jobs are the same" in failed[0]["message"]
+    assert "capture_target_job" not in flow.completed
+
+
+# ---------------------------------------------------------------------------
+# The HTTP surface: every wrong turn answered plainly.
+# ---------------------------------------------------------------------------
+
+
+def _expect_status(call, expected: int) -> None:
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        call()
+    assert caught.value.code == expected
+
+
+def test_asking_for_things_that_are_not_there_gets_a_plain_refusal(demo_server):
+    """Every unknown address answers honestly instead of failing oddly."""
+    base, _hub, _flow = demo_server
+
+    _expect_status(lambda: _get(base, "/no-such-page"), 404)
+    _expect_status(lambda: _get(base, "/esm/no-such-widget.mjs"), 404)
+    _expect_status(lambda: _get(base, "/buffer/0123456789abcdef"), 404)
+    _expect_status(lambda: _post(base, "/nowhere", {}), 404)
+    _expect_status(lambda: _post(base, "/action", {"step": "polish_the_objective"}), 404)
+    _expect_status(lambda: _post(base, "/msg", {"widget": "ghost", "content": {}}), 404)
+    _expect_status(lambda: _post(base, "/trait", {"widget": "ghost", "changes": {}}), 404)
+
+
+def test_a_trait_edit_the_widget_would_not_accept_is_turned_away(demo_server):
+    """Nonsense from the page is refused before it reaches a widget."""
+    base, _hub, _flow = demo_server
+    _expect_status(
+        lambda: _post(base, "/trait", {"widget": "overview", "changes": {"channels": 5}}), 400
+    )
+    _expect_status(
+        lambda: _post(base, "/trait", {"widget": "overview", "changes": {"nope": 1}}), 400
+    )
+
+
+def test_a_page_from_somewhere_else_cannot_press_these_buttons(demo_server):
+    """This page drives a microscope and has no login of its own.
+
+    The only protection against another site quietly firing these actions at
+    the machine is that they must come from this page, so an unrecognisable
+    or foreign origin is refused before the request is even read.
+    """
+    base, _hub, _flow = demo_server
+
+    def post_with_origin(origin: str):
+        request = urllib.request.Request(
+            base + "/action",
+            data=json.dumps({"step": "connect"}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Origin": origin},
+        )
+        return urllib.request.urlopen(request, timeout=10)
+
+    _expect_status(lambda: post_with_origin("https://example.com"), 403)
+    _expect_status(lambda: post_with_origin("http://example.com"), 403)
+    _expect_status(lambda: post_with_origin("http://127.0.0.1:1"), 403)
+    _expect_status(lambda: post_with_origin("http://["), 403)
+
+
+def test_a_body_whose_length_makes_no_sense_is_not_read(demo_server):
+    """A wrong or oversized length is answered, never trusted."""
+    base, _hub, _flow = demo_server
+    request = urllib.request.Request(
+        base + "/action",
+        data=b'{"step": "connect"}',
+        headers={"Content-Type": "application/json", "Content-Length": "not a number"},
+    )
+    with pytest.raises((urllib.error.HTTPError, urllib.error.URLError, ValueError)):
+        urllib.request.urlopen(request, timeout=10)
+
+
+# ---------------------------------------------------------------------------
+# The refusals an operator is most likely to meet in a real session.
+# ---------------------------------------------------------------------------
+
+
+def test_scanning_before_the_focus_is_measured_is_refused_kindly(tmp_path):
+    """Skipping Measure would scan the whole sample out of focus.
+
+    The overview scan needs a focus surface to hold the sample sharp across
+    the slide. Pressing Scan before pressing Measure is an easy mistake and an
+    expensive one, so the run stops and says what is missing rather than
+    filling a run folder with blurred tiles.
+    """
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    for step in _ORDERED_STEPS[:5]:
+        flow.run_step(step)
+        hub.drain(60)
+
+    events = []
+    hub.broadcast = _recording_broadcast(hub, events)
+    flow.run_step("run_overview")  # no Measure first, and no focus points picked
+    hub.drain(60)
+
+    failed = [e for e in events if e["state"] == "failed"]
+    assert failed, "scanning without a focus surface should have been refused"
+    assert "run_overview" not in flow.completed
+    assert flow.overview_records is None
+
+    flow.run_step("disconnect")
+    hub.drain(60)
+
+
+def test_a_live_run_will_not_start_without_the_analysis_checkout(tmp_path):
+    """A real session needs the analysis code before it touches the stage.
+
+    Finding out that the analysis repository is missing only after the
+    microscope is connected and a run folder exists would waste an operator's
+    setup, so it is refused right at the start with the flag to pass.
+    """
+    hub = WidgetHub()
+    with pytest.raises(ValueError, match="analysis-repo"):
+        RunFlow(hub, demo=False, demo_root=tmp_path / "run")
+
+    # The same guard must not stand in the way of the simulated microscope.
+    RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+
+
+def test_a_microscope_that_is_not_ready_stops_the_run_with_its_own_words(
+    tmp_path, monkeypatch
+):
+    """A driver that reports it is not ready must be quoted, not swallowed.
+
+    The check that the microscope is in a fit state to be driven belongs to
+    the controller. When it objects, the page shows the reason it gave rather
+    than replacing it with something vaguer.
+    """
+    import workflow
+
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    for step in ("connect", "set_origin"):
+        flow.run_step(step)
+        hub.drain(60)
+
+    def not_ready(_state):
+        raise RuntimeError("the objective turret is still moving")
+
+    monkeypatch.setattr(workflow, "require_driver_ready", not_ready)
+    events = []
+    hub.broadcast = _recording_broadcast(hub, events)
+    flow.run_step("capture_overview_job")
+    hub.drain(60)
+
+    failed = [e for e in events if e["state"] == "failed"]
+    assert failed and failed[0]["message"] == "the objective turret is still moving"
+    assert "capture_overview_job" not in flow.completed
+
+
+def test_a_button_pressed_while_the_queue_is_full_says_the_server_is_busy(tmp_path):
+    """Work is bounded, and a refused button still explains itself."""
+    from workflow.webapp import _host
+
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    release = threading.Event()
+    started = threading.Event()
+
+    def _block_worker():
+        started.set()
+        release.wait()
+
+    assert hub.submit(_block_worker)
+    assert started.wait(10)
+    events = []
+    hub.broadcast = _recording_broadcast(hub, events)
+    try:
+        for _ in range(_host._WORK_QUEUE_CAP):
+            hub.submit(lambda: None)
+        assert flow.run_step("connect") is False
+    finally:
+        release.set()
+    hub.drain(60)
+
+    failed = [e for e in events if e.get("kind") == "flow" and e["state"] == "failed"]
+    assert failed and "the server is busy" in failed[-1]["message"]
+    # The refusal must not leave the step stuck as pending forever.
+    assert "connect" not in flow._pending
+
+
+def test_a_restart_that_goes_wrong_reports_the_reason(tmp_path):
+    """If the restart itself fails, the browser hears why."""
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    flow.run_step("connect")
+    hub.drain(60)
+
+    def broken() -> None:
+        raise RuntimeError("the engine would not shut down")
+
+    flow._reset_now = broken
+    with pytest.raises(RuntimeError, match="the engine would not shut down"):
+        flow.reset(timeout=10)
+
+
+def test_a_state_changing_request_for_another_host_is_refused(demo_server):
+    """Loopback-only means loopback-only, for writes as well as reads."""
+    base, _hub, _flow = demo_server
+    request = urllib.request.Request(
+        base + "/action",
+        data=json.dumps({"step": "connect"}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Host": "microscope.example.com"},
+    )
+    _expect_status(lambda: urllib.request.urlopen(request, timeout=10), 403)
+
+
+def test_stopping_with_ctrl_c_closes_the_socket_and_reminds_the_operator(capsys, monkeypatch):
+    """Ctrl+C must release the port and mention the live session.
+
+    The server holds a port; leaving it held would stop the next run starting.
+    The parting line also reminds the operator that stopping the page is not
+    the same as releasing the microscope.
+    """
+    from workflow import webapp
+
+    class _FakeServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def __init__(self):
+            self.closed = False
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+        def server_close(self):
+            self.closed = True
+
+    fake = _FakeServer()
+    monkeypatch.setattr(webapp, "make_server", lambda **_kw: (fake, None, None))
+    webapp.serve(demo=True)
+
+    assert fake.closed, "the port must be released on Ctrl+C"
+    printed = capsys.readouterr().out
+    assert "http://127.0.0.1:8765" in printed
+    assert "disconnect the session if it was live" in printed
+
+
+# ---------------------------------------------------------------------------
+# A hostile client on the same machine.
+#
+# The page has no login of its own: anything running on the microscope PC can
+# reach it. The widgets already refuse forged state when poked directly; these
+# tests come the way a real attacker would, over the HTTP surface, and check
+# the refusals survive the trip.
+# ---------------------------------------------------------------------------
+
+
+def _raw_request(base: str, method: str, path: str, body: bytes = b"", headers=None):
+    """Send a request with the path untouched, so traversal is really tested."""
+    import http.client
+
+    host = base.removeprefix("http://")
+    connection = http.client.HTTPConnection(host, timeout=10)
+    try:
+        connection.request(
+            method, path, body=body, headers=headers or {"Content-Type": "application/json"}
+        )
+        response = connection.getresponse()
+        return response.status, response.read()
+    finally:
+        connection.close()
+
+
+def _advance_to_targets(base, hub, flow):
+    for step in _ORDERED_STEPS[:5]:
+        flow.run_step(step)
+    hub.drain(60)
+    hub.dispatch_message("focus", {"type": "measure"})
+    for step in ("run_overview", "discover_targets"):
+        flow.run_step(step)
+    hub.drain(180)
+    return flow.explorer
+
+
+def test_a_forged_gate_sent_over_the_wire_cannot_widen_what_is_imaged(demo_server):
+    """Claiming every cell passes the gate must not make it so.
+
+    Which cells are worth imaging is decided in Python from the gate the
+    operator set. The mask the page holds is only a picture of that decision,
+    so writing a more generous one over the wire must change what is drawn and
+    nothing else — otherwise a stray script could spend an operator's session
+    imaging the whole slide.
+    """
+    base, hub, flow = demo_server
+    explorer = _advance_to_targets(base, hub, flow)
+    total = len(explorer.targets)
+
+    # Narrow the gate the way an operator would, so some cells fall outside it.
+    xs = sorted(float(t["x"]) for t in explorer.targets)
+    _post(
+        base,
+        "/trait",
+        {"widget": "explorer", "changes": {"gate": {"x": [xs[0], xs[len(xs) // 3]]}}},
+    )
+    hub.drain(60)
+    honest = len(explorer.gated)
+    assert 0 < honest < total, "this test needs a gate that really excludes cells"
+
+    result = _post(
+        base, "/trait", {"widget": "explorer", "changes": {"gated_mask": [True] * total}}
+    )
+    assert result["ok"] is True  # accepted as a display value...
+    hub.drain(60)
+
+    # ...but the decision itself is unmoved, and the display is put back.
+    assert len(explorer.gated) == honest, "a forged mask changed what would be imaged"
+    assert sum(bool(v) for v in explorer.gated_mask) == honest
+
+
+def test_a_forged_busy_or_read_only_flag_is_healed(demo_server):
+    """The page's copy of "a run is in progress" is a mirror, not the truth.
+
+    If writing these could set them, a script could either hide a run that is
+    really happening or fake one that is not — and the second would let it
+    lock the operator out of their own microscope.
+    """
+    base, hub, flow = demo_server
+    flow.run_step("connect")
+    hub.drain(60)
+    viewer = flow.viewer
+
+    _post(base, "/trait", {"widget": "overview", "changes": {"busy": True}})
+    hub.drain(60)
+    assert viewer.busy is False, "a forged busy flag stuck"
+    assert viewer._busy is False
+
+    _post(base, "/trait", {"widget": "overview", "changes": {"read_only": True}})
+    hub.drain(60)
+    assert viewer.read_only is False, "a forged read-only flag stuck"
+
+
+def test_no_path_can_reach_out_of_the_places_the_page_serves(demo_server):
+    """Only the page, the widget code and the run's own pictures are served.
+
+    The addresses that take a name — a widget's code, a picture's ticket — look
+    up that name in a table rather than joining it onto a folder, so a name
+    dressed up as a path leads nowhere.
+    """
+    base, _hub, _flow = demo_server
+    for path in (
+        "/buffer/../../../../etc/passwd",
+        "/buffer/..%2f..%2fetc%2fpasswd",
+        "/esm/../../../../etc/passwd.mjs",
+        "/esm/..%2f..%2f_flow.mjs",
+        "/../_flow.py",
+    ):
+        status, body = _raw_request(base, "GET", path)
+        assert status == 404, f"{path} answered {status}"
+        assert b"root:" not in body and b"import" not in body
+
+
+def test_numbers_json_cannot_really_carry_are_refused(demo_server):
+    """"Not a number" and "infinity" are not values a microscope can use.
+
+    Python's JSON reader accepts them by default, and they would flow onward
+    into coordinates. They are turned away at the door instead.
+    """
+    base, _hub, _flow = demo_server
+    for body in (
+        b'{"widget": "overview", "changes": {"downsample": NaN}}',
+        b'{"widget": "overview", "changes": {"downsample": Infinity}}',
+        b'{"widget": "overview", "changes": {"downsample": -Infinity}}',
+    ):
+        status, _ = _raw_request(base, "POST", "/trait", body)
+        assert status == 400, "a JSON constant that is not a number was let through"
+
+
+def test_a_deeply_nested_or_oversized_body_is_turned_away_and_the_server_lives(demo_server):
+    """Awkward bodies must cost a refusal, not the server.
+
+    Deep nesting can exhaust the reader's own stack and an enormous body can
+    exhaust memory; both are answered plainly, and the page keeps working
+    afterwards — which is the part that matters at the microscope.
+    """
+    base, hub, flow = demo_server
+
+    nested = b'{"widget": "overview", "changes": ' + b"[" * 20_000 + b"]" * 20_000 + b"}"
+    status, _ = _raw_request(base, "POST", "/trait", nested)
+    assert status == 400
+
+    oversized = b'{"widget": "overview", "changes": {"status": "' + b"x" * (5 * 1024 * 1024) + b'"}}'
+    try:
+        status, _ = _raw_request(base, "POST", "/trait", oversized)
+        assert status == 400
+    except (ConnectionResetError, BrokenPipeError, OSError):
+        pass  # refusing before reading it all is a perfectly good answer
+
+    # Still answering, and still the same run.
+    assert json.loads(_get(base, "/state"))["flow"]["demo"] is True
+    assert flow.run_step("connect") is True
+    hub.drain(60)
+
+
+def test_a_flood_of_edits_cannot_starve_the_operators_own_buttons(demo_server):
+    """One noisy client must not take the microscope away from the operator.
+
+    Work is bounded and refused once the queue is full, so a script hammering
+    the page gets turned away rather than building a backlog that would keep
+    firing long after the operator moved on.
+    """
+    base, hub, flow = demo_server
+    flow.run_step("connect")
+    hub.drain(60)
+
+    refused = 0
+    for index in range(400):
+        answer = _post(
+            base, "/trait", {"widget": "overview", "changes": {"status": f"flood {index}"}}
+        )
+        refused += 0 if answer["ok"] else 1
+    hub.drain(120)
+
+    # Whether any were refused depends on how fast the worker drains, but the
+    # page must be answering and the run must be intact either way.
+    assert isinstance(refused, int)
+    assert flow.session is not None, "the flood disturbed the live session"
+    assert flow.completed == ["connect"]
+    flow.run_step("disconnect")
+    hub.drain(60)
+    assert flow.completed == ["connect", "disconnect"]
+
+
+def test_a_live_connection_that_fails_halfway_leaves_nothing_running(tmp_path, monkeypatch):
+    """A failed Connect must not leave the analysis engine or session behind.
+
+    Connect starts the analysis engine, then opens the microscope, then makes
+    the run folder. If any of those fails, whatever already started has to be
+    shut down again — otherwise a second attempt meets an engine that is still
+    holding the GPU, or a session the microscope thinks is still in use.
+
+    This matters most on real hardware, so the pieces are stood in for here
+    rather than driven: the point is what the page does with them, not what
+    they do.
+    """
+    import workflow
+
+    class _Engine:
+        def __init__(self):
+            self.shut_down = False
+
+        def shutdown(self):
+            self.shut_down = True
+
+    class _Session:
+        def __init__(self, info):
+            self._info = info
+            self.disconnected = False
+
+        def get_info(self):
+            if self._info is None:
+                raise RuntimeError("the microscope would not say where it saves")
+            return self._info
+
+        def disconnect(self):
+            self.disconnected = True
+
+    engine = _Engine()
+    monkeypatch.setattr(workflow, "load_analysis_engine", lambda _repo: engine)
+    monkeypatch.setattr(workflow, "preflight_analysis_engine", lambda _engine: None)
+
+    # The microscope itself refuses to open.
+    def refuse(_vendor):
+        raise RuntimeError("no microscope answered")
+
+    monkeypatch.setattr(workflow, "connect", refuse)
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=False, analysis_repo=tmp_path / "analysis")
+    events = []
+    hub.broadcast = _recording_broadcast(hub, events)
+    flow.run_step("connect")
+    hub.drain(60)
+
+    assert engine.shut_down, "the analysis engine was left running after a failed connect"
+    assert flow.session is None and flow.completed == []
+    assert [e for e in events if e["state"] == "failed"], "the operator was not told"
+
+    # Now the microscope opens but cannot say where it saves: both must close.
+    second_engine = _Engine()
+    session = _Session(None)
+    monkeypatch.setattr(workflow, "load_analysis_engine", lambda _repo: second_engine)
+    monkeypatch.setattr(workflow, "connect", lambda _vendor: session)
+    flow.run_step("connect")
+    hub.drain(60)
+
+    assert session.disconnected, "the microscope was left connected"
+    assert second_engine.shut_down, "the analysis engine was left running"
+    assert flow.session is None and flow.completed == []
