@@ -110,12 +110,6 @@ def plan_a_replay(transfer: str | Path) -> ReplayPlan:
     voxel = dict(zip(("z", "y", "x"), first.voxel_um[-3:], strict=True))
     z_planes = spatial["z"]
     frame = (spatial["y"], spatial["x"])
-    if frame[0] != frame[1]:
-        raise ValueError(
-            f"this dataset's frames are {frame[0]} by {frame[1]} pixels, and "
-            "the replay of rectangular frames is its own chapter. Replay a "
-            "square-framed dataset, or open this one instead."
-        )
 
     corners = {tile.name: tile.copies[0].corner_um[-2:] for tile in mosaic.tiles}
     down = [corner[0] for corner in corners.values()]
@@ -126,33 +120,49 @@ def plan_a_replay(transfer: str | Path) -> ReplayPlan:
     # down the specimen turned into a demand for a 97.5% overlap. So the step
     # is taken only when both directions agree there is one.
     on_a_grid = _evenly_spaced(down) and _evenly_spaced(across)
-    step_y = _the_one_step(down) if on_a_grid else None
-    step_x = _the_one_step(across) if on_a_grid else None
-    steps = {step for step in (step_y, step_x) if step is not None}
-    if len(steps) > 1:
+    steps_um = (_the_one_step(down) if on_a_grid else None,
+                _the_one_step(across) if on_a_grid else None)
+    # In pixels, each against its own axis. A frame is two numbers -- plenty of
+    # cameras are longer one way than the other, a light sheet's routinely so
+    # -- and the live geometry has always kept it that way, with its own
+    # overlap along each. Only this planner used to ask for ONE number, and
+    # refused a rectangle rather than guess which of the two it meant.
+    steps_px = tuple(
+        None if step is None else step / voxel[axis]
+        for step, axis in zip(steps_um, ("y", "x"), strict=True)
+    )
+
+    shares = []
+    for step, side, axis in zip(steps_px, frame, ("down", "across"), strict=True):
+        if step is None:
+            continue
+        if step > side:
+            raise ValueError(
+                f"these positions sit {step * voxel['y']:.1f} micrometres apart "
+                f"{axis} but one frame only spans {side * voxel['y']:.1f} that "
+                "way, leaving gaps between tiles. The live grid lays tiles edge "
+                "to edge or overlapping, so this dataset cannot be replayed."
+            )
+        shares.append((side - step) / side)
+
+    if shares and max(shares) - min(shares) > 0.01:
+        # The profile asks for ONE overlap band and applies it to both axes,
+        # so a run overlapping a tenth one way and a third the other has no
+        # single band to plan with. Said plainly rather than planned wrongly.
         raise ValueError(
-            f"these positions step {step_y:.1f} micrometres down but "
-            f"{step_x:.1f} across, and the live grid uses one step for both. "
-            "A replay cannot reproduce that layout; open the dataset instead."
+            f"these positions overlap by {min(shares):.0%} one way and "
+            f"{max(shares):.0%} the other, and a live profile declares one "
+            "overlap for both. A replay cannot reproduce that layout; open "
+            "the dataset instead."
         )
 
-    if steps:
-        step_um = steps.pop()
-        step_px = step_um / voxel["y"]
-        overlap = (frame[0] - step_px) / frame[0]
-        if overlap < 0:
-            raise ValueError(
-                f"these positions sit {step_um:.1f} micrometres apart but one "
-                f"frame only spans {frame[0] * voxel['y']:.1f}, leaving gaps "
-                "between tiles. The live grid lays tiles edge to edge or "
-                "overlapping, so this dataset cannot be replayed."
-            )
+    if shares:
+        overlap = shares[0]
         defaults = DEFAULTS["overview"].with_overlap(overlap, overlap, overlap)
     else:
         # A single position has no neighbours, so any overlap will do and the
         # stock plan is the simplest true one.
         defaults = DEFAULTS["overview"]
-        step_px = None
 
     channels = tuple(f"channel {index}" for index in range(channel_count))
     profile, geometry = plan_the_writing(
@@ -161,13 +171,14 @@ def plan_a_replay(transfer: str | Path) -> ReplayPlan:
         voxel_size=(voxel["z"], voxel["y"], voxel["x"]),
         readable_prefix="replay", defaults=defaults,
     )
-    if step_px is not None and geometry.step_shape != (round(step_px),) * 2:
+    wanted = tuple(None if step is None else round(step) for step in steps_px)
+    if any(step is not None and step != planned
+           for step, planned in zip(wanted, geometry.step_shape, strict=True)):
         raise ValueError(
-            f"these positions sit {step_px:.0f} pixels apart, but the live "
-            f"planner can only place this frame {geometry.step_shape[0]} "
-            "pixels apart. The replay would draw the tiles somewhere the "
-            "dataset does not put them, so it is refused; open the dataset "
-            "instead."
+            f"these positions sit {wanted} pixels apart, but the live planner "
+            f"can only place this frame {geometry.step_shape} pixels apart. The "
+            "replay would draw the tiles somewhere the dataset does not put "
+            "them, so it is refused; open the dataset instead."
         )
 
     # Where each position sits, in the run's own pixels, taken from the

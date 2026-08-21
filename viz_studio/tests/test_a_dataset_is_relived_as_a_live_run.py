@@ -144,6 +144,34 @@ class TestPlanningAReplay:
             "every position of an awkward run has to be planned, not just "
             "the ones that happen to land on a grid")
 
+    def test_a_rectangular_frame_is_replayed_like_a_square_one(self, tmp_path):
+        """A camera whose frame is not square still rehearses.
+
+        Plenty are not -- a light sheet's frame is routinely longer one way
+        than the other -- and the live geometry has always allowed it: a
+        profile keeps a frame_shape of two numbers with its own overlap along
+        each. Only this planner refused, because it asked for ONE number and
+        would rather refuse than guess which.
+
+        So the rectangle is what the gate uses: a frame half as wide as it is
+        tall, stepped by its own width across and its own height down.
+        """
+        folder = tmp_path / "oblong"
+        folder.mkdir()
+        wide = FRAME // 2
+        for number, at in enumerate(((0.0, 0.0), (0.0, wide * 1.0),
+                                     (FRAME * 1.0, 0.0), (FRAME * 1.0, wide * 1.0))):
+            _write_a_grid_tile(folder / f"pos{number:02d}.ome.zarr", number, at,
+                               across=wide)
+        plan = plan_a_replay(folder)
+        assert plan.total == 4
+        assert plan.geometry.frame_shape == (FRAME, wide), (
+            f"the frame must be kept as it was recorded; got "
+            f"{plan.geometry.frame_shape}")
+        assert {(where["y"], where["x"]) for where in plan.positions.values()} == {
+            (0, 0), (0, wide), (FRAME, 0), (FRAME, wide)
+        }
+
     def test_uneven_spacing_is_replayed_where_it_sits(self, tmp_path):
         """Positions that are not evenly spaced are no longer refused.
 
@@ -694,21 +722,22 @@ class TestTheReplayDoor:
         rather than closing on a silent nothing. That property is what this
         gate is for, and it outlives any particular refusal.
 
-        It used to use an off-grid dataset, which is no longer refused: a
-        position carries its own place now. So it uses the refusal that does
-        still stand -- a rectangular frame, which the live writer's own
-        chapter has yet to be written.
+        It has outlived two refusals already. An off-grid dataset is no
+        longer refused, because a position carries its own place; nor is a
+        rectangular frame, because the planner now asks per axis. What still
+        stands is a run whose tiles do not reach each other: these two are
+        evenly spaced, so there IS a step, and the step is wider than the
+        frame. A live mosaic lays tiles edge to edge or overlapping, and one
+        with holes in it is not a mosaic.
         """
         first = tmp_path / "overview"
         first.mkdir()
         from test_open_and_close import _store
         _store(first / "overview_pos001.ome.zarr", channels=1)
-        oblong = tmp_path / "oblong"
-        oblong.mkdir()
-        _write_a_grid_tile(oblong / "pos00.ome.zarr", 0, (0.0, 0.0),
-                           across=FRAME // 2)
-        _write_a_grid_tile(oblong / "pos01.ome.zarr", 1, (0.0, STEP_UM),
-                           across=FRAME // 2)
+        apart = tmp_path / "apart"
+        apart.mkdir()
+        _write_a_grid_tile(apart / "pos00.ome.zarr", 0, (0.0, 0.0))
+        _write_a_grid_tile(apart / "pos01.ome.zarr", 1, (0.0, FRAME * 2.0))
         server = make_server(port=0, data_dir=first, site_dir=built_dist,
                              store="overview_pos001.ome.zarr")
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -726,12 +755,12 @@ class TestTheReplayDoor:
             box = page.get_by_label("folder path")
             box.fill(str(tmp_path))
             box.press("Enter")
-            window.get_by_label("oblong", exact=True).wait_for(timeout=10_000)
-            window.get_by_label("oblong", exact=True).click()
+            window.get_by_label("apart", exact=True).wait_for(timeout=10_000)
+            window.get_by_label("apart", exact=True).click()
             page.get_by_label("open as a live run").click()
             told = window.get_by_role("alert")
             told.wait_for(timeout=30_000)
-            assert "rectangular" in told.inner_text(), told.inner_text()
+            assert "gaps" in told.inner_text(), told.inner_text()
             assert page.get_by_role("dialog", name="load data").count() == 1, (
                 "the window must stay open so the refusal can be read"
             )
