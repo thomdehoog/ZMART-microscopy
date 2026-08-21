@@ -144,6 +144,11 @@ class _Handler(BaseHTTPRequestHandler):
         # snapshot or waiting in this queue; the page buffers queued events
         # until it has applied that snapshot.
         client = self.hub.add_client()
+        if client is None:
+            # Refusing is kinder than accepting a view we cannot serve: the
+            # browser retries on its own, and the run keeps its threads.
+            self._send(503, b"too many views are open on this run", "text/plain")
+            return
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
