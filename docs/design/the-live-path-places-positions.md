@@ -1,14 +1,17 @@
 # A position has a place; a grid is one way of choosing places
 
-Written 21 August 2026, at the end of the evening the load window was reworked.
-This is a plan rather than a description: none of it is built yet.
+Written 21 August 2026, at the end of the evening the load window was reworked,
+as a plan. **Built the same night**, so what follows now describes the code
+rather than proposing it -- except the last section, on counting, which is
+still a decision waiting to be made.
 
-## What is wrong today, in one sentence
+## What was wrong, in one sentence
 
-A run written through the live path is **a profile and a set of grid cells**, so
-a position's place is worked out as `cell × step` rather than recorded — and a
-dataset whose positions do not sit on a regular grid cannot be written, or
-replayed, at all.
+A run written through the live path was **a profile and a set of grid cells**, so
+a position's place was worked out as `cell × step` rather than recorded — and a
+dataset whose positions did not sit on a regular grid could not be written, or
+replayed, at all. It can now: a position carries its place, and the grid is one
+way of choosing one.
 
 ## Why that matters more than it sounds
 
