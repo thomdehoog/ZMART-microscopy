@@ -191,8 +191,23 @@ class RunFlow:
 
         finished = threading.Event()
         errors: list[BaseException] = []
+        # A restart waits its turn on the worker like everything else, so it
+        # may still be queued when the operator's patience runs out. Telling
+        # them it failed while leaving it queued would be the worst of both
+        # worlds: the restart would go ahead later, releasing the microscope
+        # in the middle of whatever they went on to do. These two flags let
+        # the waiting side take the restart back, but only while it truly has
+        # not begun.
+        guard = threading.Lock()
+        started = False
+        abandoned = False
 
         def apply() -> None:
+            nonlocal started
+            with guard:
+                if abandoned:
+                    return
+                started = True
             try:
                 self._reset_now()
             except BaseException as exc:  # surfaced to the requesting browser
@@ -203,7 +218,18 @@ class RunFlow:
         if not self.hub.submit(apply):
             raise FlowError("the server is busy — wait before starting a new run")
         if not finished.wait(timeout):
-            raise FlowError("the new run did not initialize in time")
+            with guard:
+                if not started:
+                    abandoned = True
+                    raise FlowError(
+                        "the server is still busy with the previous action — nothing "
+                        "was restarted; try again once it has finished"
+                    )
+            # It has already begun. Half a restart is worse than a slow one,
+            # so see it through rather than reporting a failure over the top
+            # of a session that is already being released.
+            if not finished.wait(timeout):
+                raise FlowError("the new run did not initialize in time")
         if errors:
             raise errors[0]
 
